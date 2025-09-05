@@ -1,0 +1,7 @@
+# One-shot AI call (provider picked by $AURORA_AI)
+read_text "README.md" | ai "summarize as 3 bullet points"
+  | print
+
+# Plain prompt
+ai "Write a 1-line haiku about typed shells."
+  | print

@@ -1,0 +1,12 @@
+# Arrays + pipelines
+[1,2,3,4]
+  | map fn(x) => x * 2
+
+  | reduce fn(a,b) => a + b 0
+  | print  # => 20
+
+# Filter, take, and print
+[5,4,3,2,1]
+  | where fn(x) => x > 2
+  | take 2
+  | print  # => [5,4]

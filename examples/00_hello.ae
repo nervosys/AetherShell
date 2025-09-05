@@ -1,0 +1,7 @@
+print("Hello, Aurora!")
+
+name := "world"
+print("Hi, ${name}!")
+
+# External command passthrough (falls back to sh([...]) internally)
+!"echo from external"

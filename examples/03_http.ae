@@ -1,0 +1,12 @@
+resp := http_get "https://api.github.com"
+
+print(resp.status)
+print(resp.headers."content-type")
+
+# If JSON, body is auto-decoded to records/arrays.
+# Show a few top-level keys if it's an object.
+match resp.body {
+  { .. } => print("object keys: ${keys(resp.body)}"),
+  [ .. ] => print("array length: ${len(resp.body)}"),
+  _      => print("body: ${resp.body}")
+}
