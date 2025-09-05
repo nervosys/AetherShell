@@ -1,0 +1,13 @@
+# List files as a typed table, keep only files, select columns.
+ls "."
+  | where fn(r) => r.type == "file"
+  | select "name" "size"
+  | sort "size" true
+  | take 5
+  | print
+
+# Group + aggregate by file type
+ls "."
+  | group_by "type"
+  | agg { count: count(), total_bytes: sum("size") }
+  | print

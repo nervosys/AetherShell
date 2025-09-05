@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Aurora (ae) — Web Terminal (WASM)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        ayu: {
+                            background: '#0A0E14',
+                            foreground: '#B3B1AD',
+                            accent: '#FFCC66',
+                            string: '#AAD94C',
+                            number: '#FFEE99',
+                            keyword: '#FF6666',
+                            comment: '#5C6773',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    <style>
+        @keyframes blink {
+
+            0%,
+            100% {
+                opacity: 1
+            }
+
+            50% {
+                opacity: 0
+            }
+        }
+
+        .cursor-blink {
+            animation: blink 1s step-end infinite;
+        }
+
+        .terminal-output {
+            height: calc(100% - 60px);
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: #4b5563 #1f2937;
+        }
+
+        .terminal-output::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .terminal-output::-webkit-scrollbar-track {
+            background: #1f2937;
+        }
+
+        .terminal-output::-webkit-scrollbar-thumb {
+            background-color: #4b5563;
+            border-radius: 4px;
+        }
+
+        .typewriter {
+            overflow: hidden;
+            white-space: pre-wrap;
+            letter-spacing: 0.02em;
+        }
+
+        code {
+            background: rgba(255, 255, 255, 0.06);
+            padding: 0 .3rem;
+            border-radius: .25rem;
+        }
+    </style>
+</head>
+
+<body class="bg-gray-900 text-gray-100 h-screen flex flex-col">
+    <div class="mx-auto w-full px-4 py-4 h-full flex flex-col">
+        <header class="flex items-center justify-between mb-4">
+            <div class="flex items-center">
+                <i class="fas fa-terminal text-ayu-accent text-2xl mr-2"></i>
+                <h1 class="text-xl font-mono font-bold text-ayu-accent">Aurora (ae) — WASM Terminal</h1>
+            </div>
+            <div class="flex space-x-2 items-center">
+                <button class="w-3 h-3 rounded-full bg-red-500"></button>
+                <button class="w-3 h-3 rounded-full bg-yellow-500"></button>
+                <button class="w-3 h-3 rounded-full bg-green-500"></button>
+                <span id="wasm-version" class="ml-4 text-xs text-gray-400"></span>
+            </div>
+        </header>
+
+        <div class="bg-gray-800 rounded-lg border border-gray-700 flex-grow flex flex-col overflow-hidden">
+            <div class="bg-gray-700 px-4 py-2 flex items-center">
+                <div class="flex space-x-2 mr-4">
+                    <div class="w-3 h-3 rounded-full bg-red-500"></div>
+                    <div class="w-3 h-3 rounded-full bg-yellow-500"></div>
+                    <div class="w-3 h-3 rounded-full bg-green-500"></div>
+                </div>
+                <div class="text-sm font-mono">ae@localhost: ~</div>
+            </div>
+
+            <div id="terminal-output" class="terminal-output p-4 font-mono text-sm flex-grow overflow-y-auto">
+                <div class="mb-4">
+                    <div class="text-ayu-accent">Aurora (ae) Web Terminal — WASM engine</div>
+                    <div class="text-gray-400">
+                        Type <code>help</code> or try:
+                        <code>[1,2,3] | map fn(x)=> x*2 | reduce fn(a,b)=> a+b 0</code>
+                    </div>
+                </div>
+                <div class="flex items-start mb-2">
+                    <span class="text-ayu-accent mr-2">ae@localhost:~$</span>
+                    <span class="typewriter" id="welcome-message"></span>
+                </div>
+            </div>
+
+            <div class="border-t border-gray-700 p-2 bg-gray-800">
+                <div class="flex items-center">
+                    <span class="text-ayu-accent mr-2">$</span>
+                    <input id="terminal-input" type="text" class="bg-transparent outline-none flex-grow font-mono"
+                        placeholder="Enter Aurora (ae) code…" autocomplete="off" spellcheck="false" />
+                    <span id="cursor" class="cursor-blink bg-ayu-accent w-2 h-5 ml-1"></span>
+                </div>
+            </div>
+        </div>
+
+        <footer class="mt-4 text-center text-xs text-gray-500">
+            <p>Running the core engine in WebAssembly. Networked AI/HTTP may be stubbed unless enabled for WASM.</p>
+        </footer>
+    </div>
+
+    <!-- Load the wasm-pack output (ensure ./pkg exists next to this file) -->
+    <script type="module">
+        import init, { ae_eval, ae_reset, ae_version } from "./pkg/ae_wasm.js";
+
+        const termOut = document.getElementById('terminal-output');
+        const termIn = document.getElementById('terminal-input');
+        const cursor = document.getElementById('cursor');
+        const welcome = document.getElementById('welcome-message');
+        const wasmVer = document.getElementById('wasm-version');
+
+        const code = s => `<code>${escapeHtml(String(s))}</code>`;
+        const err = s => `<span class="text-red-400">${s}</span>`;
+        function escapeHtml(s) { return s.replace(/[&<>\"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[c])); }
+        function addPrompt() { const line = document.createElement('div'); line.className = 'flex items-start mb-2'; line.innerHTML = '<span class="text-ayu-accent mr-2">ae@localhost:~$</span><span class="flex-grow" id="current-line"></span>'; termOut.appendChild(line); scrollDown(); return line; }
+        function scrollDown() { termOut.scrollTop = termOut.scrollHeight; }
+        function println(html) { const d = document.createElement('div'); d.className = 'mb-2'; d.innerHTML = html; termOut.appendChild(d); scrollDown(); }
+
+        // Help rendered locally (keeps pretty HTML)
+        function helpHtml() {
+            return [
+                '<div class="mb-1 font-semibold">Built-ins</div>',
+                code('help') + '  — show this help',
+                code('clear') + ' — clear terminal',
+                '',
+                '<div class="mt-2 mb-1 font-semibold">Examples</div>',
+                code('[1,2,3] | map fn(x)=> x*2 | reduce fn(a,b)=> a+b 0'),
+                code('[5,4,3,2,1] | where fn(x)=> x>2 | take 2'),
+                '',
+                '<div class="mt-2 mb-1 font-semibold">Notes</div>',
+                'In WASM mode, blocking HTTP/AI calls are stubbed unless you enable web fetch in the crate.',
+            ].join('<br/>');
+        }
+
+        // Typewriter welcome
+        const messages = [
+            'Welcome to Aurora (ae) — WASM Runtime',
+            'Try:  [1,2,3] | map fn(x)=> x*2 | reduce fn(a,b)=> a+b 0',
+            'Type <help> to see available commands.'
+        ];
+        let mi = 0, ci = 0, typing = true;
+        (function typeLoop() {
+            if (mi < messages.length) {
+                const msg = messages[mi];
+                if (ci < msg.length) { welcome.textContent += msg.charAt(ci++); setTimeout(typeLoop, 14 + Math.random() * 20); }
+                else { welcome.textContent += '\n'; mi++; ci = 0; setTimeout(typeLoop, 240); }
+            } else { typing = false; welcome.remove(); addPrompt(); termIn.focus(); }
+        })();
+
+        // Init WASM and wire terminal
+        await init();
+        wasmVer.textContent = await ae_version();
+
+        let history = [], hIndex = -1, current = '';
+        document.addEventListener('click', () => termIn.focus());
+        termIn.addEventListener('focus', () => cursor.classList.remove('hidden'));
+        termIn.addEventListener('blur', () => cursor.classList.add('hidden'));
+
+        termIn.addEventListener('keydown', async (e) => {
+            if (typing) return;
+            if (e.key === 'Enter') {
+                const command = termIn.value.trim(); termIn.value = '';
+                const promptLine = addPrompt(); promptLine.querySelector('#current-line').textContent = command;
+                history.push(command); hIndex = history.length;
+
+                try {
+                    if (command === 'help') {
+                        println(helpHtml());
+                    } else if (command === 'clear') {
+                        termOut.innerHTML = '';
+                    } else if (command === 'reset' || command === 'ae reset') {
+                        ae_reset(); println('<span class="text-blue-300">Environment reset.</span>');
+                    } else {
+                        const out = ae_eval(command); // sync export
+                        if (out && out.length) println(escapeHtml(out));
+                    }
+                } catch (ex) { println(err(escapeHtml(String(ex.message || ex)))); }
+
+                addPrompt();
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault(); if (hIndex > 0) { hIndex--; termIn.value = history[hIndex] || ''; }
+            } else if (e.key === 'ArrowDown') {
+                e.preventDefault(); if (hIndex < history.length - 1) { hIndex++; termIn.value = history[hIndex] || ''; } else { hIndex = history.length; termIn.value = current; }
+            }
+            if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { current = termIn.value; }
+        });
+    </script>
+</body>
+
+</html>

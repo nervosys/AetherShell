@@ -1,0 +1,24 @@
+[package]
+name = "aurora_shell"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = []
+native = []
+web = []
+
+[lib]
+name = "aurora_shell"
+path = "src/lib.rs"
+
+[dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", features = ["blocking", "json", "rustls-tls"] }
+chrono = { version = "0.4", features = ["clock", "serde"] }
+walkdir = "2"
+which = "6"
+crossterm = "0.27"
+thiserror = "1.0"
