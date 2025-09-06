@@ -1,7 +1,7 @@
-use aurora_shell::eval::eval_program;
-use aurora_shell::parser::parse_program;
-use aurora_shell::env::Env;
-use aurora_shell::value::Value;
+use aether_shell::env::Env;
+use aether_shell::eval::eval_program;
+use aether_shell::parser::parse_program;
+use aether_shell::value::Value;
 
 #[test]
 fn test_map_reduce_print_pipelines() {

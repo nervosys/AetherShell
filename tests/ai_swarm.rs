@@ -1,7 +1,7 @@
 //! Integration tests for AI, agents, and swarms.
-//! Adjust crate name if needed (aurora_shell → your crate).
+//! Adjust crate name if needed (aether_shell → your crate).
 
-use aurora_shell::{ai::agents::run_sync, builtins, env::Env, value::Value};
+use aether_shell::{ai::agents::run_sync, builtins, env::Env, value::Value};
 
 fn run_builtin(name: &str, args: Vec<Value>) -> Value {
     let mut env = Env::default();

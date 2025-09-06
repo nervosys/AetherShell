@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Aurora (ae) — Web Terminal (WASM)</title>
+    <title>Aether (ae) — Web Terminal (WASM)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -82,7 +82,7 @@
         <header class="flex items-center justify-between mb-4">
             <div class="flex items-center">
                 <i class="fas fa-terminal text-ayu-accent text-2xl mr-2"></i>
-                <h1 class="text-xl font-mono font-bold text-ayu-accent">Aurora (ae) — WASM Terminal</h1>
+                <h1 class="text-xl font-mono font-bold text-ayu-accent">Aether (ae) — WASM Terminal</h1>
             </div>
             <div class="flex space-x-2 items-center">
                 <button class="w-3 h-3 rounded-full bg-red-500"></button>
@@ -104,7 +104,7 @@
 
             <div id="terminal-output" class="terminal-output p-4 font-mono text-sm flex-grow overflow-y-auto">
                 <div class="mb-4">
-                    <div class="text-ayu-accent">Aurora (ae) Web Terminal — WASM engine</div>
+                    <div class="text-ayu-accent">Aether (ae) Web Terminal — WASM engine</div>
                     <div class="text-gray-400">
                         Type <code>help</code> or try:
                         <code>[1,2,3] | map fn(x)=> x*2 | reduce fn(a,b)=> a+b 0</code>
@@ -120,7 +120,7 @@
                 <div class="flex items-center">
                     <span class="text-ayu-accent mr-2">$</span>
                     <input id="terminal-input" type="text" class="bg-transparent outline-none flex-grow font-mono"
-                        placeholder="Enter Aurora (ae) code…" autocomplete="off" spellcheck="false" />
+                        placeholder="Enter Aether (ae) code…" autocomplete="off" spellcheck="false" />
                     <span id="cursor" class="cursor-blink bg-ayu-accent w-2 h-5 ml-1"></span>
                 </div>
             </div>
@@ -166,7 +166,7 @@
 
         // Typewriter welcome
         const messages = [
-            'Welcome to Aurora (ae) — WASM Runtime',
+            'Welcome to Aether (ae) — WASM Runtime',
             'Try:  [1,2,3] | map fn(x)=> x*2 | reduce fn(a,b)=> a+b 0',
             'Type <help> to see available commands.'
         ];

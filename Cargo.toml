@@ -1,5 +1,5 @@
 [package]
-name = "aurora_shell"
+name = "aether_shell"
 version = "0.1.0"
 edition = "2024"
 
@@ -9,7 +9,7 @@ native = []
 web = []
 
 [lib]
-name = "aurora_shell"
+name = "aether_shell"
 path = "src/lib.rs"
 
 [dependencies]
@@ -22,3 +22,15 @@ walkdir = "2"
 which = "6"
 crossterm = "0.27"
 thiserror = "1.0"
+# TUI dependencies
+ratatui = "0.26"
+tui-input = "0.8"
+# Media processing
+image = { version = "0.24", features = ["jpeg", "png", "gif", "webp"] }
+viuer = "0.7"                                                           # Terminal image display
+rodio = { version = "0.17", features = ["mp3", "wav", "flac"] }         # Audio playback
+tokio = { version = "1.0", features = ["full"] }
+# Additional utility crates
+uuid = { version = "1.0", features = ["v4", "serde"] }
+base64 = "0.21"
+mime = "0.3"

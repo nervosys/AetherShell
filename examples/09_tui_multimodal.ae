@@ -1,0 +1,21 @@
+# Multi-modal AI Chat Example
+# This example demonstrates how to use multi-modal features in the TUI
+
+# First, launch the TUI
+# ae --tui
+
+# In the TUI:
+# 1. Switch to Media tab (press 3 or Tab until you reach Media)
+# 2. Add some image files (press 'o' to open - placeholder in demo)
+# 3. Switch back to Chat tab (press 1)
+# 4. Select media files in the Media sidebar
+# 5. Type your message and press Enter
+
+# Example conversation:
+goal := "Analyze the image and describe what you see in detail"
+
+# The TUI will automatically process multi-modal inputs when media is attached
+"What do you see in this image?" | ai | print
+
+# For agent-based analysis:
+agent goal ["print", "ls"] 5 | print

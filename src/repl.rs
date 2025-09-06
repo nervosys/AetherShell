@@ -13,12 +13,12 @@ pub fn run(env: &mut Env) -> Result<()> {
     let stdin = io::stdin();
     let mut stdout = io::stdout();
 
-    writeln!(stdout, "Aurora REPL — type Ctrl-D to exit")?;
+    writeln!(stdout, "Æther REPL — type Ctrl-C to exit")?;
     stdout.flush()?;
 
     loop {
         // Prompt
-        write!(stdout, "au> ")?;
+        write!(stdout, "æ> ")?;
         stdout.flush()?;
 
         // Read one line

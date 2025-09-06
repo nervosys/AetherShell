@@ -1,4 +1,4 @@
-use aurora_shell::parser::parse_program;
+use aether_shell::parser::parse_program;
 
 #[test]
 fn debug_parse_pipeline() {

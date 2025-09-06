@@ -1,5 +1,5 @@
-use aurora_shell::typecheck;
-use aurora_shell::types::Type;
+use aether_shell::typecheck;
+use aether_shell::types::Type;
 
 #[test]
 fn literals_basic() {

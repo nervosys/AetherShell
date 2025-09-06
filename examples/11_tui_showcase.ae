@@ -1,0 +1,56 @@
+# TUI Feature Showcase
+# This example demonstrates all major TUI features
+
+# Launch the TUI with:
+# ae --tui
+
+# TUI Features Overview:
+print "=== AetherShell Terminal User Interface ==="
+print ""
+print "🎯 Main Features:"
+print "  • Multi-modal AI chat (text, images, audio, video)"
+print "  • Agent swarm management and monitoring"
+print "  • Media file browser and attachment system"
+print "  • Real-time agent status visualization"
+print "  • Interactive configuration settings"
+print ""
+print "🎮 Navigation:"
+print "  • Tab/Shift+Tab: Switch between modes"
+print "  • 1,2,3,4: Direct mode switching"
+print "  • ↑↓/j,k: Navigate lists"
+print "  • Enter/i: Start editing"
+print "  • Esc: Cancel/exit"
+print "  • Ctrl+C/q: Quit"
+print ""
+print "💬 Chat Mode Commands:"
+print "  • i/Enter: Start typing message"
+print "  • m: Switch to media browser"
+print "  • a: Switch to agent management"
+print "  • c: Clear chat history"
+print ""
+print "🤖 Agent Mode Commands:"
+print "  • n: Create new agent"
+print "  • d/Delete: Remove selected agent"
+print "  • Enter/s: Start task for agent"
+print "  • c: Switch to chat"
+print ""
+print "📁 Media Mode Commands:"
+print "  • Space/Enter: Toggle selection"
+print "  • o: Open file (add to library)"
+print "  • c: Clear all selections"
+print "  • d/Delete: Remove from library"
+print "  • b: Back to chat with selections"
+print ""
+print "💡 Advanced Features:"
+print "  • Context-aware multi-modal conversations"
+print "  • Agent swarm coordination and task distribution"
+print "  • Real-time media processing and analysis"
+print "  • Session management and export capabilities"
+print "  • Configurable AI model backends"
+print ""
+print "🚀 To get started, run: ae --tui"
+
+# Example of programmatic agent creation that can be visualized in TUI:
+agent_goal := "Monitor system resources and provide status updates"
+result := agent agent_goal ["print", "!ps", "!df"] 3
+print result

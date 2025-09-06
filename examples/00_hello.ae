@@ -1,4 +1,4 @@
-print("Hello, Aurora!")
+print("Hello, Æther!")
 
 name := "world"
 print("Hi, ${name}!")

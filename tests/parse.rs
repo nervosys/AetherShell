@@ -1,4 +1,4 @@
-use aurora_shell::parser;
+use aether_shell::parser;
 
 #[test]
 fn lambda_no_space_is_ok() {

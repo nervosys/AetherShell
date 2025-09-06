@@ -1,4 +1,4 @@
-use aurora_shell::{env::Env, eval, parser, value::Value};
+use aether_shell::{env::Env, eval, parser, value::Value};
 
 fn eval_code(code: &str) -> Value {
     let mut env = Env::default();

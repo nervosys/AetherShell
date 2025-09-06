@@ -1,4 +1,4 @@
-# One-shot AI call (provider picked by $AURORA_AI)
+# One-shot AI call (provider picked by $AETHER_AI)
 read_text "README.md" | ai "summarize as 3 bullet points"
   | print
 

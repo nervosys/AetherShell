@@ -1,4 +1,4 @@
-use aurora_shell::{env::Env, eval::eval_program, parser::parse_program, value::Value};
+use aether_shell::{env::Env, eval::eval_program, parser::parse_program, value::Value};
 
 fn eval_src(src: &str) -> Value {
     let stmts = parse_program(src).expect("parse");

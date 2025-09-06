@@ -1,0 +1,39 @@
+# AI Agent Swarm Management Example
+# This demonstrates how to manage AI agent swarms through the TUI
+
+# Launch TUI in agent mode
+# ae --tui
+
+# In the TUI Agent tab:
+# 1. Press 'n' to create new agents
+# 2. Press Enter to assign tasks
+# 3. Monitor agent status in real-time
+
+# Example agents and tasks that can be managed via TUI:
+
+# Agent 1: File analyzer
+goal1 := "Analyze all .rs files in the src/ directory and summarize the codebase structure"
+
+# Agent 2: Documentation generator  
+goal2 := "Generate comprehensive documentation for the TUI module"
+
+# Agent 3: Test coordinator
+goal3 := "Review the test files and suggest additional test cases for the new TUI features"
+
+# Agents can work in parallel and coordinate through the blackboard
+# The TUI provides real-time visualization of:
+# - Agent status (idle, working, waiting, error)
+# - Current tasks
+# - Completion progress
+# - Inter-agent communication
+
+# Example swarm coordination for complex tasks:
+swarm_goal := "Implement a comprehensive test suite for the new TUI functionality"
+
+# The swarm can break this down into subtasks:
+# 1. Unit tests for media handling
+# 2. Integration tests for UI components  
+# 3. End-to-end tests for multi-modal workflows
+# 4. Performance tests for large agent swarms
+
+print "Use 'ae --tui' to launch the Terminal GUI and interact with agents visually"

@@ -1,6 +1,6 @@
-# Aurora Shell (ae) Design Spec
+# Æther Shell (æ) Design Spec
 
-*A modern, typed, memory‑safe, AI-first successor to Bash bringing PowerShell‑like structured pipelines, Rust‑like safety, Julia‑like macros, Go‑like clarity, and brain-like automation. Au is pure command-line gold.*
+*A modern, typed, memory‑safe, AI-first successor to Bash bringing PowerShell‑like structured pipelines, Rust‑like safety, Julia‑like macros, Go‑like clarity, and brain-like automation. Æther is pure command-line gold.*
 
 ## TL;DR
 
@@ -23,7 +23,7 @@ http_get "https://api.github.com" | print
 
 ## 0. Elevator Pitch
 
-Aurora (`au`) is a next‑gen shell & scripting language:
+Aether (`au`) is a next‑gen shell & scripting language:
 
 * **Typed pipelines** (arrays, records, tables, not just text)
 * **Memory & type safety** (runtime in Rust, HM type inference)
@@ -179,4 +179,4 @@ agent "repo tidy" ["ls","!"] 3
 * Exhaustiveness checks for matches
 * Streaming AI tokens
 
-**Aurora Shell**: clean Bash/Fish‑like syntax, Go‑like clarity, Rust‑like safety, Julia‑like macros, and AI‑augmented workflows.
+**Aether Shell**: clean Bash/Fish‑like syntax, Go‑like clarity, Rust‑like safety, Julia‑like macros, and AI‑augmented workflows.
