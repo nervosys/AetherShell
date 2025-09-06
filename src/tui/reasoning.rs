@@ -499,7 +499,7 @@ impl ReasoningEngine {
         let mut results = Vec::new();
 
         for level in 0..abstraction_levels {
-            let abstraction_factor = 1.0 - (level as f32 / abstraction_levels as f32);
+            let _abstraction_factor = 1.0 - (level as f32 / abstraction_levels as f32);
 
             let reasoning_step = self
                 .execute_reasoning_step(
@@ -587,7 +587,7 @@ impl ReasoningEngine {
         })
     }
 
-    fn select_best_strategy(&self, goal: &PlanningGoal) -> Result<&ReasoningStrategy> {
+    fn select_best_strategy(&self, _goal: &PlanningGoal) -> Result<&ReasoningStrategy> {
         // Select strategy based on goal characteristics
         // For now, default to chain of thought
         self.strategies
@@ -595,7 +595,7 @@ impl ReasoningEngine {
             .ok_or_else(|| anyhow::anyhow!("No reasoning strategies available"))
     }
 
-    fn is_goal_satisfied(&self, result: &MultiModalMessage, goal: &PlanningGoal) -> bool {
+    fn is_goal_satisfied(&self, result: &MultiModalMessage, _goal: &PlanningGoal) -> bool {
         // Check if the result satisfies the goal criteria
         // This is a simplified implementation
         !result.content.is_empty()
@@ -681,7 +681,7 @@ impl ReasoningEngine {
         let mut total_weight = 0.0;
         let mut weighted_confidence = 0.0;
 
-        for (modality, (step, weight)) in modality_results {
+        for (_modality, (step, weight)) in modality_results {
             if let Some(output) = step.output {
                 combined_content.extend(output.content);
                 weighted_confidence += step.confidence * weight;
@@ -718,7 +718,7 @@ impl ReasoningEngine {
 
     async fn generate_criticism(
         &self,
-        result: &MultiModalMessage,
+        _result: &MultiModalMessage,
         strength: f32,
     ) -> Result<MultiModalMessage> {
         // Generate constructive criticism of the result
@@ -742,7 +742,7 @@ impl ReasoningEngine {
     async fn refine_with_criticism(
         &self,
         result: &MultiModalMessage,
-        criticism: &MultiModalMessage,
+        _criticism: &MultiModalMessage,
     ) -> Result<MultiModalMessage> {
         // Refine the result based on criticism
         let mut refined_content = result.content.clone();
@@ -766,6 +766,7 @@ impl ReasoningEngine {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct ReasoningNode {
     id: Uuid,
     input: MultiModalMessage,

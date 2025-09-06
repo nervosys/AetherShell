@@ -226,7 +226,7 @@ fn handle_editing_mode(app: &mut App, key: crossterm::event::KeyEvent) -> Result
     Ok(false)
 }
 
-fn handle_distributed_normal(app: &mut App, key: crossterm::event::KeyEvent) -> Result<()> {
+fn handle_distributed_normal(_app: &mut App, key: crossterm::event::KeyEvent) -> Result<()> {
     match key.code {
         KeyCode::Char('s') => {
             // Start distributed swarm (placeholder - would be async in real implementation)
@@ -249,7 +249,7 @@ fn handle_distributed_normal(app: &mut App, key: crossterm::event::KeyEvent) -> 
     Ok(())
 }
 
-fn handle_reasoning_normal(app: &mut App, key: crossterm::event::KeyEvent) -> Result<()> {
+fn handle_reasoning_normal(_app: &mut App, key: crossterm::event::KeyEvent) -> Result<()> {
     match key.code {
         KeyCode::Char('n') => {
             // Start new reasoning session (placeholder - would be async in real implementation)

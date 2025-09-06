@@ -367,7 +367,7 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(help, chunks[1]);
 }
 
-fn format_message_content(msg: &super::app::ChatMessage) -> Text {
+fn format_message_content(msg: &super::app::ChatMessage) -> Text<'_> {
     let timestamp = if msg.timestamp.date_naive() == chrono::Utc::now().date_naive() {
         msg.timestamp.format("%H:%M:%S").to_string()
     } else {
