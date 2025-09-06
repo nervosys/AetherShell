@@ -9,7 +9,6 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, RwLock};
 use uuid::Uuid;
 
-use super::agents::{MultiModalAgent};
 use crate::ai::MultiModalMessage;
 
 /// Task priority levels for distributed processing
@@ -402,10 +401,10 @@ impl DistributedCoordinator {
 
 /// Handle incoming network connections
 async fn handle_connection(
-    stream: TcpStream,
+    _stream: TcpStream,
     addr: SocketAddr,
-    agents: Arc<RwLock<HashMap<Uuid, NetworkAgent>>>,
-    message_tx: mpsc::UnboundedSender<NetworkMessage>,
+    _agents: Arc<RwLock<HashMap<Uuid, NetworkAgent>>>,
+    _message_tx: mpsc::UnboundedSender<NetworkMessage>,
 ) {
     println!("New connection from: {}", addr);
     
@@ -437,17 +436,17 @@ impl SwarmClient {
         Ok(())
     }
 
-    pub async fn register_agent(&self, agent: NetworkAgent) -> Result<()> {
+    pub async fn register_agent(&self, _agent: NetworkAgent) -> Result<()> {
         // TODO: Send registration message to swarm coordinator
         Ok(())
     }
 
-    pub async fn send_heartbeat(&self, load: f32, status: NetworkAgentStatus) -> Result<()> {
+    pub async fn send_heartbeat(&self, _load: f32, _status: NetworkAgentStatus) -> Result<()> {
         // TODO: Send heartbeat message
         Ok(())
     }
 
-    pub async fn send_task_result(&self, task_id: Uuid, result: TaskResult) -> Result<()> {
+    pub async fn send_task_result(&self, _task_id: Uuid, _result: TaskResult) -> Result<()> {
         // TODO: Send task completion result
         Ok(())
     }

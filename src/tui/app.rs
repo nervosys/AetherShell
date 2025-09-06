@@ -460,7 +460,7 @@ impl App {
 
     /// Start an advanced reasoning session
     pub async fn start_reasoning_session(&mut self, goal: PlanningGoal) -> Result<Uuid> {
-        let session_id = self
+        let _session_result = self
             .reasoning_coordinator
             .reasoning_engine
             .reason(&goal)
@@ -471,7 +471,7 @@ impl App {
 
     /// Get the status of distributed agents
     pub fn get_distributed_agent_status(&self) -> Vec<String> {
-        if let Some(swarm) = &self.distributed_swarm {
+        if let Some(_swarm) = &self.distributed_swarm {
             vec!["Distributed swarm active".to_string()]
         } else {
             vec!["No distributed swarm running".to_string()]
