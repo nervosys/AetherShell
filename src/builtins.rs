@@ -102,7 +102,7 @@ fn call_lambda(lam: &Lambda, args: &[Value], env: &mut Env) -> Result<Value> {
 // --------------- General builtins ---------------
 
 fn bi_help() -> Result<Value> {
-    let txt = r#"Aurora (ae) built-ins:
+    let txt = r#"Æther (æ) built-ins:
 - help                         # this help
 - clear                        # clear screen (prints ANSI)
 - echo <...values>             # echo stringified values

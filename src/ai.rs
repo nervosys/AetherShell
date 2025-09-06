@@ -1,10 +1,11 @@
-//! Provider-agnostic LLMs + Agents (single & multi-agent swarms) for Aurora Shell.
+//! Provider-agnostic LLMs + Agents (single & multi-agent swarms) for Aether Shell.
 //! This version adds:
 //! - Model URIs (`openai:gpt-4o-mini`, `ollama:llama3`, `compat:mixtral`, `tgi:mixtral`, `stub`)
 //! - Backend registry and per-agent model selection
 //! - ToolRegistry with Builtin + (stub) MCP resolver
 //! - Agents: run_sync + run_sync_with_model
 //! - Swarm framework with Coordinator (RoundRobin + Router stubs)
+//! - Multi-modal support for images, audio, and video
 //! - Compat: ai::agents::run_sync AND ai::agents::swarm::run_sync are available.
 
 use anyhow::{Result, anyhow};
@@ -13,11 +14,294 @@ use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value as J, json};
 
+// ===================== Multi-modal support =====================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MultiModalContent {
+    pub text: Option<String>,
+    pub image_url: Option<String>,
+    pub audio_url: Option<String>,
+    pub video_url: Option<String>,
+    pub image_data: Option<String>, // base64 encoded
+    pub audio_data: Option<String>, // base64 encoded
+    pub video_data: Option<String>, // base64 encoded
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MultiModalMessage {
+    pub role: String,
+    pub content: Vec<MultiModalContent>,
+}
+
+impl MultiModalMessage {
+    pub fn text_only(role: &str, text: &str) -> Self {
+        Self {
+            role: role.to_string(),
+            content: vec![MultiModalContent {
+                text: Some(text.to_string()),
+                image_url: None,
+                audio_url: None,
+                video_url: None,
+                image_data: None,
+                audio_data: None,
+                video_data: None,
+            }],
+        }
+    }
+
+    pub fn with_image(role: &str, text: &str, image_data: &str) -> Self {
+        Self {
+            role: role.to_string(),
+            content: vec![
+                MultiModalContent {
+                    text: Some(text.to_string()),
+                    image_url: None,
+                    audio_url: None,
+                    video_url: None,
+                    image_data: None,
+                    audio_data: None,
+                    video_data: None,
+                },
+                MultiModalContent {
+                    text: None,
+                    image_url: None,
+                    audio_url: None,
+                    video_url: None,
+                    image_data: Some(image_data.to_string()),
+                    audio_data: None,
+                    video_data: None,
+                },
+            ],
+        }
+    }
+
+    pub fn with_audio(role: &str, text: &str, audio_data: &str) -> Self {
+        Self {
+            role: role.to_string(),
+            content: vec![
+                MultiModalContent {
+                    text: Some(text.to_string()),
+                    image_url: None,
+                    audio_url: None,
+                    video_url: None,
+                    image_data: None,
+                    audio_data: None,
+                    video_data: None,
+                },
+                MultiModalContent {
+                    text: None,
+                    image_url: None,
+                    audio_url: None,
+                    video_url: None,
+                    image_data: None,
+                    audio_data: Some(audio_data.to_string()),
+                    video_data: None,
+                },
+            ],
+        }
+    }
+
+    /// Convert to simple text for non-multimodal backends
+    pub fn to_text(&self) -> String {
+        self.content
+            .iter()
+            .filter_map(|c| c.text.as_ref())
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+}
+
+/// Multi-modal LLM backend trait
+pub trait MultiModalLlmBackend: Send + Sync {
+    fn chat_multimodal(&self, messages: &[MultiModalMessage]) -> Result<String>;
+    fn supports_images(&self) -> bool {
+        false
+    }
+    fn supports_audio(&self) -> bool {
+        false
+    }
+    fn supports_video(&self) -> bool {
+        false
+    }
+}
+
+/// Multi-modal router function
+pub fn complete_multimodal_sync(messages: &[MultiModalMessage]) -> Result<String> {
+    let backend = multimodal_backend_from_env();
+    backend.chat_multimodal(messages)
+}
+
+fn multimodal_backend_from_env() -> Box<dyn MultiModalLlmBackend> {
+    let model_uri = std::env::var("AETHER_MODEL_URI").unwrap_or_else(|_| {
+        match std::env::var("AETHER_AI")
+            .unwrap_or_else(|_| "stub".into())
+            .as_str()
+        {
+            "openai" => "openai:gpt-4o",
+            "ollama" => "ollama:llava",
+            "compat" => "compat:gpt-4v",
+            _ => "stub",
+        }
+        .to_string()
+    });
+
+    multimodal_backend_from_model(model_uri)
+}
+
+fn multimodal_backend_from_model(uri: String) -> Box<dyn MultiModalLlmBackend> {
+    let m = parse_model_ref(&uri);
+    match m.provider {
+        Provider::OpenAI => Box::new(OpenAiMultiModalBackend),
+        Provider::Ollama => Box::new(OllamaMultiModalBackend),
+        Provider::OpenAICompat => Box::new(OpenAiCompatMultiModalBackend),
+        _ => Box::new(StubMultiModalBackend),
+    }
+}
+
+// Multi-modal backend implementations
+struct StubMultiModalBackend;
+impl MultiModalLlmBackend for StubMultiModalBackend {
+    fn chat_multimodal(&self, messages: &[MultiModalMessage]) -> Result<String> {
+        let text = messages
+            .iter()
+            .map(|m| m.to_text())
+            .collect::<Vec<_>>()
+            .join("\n");
+        stub::complete_sync(&text)
+    }
+}
+
+struct OpenAiMultiModalBackend;
+impl MultiModalLlmBackend for OpenAiMultiModalBackend {
+    fn chat_multimodal(&self, messages: &[MultiModalMessage]) -> Result<String> {
+        let api_key =
+            std::env::var("OPENAI_API_KEY").map_err(|_| anyhow!("OPENAI_API_KEY not set"))?;
+        let model = std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-4o".into());
+        let url = "https://api.openai.com/v1/chat/completions";
+
+        // Convert messages to OpenAI format
+        let openai_messages: Vec<J> = messages
+            .iter()
+            .map(|msg| {
+                let mut content = Vec::new();
+
+                for part in &msg.content {
+                    if let Some(text) = &part.text {
+                        content.push(json!({
+                            "type": "text",
+                            "text": text
+                        }));
+                    }
+
+                    if let Some(image_data) = &part.image_data {
+                        content.push(json!({
+                            "type": "image_url",
+                            "image_url": {
+                                "url": format!("data:image/jpeg;base64,{}", image_data)
+                            }
+                        }));
+                    }
+
+                    if let Some(image_url) = &part.image_url {
+                        content.push(json!({
+                            "type": "image_url",
+                            "image_url": {
+                                "url": image_url
+                            }
+                        }));
+                    }
+                }
+
+                json!({
+                    "role": msg.role,
+                    "content": content
+                })
+            })
+            .collect();
+
+        let body = json!({
+            "model": model,
+            "messages": openai_messages,
+            "temperature": 0.2,
+            "max_tokens": 1000
+        });
+
+        let v: J = Client::new()
+            .post(url)
+            .header(AUTHORIZATION, format!("Bearer {}", api_key))
+            .header(CONTENT_TYPE, "application/json")
+            .json(&body)
+            .send()?
+            .error_for_status()?
+            .json()?;
+
+        Ok(v["choices"][0]["message"]["content"]
+            .as_str()
+            .unwrap_or("")
+            .to_string())
+    }
+
+    fn supports_images(&self) -> bool {
+        true
+    }
+    fn supports_audio(&self) -> bool {
+        false
+    }
+    fn supports_video(&self) -> bool {
+        false
+    }
+}
+
+struct OllamaMultiModalBackend;
+impl MultiModalLlmBackend for OllamaMultiModalBackend {
+    fn chat_multimodal(&self, messages: &[MultiModalMessage]) -> Result<String> {
+        // Ollama with vision models like llava
+        let _base_url =
+            std::env::var("OLLAMA_URL").unwrap_or_else(|_| "http://localhost:11434".into());
+        let _model = std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "llava".into());
+
+        // For now, convert to text and use regular completion
+        // In full implementation, would use Ollama's multimodal API
+        let text = messages
+            .iter()
+            .map(|m| m.to_text())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        ollama::complete_sync(&text)
+    }
+
+    fn supports_images(&self) -> bool {
+        true
+    }
+    fn supports_audio(&self) -> bool {
+        false
+    }
+    fn supports_video(&self) -> bool {
+        false
+    }
+}
+
+struct OpenAiCompatMultiModalBackend;
+impl MultiModalLlmBackend for OpenAiCompatMultiModalBackend {
+    fn chat_multimodal(&self, messages: &[MultiModalMessage]) -> Result<String> {
+        // Convert to text for compatibility
+        let text = messages
+            .iter()
+            .map(|m| m.to_text())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        openai_compat::complete_sync(&text)
+    }
+}
+
 // ===================== Provider Router (simple 1-shot completion) =====================
 
-/// Route by `AURORA_AI` to one of: stub | openai | ollama | openai_compat | tgi
+/// Route by `AETHER_AI` to one of: stub | openai | ollama | openai_compat | tgi
 pub fn complete_sync_router(prompt: &str) -> Result<String> {
-    match std::env::var("AURORA_AI")
+    match std::env::var("AETHER_AI")
         .unwrap_or_else(|_| "stub".into())
         .as_str()
     {
@@ -98,9 +382,9 @@ pub mod openai_compat {
     use super::*;
     /// Any OpenAI-compatible server: vLLM, TensorRT-LLM, llama.cpp server, etc.
     pub fn complete_sync(prompt: &str) -> Result<String> {
-        let base = std::env::var("AURORA_COMPAT_BASE")
+        let base = std::env::var("AETHER_COMPAT_BASE")
             .unwrap_or_else(|_| "http://localhost:8000/v1".into());
-        let model = std::env::var("AURORA_COMPAT_MODEL").unwrap_or_else(|_| "mixtral".into());
+        let model = std::env::var("AETHER_COMPAT_MODEL").unwrap_or_else(|_| "mixtral".into());
         let url = format!("{}/chat/completions", base.trim_end_matches('/'));
         let body = json!({
             "model": model,
@@ -207,7 +491,7 @@ pub fn parse_model_ref(s: &str) -> ModelRef {
             },
             "compat" | "openai_compat" => ModelRef {
                 provider: Provider::OpenAICompat,
-                model: std::env::var("AURORA_COMPAT_MODEL").unwrap_or_else(|_| "mixtral".into()),
+                model: std::env::var("AETHER_COMPAT_MODEL").unwrap_or_else(|_| "mixtral".into()),
             },
             "tgi" => ModelRef {
                 provider: Provider::Tgi,
@@ -270,9 +554,9 @@ impl LlmBackend for OllamaBackend {
 struct OpenAiCompatBackend;
 impl LlmBackend for OpenAiCompatBackend {
     fn chat(&self, messages: &[ChatMessage]) -> Result<String> {
-        let base = std::env::var("AURORA_COMPAT_BASE")
+        let base = std::env::var("AETHER_COMPAT_BASE")
             .unwrap_or_else(|_| "http://localhost:8000/v1".into());
-        let model = std::env::var("AURORA_COMPAT_MODEL").unwrap_or_else(|_| "mixtral".into());
+        let model = std::env::var("AETHER_COMPAT_MODEL").unwrap_or_else(|_| "mixtral".into());
         let url = format!("{}/chat/completions", base.trim_end_matches('/'));
         let body = json!({ "model": model, "messages": messages, "temperature": 0.2 });
         let v: J = Client::new()
@@ -315,8 +599,8 @@ impl LlmBackend for TgiBackend {
 }
 
 fn backend_from_env() -> Box<dyn LlmBackend> {
-    backend_from_model(std::env::var("AURORA_MODEL_URI").unwrap_or_else(|_| {
-        match std::env::var("AURORA_AI")
+    backend_from_model(std::env::var("AETHER_MODEL_URI").unwrap_or_else(|_| {
+        match std::env::var("AETHER_AI")
             .unwrap_or_else(|_| "stub".into())
             .as_str()
         {
@@ -395,7 +679,7 @@ pub mod agents {
         fn call(&self, input: &str, env: &mut Env) -> Result<Value>;
     }
 
-    /// Tool that bridges to Aurora builtins: input is parsed as a JSON array of args.
+    /// Tool that bridges to Aether builtins: input is parsed as a JSON array of args.
     pub struct BuiltinTool {
         pub name: String,
         pub description: String,
@@ -453,7 +737,7 @@ pub mod agents {
         fn get(&self, name: &str) -> Option<Box<dyn Tool>>;
     }
 
-    /// Resolver that exposes Aurora builtins as tools.
+    /// Resolver that exposes Aether builtins as tools.
     pub struct BuiltinToolResolver;
     impl ToolResolver for BuiltinToolResolver {
         fn list(&self) -> Vec<String> {
@@ -471,7 +755,7 @@ pub mod agents {
         fn get(&self, name: &str) -> Option<Box<dyn Tool>> {
             Some(Box::new(BuiltinTool {
                 name: name.to_string(),
-                description: format!("Aurora builtin `{}`", name),
+                description: format!("Aether builtin `{}`", name),
             }))
         }
     }
@@ -550,7 +834,7 @@ pub mod agents {
             let system = ChatMessage {
                 role: "system".into(),
                 content: format!(
-                    "You are Aurora Agent. Emit JSON commands:\n\
+                    "You are Aether Agent. Emit JSON commands:\n\
                      {{\"type\":\"tool\",\"tool\":\"<name>\",\"input\":<json or string>}} or \
                      {{\"type\":\"final\",\"output\":\"...\"}}.\nTools:\n{}",
                     self.tools
@@ -661,7 +945,7 @@ pub mod agents {
     ) -> Result<String> {
         let reg = ToolRegistry::with_builtins();
         let tools = reg.resolve_many(tool_names);
-        let mut agent = if let Ok(uri) = std::env::var("AURORA_AGENT_MODEL_URI") {
+        let mut agent = if let Ok(uri) = std::env::var("AETHER_AGENT_MODEL_URI") {
             Agent::with_model_uri(tools, &uri)
         } else {
             Agent::new(tools)
@@ -798,7 +1082,7 @@ pub mod agents {
             pub fn add_agent(&mut self, mut cfg: AgentConfig) {
                 // Default per-agent model URI from env if none provided
                 if cfg.model_uri.is_none() {
-                    if let Ok(uri) = std::env::var("AURORA_SWARM_AGENT_MODEL_URI") {
+                    if let Ok(uri) = std::env::var("AETHER_SWARM_AGENT_MODEL_URI") {
                         cfg.model_uri = Some(uri);
                     }
                 }

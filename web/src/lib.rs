@@ -2,7 +2,7 @@ use once_cell::sync::Lazy;
 use std::sync::Mutex;
 use wasm_bindgen::prelude::*;
 
-use aurora_shell::{env::Env, value::Value};
+use aether_shell::{env::Env, value::Value};
 
 // Global Env persisted across JS calls
 static GLOBAL_ENV: Lazy<Mutex<Env>> = Lazy::new(|| Mutex::new(Env::default()));
@@ -37,9 +37,9 @@ pub fn ae_reset() {
 pub fn ae_eval(line: &str) -> String {
     let mut env = GLOBAL_ENV.lock().unwrap();
 
-    // Expect aurora_shell to expose a single-line entrypoint.
-    // If you don't have this yet, add a tiny helper in aurora_shell (see step 3).
-    match aurora_shell::repl::eval_line_public(line, &mut env) {
+    // Expect aether_shell to expose a single-line entrypoint.
+    // If you don't have this yet, add a tiny helper in aether_shell (see step 3).
+    match aether_shell::repl::eval_line_public(line, &mut env) {
         Ok(v) => display(&v),
         Err(e) => format!("[error] {}", e),
     }

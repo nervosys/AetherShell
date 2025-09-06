@@ -34,7 +34,6 @@
 * **Bash Compatibility**: Transpile and run existing `.sh` scripts
 * **Command Integration**: Auto-wrap unknown commands in safe shells
 * **Multi-Backend AI**: Support for OpenAI, Ollama, and custom providers
-* **OS Tools Database**: Cross-platform native command integration
 
 ---
 
@@ -155,11 +154,7 @@ ls("~/Pictures")
   | save_json("photo_catalog.json")
 ```
 
----
-
-## 🧠 Core Language Features
-
-### Basic Syntax
+### Classic Language Features
 
 **Hello World:**
 ```ae
@@ -170,6 +165,73 @@ print("Hello, Aether!")
 ```ae
 [1,2,3,4] | map fn(x) => x*x | reduce fn(a,b) => a+b 0
 # → 30
+```
+
+**Pattern Matching:**
+```ae
+let msg = Some(42)
+match msg {
+  None => print("no value"),
+  Some(x) if x > 40 => print("big: ${x}"),
+  Some(x) => print("small: ${x}")
+}
+```
+
+**Typed HTTP:**
+```ae
+resp := http_get "https://api.github.com"
+print(resp.status)
+print(resp.headers."content-type")
+```
+
+---
+
+## 🚀 Getting Started
+
+### Install (from source)
+
+```bash
+git clone https://github.com/nervosys/AetherShell
+cd AetherShell
+cargo install --path . --bin ae
+```
+
+Now run:
+
+```bash
+ae
+```
+
+and you’re in the Aether REPL:
+
+```text
+Æther REPL — type Ctrl-D to exit
+ae>
+```
+
+---
+
+### Hello World
+
+```ae
+print("Hello, Aether!")
+```
+
+---
+
+### Pipelines
+
+Structured values flow through `|`:
+
+```ae
+[1,2,3,4] | map fn(x) => x*x | reduce fn(a,b) => a+b 0
+# → 30
+```
+
+List files and filter by type:
+
+```ae
+ls() | where fn(f) => f.ext == ".txt" | each fn(f) => print(f.name)
 ```
 
 **Pattern Matching:**
@@ -227,6 +289,8 @@ print(resp.headers."content-type")
 ## 🛠️ Advanced Features
 
 ### Bash Compatibility
+
+---
 
 **Run old scripts seamlessly:**
 
@@ -345,12 +409,6 @@ print("Result: ${result}")
 - **Cancellation**: Graceful task termination
 - **Pipelines**: Parallel data processing
 
-### OS Tools Integration
-- **Cross-platform database**: 25+ native OS tools (Linux/Windows/macOS)
-- **Safety levels**: Safe, Moderate, RequiresAdmin classification
-- **Command recommendations**: AI-powered tool suggestions
-- **Platform filtering**: OS-specific tool availability
-
 ---
 
 ## 📊 Performance & Testing
@@ -362,12 +420,11 @@ print("Result: ${result}")
 - **Efficient AI calls**: Batched multimodal requests
 
 ### Test Coverage
-- **173+ tests**: Comprehensive test suite
+- **125+ tests**: Comprehensive test suite
 - **Unit tests**: Individual component validation
 - **Integration tests**: End-to-end workflow testing
 - **TUI tests**: Interactive interface validation
 - **AI tests**: Multimodal backend testing
-- **OS Tools tests**: Cross-platform command database validation
 
 ---
 
@@ -386,7 +443,6 @@ print("Result: ${result}")
 - **Bash compatibility**: Check `tests/transpile_bash.rs` for transpilation rules
 - **AI integration**: Explore `tests/multimodal_ai.rs` for backend implementation
 - **TUI features**: Review `tests/tui_*.rs` for interface testing
-- **OS Tools**: Examine `tests/os_tools.rs` for cross-platform tool usage
 
 ---
 

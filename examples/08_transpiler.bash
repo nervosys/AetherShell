@@ -1,1 +1,1 @@
-echo 'echo "hello $USER" | wc -c' | aurora -b
+echo 'echo "hello $USER" | wc -c' | aether -b

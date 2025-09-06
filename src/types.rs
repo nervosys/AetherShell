@@ -1,11 +1,11 @@
-// Shared semantic types for Aurora's checker & public APIs.
+// Shared semantic types for Aether's checker & public APIs.
 use std::collections::BTreeMap;
 
-/// The Aurora semantic type lattice used by the typechecker and (optionally) by
+/// The Aether semantic type lattice used by the typechecker and (optionally) by
 /// runtime-facing surfaces (e.g., schema hints for tables).
 ///
 /// Keep this file lightweight and dependency-free so tests can import
-/// `aurora_shell::types::Type` without pulling in other modules.
+/// `aether_shell::types::Type` without pulling in other modules.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
     /// Unknown or unconstrained type. Unifies with anything.

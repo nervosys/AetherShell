@@ -1,4 +1,4 @@
-# Aurora distinguishes URIs from Strings at type level.
+# Aether distinguishes URIs from Strings at type level.
 
 let a = "https://example.com"   # Uri
 let b = "s3://bucket/key"       # Uri

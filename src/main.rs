@@ -3,15 +3,16 @@ use std::env;
 use std::fs;
 use std::io::{self, Read};
 
-use aurora_shell::{env::Env, eval, parser, transpile};
+use aether_shell::{env::Env, eval, parser, transpile};
 
 fn usage() -> &'static str {
-    r#"Aurora Shell
+    r#"Aether Shell
 Usage:
-  ae                     # start REPL
-  ae FILE.ae             # run Aurora file
-  ae --bash FILE.sh      # run Bash file in compatibility mode
-  ae -b                  # read Bash from stdin and run (compat mode)
+    ae                     # start REPL
+    ae --tui               # start terminal GUI (TUI) mode
+    ae FILE.ae             # run Æther file
+    ae --bash FILE.sh      # run Bash file in compatibility mode
+    ae -b                  # read Bash from stdin and run (compat mode)
 "#
 }
 
@@ -24,6 +25,7 @@ fn main() -> Result<()> {
 
     // flags
     let bash_mode = take_flag(&mut args, "--bash") || take_flag(&mut args, "-b");
+    let tui_mode = take_flag(&mut args, "--tui");
 
     if bash_mode && args.is_empty() {
         // Read bash from stdin, transpile, then run
@@ -34,8 +36,14 @@ fn main() -> Result<()> {
     }
 
     match args.as_slice() {
-        // No file args → REPL
-        [] => repl()?,
+        // No file args → REPL or TUI
+        [] => {
+            if tui_mode {
+                aether_shell::tui::run()?;
+            } else {
+                repl()?;
+            }
+        }
         // One file → run it (with optional --bash)
         [file] => run_file(file, bash_mode)?,
         _ => {
@@ -53,10 +61,10 @@ fn repl() -> Result<()> {
     let mut env = Env::default();
     let mut line = String::new();
 
-    println!("Aurora REPL — type Ctrl-D to exit");
+    println!("Æther REPL — type Ctrl-C to exit");
     loop {
         line.clear();
-        print!("au> ");
+        print!("ae> ");
         io::stdout().flush().ok();
         if io::stdin().read_line(&mut line)? == 0 {
             println!();
@@ -83,7 +91,7 @@ fn run_file(path: &str, bash_mode: bool) -> Result<()> {
 
     if bash_mode {
         code = transpile::bash::transpile_bash_to_ae(&code)
-            .with_context(|| format!("bash→aurora transpile failed for {}", path))?;
+            .with_context(|| format!("bash→aether transpile failed for {}", path))?;
     }
 
     run_code(&code)

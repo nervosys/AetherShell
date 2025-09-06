@@ -1,5 +1,5 @@
 [package]
-name = "aurora_wasm"
+name = "aether_wasm"
 version = "0.1.0"
 edition = "2024"
 
@@ -10,8 +10,8 @@ crate-type = ["cdylib", "rlib"]
 wasm-bindgen = "0.2"
 once_cell = "1"
 
-# NOTE: path to aurora_shell crate
-aurora_shell = { path = "../", default-features = false, features = ["web"] }
+# NOTE: path to aether_shell crate
+aether_shell = { path = "../", default-features = false, features = ["web"] }
 
 [dependencies.js-sys]
 version = "0.3"
