@@ -61,7 +61,7 @@ fn repl() -> Result<()> {
     let mut env = Env::default();
     let mut line = String::new();
 
-    println!("Æther REPL — type Ctrl-C to exit");
+    println!("Æther REPL — type 'exit', 'quit', or Ctrl-D to exit");
     loop {
         line.clear();
         print!("ae> ");
@@ -73,6 +73,11 @@ fn repl() -> Result<()> {
         let src = line.trim();
         if src.is_empty() {
             continue;
+        }
+
+        // Handle exit commands
+        if src == "exit" || src == "quit" {
+            break;
         }
 
         match parser::parse_program(src) {

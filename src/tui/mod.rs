@@ -60,7 +60,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App)
     loop {
         terminal.draw(|f| ui::draw(f, app))?;
 
-        if events::handle_events(app)? {
+        if events::handle_events(app)? || app.should_quit {
             break;
         }
     }
