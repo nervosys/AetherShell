@@ -12,6 +12,10 @@ web = []
 name = "aether_shell"
 path = "src/lib.rs"
 
+[[bin]]
+name = "ae"
+path = "src/main.rs"
+
 [dependencies]
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }

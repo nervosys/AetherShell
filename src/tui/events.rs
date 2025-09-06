@@ -9,6 +9,11 @@ use super::app::{App, AppMode, InputMode};
 use super::media::MediaFile;
 
 pub fn handle_events(app: &mut App) -> Result<bool> {
+    // Check if app should quit first
+    if app.should_quit {
+        return Ok(true);
+    }
+
     if event::poll(Duration::from_millis(50))? {
         if let Event::Key(key) = event::read()? {
             if key.kind == KeyEventKind::Press {
@@ -16,7 +21,9 @@ pub fn handle_events(app: &mut App) -> Result<bool> {
             }
         }
     }
-    Ok(false)
+
+    // Check again after processing events
+    Ok(app.should_quit)
 }
 
 fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) -> Result<bool> {
@@ -33,11 +40,21 @@ fn handle_normal_mode(app: &mut App, key: crossterm::event::KeyEvent) -> Result<
             if key.modifiers.contains(KeyModifiers::CONTROL) {
                 app.quit();
                 return Ok(true);
+            } else {
+                // Just 'q' also quits in normal mode for convenience
+                app.quit();
+                return Ok(true);
             }
         }
         KeyCode::Esc => {
             app.quit();
             return Ok(true);
+        }
+        KeyCode::Char('c') => {
+            if key.modifiers.contains(KeyModifiers::CONTROL) {
+                app.quit();
+                return Ok(true);
+            }
         }
 
         // Tab navigation

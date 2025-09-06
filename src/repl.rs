@@ -8,12 +8,12 @@ use crate::{
     value::Value,
 };
 
-/// Interactive REPL. Ctrl-D/Ctrl-Z exits.
+/// Interactive REPL. Ctrl-D exits or type 'exit'/'quit'.
 pub fn run(env: &mut Env) -> Result<()> {
     let stdin = io::stdin();
     let mut stdout = io::stdout();
 
-    writeln!(stdout, "Æther REPL — type Ctrl-C to exit")?;
+    writeln!(stdout, "Æther REPL — type 'exit', 'quit', or Ctrl-D to exit")?;
     stdout.flush()?;
 
     loop {
@@ -31,6 +31,11 @@ pub fn run(env: &mut Env) -> Result<()> {
         let code = line.trim();
         if code.is_empty() {
             continue;
+        }
+
+        // Handle exit commands
+        if code == "exit" || code == "quit" {
+            break;
         }
 
         match eval_line(env, code) {

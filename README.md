@@ -66,6 +66,11 @@ ae script.ae          # Run Aether script
 ae --bash script.sh   # Run Bash script in compatibility mode
 ```
 
+### REPL Commands
+- **exit** / **quit**: Exit the REPL
+- **Ctrl+D**: Exit the REPL (EOF)
+- **Ctrl+C**: Interrupt current operation
+
 ---
 
 ## 🎯 Experience the Magic
@@ -198,8 +203,9 @@ print(resp.headers."content-type")
 - **Arrow Keys**: Navigate lists and selections
 - **Space**: Select/deselect media files
 - **Enter**: Send messages, activate agents
-- **Esc**: Return to normal mode
-- **Ctrl+C / q**: Quit application
+- **Esc**: Exit to normal mode or quit application
+- **q**: Quit application (from normal mode)
+- **Ctrl+C**: Force quit application
 
 ### Media Tab Features
 - **Image Viewer**: Display images directly in terminal using advanced algorithms
