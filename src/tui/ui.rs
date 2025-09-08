@@ -466,12 +466,11 @@ fn draw_distributed_agents(f: &mut Frame, app: &App, area: Rect) {
         .map(|info| ListItem::new(Line::from(*info)))
         .collect();
 
-    let network_list = List::new(network_items)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title("📊 Network Status"),
-        );
+    let network_list = List::new(network_items).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("📊 Network Status"),
+    );
 
     f.render_widget(network_list, chunks[1]);
 }
@@ -479,11 +478,14 @@ fn draw_distributed_agents(f: &mut Frame, app: &App, area: Rect) {
 fn draw_advanced_reasoning(f: &mut Frame, app: &App, area: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage(40),
-            Constraint::Percentage(30),
-            Constraint::Percentage(30),
-        ].as_ref())
+        .constraints(
+            [
+                Constraint::Percentage(40),
+                Constraint::Percentage(30),
+                Constraint::Percentage(30),
+            ]
+            .as_ref(),
+        )
         .split(area);
 
     // Top panel: Active reasoning sessions
@@ -517,7 +519,7 @@ fn draw_advanced_reasoning(f: &mut Frame, app: &App, area: Rect) {
         "  - High confidence threshold: 0.7",
         "  - Max steps: 10",
         "",
-        "🌳 Tree of Thought", 
+        "🌳 Tree of Thought",
         "  - Multi-branch exploration",
         "  - Branching factor: 3",
         "  - Max depth: 5",
@@ -541,10 +543,15 @@ fn draw_advanced_reasoning(f: &mut Frame, app: &App, area: Rect) {
     let strategies_items: Vec<ListItem> = strategies_info
         .iter()
         .map(|info| {
-            let style = if info.starts_with("🔗") || info.starts_with("🌳") || 
-                         info.starts_with("🔀") || info.starts_with("📊") || 
-                         info.starts_with("⚔️") {
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+            let style = if info.starts_with("🔗")
+                || info.starts_with("🌳")
+                || info.starts_with("🔀")
+                || info.starts_with("📊")
+                || info.starts_with("⚔️")
+            {
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD)
             } else if info.starts_with("  -") {
                 Style::default().fg(Color::Yellow)
             } else {
@@ -554,12 +561,11 @@ fn draw_advanced_reasoning(f: &mut Frame, app: &App, area: Rect) {
         })
         .collect();
 
-    let strategies_list = List::new(strategies_items)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title("🎯 Reasoning Strategies"),
-        );
+    let strategies_list = List::new(strategies_items).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("🎯 Reasoning Strategies"),
+    );
 
     f.render_widget(strategies_list, chunks[1]);
 
@@ -568,7 +574,7 @@ fn draw_advanced_reasoning(f: &mut Frame, app: &App, area: Rect) {
         "Knowledge Base Status:",
         "",
         "📚 Facts: 0 stored",
-        "📋 Rules: 0 defined", 
+        "📋 Rules: 0 defined",
         "🔍 Patterns: 0 learned",
         "💡 Experiences: 0 recorded",
         "",
@@ -586,8 +592,11 @@ fn draw_advanced_reasoning(f: &mut Frame, app: &App, area: Rect) {
     let knowledge_items: Vec<ListItem> = knowledge_info
         .iter()
         .map(|info| {
-            let style = if info.starts_with("📚") || info.starts_with("📋") || 
-                         info.starts_with("🔍") || info.starts_with("💡") {
+            let style = if info.starts_with("📚")
+                || info.starts_with("📋")
+                || info.starts_with("🔍")
+                || info.starts_with("💡")
+            {
                 Style::default().fg(Color::Green)
             } else if info.starts_with("  [") {
                 Style::default().fg(Color::Magenta)
@@ -598,12 +607,11 @@ fn draw_advanced_reasoning(f: &mut Frame, app: &App, area: Rect) {
         })
         .collect();
 
-    let knowledge_list = List::new(knowledge_items)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title("💾 Knowledge & Controls"),
-        );
+    let knowledge_list = List::new(knowledge_items).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("💾 Knowledge & Controls"),
+    );
 
     f.render_widget(knowledge_list, chunks[2]);
 }

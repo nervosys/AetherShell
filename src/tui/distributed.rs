@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{RwLock, mpsc};
 use uuid::Uuid;
 
 use crate::ai::MultiModalMessage;
@@ -168,7 +168,7 @@ impl DistributedSwarm {
     pub async fn new(listen_addr: SocketAddr) -> Result<Self> {
         let (message_tx, message_rx) = mpsc::unbounded_channel();
         let listener = TcpListener::bind(listen_addr).await?;
-        
+
         Ok(Self {
             id: Uuid::new_v4(),
             network_agents: Arc::new(RwLock::new(HashMap::new())),
@@ -186,7 +186,7 @@ impl DistributedSwarm {
         if let Some(listener) = self.listener.take() {
             let agents = Arc::clone(&self.network_agents);
             let message_tx = self.message_tx.clone();
-            
+
             tokio::spawn(async move {
                 loop {
                     match listener.accept().await {
@@ -202,10 +202,10 @@ impl DistributedSwarm {
                 }
             });
         }
-        
+
         // Start task distribution loop
         self.start_task_distribution().await?;
-        
+
         Ok(())
     }
 
@@ -213,9 +213,10 @@ impl DistributedSwarm {
     pub async fn register_agent(&self, agent: NetworkAgent) -> Result<()> {
         let mut agents = self.network_agents.write().await;
         agents.insert(agent.id, agent.clone());
-        
-        self.message_tx.send(NetworkMessage::AgentRegistration { agent })?;
-        
+
+        self.message_tx
+            .send(NetworkMessage::AgentRegistration { agent })?;
+
         Ok(())
     }
 
@@ -223,21 +224,21 @@ impl DistributedSwarm {
     pub async fn assign_task(&self, task: DistributedTask) -> Result<()> {
         let agents = self.network_agents.read().await;
         let best_agent = self.coordinator.select_best_agent(&agents, &task).await?;
-        
+
         if let Some(agent_id) = best_agent {
             let mut updated_task = task.clone();
             updated_task.assigned_agent = Some(agent_id);
             updated_task.status = DistributedTaskStatus::Assigned;
-            
+
             self.message_tx.send(NetworkMessage::TaskAssignment {
                 task: updated_task.clone(),
                 target_agent: agent_id,
             })?;
-            
+
             let mut queue = self.task_queue.write().await;
             queue.push(updated_task);
         }
-        
+
         Ok(())
     }
 
@@ -246,16 +247,19 @@ impl DistributedSwarm {
         let agents = self.network_agents.read().await;
         let tasks = self.task_queue.read().await;
         let completed = self.completed_tasks.read().await;
-        
+
         let total_agents = agents.len();
-        let active_tasks = tasks.iter().filter(|t| matches!(t.status, DistributedTaskStatus::Running)).count();
+        let active_tasks = tasks
+            .iter()
+            .filter(|t| matches!(t.status, DistributedTaskStatus::Running))
+            .count();
         let completed_tasks = completed.len();
         let average_load = if total_agents > 0 {
             agents.values().map(|a| a.load).sum::<f32>() / total_agents as f32
         } else {
             0.0
         };
-        
+
         SwarmStatus {
             total_agents,
             active_tasks,
@@ -270,23 +274,25 @@ impl DistributedSwarm {
         let agents = Arc::clone(&self.network_agents);
         let coordinator = self.coordinator.clone();
         let message_tx = self.message_tx.clone();
-        
+
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
-            
+
             loop {
                 interval.tick().await;
-                
+
                 let mut task_queue = queue.write().await;
                 let agents_read = agents.read().await;
-                
+
                 // Find pending tasks and assign them
                 for task in task_queue.iter_mut() {
                     if matches!(task.status, DistributedTaskStatus::Pending) {
-                        if let Ok(Some(agent_id)) = coordinator.select_best_agent(&agents_read, task).await {
+                        if let Ok(Some(agent_id)) =
+                            coordinator.select_best_agent(&agents_read, task).await
+                        {
                             task.assigned_agent = Some(agent_id);
                             task.status = DistributedTaskStatus::Assigned;
-                            
+
                             let _ = message_tx.send(NetworkMessage::TaskAssignment {
                                 task: task.clone(),
                                 target_agent: agent_id,
@@ -296,7 +302,7 @@ impl DistributedSwarm {
                 }
             }
         });
-        
+
         Ok(())
     }
 
@@ -306,12 +312,12 @@ impl DistributedSwarm {
         self.network_agents.write().await.clear();
         self.task_queue.write().await.clear();
         self.completed_tasks.write().await.clear();
-        
+
         // Close the TCP listener
         if let Some(_listener) = self.listener.take() {
             // Listener will be dropped and closed automatically
         }
-        
+
         Ok(())
     }
 }
@@ -342,9 +348,9 @@ impl DistributedCoordinator {
         let available_agents: Vec<_> = agents
             .values()
             .filter(|agent| {
-                matches!(agent.status, NetworkAgentStatus::Available) &&
-                agent.load < self.load_balancer.max_load_per_agent &&
-                self.agent_has_capabilities(agent, &task.required_capabilities)
+                matches!(agent.status, NetworkAgentStatus::Available)
+                    && agent.load < self.load_balancer.max_load_per_agent
+                    && self.agent_has_capabilities(agent, &task.required_capabilities)
             })
             .collect();
 
@@ -361,7 +367,11 @@ impl DistributedCoordinator {
                 // Select agent with lowest load
                 available_agents
                     .iter()
-                    .min_by(|a, b| a.load.partial_cmp(&b.load).unwrap_or(std::cmp::Ordering::Equal))
+                    .min_by(|a, b| {
+                        a.load
+                            .partial_cmp(&b.load)
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    })
                     .map(|agent| agent.id)
             }
             DistributionStrategy::CapabilityBased => {
@@ -395,7 +405,10 @@ impl DistributedCoordinator {
     }
 
     fn calculate_capability_score(&self, agent: &NetworkAgent, required: &[String]) -> usize {
-        required.iter().filter(|cap| agent.capabilities.contains(cap)).count()
+        required
+            .iter()
+            .filter(|cap| agent.capabilities.contains(cap))
+            .count()
     }
 }
 
@@ -407,7 +420,7 @@ async fn handle_connection(
     _message_tx: mpsc::UnboundedSender<NetworkMessage>,
 ) {
     println!("New connection from: {}", addr);
-    
+
     // TODO: Implement message protocol for agent communication
     // This would handle serialization/deserialization of NetworkMessage
     // and maintain persistent connections with agents
@@ -460,7 +473,7 @@ mod tests {
     async fn test_distributed_swarm_creation() {
         let addr = "127.0.0.1:0".parse().unwrap();
         let swarm = DistributedSwarm::new(addr).await.unwrap();
-        
+
         assert!(!swarm.id.is_nil());
         assert_eq!(swarm.network_agents.read().await.len(), 0);
     }
@@ -469,7 +482,7 @@ mod tests {
     async fn test_agent_registration() {
         let addr = "127.0.0.1:0".parse().unwrap();
         let swarm = DistributedSwarm::new(addr).await.unwrap();
-        
+
         let agent = NetworkAgent {
             id: Uuid::new_v4(),
             name: "Test Agent".to_string(),
@@ -479,9 +492,9 @@ mod tests {
             status: NetworkAgentStatus::Available,
             last_heartbeat: chrono::Utc::now(),
         };
-        
+
         swarm.register_agent(agent.clone()).await.unwrap();
-        
+
         let agents = swarm.network_agents.read().await;
         assert_eq!(agents.len(), 1);
         assert!(agents.contains_key(&agent.id));
@@ -490,7 +503,7 @@ mod tests {
     #[test]
     fn test_capability_matching() {
         let coordinator = DistributedCoordinator::new();
-        
+
         let agent = NetworkAgent {
             id: Uuid::new_v4(),
             name: "Test Agent".to_string(),
@@ -500,10 +513,10 @@ mod tests {
             status: NetworkAgentStatus::Available,
             last_heartbeat: chrono::Utc::now(),
         };
-        
+
         let required = vec!["text".to_string(), "image".to_string()];
         assert!(coordinator.agent_has_capabilities(&agent, &required));
-        
+
         let score = coordinator.calculate_capability_score(&agent, &required);
         assert_eq!(score, 2);
     }
