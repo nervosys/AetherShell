@@ -1,5 +1,5 @@
-//!/usr/bin/env ae
-// Multi-Agent Demo
+#!/usr/bin/env ae
+# Multi-Agent Demo
 
 print("Multi-Agent Architecture")
 team = [{id: "r1"}, {id: "r2"}]

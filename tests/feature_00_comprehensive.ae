@@ -1,11 +1,11 @@
-// Comprehensive test of ALL AetherShell language features
-// This will test every feature individually to ensure immutability doesn't break anything
+# Comprehensive test of ALL AetherShell language features
+# This will test every feature individually to ensure immutability doesn't break anything
 
 print("=== TESTING ALL LANGUAGE FEATURES ===\n")
 
-// ============================================
-// 1. LITERALS
-// ============================================
+# ============================================
+# 1. LITERALS
+# ============================================
 print("1. Testing Literals...")
 int_lit = 42
 float_lit = 3.14
@@ -18,27 +18,27 @@ print("  ✓ String: ${string_lit}")
 print("  ✓ Bool: ${bool_lit}")
 print("  ✓ Null: ${null_lit}")
 
-// ============================================
-// 2. ARRAYS
-// ============================================
+# ============================================
+# 2. ARRAYS
+# ============================================
 print("\n2. Testing Arrays...")
 arr = [1, 2, 3, 4, 5]
 print("  ✓ Array: ${arr}")
 empty_arr = []
 print("  ✓ Empty array: ${empty_arr}")
 
-// ============================================
-// 3. RECORDS
-// ============================================
+# ============================================
+# 3. RECORDS
+# ============================================
 print("\n3. Testing Records...")
 rec = {name: "Alice", age: 30, active: true}
 print("  ✓ Record: ${rec}")
 empty_rec = {}
 print("  ✓ Empty record: ${empty_rec}")
 
-// ============================================
-// 4. ARITHMETIC OPERATIONS
-// ============================================
+# ============================================
+# 4. ARITHMETIC OPERATIONS
+# ============================================
 print("\n4. Testing Arithmetic...")
 add_result = 10 + 5
 sub_result = 10 - 5
@@ -49,9 +49,9 @@ print("  ✓ Subtraction: ${sub_result}")
 print("  ✓ Multiplication: ${mul_result}")
 print("  ✓ Division: ${div_result}")
 
-// ============================================
-// 5. COMPARISON OPERATIONS
-// ============================================
+# ============================================
+# 5. COMPARISON OPERATIONS
+# ============================================
 print("\n5. Testing Comparisons...")
 eq_result = 5 == 5
 ne_result = 5 != 3
@@ -66,9 +66,9 @@ print("  ✓ Less or equal: ${le_result}")
 print("  ✓ Greater than: ${gt_result}")
 print("  ✓ Greater or equal: ${ge_result}")
 
-// ============================================
-// 6. LOGICAL OPERATIONS
-// ============================================
+# ============================================
+# 6. LOGICAL OPERATIONS
+# ============================================
 print("\n6. Testing Logical Operations...")
 and_result = true && true
 or_result = false || true
@@ -77,18 +77,18 @@ print("  ✓ AND: ${and_result}")
 print("  ✓ OR: ${or_result}")
 print("  ✓ NOT: ${not_result}")
 
-// ============================================
-// 7. STRING OPERATIONS
-// ============================================
+# ============================================
+# 7. STRING OPERATIONS
+# ============================================
 print("\n7. Testing String Operations...")
 concat_result = "Hello" + " " + "World"
 print("  ✓ Concatenation: ${concat_result}")
 str_eq = "test" == "test"
 print("  ✓ String equality: ${str_eq}")
 
-// ============================================
-// 8. LAMBDAS
-// ============================================
+# ============================================
+# 8. LAMBDAS
+# ============================================
 print("\n8. Testing Lambdas...")
 identity = fn(x) => x
 double = fn(x) => x * 2
@@ -97,18 +97,18 @@ print("  ✓ Identity lambda: ${identity(42)}")
 print("  ✓ Double lambda: ${double(21)}")
 print("  ✓ Two-arg lambda: ${add_fn(3, 4)}")
 
-// ============================================
-// 9. PIPELINES
-// ============================================
+# ============================================
+# 9. PIPELINES
+# ============================================
 print("\n9. Testing Pipelines...")
 pipe_result = [1, 2, 3] | map(fn(x) => x * 2)
 print("  ✓ Pipeline: ${pipe_result}")
 chain_result = [1, 2, 3, 4, 5] | map(fn(x) => x * 2) | where(fn(x) => x > 5)
 print("  ✓ Chained pipeline: ${chain_result}")
 
-// ============================================
-// 10. MATCH EXPRESSIONS
-// ============================================
+# ============================================
+# 10. MATCH EXPRESSIONS
+# ============================================
 print("\n10. Testing Match Expressions...")
 match_result = match 2 {
   1 => "one",
@@ -124,9 +124,9 @@ match_guard = match 5 {
 }
 print("  ✓ Match with guards: ${match_guard}")
 
-// ============================================
-// 11. TERNARY WITH MATCH (IF NOT SUPPORTED AS STATEMENT)
-// ============================================
+# ============================================
+# 11. TERNARY WITH MATCH (IF NOT SUPPORTED AS STATEMENT)
+# ============================================
 print("\n11. Testing Ternary-like with Match...")
 ternary_result = match true {
   true => "yes",
@@ -134,9 +134,9 @@ ternary_result = match true {
 }
 print("  ✓ Match as ternary: ${ternary_result}")
 
-// ============================================
-// 12. BUILTINS - ARRAY OPERATIONS
-// ============================================
+# ============================================
+# 12. BUILTINS - ARRAY OPERATIONS
+# ============================================
 print("\n12. Testing Builtin Array Operations...")
 map_result = map([1, 2, 3], fn(x) => x * 3)
 print("  ✓ map: ${map_result}")
@@ -153,9 +153,9 @@ print("  ✓ len: ${len_result}")
 take_result = take([1, 2, 3, 4, 5], 3)
 print("  ✓ take: ${take_result}")
 
-// ============================================
-// 13. BUILTINS - TYPE OPERATIONS
-// ============================================
+# ============================================
+# 13. BUILTINS - TYPE OPERATIONS
+# ============================================
 print("\n13. Testing Builtin Type Operations...")
 type_int = type_of(42)
 type_str = type_of("hello")
@@ -168,9 +168,9 @@ rec_with_keys = {a: 1, b: 2, c: 3}
 keys_result = keys(rec_with_keys)
 print("  ✓ keys: ${keys_result}")
 
-// ============================================
-// 14. MUTABLE VARIABLES
-// ============================================
+# ============================================
+# 14. MUTABLE VARIABLES
+# ============================================
 print("\n14. Testing Mutable Variables...")
 mut counter = 0
 print("  ✓ Initial mut: ${counter}")
@@ -179,17 +179,17 @@ print("  ✓ After update: ${counter}")
 counter = counter + 1
 print("  ✓ After 2nd update: ${counter}")
 
-// ============================================
-// 15. IMMUTABLE VARIABLES (PREVENT REASSIGNMENT)
-// ============================================
+# ============================================
+# 15. IMMUTABLE VARIABLES (PREVENT REASSIGNMENT)
+# ============================================
 print("\n15. Testing Immutable Variables...")
 immut_var = 100
 print("  ✓ Immutable created: ${immut_var}")
-// Note: immut_var = 200 would fail here
+# Note: immut_var = 200 would fail here
 
-// ============================================
-// 16. LET SYNTAX
-// ============================================
+# ============================================
+# 16. LET SYNTAX
+# ============================================
 print("\n16. Testing Let Syntax...")
 let explicit_immut = 42
 print("  ✓ let (immutable): ${explicit_immut}")
@@ -199,18 +199,18 @@ print("  ✓ let mut initial: ${explicit_mut}")
 explicit_mut = explicit_mut + 5
 print("  ✓ let mut updated: ${explicit_mut}")
 
-// ============================================
-// 17. CLOSURES (VARIABLE CAPTURE)
-// ============================================
+# ============================================
+# 17. CLOSURES (VARIABLE CAPTURE)
+# ============================================
 print("\n17. Testing Closures...")
 outer_var = 10
 closure = fn(x) => x + outer_var
 closure_result = closure(5)
 print("  ✓ Closure captured outer_var: ${closure_result}")
 
-// ============================================
-// 18. NESTED STRUCTURES
-// ============================================
+# ============================================
+# 18. NESTED STRUCTURES
+# ============================================
 print("\n18. Testing Nested Structures...")
 nested_arr = [[1, 2], [3, 4], [5, 6]]
 print("  ✓ Nested arrays: ${nested_arr}")
@@ -218,9 +218,9 @@ print("  ✓ Nested arrays: ${nested_arr}")
 nested_rec = {user: {name: "Bob", age: 25}, active: true}
 print("  ✓ Nested records: ${nested_rec}")
 
-// ============================================
-// 19. PATTERN MATCHING WITH ARRAYS
-// ============================================
+# ============================================
+# 19. PATTERN MATCHING WITH ARRAYS
+# ============================================
 print("\n19. Testing Pattern Matching...")
 match_arr = match [1, 2, 3] {
   [] => "empty",
@@ -229,42 +229,42 @@ match_arr = match [1, 2, 3] {
 }
 print("  ✓ Match array: ${match_arr}")
 
-// ============================================
-// 20. STRING INTERPOLATION
-// ============================================
+# ============================================
+# 20. STRING INTERPOLATION
+# ============================================
 print("\n20. Testing String Interpolation...")
 name_var = "World"
 num_var = 42
 interp_result = "Hello ${name_var}, the answer is ${num_var}"
 print("  ✓ Interpolation: ${interp_result}")
 
-// ============================================
-// 21. CHAINED FUNCTION CALLS
-// ============================================
+# ============================================
+# 21. CHAINED FUNCTION CALLS
+# ============================================
 print("\n21. Testing Chained Function Calls...")
 chained = len(map([1, 2, 3, 4], fn(x) => x * 2))
 print("  ✓ Chained calls: ${chained}")
 
-// ============================================
-// 22. HIGHER-ORDER FUNCTIONS
-// ============================================
+# ============================================
+# 22. HIGHER-ORDER FUNCTIONS
+# ============================================
 print("\n22. Testing Higher-Order Functions...")
 apply_twice = fn(f, x) => f(f(x))
 add_one = fn(x) => x + 1
 hof_result = apply_twice(add_one, 5)
 print("  ✓ Higher-order function: ${hof_result}")
 
-// ============================================
-// 23. RECORD FIELD ACCESS (if supported)
-// ============================================
+# ============================================
+# 23. RECORD FIELD ACCESS (if supported)
+# ============================================
 print("\n23. Testing Record Access...")
 person = {name: "Charlie", age: 35}
-// Note: Dot notation might not be fully supported
+# Note: Dot notation might not be fully supported
 print("  ✓ Record created: ${person}")
 
-// ============================================
-// 24. BOOLEAN EXPRESSIONS
-// ============================================
+# ============================================
+# 24. BOOLEAN EXPRESSIONS
+# ============================================
 print("\n24. Testing Boolean Expressions...")
 complex_bool = (5 > 3) && (10 < 20) || false
 print("  ✓ Complex boolean: ${complex_bool}")
@@ -275,9 +275,9 @@ print("  ✓ Short-circuit AND: ${short_circuit_and}")
 short_circuit_or = true || (1 / 0) == 1
 print("  ✓ Short-circuit OR: ${short_circuit_or}")
 
-// ============================================
-// 25. EMPTY VALUES
-// ============================================
+# ============================================
+# 25. EMPTY VALUES
+# ============================================
 print("\n25. Testing Empty Values...")
 empty_string = ""
 print("  ✓ Empty string: '${empty_string}'")
@@ -286,9 +286,9 @@ print("  ✓ Empty array: ${empty_array}")
 empty_record = {}
 print("  ✓ Empty record: ${empty_record}")
 
-// ============================================
-// 26. NUMERIC EDGE CASES
-// ============================================
+# ============================================
+# 26. NUMERIC EDGE CASES
+# ============================================
 print("\n26. Testing Numeric Edge Cases...")
 negative = -42
 print("  ✓ Negative: ${negative}")
@@ -299,9 +299,9 @@ print("  ✓ Large number: ${large}")
 decimal = 0.1
 print("  ✓ Decimal: ${decimal}")
 
-// ============================================
-// 27. MULTIPLE VARIABLE DECLARATIONS
-// ============================================
+# ============================================
+# 27. MULTIPLE VARIABLE DECLARATIONS
+# ============================================
 print("\n27. Testing Multiple Variables...")
 var1 = 1
 var2 = 2
@@ -309,24 +309,24 @@ var3 = 3
 sum_vars = var1 + var2 + var3
 print("  ✓ Multiple vars sum: ${sum_vars}")
 
-// ============================================
-// 28. LAMBDA WITH MULTIPLE PARAMETERS
-// ============================================
+# ============================================
+# 28. LAMBDA WITH MULTIPLE PARAMETERS
+# ============================================
 print("\n28. Testing Multi-Parameter Lambdas...")
 multiply = fn(a, b) => a * b
 mult_result = multiply(6, 7)
 print("  ✓ Two-arg multiply: ${mult_result}")
 
-// ============================================
-// 29. NESTED FUNCTION CALLS
-// ============================================
+# ============================================
+# 29. NESTED FUNCTION CALLS
+# ============================================
 print("\n29. Testing Nested Calls...")
 nested_call = add_fn(multiply(2, 3), multiply(4, 5))
 print("  ✓ Nested function calls: ${nested_call}")
 
-// ============================================
-// 30. EXPRESSION COMBINATIONS
-// ============================================
+# ============================================
+# 30. EXPRESSION COMBINATIONS
+# ============================================
 print("\n30. Testing Expression Combinations...")
 complex_expr = (5 + 3) * 2 - 4 / 2
 print("  ✓ Complex expression: ${complex_expr}")
@@ -334,9 +334,9 @@ print("  ✓ Complex expression: ${complex_expr}")
 mixed_types = "Result: " + (10 + 5)
 print("  ✓ Mixed type expression: ${mixed_types}")
 
-// ============================================
-// FINAL SUMMARY
-// ============================================
+# ============================================
+# FINAL SUMMARY
+# ============================================
 print("\n===============================================")
 print("ALL LANGUAGE FEATURES TESTED SUCCESSFULLY!")
 print("===============================================")

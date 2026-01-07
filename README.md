@@ -1,4 +1,4 @@
-# Aether Shell (ae) 🚀
+# Æther Shell (æ) 🚀
 
 *The world's first multi-agent shell with typed functional pipelines and multi-modal AI. Built in Rust for safety and performance, featuring revolutionary AI protocols found nowhere else.*
 
@@ -683,10 +683,12 @@ negotiations | each(fn(neg) => {
 **Comments:**
 
 ```ae
-// Line comments use double-slash (C/JavaScript style)
-// Comments are ignored during execution
+# Line comments use hash (shell style - preferred)
+# Comments are ignored during execution
 
-print("Hello") // Inline comments also work
+print("Hello") # Inline comments also work
+
+// C-style comments are also supported for compatibility
 ```
 
 **Hello World:**
@@ -699,24 +701,24 @@ print("Hello, Aether!")
 
 ```ae
 # Simple = for type inference (recommended)
-name = "world"         // Type inferred as String
-count = 42             // Type inferred as Int
-items = [1, 2, 3]      // Type inferred as Array<Int>
+name = "world"         # Type inferred as String
+count = 42             # Type inferred as Int
+items = [1, 2, 3]      # Type inferred as Array<Int>
 
 # Mutable variables
-mut counter = 0        // Mutable
-mut total = 100        // Also mutable
+mut counter = 0        # Mutable
+mut total = 100        # Also mutable
 
 # Alternative syntax (explicit)
-let name = "world"     // Explicit let keyword
-let mut counter = 0    // Traditional mutable
+let name = "world"     # Explicit let keyword
+let mut counter = 0    # Traditional mutable
 ```
 
 **Structured Pipelines:**
 
 ```ae
 [1,2,3,4] | map fn(x) => x*x | reduce fn(a,b) => a+b 0
-// → 30
+# → 30
 ```
 
 **Pattern Matching:**

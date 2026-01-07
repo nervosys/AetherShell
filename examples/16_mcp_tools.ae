@@ -1,15 +1,15 @@
-// Example: MCP Server Tool Enumeration
-// Shows how to list and filter tools from MCP servers
+# Example: MCP Server Tool Enumeration
+# Shows how to list and filter tools from MCP servers
 
 print("=== MCP Server Tool Enumeration ===")
 print("")
 
-// Detect servers
+# Detect servers
 let servers = mcp_servers()
 print("Found " + len(servers) + " MCP server(s)")
 print("")
 
-// Show tool summary per server
+# Show tool summary per server
 print("Tool Summary:")
 servers | foreach(fn(s) => 
     print("  " + s.name + ": " + len(s.tools) + " tools")

@@ -74,7 +74,7 @@ Retrieve a syntax entry by ID.
 ```aether
 ab_syntax = syntax_get("ab")
 print(ab_syntax)
-// => {id: "ab", name: "AgenticBinary Protocol", ...}
+# => {id: "ab", name: "AgenticBinary Protocol", ...}
 ```
 
 #### `syntax_list([category])`
@@ -82,10 +82,10 @@ List all syntax IDs, optionally filtered by category.
 
 ```aether
 all_ids = syntax_list()
-print(all_ids)  // => ["ab", "aethershell", "jsonrpc", ...]
+print(all_ids)  # => ["ab", "aethershell", "jsonrpc", ...]
 
 protocols = syntax_list("protocol")
-print(protocols)  // => ["ab", "jsonrpc"]
+print(protocols)  # => ["ab", "jsonrpc"]
 ```
 
 **Categories:**
@@ -101,7 +101,7 @@ Search syntax entries by keyword (searches name, specification, and ID).
 
 ```aether
 results = syntax_search("binary")
-print(results)  // => ["ab"]  (AgenticBinary matches)
+print(results)  # => ["ab"]  (AgenticBinary matches)
 ```
 
 #### `syntax_add(record)`
@@ -133,8 +133,8 @@ syntax_add(custom_syntax)
 List all available syntax categories.
 
 ```aether
-// Note: Zero-arg functions must be called, but empty () may have parsing issues
-// Recommended: Access via pipeline or with explicit arguments
+# Note: Zero-arg functions must be called, but empty () may have parsing issues
+# Recommended: Access via pipeline or with explicit arguments
 categories = syntax_categories
 ```
 
@@ -144,15 +144,15 @@ categories = syntax_categories
 Encode an AgenticBinary message.
 
 ```aether
-// Using string names
+# Using string names
 ping_bytes = ab_encode("command", "ping", "hello")
 print(ping_bytes)
-// => [0, 5, 104, 101, 108, 108, 111]
+# => [0, 5, 104, 101, 108, 108, 111]
 
-// Using numeric codes
+# Using numeric codes
 query_bytes = ab_encode(1, 4, "data request")
 
-// Agent coordination
+# Agent coordination
 delegate_bytes = ab_encode("command", "delegate", "task:analyze_data")
 collab_bytes = ab_encode("command", "collaborate", "agent_2,agent_3")
 ```
@@ -188,15 +188,15 @@ Decode an AgenticBinary message.
 ping_bytes = ab_encode("command", "ping", "hello")
 decoded = ab_decode(ping_bytes)
 print(decoded)
-// => {
-//   version: 0,
-//   msg_type: "Command",
-//   msg_type_code: 0,
-//   opcode: "PING",
-//   opcode_code: 0,
-//   payload: "hello",
-//   payload_bytes: [104, 101, 108, 108, 111]
-// }
+# => {
+#   version: 0,
+#   msg_type: "Command",
+#   msg_type_code: 0,
+#   opcode: "PING",
+#   opcode_code: 0,
+#   payload: "hello",
+#   payload_bytes: [104, 101, 108, 108, 111]
+# }
 ```
 
 **Decoded fields:**
@@ -211,23 +211,23 @@ print(decoded)
 ## Multi-Agent Communication Example
 
 ```aether
-// Agent 1 sends a LEARN message
+# Agent 1 sends a LEARN message
 learn_msg = ab_encode("command", "learn", "syntax:agenticbinary")
 print(ab_decode(learn_msg))
 
-// Agent 2 acknowledges
+# Agent 2 acknowledges
 ack_msg = ab_encode("response", "ack", "learned:ab")
 print(ab_decode(ack_msg))
 
-// Agent 1 delegates task
+# Agent 1 delegates task
 task_msg = ab_encode("command", "delegate", "task:encode_message")
 print(ab_decode(task_msg))
 
-// Agent 2 executes
+# Agent 2 executes
 exec_msg = ab_encode("command", "exec", "executing:encode_message")
 print(ab_decode(exec_msg))
 
-// Agent 2 sends back data
+# Agent 2 sends back data
 data_msg = ab_encode("response", "data", "result:success")
 print(ab_decode(data_msg))
 ```

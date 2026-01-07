@@ -1,20 +1,20 @@
-// Example: Conditional MCP Server Selection
-// Shows how to select MCP servers based on availability and requirements
+# Example: Conditional MCP Server Selection
+# Shows how to select MCP servers based on availability and requirements
 
 print("=== Conditional MCP Server Selection ===")
 print("")
 
-// Detect all servers
+# Detect all servers
 let all_servers = mcp_servers()
 print("Total servers detected: " + len(all_servers))
 print("")
 
-// Show available servers by port
+# Show available servers by port
 print("Available servers by endpoint:")
 all_servers | foreach(fn(s) => print("  " + s.name + " → " + s.endpoint))
 print("")
 
-// Conditional usage patterns
+# Conditional usage patterns
 print("Conditional Usage Patterns:")
 print("")
 

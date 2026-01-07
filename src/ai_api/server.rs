@@ -843,7 +843,7 @@ async fn server_status(State(state): State<AppState>) -> Json<serde_json::Value>
         (uptime.as_secs() % 3600) / 60,
         uptime.as_secs() % 60
     );
-    
+
     Json(serde_json::json!({
         "status": "running",
         "version": env!("CARGO_PKG_VERSION"),

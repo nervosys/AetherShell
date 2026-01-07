@@ -1,10 +1,10 @@
-// Example: Complete Integration - AI Backends + MCP Servers
-// Demonstrates using both systems together for intelligent agents
+# Example: Complete Integration - AI Backends + MCP Servers
+# Demonstrates using both systems together for intelligent agents
 
 print("=== Complete AI + MCP Integration ===")
 print("")
 
-// Part 1: Detect AI Backends
+# Part 1: Detect AI Backends
 print("Part 1: AI Backend Detection")
 print("─────────────────────────────")
 let ai_backends = ai_backends()
@@ -14,19 +14,19 @@ print("Available AI backends: " + len(ai_backends))
 print("Auto-selected: " + selected_ai)
 print("")
 
-// Show AI backend details
+# Show AI backend details
 print("Detected backends:")
 ai_backends | foreach(fn(b) => print("  - " + b.name + " (" + b.provider + ")"))
 print("")
 
-// Part 2: Detect MCP Servers
+# Part 2: Detect MCP Servers
 print("Part 2: MCP Server Detection")
 print("─────────────────────────────")
 let mcp_servers = mcp_servers()
 print("Available MCP servers: " + len(mcp_servers))
 print("")
 
-// Part 3: Integration Patterns
+# Part 3: Integration Patterns
 print("Part 3: Integration Patterns")
 print("─────────────────────────────")
 print("")
@@ -55,7 +55,7 @@ print("  let git = mcp_detect(\"http://localhost:3002\")")
 print("  agent(\"Code reviewer\", ai_detect(), fs.tools + git.tools)")
 print("")
 
-// Part 4: Status Summary
+# Part 4: Status Summary
 print("Part 4: Status Summary")
 print("─────────────────────────────")
 print("")

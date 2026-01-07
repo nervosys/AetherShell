@@ -1,10 +1,10 @@
-// Example 14: AI Backends + MCP Server Integration
-// Demonstrates using auto-detected AI backends with MCP servers for agent tool use
+# Example 14: AI Backends + MCP Server Integration
+# Demonstrates using auto-detected AI backends with MCP servers for agent tool use
 
 print("=== AI + MCP Integration Demo ===")
 print("")
 
-// Part 1: Detect AI Backends
+# Part 1: Detect AI Backends
 print("1. AI Backend Detection:")
 let backends = ai_backends()
 let selected_backend = ai_detect()
@@ -12,13 +12,13 @@ print("   Available backends: " + len(backends))
 print("   Auto-selected: " + selected_backend)
 print("")
 
-// Part 2: Detect MCP Servers  
+# Part 2: Detect MCP Servers  
 print("2. MCP Server Detection:")
 let mcp_servers = mcp_servers()
 print("   Available MCP servers: " + len(mcp_servers))
 print("")
 
-// Part 3: Show what's available
+# Part 3: Show what's available
 print("3. Integration Capabilities:")
 print("")
 print("   AI Backends: Ready")
@@ -26,7 +26,7 @@ print("   MCP Servers: Detection ready")
 print("   Common MCP ports: 3001-3005, 8080-8081")
 print("")
 
-// Part 4: Usage Examples
+# Part 4: Usage Examples
 print("4. Usage Patterns:")
 print("")
 print("   A. Simple AI query with auto-detected backend:")
@@ -58,7 +58,7 @@ print("        {id: \"cloud\", model: \"openai:gpt-4o\"}")
 print("      ]")
 print("")
 
-// Part 5: Getting Started
+# Part 5: Getting Started
 print("5. Getting Started:")
 print("")
 print("   Step 1: Start an MCP server")

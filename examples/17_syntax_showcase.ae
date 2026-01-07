@@ -1,9 +1,9 @@
-// AetherShell - Simplified Syntax Showcase
-// Now with clean, simple variable declarations!
+# AetherShell - Simplified Syntax Showcase
+# Now with clean, simple variable declarations!
 
-// ============================================
-// VARIABLES - Simple and Clean!
-// ============================================
+# ============================================
+# VARIABLES - Simple and Clean!
+# ============================================
 
 name = "AetherShell"
 version = "0.1.0"
@@ -12,9 +12,9 @@ author = "nervosys"
 print("Welcome to ${name} v${version}")
 print("Created by ${author}")
 
-// ============================================
-// COLLECTIONS - Arrays and Records
-// ============================================
+# ============================================
+# COLLECTIONS - Arrays and Records
+# ============================================
 
 numbers = [1, 2, 3, 4, 5]
 user = {
@@ -26,9 +26,9 @@ user = {
 print("\nNumbers: ${numbers}")
 print("User: ${user}")
 
-// ============================================
-// FUNCTIONS - First-class values
-// ============================================
+# ============================================
+# FUNCTIONS - First-class values
+# ============================================
 
 double = fn(x) => x * 2
 add = fn(a, b) => a + b
@@ -42,9 +42,9 @@ print("\nDouble 21 = ${result}")
 print("10 + 32 = ${sum}")
 print(greeting)
 
-// ============================================
-// PIPELINES - Functional composition
-// ============================================
+# ============================================
+# PIPELINES - Functional composition
+# ============================================
 
 print("\nPipeline example:")
 squared_sum = numbers 
@@ -53,9 +53,9 @@ squared_sum = numbers
 
 print("Sum of squares: ${squared_sum}")
 
-// ============================================
-// HIGHER-ORDER FUNCTIONS
-// ============================================
+# ============================================
+# HIGHER-ORDER FUNCTIONS
+# ============================================
 
 multiply_by = fn(n) => fn(x) => x * n
 triple = multiply_by(3)
@@ -65,9 +65,9 @@ print("\nHigher-order functions:")
 print("Triple 5 = ${triple(5)}")
 print("Quadruple 5 = ${quadruple(5)}")
 
-// ============================================
-// STRING INTERPOLATION
-// ============================================
+# ============================================
+# STRING INTERPOLATION
+# ============================================
 
 x = 10
 y = 20
@@ -75,9 +75,9 @@ print("\nString interpolation:")
 print("${x} + ${y} = ${x + y}")
 print("${x} * ${y} = ${x * y}")
 
-// ============================================
-// COMPLEX TYPES
-// ============================================
+# ============================================
+# COMPLEX TYPES
+# ============================================
 
 employees = [
   {name: "Alice", salary: 75000, dept: "Engineering"},
@@ -87,8 +87,8 @@ employees = [
 
 print("\nEmployee data loaded: ${employees}")
 
-// ============================================
-// That's it! Clean, simple, powerful.
-// ============================================
+# ============================================
+# That's it! Clean, simple, powerful.
+# ============================================
 
 print("\n✅ AetherShell: Typed. Functional. AI-Native.")

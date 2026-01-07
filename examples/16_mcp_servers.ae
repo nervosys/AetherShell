@@ -1,10 +1,10 @@
-//!/usr/bin/env ae
-// MCP Server Concepts
+#!/usr/bin/env ae
+# MCP Server Concepts
 
 print("🔧 MCP Server Integration")
 print("=" * 60)
 
-// Filesystem MCP Server
+# Filesystem MCP Server
 print("\n📁 Example 1: Filesystem MCP Server")
 print("-" * 60)
 fs_config = {
@@ -17,7 +17,7 @@ print("Server: ${fs_config.name}")
 print("Tools: ${len(fs_config.tools)}")
 fs_config.tools | each(fn(t) => print("  • ${t}"))
 
-// Git MCP Server
+# Git MCP Server
 print("\n🔀 Example 2: Git MCP Server")
 print("-" * 60)
 git_config = {
@@ -30,7 +30,7 @@ print("Server: ${git_config.name}")
 print("Operations: ${len(git_config.operations)}")
 print("Safe mode: ${git_config.safe_mode}")
 
-// Cloud MCP Server
+# Cloud MCP Server
 print("\n☁️ Example 3: AWS MCP Server")
 print("-" * 60)
 aws_config = {
@@ -42,7 +42,7 @@ aws_config = {
 print("Provider: ${aws_config.provider}")
 print("Services: ${len(aws_config.services)}")
 
-// Docker MCP Server
+# Docker MCP Server
 print("\n🐳 Example 4: Docker MCP Server")
 print("-" * 60)
 docker_config = {
@@ -53,7 +53,7 @@ docker_config = {
 print("Server: ${docker_config.name}")
 print("Operations: ${len(docker_config.operations)}")
 
-// Database MCP Server
+# Database MCP Server
 print("\n🗄️ Example 5: Database MCP Server")
 print("-" * 60)
 db_config = {
@@ -67,7 +67,7 @@ print("Database: ${db_config.name}")
 print("Read-only: ${db_config.read_only}")
 print("Timeout: ${db_config.query_timeout}s")
 
-// Multi-server agent
+# Multi-server agent
 print("\n🔗 Example 6: Multi-Server Agent")
 print("-" * 60)
 agent_servers = ["filesystem", "git", "docker", "aws"]

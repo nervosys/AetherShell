@@ -1,10 +1,10 @@
-// Example: Basic MCP Server Detection
-// Demonstrates simple MCP server detection and listing
+# Example: Basic MCP Server Detection
+# Demonstrates simple MCP server detection and listing
 
 print("=== Basic MCP Server Detection ===")
 print("")
 
-// Detect all available MCP servers
+# Detect all available MCP servers
 let servers = mcp_servers()
 
 print("Step 1: Detection")
@@ -12,11 +12,11 @@ print("  Scanned common ports (3001-3005, 8080-8081)")
 print("  Found " + len(servers) + " MCP server(s)")
 print("")
 
-// Show what was found
+# Show what was found
 print("Step 2: Results")
 print("")
 
-// Show detected servers or instructions
+# Show detected servers or instructions
 servers | foreach(fn(s) => print("  - " + s.name + " at " + s.endpoint + " (" + len(s.tools) + " tools)"))
 
 print("")

@@ -1,4 +1,4 @@
-// Test 5: Comparisons
+# Test 5: Comparisons
 
 print("Test 5: Comparisons")
 eq = 5 == 5

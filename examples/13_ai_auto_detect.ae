@@ -1,17 +1,17 @@
-// Example 13: AI Backend Auto-Detection
-// Demonstrates automatic detection and selection of available AI backends
-// Supports: Ollama, vLLM, llama.cpp, TGI, OpenAI
+# Example 13: AI Backend Auto-Detection
+# Demonstrates automatic detection and selection of available AI backends
+# Supports: Ollama, vLLM, llama.cpp, TGI, OpenAI
 
 print("=== AI Backend Auto-Detection ===")
 print("")
 
-// 1. Detect all available backends
+# 1. Detect all available backends
 print("Detecting available AI backends...")
 let backends = ai_backends()
 print("Found " + len(backends) + " backend(s)")
 print("")
 
-// 2. Extract and display backend information
+# 2. Extract and display backend information
 let backend_names = backends | map(fn(b) => b.name)
 print("Backend names:")
 print(backend_names)
@@ -22,19 +22,19 @@ print("Backend endpoints:")
 print(backend_endpoints)
 print("")
 
-// 3. Get model counts for each backend
+# 3. Get model counts for each backend
 let model_counts = backends | map(fn(b) => len(b.models))
 print("Models per backend:")
 print(model_counts)
 print("")
 
-// 4. Auto-select the best available backend
+# 4. Auto-select the best available backend
 print("=== Auto-Selection ===")
 let auto_backend = ai_detect()
 print("Auto-selected backend: " + auto_backend)
 print("")
 
-// 5. Filter backends by provider
+# 5. Filter backends by provider
 print("=== Backend Filtering ===")
 let ollama_filtered = backends | where(fn(b) => b.provider == "Ollama")
 print("Ollama backends: " + len(ollama_filtered))
@@ -43,7 +43,7 @@ let openai_filtered = backends | where(fn(b) => b.provider == "OpenAI")
 print("OpenAI backends: " + len(openai_filtered))
 print("")
 
-// 6. Usage patterns
+# 6. Usage patterns
 print("=== Usage Patterns ===")
 print("")
 print("1. Auto-detect and use:")

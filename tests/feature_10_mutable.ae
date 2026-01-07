@@ -1,4 +1,4 @@
-// Test 10: Mutable variables
+# Test 10: Mutable variables
 
 print("Test 10: Mutable Variables")
 mut counter = 0

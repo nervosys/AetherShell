@@ -1,26 +1,26 @@
-//!/usr/bin/env ae
-// Multimodal AI Concepts
+#!/usr/bin/env ae
+# Multimodal AI Concepts
 
 print("🎨 Multi-Modal AI Concepts")
 print("=" * 50)
 
-// Image analysis structure
+# Image analysis structure
 image_request = {prompt: "Analyze this image", images: ["photo.jpg"]}
 print("\nImage Analysis:")
 print("  Prompt: ${image_request.prompt}")
 print("  Images: ${len(image_request.images)}")
 
-// Audio transcription structure
+# Audio transcription structure
 audio_request = {prompt: "Transcribe audio", audio: ["meeting.mp3"]}
 print("\nAudio Transcription:")
 print("  Audio files: ${len(audio_request.audio)}")
 
-// Video analysis structure
+# Video analysis structure
 video_request = {prompt: "Summarize video", video: ["demo.mp4"]}
 print("\nVideo Analysis:")
 print("  Video files: ${len(video_request.video)}")
 
-// Multi-modal combination
+# Multi-modal combination
 combined = {
   prompt: "Create documentation from materials",
   images: ["screen1.png", "screen2.png"],
@@ -32,7 +32,7 @@ print("  Images: ${len(combined.images)}")
 print("  Audio: ${len(combined.audio)}")
 print("  Video: ${len(combined.video)}")
 
-// Batch processing
+# Batch processing
 photos = ["photo1.jpg", "photo2.jpg", "photo3.jpg"]
 print("\nBatch Processing:")
 print("  Photos to analyze: ${len(photos)}")

@@ -1,4 +1,4 @@
-// Option-like demo + pattern matching
+# Option-like demo + pattern matching
 value = Some(42)
 
 match value {
