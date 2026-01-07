@@ -46,6 +46,13 @@ AetherShell is the **ONLY shell in the world** that combines:
    - First-class functions, pattern matching, lazy evaluation
    - Type safety prevents entire classes of shell scripting errors
 
+6. **🧠 Neural Networks & Evolutionary Learning** 🆕
+   - In-shell neural network creation, training, and mutation
+   - Consensus networks for multi-agent distributed decision making
+   - Evolutionary algorithms with population-based optimization
+   - NEAT topology evolution and coevolution for protocol learning
+   - **Train AI swarms to develop their own communication protocols!**
+
 ### ✨ **Revolutionary Features**
 
 ### 🧠 **AI Integration Beyond Competition**
@@ -57,6 +64,8 @@ AetherShell is the **ONLY shell in the world** that combines:
 * **Smart Agents**: Deploy specialized AI agents with tool access and reasoning
 * **Protocol Support**: MCP, A2A, and NANDA for advanced agent coordination
 * **🆕 Model Management**: OpenRouter-style API server with local model management and format conversion
+* **🆕 Neural Networks**: Create and evolve neural networks directly in the shell
+* **🆕 Evolutionary Learning**: Population-based optimization and coevolution
 
 ### 🎨 **Beautiful Terminal UI (TUI)**
 
@@ -1104,12 +1113,13 @@ print("Result: ${result}")
 
 ### Test Coverage
 
-- **173+ tests**: Comprehensive test suite
+- **450+ tests**: Comprehensive test suite
 - **Unit tests**: Individual component validation
 - **Integration tests**: End-to-end workflow testing
 - **TUI tests**: Interactive interface validation
 - **AI tests**: Multimodal backend testing
 - **OS Tools tests**: Cross-platform command database validation
+- **Neural/Evolution tests**: ML primitive validation
 
 ---
 
@@ -1221,18 +1231,24 @@ export OPENAI_API_KEY="sk-..."  # Insecure!
 
 ## �🛣️ Roadmap
 
-### Recently Completed ✅
+### Recently Completed ✅ (January 2026)
 
+- **✅ Neural Network Primitives**: In-shell neural network creation, forward pass, mutation, crossover
+- **✅ Consensus Networks**: Multi-agent distributed decision making with message passing
+- **✅ Evolutionary Algorithms**: Population-based optimization with configurable strategies
+- **✅ Coevolution**: Multi-population coevolution for protocol learning
+- **✅ NEAT Support**: Topology-evolving neuroevolution
 - **✅ AI Model Management**: OpenRouter-style API server with multi-provider support
 - **✅ Local Model Storage**: XDG-compliant storage with format conversion
 - **✅ Model Downloads**: Hugging Face integration and CLI management tools
 
-### Near-term (Q4 2025)
+### Near-term (Q1 2026)
 
 - **Streaming AI responses**: Real-time token streaming in TUI and API
 - **Plugin system**: Extensible architecture for custom backends  
 - **Advanced media**: Video streaming and real-time audio processing
 - **Mobile TUI**: Touch-friendly interface adaptations
+- **Reinforcement Learning**: Q-learning and policy gradient methods
 
 ### Long-term (2026+)
 
