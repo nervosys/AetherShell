@@ -117,8 +117,15 @@ pub struct AppConfig {
 
 impl Default for AppConfig {
     fn default() -> Self {
+        // Use configured AI provider or show warning
+        let default_model = std::env::var("AETHER_AI").unwrap_or_else(|_| {
+            eprintln!("Warning: AETHER_AI not set. AI features will not work.");
+            eprintln!("Set AETHER_AI=openai|ollama|compat to enable AI.");
+            String::new()
+        });
+
         Self {
-            default_model: "stub".to_string(),
+            default_model: default_model.clone(),
             max_messages: 1000,
             auto_scroll: true,
             show_timestamps: true,
@@ -139,6 +146,9 @@ impl App {
         let mut media_list_state = ListState::default();
         media_list_state.select(Some(0));
 
+        // Get current model from env
+        let current_model = std::env::var("AETHER_AI").unwrap_or_default();
+
         Ok(App {
             should_quit: false,
             mode: AppMode::Chat,
@@ -154,7 +164,7 @@ impl App {
             env: Env::new(),
             config: AppConfig::default(),
             selected_media: Vec::new(),
-            current_model: "stub".to_string(),
+            current_model,
             search_query: String::new(),
             search_results: Vec::new(),
             search_result_index: 0,
@@ -262,10 +272,24 @@ impl App {
         // Add user message
         self.add_message(MessageRole::User, user_input.clone());
 
+        // Check if AI is configured
+        if self.current_model.is_empty() {
+            self.add_message(
+                MessageRole::Assistant,
+                "⚠️ AI not configured.\n\n\
+                Set environment variables and restart:\n\
+                • OpenAI: $env:AETHER_AI=\"openai\"; $env:OPENAI_API_KEY=\"sk-...\"\n\
+                • Ollama: $env:AETHER_AI=\"ollama\" (run 'ollama serve' first)\n\
+                • Compatible: $env:AETHER_AI=\"compat\"; $env:AETHER_COMPAT_BASE=\"http://...\""
+                    .to_string(),
+            );
+            return Ok(());
+        }
+
         // Process with AI
-        let response = match self.current_model.as_str() {
-            "stub" => ai::stub::complete_sync(&user_input)?,
-            _ => ai::complete_sync_router(&user_input)?,
+        let response = match ai::complete_sync_router(&user_input) {
+            Ok(r) => r,
+            Err(e) => format!("⚠️ AI Error: {}", e),
         };
 
         // Add AI response

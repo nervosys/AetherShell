@@ -182,13 +182,11 @@ fn multimodal_backend_from_model(uri: String) -> Box<dyn MultiModalLlmBackend> {
 // Multi-modal backend implementations
 struct StubMultiModalBackend;
 impl MultiModalLlmBackend for StubMultiModalBackend {
-    fn chat_multimodal(&self, messages: &[MultiModalMessage]) -> Result<String> {
-        let text = messages
-            .iter()
-            .map(|m| m.to_text())
-            .collect::<Vec<_>>()
-            .join("\n");
-        stub::complete_sync(&text)
+    fn chat_multimodal(&self, _messages: &[MultiModalMessage]) -> Result<String> {
+        Err(anyhow!(
+            "No AI provider configured for multi-modal queries.\n\
+            Set AETHER_AI=openai and OPENAI_API_KEY for vision/audio support."
+        ))
     }
 }
 
@@ -342,35 +340,64 @@ impl MultiModalLlmBackend for OpenAiCompatMultiModalBackend {
 
 // ===================== Provider Router (simple 1-shot completion) =====================
 
-/// Route by `AETHER_AI` to one of: stub | openai | ollama | openai_compat | tgi
+/// Route by `AETHER_AI` to one of: openai | ollama | openai_compat | tgi
+/// Returns an error with configuration instructions if no provider is set.
 pub fn complete_sync_router(prompt: &str) -> Result<String> {
-    match std::env::var("AETHER_AI")
-        .unwrap_or_else(|_| "stub".into())
-        .as_str()
-    {
+    let provider = std::env::var("AETHER_AI").unwrap_or_default();
+
+    match provider.as_str() {
         "openai" => openai::complete_sync(prompt),
         "ollama" => ollama::complete_sync(prompt),
         "openai_compat" | "compat" => openai_compat::complete_sync(prompt),
         "tgi" => tgi::complete_sync(prompt),
-        _ => stub::complete_sync(prompt),
+        "" => Err(anyhow!(
+            "No AI provider configured.\n\n\
+            To use AI features, set the AETHER_AI environment variable:\n\n\
+            For OpenAI:\n  \
+              $env:AETHER_AI = \"openai\"\n  \
+              $env:OPENAI_API_KEY = \"sk-your-key\"\n\n\
+            For Ollama (local):\n  \
+              $env:AETHER_AI = \"ollama\"\n  \
+              # Ensure 'ollama serve' is running\n\n\
+            For OpenAI-compatible servers (vLLM, llama.cpp):\n  \
+              $env:AETHER_AI = \"compat\"\n  \
+              $env:AETHER_COMPAT_BASE = \"http://localhost:8000/v1\"\n\n\
+            Then restart ae."
+        )),
+        other => Err(anyhow!(
+            "Unknown AI provider: '{}'\n\n\
+            Supported providers: openai, ollama, compat, tgi\n\n\
+            Example: $env:AETHER_AI = \"openai\"",
+            other
+        )),
     }
 }
 
 // ---------------------- Backends -----------------------
 
+/// Stub backend - returns error with configuration instructions
 pub mod stub {
-    use anyhow::Result;
-    pub fn complete_sync(prompt: &str) -> Result<String> {
-        let t = prompt.trim();
-        let preview = if t.len() > 400 {
-            format!("{}…", &t[..400])
-        } else {
-            t.to_string()
-        };
-        Ok(format!(
-            "[ai:stub]\nsummary: ok\ntext: {}",
-            preview.replace('\n', " ")
+    use anyhow::{anyhow, Result};
+
+    pub fn complete_sync(_prompt: &str) -> Result<String> {
+        Err(anyhow!(
+            "No AI provider configured.\n\n\
+            Set AETHER_AI environment variable:\n\
+            - openai: $env:AETHER_AI=\"openai\"; $env:OPENAI_API_KEY=\"sk-...\"\n\
+            - ollama: $env:AETHER_AI=\"ollama\" (requires 'ollama serve')\n\
+            - compat: $env:AETHER_AI=\"compat\"; $env:AETHER_COMPAT_BASE=\"http://...\""
         ))
+    }
+
+    /// Check if AI is configured (for graceful warnings)
+    pub fn is_configured() -> bool {
+        let provider = std::env::var("AETHER_AI").unwrap_or_default();
+        !provider.is_empty()
+    }
+
+    /// Get configuration warning message
+    pub fn config_warning() -> &'static str {
+        "AI not configured. Set AETHER_AI=openai|ollama|compat and restart."
     }
 }
 
@@ -613,9 +640,11 @@ pub trait LlmBackend: Send + Sync {
 
 struct StubBackend;
 impl LlmBackend for StubBackend {
-    fn chat(&self, messages: &[ChatMessage]) -> Result<String> {
-        let last = messages.last().map(|m| m.content.as_str()).unwrap_or("");
-        stub::complete_sync(last)
+    fn chat(&self, _messages: &[ChatMessage]) -> Result<String> {
+        Err(anyhow!(
+            "No AI provider configured.\n\
+            Set AETHER_AI environment variable to: openai, ollama, or compat"
+        ))
     }
 }
 struct OpenAiBackend;
