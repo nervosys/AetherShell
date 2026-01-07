@@ -6,6 +6,46 @@
 
 ---
 
+## ⚡ Quick Start
+
+```bash
+# Install
+git clone https://github.com/nervosys/AetherShell && cd AetherShell
+cargo install --path . --bin ae
+
+# Launch interactive TUI
+ae --tui
+
+# Or classic REPL
+ae
+```
+
+```ae
+# Typed pipelines - not text streams!
+[1,2,3,4,5] | map(fn(x) => x * 2) | reduce(fn(a,b) => a + b, 0)
+# => 30
+
+# AI with vision
+ai("Describe this image", {images: ["photo.jpg"]})
+
+# Multi-agent swarm
+swarm([
+  {id: "researcher", model: "openai:gpt-4", role: "Research"},
+  {id: "writer", model: "anthropic:claude-3", role: "Write"}
+], "router")
+
+# Neural network evolution
+let brain = nn_create("agent", [4, 8, 2])
+let pop = population(50, "nn", evolution_config({layer_sizes: [4, 8, 2]}))
+let trained = evolve(pop, fitness_fn, 100)
+```
+
+**Set your API key:** `export OPENAI_API_KEY="sk-..."` or `ae ai keys store openai sk-...`
+
+📖 **[Full Documentation](#-quick-start-guide)** | 🎮 **[TUI Guide](docs/TUI_GUIDE.md)** | 📚 **[Examples](examples/)**
+
+---
+
 ## 🎯 **What Makes AetherShell Unique?**
 
 AetherShell is the **ONLY shell in the world** that combines:
