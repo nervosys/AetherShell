@@ -2705,14 +2705,12 @@ fn bi_ai(args: Vec<Value>, input: Option<Value>, _env: &mut Env) -> Result<Value
             content: content_parts,
         };
 
-        let response = crate::ai::complete_multimodal_sync(&[message])
-            .context("ai: multi-modal completion failed")?;
+        let response = crate::ai::complete_multimodal_sync(&[message])?;
 
         Ok(Value::Str(response))
     } else {
         // Simple text-only request
-        let response =
-            crate::ai::complete_sync_router(&validated_prompt).context("ai: completion failed")?;
+        let response = crate::ai::complete_sync_router(&validated_prompt)?;
 
         Ok(Value::Str(response))
     }
@@ -3101,14 +3099,15 @@ fn bi_ai_backends(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 /// ai_detect() - Automatically detect and return the best available backend
 /// Returns: String with the model URI (e.g., "ollama:llama3" or "vllm:model")
+/// Returns empty string if no backend is available.
 ///
 /// Example:
 ///   let backend = ai_detect()
-///   ai(backend, "Hello!")
+///   if backend != "" { ai(backend, "Hello!") }
 fn bi_ai_detect(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     match crate::ai::auto_select_backend() {
         Some(uri) => Ok(Value::Str(uri)),
-        None => Ok(Value::Str("stub".to_string())),
+        None => Ok(Value::Str(String::new())),
     }
 }
 
