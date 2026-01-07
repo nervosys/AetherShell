@@ -46,6 +46,10 @@
                 {
                     "name": "comment.line.number-sign.aethershell",
                     "match": "#.*$"
+                },
+                {
+                    "name": "comment.line.double-slash.aethershell",
+                    "match": "//.*$"
                 }
             ]
         },
