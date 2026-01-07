@@ -22,6 +22,12 @@
             "include": "#builtins"
         },
         {
+            "include": "#function-calls"
+        },
+        {
+            "include": "#member-access"
+        },
+        {
             "include": "#lambdas"
         },
         {
@@ -204,6 +210,53 @@
                 }
             ]
         },
+        "function-calls": {
+            "patterns": [
+                {
+                    "comment": "Function call: identifier followed by (",
+                    "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*(\\()",
+                    "captures": {
+                        "1": {
+                            "name": "entity.name.function.aethershell"
+                        },
+                        "2": {
+                            "name": "punctuation.bracket.round.aethershell"
+                        }
+                    }
+                }
+            ]
+        },
+        "member-access": {
+            "patterns": [
+                {
+                    "comment": "Method call: .identifier(",
+                    "match": "(\\.)([a-zA-Z_][a-zA-Z0-9_]*)\\s*(\\()",
+                    "captures": {
+                        "1": {
+                            "name": "keyword.operator.accessor.aethershell"
+                        },
+                        "2": {
+                            "name": "entity.name.function.member.aethershell"
+                        },
+                        "3": {
+                            "name": "punctuation.bracket.round.aethershell"
+                        }
+                    }
+                },
+                {
+                    "comment": "Property access: .identifier (not followed by paren)",
+                    "match": "(\\.)([a-zA-Z_][a-zA-Z0-9_]*)(?!\\s*\\()",
+                    "captures": {
+                        "1": {
+                            "name": "keyword.operator.accessor.aethershell"
+                        },
+                        "2": {
+                            "name": "variable.other.property.aethershell"
+                        }
+                    }
+                }
+            ]
+        },
         "lambdas": {
             "patterns": [
                 {
@@ -261,6 +314,28 @@
         "variables": {
             "patterns": [
                 {
+                    "comment": "Function definition: let name = fn(...)",
+                    "match": "\\b(let)\\s+(mut\\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\\s*(=)\\s*(fn)\\b",
+                    "captures": {
+                        "1": {
+                            "name": "keyword.control.aethershell"
+                        },
+                        "2": {
+                            "name": "storage.modifier.mutable.aethershell"
+                        },
+                        "3": {
+                            "name": "entity.name.function.definition.aethershell"
+                        },
+                        "4": {
+                            "name": "keyword.operator.assignment.aethershell"
+                        },
+                        "5": {
+                            "name": "keyword.other.fn.aethershell"
+                        }
+                    }
+                },
+                {
+                    "comment": "Variable declaration",
                     "name": "meta.declaration.variable.aethershell",
                     "match": "\\b(let)\\s+(mut\\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\\s*=",
                     "captures": {
