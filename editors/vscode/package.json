@@ -1,0 +1,126 @@
+{
+    "name": "aethershell",
+    "displayName": "AetherShell",
+    "description": "Language support for AetherShell - a typed, functional shell with AI capabilities",
+    "version": "0.1.0",
+    "publisher": "nervosys",
+    "license": "MIT",
+    "engines": {
+        "vscode": "^1.85.0"
+    },
+    "categories": [
+        "Programming Languages",
+        "Linters",
+        "Formatters",
+        "Snippets"
+    ],
+    "keywords": [
+        "shell",
+        "aethershell",
+        "functional",
+        "ai",
+        "typed"
+    ],
+    "activationEvents": [
+        "onLanguage:aethershell"
+    ],
+    "main": "./out/extension.js",
+    "contributes": {
+        "languages": [
+            {
+                "id": "aethershell",
+                "aliases": [
+                    "AetherShell",
+                    "aethershell",
+                    "ae"
+                ],
+                "extensions": [
+                    ".ae"
+                ],
+                "configuration": "./language-configuration.json",
+                "icon": {
+                    "light": "./icons/ae-light.png",
+                    "dark": "./icons/ae-dark.png"
+                }
+            }
+        ],
+        "grammars": [
+            {
+                "language": "aethershell",
+                "scopeName": "source.aethershell",
+                "path": "./syntaxes/aethershell.tmLanguage.json"
+            }
+        ],
+        "configuration": {
+            "title": "AetherShell",
+            "properties": {
+                "aethershell.lsp.path": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Path to the AetherShell language server binary. If empty, the extension will look for 'aethershell-lsp' in PATH."
+                },
+                "aethershell.lsp.enabled": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Enable/disable the AetherShell language server."
+                },
+                "aethershell.trace.server": {
+                    "type": "string",
+                    "enum": [
+                        "off",
+                        "messages",
+                        "verbose"
+                    ],
+                    "default": "off",
+                    "description": "Traces the communication between VS Code and the language server."
+                }
+            }
+        },
+        "commands": [
+            {
+                "command": "aethershell.restartServer",
+                "title": "Restart Language Server",
+                "category": "AetherShell"
+            },
+            {
+                "command": "aethershell.showOutput",
+                "title": "Show Output Channel",
+                "category": "AetherShell"
+            }
+        ],
+        "snippets": [
+            {
+                "language": "aethershell",
+                "path": "./snippets/aethershell.json"
+            }
+        ]
+    },
+    "scripts": {
+        "vscode:prepublish": "npm run compile",
+        "compile": "tsc -p ./",
+        "watch": "tsc -watch -p ./",
+        "pretest": "npm run compile",
+        "lint": "eslint src --ext ts",
+        "package": "vsce package"
+    },
+    "dependencies": {
+        "vscode-languageclient": "^9.0.1"
+    },
+    "devDependencies": {
+        "@types/node": "^20.10.0",
+        "@types/vscode": "^1.85.0",
+        "@typescript-eslint/eslint-plugin": "^6.13.0",
+        "@typescript-eslint/parser": "^6.13.0",
+        "eslint": "^8.55.0",
+        "typescript": "^5.3.2",
+        "@vscode/vsce": "^2.22.0"
+    },
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/nervosys/AetherShell"
+    },
+    "bugs": {
+        "url": "https://github.com/nervosys/AetherShell/issues"
+    },
+    "homepage": "https://github.com/nervosys/AetherShell#readme"
+}

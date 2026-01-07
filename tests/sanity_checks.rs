@@ -16,7 +16,7 @@ fn sanity_array_literal() {
 
 #[test]
 fn sanity_map_reduce() {
-    let v = eval_src("[1,2,3,4] | map fn(x)=> x*x | reduce fn(a,b)=> a+b 0");
+    let v = eval_src("[1,2,3,4] | map(fn(x) => x*x) | reduce(fn(a,b) => a+b, 0)");
     match v {
         Value::Int(n) => assert_eq!(n, 30),
         other => panic!("expected Int(30), got {:?}", other),
@@ -25,7 +25,7 @@ fn sanity_map_reduce() {
 
 #[test]
 fn sanity_where_take() {
-    let v = eval_src("[5,4,3,2,1] | where fn(x)=> x>2 | take 2");
+    let v = eval_src("[5,4,3,2,1] | where(fn(x) => x>2) | take(2)");
     match v {
         Value::Array(a) => assert_eq!(a.len(), 2),
         other => panic!("expected Array, got {:?}", other),

@@ -1,0 +1,163 @@
+{
+    "Let Variable": {
+        "prefix": "let",
+        "body": [
+            "let ${1:name} = ${2:value}"
+        ],
+        "description": "Declare an immutable variable"
+    },
+    "Let Mutable Variable": {
+        "prefix": "letmut",
+        "body": [
+            "let mut ${1:name} = ${2:value}"
+        ],
+        "description": "Declare a mutable variable"
+    },
+    "Lambda Function": {
+        "prefix": "fn",
+        "body": [
+            "fn(${1:x}) => ${2:expression}"
+        ],
+        "description": "Create a lambda function"
+    },
+    "Lambda Multi-param": {
+        "prefix": "fn2",
+        "body": [
+            "fn(${1:a}, ${2:b}) => ${3:expression}"
+        ],
+        "description": "Create a lambda with two parameters"
+    },
+    "Map Pipeline": {
+        "prefix": "map",
+        "body": [
+            "| map(fn(${1:x}) => ${2:x})"
+        ],
+        "description": "Map over array elements"
+    },
+    "Where Pipeline": {
+        "prefix": "where",
+        "body": [
+            "| where(fn(${1:x}) => ${2:condition})"
+        ],
+        "description": "Filter array elements"
+    },
+    "Reduce Pipeline": {
+        "prefix": "reduce",
+        "body": [
+            "| reduce(fn(${1:acc}, ${2:x}) => ${3:acc + x}, ${4:0})"
+        ],
+        "description": "Reduce array to single value"
+    },
+    "Match Expression": {
+        "prefix": "match",
+        "body": [
+            "match ${1:value} {",
+            "    ${2:pattern} => ${3:result},",
+            "    _ => ${4:default}",
+            "}"
+        ],
+        "description": "Pattern matching expression"
+    },
+    "Match with Guard": {
+        "prefix": "matchif",
+        "body": [
+            "match ${1:value} {",
+            "    ${2:n} if ${3:n > 0} => ${4:\"positive\"},",
+            "    ${5:n} if ${6:n < 0} => ${7:\"negative\"},",
+            "    _ => ${8:\"zero\"}",
+            "}"
+        ],
+        "description": "Pattern matching with guards"
+    },
+    "Record": {
+        "prefix": "record",
+        "body": [
+            "{",
+            "    ${1:key}: ${2:value}",
+            "}"
+        ],
+        "description": "Create a record literal"
+    },
+    "Array": {
+        "prefix": "arr",
+        "body": [
+            "[${1:elements}]"
+        ],
+        "description": "Create an array literal"
+    },
+    "HTTP GET": {
+        "prefix": "httpget",
+        "body": [
+            "http_get(\"${1:https://api.example.com}\")"
+        ],
+        "description": "Make an HTTP GET request"
+    },
+    "AI Query": {
+        "prefix": "ai",
+        "body": [
+            "ai(\"${1:prompt}\")"
+        ],
+        "description": "Query the AI model"
+    },
+    "AI Agent": {
+        "prefix": "agent",
+        "body": [
+            "agent(\"${1:goal}\")"
+        ],
+        "description": "Create an AI agent"
+    },
+    "Agent Swarm": {
+        "prefix": "swarm",
+        "body": [
+            "swarm({",
+            "    agents: [",
+            "        {id: \"${1:agent1}\", role: \"${2:role1}\"},",
+            "        {id: \"${3:agent2}\", role: \"${4:role2}\"}",
+            "    ]",
+            "})"
+        ],
+        "description": "Create a multi-agent swarm"
+    },
+    "List Files Pipeline": {
+        "prefix": "lsfilter",
+        "body": [
+            "ls \"${1:.}\" | where(fn(f) => ${2:f.size > 1000}) | map(fn(f) => f.name)"
+        ],
+        "description": "List and filter files"
+    },
+    "Read and Process File": {
+        "prefix": "catgrep",
+        "body": [
+            "cat(\"${1:file.txt}\") | grep(\"${2:pattern}\")"
+        ],
+        "description": "Read file and search for pattern"
+    },
+    "Sum Array": {
+        "prefix": "sum",
+        "body": [
+            "${1:array} | reduce(fn(acc, x) => acc + x, 0)"
+        ],
+        "description": "Sum all elements in array"
+    },
+    "ForEach": {
+        "prefix": "foreach",
+        "body": [
+            "| foreach(fn(${1:x}) => ${2:print(x)})"
+        ],
+        "description": "Execute function for each element"
+    },
+    "Range": {
+        "prefix": "range",
+        "body": [
+            "range(${1:0}, ${2:10})"
+        ],
+        "description": "Create a range of integers"
+    },
+    "MCP Call": {
+        "prefix": "mcp",
+        "body": [
+            "mcp_call(\"${1:server}\", \"${2:tool}\", ${3:{}})"
+        ],
+        "description": "Call an MCP server tool"
+    }
+}
