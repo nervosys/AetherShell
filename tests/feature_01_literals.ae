@@ -1,5 +1,5 @@
-// Individual feature tests - one per file
-// Test 1: Literals
+# Individual feature tests - one per file
+# Test 1: Literals
 
 print("Test 1: Literals")
 x = 42

@@ -46,11 +46,12 @@ Aether (`au`) is a next‑gen shell & scripting language:
 
 ### 2.0 Comments
 
-* Line comments use `//` (C/JavaScript style):
+* Line comments use `#` (shell style, preferred) or `//` (C-style, for compatibility):
 
 ```ae
-// This is a comment
-print("hello")  // Inline comments work too
+# This is a comment (preferred style)
+print("hello")  # Inline comments work too
+// C-style comments also work
 ```
 
 * Comments are skipped during parsing and ignored at runtime.
@@ -143,7 +144,7 @@ agent "list big files" ["ls","!"] 3 true
 
 ## 3. Grammar (Excerpt)
 
-```text
+```ae
 program    := stmt* ;
 stmt       := let_stmt | expr ;
 let_stmt   := IDENT ":=" expr | "let" ("mut")? IDENT (":" type)? "=" expr ;

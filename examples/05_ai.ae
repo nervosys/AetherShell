@@ -1,7 +1,7 @@
-// Read text from a file
+# Read text from a file
 content = read_text("README.md")
 print("File loaded successfully!")
 print(type_of(content))
 
-// Note: The 'ai' builtin for direct prompts is not yet implemented
-// For AI functionality, use the 'agent' builtin or ai-suggest/ai-explain commands
+# Note: The 'ai' builtin for direct prompts is not yet implemented
+# For AI functionality, use the 'agent' builtin or ai-suggest/ai-explain commands

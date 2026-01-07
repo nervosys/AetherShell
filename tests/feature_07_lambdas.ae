@@ -1,4 +1,4 @@
-// Test 7: Lambdas
+# Test 7: Lambdas
 
 print("Test 7: Lambdas")
 identity = fn(x) => x

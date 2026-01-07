@@ -1,12 +1,12 @@
-// Dot Notation Showcase
-// Demonstrates field access with dot notation
+# Dot Notation Showcase
+# Demonstrates field access with dot notation
 
 print("╔════════════════════════════════════════════╗")
 print("║      Dot Notation Feature Showcase        ║")
 print("╚════════════════════════════════════════════╝")
 print("")
 
-// ═══ Simple Record Access ═══
+# ═══ Simple Record Access ═══
 print("🔹 Simple Field Access:")
 person = {
   name: "Alice",
@@ -18,7 +18,7 @@ print("  Age: " + person.age)
 print("  Email: " + person.email)
 print("")
 
-// ═══ Nested Records ═══
+# ═══ Nested Records ═══
 print("🔹 Nested Records:")
 company = {
   name: "TechCorp",
@@ -35,14 +35,14 @@ print("  State: " + company.location.state)
 print("  Employees: " + company.employees)
 print("")
 
-// ═══ Records in Arrays ═══
+# ═══ Records in Arrays ═══
 print("🔹 Accessing Records in Arrays:")
 users = [
   {name: "Bob", score: 95},
   {name: "Carol", score: 87},
   {name: "Dave", score: 92}
 ]
-// Extract fields from array elements
+# Extract fields from array elements
 user_names = users | map(fn(u) => u.name)
 user_scores = users | map(fn(u) => u.score)
 print("  Names: ")
@@ -51,7 +51,7 @@ print("  Scores: ")
 print(user_scores)
 print("")
 
-// ═══ Dot Notation in Pipelines ═══
+# ═══ Dot Notation in Pipelines ═══
 print("🔹 Dot Notation in Pipelines:")
 products = [
   {name: "Laptop", price: 999, inStock: true},
@@ -65,14 +65,14 @@ names = available | map(fn(p) => p.name)
 print(names)
 print("")
 
-// ═══ Computing with Fields ═══
+# ═══ Computing with Fields ═══
 print("🔹 Computing with Fields:")
 prices = products | map(fn(p) => p.price)
 total = prices | reduce(fn(a,b) => a + b, 0)
 print("  Total value: $" + total)
 print("")
 
-// ═══ Type Introspection ═══
+# ═══ Type Introspection ═══
 print("🔹 Type Introspection with Fields:")
 data = {
   numbers: [1, 2, 3],
@@ -86,14 +86,14 @@ print("  Length of numbers: " + len(data.numbers))
 print("  Length of text: " + len(data.text))
 print("")
 
-// ═══ File System Example ═══
+# ═══ File System Example ═══
 print("🔹 Real-World Example - File Listing:")
 files = ls(".")
 regular_files = files | where(fn(f) => f.is_dir == false)
 file_count = len(regular_files)
 print("  Total files: " + file_count)
 
-// Get file names using dot notation in map
+# Get file names using dot notation in map
 file_names = regular_files | map(fn(f) => f.name) | take(5)
 print("  First 5 files:")
 print(file_names)

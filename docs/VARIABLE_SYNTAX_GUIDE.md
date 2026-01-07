@@ -4,25 +4,25 @@
 
 ### 🌟 Recommended: Simple Assignment
 ```ae
-x = 42              // Immutable Int
-name = "Alice"      // Immutable String  
-items = [1, 2, 3]   // Immutable Array<Int>
+x = 42              # Immutable Int
+name = "Alice"      # Immutable String  
+items = [1, 2, 3]   # Immutable Array<Int>
 ```
 **Use:** Default for all immutable variables
 
 ### 🔧 Mutable Variables
 ```ae
-mut count = 0       // Mutable Int
-mut total = 100     // Also mutable
-let mut score = 50  // Traditional Rust style
+mut count = 0       # Mutable Int
+mut total = 100     # Also mutable
+let mut score = 50  # Traditional Rust style
 ```
 **Use:** When you need to modify variables
 
-### � Explicit Declaration
+### 📝 Explicit Declaration
 ```ae
-let x = 42              // Explicit immutable
-let mut count = 0       // Explicit mutable
-let total: Int = 100    // With type annotation
+let x = 42              # Explicit immutable
+let mut count = 0       # Explicit mutable
+let total: Int = 100    # With type annotation
 ```
 **Use:** When you need type annotations or prefer explicit declarations
 
@@ -39,26 +39,26 @@ let total: Int = 100    // With type annotation
 
 ### Variables with Type Inference
 ```ae
-// Types inferred automatically
-count = 42                    // Int
-price = 99.99                 // Float
-name = "Product"              // String
-active = true                 // Bool
-tags = ["new", "sale"]        // Array<String>
-user = {name: "Bob", age: 30} // Record
+# Types inferred automatically
+count = 42                    # Int
+price = 99.99                 # Float
+name = "Product"              # String
+active = true                 # Bool
+tags = ["new", "sale"]        # Array<String>
+user = {name: "Bob", age: 30} # Record
 ```
 
 ### Mutable Variables
 ```ae
-// Recommended: mut with =
+# Recommended: mut with =
 mut counter = 0
 counter = counter + 1
 
-// Also works: mut with :=
+# Also works: mut with :=
 mut total := 100
 total = total - 25
 
-// Traditional: let mut
+# Traditional: let mut
 let mut score = 0
 score = score + 10
 ```
@@ -88,21 +88,21 @@ greet = fn(name) => "Hello, ${name}!"
 
 ### Complex Types
 ```ae
-// Records
+# Records
 person = {
   name: "Alice",
   age: 30,
   email: "alice@example.com"
 }
 
-// Nested arrays
+# Nested arrays
 matrix = [
   [1, 2, 3],
   [4, 5, 6],
   [7, 8, 9]
 ]
 
-// Higher-order functions
+# Higher-order functions
 operations = [
   fn(x) => x + 1,
   fn(x) => x * 2,
@@ -149,34 +149,34 @@ process = fn(x) => x * 2
 
 **Mixed (all work together):**
 ```ae
-name = "test"         // New style
-let count = 42        // Explicit
-items := [1, 2, 3]    // Old style
-// All three work in same file!
+name = "test"         # New style
+let count = 42        # Explicit
+items := [1, 2, 3]    # Old style
+# All three work in same file!
 ```
 
 ## Type Inference Examples
 
 ```ae
-// Primitives
-x = 42              // Int
-y = 3.14            // Float
-s = "hello"         // String
-b = true            // Bool
+# Primitives
+x = 42              # Int
+y = 3.14            # Float
+s = "hello"         # String
+b = true            # Bool
 
-// Collections
-arr = [1, 2, 3]     // Array<Int>
-rec = {a: 1}        // Record<a: Int>
+# Collections
+arr = [1, 2, 3]     # Array<Int>
+rec = {a: 1}        # Record<a: Int>
 
-// Functions
-f = fn(x) => x * 2  // Lambda: Int -> Int
-g = fn(x, y) => x + y  // Lambda: Int, Int -> Int
+# Functions
+f = fn(x) => x * 2  # Lambda: Int -> Int
+g = fn(x, y) => x + y  # Lambda: Int, Int -> Int
 
-// Complex
+# Complex
 users = [
   {name: "Alice", age: 30},
   {name: "Bob", age: 25}
-]  // Array<Record<name: String, age: Int>>
+]  # Array<Record<name: String, age: Int>>
 ```
 
 ## Remember

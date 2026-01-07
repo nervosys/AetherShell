@@ -69,7 +69,7 @@ pub fn plan(goal: &str) -> Result<Plan> {
 
     // Pattern-based task decomposition
     let steps = decompose_goal(&sanitized_goal);
-    
+
     Ok(Plan {
         goal: sanitized_goal,
         steps,
@@ -80,7 +80,7 @@ pub fn plan(goal: &str) -> Result<Plan> {
 fn decompose_goal(goal: &str) -> Vec<Step> {
     let goal_lower = goal.to_lowercase();
     let mut steps = Vec::new();
-    
+
     // File operations
     if goal_lower.contains("list") && (goal_lower.contains("file") || goal_lower.contains("dir")) {
         let path = extract_path_from_goal(goal).unwrap_or_else(|| ".".to_string());
@@ -89,7 +89,7 @@ fn decompose_goal(goal: &str) -> Vec<Step> {
             args: serde_json::json!({"path": path}),
         });
     }
-    
+
     if goal_lower.contains("read") && goal_lower.contains("file") {
         if let Some(path) = extract_path_from_goal(goal) {
             steps.push(Step {
@@ -98,7 +98,7 @@ fn decompose_goal(goal: &str) -> Vec<Step> {
             });
         }
     }
-    
+
     if goal_lower.contains("find") || goal_lower.contains("search") {
         let pattern = extract_pattern_from_goal(goal).unwrap_or_else(|| "*".to_string());
         let path = extract_path_from_goal(goal).unwrap_or_else(|| ".".to_string());
@@ -107,7 +107,7 @@ fn decompose_goal(goal: &str) -> Vec<Step> {
             args: serde_json::json!({"path": path, "pattern": pattern}),
         });
     }
-    
+
     // Git operations
     if goal_lower.contains("git") {
         if goal_lower.contains("status") {
@@ -135,7 +135,7 @@ fn decompose_goal(goal: &str) -> Vec<Step> {
             });
         }
     }
-    
+
     // System information
     if goal_lower.contains("system") || goal_lower.contains("environment") {
         steps.push(Step {
@@ -143,14 +143,14 @@ fn decompose_goal(goal: &str) -> Vec<Step> {
             args: serde_json::json!({}),
         });
     }
-    
+
     if goal_lower.contains("process") || goal_lower.contains("running") {
         steps.push(Step {
             tool: "ps".to_string(),
             args: serde_json::json!({}),
         });
     }
-    
+
     // Network operations
     if goal_lower.contains("download") || goal_lower.contains("fetch") {
         if let Some(url) = extract_url_from_goal(goal) {
@@ -160,7 +160,7 @@ fn decompose_goal(goal: &str) -> Vec<Step> {
             });
         }
     }
-    
+
     // If no specific patterns matched, create a generic analyze step
     if steps.is_empty() {
         steps.push(Step {
@@ -168,7 +168,7 @@ fn decompose_goal(goal: &str) -> Vec<Step> {
             args: serde_json::json!({"goal": goal}),
         });
     }
-    
+
     steps
 }
 
@@ -185,7 +185,7 @@ fn extract_path_from_goal(goal: &str) -> Option<String> {
             return Some(goal[start + 1..start + 1 + end].to_string());
         }
     }
-    
+
     // Look for path-like patterns
     for word in goal.split_whitespace() {
         if word.contains('/') || word.contains('\\') || word.starts_with('.') {
@@ -195,7 +195,7 @@ fn extract_path_from_goal(goal: &str) -> Option<String> {
             }
         }
     }
-    
+
     None
 }
 
@@ -646,54 +646,72 @@ mod tests {
         let result = plan("");
         assert!(result.is_err());
     }
-    
+
     #[test]
     fn test_plan_decomposition_files() {
         // Test file listing goal
         let result = plan("List all files in /tmp directory").unwrap();
         assert!(!result.steps.is_empty());
         assert_eq!(result.steps[0].tool, "ls");
-        
+
         // Test file reading goal
         let result = plan("Read file '/etc/hosts'").unwrap();
         assert!(!result.steps.is_empty());
         assert_eq!(result.steps[0].tool, "cat");
     }
-    
+
     #[test]
     fn test_plan_decomposition_git() {
         // Test git status goal
         let result = plan("Check git status").unwrap();
         assert!(!result.steps.is_empty());
         assert_eq!(result.steps[0].tool, "git");
-        
+
         // Test git push goal
         let result = plan("Push changes to git").unwrap();
         assert!(!result.steps.is_empty());
         assert_eq!(result.steps[0].tool, "git");
     }
-    
+
     #[test]
     fn test_plan_decomposition_search() {
         let result = plan("Find files matching '*.rs' in src/").unwrap();
         assert!(!result.steps.is_empty());
         assert_eq!(result.steps[0].tool, "find");
     }
-    
+
     #[test]
     fn test_path_extraction() {
-        assert_eq!(extract_path_from_goal("read file '/tmp/test.txt'"), Some("/tmp/test.txt".to_string()));
-        assert_eq!(extract_path_from_goal("list ./src directory"), Some("./src".to_string()));
-        assert_eq!(extract_path_from_goal("check /var/log"), Some("/var/log".to_string()));
+        assert_eq!(
+            extract_path_from_goal("read file '/tmp/test.txt'"),
+            Some("/tmp/test.txt".to_string())
+        );
+        assert_eq!(
+            extract_path_from_goal("list ./src directory"),
+            Some("./src".to_string())
+        );
+        assert_eq!(
+            extract_path_from_goal("check /var/log"),
+            Some("/var/log".to_string())
+        );
     }
-    
+
     #[test]
     fn test_pattern_extraction() {
-        assert_eq!(extract_pattern_from_goal("find files matching '*.rs'"), Some("*.rs".to_string()));
-        assert_eq!(extract_pattern_from_goal("search for TODO"), Some("TODO".to_string()));
-        assert_eq!(extract_pattern_from_goal("files named config.json"), Some("config.json".to_string()));
+        assert_eq!(
+            extract_pattern_from_goal("find files matching '*.rs'"),
+            Some("*.rs".to_string())
+        );
+        assert_eq!(
+            extract_pattern_from_goal("search for TODO"),
+            Some("TODO".to_string())
+        );
+        assert_eq!(
+            extract_pattern_from_goal("files named config.json"),
+            Some("config.json".to_string())
+        );
     }
-    
+
     #[test]
     fn test_url_extraction() {
         assert_eq!(

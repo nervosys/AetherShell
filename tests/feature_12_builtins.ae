@@ -1,4 +1,4 @@
-// Test 12: Builtins
+# Test 12: Builtins
 
 print("Test 12: Builtins")
 map_result = map([1, 2, 3], fn(x) => x * 2)

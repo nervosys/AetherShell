@@ -1,19 +1,19 @@
-// List files as a typed table
+# List files as a typed table
 print("📁 File listing:")
 files = ls(".")
 
-// Filter to show only regular files (not directories)
+# Filter to show only regular files (not directories)
 regular_files = files | where(fn(r) => r.is_dir == false)
 print("\n📄 Regular files only:")
 print("  Total: " + len(regular_files))
 
-// Get just the file names
+# Get just the file names
 file_names = regular_files | map(fn(f) => f.name)
 print("\n📝 File names:")
 first_five = file_names | take(5)
 print(first_five)
 
-// Show directories
+# Show directories
 dirs = files | where(fn(r) => r.is_dir == true)
 print("\n📂 Directories:")
 print("  Total: " + len(dirs))

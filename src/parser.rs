@@ -336,6 +336,18 @@ fn lex(src: &str) -> Result<Vec<Spanned>> {
                 // treat semicolon as statement separator; ignore it
                 it.next();
             }
+            '#' => {
+                // Shell-style line comment
+                it.next(); // consume #
+                           // Skip until end of line
+                while let Some(&ch) = it.peek() {
+                    if ch == '\n' {
+                        break;
+                    }
+                    it.next();
+                }
+                continue; // Don't push a token, just skip the comment
+            }
             other => {
                 return Err(anyhow!("unknown character: {}", other));
             }

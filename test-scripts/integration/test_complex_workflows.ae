@@ -1,10 +1,10 @@
-// Complex Workflow Tests for AetherShell
-// Testing operation chaining, lambda compositions, and advanced patterns
+# Complex Workflow Tests for AetherShell
+# Testing operation chaining, lambda compositions, and advanced patterns
 
 print("=== Complex Workflow Tests ===")
 print("")
 
-// Test 1: Multi-stage pipeline with lambdas
+# Test 1: Multi-stage pipeline with lambdas
 print("Test 1: Multi-stage data transformation pipeline")
 result1 = range(1, 21) 
   | where(fn(x) => x % 2 == 0)
@@ -15,7 +15,7 @@ result1 = range(1, 21)
 print(result1)
 print("")
 
-// Test 2: String processing chain
+# Test 2: String processing chain
 print("Test 2: Complex string processing")
 text = "hello,world,foo,bar,baz"
 result2 = text 
@@ -26,14 +26,14 @@ result2 = text
 print(result2)
 print("")
 
-// Test 3: Nested lambda with reduce
+# Test 3: Nested lambda with reduce
 print("Test 3: Factorial using reduce with lambda")
 factorial = fn(n) => range(1, n + 1) | reduce(fn(a, b) => a * b, 1)
 result3 = factorial(6)
 print("6! = " + result3)
 print("")
 
-// Test 4: Array transformation with flatten and reverse
+# Test 4: Array transformation with flatten and reverse
 print("Test 4: Nested array operations")
 nested = [[1, 2], [3, 4], [5, 6]]
 result4 = nested 
@@ -44,7 +44,7 @@ result4 = nested
 print(result4)
 print("")
 
-// Test 5: Lambda composition pattern
+# Test 5: Lambda composition pattern
 print("Test 5: Function composition")
 double = fn(x) => x * 2
 square = fn(x) => x * x
@@ -58,7 +58,7 @@ result5 = [1, 2, 3, 4, 5]
 print("Sum after double->square->add10: " + result5)
 print("")
 
-// Test 6: Conditional filtering with multiple predicates
+# Test 6: Conditional filtering with multiple predicates
 print("Test 6: Complex filtering")
 numbers = range(1, 101)
 result6 = numbers
@@ -69,7 +69,7 @@ result6 = numbers
 print(result6)
 print("")
 
-// Test 7: String manipulation chain
+# Test 7: String manipulation chain
 print("Test 7: Advanced string manipulation")
 sentence = "  The Quick Brown Fox Jumps  "
 result7 = sentence
@@ -83,7 +83,7 @@ result7 = sentence
 print(result7)
 print("")
 
-// Test 8: Zip and transform
+# Test 8: Zip and transform
 print("Test 8: Zip with transformation")
 names = ["Alice", "Bob", "Charlie"]
 scores = [95, 87, 92]
@@ -95,7 +95,7 @@ result8 = zip(names, scores)
 print(result8)
 print("")
 
-// Test 9: Range-based math operations
+# Test 9: Range-based math operations
 print("Test 9: Sum of squares of even numbers 1-20")
 result9 = range(1, 21)
   | where(fn(x) => x % 2 == 0)
@@ -104,7 +104,7 @@ result9 = range(1, 21)
 print("Sum: " + result9)
 print("")
 
-// Test 10: Deep nesting with multiple operations
+# Test 10: Deep nesting with multiple operations
 print("Test 10: Complex nested operations")
 result10 = range(1, 11)
   | map(fn(x) => range(1, x + 1))
@@ -114,7 +114,7 @@ result10 = range(1, 11)
 print(result10)
 print("")
 
-// Test 11: JSON round-trip with transformation
+# Test 11: JSON round-trip with transformation
 print("Test 11: JSON serialization pipeline")
 data = {
   users: [
@@ -129,7 +129,7 @@ result11 = data
 print(result11)
 print("")
 
-// Test 12: Lambda with closure-like behavior
+# Test 12: Lambda with closure-like behavior
 print("Test 12: Higher-order function pattern")
 multiplier = fn(factor) => fn(x) => x * factor
 times3 = multiplier(3)
@@ -141,7 +141,7 @@ print("Times 3: " + result12a)
 print("Times 5: " + result12b)
 print("")
 
-// Test 13: All/Any with complex predicates
+# Test 13: All/Any with complex predicates
 print("Test 13: All/Any predicates")
 numbers13 = [2, 4, 6, 8, 10]
 all_even = numbers13 | all(fn(x) => x % 2 == 0)
@@ -150,7 +150,7 @@ print("All even: " + all_even)
 print("Any > 5: " + any_gt_5)
 print("")
 
-// Test 14: String array with complex transformation
+# Test 14: String array with complex transformation
 print("Test 14: String array pipeline")
 words = ["apple", "banana", "cherry", "date", "elderberry"]
 result14 = words
@@ -160,16 +160,16 @@ result14 = words
 print(result14)
 print("")
 
-// Test 15: Mathematical series calculation
+# Test 15: Mathematical series calculation
 print("Test 15: Fibonacci-like series with reduce")
-// Sum of (n^2 + n) for n in 1..10
+# Sum of (n^2 + n) for n in 1..10
 result15 = range(1, 11)
   | map(fn(n) => pow(n, 2) + n)
   | reduce(fn(a, b) => max(a, b), 0)
 print("Max of (n^2 + n) series: " + result15)
 print("")
 
-// Test 16: Multi-level filtering and mapping
+# Test 16: Multi-level filtering and mapping
 print("Test 16: Prime-like filtering (divisibility check)")
 result16 = range(2, 30)
   | where(fn(x) => {
@@ -182,7 +182,7 @@ result16 = range(2, 30)
 print(result16)
 print("")
 
-// Test 17: Concat and flatten operations
+# Test 17: Concat and flatten operations
 print("Test 17: Array concatenation and flattening")
 arr1 = [1, 2, 3]
 arr2 = [4, 5, 6]
@@ -196,21 +196,21 @@ result17 = [arr1, arr2, arr3]
 print(result17)
 print("")
 
-// Test 18: Record transformation pipeline
+# Test 18: Record transformation pipeline
 print("Test 18: Record key extraction and processing")
 records = [
   {id: 1, value: 100},
   {id: 2, value: 200},
   {id: 3, value: 150}
 ]
-// Get all values and sum them
+# Get all values and sum them
 total_sum = records
   | map(fn(r) => r.value)
   | reduce(fn(a, b) => a + b, 0)
 print("Sum of all values: " + total_sum)
 print("")
 
-// Test 19: Slice with reverse and map
+# Test 19: Slice with reverse and map
 print("Test 19: Slice operations with transformations")
 alphabet = "abcdefghijklmnopqrstuvwxyz"
 result19 = alphabet
@@ -222,10 +222,10 @@ result19 = alphabet
 print(result19)
 print("")
 
-// Test 20: Comprehensive pipeline combining all features
+# Test 20: Comprehensive pipeline combining all features
 print("Test 20: Master pipeline (all features)")
 result20 = range(1, 51)
-  | where(fn(x) => x % 7 == 0)  // Divisible by 7
+  | where(fn(x) => x % 7 == 0)  # Divisible by 7
   | map(fn(x) => {
       original: x,
       squared: pow(x, 2),

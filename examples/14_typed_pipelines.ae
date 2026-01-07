@@ -1,10 +1,10 @@
-//!/usr/bin/env ae
-// Typed Pipelines Demo
+#!/usr/bin/env ae
+# Typed Pipelines Demo
 
 print("🚀 Typed Pipelines")
 print("=" * 50)
 
-// Type inference
+# Type inference
 numbers = [1, 2, 3, 4, 5]
 doubled = numbers | map(fn(x) => x * 2)
 sum_val = doubled | reduce(fn(a, b) => a + b, 0)
@@ -12,7 +12,7 @@ print("\nNumbers: ${numbers}")
 print("Doubled: ${doubled}")
 print("Sum: ${sum_val}")
 
-// Structured data (not text!)
+# Structured data (not text!)
 employees = [
   {id: 1, name: "Alice", salary: 75000},
   {id: 2, name: "Bob", salary: 65000},
@@ -21,14 +21,14 @@ employees = [
 high_earners = employees | where(fn(e) => e.salary > 70000)
 print("\nHigh earners: ${len(high_earners)}")
 
-// First-class functions
+# First-class functions
 multiply_by = fn(n) => fn(x) => x * n
 double_fn = multiply_by(2)
 triple_fn = multiply_by(3)
 print("\nDoubled [1,2,3]: ${[1,2,3] | map(double_fn)}")
 print("Tripled [1,2,3]: ${[1,2,3] | map(triple_fn)}")
 
-// Pattern matching
+# Pattern matching
 result_ok = {ok: true, value: 42}
 result_err = {ok: false, error: "Division by zero"}
 msg1 = match result_ok.ok {
@@ -37,7 +37,7 @@ msg1 = match result_ok.ok {
 }
 print("\n${msg1}")
 
-// Complex pipeline
+# Complex pipeline
 sales = [
   {region: "North", revenue: 1000},
   {region: "South", revenue: 1500},

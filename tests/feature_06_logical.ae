@@ -1,4 +1,4 @@
-// Test 6: Logical operations
+# Test 6: Logical operations
 
 print("Test 6: Logical Operations")
 and_result = true && true

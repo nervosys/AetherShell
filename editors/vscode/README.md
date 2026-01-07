@@ -1,4 +1,4 @@
-# AetherShell Extension for VS Code
+# ÆtherShell Extension for VS Code
 
 This extension provides language support for [AetherShell](https://github.com/nervosys/AetherShell), a typed, functional shell with AI capabilities.
 

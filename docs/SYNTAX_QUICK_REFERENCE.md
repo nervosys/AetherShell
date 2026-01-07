@@ -5,12 +5,12 @@
 ### Immutable Variables (Cannot Change After Declaration)
 
 ```ae
-// Recommended: Simple assignment
+# Recommended: Simple assignment
 name = "Alice"
 count = 42
 items = [1, 2, 3]
 
-// Alternative: Explicit let
+# Alternative: Explicit let
 let name = "Alice"
 let count = 42
 ```
@@ -18,12 +18,12 @@ let count = 42
 ### Mutable Variables (Can Change After Declaration)
 
 ```ae
-// Recommended: mut with =
+# Recommended: mut with =
 mut counter = 0
 mut total = 100
 mut active = true
 
-// Traditional: let mut
+# Traditional: let mut
 let mut counter = 0
 let mut total = 100
 ```
@@ -94,31 +94,31 @@ progress = 100.0
 ## 🔄 Type Examples
 
 ```ae
-// Integers
+# Integers
 count = 42
 mut counter = 0
 
-// Floats
+# Floats
 price = 9.99
 mut total = 0.0
 
-// Strings
+# Strings
 name = "Alice"
 mut message = "Hello"
 
-// Booleans
+# Booleans
 ready = true
 mut active = false
 
-// Arrays
+# Arrays
 items = [1, 2, 3]
 mut list = []
 
-// Records
+# Records
 user = {name: "Bob", age: 30}
 mut config = {debug: false}
 
-// Functions
+# Functions
 double = fn(x) => x * 2
 mut transform = fn(x) => x
 ```
@@ -127,33 +127,33 @@ mut transform = fn(x) => x
 
 1. **Prefer immutable by default**
    ```ae
-   x = 42              // Default to immutable
-   mut y = 0           // Only use mut when needed
+   x = 42              # Default to immutable
+   mut y = 0           # Only use mut when needed
    ```
 
 2. **Use shortest syntax**
    ```ae
-   x = 42              // ✅ Good
-   let x = 42          // ❌ Unnecessarily verbose
+   x = 42              # ✅ Good
+   let x = 42          # ❌ Unnecessarily verbose
    ```
 
 3. **Clear mutability intent**
    ```ae
-   mut counter = 0     // ✅ Clear that it will change
-   let mut counter = 0 // ❌ Extra verbosity
+   mut counter = 0     # ✅ Clear that it will change
+   let mut counter = 0 # ❌ Extra verbosity
    ```
 
 4. **Consistent style in file**
    ```ae
-   // Pick one style and stick to it
+   # Pick one style and stick to it
    x = 10
    y = 20
    mut z = 0
    
-   // Avoid mixing unnecessarily
+   # Avoid mixing unnecessarily
    x = 10
-   let y = 20          // ❌ Inconsistent
-   z := 30             // ❌ Inconsistent
+   let y = 20          # ❌ Inconsistent
+   z := 30             # ❌ Inconsistent
    ```
 
 ## 🚀 Quick Examples
@@ -174,15 +174,15 @@ mut is_connected = false
 
 ### Mixed Usage
 ```ae
-// Immutable config
+# Immutable config
 max_retries = 3
 base_url = "https://api.example.com"
 
-// Mutable state
+# Mutable state
 mut current_retry = 0
 mut status = "idle"
 
-// Logic
+# Logic
 while current_retry < max_retries {
   current_retry = current_retry + 1
   status = "connecting"

@@ -4,17 +4,17 @@
 
 ### Knowledge Base Operations
 ```aether
-// Get syntax entry
-syntax_get("ab")           // Returns full AgenticBinary protocol details
+# Get syntax entry
+syntax_get("ab")           # Returns full AgenticBinary protocol details
 
-// Search for entries
-syntax_search("protocol")  // Returns ["ab", "jsonrpc"]
+# Search for entries
+syntax_search("protocol")  # Returns ["ab", "jsonrpc"]
 
-// List entries
-syntax_list()              // All syntax IDs
-syntax_list("protocol")    // Only protocols
+# List entries
+syntax_list()              # All syntax IDs
+syntax_list("protocol")    # Only protocols
 
-// Add custom syntax
+# Add custom syntax
 syntax_add({
     id: "custom",
     name: "Custom Protocol",
@@ -26,19 +26,19 @@ syntax_add({
 
 ### AgenticBinary Encoding
 ```aether
-// Encode message - returns byte array
+# Encode message - returns byte array
 bytes = ab_encode("command", "ping", "hello")
-// => [0, 5, 104, 101, 108, 108, 111]
+# => [0, 5, 104, 101, 108, 108, 111]
 
-// Decode message - returns full details
+# Decode message - returns full details
 decoded = ab_decode(bytes)
-// => {
-//   version: 0,
-//   msg_type: "Command",
-//   opcode: "PING",
-//   payload: "hello",
-//   ...
-// }
+# => {
+#   version: 0,
+#   msg_type: "Command",
+#   opcode: "PING",
+#   payload: "hello",
+#   ...
+# }
 ```
 
 ## Message Types
@@ -71,26 +71,26 @@ decoded = ab_decode(bytes)
 
 ### Agent Handshake
 ```aether
-// Agent 1 → Agent 2
+# Agent 1 → Agent 2
 learn_msg = ab_encode("command", "learn", "syntax:ab")
 
-// Agent 2 → Agent 1
+# Agent 2 → Agent 1
 ack_msg = ab_encode("response", "ack", "learned:ab")
 ```
 
 ### Task Delegation
 ```aether
-// Coordinator → Worker
+# Coordinator → Worker
 task = ab_encode("command", "delegate", "task:analyze_data")
 
-// Worker → Coordinator
+# Worker → Coordinator
 exec = ab_encode("command", "exec", "executing:analyze_data")
 result = ab_encode("response", "data", "result:success")
 ```
 
 ### Collaboration
 ```aether
-// Agent 1 → Multiple agents
+# Agent 1 → Multiple agents
 collab = ab_encode("command", "collaborate", "agent_2,agent_3")
 ```
 
@@ -117,19 +117,19 @@ Payload:
 
 ### Basic Encoding/Decoding
 ```aether
-// Encode
+# Encode
 ping = ab_encode("command", "ping", "test")
-print(ping)  // [0, 4, 116, 101, 115, 116]
+print(ping)  # [0, 4, 116, 101, 115, 116]
 
-// Decode
+# Decode
 decoded = ab_decode(ping)
-print(decoded.opcode)     // "PING"
-print(decoded.payload)    // "test"
+print(decoded.opcode)     # "PING"
+print(decoded.payload)    # "test"
 ```
 
 ### Using Numeric Codes
 ```aether
-// Same as ab_encode("query", "data", "request")
+# Same as ab_encode("query", "data", "request")
 bytes = ab_encode(1, 4, "request")
 ```
 
@@ -143,28 +143,28 @@ syntax_add({
     examples: ["query { user { name } }"]
 })
 
-// Retrieve it
+# Retrieve it
 graphql = syntax_get("graphql")
 print(graphql.specification)
 ```
 
 ### Full Agent Workflow
 ```aether
-// Agent discovery
+# Agent discovery
 protocols = syntax_list("protocol")
-print(protocols)  // ["ab", "jsonrpc", "graphql"]
+print(protocols)  # ["ab", "jsonrpc", "graphql"]
 
-// Agent learns protocol
+# Agent learns protocol
 spec = syntax_get("ab")
 print(spec.specification)
 
-// Agents communicate
+# Agents communicate
 msg1 = ab_encode("command", "learn", "protocol:ab")
 msg2 = ab_encode("response", "ack", "learned")
 msg3 = ab_encode("command", "delegate", "task:1")
 msg4 = ab_encode("response", "data", "result:ok")
 
-// Decode all messages
+# Decode all messages
 print(ab_decode(msg1))
 print(ab_decode(msg2))
 print(ab_decode(msg3))

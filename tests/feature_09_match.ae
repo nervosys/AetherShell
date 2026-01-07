@@ -1,4 +1,4 @@
-// Test 9: Match expressions
+# Test 9: Match expressions
 
 print("Test 9: Match Expressions")
 result = match 2 {

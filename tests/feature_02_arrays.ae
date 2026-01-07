@@ -1,4 +1,4 @@
-// Test 2: Arrays
+# Test 2: Arrays
 
 print("Test 2: Arrays")
 arr = [1, 2, 3, 4, 5]

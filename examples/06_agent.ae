@@ -1,10 +1,10 @@
-// Agent that can list files and run safe external commands (whitelist via env)
-// Be sure to allow commands:
-//   export AGENT_ALLOW_CMDS=ls,git
+# Agent that can list files and run safe external commands (whitelist via env)
+# Be sure to allow commands:
+#   export AGENT_ALLOW_CMDS=ls,git
 
 goal = "Find the three largest files in the current directory and report their names and sizes."
 
-// The second argument is tool names: "ls" (builtin table) and "!git" (external)
-// The third argument is max_steps.
+# The second argument is tool names: "ls" (builtin table) and "!git" (external)
+# The third argument is max_steps.
 agent goal ["ls","!git"] 6
   | print

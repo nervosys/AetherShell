@@ -1,11 +1,11 @@
-// AetherShell - Mutable Variables Showcase
-// Demonstrating all three mutable syntax options
+# AetherShell - Mutable Variables Showcase
+# Demonstrating all three mutable syntax options
 
 print("=== AetherShell Mutable Variables ===\n")
 
-// ============================================
-// IMMUTABLE vs MUTABLE
-// ============================================
+# ============================================
+# IMMUTABLE vs MUTABLE
+# ============================================
 
 print("Immutable variables (cannot change):")
 x = 42
@@ -25,9 +25,9 @@ score = score * 2
 
 print("  Modified: counter=${counter}, total=${total}, score=${score}")
 
-// ============================================
-// PRACTICAL EXAMPLES
-// ============================================
+# ============================================
+# PRACTICAL EXAMPLES
+# ============================================
 
 print("\n=== Counter Pattern ===")
 mut clicks = 0
@@ -42,7 +42,7 @@ mut sum = 0
 numbers = [10, 20, 30, 40, 50]
 print("Numbers: ${numbers}")
 
-// Manually accumulate (pipeline reduce not available yet)
+# Manually accumulate (pipeline reduce not available yet)
 sum = sum + 10
 sum = sum + 20
 sum = sum + 30
