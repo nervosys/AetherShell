@@ -1,7 +1,24 @@
-# Read text from a file
-content = read_text("README.md")
-print("File loaded successfully!")
-print(type_of(content))
+# AI Features Demo
+# Set AETHER_AI=openai and OPENAI_API_KEY for real responses
 
-# Note: The 'ai' builtin for direct prompts is not yet implemented
-# For AI functionality, use the 'agent' builtin or ai-suggest/ai-explain commands
+# Simple text prompt
+response = ai("What is 2+2?")
+print(response)
+
+# With model specification (when using real AI)
+# response = ai("Explain quantum computing", {model: "openai:gpt-4o"})
+
+# Multi-modal: describe an image
+# ai("Describe this image", {images: ["photo.jpg"]})
+
+# Multi-modal: transcribe audio  
+# ai("Transcribe this audio", {audio: ["recording.mp3"]})
+
+# Multi-modal: analyze video
+# ai("Summarize this video", {video: ["clip.mp4"]})
+
+# Combined multi-modal
+# ai("Analyze this presentation", {
+#   images: ["slide1.png", "slide2.png"],
+#   audio: ["narration.mp3"]
+# })

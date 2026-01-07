@@ -356,6 +356,7 @@ pub fn call_with_input(
         "describe" => bi_describe(args, input),
 
         // AI-enhanced commands (not in fast lookup)
+        "ai" => bi_ai(args, input, env),
         "ai-suggest" | "suggest" => bi_ai_suggest(args, input, env),
         "ai-explain" | "explain" => bi_ai_explain(args, input, env),
         "ai-complete" | "complete" => bi_ai_complete(args, input, env),
@@ -2536,6 +2537,203 @@ fn bi_describe(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 }
 
 // =============== AI-Enhanced Commands ===============
+
+/// ai: Direct AI query with optional multi-modal support
+/// Usage:
+///   ai("prompt")                              - Simple text query
+///   ai("prompt", {images: ["path1", "path2"]}) - With images
+///   ai("prompt", {audio: ["path"]})           - With audio
+///   ai("prompt", {video: ["path"]})           - With video
+///   ai("prompt", {model: "openai:gpt-4o"})    - Specify model
+fn bi_ai(args: Vec<Value>, input: Option<Value>, _env: &mut Env) -> Result<Value> {
+    // SECURITY: Rate limit AI calls
+    check_rate_limit("bi_ai", 30, Duration::from_secs(60))
+        .context("AI rate limit exceeded")?;
+
+    // Get prompt from input or first argument
+    let prompt = if let Some(input) = input {
+        match input {
+            Value::Str(s) => s,
+            _ => return Err(anyhow!("ai: input must be a prompt string")),
+        }
+    } else if !args.is_empty() {
+        match &args[0] {
+            Value::Str(s) => s.clone(),
+            _ => return Err(anyhow!("ai: prompt must be a string")),
+        }
+    } else {
+        return Err(anyhow!("ai: requires a prompt string"));
+    };
+
+    // SECURITY: Validate AI prompt for injection
+    let validated_prompt = validate_ai_prompt(&prompt).context("ai: prompt validation failed")?;
+
+    // Check for optional config record (second argument)
+    let config = args.get(1).and_then(|v| {
+        if let Value::Record(r) = v {
+            Some(r.clone())
+        } else {
+            None
+        }
+    });
+
+    // Extract multi-modal content if present
+    let images = config.as_ref().and_then(|c| extract_string_array(c, "images"));
+    let audio = config.as_ref().and_then(|c| extract_string_array(c, "audio"));
+    let video = config.as_ref().and_then(|c| extract_string_array(c, "video"));
+    let _model = config.as_ref().and_then(|c| {
+        c.get("model").and_then(|v| {
+            if let Value::Str(s) = v {
+                Some(s.clone())
+            } else {
+                None
+            }
+        })
+    });
+
+    // Determine if this is a multi-modal request
+    let has_media = images.is_some() || audio.is_some() || video.is_some();
+
+    if has_media {
+        // Multi-modal request
+        let mut content_parts = vec![crate::ai::MultiModalContent {
+            text: Some(validated_prompt),
+            image_url: None,
+            audio_url: None,
+            video_url: None,
+            image_data: None,
+            audio_data: None,
+            video_data: None,
+        }];
+
+        // Load and encode images
+        if let Some(img_paths) = images {
+            for path in img_paths {
+                // SECURITY: Validate path
+                let validated_path = validate_read_path(&path)
+                    .context(format!("ai: invalid image path: {}", path))?;
+                
+                // Read and base64 encode the image
+                let data = fs::read(&validated_path)
+                    .context(format!("ai: failed to read image: {}", validated_path.display()))?;
+                
+                // SECURITY: Check file size
+                check_file_size_limit(data.len() as u64)
+                    .context("ai: image file too large")?;
+                
+                use base64::{engine::general_purpose::STANDARD, Engine as _};
+                let encoded = STANDARD.encode(&data);
+                
+                content_parts.push(crate::ai::MultiModalContent {
+                    text: None,
+                    image_url: None,
+                    audio_url: None,
+                    video_url: None,
+                    image_data: Some(encoded),
+                    audio_data: None,
+                    video_data: None,
+                });
+            }
+        }
+
+        // Load and encode audio
+        if let Some(audio_paths) = audio {
+            for path in audio_paths {
+                let validated_path = validate_read_path(&path)
+                    .context(format!("ai: invalid audio path: {}", path))?;
+                
+                let data = fs::read(&validated_path)
+                    .context(format!("ai: failed to read audio: {}", validated_path.display()))?;
+                
+                // SECURITY: Check file size
+                check_file_size_limit(data.len() as u64)
+                    .context("ai: audio file too large")?;
+                
+                use base64::{engine::general_purpose::STANDARD, Engine as _};
+                let encoded = STANDARD.encode(&data);
+                
+                content_parts.push(crate::ai::MultiModalContent {
+                    text: None,
+                    image_url: None,
+                    audio_url: None,
+                    video_url: None,
+                    image_data: None,
+                    audio_data: Some(encoded),
+                    video_data: None,
+                });
+            }
+        }
+
+        // Load and encode video
+        if let Some(video_paths) = video {
+            for path in video_paths {
+                let validated_path = validate_read_path(&path)
+                    .context(format!("ai: invalid video path: {}", path))?;
+                
+                let data = fs::read(&validated_path)
+                    .context(format!("ai: failed to read video: {}", validated_path.display()))?;
+                
+                // SECURITY: Check file size
+                check_file_size_limit(data.len() as u64)
+                    .context("ai: video file too large")?;
+                
+                use base64::{engine::general_purpose::STANDARD, Engine as _};
+                let encoded = STANDARD.encode(&data);
+                
+                content_parts.push(crate::ai::MultiModalContent {
+                    text: None,
+                    image_url: None,
+                    audio_url: None,
+                    video_url: None,
+                    image_data: None,
+                    audio_data: None,
+                    video_data: Some(encoded),
+                });
+            }
+        }
+
+        let message = crate::ai::MultiModalMessage {
+            role: "user".to_string(),
+            content: content_parts,
+        };
+
+        let response = crate::ai::complete_multimodal_sync(&[message])
+            .context("ai: multi-modal completion failed")?;
+        
+        Ok(Value::Str(response))
+    } else {
+        // Simple text-only request
+        let response = crate::ai::complete_sync_router(&validated_prompt)
+            .context("ai: completion failed")?;
+        
+        Ok(Value::Str(response))
+    }
+}
+
+/// Helper to extract a string array from a record field
+fn extract_string_array(record: &BTreeMap<String, Value>, key: &str) -> Option<Vec<String>> {
+    record.get(key).and_then(|v| {
+        if let Value::Array(arr) = v {
+            let strings: Vec<String> = arr
+                .iter()
+                .filter_map(|item| {
+                    if let Value::Str(s) = item {
+                        Some(s.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            if strings.is_empty() {
+                None
+            } else {
+                Some(strings)
+            }
+        } else {
+            None
+        }
+    })
+}
 
 /// ai-suggest: Get AI-powered command suggestions
 fn bi_ai_suggest(args: Vec<Value>, input: Option<Value>, _env: &mut Env) -> Result<Value> {
