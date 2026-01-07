@@ -10,7 +10,7 @@
     ],
     "repository": {
         "aethershell-fenced-code-block": {
-            "begin": "(^|\\G)(\\s*)(`)(`{2,})?(?i:(ae|aethershell))(\\s*)$",
+            "begin": "(^|\\G)(\\s*)(`)(`{2,})?(?i:(ae|aether|aethershell))(\\s*)$",
             "end": "(^|\\G)(\\2|\\s{0,3})(\\3\\4)\\s*$",
             "beginCaptures": {
                 "3": {
