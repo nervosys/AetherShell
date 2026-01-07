@@ -1,0 +1,49 @@
+// Example: Conditional MCP Server Selection
+// Shows how to select MCP servers based on availability and requirements
+
+print("=== Conditional MCP Server Selection ===")
+print("")
+
+// Detect all servers
+let all_servers = mcp_servers()
+print("Total servers detected: " + len(all_servers))
+print("")
+
+// Show available servers by port
+print("Available servers by endpoint:")
+all_servers | foreach(fn(s) => print("  " + s.name + " → " + s.endpoint))
+print("")
+
+// Conditional usage patterns
+print("Conditional Usage Patterns:")
+print("")
+
+print("1. Use specific server if available:")
+print("   let fs = mcp_detect(\"http://localhost:3001\")")
+print("   if fs is not null: agent(goal, ai_detect(), fs.tools)")
+print("")
+
+print("2. Fallback to any available server:")
+print("   let server = mcp_detect()  // Returns first available")
+print("   if server: use it, else: run without tools")
+print("")
+
+print("3. Check for required tools:")
+print("   let servers = mcp_servers()")
+print("   let has_file_ops = servers | any(fn(s) => ")
+print("       s.tools contains 'read_file')")
+print("")
+
+print("4. Select best server for task:")
+print("   // For file operations: use port 3001")
+print("   // For git operations: use port 3002")
+print("   // For containers: use port 3003")
+print("")
+
+print("Example Decision Tree:")
+print("  Need file access? → Check port 3001")
+print("  Need git operations? → Check port 3002")
+print("  Need both? → Check both, combine tools")
+print("")
+
+print("✓ Use detection to adapt to available resources!")

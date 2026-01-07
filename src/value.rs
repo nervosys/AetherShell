@@ -58,21 +58,21 @@ impl fmt::Display for Uri {
 }
 
 /// A lambda closure (AST-captured).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Lambda {
     pub params: Vec<String>,
     pub body: Box<Expr>,
 }
 
 /// A simple table representation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Table {
     pub rows: Vec<BTreeMap<String, Value>>,
     pub schema: Vec<String>,
 }
 
 /// The dynamic value space of the shell.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum Value {
     Null,
     Bool(bool),

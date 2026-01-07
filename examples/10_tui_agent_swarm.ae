@@ -1,39 +1,62 @@
-# AI Agent Swarm Management Example
-# This demonstrates how to manage AI agent swarms through the TUI
+/* AetherShell TUI Agent Swarm Demo
+   Launch with: ae --tui
+   
+   This demo showcases multi-agent coordination in the TUI:
+   - Agent creation and management
+   - Swarm coordination
+   - Real-time agent status
+   - Task distribution
+*/
 
-# Launch TUI in agent mode
-# ae --tui
+/* Create individual agents with different roles */
+researcher := agent {
+  goal: "Research functional programming concepts",
+  model: "openai:gpt-4o-mini",
+  tools: ["web_search", "read_file"],
+  max_steps: 10
+}
 
-# In the TUI Agent tab:
-# 1. Press 'n' to create new agents
-# 2. Press Enter to assign tasks
-# 3. Monitor agent status in real-time
+writer := agent {
+  goal: "Write a technical blog post",
+  model: "openai:gpt-4o-mini",
+  tools: ["write_file", "format_markdown"],
+  max_steps: 8
+}
 
-# Example agents and tasks that can be managed via TUI:
+reviewer := agent {
+  goal: "Review and provide feedback",
+  model: "anthropic:claude-3-5-sonnet-20241022",
+  tools: ["read_file", "analyze_text"],
+  max_steps: 5
+}
 
-# Agent 1: File analyzer
-goal1 := "Analyze all .rs files in the src/ directory and summarize the codebase structure"
+/* Create a swarm with coordination strategy */
+content_team := swarm {
+  agents: [researcher, writer, reviewer],
+  policy: "router",  /* Options: router, round-robin, coordinator */
+  goal: "Create a comprehensive guide on functional programming",
+  max_iters: 15,
+  shared_tools: ["read_file", "write_file"]
+}
 
-# Agent 2: Documentation generator  
-goal2 := "Generate comprehensive documentation for the TUI module"
+/* Execute the swarm - TUI shows real-time progress */
+content_team | print
 
-# Agent 3: Test coordinator
-goal3 := "Review the test files and suggest additional test cases for the new TUI features"
+/* The TUI provides:
+   - Agent status panel (active, idle, completed)
+   - Message blackboard view
+   - Step-by-step execution trace
+   - Agent communication visualization
+   - Resource usage metrics
+   - Pause/resume controls
+   - Individual agent inspection
+*/
 
-# Agents can work in parallel and coordinate through the blackboard
-# The TUI provides real-time visualization of:
-# - Agent status (idle, working, waiting, error)
-# - Current tasks
-# - Completion progress
-# - Inter-agent communication
+/* Alternative: Sequential agents */
+agents_run_sync [
+  {goal: "Step 1: Gather requirements", model: "openai:gpt-4o-mini", max_steps: 5},
+  {goal: "Step 2: Design solution", model: "openai:gpt-4o-mini", max_steps: 5},
+  {goal: "Step 3: Review design", model: "anthropic:claude-3-5-sonnet-20241022", max_steps: 3}
+] | print
 
-# Example swarm coordination for complex tasks:
-swarm_goal := "Implement a comprehensive test suite for the new TUI functionality"
-
-# The swarm can break this down into subtasks:
-# 1. Unit tests for media handling
-# 2. Integration tests for UI components  
-# 3. End-to-end tests for multi-modal workflows
-# 4. Performance tests for large agent swarms
-
-print "Use 'ae --tui' to launch the Terminal GUI and interact with agents visually"
+print "TUI Agent Swarm Demo Ready! Launch with: ae --tui"

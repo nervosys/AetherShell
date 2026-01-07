@@ -6,10 +6,13 @@ use crate::value::Value;
 /// Process/runtime environment for the Aether evaluator & builtins.
 ///
 /// - Stores variables (including the pipeline slot `__pipe_input__`)
+/// - Tracks mutability: variables are immutable by default
 /// - Optionally tracks a current working directory (cwd)
 #[derive(Debug, Default, Clone)]
 pub struct Env {
     vars: BTreeMap<String, Value>,
+    /// Track which variables are mutable (created with `let mut`)
+    mutable_vars: BTreeMap<String, bool>,
     cwd: Option<PathBuf>,
     pipe_input: Option<Value>,
 }
@@ -19,6 +22,7 @@ impl Env {
     pub fn new() -> Self {
         Self {
             vars: BTreeMap::new(),
+            mutable_vars: BTreeMap::new(),
             cwd: None,
             pipe_input: None,
         }
@@ -47,9 +51,68 @@ impl Env {
         self.vars.get(name)
     }
 
-    /// Mutable set/replace.
-    pub fn set_var<S: Into<String>>(&mut self, name: S, value: Value) {
-        self.vars.insert(name.into(), value);
+    /// Set a new variable or reassign if mutable.
+    /// Returns error if trying to reassign an immutable variable.
+    pub fn set_var<S: Into<String>>(&mut self, name: S, value: Value) -> Result<(), String> {
+        let name_str = name.into();
+
+        // Check if variable already exists
+        if self.vars.contains_key(&name_str) {
+            // Check mutability
+            if !self.is_mutable(&name_str) {
+                return Err(format!(
+                    "Cannot reassign immutable variable '{}'. Use 'let mut {}' to make it mutable.",
+                    name_str, name_str
+                ));
+            }
+        }
+
+        self.vars.insert(name_str, value);
+        Ok(())
+    }
+
+    /// Declare a new variable with specified mutability.
+    /// This is used for initial `let` or `let mut` declarations.
+    pub fn declare_var<S: Into<String>>(
+        &mut self,
+        name: S,
+        value: Value,
+        is_mut: bool,
+    ) -> Result<(), String> {
+        let name_str = name.into();
+
+        // Check if variable already exists
+        if self.vars.contains_key(&name_str) {
+            // If existing variable is immutable, prevent shadowing/reassignment
+            if !self.is_mutable(&name_str) {
+                return Err(format!(
+                    "Cannot reassign immutable variable '{}'. Use 'let mut {}' to make it mutable.",
+                    name_str, name_str
+                ));
+            }
+            // If mutable, allow update but preserve mutability
+            self.vars.insert(name_str, value);
+            return Ok(());
+        }
+
+        // New variable - set value and mutability
+        self.vars.insert(name_str.clone(), value);
+        self.mutable_vars.insert(name_str, is_mut);
+        Ok(())
+    }
+
+    /// Internal use only: Set a variable without mutability checks.
+    /// Used for pattern matching, lambda params, builtins, etc.
+    pub(crate) fn set_var_unchecked<S: Into<String>>(&mut self, name: S, value: Value) {
+        let name_str = name.into();
+        self.vars.insert(name_str.clone(), value);
+        // Mark as mutable for internal bindings
+        self.mutable_vars.insert(name_str, true);
+    }
+
+    /// Check if a variable is mutable
+    pub fn is_mutable(&self, name: &str) -> bool {
+        self.mutable_vars.get(name).copied().unwrap_or(false)
     }
 
     /// Delete a variable if present.

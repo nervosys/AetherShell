@@ -1,0 +1,10 @@
+// Test 3: Records
+
+print("Test 3: Records")
+rec = {name: "Alice", age: 30}
+print(rec)
+empty = {}
+print(empty)
+nested = {user: {name: "Bob"}, active: true}
+print(nested)
+print("✓ Records work")

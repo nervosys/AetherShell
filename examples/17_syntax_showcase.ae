@@ -1,0 +1,94 @@
+// AetherShell - Simplified Syntax Showcase
+// Now with clean, simple variable declarations!
+
+// ============================================
+// VARIABLES - Simple and Clean!
+// ============================================
+
+name = "AetherShell"
+version = "0.1.0"
+author = "nervosys"
+
+print("Welcome to ${name} v${version}")
+print("Created by ${author}")
+
+// ============================================
+// COLLECTIONS - Arrays and Records
+// ============================================
+
+numbers = [1, 2, 3, 4, 5]
+user = {
+  name: "Alice",
+  age: 30,
+  email: "alice@example.com"
+}
+
+print("\nNumbers: ${numbers}")
+print("User: ${user}")
+
+// ============================================
+// FUNCTIONS - First-class values
+// ============================================
+
+double = fn(x) => x * 2
+add = fn(a, b) => a + b
+greet = fn(name) => "Hello, ${name}!"
+
+result = double(21)
+sum = add(10, 32)
+greeting = greet("World")
+
+print("\nDouble 21 = ${result}")
+print("10 + 32 = ${sum}")
+print(greeting)
+
+// ============================================
+// PIPELINES - Functional composition
+// ============================================
+
+print("\nPipeline example:")
+squared_sum = numbers 
+  | map(fn(x) => x * x)
+  | reduce(fn(a, b) => a + b, 0)
+
+print("Sum of squares: ${squared_sum}")
+
+// ============================================
+// HIGHER-ORDER FUNCTIONS
+// ============================================
+
+multiply_by = fn(n) => fn(x) => x * n
+triple = multiply_by(3)
+quadruple = multiply_by(4)
+
+print("\nHigher-order functions:")
+print("Triple 5 = ${triple(5)}")
+print("Quadruple 5 = ${quadruple(5)}")
+
+// ============================================
+// STRING INTERPOLATION
+// ============================================
+
+x = 10
+y = 20
+print("\nString interpolation:")
+print("${x} + ${y} = ${x + y}")
+print("${x} * ${y} = ${x * y}")
+
+// ============================================
+// COMPLEX TYPES
+// ============================================
+
+employees = [
+  {name: "Alice", salary: 75000, dept: "Engineering"},
+  {name: "Bob", salary: 65000, dept: "Sales"},
+  {name: "Charlie", salary: 85000, dept: "Engineering"}
+]
+
+print("\nEmployee data loaded: ${employees}")
+
+// ============================================
+// That's it! Clean, simple, powerful.
+// ============================================
+
+print("\n✅ AetherShell: Typed. Functional. AI-Native.")

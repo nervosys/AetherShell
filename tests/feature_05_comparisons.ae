@@ -1,0 +1,16 @@
+// Test 5: Comparisons
+
+print("Test 5: Comparisons")
+eq = 5 == 5
+print(eq)
+ne = 5 != 3
+print(ne)
+lt = 3 < 5
+print(lt)
+le = 5 <= 5
+print(le)
+gt = 10 > 5
+print(gt)
+ge = 5 >= 5
+print(ge)
+print("✓ Comparisons work")

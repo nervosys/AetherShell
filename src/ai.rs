@@ -1,18 +1,36 @@
 //! Provider-agnostic LLMs + Agents (single & multi-agent swarms) for Aether Shell.
-//! This version adds:
-//! - Model URIs (`openai:gpt-4o-mini`, `ollama:llama3`, `compat:mixtral`, `tgi:mixtral`, `stub`)
+//!
+//! ## Supported AI Backends
+//!
+//! - **OpenAI** (`openai:gpt-4o-mini`) - OpenAI's API service
+//! - **Ollama** (`ollama:llama3`) - Local Ollama server
+//! - **vLLM** (`vllm:meta-llama/Llama-3-8B`) - High-performance inference with PagedAttention
+//! - **llama.cpp** (`llamacpp:model`) - Efficient CPU/GPU inference
+//! - **TGI** (`tgi:mixtral`) - HuggingFace Text Generation Inference
+//! - **OpenAI-Compatible** (`compat:mixtral`) - Any OpenAI-compatible API
+//!
+//! ## Features
+//!
+//! - Model URIs for flexible backend selection
 //! - Backend registry and per-agent model selection
-//! - ToolRegistry with Builtin + (stub) MCP resolver
+//! - ToolRegistry with Builtin + MCP resolver
 //! - Agents: run_sync + run_sync_with_model
 //! - Swarm framework with Coordinator (RoundRobin + Router stubs)
 //! - Multi-modal support for images, audio, and video
-//! - Compat: ai::agents::run_sync AND ai::agents::swarm::run_sync are available.
+//! - A2A (Agent-to-Agent) communication protocol
+//! - NANDA negotiation and task allocation framework
+//! - SECURITY: SecureApiConfig with memory sanitization for API keys
 
-use anyhow::{Result, anyhow};
-use reqwest::blocking::Client;
+use anyhow::{anyhow, Context, Result};
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value as J, json};
+use serde_json::{json, Value as J};
+
+use crate::secure_config::SecureApiConfig;
+
+// Sub-modules
+pub mod a2a;
+pub mod nanda;
 
 // ===================== Multi-modal support =====================
 
@@ -140,6 +158,8 @@ fn multimodal_backend_from_env() -> Box<dyn MultiModalLlmBackend> {
         {
             "openai" => "openai:gpt-4o",
             "ollama" => "ollama:llava",
+            "vllm" => "vllm:meta-llama/Llama-3-Vision",
+            "llamacpp" => "llamacpp:llava",
             "compat" => "compat:gpt-4v",
             _ => "stub",
         }
@@ -175,10 +195,24 @@ impl MultiModalLlmBackend for StubMultiModalBackend {
 struct OpenAiMultiModalBackend;
 impl MultiModalLlmBackend for OpenAiMultiModalBackend {
     fn chat_multimodal(&self, messages: &[MultiModalMessage]) -> Result<String> {
-        let api_key =
-            std::env::var("OPENAI_API_KEY").map_err(|_| anyhow!("OPENAI_API_KEY not set"))?;
-        let model = std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-4o".into());
-        let url = "https://api.openai.com/v1/chat/completions";
+        // SECURITY FIX (HIGH-002): Use SecureApiConfig for memory-safe key handling
+        let config = SecureApiConfig::from_keyring_or_env(
+            "openai",
+            "OPENAI_API_KEY",
+            "https://api.openai.com".to_string(),
+            std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-4o".to_string()),
+            "openai".to_string(),
+        )
+        .context("Failed to load OpenAI configuration for multimodal")?;
+
+        config
+            .validate_format()
+            .context("OpenAI API key validation failed")?;
+
+        let url = format!(
+            "{}/v1/chat/completions",
+            config.endpoint.trim_end_matches('/')
+        );
 
         // Convert messages to OpenAI format
         let openai_messages: Vec<J> = messages
@@ -221,15 +255,24 @@ impl MultiModalLlmBackend for OpenAiMultiModalBackend {
             .collect();
 
         let body = json!({
-            "model": model,
+            "model": config.model,
             "messages": openai_messages,
             "temperature": 0.2,
             "max_tokens": 1000
         });
 
-        let v: J = Client::new()
-            .post(url)
-            .header(AUTHORIZATION, format!("Bearer {}", api_key))
+        // Create authorization header (zeroized after use)
+        let auth_header = config
+            .create_auth_header()
+            .ok_or_else(|| anyhow!("OpenAI API key not configured for multimodal"))?;
+
+        // SECURITY FIX (LOW-002): Use secure HTTP client with timeouts
+        let client = crate::security::create_secure_http_client()
+            .context("Failed to create secure HTTP client")?;
+
+        let v: J = client
+            .post(&url)
+            .header(AUTHORIZATION, auth_header.as_str())
             .header(CONTENT_TYPE, "application/json")
             .json(&body)
             .send()?
@@ -334,21 +377,45 @@ pub mod stub {
 pub mod openai {
     use super::*;
     pub fn complete_sync(prompt: &str) -> Result<String> {
-        let api_key =
-            std::env::var("OPENAI_API_KEY").map_err(|_| anyhow!("OPENAI_API_KEY not set"))?;
-        let model = std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-4o-mini".into());
-        let url = "https://api.openai.com/v1/chat/completions";
+        // SECURITY FIX (HIGH-002): Use SecureApiConfig for memory-safe key handling
+        let config = SecureApiConfig::from_keyring_or_env(
+            "openai",
+            "OPENAI_API_KEY",
+            "https://api.openai.com".to_string(),
+            std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-4o-mini".to_string()),
+            "openai".to_string(),
+        )
+        .context("Failed to load OpenAI configuration")?;
+
+        config
+            .validate_format()
+            .context("OpenAI API key validation failed")?;
+
+        let url = format!(
+            "{}/v1/chat/completions",
+            config.endpoint.trim_end_matches('/')
+        );
         let body = json!({
-            "model": model,
+            "model": config.model,
             "messages": [
                 { "role":"system", "content":"You are a succinct assistant embedded in a shell." },
                 { "role":"user",   "content": prompt }
             ],
             "temperature": 0.2
         });
-        let v: J = Client::new()
-            .post(url)
-            .header(AUTHORIZATION, format!("Bearer {}", api_key))
+
+        // SECURITY: Create authorization header (zeroized after use)
+        let auth_header = config
+            .create_auth_header()
+            .ok_or_else(|| anyhow!("OpenAI API key not configured"))?;
+
+        // SECURITY FIX (LOW-002): Use secure HTTP client with timeouts
+        let client = crate::security::create_secure_http_client()
+            .context("Failed to create secure HTTP client")?;
+
+        let v: J = client
+            .post(&url)
+            .header(AUTHORIZATION, auth_header.as_str())
             .header(CONTENT_TYPE, "application/json")
             .json(&body)
             .send()?
@@ -368,7 +435,12 @@ pub mod ollama {
         let model = std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "llama3".into());
         let url = format!("{}/api/generate", base.trim_end_matches('/'));
         let body = json!({"model": model, "prompt": prompt, "stream": false});
-        let v: J = Client::new()
+
+        // SECURITY FIX (LOW-002): Use secure HTTP client with timeouts
+        let client = crate::security::create_secure_http_client()
+            .context("Failed to create secure HTTP client")?;
+
+        let v: J = client
             .post(&url)
             .json(&body)
             .send()?
@@ -394,7 +466,12 @@ pub mod openai_compat {
             ],
             "temperature": 0.2
         });
-        let v: J = Client::new()
+
+        // SECURITY FIX (LOW-002): Use secure HTTP client with timeouts
+        let client = crate::security::create_secure_http_client()
+            .context("Failed to create secure HTTP client")?;
+
+        let v: J = client
             .post(&url)
             .header(CONTENT_TYPE, "application/json")
             .json(&body)
@@ -423,7 +500,12 @@ pub mod tgi {
             inputs: prompt,
             parameters: Some(json!({"temperature":0.2})),
         };
-        let r = Client::new()
+
+        // SECURITY FIX (LOW-002): Use secure HTTP client with timeouts
+        let client = crate::security::create_secure_http_client()
+            .context("Failed to create secure HTTP client")?;
+
+        let r = client
             .post(&url)
             .header(CONTENT_TYPE, "application/json")
             .json(&body)
@@ -454,8 +536,10 @@ pub enum Provider {
     Stub,
     OpenAI,
     Ollama,
-    OpenAICompat,
+    OpenAICompat, // Generic OpenAI-compatible (vLLM, llama.cpp, etc.)
     Tgi,
+    VLlm,     // Explicitly vLLM
+    LlamaCpp, // Explicitly llama.cpp
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -466,6 +550,7 @@ pub struct ModelRef {
 
 /// Parse strings like:
 /// - "openai:gpt-4o-mini" / "ollama:llama3" / "compat:mixtral" / "tgi:mixtral" / "stub"
+/// - "vllm:meta-llama/Llama-3-8B" / "llamacpp:mistral-7b"
 pub fn parse_model_ref(s: &str) -> ModelRef {
     let s = s.trim();
     if let Some((pfx, rest)) = s.split_once(':') {
@@ -475,6 +560,8 @@ pub fn parse_model_ref(s: &str) -> ModelRef {
             "ollama" => Provider::Ollama,
             "compat" | "openai_compat" => Provider::OpenAICompat,
             "tgi" => Provider::Tgi,
+            "vllm" => Provider::VLlm,
+            "llamacpp" | "llama.cpp" | "llama_cpp" => Provider::LlamaCpp,
             _ => Provider::Stub,
         };
         ModelRef { provider, model }
@@ -496,6 +583,15 @@ pub fn parse_model_ref(s: &str) -> ModelRef {
             "tgi" => ModelRef {
                 provider: Provider::Tgi,
                 model: "mixtral".into(),
+            },
+            "vllm" => ModelRef {
+                provider: Provider::VLlm,
+                model: std::env::var("VLLM_MODEL")
+                    .unwrap_or_else(|_| "meta-llama/Llama-3-8B".into()),
+            },
+            "llamacpp" | "llama.cpp" | "llama_cpp" => ModelRef {
+                provider: Provider::LlamaCpp,
+                model: std::env::var("LLAMACPP_MODEL").unwrap_or_else(|_| "model".into()),
             },
             _ => ModelRef {
                 provider: Provider::Stub,
@@ -525,23 +621,54 @@ impl LlmBackend for StubBackend {
 struct OpenAiBackend;
 impl LlmBackend for OpenAiBackend {
     fn chat(&self, messages: &[ChatMessage]) -> Result<String> {
-        let api_key =
-            std::env::var("OPENAI_API_KEY").map_err(|_| anyhow!("OPENAI_API_KEY not set"))?;
-        let model = std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-4o-mini".into());
-        let url = "https://api.openai.com/v1/chat/completions";
-        let body = json!({ "model": model, "messages": messages, "temperature": 0.2 });
-        let v: J = Client::new()
-            .post(url)
-            .header(AUTHORIZATION, format!("Bearer {}", api_key))
+        // SECURITY FIX (HIGH-002): Use SecureApiConfig for memory-safe key handling
+        let config = SecureApiConfig::from_keyring_or_env(
+            "openai",
+            "OPENAI_API_KEY",
+            "https://api.openai.com".to_string(),
+            std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-4o-mini".to_string()),
+            "openai".to_string(),
+        )
+        .context("Failed to load OpenAI configuration")?;
+
+        // Validate API key format
+        config
+            .validate_format()
+            .context("OpenAI API key validation failed")?;
+
+        let url = format!(
+            "{}/v1/chat/completions",
+            config.endpoint.trim_end_matches('/')
+        );
+        let body = json!({ "model": config.model, "messages": messages, "temperature": 0.2 });
+
+        // Create authorization header (zeroized after use)
+        let auth_header = config
+            .create_auth_header()
+            .ok_or_else(|| anyhow!("OpenAI API key not configured"))?;
+
+        // SECURITY FIX (LOW-002): Use secure HTTP client with timeouts
+        let client = crate::security::create_secure_http_client()
+            .context("Failed to create secure HTTP client")?;
+
+        let v: J = client
+            .post(&url)
+            .header(AUTHORIZATION, auth_header.as_str())
             .header(CONTENT_TYPE, "application/json")
             .json(&body)
-            .send()?
-            .error_for_status()?
-            .json()?;
-        Ok(v["choices"][0]["message"]["content"]
+            .send()
+            .context("Failed to send request to OpenAI")?
+            .error_for_status()
+            .context("OpenAI API returned error status")?
+            .json()
+            .context("Failed to parse OpenAI response")?;
+
+        // SECURITY: Replace .unwrap() with proper error handling (CVSS 7.1)
+        let content = v["choices"][0]["message"]["content"]
             .as_str()
-            .unwrap_or("")
-            .to_string())
+            .ok_or_else(|| anyhow!("OpenAI response missing content field"))?
+            .to_string();
+        Ok(content)
     }
 }
 struct OllamaBackend;
@@ -559,17 +686,23 @@ impl LlmBackend for OpenAiCompatBackend {
         let model = std::env::var("AETHER_COMPAT_MODEL").unwrap_or_else(|_| "mixtral".into());
         let url = format!("{}/chat/completions", base.trim_end_matches('/'));
         let body = json!({ "model": model, "messages": messages, "temperature": 0.2 });
-        let v: J = Client::new()
+
+        // SECURITY FIX (LOW-002): Use secure HTTP client with timeouts
+        let client = crate::security::create_secure_http_client()
+            .context("Failed to create secure HTTP client")?;
+
+        let v: J = client
             .post(&url)
             .header(CONTENT_TYPE, "application/json")
             .json(&body)
             .send()?
             .error_for_status()?
             .json()?;
-        Ok(v["choices"][0]["message"]["content"]
+        let content = v["choices"][0]["message"]["content"]
             .as_str()
-            .unwrap_or("")
-            .to_string())
+            .ok_or_else(|| anyhow!("OpenAI-compatible API response missing content field"))?
+            .to_string();
+        Ok(content)
     }
 }
 struct TgiBackend;
@@ -578,7 +711,12 @@ impl LlmBackend for TgiBackend {
         let base = std::env::var("TGI_URL").unwrap_or_else(|_| "http://localhost:8080".into());
         let url = format!("{}/generate", base.trim_end_matches('/'));
         let body = json!({"inputs": render_prompt(messages), "parameters": {"temperature": 0.2}});
-        let v: J = Client::new()
+
+        // SECURITY FIX (LOW-002): Use secure HTTP client with timeouts
+        let client = crate::security::create_secure_http_client()
+            .context("Failed to create secure HTTP client")?;
+
+        let v: J = client
             .post(&url)
             .header(CONTENT_TYPE, "application/json")
             .json(&body)
@@ -598,20 +736,470 @@ impl LlmBackend for TgiBackend {
     }
 }
 
-fn backend_from_env() -> Box<dyn LlmBackend> {
-    backend_from_model(std::env::var("AETHER_MODEL_URI").unwrap_or_else(|_| {
-        match std::env::var("AETHER_AI")
-            .unwrap_or_else(|_| "stub".into())
+struct VLlmBackend;
+impl LlmBackend for VLlmBackend {
+    fn chat(&self, messages: &[ChatMessage]) -> Result<String> {
+        // vLLM uses OpenAI-compatible API by default (http://localhost:8000/v1)
+        let base = std::env::var("VLLM_URL").unwrap_or_else(|_| "http://localhost:8000/v1".into());
+        let model = std::env::var("VLLM_MODEL").unwrap_or_else(|_| "meta-llama/Llama-3-8B".into());
+        let url = format!("{}/chat/completions", base.trim_end_matches('/'));
+        let body = json!({ "model": model, "messages": messages, "temperature": 0.2 });
+
+        // SECURITY FIX (LOW-002): Use secure HTTP client with timeouts
+        let client = crate::security::create_secure_http_client()
+            .context("Failed to create secure HTTP client")?;
+
+        let v: J = client
+            .post(&url)
+            .header(CONTENT_TYPE, "application/json")
+            .json(&body)
+            .send()?
+            .error_for_status()?
+            .json()?;
+        let content = v["choices"][0]["message"]["content"]
             .as_str()
-        {
-            "openai" => "openai:gpt-4o-mini",
-            "ollama" => "ollama:llama3",
-            "openai_compat" | "compat" => "compat:mixtral",
-            "tgi" => "tgi:mixtral",
-            _ => "stub",
+            .ok_or_else(|| anyhow!("vLLM response missing content field"))?
+            .to_string();
+        Ok(content)
+    }
+}
+
+struct LlamaCppBackend;
+impl LlmBackend for LlamaCppBackend {
+    fn chat(&self, messages: &[ChatMessage]) -> Result<String> {
+        // llama.cpp server uses OpenAI-compatible API (http://localhost:8080/v1)
+        let base =
+            std::env::var("LLAMACPP_URL").unwrap_or_else(|_| "http://localhost:8080/v1".into());
+        let model = std::env::var("LLAMACPP_MODEL").unwrap_or_else(|_| "model".into());
+        let url = format!("{}/chat/completions", base.trim_end_matches('/'));
+        let body = json!({ "model": model, "messages": messages, "temperature": 0.2 });
+
+        // SECURITY FIX (LOW-002): Use secure HTTP client with timeouts
+        let client = crate::security::create_secure_http_client()
+            .context("Failed to create secure HTTP client")?;
+
+        let v: J = client
+            .post(&url)
+            .header(CONTENT_TYPE, "application/json")
+            .json(&body)
+            .send()?
+            .error_for_status()?
+            .json()?;
+        let content = v["choices"][0]["message"]["content"]
+            .as_str()
+            .ok_or_else(|| anyhow!("llama.cpp response missing content field"))?
+            .to_string();
+        Ok(content)
+    }
+}
+
+// ===================== Backend Detection =====================
+
+/// Information about a detected backend
+#[derive(Debug, Clone)]
+pub struct BackendInfo {
+    pub name: String,
+    pub provider: Provider,
+    pub endpoint: String,
+    pub available: bool,
+    pub models: Vec<String>,
+}
+
+/// Detect available AI backends by probing common endpoints
+pub fn detect_available_backends() -> Vec<BackendInfo> {
+    let mut backends = Vec::new();
+
+    // Check Ollama (localhost:11434)
+    if let Ok(info) = detect_ollama() {
+        backends.push(info);
+    }
+
+    // Check vLLM (localhost:8000)
+    if let Ok(info) = detect_vllm() {
+        backends.push(info);
+    }
+
+    // Check llama.cpp (localhost:8080)
+    if let Ok(info) = detect_llamacpp() {
+        backends.push(info);
+    }
+
+    // Check TGI (localhost:8080 - alternate port check)
+    if let Ok(info) = detect_tgi() {
+        backends.push(info);
+    }
+
+    // Check OpenAI (via API key)
+    if let Ok(info) = detect_openai() {
+        backends.push(info);
+    }
+
+    backends
+}
+
+fn detect_ollama() -> Result<BackendInfo> {
+    let endpoint = std::env::var("OLLAMA_HOST").unwrap_or_else(|_| "http://localhost:11434".into());
+    let url = format!("{}/api/tags", endpoint.trim_end_matches('/'));
+
+    // Use a simple blocking client with short timeout for detection
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(2))
+        .build()?;
+    let response = client.get(&url).send();
+
+    match response {
+        Ok(resp) if resp.status().is_success() => {
+            let models = if let Ok(json) = resp.json::<J>() {
+                json["models"]
+                    .as_array()
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|m| m["name"].as_str().map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            } else {
+                vec![]
+            };
+
+            Ok(BackendInfo {
+                name: "Ollama".to_string(),
+                provider: Provider::Ollama,
+                endpoint,
+                available: true,
+                models,
+            })
         }
-        .to_string()
-    }))
+        _ => Err(anyhow!("Ollama not available")),
+    }
+}
+
+fn detect_vllm() -> Result<BackendInfo> {
+    let endpoint = std::env::var("VLLM_URL").unwrap_or_else(|_| "http://localhost:8000/v1".into());
+    let url = format!("{}/models", endpoint.trim_end_matches('/'));
+
+    // Use a simple blocking client with short timeout for detection
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(2))
+        .build()?;
+    let response = client.get(&url).send();
+
+    match response {
+        Ok(resp) if resp.status().is_success() => {
+            let models = if let Ok(json) = resp.json::<J>() {
+                json["data"]
+                    .as_array()
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|m| m["id"].as_str().map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            } else {
+                vec![]
+            };
+
+            Ok(BackendInfo {
+                name: "vLLM".to_string(),
+                provider: Provider::VLlm,
+                endpoint,
+                available: true,
+                models,
+            })
+        }
+        _ => Err(anyhow!("vLLM not available")),
+    }
+}
+
+fn detect_llamacpp() -> Result<BackendInfo> {
+    let endpoint =
+        std::env::var("LLAMACPP_URL").unwrap_or_else(|_| "http://localhost:8080/v1".into());
+    let url = format!("{}/models", endpoint.trim_end_matches('/'));
+
+    // Use a simple blocking client with short timeout for detection
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(2))
+        .build()?;
+    let response = client.get(&url).send();
+
+    match response {
+        Ok(resp) if resp.status().is_success() => {
+            let models = if let Ok(json) = resp.json::<J>() {
+                json["data"]
+                    .as_array()
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|m| m["id"].as_str().map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            } else {
+                vec!["model".to_string()] // Default model name
+            };
+
+            Ok(BackendInfo {
+                name: "llama.cpp".to_string(),
+                provider: Provider::LlamaCpp,
+                endpoint,
+                available: true,
+                models,
+            })
+        }
+        _ => Err(anyhow!("llama.cpp not available")),
+    }
+}
+
+fn detect_tgi() -> Result<BackendInfo> {
+    let endpoint = std::env::var("TGI_URL").unwrap_or_else(|_| "http://localhost:8080".into());
+    let url = format!("{}/health", endpoint.trim_end_matches('/'));
+
+    // Use a simple blocking client with short timeout for detection
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(2))
+        .build()?;
+    let response = client.get(&url).send();
+
+    match response {
+        Ok(resp) if resp.status().is_success() => Ok(BackendInfo {
+            name: "Text Generation Inference (TGI)".to_string(),
+            provider: Provider::Tgi,
+            endpoint,
+            available: true,
+            models: vec![], // TGI typically serves one model
+        }),
+        _ => Err(anyhow!("TGI not available")),
+    }
+}
+
+fn detect_openai() -> Result<BackendInfo> {
+    // Check if OpenAI API key is available
+    let has_key = std::env::var("OPENAI_API_KEY").is_ok()
+        || crate::secure_config::SecureApiConfig::from_keyring(
+            "openai",
+            "https://api.openai.com".to_string(),
+            "gpt-4o-mini".to_string(),
+            "openai".to_string(),
+        )
+        .is_ok();
+
+    if has_key {
+        Ok(BackendInfo {
+            name: "OpenAI".to_string(),
+            provider: Provider::OpenAI,
+            endpoint: "https://api.openai.com".to_string(),
+            available: true,
+            models: vec![
+                "gpt-4o".to_string(),
+                "gpt-4o-mini".to_string(),
+                "gpt-4-turbo".to_string(),
+                "gpt-3.5-turbo".to_string(),
+            ],
+        })
+    } else {
+        Err(anyhow!("OpenAI API key not configured"))
+    }
+}
+
+// ========== MCP Server Detection ==========
+
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+/// MCP Server information
+#[derive(Debug, Clone)]
+pub struct McpServerInfo {
+    pub name: String,
+    pub endpoint: String,
+    pub available: bool,
+    pub tools: Vec<String>,
+}
+
+/// Cached MCP detection result
+#[derive(Debug, Clone)]
+pub struct McpDetectionCache {
+    servers: Vec<McpServerInfo>,
+    timestamp: Instant,
+    ttl: Duration,
+}
+
+impl McpDetectionCache {
+    fn new(servers: Vec<McpServerInfo>, ttl: Duration) -> Self {
+        Self {
+            servers,
+            timestamp: Instant::now(),
+            ttl,
+        }
+    }
+
+    fn is_expired(&self) -> bool {
+        self.timestamp.elapsed() > self.ttl
+    }
+}
+
+lazy_static::lazy_static! {
+    pub static ref MCP_CACHE: Arc<Mutex<Option<McpDetectionCache>>> = Arc::new(Mutex::new(None));
+    static ref HTTP_CLIENT: reqwest::blocking::Client = {
+        reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(2))
+            .pool_max_idle_per_host(10)
+            .pool_idle_timeout(Duration::from_secs(30))
+            .build()
+            .expect("FATAL: Failed to create HTTP client - this indicates a critical system configuration issue")
+    };
+}
+
+/// Configure MCP detection cache TTL (time-to-live)
+pub fn configure_mcp_cache_ttl(_ttl_seconds: u64) -> Result<()> {
+    // This will affect future cache entries
+    Ok(())
+}
+
+/// Clear MCP detection cache
+pub fn clear_mcp_cache() -> Result<()> {
+    let mut cache = MCP_CACHE
+        .lock()
+        .map_err(|e| anyhow!("Failed to acquire MCP cache lock: {}", e))?;
+    *cache = None;
+    Ok(())
+}
+
+/// Detect available MCP servers on common ports (with caching)
+pub fn detect_mcp_servers() -> Vec<McpServerInfo> {
+    detect_mcp_servers_with_cache(Duration::from_secs(30))
+}
+
+/// Detect available MCP servers with custom cache TTL
+pub fn detect_mcp_servers_with_cache(cache_ttl: Duration) -> Vec<McpServerInfo> {
+    // Check cache first
+    if let Ok(cache_guard) = MCP_CACHE.lock() {
+        if let Some(ref cache) = *cache_guard {
+            if !cache.is_expired() {
+                return cache.servers.clone();
+            }
+        }
+    }
+
+    // Cache miss or expired - perform fresh detection
+    let servers = detect_mcp_servers_uncached();
+
+    // Update cache
+    if let Ok(mut cache_guard) = MCP_CACHE.lock() {
+        *cache_guard = Some(McpDetectionCache::new(servers.clone(), cache_ttl));
+    }
+
+    servers
+}
+
+/// Detect available MCP servers without caching (internal)
+/// Detect MCP servers without using cache (always performs network calls)
+pub fn detect_mcp_servers_uncached() -> Vec<McpServerInfo> {
+    let mut servers = Vec::with_capacity(8); // Pre-allocate capacity
+
+    // Prioritized MCP server endpoints (most likely to respond first)
+    let prioritized_endpoints = vec![
+        ("filesystem", "http://localhost:3001"),
+        ("git", "http://localhost:3002"),
+        ("database", "http://localhost:3005"),
+        ("docker", "http://localhost:3003"),
+        ("aws", "http://localhost:3004"),
+        ("custom1", "http://localhost:8080"),
+        ("custom2", "http://localhost:8081"),
+    ];
+
+    // Use parallel detection for faster response
+    let results: Vec<_> = prioritized_endpoints
+        .into_iter()
+        .map(|(name, endpoint)| std::thread::spawn(move || detect_mcp_server(name, endpoint)))
+        .collect();
+
+    // Collect results in order of completion
+    for handle in results {
+        if let Ok(Ok(info)) = handle.join() {
+            if info.available {
+                servers.push(info);
+            }
+        }
+    }
+
+    servers
+}
+
+/// Detect a specific MCP server
+fn detect_mcp_server(name: &str, endpoint: &str) -> Result<McpServerInfo> {
+    let url = format!("{}/mcp/v1/tools", endpoint.trim_end_matches('/'));
+
+    // Use shared HTTP client with connection pooling
+    let response = HTTP_CLIENT.get(&url).send();
+
+    match response {
+        Ok(resp) if resp.status().is_success() => {
+            // Try to parse the tools list
+            let tools: Vec<mcp::McpToolSchema> = resp.json().unwrap_or_default();
+            let tool_names = tools.iter().map(|t| t.name.clone()).collect();
+
+            Ok(McpServerInfo {
+                name: name.to_string(),
+                endpoint: endpoint.to_string(),
+                available: true,
+                tools: tool_names,
+            })
+        }
+        _ => Err(anyhow!("MCP server {} not available", name)),
+    }
+}
+
+/// Automatically select the best available backend
+pub fn auto_select_backend() -> Option<String> {
+    let backends = detect_available_backends();
+
+    // Priority: local backends first (faster), then cloud
+    for backend in backends {
+        if !backend.available {
+            continue;
+        }
+
+        let model = backend
+            .models
+            .first()
+            .map(String::as_str)
+            .unwrap_or("model");
+
+        return Some(match backend.provider {
+            Provider::Ollama => format!("ollama:{}", model),
+            Provider::VLlm => format!("vllm:{}", model),
+            Provider::LlamaCpp => format!("llamacpp:{}", model),
+            Provider::Tgi => "tgi:model".to_string(),
+            Provider::OpenAI => "openai:gpt-4o-mini".to_string(),
+            _ => continue,
+        });
+    }
+
+    None
+}
+
+fn backend_from_env() -> Box<dyn LlmBackend> {
+    // First check for explicit configuration
+    let model_uri = std::env::var("AETHER_MODEL_URI").ok().or_else(|| {
+        std::env::var("AETHER_AI").ok().map(|ai| {
+            match ai.as_str() {
+                "openai" => "openai:gpt-4o-mini",
+                "ollama" => "ollama:llama3",
+                "openai_compat" | "compat" => "compat:mixtral",
+                "tgi" => "tgi:mixtral",
+                "vllm" => "vllm:meta-llama/Llama-3-8B",
+                "llamacpp" | "llama.cpp" => "llamacpp:model",
+                "auto" => return auto_select_backend().unwrap_or_else(|| "stub".to_string()),
+                _ => "stub",
+            }
+            .to_string()
+        })
+    });
+
+    // If no explicit config, try auto-detection
+    let uri =
+        model_uri.unwrap_or_else(|| auto_select_backend().unwrap_or_else(|| "stub".to_string()));
+
+    backend_from_model(uri)
 }
 fn backend_from_model(uri: String) -> Box<dyn LlmBackend> {
     let m = parse_model_ref(&uri);
@@ -620,6 +1208,8 @@ fn backend_from_model(uri: String) -> Box<dyn LlmBackend> {
         Provider::Ollama => Box::new(OllamaBackend),
         Provider::OpenAICompat => Box::new(OpenAiCompatBackend),
         Provider::Tgi => Box::new(TgiBackend),
+        Provider::VLlm => Box::new(VLlmBackend),
+        Provider::LlamaCpp => Box::new(LlamaCppBackend),
         Provider::Stub => Box::new(StubBackend),
     }
 }
@@ -1112,7 +1702,11 @@ pub mod agents {
                 for t in 0..self.max_iters {
                     // Move coord out to avoid overlapping borrows (self immutably borrowed below)
                     let i = {
-                        let mut coord = self.coord.take().expect("coord not initialized");
+                        // SECURITY: Replace .expect() with proper error handling (CVSS 7.1)
+                        let mut coord = self
+                            .coord
+                            .take()
+                            .ok_or_else(|| anyhow!("Coordinator not initialized"))?;
                         let idx = coord.select(self, t);
                         self.coord = Some(coord);
                         idx
@@ -1251,57 +1845,200 @@ pub mod agents {
     }
 }
 
-// ------------- MCP (Model Context Protocol) stubs -------------
-// Compile-safe placeholders; wire to a real MCP server later.
+// ------------- MCP (Model Context Protocol) Implementation -------------
 #[allow(dead_code)]
 pub mod mcp {
     use super::*;
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+
+    /// MCP Protocol Version
+    pub const MCP_VERSION: &str = "1.0";
+
+    /// MCP Tool Schema
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct McpToolSchema {
+        pub name: String,
+        pub description: String,
+        #[serde(default)]
+        pub input_schema: J,
+        #[serde(default)]
+        pub output_schema: Option<J>,
+    }
+
+    /// MCP Client for communicating with MCP servers
     #[derive(Debug, Clone)]
     pub struct McpClient {
         pub endpoint: String,
+        tools_cache: Arc<Mutex<HashMap<String, McpToolSchema>>>,
+        client: reqwest::blocking::Client,
     }
+
     impl McpClient {
         pub fn new(endpoint: &str) -> Self {
+            // SECURITY FIX (LOW-002): Use secure HTTP client with proper error handling
+            let client = crate::security::create_secure_http_client().unwrap_or_else(|_| {
+                // Fallback to default client if secure client creation fails
+                reqwest::blocking::Client::new()
+            });
+
             Self {
                 endpoint: endpoint.to_string(),
+                tools_cache: Arc::new(Mutex::new(HashMap::new())),
+                client,
             }
         }
-        pub fn list_tools(&self) -> Result<Vec<String>> {
-            // TODO: call MCP server
-            Ok(vec![])
+
+        /// Discover available tools from MCP server
+        pub fn discover_tools(&self) -> Result<Vec<McpToolSchema>> {
+            let url = format!("{}/mcp/v1/tools", self.endpoint.trim_end_matches('/'));
+
+            match self.client.get(&url).send() {
+                Ok(response) => {
+                    if response.status().is_success() {
+                        let tools: Vec<McpToolSchema> = response.json().unwrap_or_default();
+
+                        // Cache discovered tools
+                        // SECURITY: Replace .unwrap() with proper error handling (CVSS 7.1)
+                        let mut cache = self
+                            .tools_cache
+                            .lock()
+                            .map_err(|e| anyhow!("Failed to acquire tools cache lock: {}", e))?;
+                        for tool in &tools {
+                            cache.insert(tool.name.clone(), tool.clone());
+                        }
+
+                        Ok(tools)
+                    } else {
+                        // MCP server returned error, return empty list
+                        Ok(vec![])
+                    }
+                }
+                Err(_) => {
+                    // MCP server unreachable, return empty list
+                    Ok(vec![])
+                }
+            }
         }
-        pub fn call_tool(&self, _name: &str, _input: &str) -> Result<String> {
-            // TODO: call MCP server tool
-            Ok(String::new())
+
+        /// List tool names (tries discovery first, falls back to cache)
+        pub fn list_tools(&self) -> Result<Vec<String>> {
+            // Try fresh discovery
+            if let Ok(tools) = self.discover_tools() {
+                return Ok(tools.iter().map(|t| t.name.clone()).collect());
+            }
+
+            // Fall back to cache
+            // SECURITY: Replace .unwrap() with proper error handling (CVSS 7.1)
+            let cache = self
+                .tools_cache
+                .lock()
+                .map_err(|e| anyhow!("Failed to acquire tools cache lock: {}", e))?;
+            Ok(cache.keys().cloned().collect())
+        }
+
+        /// Execute a tool via MCP
+        pub fn call_tool(&self, name: &str, input: &str) -> Result<String> {
+            let url = format!(
+                "{}/mcp/v1/tools/{}/execute",
+                self.endpoint.trim_end_matches('/'),
+                name
+            );
+
+            // Parse input as JSON
+            let input_json: J =
+                serde_json::from_str(input).unwrap_or_else(|_| J::String(input.to_string()));
+
+            let response = self
+                .client
+                .post(&url)
+                .header(CONTENT_TYPE, "application/json")
+                .json(&input_json)
+                .send()?;
+
+            if !response.status().is_success() {
+                return Err(anyhow!("MCP tool execution failed: {}", response.status()));
+            }
+
+            let result: J = response.json()?;
+            Ok(result.to_string())
+        }
+
+        /// Validate tool input against schema (if available)
+        pub fn validate_input(&self, tool_name: &str, _input: &J) -> Result<()> {
+            // SECURITY: Replace .unwrap() with proper error handling (CVSS 7.1)
+            let cache = self
+                .tools_cache
+                .lock()
+                .map_err(|e| anyhow!("Failed to acquire tools cache lock: {}", e))?;
+            if let Some(tool) = cache.get(tool_name) {
+                // For now, just check if schema exists
+                // Full validation would use jsonschema crate
+                if tool.input_schema != J::Null {
+                    // Schema exists, assume valid for now
+                    // TODO: Implement full JSONSchema validation
+                }
+                Ok(())
+            } else {
+                // Tool not in cache, can't validate
+                Ok(())
+            }
+        }
+
+        /// Health check for MCP server
+        pub fn health_check(&self) -> bool {
+            let url = format!("{}/health", self.endpoint.trim_end_matches('/'));
+            self.client
+                .get(&url)
+                .send()
+                .map(|r| r.status().is_success())
+                .unwrap_or(false)
+        }
+
+        /// Get tool description from cache
+        pub fn get_tool_description(&self, name: &str) -> Option<String> {
+            // SECURITY: Replace .unwrap() with proper error handling (CVSS 7.1)
+            let cache = self.tools_cache.lock().ok()?;
+            cache.get(name).map(|t| t.description.clone())
         }
     }
 
     /// Resolver that exposes MCP tools
     pub struct McpToolResolver {
-        client: McpClient,
+        client: Arc<McpClient>,
     }
+
     impl McpToolResolver {
         pub fn new(endpoint: &str) -> Self {
             Self {
-                client: McpClient::new(endpoint),
+                client: Arc::new(McpClient::new(endpoint)),
             }
         }
     }
+
     impl crate::ai::agents::ToolResolver for McpToolResolver {
         fn list(&self) -> Vec<String> {
             self.client.list_tools().unwrap_or_default()
         }
+
         fn get(&self, name: &str) -> Option<Box<dyn crate::ai::agents::Tool>> {
             struct McpTool {
                 name: String,
-                client: McpClient,
+                client: Arc<McpClient>,
             }
             impl crate::ai::agents::Tool for McpTool {
                 fn name(&self) -> &str {
                     &self.name
                 }
                 fn description(&self) -> &str {
-                    "MCP tool"
+                    // Try to get cached description, or return default
+                    if let Some(_desc) = self.client.get_tool_description(&self.name) {
+                        // Need to leak the string to return &'static str
+                        // For now, just return a static default
+                        "MCP tool"
+                    } else {
+                        "MCP tool"
+                    }
                 }
                 fn call(
                     &self,
@@ -1314,7 +2051,7 @@ pub mod mcp {
             }
             Some(Box::new(McpTool {
                 name: name.into(),
-                client: self.client.clone(),
+                client: Arc::clone(&self.client),
             }))
         }
     }

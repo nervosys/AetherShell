@@ -1,0 +1,23 @@
+print("=== Simple function test ===")
+
+let arr = [10, 20, 30]
+print("Original array: [10, 20, 30]")
+
+print("")
+print("Testing first():")
+let first_result = arr | first()
+print("Type check - is it 10?")
+print(first_result)
+
+print("")
+print("Testing first(2):")
+let first2_result = arr | first(2)
+print("Type check - is it [10, 20]?")
+print(first2_result)
+
+print("")
+print("Let's try to iterate over first(2) result:")
+first2_result | foreach(fn(item) => print("Item: " + item))
+
+print("")
+print("Done with tests")

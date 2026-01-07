@@ -1,7 +1,7 @@
-# One-shot AI call (provider picked by $AETHER_AI)
-read_text "README.md" | ai "summarize as 3 bullet points"
-  | print
+// Read text from a file
+content = read_text("README.md")
+print("File loaded successfully!")
+print(type_of(content))
 
-# Plain prompt
-ai "Write a 1-line haiku about typed shells."
-  | print
+// Note: The 'ai' builtin for direct prompts is not yet implemented
+// For AI functionality, use the 'agent' builtin or ai-suggest/ai-explain commands

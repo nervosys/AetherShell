@@ -9,6 +9,7 @@ use ratatui::{
 };
 
 use super::app::{AgentStatus, App, AppMode, InputMode, MessageRole};
+use super::dashboard;
 
 pub fn draw(f: &mut Frame, app: &App) {
     let chunks = Layout::default()
@@ -35,6 +36,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         AppMode::Settings => draw_settings(f, app, chunks[1]),
         AppMode::DistributedAgents => draw_distributed_agents(f, app, chunks[1]),
         AppMode::AdvancedReasoning => draw_advanced_reasoning(f, app, chunks[1]),
+        AppMode::Search => draw_search(f, app, chunks[1]),
     }
 
     // Footer with input and help
@@ -106,7 +108,14 @@ fn draw_chat(f: &mut Frame, app: &App, area: Rect) {
 fn draw_chat_sidebar(f: &mut Frame, app: &App, area: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
+        .constraints(
+            [
+                Constraint::Percentage(33),
+                Constraint::Percentage(33),
+                Constraint::Percentage(34),
+            ]
+            .as_ref(),
+        )
         .split(area);
 
     // Selected media files
@@ -139,6 +148,9 @@ fn draw_chat_sidebar(f: &mut Frame, app: &App, area: Rect) {
     .block(Block::default().borders(Borders::ALL).title("Agent Status"));
 
     f.render_widget(agent_info, chunks[1]);
+
+    // Conversation statistics panel
+    dashboard::render_stats_panel(f, app, chunks[2]);
 }
 
 fn draw_agent_swarm(f: &mut Frame, app: &App, area: Rect) {
@@ -188,7 +200,14 @@ fn draw_agent_swarm(f: &mut Frame, app: &App, area: Rect) {
 fn draw_agent_details(f: &mut Frame, app: &App, area: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(10), Constraint::Length(5)].as_ref())
+        .constraints(
+            [
+                Constraint::Min(10),
+                Constraint::Length(10),
+                Constraint::Length(5),
+            ]
+            .as_ref(),
+        )
         .split(area);
 
     // Selected agent details
@@ -220,13 +239,16 @@ fn draw_agent_details(f: &mut Frame, app: &App, area: Rect) {
 
     f.render_widget(details_paragraph, chunks[0]);
 
+    // Agent performance metrics
+    dashboard::render_agent_metrics(f, app, chunks[1]);
+
     // Agent controls help
-    let help_text = "n: New Agent | d: Delete | Enter: Start Task | c: Chat";
+    let help_text = "n: New Agent | d: Delete | Enter: Start Task | c: Chat | m: Metrics";
     let help = Paragraph::new(help_text)
         .block(Block::default().borders(Borders::ALL).title("Controls"))
         .alignment(Alignment::Center);
 
-    f.render_widget(help, chunks[1]);
+    f.render_widget(help, chunks[2]);
 }
 
 fn draw_media_browser(f: &mut Frame, app: &App, area: Rect) {
@@ -307,6 +329,11 @@ fn draw_media_preview(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_settings(f: &mut Frame, app: &App, area: Rect) {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Percentage(40), Constraint::Percentage(60)].as_ref())
+        .split(area);
+
     let settings_text = format!(
         "Default Model: {}\nMax Messages: {}\nAuto Scroll: {}\nShow Timestamps: {}\nMedia Preview: {}",
         app.config.default_model,
@@ -320,7 +347,10 @@ fn draw_settings(f: &mut Frame, app: &App, area: Rect) {
         .block(Block::default().borders(Borders::ALL).title("Settings"))
         .wrap(Wrap { trim: true });
 
-    f.render_widget(settings, area);
+    f.render_widget(settings, chunks[0]);
+
+    // Keyboard shortcuts help panel
+    dashboard::render_help_panel(f, app, chunks[1]);
 }
 
 fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
@@ -333,6 +363,7 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
     let input_title = match app.mode {
         AppMode::Chat => "Message",
         AppMode::AgentSwarm => "Agent Task",
+        AppMode::Search => "Search Query",
         _ => "Input",
     };
 
@@ -614,4 +645,131 @@ fn draw_advanced_reasoning(f: &mut Frame, app: &App, area: Rect) {
     );
 
     f.render_widget(knowledge_list, chunks[2]);
+}
+
+fn draw_search(f: &mut Frame, app: &App, area: Rect) {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(
+            [
+                Constraint::Length(3),
+                Constraint::Min(0),
+                Constraint::Length(3),
+            ]
+            .as_ref(),
+        )
+        .split(area);
+
+    // Search query display
+    let query_text = if app.search_query.is_empty() {
+        "No active search. Type and press Enter to search.".to_string()
+    } else {
+        format!(
+            "Search: \"{}\" - Found {} result{}",
+            app.search_query,
+            app.search_results.len(),
+            if app.search_results.len() == 1 {
+                ""
+            } else {
+                "s"
+            }
+        )
+    };
+
+    let query_display = Paragraph::new(query_text)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("🔍 Search Query"),
+        )
+        .style(Style::default().fg(Color::Cyan));
+
+    f.render_widget(query_display, chunks[0]);
+
+    // Search results
+    if app.search_results.is_empty() {
+        let no_results = Paragraph::new("No results found. Try a different search term.")
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Search Results"),
+            )
+            .style(Style::default().fg(Color::Gray))
+            .alignment(Alignment::Center);
+
+        f.render_widget(no_results, chunks[1]);
+    } else {
+        let results: Vec<ListItem> = app
+            .search_results
+            .iter()
+            .enumerate()
+            .map(|(result_num, &msg_idx)| {
+                let msg = &app.messages[msg_idx];
+                let is_selected = result_num == app.search_result_index;
+
+                let role_icon = match msg.role {
+                    MessageRole::User => "👤",
+                    MessageRole::Assistant => "🤖",
+                    MessageRole::System => "⚙️",
+                };
+
+                let timestamp = msg.timestamp.format("%H:%M:%S");
+                let content_preview = if msg.content.len() > 80 {
+                    format!("{}...", &msg.content[..77])
+                } else {
+                    msg.content.clone()
+                };
+
+                let line_text = format!(
+                    "[{}] {} {} | {}",
+                    result_num + 1,
+                    role_icon,
+                    timestamp,
+                    content_preview
+                );
+
+                let style = if is_selected {
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    match msg.role {
+                        MessageRole::User => Style::default().fg(Color::Cyan),
+                        MessageRole::Assistant => Style::default().fg(Color::Green),
+                        MessageRole::System => Style::default().fg(Color::Gray),
+                    }
+                };
+
+                ListItem::new(line_text).style(style)
+            })
+            .collect();
+
+        let results_list = List::new(results)
+            .block(Block::default().borders(Borders::ALL).title(format!(
+                "Search Results ({}/{})",
+                app.search_result_index + 1,
+                app.search_results.len()
+            )))
+            .highlight_style(
+                Style::default()
+                    .add_modifier(Modifier::BOLD)
+                    .bg(Color::DarkGray),
+            );
+
+        f.render_widget(results_list, chunks[1]);
+    }
+
+    // Instructions
+    let instructions = if app.search_results.is_empty() {
+        "i or /: Enter search | Esc: Return to Chat | Tab: Switch mode"
+    } else {
+        "↑/↓: Navigate results | i: New search | Esc: Return to Chat | Ctrl+C: Copy"
+    };
+
+    let help = Paragraph::new(instructions)
+        .block(Block::default().borders(Borders::ALL).title("Controls"))
+        .alignment(Alignment::Center)
+        .style(Style::default().fg(Color::Yellow));
+
+    f.render_widget(help, chunks[2]);
 }

@@ -1,0 +1,78 @@
+# MED-005 FIX: Supply chain security configuration
+# This file configures cargo-deny to enforce security policies
+
+[advisories]
+# Vulnerability database configuration
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+vulnerability = "deny"
+unmaintained = "warn"
+unsound = "warn"
+yanked = "deny"
+notice = "warn"
+ignore = [
+    # Unmaintained dependencies with no known vulnerabilities
+    # These are transitive dependencies from stable, maintained crates
+    "RUSTSEC-2024-0388", # derivative (via keyring -> zbus)
+    "RUSTSEC-2024-0384", # instant (via keyring -> async-io)
+    "RUSTSEC-2024-0436", # paste (via ratatui - will be fixed in ratatui update)
+    "RUSTSEC-2024-0370", # proc-macro-error (via utoipa - fixed in utoipa 5.x)
+]
+
+[licenses]
+# License policy - ensure compliance
+unlicensed = "deny"
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-DFS-2016",
+    "CC0-1.0",
+    "Zlib",
+    "0BSD",
+]
+deny = ["GPL-3.0", "AGPL-3.0"]
+copyleft = "warn"
+allow-osi-fsf-free = "both"
+default = "deny"
+confidence-threshold = 0.8
+
+# Specific license exceptions for well-known safe crates
+[[licenses.exceptions]]
+allow = ["MPL-2.0"]
+name = "webpki-roots"
+
+[licenses.private]
+# Allow proprietary licenses for our own code
+ignore = false
+registries = []
+
+[bans]
+# Dependency banning rules
+multiple-versions = "warn"
+wildcards = "warn"
+highlight = "all"
+allow = []
+deny = []
+
+# Skip duplicate dependency version warnings for these crates
+# (waiting for ecosystem to converge on versions)
+skip = []
+
+skip-tree = []
+
+[sources]
+# Source code verification
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
+
+[sources.allow-org]
+# Allow GitHub organizations
+github = []
+gitlab = []
+bitbucket = []

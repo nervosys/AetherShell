@@ -426,10 +426,10 @@ fn test_constraint_types_and_severities() {
 
 #[tokio::test]
 async fn test_experience_storage() {
-    let mut engine = ReasoningEngine::new();
+    let _engine = ReasoningEngine::new();
 
     let goal = create_test_planning_goal("Experience storage test");
-    let reasoning_chain = vec![ReasoningStep {
+    let _reasoning_chain = vec![ReasoningStep {
         step_id: uuid::Uuid::new_v4(),
         description: "Initial analysis".to_string(),
         input: MultiModalMessage {
@@ -499,6 +499,7 @@ fn create_test_planning_goal(description: &str) -> PlanningGoal {
     }
 }
 
+#[allow(dead_code)]
 fn create_multimodal_planning_goal() -> PlanningGoal {
     PlanningGoal {
         description: "Multi-modal analysis task".to_string(),

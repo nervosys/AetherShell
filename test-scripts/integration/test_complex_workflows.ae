@@ -1,0 +1,245 @@
+// Complex Workflow Tests for AetherShell
+// Testing operation chaining, lambda compositions, and advanced patterns
+
+print("=== Complex Workflow Tests ===")
+print("")
+
+// Test 1: Multi-stage pipeline with lambdas
+print("Test 1: Multi-stage data transformation pipeline")
+result1 = range(1, 21) 
+  | where(fn(x) => x % 2 == 0)
+  | map(fn(x) => x * x)
+  | where(fn(x) => x > 50)
+  | map(fn(x) => {value: x, sqrt: sqrt(x)})
+  | take(3)
+print(result1)
+print("")
+
+// Test 2: String processing chain
+print("Test 2: Complex string processing")
+text = "hello,world,foo,bar,baz"
+result2 = text 
+  | split(",")
+  | map(fn(s) => s | upper())
+  | where(fn(s) => s | contains("A"))
+  | join(" -> ")
+print(result2)
+print("")
+
+// Test 3: Nested lambda with reduce
+print("Test 3: Factorial using reduce with lambda")
+factorial = fn(n) => range(1, n + 1) | reduce(fn(a, b) => a * b, 1)
+result3 = factorial(6)
+print("6! = " + result3)
+print("")
+
+// Test 4: Array transformation with flatten and reverse
+print("Test 4: Nested array operations")
+nested = [[1, 2], [3, 4], [5, 6]]
+result4 = nested 
+  | map(fn(arr) => arr | map(fn(x) => x * 2))
+  | flatten()
+  | reverse()
+  | slice(0, 4)
+print(result4)
+print("")
+
+// Test 5: Lambda composition pattern
+print("Test 5: Function composition")
+double = fn(x) => x * 2
+square = fn(x) => x * x
+add_ten = fn(x) => x + 10
+
+result5 = [1, 2, 3, 4, 5]
+  | map(double)
+  | map(square)
+  | map(add_ten)
+  | reduce(fn(a, b) => a + b, 0)
+print("Sum after double->square->add10: " + result5)
+print("")
+
+// Test 6: Conditional filtering with multiple predicates
+print("Test 6: Complex filtering")
+numbers = range(1, 101)
+result6 = numbers
+  | where(fn(x) => x % 3 == 0)
+  | where(fn(x) => x % 5 == 0)
+  | map(fn(x) => {num: x, factors: "3,5,15"})
+  | take(5)
+print(result6)
+print("")
+
+// Test 7: String manipulation chain
+print("Test 7: Advanced string manipulation")
+sentence = "  The Quick Brown Fox Jumps  "
+result7 = sentence
+  | trim()
+  | lower()
+  | split(" ")
+  | map(fn(word) => word | upper())
+  | where(fn(word) => len(word) > 3)
+  | reverse()
+  | join("-")
+print(result7)
+print("")
+
+// Test 8: Zip and transform
+print("Test 8: Zip with transformation")
+names = ["Alice", "Bob", "Charlie"]
+scores = [95, 87, 92]
+result8 = zip(names, scores)
+  | map(fn(pair) => {
+      name: first(pair),
+      score: last(pair)
+    })
+print(result8)
+print("")
+
+// Test 9: Range-based math operations
+print("Test 9: Sum of squares of even numbers 1-20")
+result9 = range(1, 21)
+  | where(fn(x) => x % 2 == 0)
+  | map(fn(x) => pow(x, 2))
+  | reduce(fn(a, b) => a + b, 0)
+print("Sum: " + result9)
+print("")
+
+// Test 10: Deep nesting with multiple operations
+print("Test 10: Complex nested operations")
+result10 = range(1, 11)
+  | map(fn(x) => range(1, x + 1))
+  | map(fn(arr) => arr | reduce(fn(a, b) => a + b, 0))
+  | where(fn(sum) => sum % 2 == 0)
+  | map(fn(x) => {value: x, half: x / 2})
+print(result10)
+print("")
+
+// Test 11: JSON round-trip with transformation
+print("Test 11: JSON serialization pipeline")
+data = {
+  users: [
+    {name: "Alice", age: 30},
+    {name: "Bob", age: 25}
+  ],
+  timestamp: time()
+}
+result11 = data
+  | json_stringify()
+  | json_parse()
+print(result11)
+print("")
+
+// Test 12: Lambda with closure-like behavior
+print("Test 12: Higher-order function pattern")
+multiplier = fn(factor) => fn(x) => x * factor
+times3 = multiplier(3)
+times5 = multiplier(5)
+
+result12a = [1, 2, 3, 4] | map(times3)
+result12b = [1, 2, 3, 4] | map(times5)
+print("Times 3: " + result12a)
+print("Times 5: " + result12b)
+print("")
+
+// Test 13: All/Any with complex predicates
+print("Test 13: All/Any predicates")
+numbers13 = [2, 4, 6, 8, 10]
+all_even = numbers13 | all(fn(x) => x % 2 == 0)
+any_gt_5 = numbers13 | any(fn(x) => x > 5)
+print("All even: " + all_even)
+print("Any > 5: " + any_gt_5)
+print("")
+
+// Test 14: String array with complex transformation
+print("Test 14: String array pipeline")
+words = ["apple", "banana", "cherry", "date", "elderberry"]
+result14 = words
+  | where(fn(w) => len(w) > 5)
+  | map(fn(w) => w | upper() | split("") | reverse() | join(""))
+  | join(", ")
+print(result14)
+print("")
+
+// Test 15: Mathematical series calculation
+print("Test 15: Fibonacci-like series with reduce")
+// Sum of (n^2 + n) for n in 1..10
+result15 = range(1, 11)
+  | map(fn(n) => pow(n, 2) + n)
+  | reduce(fn(a, b) => max(a, b), 0)
+print("Max of (n^2 + n) series: " + result15)
+print("")
+
+// Test 16: Multi-level filtering and mapping
+print("Test 16: Prime-like filtering (divisibility check)")
+result16 = range(2, 30)
+  | where(fn(x) => {
+      divisible_by_2 = x % 2 == 0
+      divisible_by_3 = x % 3 == 0
+      !(divisible_by_2 && divisible_by_3)
+    })
+  | take(8)
+  | map(fn(x) => x * x)
+print(result16)
+print("")
+
+// Test 17: Concat and flatten operations
+print("Test 17: Array concatenation and flattening")
+arr1 = [1, 2, 3]
+arr2 = [4, 5, 6]
+arr3 = [7, 8, 9]
+result17 = [arr1, arr2, arr3]
+  | flatten()
+  | map(fn(x) => [x, x * 2])
+  | flatten()
+  | where(fn(x) => x % 3 != 0)
+  | take(10)
+print(result17)
+print("")
+
+// Test 18: Record transformation pipeline
+print("Test 18: Record key extraction and processing")
+records = [
+  {id: 1, value: 100},
+  {id: 2, value: 200},
+  {id: 3, value: 150}
+]
+// Get all values and sum them
+total_sum = records
+  | map(fn(r) => r.value)
+  | reduce(fn(a, b) => a + b, 0)
+print("Sum of all values: " + total_sum)
+print("")
+
+// Test 19: Slice with reverse and map
+print("Test 19: Slice operations with transformations")
+alphabet = "abcdefghijklmnopqrstuvwxyz"
+result19 = alphabet
+  | split("")
+  | slice(5, 15)
+  | map(fn(c) => c | upper())
+  | reverse()
+  | join("")
+print(result19)
+print("")
+
+// Test 20: Comprehensive pipeline combining all features
+print("Test 20: Master pipeline (all features)")
+result20 = range(1, 51)
+  | where(fn(x) => x % 7 == 0)  // Divisible by 7
+  | map(fn(x) => {
+      original: x,
+      squared: pow(x, 2),
+      description: "Number " + x
+    })
+  | map(fn(r) => {
+      original: r.original,
+      squared: r.squared,
+      cubed: pow(r.original, 3),
+      label: r.description | upper()
+    })
+  | where(fn(r) => r.squared > 100)
+  | take(3)
+print(result20)
+print("")
+
+print("=== All Complex Workflow Tests Complete ===")

@@ -1,3 +1,4 @@
+pub mod agent;
 pub mod ai;
 pub mod ai_api;
 pub mod ast;
@@ -7,6 +8,10 @@ pub mod eval;
 pub mod os_tools;
 pub mod parser;
 pub mod repl;
+pub mod secure_config;
+pub mod security;
+pub mod shell_features;
+pub mod syntax_kb;
 pub mod transpile;
 pub mod tui;
 pub mod typecheck;

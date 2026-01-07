@@ -1,0 +1,74 @@
+// Example: Complete Integration - AI Backends + MCP Servers
+// Demonstrates using both systems together for intelligent agents
+
+print("=== Complete AI + MCP Integration ===")
+print("")
+
+// Part 1: Detect AI Backends
+print("Part 1: AI Backend Detection")
+print("─────────────────────────────")
+let ai_backends = ai_backends()
+let selected_ai = ai_detect()
+
+print("Available AI backends: " + len(ai_backends))
+print("Auto-selected: " + selected_ai)
+print("")
+
+// Show AI backend details
+print("Detected backends:")
+ai_backends | foreach(fn(b) => print("  - " + b.name + " (" + b.provider + ")"))
+print("")
+
+// Part 2: Detect MCP Servers
+print("Part 2: MCP Server Detection")
+print("─────────────────────────────")
+let mcp_servers = mcp_servers()
+print("Available MCP servers: " + len(mcp_servers))
+print("")
+
+// Part 3: Integration Patterns
+print("Part 3: Integration Patterns")
+print("─────────────────────────────")
+print("")
+
+print("Pattern 1: Simple AI Query")
+print("  let response = ai(ai_detect(), \"What is 2+2?\")")
+print("")
+
+print("Pattern 2: Agent without tools")
+print("  agent(\"Answer questions\", ai_detect(), [])")
+print("")
+
+print("Pattern 3: Agent with MCP tools")
+print("  let server = mcp_detect(\"http://localhost:3001\")")
+print("  agent(\"File analyzer\", ai_detect(), server.tools)")
+print("")
+
+print("Pattern 4: Multi-agent with different backends")
+print("  let fast = agent(\"Quick tasks\", \"ollama:llama3.2:3b\", [])")
+print("  let smart = agent(\"Complex tasks\", \"ollama:llama3.1:70b\", [])")
+print("")
+
+print("Pattern 5: Agent with multiple MCP servers")
+print("  let fs = mcp_detect(\"http://localhost:3001\")")
+print("  let git = mcp_detect(\"http://localhost:3002\")")
+print("  agent(\"Code reviewer\", ai_detect(), fs.tools + git.tools)")
+print("")
+
+// Part 4: Status Summary
+print("Part 4: Status Summary")
+print("─────────────────────────────")
+print("")
+print("Ready to use:")
+print("  ✓ AI Backend: " + selected_ai)
+print("  ✓ MCP Servers: " + len(mcp_servers) + " detected")
+print("  ✓ Auto-configuration: Enabled")
+print("")
+
+print("To enable MCP tools:")
+print("  1. Start MCP server(s) on ports 3001-3005")
+print("  2. Use mcp_detect() to find them")
+print("  3. Pass server.tools to agent()")
+print("")
+
+print("✓ Integration ready!")

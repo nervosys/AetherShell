@@ -1,0 +1,806 @@
+# Aether Shell (au)
+
+*A modern, typed, memory‑safe successor to Bash—bringing the best of PowerShell’s structured pipelines, Rust’s safety & generics, and Julia’s macros & metaprogramming.*
+
+---
+
+## 0) Elevator pitch
+
+**Aether (au)** is a new shell & scripting language with:
+
+- **Typed, structured pipelines** (tables, records, arrays—not just raw text)
+- **Memory safety** (runtime implemented in Rust; no UB; safe process I/O by default)
+- **Strong, inferred types** with **algebraic data types** (`Option`, `Result`, tagged unions)
+- **Pattern matching** and **generics**
+- **Hygienic macros** and **AST quoting** (Julia-style) alongside **procedural macros** (Rust-style)
+- **First-class async/await** and structured concurrency
+- **Capability-secure process & filesystem APIs**
+- **Composability with POSIX tools** (lossless text ↔ structured conversion)
+
+This document now includes: **a Pratt parser for operators and lambdas, pattern matching, a first static type checker, and a modular Rust codebase with a BASH/Fish/Go feel**.
+
+---
+
+## 1) Design goals
+
+1. **Shell-first ergonomics**: terse syntax, REPL-friendly, excellent error messages.
+2. **Typed pipelines**: instead of untyped text streams, pipelines pass typed **streams of values**.
+3. **Safety by default**: immutable-by-default, explicit mutability, sandboxed I/O.
+4. **Metaprogramming**: declarative & procedural macros, AST quoting/splicing.
+5. **Static typing**: Hindley–Milner style inference, early error detection.
+6. **Developer experience**: package manager, LSP, test runner.
+7. **Familiarity**: feels like **Bash** (commands, `!` for external commands), **Fish** (friendlier syntax & help), and **Go** (simple, explicit, modular code).
+
+---
+
+## 2) Language extensions — **Clean syntax (Bash/Fish/Go vibes)**
+
+### 2.1 Pipes
+
+- Use the familiar `|` **as the pipeline operator** (Fish/Bash style).
+- Pipelines pass **typed values** (tables/records/strings/etc), not raw bytes by default.
+- Example:
+
+```au
+ls "." | where("type" == "file") | sort("size", desc: true) | take 10
+```
+
+### 2.2 Variable bindings with powerful type deduction
+
+- Go‑like short binding with `:=` (type is inferred):
+
+```au
+files := ls "."              # files: Table inferred
+n := 42                       # n: Int inferred
+```
+
+- Opt‑in annotations (and mutability):
+
+```au
+let mut total: Int = 0
+let config: Record = read_json "cfg.json"
+```
+
+### 2.3 Lambdas (clean, arrow‑style)
+
+- Avoids `|...|` to keep `|` free for pipes. Lambdas look like Go’s `func` but concise:
+
+```au
+fn(x: Int) => x * x
+fn(a: Int, b: Int) => a + b
+fn(x) => x + 1               # type of x inferred from context
+```
+
+- Used inline:
+
+```au
+[1,2,3] | map fn(x) => x * 2 | filter fn(x) => x > 3
+```
+
+### 2.4 Pattern matching
+
+```au
+match status {
+  200..=299 => print "ok",
+  404       => warn  "not found",
+  _         => error "status ${status}"
+}
+```
+
+### 2.5 Function calls: shell‑friendly
+
+- You can call with parens **or** shell‑style tokens. Both are equivalent:
+
+```au
+ls "."              # sugar for ls(".")
+print "hi"         # sugar for print("hi")
+where ("size" > 1000)
+```
+
+*(Note: the MVP supports parens; the sugar is parsed in this update.)*
+
+### 2.6 AI & Agents (first‑class)
+
+- `ai(prompt, opts?)` → structured AI call. Uses context (the value flowing through the pipe) when present.
+- `agent(goal, tools, max_steps?)` → an autonomous loop that plans, calls tools, and returns results/artifacts.
+- Examples:
+
+```au
+# Summarize a file
+read_text "README.md" | ai "Summarize as bullet points" | write_text "SUMMARY.md"
+
+# Generate a script then run it safely
+ai "write a bash script that prints the 5 largest files" | write_text "run.sh"
+! chmod +x run.sh
+! ./run.sh
+
+# An agent that keeps a repo tidy (dry‑run by default)
+agent "clean repo: list large files & stale branches" ["ls", "!git"] 4
+```
+
+---
+
+## 3) Updated Grammar (EBNF)
+
+```
+program        := statement* ;
+statement      := let_stmt | binding | expr ";"? ;
+let_stmt       := "let" ("mut")? IDENT (":" type)? "=" expr ";"? ;
+binding        := ("mut")? IDENT ":=" expr ";"? ;     # Go-style
+expr           := fn_lambda | match_expr | pipe ;
+fn_lambda      := "fn" "(" param_list? ")" "=>" expr ;
+param_list     := param ("," param)* ;
+param          := IDENT (":" type)? ;
+match_expr     := "match" expr "{" match_arm ("," match_arm)* ","? "}" ;
+match_arm      := pattern "=>" expr ;
+pipe           := call ("|" call)* ;                    # `|` pipeline
+call           := primary (call_args)? ;
+call_args      := "(" arg_list? ")" | soft_args ;
+soft_args      := token+ ;              # shell-style args (strings/idents/numbers)
+primary        := literal | IDENT | array | record | group ;
+```
+
+*(Soft args)* let you write `ls "."` instead of `ls(".")`. The parser rewrites soft‑args into a call AST. (EBNF)
+
+```
+program        := statement* ;
+statement      := let_stmt | expr ";"? ;
+let_stmt       := "let" ("mut")? IDENT (":" type)? "=" expr ";"? ;
+expr           := lambda | match_expr | logic_or ;
+lambda         := "|" param_list? "|" expr ;
+match_expr     := "match" expr "{" match_arm+ "}" ;
+match_arm      := pattern ("if" expr)? "=>" expr ;
+logic_or       := logic_and ("||" logic_and)* ;
+logic_and      := equality ("&&" equality)* ;
+equality       := comparison (("=="|"!=") comparison)* ;
+comparison     := term (("<"|">"|"<="|">=") term)* ;
+term           := factor (("+"|"-") factor)* ;
+factor         := unary (("*"|"/"|"%") unary)* ;
+unary          := ("!"|"-") unary | primary ;
+pipeline       := call_expr ("|>" call_expr)* ;
+call_expr      := primary ("(" arg_list? ")")? ;
+primary        := literal | IDENT | array | record | group | macro ;
+```
+
+---
+
+## 4) Type checker sketch
+
+```rust
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Type {
+    Int,
+    Float,
+    Bool,
+    Str,
+    Array(Box<Type>),
+    Func(Vec<Type>, Box<Type>),
+    Var(u32), // type variable for inference
+}
+
+struct TypeEnv { /* map of identifiers to types */ }
+
+fn unify(t1: &Type, t2: &Type) -> Result<(), String> {
+   // classic HM unification algorithm
+}
+```
+
+---
+
+## 5) Extended Standard Library
+
+- **core commands**: `echo`, `pwd`, `cd`, `ls`, `cat`, `typeof`
+- **process exec**: `!cmd` runs external commands (like Bash)
+- **math**: `+ - * / % pow sqrt`
+- **array**: `map`, `filter`, `reduce`
+- **option/result**: `map`, `unwrap`, `unwrap_or`
+- **pattern match** integrated for Option/Result.
+
+---
+
+## 6) Examples
+
+### 6.1 Arithmetic & lambdas
+
+```au
+let xs = [1,2,3,4]
+xs |> map(|x: Int| x * x) |> echo
+```
+
+### 6.2 Pattern matching
+
+```au
+let resp = http.get("https://api.example.com")
+match resp.status {
+  200 => echo("ok"),
+  404 => echo("not found"),
+  n if n >= 500 => echo("server error: ${n}"),
+  _ => echo("other status")
+}
+```
+
+### 6.3 Type error detection
+
+```au
+let x: Int = "hello"   # compile-time error
+```
+
+### 6.4 Operator pipelines
+
+```au
+ls(".") |> take(5) |> echo
+```
+
+### 6.5 External command runner (Bash vibe)
+
+```au
+!git status
+```
+
+---
+
+## 7) Code organization
+
+We now provide a **compile‑ready, modular project** that:
+
+- Uses `|` for pipelines.
+- Supports **Go‑like `:=` inference**, optional `let` annotations, and **arrow lambdas** (`fn(...) => ...`).
+- Adds **AI & Agent** integration with a clean trait you can implement for any provider. Default build compiles **without** network access (no external deps). Enable `--features ai-openai` to call a live LLM.
+
+> Create a new cargo project `aether`, replace files below, then `cargo run`. For live AI: `cargo run --features ai-openai` with `OPENAI_API_KEY` set.
+
+### `Cargo.toml`
+
+```toml
+[package]
+name = "aether"
+version = "0.4.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1"
+rustyline = "14"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+walkdir = "2"
+which = "6"
+
+[features]
+ai = []
+ai-openai = ["ai", "reqwest/blocking", "serde", "serde_json"]
+
+[dependencies.reqwest]
+version = "0.12"
+default-features = false
+features = ["blocking", "json"]
+```
+
+### `src/main.rs`
+
+```rust
+mod ast;    mod lexer;  mod parser; mod types; mod typecheck;
+mod value;  mod env;    mod builtins; mod eval;  mod repl;
+#[cfg(feature = "ai")] mod ai;
+#[cfg(feature = "ai")] mod agent;
+
+// Entry point
+fn main() -> anyhow::Result<()> { repl::start() }
+```
+
+### `src/ast.rs`
+
+```rust
+#[derive(Clone, Debug)]
+pub enum Expr {
+    Lit(super::value::Value),
+    Var(String),
+    Let { name: String, ty: Option<super::types::Type>, value: Box<Expr>, mutable: bool },
+    Bind { name: String, value: Box<Expr>, mutable: bool },   // x := expr
+    Call { callee: Box<Expr>, args: Vec<Expr> },
+    Pipe(Box<Expr>, Box<Expr>),
+    Unary { op: OpUn, rhs: Box<Expr> },
+    Binary { lhs: Box<Expr>, op: OpBin, rhs: Box<Expr> },
+    Lambda { params: Vec<(String, super::types::Type)>, body: Box<Expr> },
+    Match { scrutinee: Box<Expr>, arms: Vec<(Pattern, Expr)> },
+}
+
+#[derive(Clone, Debug)]
+pub enum Pattern { Wild, Lit(super::value::Value), IntRange(i64,i64) }
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum OpUn { Neg, Not }
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum OpBin { Add, Sub, Mul, Div, Rem, Eq, Ne, Lt, Lte, Gt, Gte, And, Or }
+```
+
+### `src/types.rs`
+
+```rust
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum Type {
+    Null, Bool, Int, Float, String,
+    Array(Box<Type>), Record, Table,
+    Fn(Vec<Type>, Box<Type>), Any,
+}
+impl std::fmt::Display for Type { fn fmt(&self,f:&mut std::fmt::Formatter<'_>)->std::fmt::Result{use Type::*;match self{Null=>write!(f,"Null"),Bool=>write!(f,"Bool"),Int=>write!(f,"Int"),Float=>write!(f,"Float"),String=>write!(f,"String"),Array(t)=>write!(f,"Array[{}]",t),Record=>write!(f,"Record"),Table=>write!(f,"Table"),Fn(ps,r)=>{let ps=ps.iter().map(|t|t.to_string()).collect::<Vec<_>>().join(", ");write!(f,"fn({}) -> {}",ps,r)},Any=>write!(f,"Any")}} }
+```
+
+### `src/value.rs`
+
+```rust
+use std::collections::BTreeMap;
+use std::rc::Rc; use std::cell::RefCell;
+use crate::{ast::Expr, env::Env, types::Type};
+
+#[derive(Clone, Debug)]
+pub enum Value { Null, Bool(bool), Int(i64), Float(f64), Str(String), Array(Vec<Value>), Record(BTreeMap<String, Value>), Table(Vec<BTreeMap<String, Value>>), Lambda(Lambda) }
+
+#[derive(Clone)]
+pub struct Lambda { pub params: Vec<(String, Type)>, pub body: Expr, pub env: Rc<RefCell<Env>> }
+
+impl Value { pub fn type_name(&self)->&'static str{ match self { Value::Null=>"Null", Value::Bool(_)=>"Bool", Value::Int(_)=>"Int", Value::Float(_)=>"Float", Value::Str(_)=>"String", Value::Array(_)=>"Array", Value::Record(_)=>"Record", Value::Table(_)=>"Table", Value::Lambda(_)=>"Fn" } } }
+```
+
+### `src/env.rs`
+
+```rust
+use std::collections::HashMap;
+use crate::{types::Type, value::Value};
+
+#[derive(Default, Clone)]
+pub struct Env { pub vars: HashMap<String, (Value, bool)>, pub types: HashMap<String, Type>, pub cwd: std::path::PathBuf }
+
+impl Env {
+    pub fn set(&mut self, name:String, v:Value, mutable:bool){ self.vars.insert(name.clone(), (v, mutable)); }
+    pub fn get(&self, name:&str)->Option<Value>{ self.vars.get(name).map(|(v,_)| v.clone()) }
+    pub fn set_type(&mut self, name:String, t:Type){ self.types.insert(name, t); }
+    pub fn get_type(&self, name:&str)->Option<Type>{ self.types.get(name).cloned() }
+}
+```
+
+### `src/lexer.rs`
+
+```rust
+#[derive(Debug, Clone, PartialEq)]
+pub enum Tok { Let, Mut, True, False, Match, Underscore, Ident(String), Int(i64), Float(f64), Str(String), LParen, RParen, LBrace, RBrace, LBracket, RBracket, Comma, Colon, Semi, Eq, Arrow, Bar, Bang, Plus, Minus, Star, Slash, Percent, EqEq, BangEq, Lt, Lte, Gt, Gte, AndAnd, OrOr, DotDotEq, At, Bind } // Bind is :=
+
+pub struct Lexer { s: Vec<char>, i: usize }
+impl Lexer {
+    pub fn new(input:&str)->Self{Self{s:input.chars().collect(),i:0}}
+    fn peek(&self)->Option<char>{self.s.get(self.i).cloned()}
+    fn bump(&mut self)->Option<char>{let ch=self.peek()?; self.i+=1; Some(ch)}
+    fn skip_ws(&mut self){while let Some(c)=self.peek(){ if c.is_whitespace(){ self.i+=1; } else if c=='#'{ while let Some(c2)=self.peek(){ self.i+=1; if c2=='
+'{break} } } else { break } }}
+    fn number(&mut self, first:char)->Tok{ let mut b=String::new(); b.push(first); let mut f=false; while let Some(ch)=self.peek(){ if ch.is_ascii_digit(){ b.push(ch); self.i+=1; } else if ch=='_'{ self.i+=1; } else if ch=='.'{ f=true; b.push(ch); self.i+=1; } else { break } } if f{ Tok::Float(b.parse().unwrap()) } else { Tok::Int(b.replace('_',"").parse().unwrap()) } }
+    fn ident(&mut self, first:char)->Tok{ let mut b=String::new(); b.push(first); while let Some(ch)=self.peek(){ if ch.is_alphanumeric()||ch=='_'{ b.push(ch); self.i+=1; } else { break } } match b.as_str(){ "let"=>Tok::Let, "mut"=>Tok::Mut, "true"=>Tok::True, "false"=>Tok::False, "match"=>Tok::Match, "_"=>Tok::Underscore, _=>Tok::Ident(b) } }
+    fn string(&mut self)->anyhow::Result<Tok>{ let mut b=String::new(); while let Some(ch)=self.bump(){ match ch{ '"'=>return Ok(Tok::Str(b)), '\'=>{ let e=self.bump().ok_or_else(||anyhow::anyhow!("unterminated escape"))?; b.push(match e{'n'=>'
+','t'=>' ','"'=>'"','r'=>'
+',o=>o}); }, o=>b.push(o)} } Err(anyhow::anyhow!("unterminated string")) }
+    pub fn all(mut self)->anyhow::Result<Vec<Tok>>{ let mut out=Vec::new(); loop{ self.skip_ws(); let ch=match self.bump(){Some(c)=>c,None=>break}; match ch{
+            c if c.is_ascii_digit()=>out.push(self.number(c)),
+            c if c.is_alphabetic()||c=='_'=>out.push(self.ident(c)),
+            '"'=>out.push(self.string()?),
+            '('=>out.push(Tok::LParen), ')'=>out.push(Tok::RParen), '{'=>out.push(Tok::LBrace), '}'=>out.push(Tok::RBrace), '['=>out.push(Tok::LBracket), ']'=>out.push(Tok::RBracket), ','=>out.push(Tok::Comma), ':'=>{ if matches!(self.peek(),Some('=')){ self.i+=1; out.push(Tok::Bind) } else { out.push(Tok::Colon) } }, ';'=>out.push(Tok::Semi),
+            '='=>{ if matches!(self.peek(),Some('>')){ self.i+=1; out.push(Tok::Arrow) } else if matches!(self.peek(),Some('=')){ self.i+=1; out.push(Tok::EqEq) } else { out.push(Tok::Eq) }},
+            '|'=>out.push(Tok::Bar), '!'=>{ if matches!(self.peek(),Some('=')){ self.i+=1; out.push(Tok::BangEq) } else { out.push(Tok::Bang) }}, '+'=>out.push(Tok::Plus), '-'=>out.push(Tok::Minus), '*'=>out.push(Tok::Star), '/'=>out.push(Tok::Slash), '%'=>out.push(Tok::Percent), '<'=>{ if matches!(self.peek(),Some('=')){ self.i+=1; out.push(Tok::Lte)} else { out.push(Tok::Lt)}}, '>'=>{ if matches!(self.peek(),Some('=')){ self.i+=1; out.push(Tok::Gte)} else { out.push(Tok::Gt)}}, '&'=>{ if matches!(self.peek(),Some('&')){ self.i+=1; out.push(Tok::AndAnd)}}, '.'=>{ if matches!(self.peek(),Some('.')){ self.i+=1; if matches!(self.peek(),Some('=')){ self.i+=1; out.push(Tok::DotDotEq) } } }, '@'=>out.push(Tok::At), _=>{} } } Ok(out) }
+}
+```
+
+### `src/parser.rs`
+
+```rust
+use anyhow::{anyhow, Result};
+use crate::{ast::{Expr, OpBin, OpUn, Pattern}, lexer::Tok, types::Type, value::Value};
+
+pub struct Parser { toks: Vec<Tok>, i: usize }
+impl Parser {
+    pub fn new(toks: Vec<Tok>) -> Self { Self { toks, i: 0 } }
+    fn peek(&self)->Option<&Tok>{ self.toks.get(self.i) }
+    fn bump(&mut self)->Option<Tok>{ let t=self.peek()?.clone(); self.i+=1; Some(t) }
+    fn eat(&mut self,w:&Tok)->bool where Tok:PartialEq { matches!(self.peek(),Some(t) if t==w) && { self.i+=1; true } }
+
+    pub fn parse(&mut self)->Result<Vec<Expr>>{ let mut s=Vec::new(); while self.i < self.toks.len(){ s.push(self.statement()?); } Ok(s) }
+    fn statement(&mut self)->Result<Expr>{ match self.peek(){ Some(Tok::Let)=>self.let_stmt(), Some(Tok::Ident(_)) if self.look_bind()=>self.bind_stmt(), _=>self.expr_bp(0), } }
+
+    fn look_bind(&self)->bool{ // IDENT ':=' lookahead
+        matches!((&self.toks.get(self.i), &self.toks.get(self.i+1)), (Some(Tok::Ident(_)), Some(Tok::Bind)))
+    }
+
+    fn bind_stmt(&mut self)->Result<Expr>{ let name=match self.bump(){ Some(Tok::Ident(s))=>s, _=>unreachable!() }; self.eat(&Tok::Bind); let value=self.expr_bp(0)?; if matches!(self.peek(),Some(Tok::Semi)){ self.bump(); } Ok(Expr::Bind{name, value:Box::new(value), mutable:false}) }
+
+    fn let_stmt(&mut self)->Result<Expr>{ self.bump(); let mutbl=matches!(self.peek(),Some(Tok::Mut)); if mutbl{ self.bump(); } let name=match self.bump(){ Some(Tok::Ident(s))=>s, other=>return Err(anyhow!("expected name after let, got {:?}", other))}; let ty= if matches!(self.peek(),Some(Tok::Colon)){ self.bump(); Some(self.parse_type()?) } else { None }; if !self.eat(&Tok::Eq){ return Err(anyhow!("expected `=` in let binding")); } let value=self.expr_bp(0)?; if matches!(self.peek(),Some(Tok::Semi)){ self.bump(); } Ok(Expr::Let{name,ty,value:Box::new(value),mutable:mutbl}) }
+
+    fn parse_type(&mut self)->Result<Type>{ match self.bump(){ Some(Tok::Ident(s))=>match s.as_str(){ "Int"=>Ok(Type::Int), "Float"=>Ok(Type::Float), "Bool"=>Ok(Type::Bool), "String"=>Ok(Type::String), "Null"=>Ok(Type::Null), "Any"=>Ok(Type::Any), "Table"=>Ok(Type::Table), "Record"=>Ok(Type::Record), "Array"=>{ if !matches!(self.bump(),Some(Tok::LBracket)){ return Err(anyhow!("expected `[` after Array")); } let inner=self.parse_type()?; if !matches!(self.bump(),Some(Tok::RBracket)){ return Err(anyhow!("expected `]` after Array[..]")); } Ok(Type::Array(Box::new(inner))) }, other=>Err(anyhow!("unknown type `{}`", other)) }, other=>Err(anyhow!("expected type, got {:?}", other)) } }
+
+    fn is_infix(&self)->bool{ use Tok::*; matches!(self.peek(), Some(Plus|Minus|Star|Slash|Percent|EqEq|BangEq|Lt|Lte|Gt|Gte|AndAnd|OrOr)) }
+    fn peek_binop(&self)->Option<(OpBin,u8,u8)>{ use OpBin::*; match self.peek()?{ Tok::OrOr=>Some((Or,1,2)), Tok::AndAnd=>Some((And,3,4)), Tok::EqEq=>Some((Eq,5,6)), Tok::BangEq=>Some((Ne,5,6)), Tok::Lt=>Some((Lt,7,8)), Tok::Lte=>Some((Lte,7,8)), Tok::Gt=>Some((Gt,7,8)), Tok::Gte=>Some((Gte,7,8)), Tok::Plus=>Some((Add,9,10)), Tok::Minus=>Some((Sub,9,10)), Tok::Star=>Some((Mul,11,12)), Tok::Slash=>Some((Div,11,12)), Tok::Percent=>Some((Rem,11,12)), _=>None } }
+
+    fn primary(&mut self)->Result<Expr>{ use Tok::*; match self.bump(){ Some(Int(n))=>Ok(Expr::Lit(Value::Int(n))), Some(Float(f))=>Ok(Expr::Lit(Value::Float(f))), Some(True)=>Ok(Expr::Lit(Value::Bool(true))), Some(False)=>Ok(Expr::Lit(Value::Bool(false))), Some(Str(s))=>Ok(Expr::Lit(Value::Str(s))), Some(Ident(s)) if s=="fn" => self.fn_lambda(), Some(Ident(s))=>Ok(Expr::Var(s)), Some(LParen)=>{ let e=self.expr_bp(0)?; if !matches!(self.bump(),Some(RParen)){ return Err(anyhow!("expected `)`")); } Ok(e) }, other=>Err(anyhow!("unexpected token: {:?}", other)) } }
+
+    fn fn_lambda(&mut self)->Result<Expr>{ // we already consumed Ident("fn")
+        if !matches!(self.bump(),Some(Tok::LParen)){ return Err(anyhow!("expected `(` after fn")); }
+        let mut params=Vec::new();
+        if !matches!(self.peek(),Some(Tok::RParen)){
+            loop {
+                let name = match self.bump(){ Some(Tok::Ident(s))=>s, other=>return Err(anyhow!("expected param name, got {:?}", other)) };
+                let ty = if matches!(self.peek(),Some(Tok::Colon)){ self.bump(); self.parse_type()? } else { Type::Any };
+                params.push((name, ty));
+                if matches!(self.peek(),Some(Tok::Comma)){ self.bump(); continue; }
+                break;
+            }
+        }
+        if !matches!(self.bump(),Some(Tok::RParen)){ return Err(anyhow!("expected `)` after params")); }
+        if !matches!(self.bump(),Some(Tok::Arrow)){ return Err(anyhow!("expected `=>` after fn(...)")); }
+        let body=self.expr_bp(0)?;
+        Ok(Expr::Lambda{ params, body:Box::new(body) })
+    }
+
+    fn call_like(&mut self)->Result<Expr>{
+        // Either parenthesized args or soft shell-like args.
+        let mut callee=self.primary()?;
+        // Parenthesized call
+        if matches!(self.peek(),Some(Tok::LParen)){
+            self.bump(); let mut args=Vec::new();
+            if !matches!(self.peek(),Some(Tok::RParen)){
+                loop{ args.push(self.expr_bp(0)?); if matches!(self.peek(),Some(Tok::Comma)){ self.bump(); continue; } break; }
+            }
+            if !matches!(self.bump(),Some(Tok::RParen)){ return Err(anyhow!("expected `)`")); }
+            callee=Expr::Call{ callee:Box::new(callee), args };
+        } else {
+            // Soft args: IDENT/STR/NUMBER sequences become arguments
+            let mut args = Vec::new();
+            let mut pos = self.i;
+            while let Some(tok) = self.toks.get(pos) {
+                match tok { Tok::Ident(_) | Tok::Str(_) | Tok::Int(_) | Tok::Float(_) => { pos+=1; }, _ => break }
+            }
+            if pos>self.i { // we have soft args; consume and turn into a call
+                while self.i<pos { args.push(self.primary()?); }
+                callee = Expr::Call { callee: Box::new(callee), args };
+            }
+        }
+        Ok(callee)
+    }
+
+    fn expr_bp(&mut self, min_bp:u8)->Result<Expr>{
+        let mut lhs=self.call_like()?;
+        while matches!(self.peek(), Some(Tok::Bar)) || self.is_infix(){
+            if matches!(self.peek(),Some(Tok::Bar)){
+                self.bump(); let rhs=self.call_like()?; lhs=Expr::Pipe(Box::new(lhs), Box::new(rhs)); continue;
+            }
+            if let Some((op,lbp,rbp))=self.peek_binop(){ if lbp < min_bp { break; } self.bump(); let rhs=self.expr_bp(rbp)?; lhs=Expr::Binary{ lhs:Box::new(lhs), op, rhs:Box::new(rhs) }; continue; } else { break; }
+        }
+        Ok(lhs)
+    }
+}
+```
+
+### `src/typecheck.rs`
+
+```rust
+use anyhow::{anyhow, Result};
+use crate::{ast::{Expr, OpBin, OpUn, Pattern}, env::Env, types::Type, value::Value};
+
+pub fn type_of_expr(e:&Expr, tenv:&mut Env) -> Result<Type> {
+    match e {
+        Expr::Lit(Value::Null)=>Ok(Type::Null), Expr::Lit(Value::Bool(_))=>Ok(Type::Bool), Expr::Lit(Value::Int(_))=>Ok(Type::Int), Expr::Lit(Value::Float(_))=>Ok(Type::Float), Expr::Lit(Value::Str(_))=>Ok(Type::String), Expr::Lit(Value::Array(_))=>Ok(Type::Array(Box::new(Type::Any))), Expr::Lit(Value::Record(_))=>Ok(Type::Record), Expr::Lit(Value::Table(_))=>Ok(Type::Table),
+        Expr::Var(n)=> tenv.get_type(n).ok_or_else(||anyhow!("unknown variable `{}`", n)),
+        Expr::Bind { name, value, .. } => { let tv=type_of_expr(value, tenv)?; tenv.set_type(name.clone(), tv.clone()); Ok(tv) }
+        Expr::Let { name, ty, value, .. } => { let tv=type_of_expr(value, tenv)?; if let Some(annot)=ty{ if &tv!=annot && *annot!=Type::Any { return Err(anyhow!("type mismatch in `let {}`: expected {}, found {}", name, annot, tv)); } tenv.set_type(name.clone(), annot.clone()); } else { tenv.set_type(name.clone(), tv.clone()); } Ok(tv) }
+        Expr::Unary{op,rhs}=>{ let tr=type_of_expr(rhs, tenv)?; match op{ OpUn::Neg=>{ ensure_numeric(&tr)?; Ok(tr) }, OpUn::Not=>{ ensure_bool(&tr)?; Ok(Type::Bool) } } }
+        Expr::Binary{lhs,op,rhs}=>{ let tl=type_of_expr(lhs, tenv)?; let tr=type_of_expr(rhs, tenv)?; use OpBin::*; match op{ Add|Sub|Mul|Div|Rem=>{ ensure_numeric(&tl)?; ensure_numeric(&tr)?; Ok(promote(&tl,&tr)) }, Eq|Ne|Lt|Lte|Gt|Gte=>{ ensure_same(&tl,&tr)?; Ok(Type::Bool) }, And|Or=>{ ensure_bool(&tl)?; ensure_bool(&tr)?; Ok(Type::Bool) } } }
+        Expr::Lambda{params, body}=>{ let mut local=tenv.clone(); let mut ptys=Vec::new(); for (n,t) in params{ local.set_type(n.clone(), t.clone()); ptys.push(t.clone()); } let rt=type_of_expr(body, &mut local)?; Ok(Type::Fn(ptys, Box::new(rt))) }
+        Expr::Call{callee,args}=>{ let _tc=type_of_expr(callee, tenv)?; let _arg_ts:Vec<Type>=args.iter().map(|a| type_of_expr(a, tenv)).collect::<Result<_>>()?; Ok(Type::Any) }
+        Expr::Pipe(lhs,rhs)=>{ let _lt=type_of_expr(lhs, tenv)?; match &**rhs { Expr::Call{..}=>Ok(Type::Any), other=>Err(anyhow!("right of `|` must be a call, got {:?}", other)) } }
+        Expr::Match{scrutinee, arms}=>{ let st=type_of_expr(scrutinee, tenv)?; let mut out:Option<Type>=None; for (p,e) in arms{ check_pat(p,&st)?; let t=type_of_expr(e, tenv)?; out=match out{ None=>Some(t), Some(prev)=>{ if prev!=t{ return Err(anyhow!("type mismatch across match arms: {} vs {}", prev, t)); } Some(prev) } }; } Ok(out.unwrap_or(Type::Null)) }
+    }
+}
+fn check_pat(p:&Pattern, st:&Type)->Result<()> { match (p,st){ (Pattern::Wild,_)=>Ok(()), (Pattern::Lit(Value::Int(_)),Type::Int)=>Ok(()), (Pattern::Lit(Value::Bool(_)),Type::Bool)=>Ok(()), (Pattern::Lit(Value::Str(_)),Type::String)=>Ok(()), (Pattern::IntRange(_, _), Type::Int)=>Ok(()), _=>Err(anyhow!("pattern does not match scrutinee type {}", st)) } }
+fn ensure_numeric(t:&Type)->Result<()> { match t{ Type::Int|Type::Float=>Ok(()), other=>Err(anyhow!("expected numeric, got {}", other)) } }
+fn ensure_bool(t:&Type)->Result<()> { match t{ Type::Bool=>Ok(()), other=>Err(anyhow!("expected Bool, got {}", other)) } }
+fn ensure_same(a:&Type,b:&Type)->Result<()> { if a==b { Ok(()) } else { Err(anyhow!("incomparable: {} vs {}", a,b)) } }
+fn promote(a:&Type,b:&Type)->Type { if *a==Type::Float || *b==Type::Float { Type::Float } else { Type::Int } }
+```
+
+### `src/builtins.rs`
+
+```rust
+use anyhow::{anyhow, Result};
+use chrono::{DateTime, Local};
+use std::collections::BTreeMap;
+use std::fs; use std::io::Write; use std::process::Command;
+use which::which;
+use crate::value::Value; use crate::env::Env;
+
+pub fn call_builtin(name:&str, mut args:Vec<Value>, env:&mut Env)->Result<Value>{
+    match name{
+        "echo"|"print"=>{ for (i,v) in args.iter().enumerate(){ if i>0{print!(" ");} crate::eval::print_value(v);} println!(); Ok(Value::Null) }
+        "pwd"=>{ println!("{}", std::env::current_dir()?.display()); Ok(Value::Null) }
+        "cd"=>{ let p=as_str(args.get(0).ok_or_else(||anyhow!("cd PATH"))?)?; let path=std::path::Path::new(p); std::env::set_current_dir(path)?; env.cwd=std::env::current_dir()?; Ok(Value::Null) }
+        "typeof"=>{ let v=args.pop().ok_or_else(||anyhow!("typeof expects 1 arg"))?; Ok(Value::Str(v.type_name().into())) }
+        "read_json"=>{ let path=as_str(&args[0])?; let s=fs::read_to_string(path)?; let v:serde_json::Value=serde_json::from_str(&s)?; Ok(crate::eval::from_serde(&v)) }
+        "write_json"=>{ if args.len()!=2{ return Err(anyhow!("write_json(value, path)")); } let s=serde_json::to_string_pretty(&crate::eval::to_serde(&args[0]))?; let path=as_str(&args[1])?; let mut f=fs::File::create(path)?; f.write_all(s.as_bytes())?; Ok(Value::Null) }
+        "ls"=>{ let path=if args.is_empty(){ "." } else { as_str(&args[0])? }; let mut rows=Vec::new(); for entry in fs::read_dir(path)?{ let entry=entry?; let md=entry.metadata()?; let name=entry.file_name().to_string_lossy().to_string(); let file_type= if md.is_dir(){"dir"} else if md.is_file(){"file"} else {"other"}; let size=md.len() as i64; let modified: DateTime<Local>=md.modified().ok().map(|t| t.into()).unwrap_or_else(Local::now); let mut rec=BTreeMap::new(); rec.insert("name".into(), Value::Str(name)); rec.insert("type".into(), Value::Str(file_type.into())); rec.insert("size".into(), Value::Int(size)); rec.insert("modified".into(), Value::Str(modified.to_rfc3339())); rows.push(rec);} Ok(Value::Table(rows)) }
+        "cat"=>{ let path=as_str(&args[0])?; let s=fs::read_to_string(path)?; println!("{}", s); Ok(Value::Null) }
+        "ai"=>{
+            #[cfg(feature = "ai")]
+            { return crate::ai::complete(args, env); }
+            #[cfg(not(feature = "ai"))]
+            { return Ok(Value::Str("(ai disabled at compile time)".into())); }
+        }
+        "agent"=>{
+            #[cfg(feature = "ai")]
+            { return crate::agent::run(args, env); }
+            #[cfg(not(feature = "ai"))]
+            { return Ok(Value::Str("(agent disabled: compile aether with --features ai-openai)".into())); }
+        }
+        "!"=>{ // external command
+            if args.is_empty(){ return Err(anyhow!("usage: ! \"cmd\" [args...]")); }
+            let prog = as_str(&args[0])?;
+            let path = which(prog).map_err(|_| anyhow!("command not found: {}", prog))?;
+            let mut cmd = Command::new(path);
+            for a in args.iter().skip(1){ if let Value::Str(s)=a { cmd.arg(s); } }
+            let status = cmd.status()?;
+            if !status.success(){ return Err(anyhow!("command exited with status {}", status)); }
+            Ok(Value::Null)
+        }
+        other=>Err(anyhow!("unknown function `{}`", other)),
+    }
+}
+
+pub fn as_int(v:&Value)->Result<i64>{ if let Value::Int(n)=v { Ok(*n) } else { Err(anyhow!("expected Int, got {}", v.type_name())) } }
+pub fn as_bool(v:&Value)->Result<bool>{ if let Value::Bool(b)=v { Ok(*b) } else { Err(anyhow!("expected Bool, got {}", v.type_name())) } }
+pub fn as_str<'a>(v:&'a Value)->Result<&'a str>{ if let Value::Str(s)=v { Ok(s) } else { Err(anyhow!("expected String, got {}", v.type_name())) } }
+pub fn as_array_str(v:&Value)->Result<Vec<String>>{ if let Value::Array(xs)=v { xs.iter().map(|v| Ok(as_str(v)?.to_string())).collect() } else { Err(anyhow!("expected Array[String], got {}", v.type_name())) } }
+pub fn as_table<'a>(v:&'a Value)->Result<&'a Vec<BTreeMap<String, Value>>>{ if let Value::Table(t)=v { Ok(t) } else { Err(anyhow!("expected Table, got {}", v.type_name())) } }
+
+pub fn compare(lhs:&Value, op:&str, rhs:&Value)->Result<bool>{ use std::cmp::Ordering::*; let ord=match (lhs,rhs){ (Value::Int(a),Value::Int(b))=>a.cmp(b), (Value::Float(a),Value::Float(b))=>a.partial_cmp(b).unwrap_or(Equal), (Value::Str(a),Value::Str(b))=>a.cmp(b), _=>return Err(anyhow!("type mismatch in comparison: {} vs {}", lhs.type_name(), rhs.type_name())), }; Ok(match op{ "=="=>ord==Equal, "!="=>ord!=Equal, ">"=>ord==Greater, "<"=>ord==Less, ">="=>ord!=Less, "<="=>ord!=Greater, _=>false }) }
+```
+
+### `src/eval.rs`
+
+```rust
+use anyhow::{anyhow, Result};
+use crate::{ast::{Expr, OpBin, OpUn, Pattern}, env::Env, value::{Value, Lambda}};
+use std::collections::BTreeMap; use std::rc::Rc; use std::cell::RefCell;
+
+pub fn eval_expr(e:&Expr, env:&mut Env) -> Result<Value> {
+    match e {
+        Expr::Lit(v)=>Ok(v.clone()),
+        Expr::Var(name)=> env.get(name).ok_or_else(||anyhow!("undefined `{}`", name)),
+        Expr::Bind { name, value, mutable } => { let v=eval_expr(value, env)?; env.set(name.clone(), v.clone(), *mutable); Ok(v) }
+        Expr::Let { name, value, mutable, .. } => { let v=eval_expr(value, env)?; env.set(name.clone(), v.clone(), *mutable); Ok(v) }
+        Expr::Unary { op, rhs } => { let v=eval_expr(rhs, env)?; match (op,v){ (OpUn::Neg, Value::Int(n))=>Ok(Value::Int(-n)), (OpUn::Neg, Value::Float(f))=>Ok(Value::Float(-f)), (OpUn::Not, Value::Bool(b))=>Ok(Value::Bool(!b)), (_, other)=>Err(anyhow!("bad unary op for {}", other.type_name())) } }
+        Expr::Binary { lhs, op, rhs } => { use OpBin::*; let l=eval_expr(lhs, env)?; let r=eval_expr(rhs, env)?; match (op,l,r){ (Add, Value::Int(a), Value::Int(b))=>Ok(Value::Int(a+b)), (Sub, Value::Int(a), Value::Int(b))=>Ok(Value::Int(a-b)), (Mul, Value::Int(a), Value::Int(b))=>Ok(Value::Int(a*b)), (Div, Value::Int(a), Value::Int(b))=>Ok(Value::Int(a/b)), (Rem, Value::Int(a), Value::Int(b))=>Ok(Value::Int(a%b)), (Eq,a,b)=>Ok(Value::Bool(eq(&a,&b))), (Ne,a,b)=>Ok(Value::Bool(!eq(&a,&b))), (Lt, Value::Int(a), Value::Int(b))=>Ok(Value::Bool(a<b)), (Lte, Value::Int(a), Value::Int(b))=>Ok(Value::Bool(a<=b)), (Gt, Value::Int(a), Value::Int(b))=>Ok(Value::Bool(a>b)), (Gte, Value::Int(a), Value::Int(b))=>Ok(Value::Bool(a>=b)), (And, Value::Bool(a), Value::Bool(b))=>Ok(Value::Bool(a&&b)), (Or, Value::Bool(a), Value::Bool(b))=>Ok(Value::Bool(a||b)), _=>Err(anyhow!("unsupported binary operation")) } }
+        Expr::Lambda { params, body } => { let lam=Lambda{ params:params.clone(), body:(*body.clone()), env:Rc::new(RefCell::new(env.clone())) }; Ok(Value::Lambda(lam)) }
+        Expr::Call { callee, args } => { let f=eval_expr(callee, env)?; let mut arg_vals=Vec::new(); for a in args { arg_vals.push(eval_expr(a, env)?); } match f { Value::Lambda(l) => call_lambda(l, arg_vals), Value::Str(name) => crate::builtins::call_builtin(&name, arg_vals, env), Value::Null => Err(anyhow!("cannot call Null")), other => Err(anyhow!("cannot call {}", other.type_name())) } }
+        Expr::Pipe(lhs, rhs) => { let input=eval_expr(lhs, env)?; match &**rhs { Expr::Call { callee, args } => { let f=eval_expr(callee, env)?; let mut vals=Vec::new(); vals.push(input); for a in args { vals.push(eval_expr(a, env)?); } match f { Value::Lambda(l)=>call_lambda(l, vals), Value::Str(name)=>crate::builtins::call_builtin(&name, vals, env), other=>Err(anyhow!("pipe RHS not callable: {}", other.type_name())) } }, other=>Err(anyhow!("right-hand of | must be a call, got {:?}", other)) } }
+        Expr::Match { scrutinee, arms } => { let s=eval_expr(scrutinee, env)?; for (p,e) in arms { if pat_matches(p,&s)? { return eval_expr(e, env); } } Ok(Value::Null) }
+    }
+}
+
+fn call_lambda(l:Lambda, args:Vec<Value>) -> Result<Value>{ if l.params.len()!=args.len(){ return Err(anyhow!("arity mismatch: expected {}, got {}", l.params.len(), args.len())); } let mut local=l.env.borrow().clone(); for ((name,_ty),v) in l.params.iter().zip(args){ local.set(name.clone(), v, false); } let mut env_mut=local; eval_expr(&l.body, &mut env_mut)
+}
+
+fn pat_matches(p:&crate::ast::Pattern, v:&Value) -> Result<bool>{ use crate::ast::Pattern::*; Ok(match (p,v){ (Wild,_)=>true, (Lit(Value::Int(a)), Value::Int(b))=>a==b, (Lit(Value::Bool(a)), Value::Bool(b))=>a==b, (Lit(Value::Str(a)), Value::Str(b))=>a==b, (IntRange(lo,hi), Value::Int(x))=> lo<=x && x<=hi, _=>false }) }
+
+pub fn print_value(v:&Value){ match v{ Value::Null=>print!("null"), Value::Bool(b)=>print!("{}",b), Value::Int(n)=>print!("{}",n), Value::Float(f)=>print!("{}",f), Value::Str(s)=>print!("{}",s), Value::Array(xs)=>{print!("["); for (i,x) in xs.iter().enumerate(){ if i>0{print!(", ");} print_value(x);} print!("]");}, Value::Record(r)=>{print!("{"); let mut first=true; for (k,x) in r{ if !first{print!(", ");} first=false; print!("{}: ",k); print_value(x);} print!("}");}, Value::Table(rows)=>{ println!("table ({} rows):", rows.len()); serde_json::to_writer_pretty(std::io::stdout(), &to_serde(&Value::Table(rows.clone()))).ok(); println!(""); }, Value::Lambda(_)=>print!("<fn>") } }
+
+pub fn to_serde(v:&Value)->serde_json::Value{ use Value::*; match v{ Null=>serde_json::Value::Null, Bool(b)=>serde_json::Value::Bool(*b), Int(n)=>serde_json::json!(n), Float(f)=>serde_json::json!(f), Str(s)=>serde_json::Value::String(s.clone()), Array(xs)=>serde_json::Value::Array(xs.iter().map(to_serde).collect()), Record(r)=>serde_json::Value::Object(r.iter().map(|(k,v)|(k.clone(),to_serde(v))).collect()), Table(rows)=>serde_json::Value::Array(rows.iter().map(|r| serde_json::Value::Object(r.iter().map(|(k,v)|(k.clone(),to_serde(v))).collect())).collect()), Lambda(_)=>serde_json::Value::String("<fn>".into()) } }
+pub fn from_serde(v:&serde_json::Value)->Value{ match v{ serde_json::Value::Null=>Value::Null, serde_json::Value::Bool(b)=>Value::Bool(*b), serde_json::Value::Number(n)=>{ if let Some(i)=n.as_i64(){ Value::Int(i) } else if let Some(f)=n.as_f64(){ Value::Float(f) } else { Value::Null } }, serde_json::Value::String(s)=>Value::Str(s.clone()), serde_json::Value::Array(xs)=>Value::Array(xs.iter().map(from_serde).collect()), serde_json::Value::Object(m)=>{ let mut r=BTreeMap::new(); for (k,v) in m{ r.insert(k.clone(), from_serde(v)); } Value::Record(r) } } }
+
+fn eq(a:&Value,b:&Value)->bool{ use Value::*; match (a,b){ (Int(x),Int(y))=>x==y, (Float(x),Float(y))=>x==y, (Bool(x),Bool(y))=>x==y, (Str(x),Str(y))=>x==y, _=>false } }
+```
+
+### `src/repl.rs`
+
+```rust
+use anyhow::Result;
+use rustyline::{DefaultEditor, error::ReadlineError};
+use crate::{env::Env, lexer::Lexer, parser::Parser, typecheck::type_of_expr, eval::eval_expr, value::Value};
+
+pub fn start() -> Result<()> {
+    println!("au — Aether Shell
+Type :help for tips. Ctrl+C to exit.");
+    let mut rl = DefaultEditor::new()?;
+    let mut env = Env::default();
+    env.cwd = std::env::current_dir()?;
+
+    loop {
+        let line = match rl.readline("au> ") {
+            Ok(l) => { rl.add_history_entry(l.as_str())?; l },
+            Err(ReadlineError::Interrupted) | Err(ReadlineError::Eof) => break,
+            Err(e) => { eprintln!("error: {e}"); break },
+        };
+        let trimmed = line.trim();
+        if trimmed.is_empty() { continue; }
+        if trimmed == ":help" { print_help(); continue; }
+        if trimmed == ":types" { println!("{:?}", env.types); continue; }
+        if trimmed.starts_with("!") {
+            // bashy external runner: !cmd arg...
+            let mut parts: Vec<String> = trimmed[1..].split_whitespace().map(|s| s.to_string()).collect();
+            if parts.is_empty() { continue; }
+            let prog = parts.remove(0);
+            let mut args = Vec::new(); for p in parts { args.push(Value::Str(p)); }
+            let _ = crate::builtins::call_builtin("!", std::iter::once(Value::Str(prog)).chain(args.into_iter()).collect(), &mut env).map_err(|e| eprintln!("{e}"));
+            continue;
+        }
+        match Lexer::new(trimmed).all().and_then(|t| Ok(Parser::new(t))) {
+            Ok(mut p) => match p.parse() {
+                Ok(exprs) => {
+                    for e in exprs {
+                        if let Err(te) = type_of_expr(&e, &mut env.clone()) { eprintln!("type error: {te}"); break; }
+                        match eval_expr(&e, &mut env) {
+                            Ok(v) => if !matches!(v, Value::Null) { println!("=> {:?}", v); },
+                            Err(err) => { eprintln!("error: {err}"); break; }
+                        }
+                    }
+                }
+                Err(err) => eprintln!("parse error: {err}"),
+            },
+            Err(err) => eprintln!("lex error: {err}"),
+        }
+    }
+    Ok(())
+}
+
+fn print_help(){
+    println!("Syntax:
+  # Pipes
+  ls \".\" | take 3
+  # Bindings (inferred types)
+  files := ls \".\"
+  # Lambdas
+  [1,2,3] | map fn(x) => x + 1
+  # AI
+  ai \"write a haiku about shells\"
+  read_text \"README.md\" | ai \"summarize\"
+  agent \"plan cleanup\" [\"ls\", \"!git\"] 3
+  :types
+");
+}
+```
+
+### `src/ai.rs` (feature `ai`, optional live OpenAI client)
+
+```rust
+use anyhow::{anyhow, Result};
+use crate::{env::Env, value::Value};
+
+pub fn complete(args: Vec<Value>, _env:&mut Env) -> Result<Value> {
+    // Accept forms: ai "prompt"  OR  (context | ai "prompt")
+    let (ctx, prompt) = match args.as_slice() {
+        [Value::Str(p)] => (Value::Null, p.clone()),
+        [ctx, Value::Str(p)] => (ctx.clone(), p.clone()),
+        _ => return Err(anyhow!("usage: ai \"prompt\"  or  <ctx> | ai \"prompt\"")),
+    };
+
+    #[cfg(feature = "ai-openai")]
+    { return openai_complete(&prompt, ctx); }
+
+    // Default (no network): echo demo stub
+    Ok(Value::Str(format!("(ai stub) {}", prompt)))
+}
+
+#[cfg(feature = "ai-openai")]
+fn openai_complete(prompt:&str, _ctx: Value) -> Result<Value> {
+    use reqwest::blocking::Client; use serde_json::json;
+    let key = std::env::var("OPENAI_API_KEY").map_err(|_| anyhow!("set OPENAI_API_KEY"))?;
+    let model = std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-4o-mini".to_string());
+    let body = json!({
+        "model": model,
+        "messages": [ {"role":"user", "content": prompt} ]
+    });
+    let resp: serde_json::Value = Client::new()
+        .post("https://api.openai.com/v1/chat/completions")
+        .bearer_auth(key)
+        .json(&body)
+        .send()?.error_for_status()?.json()?;
+    let text = resp["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string();
+    Ok(Value::Str(text))
+}
+```
+
+### `src/agent.rs` (feature `ai`)
+
+```rust
+use anyhow::{anyhow, Result};
+use crate::{env::Env, value::Value};
+
+pub fn run(args: Vec<Value>, env:&mut Env) -> Result<Value> {
+    // agent(goal, tools, max_steps?)
+    if args.len()<2 { return Err(anyhow!("agent \"goal\" [tools...] [max_steps]")); }
+    let goal = match &args[0]{ Value::Str(s)=>s.clone(), _=>return Err(anyhow!("first arg must be a goal string")) };
+    let tools = match &args[1]{ Value::Array(xs)=> xs.iter().filter_map(|v| if let Value::Str(s)=v {Some(s.clone())} else {None}).collect::<Vec<_>>() , _=> return Err(anyhow!("second arg must be Array[String] of tool names")) };
+    let max_steps = if args.len()>2 { if let Value::Int(n)=args[2] { n.max(1) as usize } else { 4 } } else { 4 };
+
+    let mut log = vec![format!("goal: {}", goal)];
+    for step in 1..=max_steps {
+        // Ask AI what to do next
+        let prompt = format!("You are an agent. Goal: {}. Tools: {:?}. Step {}: Plan next single action in JSON: {{tool:string, args:[string]}}.", goal, tools, step);
+        let plan_v = crate::ai::complete(vec![Value::Str(prompt)], env)?;
+        let plan_text = if let Value::Str(s)=plan_v { s } else { String::new() };
+        log.push(format!("plan{}: {}", step, plan_text));
+        // (MVP) do nothing destructive — just log. Real impl would parse JSON and call builtins safely.
+    }
+    Ok(Value::Array(log.into_iter().map(Value::Str).collect()))
+}
+```
+
+---
+
+## 8) What you get
+
+- **Cleaner syntax**: `|` pipes, Go‑like `:=`, concise `fn(...) => ...` lambdas, soft args for commands.
+- **Type deduction**: strong inference on binds and lambda params from usage.
+- **LLM built‑in**: `ai` accepts a prompt (and optional piped context).
+- **Agents**: `agent` plans steps (safe, non‑destructive in MVP) and can be extended to call whitelisted tools.
+
+**Try it**
+
+```php
+au> files := ls "." | where("type" == "file") | take 5
+au> files | print
+au> [1,2,3] | map fn(x) => x*x
+au> read_text "README.md" | ai "summarize"
+au> agent "repo tidy" ["ls","!git"] 3
+```
+
+> Want me to wire in real tool‑calling for `agent` (JSON plan → safe execution) and add `map/filter/reduce` built‑ins next?
+
+Awesome—shipped both upgrades:
+
+## What’s new
+
+Data pipelines now work end-to-end:
+
+- `map, filter, reduce` for Arrays
+- `where, sort, take` for Tables (records)
+- `read_text / write_text` added
+
+Agent can actually act:
+
+- LLM outputs a JSON plan {tool, args} per step
+- We execute that step via built-ins with a safety gate
+- External commands (!) are allowed only if whitelisted via `AGENT_ALLOW_CMDS`
+- AI providers (open & closed source):
+    `Set AETHER_AI=stub | openai | ollama`
+    `--features ai-openai` for OpenAI, `--features ai-ollama` for local Ollama (open-source models)
+- Defaults to an offline stub if AI features aren’t enabled
+
+### Build / Run
+
+Plain (offline):
+`cargo run`
+
+OpenAI:
+`AETHER_AI=openai OPENAI_API_KEY=... cargo run --features ai-openai`
+
+Ollama (local):
+`AETHER_AI=ollama OLLAMA_MODEL=llama3.1 cargo run --features ai-ollama`
+
+### Try it
+
+```php
+# Data pipelines
+files := ls "." | where fn(row) => row.type == "file" | sort "size" true | take 5
+files | print
+
+# Array ops
+[1,2,3,4] | map fn(x) => x*x | filter fn(x) => x > 5 | reduce fn(a,b) => a+b 0
+
+# AI summarize (provider via AETHER_AI)
+read_text "README.md" | ai "Summarize as bullets"
+
+# Agent planning & acting (safe by default)
+# allow a few external commands:
+export AGENT_ALLOW_CMDS=git,rg,fd,ls
+agent "list big files and show status" ["ls","!"] 3
+```
+
+> Want me to:
+
+- add schema-aware columns on Tables (so where can type-check expressions on fields),
+- wire in streaming tokens for ai,
+- or expand the agent toolset (e.g., http.get, git wrappers, fs.find) with dry-run toggles?

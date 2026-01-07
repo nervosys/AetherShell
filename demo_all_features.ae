@@ -1,0 +1,209 @@
+print("===================================================")
+print("   AetherShell - Complete Feature Demonstration")
+print("===================================================")
+
+print("\n=== 1. BASIC TYPES ===")
+x = 42
+y = 3.14
+name = "AetherShell"
+flag = true
+nothing = null
+print(x)
+print(y)
+print(name)
+print(flag)
+print(nothing)
+
+print("\n=== 2. TYPE INFERENCE (no 'let' needed) ===")
+inferred = 100
+another = "automatically typed"
+print(inferred)
+print(another)
+
+print("\n=== 3. MUTABLE VARIABLES ===")
+mut counter = 0
+counter = counter + 1
+counter = counter + 1
+counter = counter + 1
+print(counter)
+
+print("\n=== 4. ARRAYS ===")
+numbers = [1, 2, 3, 4, 5]
+print(numbers)
+mixed = [1, "two", 3.0, true]
+print(mixed)
+
+print("\n=== 5. RECORDS (Objects/Dictionaries) ===")
+person = {"name": "Alice", "age": 30, "city": "NYC"}
+print(person)
+nested = {
+  "user": {"id": 1, "name": "Bob"},
+  "active": true
+}
+print(nested)
+
+print("\n=== 6. ARITHMETIC ===")
+print(10 + 5)
+print(10 - 5)
+print(10 * 5)
+print(10 / 5)
+print(10 % 3)
+print(2 ^ 8)
+
+print("\n=== 7. COMPARISONS ===")
+print(5 > 3)
+print(5 < 3)
+print(5 == 5)
+print(5 != 3)
+print(5 >= 5)
+print(5 <= 4)
+
+print("\n=== 8. LOGICAL OPERATORS ===")
+print(true && false)
+print(true || false)
+print(!true)
+print((5 > 3) && (10 < 20))
+
+print("\n=== 9. LAMBDAS (Anonymous Functions) ===")
+double = fn(x) => x * 2
+print(double(5))
+add = fn(a, b) => a + b
+print(add(3, 7))
+square = fn(n) => n * n
+print(square(4))
+
+print("\n=== 10. MAP - Transform Arrays ===")
+num_list = [1, 2, 3, 4, 5]
+squared = num_list | map(fn(x) => x * x)
+print(squared)
+doubled = [10, 20, 30] | map(fn(n) => n * 2)
+print(doubled)
+
+print("\n=== 11. WHERE - Filter Arrays ===")
+nums = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+evens = nums | where(fn(x) => x % 2 == 0)
+print(evens)
+big_nums = nums | where(fn(x) => x > 5)
+print(big_nums)
+
+print("\n=== 12. REDUCE - Aggregate Values ===")
+sum = [1, 2, 3, 4, 5] | reduce(fn(a, b) => a + b, 0)
+print(sum)
+product = [1, 2, 3, 4, 5] | reduce(fn(a, b) => a * b, 1)
+print(product)
+
+print("\n=== 13. CHAINED PIPELINES ===")
+pipeline_result = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+  | where(fn(x) => x % 2 == 0)
+  | map(fn(x) => x * x)
+  | take(3)
+print(pipeline_result)
+
+print("\n=== 14. COMPLEX PIPELINE ===")
+data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+  | map(fn(x) => x * 2)
+  | where(fn(x) => x > 10)
+  | map(fn(x) => x - 5)
+  | reduce(fn(a, b) => a + b, 0)
+print(data)
+
+print("\n=== 15. ARRAY OPERATIONS ===")
+items = [1, 2, 3, 4, 5]
+first_three = items | take(3)
+print(first_three)
+first_item = items | first()
+print(first_item)
+last_item = items | last()
+print(last_item)
+count = items | len()
+print(count)
+
+print("\n=== 16. SORTING ===")
+unsorted = [5, 2, 8, 1, 9, 3]
+sorted_vals = unsorted | sort()
+print(sorted_vals)
+
+print("\n=== 17. UNIQUE VALUES ===")
+duplicates = [1, 2, 2, 3, 3, 3, 4, 4, 4, 4]
+unique_vals = duplicates | uniq()
+print(unique_vals)
+
+print("\n=== 18. PATTERN MATCHING ===")
+value = 2
+match_result = match value {
+  1 => "one",
+  2 => "two",
+  3 => "three",
+  _ => "other"
+}
+print(match_result)
+
+print("\n=== 19. MATCH WITH CONDITIONS ===")
+age = 25
+status = match age {
+  x if x >= 18 => "adult",
+  x if x >= 13 => "teen",
+  _ => "child"
+}
+print(status)
+
+print("\n=== 20. NESTED MATCH ===")
+score = 85
+grade = match score {
+  s if s >= 90 => "A",
+  s if s >= 80 => "B",
+  s if s >= 70 => "C",
+  s if s >= 60 => "D",
+  _ => "F"
+}
+print(grade)
+
+print("\n=== 21. ANY / ALL PREDICATES ===")
+test_nums = [2, 4, 6, 8]
+all_even = test_nums | all(fn(x) => x % 2 == 0)
+print(all_even)
+has_big = [1, 2, 3, 100] | any(fn(x) => x > 50)
+print(has_big)
+
+print("\n=== 22. RECORD KEYS ===")
+obj = {"a": 1, "b": 2, "c": 3}
+key_list = obj | keys()
+print(key_list)
+
+print("\n=== 23. TYPE CHECKING ===")
+print(type_of(42))
+print(type_of("hello"))
+print(type_of([1, 2, 3]))
+print(type_of({"key": "value"}))
+print(type_of(true))
+
+print("\n=== 24. FUNCTIONAL COMPOSITION ===")
+step1 = [1, 2, 3, 4, 5] | map(fn(x) => x + 1)
+step2 = step1 | where(fn(x) => x > 3)
+composed_result = step2 | map(fn(x) => x * 2)
+print(composed_result)
+
+print("\n=== 25. RECORDS WITH LAMBDAS ===")
+operations = {
+  "double": fn(x) => x * 2,
+  "triple": fn(x) => x * 3,
+  "square": fn(x) => x * x
+}
+print(operations)
+
+print("\n=== 26. ARRAY OF RECORDS ===")
+users = [
+  {"name": "Alice", "score": 95},
+  {"name": "Bob", "score": 87},
+  {"name": "Charlie", "score": 92}
+]
+print(users)
+
+print("\n=== 27. PROCESSING RECORDS ===")
+high_scores = users 
+  | where(fn(u) => u.score > 90)
+print(high_scores)
+
+print("\n===================================================")
+print("           Demonstration Complete!")
+print("===================================================")

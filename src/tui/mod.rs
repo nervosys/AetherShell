@@ -10,6 +10,7 @@
 pub mod agents;
 pub mod app;
 pub mod chat;
+pub mod dashboard;
 pub mod distributed;
 pub mod events;
 pub mod media;

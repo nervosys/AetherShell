@@ -87,6 +87,7 @@ fn handle_mode_specific_normal(app: &mut App, key: crossterm::event::KeyEvent) -
         AppMode::Settings => handle_settings_normal(app, key),
         AppMode::DistributedAgents => handle_distributed_normal(app, key),
         AppMode::AdvancedReasoning => handle_reasoning_normal(app, key),
+        AppMode::Search => handle_search_normal(app, key),
     }
 }
 
@@ -94,6 +95,49 @@ fn handle_chat_normal(app: &mut App, key: crossterm::event::KeyEvent) -> Result<
     match key.code {
         KeyCode::Enter | KeyCode::Char('i') => {
             app.input_mode = InputMode::Editing;
+        }
+        KeyCode::Char('e') => {
+            if key.modifiers.contains(KeyModifiers::CONTROL) {
+                // Export conversation to markdown
+                let markdown = app.export_to_markdown();
+                // In real implementation, save to file
+                std::fs::write("conversation_export.md", markdown)
+                    .unwrap_or_else(|_| eprintln!("Failed to export conversation"));
+            }
+        }
+        KeyCode::Char('j') => {
+            if key.modifiers.contains(KeyModifiers::CONTROL) {
+                // Export conversation to JSON
+                if let Ok(json) = app.export_to_json() {
+                    std::fs::write("conversation_export.json", json)
+                        .unwrap_or_else(|_| eprintln!("Failed to export JSON"));
+                }
+            }
+        }
+        KeyCode::Char('l') => {
+            if key.modifiers.contains(KeyModifiers::CONTROL) {
+                // Clear chat history
+                app.clear_conversation();
+            }
+        }
+        KeyCode::Char('f') => {
+            if key.modifiers.contains(KeyModifiers::CONTROL) {
+                // Switch to search mode
+                app.mode = AppMode::Search;
+                app.input_mode = InputMode::Editing;
+            }
+        }
+        KeyCode::Char('1') => {
+            // Toggle auto-scroll
+            app.toggle_auto_scroll();
+        }
+        KeyCode::Char('2') => {
+            // Toggle timestamps
+            app.toggle_timestamps();
+        }
+        KeyCode::Char('3') => {
+            // Toggle media preview
+            app.toggle_media_preview();
         }
         KeyCode::Char('c') => {
             // Clear chat history
@@ -130,6 +174,27 @@ fn handle_agent_normal(app: &mut App, key: crossterm::event::KeyEvent) -> Result
         KeyCode::Enter | KeyCode::Char('s') => {
             // Start task for selected agent
             app.input_mode = InputMode::Editing;
+        }
+        KeyCode::Char('m') => {
+            // View metrics for all agents
+            let metrics = app.get_agent_metrics();
+            // In real implementation, this would show a metrics panel
+            for metric in metrics {
+                eprintln!(
+                    "Agent: {} | Status: {:?} | Uptime: {}s | Tools: {}",
+                    metric.name, metric.status, metric.uptime_seconds, metric.tool_count
+                );
+            }
+        }
+        KeyCode::Char('p') => {
+            if key.modifiers.contains(KeyModifiers::CONTROL) {
+                // Pause/resume all agents (placeholder)
+                // Would toggle agent execution state
+            }
+        }
+        KeyCode::Char('r') => {
+            // Restart selected agent (placeholder)
+            // Would reset agent state
         }
         KeyCode::Char('c') => {
             // Switch to chat mode
@@ -211,6 +276,13 @@ fn handle_editing_mode(app: &mut App, key: crossterm::event::KeyEvent) -> Result
                     }
                     app.input_mode = InputMode::Normal;
                 }
+                AppMode::Search => {
+                    // Execute search
+                    app.search_query = app.input.value().to_string();
+                    app.execute_search();
+                    app.input.reset();
+                    app.input_mode = InputMode::Normal;
+                }
                 _ => {
                     app.input_mode = InputMode::Normal;
                 }
@@ -271,6 +343,38 @@ fn handle_reasoning_normal(_app: &mut App, key: crossterm::event::KeyEvent) -> R
         KeyCode::Char('i') => {
             // Import knowledge
             // In a real implementation, this would load knowledge from file
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn handle_search_normal(app: &mut App, key: crossterm::event::KeyEvent) -> Result<()> {
+    match key.code {
+        KeyCode::Char('i') | KeyCode::Char('/') => {
+            // Enter search input mode
+            app.input_mode = InputMode::Editing;
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            // Navigate to next search result
+            app.next_search_result();
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            // Navigate to previous search result
+            app.previous_search_result();
+        }
+        KeyCode::Esc => {
+            // Clear search and return to chat
+            app.clear_search();
+        }
+        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            // Copy selected search result to clipboard (future enhancement)
+            if !app.search_results.is_empty() {
+                let result_idx = app.search_results[app.search_result_index];
+                if let Some(msg) = app.messages.get(result_idx) {
+                    eprintln!("Would copy: {}", msg.content);
+                }
+            }
         }
         _ => {}
     }

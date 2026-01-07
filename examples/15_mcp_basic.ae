@@ -1,0 +1,30 @@
+// Example: Basic MCP Server Detection
+// Demonstrates simple MCP server detection and listing
+
+print("=== Basic MCP Server Detection ===")
+print("")
+
+// Detect all available MCP servers
+let servers = mcp_servers()
+
+print("Step 1: Detection")
+print("  Scanned common ports (3001-3005, 8080-8081)")
+print("  Found " + len(servers) + " MCP server(s)")
+print("")
+
+// Show what was found
+print("Step 2: Results")
+print("")
+
+// Show detected servers or instructions
+servers | foreach(fn(s) => print("  - " + s.name + " at " + s.endpoint + " (" + len(s.tools) + " tools)"))
+
+print("")
+print("To start MCP servers:")
+print("  Port 3001: Filesystem server")
+print("  Port 3002: Git server")
+print("  Port 3003: Docker server")
+print("  Port 3004: AWS server")
+print("  Port 3005: Database server")
+print("")
+print("✓ Detection complete!")

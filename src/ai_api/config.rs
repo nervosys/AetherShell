@@ -32,6 +32,10 @@ pub struct ProvidersConfig {
     pub openai: ProviderConfig,
     pub anthropic: ProviderConfig,
     pub local: LocalProviderConfig,
+    pub vllm: LLMBackendConfig,
+    pub tensorrt_llm: LLMBackendConfig,
+    pub sglang: LLMBackendConfig,
+    pub llama_cpp: LLMBackendConfig,
     pub custom: HashMap<String, ProviderConfig>,
 }
 
@@ -58,8 +62,29 @@ pub struct LocalProviderConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LLMBackendConfig {
+    pub enabled: bool,
+    pub endpoint: String,
+    pub api_key: Option<String>,
+    pub api_key_env: Option<String>,
+    pub timeout_seconds: u64,
+    pub max_retries: u32,
+    pub auto_start: bool,
+    pub start_command: Option<String>,
+    pub stop_command: Option<String>,
+    pub health_check_interval_seconds: u64,
+    pub model_path: Option<String>,
+    pub gpu_memory_fraction: Option<f32>,
+    pub max_batch_size: Option<u32>,
+    pub tensor_parallel_size: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum InferenceEngine {
     LlamaCpp,
+    VLLM,
+    TensorRTLLM,
+    SGLang,
     Candle,
     Onnx,
     TensorFlow,
@@ -140,7 +165,12 @@ impl Default for ServerConfig {
             max_connections: 1000,
             request_timeout_seconds: 300,
             enable_cors: true,
-            cors_origins: vec!["*".to_string()],
+            // SECURITY FIX (LOW-003): Default to localhost only for security
+            // Users can override in config.toml to allow specific origins
+            cors_origins: vec![
+                "http://localhost:3000".to_string(),
+                "http://127.0.0.1:3000".to_string(),
+            ],
             enable_openapi: true,
             openapi_path: "/docs".to_string(),
         }
@@ -176,6 +206,70 @@ impl Default for ProvidersConfig {
                 gpu_layers: None,
                 context_size: 4096,
                 threads: None,
+            },
+            vllm: LLMBackendConfig {
+                enabled: false,
+                endpoint: "http://localhost:8000".to_string(),
+                api_key: None,
+                api_key_env: Some("VLLM_API_KEY".to_string()),
+                timeout_seconds: 60,
+                max_retries: 3,
+                auto_start: false,
+                start_command: None,
+                stop_command: None,
+                health_check_interval_seconds: 30,
+                model_path: None,
+                gpu_memory_fraction: Some(0.9),
+                max_batch_size: Some(256),
+                tensor_parallel_size: Some(1),
+            },
+            tensorrt_llm: LLMBackendConfig {
+                enabled: false,
+                endpoint: "http://localhost:8001".to_string(),
+                api_key: None,
+                api_key_env: Some("TENSORRT_LLM_API_KEY".to_string()),
+                timeout_seconds: 60,
+                max_retries: 3,
+                auto_start: false,
+                start_command: None,
+                stop_command: None,
+                health_check_interval_seconds: 30,
+                model_path: None,
+                gpu_memory_fraction: Some(0.9),
+                max_batch_size: Some(128),
+                tensor_parallel_size: Some(1),
+            },
+            sglang: LLMBackendConfig {
+                enabled: false,
+                endpoint: "http://localhost:30000".to_string(),
+                api_key: None,
+                api_key_env: Some("SGLANG_API_KEY".to_string()),
+                timeout_seconds: 60,
+                max_retries: 3,
+                auto_start: false,
+                start_command: None,
+                stop_command: None,
+                health_check_interval_seconds: 30,
+                model_path: None,
+                gpu_memory_fraction: Some(0.8),
+                max_batch_size: Some(512),
+                tensor_parallel_size: Some(1),
+            },
+            llama_cpp: LLMBackendConfig {
+                enabled: false,
+                endpoint: "http://localhost:8080".to_string(),
+                api_key: None,
+                api_key_env: Some("LLAMACPP_API_KEY".to_string()),
+                timeout_seconds: 60,
+                max_retries: 3,
+                auto_start: false,
+                start_command: None,
+                stop_command: None,
+                health_check_interval_seconds: 30,
+                model_path: None,
+                gpu_memory_fraction: None, // CPU inference by default
+                max_batch_size: Some(8),
+                tensor_parallel_size: None,
             },
             custom: HashMap::new(),
         }
@@ -230,7 +324,7 @@ impl ConfigManager {
     pub fn new() -> Result<Self> {
         let config_dir = Self::get_config_dir()?;
         fs::create_dir_all(&config_dir)?;
-        
+
         Ok(Self { config_dir })
     }
 
@@ -253,7 +347,7 @@ impl ConfigManager {
     /// Load configuration from file
     pub fn load_config(&self) -> Result<APIConfig> {
         let config_path = self.config_dir.join("config.toml");
-        
+
         if config_path.exists() {
             let content = fs::read_to_string(&config_path)?;
             let config: APIConfig = toml::from_str(&content)?;
@@ -277,7 +371,7 @@ impl ConfigManager {
     /// Load provider configurations
     pub fn load_providers_config(&self) -> Result<ProvidersConfig> {
         let providers_path = self.config_dir.join("providers.toml");
-        
+
         if providers_path.exists() {
             let content = fs::read_to_string(&providers_path)?;
             let config: ProvidersConfig = toml::from_str(&content)?;
@@ -300,7 +394,7 @@ impl ConfigManager {
     /// Load model aliases
     pub fn load_aliases(&self) -> Result<HashMap<String, String>> {
         let aliases_path = self.config_dir.join("aliases.toml");
-        
+
         if aliases_path.exists() {
             let content = fs::read_to_string(&aliases_path)?;
             let aliases: HashMap<String, String> = toml::from_str(&content)?;
@@ -347,18 +441,25 @@ impl ConfigManager {
         }
 
         // Validate provider configs
-        if config.providers.openai.enabled && config.providers.openai.api_key.is_none() && config.providers.openai.api_key_env.is_none() {
+        if config.providers.openai.enabled
+            && config.providers.openai.api_key.is_none()
+            && config.providers.openai.api_key_env.is_none()
+        {
             warnings.push("OpenAI provider is enabled but no API key configured".to_string());
         }
 
-        if config.providers.anthropic.enabled && config.providers.anthropic.api_key.is_none() && config.providers.anthropic.api_key_env.is_none() {
+        if config.providers.anthropic.enabled
+            && config.providers.anthropic.api_key.is_none()
+            && config.providers.anthropic.api_key_env.is_none()
+        {
             warnings.push("Anthropic provider is enabled but no API key configured".to_string());
         }
 
         // Validate TLS config
         if config.security.enable_tls {
             if config.security.tls_cert_path.is_none() || config.security.tls_key_path.is_none() {
-                warnings.push("TLS is enabled but certificate/key paths not configured".to_string());
+                warnings
+                    .push("TLS is enabled but certificate/key paths not configured".to_string());
             }
         }
 

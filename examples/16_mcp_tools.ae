@@ -1,0 +1,29 @@
+// Example: MCP Server Tool Enumeration
+// Shows how to list and filter tools from MCP servers
+
+print("=== MCP Server Tool Enumeration ===")
+print("")
+
+// Detect servers
+let servers = mcp_servers()
+print("Found " + len(servers) + " MCP server(s)")
+print("")
+
+// Show tool summary per server
+print("Tool Summary:")
+servers | foreach(fn(s) => 
+    print("  " + s.name + ": " + len(s.tools) + " tools")
+)
+
+print("")
+print("Example: If filesystem server (port 3001) was running:")
+print("  It might have tools like:")
+print("    - read_file")
+print("    - write_file")
+print("    - list_dir")
+print("    - search")
+print("")
+
+print("Usage:")
+print("  let fs = mcp_detect(\"http://localhost:3001\")")
+print("  agent(\"Analyze files\", ai_detect(), fs.tools)")

@@ -1,0 +1,7 @@
+result1 = [1, 2, 3, 4, 5] | map(fn(x) => x * 2)
+print(result1)
+
+result2 = [10, 20, 30, 40, 50] | where(fn(x) => x > 25)
+print(result2)
+
+print("Showcase Complete!")

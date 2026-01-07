@@ -1,0 +1,31 @@
+print("=== Testing new array functions ===")
+
+let numbers = [1, 2, 3, 4, 5]
+
+print("Testing first()")
+let f = numbers | first()
+print(f)
+
+print("Testing first(3)")
+let f3 = numbers | first(3)
+print("Result array:")
+f3 | foreach(fn(x) => print("  " + x))
+
+print("Testing last()")
+let l = numbers | last()
+print(l)
+
+print("Testing last(3)")
+let l3 = numbers | last(3)
+print("Result array:")
+l3 | foreach(fn(x) => print("  " + x))
+
+print("Testing any() with predicate")
+let has_big = numbers | any(fn(x) => x > 3)
+print(has_big)
+
+print("Testing all() with predicate")
+let all_positive = numbers | all(fn(x) => x > 0)
+print(all_positive)
+
+print("Done")

@@ -1,8 +1,7 @@
-use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
-use std::collections::HashMap;
 use chrono::{DateTime, Utc};
-
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use utoipa::ToSchema;
 
 /// Information about an available AI model
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -31,10 +30,10 @@ pub struct PerRequestLimits {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelPricing {
-    pub prompt: f64,  // Cost per 1K tokens
-    pub completion: f64,  // Cost per 1K tokens
-    pub image: Option<f64>,  // Cost per image
-    pub request: Option<f64>,  // Cost per request
+    pub prompt: f64,          // Cost per 1K tokens
+    pub completion: f64,      // Cost per 1K tokens
+    pub image: Option<f64>,   // Cost per image
+    pub request: Option<f64>, // Cost per request
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -60,6 +59,7 @@ pub enum ModelFormat {
     PyTorch,
     ONNX,
     TensorFlow,
+    TensorRT,
     Huggingface,
 }
 
@@ -149,7 +149,7 @@ pub struct ChatChoice {
     pub index: u32,
     pub message: ChatMessage,
     pub finish_reason: Option<String>,
-    pub delta: Option<ChatMessage>,  // For streaming
+    pub delta: Option<ChatMessage>, // For streaming
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -209,7 +209,7 @@ pub struct LocalModelMetadata {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelSource {
-    pub origin: String,  // "huggingface", "local", "openai", etc.
+    pub origin: String, // "huggingface", "local", "openai", etc.
     pub url: Option<String>,
     pub repository: Option<String>,
     pub commit: Option<String>,

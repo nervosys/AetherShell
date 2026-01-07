@@ -1,0 +1,10 @@
+// Test 6: Logical operations
+
+print("Test 6: Logical Operations")
+and_result = true && true
+print(and_result)
+or_result = false || true
+print(or_result)
+not_result = !false
+print(not_result)
+print("✓ Logical operations work")

@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quick Start - AetherShell Documentation</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/ayu-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', (event) => {
+            document.querySelectorAll('pre code').forEach((block) => {
+                hljs.highlightElement(block);
+            });
+        });
+    </script>
+</head>
+
+<body>
+    <nav class="sidebar">
+        <div class="logo">
+            <h1>🚀 AetherShell</h1>
+            <p class="version">v1.0.0</p>
+        </div>
+        <ul class="nav-menu">
+            <li><a href="index.html">Home</a></li>
+            <li><a href="quickstart.html" class="active">Quick Start</a></li>
+            <li><a href="tutorial.html">Tutorial</a></li>
+            <li><a href="syntax.html">Syntax Reference</a></li>
+            <li><a href="builtins.html">Built-in Functions</a></li>
+            <li><a href="types.html">Type System</a></li>
+            <li><a href="ai.html">AI & Agents</a></li>
+            <li><a href="syntax-kb.html">Syntax KB</a></li>
+            <li><a href="examples.html">Examples</a></li>
+            <li><a href="api.html">API Reference</a></li>
+        </ul>
+        <div class="sidebar-footer">
+            <a href="https://github.com/nervosys/AetherShell" target="_blank">GitHub</a>
+        </div>
+    </nav>
+
+    <main class="content">
+        <header class="page-header">
+            <h1>⚡ Quick Start Guide</h1>
+            <p class="subtitle">Get up and running with AetherShell in 5 minutes</p>
+        </header>
+
+        <section class="feature-section">
+            <h2>Installation</h2>
+            <h3>Prerequisites</h3>
+            <ul>
+                <li>Rust 1.70 or later</li>
+                <li>Cargo (comes with Rust)</li>
+            </ul>
+
+            <h3>Build from Source</h3>
+            <pre><code># Clone the repository
+git clone https://github.com/nervosys/cli/AetherShell.git
+cd AetherShell
+
+# Build release version
+cargo build --release
+
+# The binary will be at: target/release/ae
+./target/release/ae</code></pre>
+
+            <div class="alert alert-info">
+                <strong>Tip:</strong> Add AetherShell to your PATH for easy access:
+                <code>export PATH=$PATH:$PWD/target/release</code>
+            </div>
+        </section>
+
+        <section class="feature-section">
+            <h2>Your First Commands</h2>
+
+            <h3>Hello World</h3>
+            <pre><code>print("Hello, AetherShell!")</code></pre>
+
+            <h3>Basic Arithmetic</h3>
+            <pre><code>result = 10 + 20 * 2
+print(result)  // 50</code></pre>
+
+            <h3>String Interpolation</h3>
+            <pre><code>name = "World"
+print("Hello, ${name}!")</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>Pipelines (The Power of AetherShell)</h2>
+
+            <h3>Simple Pipeline</h3>
+            <pre><code>// Transform an array
+[1, 2, 3, 4, 5]
+| map(fn(x) => x * 2)
+| print
+
+// Output: [2, 4, 6, 8, 10]</code></pre>
+
+            <h3>Filter and Reduce</h3>
+            <pre><code>// Sum of even numbers 1-10
+range(1, 11)
+| where(fn(x) => x % 2 == 0)
+| reduce(fn(a, b) => a + b, 0)
+| print
+
+// Output: 30</code></pre>
+
+            <h3>Working with Records</h3>
+            <pre><code>// List files and filter by size
+ls(".")
+| where(fn(f) => f.size > 1000)
+| map(fn(f) => f.name)
+| print</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>Variables and Types</h2>
+
+            <h3>Immutable by Default</h3>
+            <pre><code>// Immutable binding
+x = 10
+// x = 20  // Error: cannot reassign
+
+// Mutable binding
+y := 10
+y = 20  // OK</code></pre>
+
+            <h3>Type Inference</h3>
+            <pre><code>// Types are inferred
+nums = [1, 2, 3]        // Array of Int
+name = "Alice"          // String
+pi = 3.14               // Float
+flag = true             // Bool
+
+// Records
+person = {
+    name: "Alice",
+    age: 30,
+    active: true
+}</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>Functions</h2>
+
+            <h3>Lambda Functions</h3>
+            <pre><code>// Single parameter
+double = fn(x) => x * 2
+print(double(5))  // 10
+
+// Multiple parameters
+add = fn(a, b) => a + b
+print(add(3, 4))  // 7
+
+// Inline in pipelines
+[1,2,3] | map(fn(x) => x * x)  // [1, 4, 9]</code></pre>
+
+            <h3>Higher-Order Functions</h3>
+            <pre><code>// Functions that return functions
+multiplier = fn(factor) => fn(x) => x * factor
+
+times2 = multiplier(2)
+times3 = multiplier(3)
+
+print(times2(5))  // 10
+print(times3(5))  // 15</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>Common Built-in Functions</h2>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>Function</th>
+                        <th>Description</th>
+                        <th>Example</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>print(value)</code></td>
+                        <td>Pretty-print a value</td>
+                        <td><code>print("Hello")</code></td>
+                    </tr>
+                    <tr>
+                        <td><code>echo(...values)</code></td>
+                        <td>Echo values to stdout</td>
+                        <td><code>echo "A" "B"</code></td>
+                    </tr>
+                    <tr>
+                        <td><code>range(start, end)</code></td>
+                        <td>Generate number range</td>
+                        <td><code>range(1, 10)</code></td>
+                    </tr>
+                    <tr>
+                        <td><code>map(array, fn)</code></td>
+                        <td>Transform array elements</td>
+                        <td><code>[1,2,3] | map(fn(x) => x*2)</code></td>
+                    </tr>
+                    <tr>
+                        <td><code>where(array, fn)</code></td>
+                        <td>Filter array elements</td>
+                        <td><code>arr | where(fn(x) => x > 5)</code></td>
+                    </tr>
+                    <tr>
+                        <td><code>reduce(arr, fn, init)</code></td>
+                        <td>Fold array to single value</td>
+                        <td><code>arr | reduce(fn(a,b) => a+b, 0)</code></td>
+                    </tr>
+                    <tr>
+                        <td><code>len(value)</code></td>
+                        <td>Get length</td>
+                        <td><code>len([1,2,3])</code></td>
+                    </tr>
+                    <tr>
+                        <td><code>keys(record)</code></td>
+                        <td>Get record keys</td>
+                        <td><code>keys({a: 1, b: 2})</code></td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section class="feature-section">
+            <h2>File System Operations</h2>
+
+            <pre><code>// List directory
+files = ls(".")
+print(files)
+
+// Read file content
+content = cat("README.md")
+print(content)
+
+// Current directory
+current = pwd()
+print(current)
+
+// Find files
+results = find(".", "*.rs")
+print(results)</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>String Operations</h2>
+
+            <pre><code>// Split and join
+words = split("hello,world", ",")  // ["hello", "world"]
+joined = join(words, "-")           // "hello-world"
+
+// Transform
+upper("hello")       // "HELLO"
+lower("WORLD")       // "world"
+trim("  hello  ")    // "hello"
+
+// Search
+contains("hello", "ell")      // true
+starts_with("hello", "hel")   // true
+ends_with("hello", "lo")      // true</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>AI Integration (Quick Preview)</h2>
+
+            <h3>Deploy an AI Agent</h3>
+            <pre><code>// Simple agent with goal
+result = agent("List all .rs files", "ls", 5)
+print(result)</code></pre>
+
+            <h3>AgenticBinary Protocol</h3>
+            <pre><code>// Encode a message
+msg = ab_encode("command", "ping", "hello")
+print(msg)  // [0, 5, 104, 101, 108, 108, 111]
+
+// Decode the message
+decoded = ab_decode(msg)
+print(decoded.opcode)   // "PING"
+print(decoded.payload)  // "hello"</code></pre>
+
+            <div class="alert alert-info">
+                <strong>Learn More:</strong> Check out the <a href="ai.html">AI & Agents</a> section for comprehensive
+                AI features.
+            </div>
+        </section>
+
+        <section class="feature-section">
+            <h2>Running Scripts</h2>
+
+            <h3>Execute a Script File</h3>
+            <pre><code># Create a script file: hello.ae
+echo 'print("Hello from script!")' > hello.ae
+
+# Run it
+ae hello.ae</code></pre>
+
+            <h3>REPL Mode</h3>
+            <pre><code># Start interactive mode
+ae
+
+# Now you can type commands interactively
+ae> x = 10
+ae> y = 20
+ae> print(x + y)
+30
+ae> exit</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>Next Steps</h2>
+
+            <div class="card-grid">
+                <a href="tutorial.html" class="card">
+                    <h3>📚 Full Tutorial</h3>
+                    <p>Step-by-step guide to all features</p>
+                </a>
+                <a href="syntax.html" class="card">
+                    <h3>📖 Syntax Reference</h3>
+                    <p>Complete language specification</p>
+                </a>
+                <a href="examples.html" class="card">
+                    <h3>💡 Examples</h3>
+                    <p>Real-world code samples</p>
+                </a>
+                <a href="ai.html" class="card">
+                    <h3>🤖 AI Features</h3>
+                    <p>Multi-agent orchestration guide</p>
+                </a>
+            </div>
+        </section>
+
+        <section class="feature-section">
+            <h2>Common Tasks Cheat Sheet</h2>
+
+            <pre><code>// Array operations
+[1,2,3] | map(fn(x) => x*2)        // [2,4,6]
+[1,2,3] | where(fn(x) => x>1)      // [2,3]
+[1,2,3] | reduce(fn(a,b)=>a+b, 0)  // 6
+reverse([1,2,3])                    // [3,2,1]
+first([1,2,3])                      // 1
+last([1,2,3])                       // 3
+
+// String manipulation
+"hello" | upper()                   // "HELLO"
+split("a,b,c", ",")                // ["a","b","c"]
+join(["a","b"], "-")               // "a-b"
+
+// File operations
+ls(".") | where(fn(f) => f.size > 1000)
+cat("file.txt") | split("\n") | len
+
+// Math
+abs(-5)           // 5
+min(3, 7)         // 3
+max(3, 7)         // 7
+sqrt(16)          // 4
+pow(2, 3)         // 8
+
+// Type checking
+type_of(42)       // "Int"
+type_of("hi")     // "Str"
+type_of([1,2])    // "Array"</code></pre>
+        </section>
+    </main>
+
+    <footer>
+        <p>&copy; 2025 AetherShell. Built with Rust 🦀</p>
+    </footer>
+</body>
+
+</html>

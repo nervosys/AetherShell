@@ -21,6 +21,7 @@ pub enum AppMode {
     Settings,
     DistributedAgents,
     AdvancedReasoning,
+    Search,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -93,6 +94,11 @@ pub struct App {
     pub selected_media: Vec<usize>, // Indices into media_files
     pub current_model: String,
 
+    // Search state
+    pub search_query: String,
+    pub search_results: Vec<usize>,
+    pub search_result_index: usize,
+
     // Distributed agents and advanced reasoning
     pub distributed_swarm: Option<DistributedSwarm>,
     pub reasoning_coordinator: ReasoningCoordinator,
@@ -149,6 +155,9 @@ impl App {
             config: AppConfig::default(),
             selected_media: Vec::new(),
             current_model: "stub".to_string(),
+            search_query: String::new(),
+            search_results: Vec::new(),
+            search_result_index: 0,
             distributed_swarm: None,
             reasoning_coordinator: ReasoningCoordinator {
                 reasoning_engine: ReasoningEngine::new(),
@@ -187,7 +196,7 @@ impl App {
     }
 
     pub fn next_tab(&mut self) {
-        self.tab_index = (self.tab_index + 1) % 6; // 6 modes
+        self.tab_index = (self.tab_index + 1) % 7; // 7 modes
         self.mode = match self.tab_index {
             0 => AppMode::Chat,
             1 => AppMode::AgentSwarm,
@@ -195,13 +204,14 @@ impl App {
             3 => AppMode::Settings,
             4 => AppMode::DistributedAgents,
             5 => AppMode::AdvancedReasoning,
+            6 => AppMode::Search,
             _ => AppMode::Chat,
         };
     }
 
     pub fn previous_tab(&mut self) {
         if self.tab_index == 0 {
-            self.tab_index = 5;
+            self.tab_index = 6;
         } else {
             self.tab_index -= 1;
         }
@@ -212,6 +222,7 @@ impl App {
             3 => AppMode::Settings,
             4 => AppMode::DistributedAgents,
             5 => AppMode::AdvancedReasoning,
+            6 => AppMode::Search,
             _ => AppMode::Chat,
         };
     }
@@ -349,6 +360,7 @@ impl App {
             "Settings",
             "Distributed",
             "Reasoning",
+            "Search",
         ]
     }
 
@@ -486,4 +498,347 @@ impl App {
             .map(|(id, session)| format!("{}: {}", id, session.goal.description))
             .collect()
     }
+
+    /// Export conversation to markdown format
+    pub fn export_to_markdown(&self) -> String {
+        let mut output = String::new();
+        output.push_str("# AetherShell Conversation Export\n\n");
+        output.push_str(&format!(
+            "**Exported:** {}\n",
+            chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC")
+        ));
+        output.push_str(&format!("**Model:** {}\n", self.current_model));
+        output.push_str(&format!("**Total Messages:** {}\n\n", self.messages.len()));
+        output.push_str("---\n\n");
+
+        for msg in &self.messages {
+            let role = match msg.role {
+                MessageRole::User => "👤 User",
+                MessageRole::Assistant => "🤖 Assistant",
+                MessageRole::System => "⚙️ System",
+            };
+
+            output.push_str(&format!(
+                "## {} ({})\n\n",
+                role,
+                msg.timestamp.format("%H:%M:%S")
+            ));
+
+            if let Some(model) = &msg.model {
+                output.push_str(&format!("*Model: {}*\n\n", model));
+            }
+
+            output.push_str(&msg.content);
+            output.push_str("\n\n");
+
+            if !msg.media_attachments.is_empty() {
+                output.push_str("**Attachments:**\n");
+                for media in &msg.media_attachments {
+                    output.push_str(&format!("- {} ({:?})\n", media.path, media.media_type));
+                }
+                output.push_str("\n");
+            }
+
+            output.push_str("---\n\n");
+        }
+
+        output
+    }
+
+    /// Export conversation to JSON format
+    pub fn export_to_json(&self) -> Result<String> {
+        #[derive(Serialize)]
+        struct ExportData {
+            exported_at: String,
+            model: String,
+            total_messages: usize,
+            messages: Vec<ExportMessage>,
+        }
+
+        #[derive(Serialize)]
+        struct ExportMessage {
+            timestamp: String,
+            role: String,
+            content: String,
+            model: Option<String>,
+            media_count: usize,
+        }
+
+        let export = ExportData {
+            exported_at: chrono::Utc::now().to_rfc3339(),
+            model: self.current_model.clone(),
+            total_messages: self.messages.len(),
+            messages: self
+                .messages
+                .iter()
+                .map(|msg| ExportMessage {
+                    timestamp: msg.timestamp.to_rfc3339(),
+                    role: format!("{:?}", msg.role),
+                    content: msg.content.clone(),
+                    model: msg.model.clone(),
+                    media_count: msg.media_attachments.len(),
+                })
+                .collect(),
+        };
+
+        serde_json::to_string_pretty(&export)
+            .map_err(|e| anyhow::anyhow!("JSON export failed: {}", e))
+    }
+
+    /// Search messages by content
+    pub fn search_messages(&self, query: &str) -> Vec<usize> {
+        let query_lower = query.to_lowercase();
+        self.messages
+            .iter()
+            .enumerate()
+            .filter(|(_, msg)| msg.content.to_lowercase().contains(&query_lower))
+            .map(|(idx, _)| idx)
+            .collect()
+    }
+
+    /// Filter messages by role
+    pub fn filter_by_role(&self, role: MessageRole) -> Vec<usize> {
+        self.messages
+            .iter()
+            .enumerate()
+            .filter(|(_, msg)| msg.role == role)
+            .map(|(idx, _)| idx)
+            .collect()
+    }
+
+    /// Execute search and update search state
+    pub fn execute_search(&mut self) {
+        if self.search_query.is_empty() {
+            self.search_results.clear();
+            self.search_result_index = 0;
+        } else {
+            self.search_results = self.search_messages(&self.search_query.clone());
+            self.search_result_index = 0;
+        }
+    }
+
+    /// Navigate to next search result
+    pub fn next_search_result(&mut self) {
+        if !self.search_results.is_empty() {
+            self.search_result_index = (self.search_result_index + 1) % self.search_results.len();
+        }
+    }
+
+    /// Navigate to previous search result
+    pub fn previous_search_result(&mut self) {
+        if !self.search_results.is_empty() {
+            if self.search_result_index == 0 {
+                self.search_result_index = self.search_results.len() - 1;
+            } else {
+                self.search_result_index -= 1;
+            }
+        }
+    }
+
+    /// Clear search and return to chat mode
+    pub fn clear_search(&mut self) {
+        self.search_query.clear();
+        self.search_results.clear();
+        self.search_result_index = 0;
+        self.mode = AppMode::Chat;
+    }
+
+    /// Get conversation statistics
+    pub fn get_stats(&self) -> ConversationStats {
+        let user_msgs = self
+            .messages
+            .iter()
+            .filter(|m| m.role == MessageRole::User)
+            .count();
+        let assistant_msgs = self
+            .messages
+            .iter()
+            .filter(|m| m.role == MessageRole::Assistant)
+            .count();
+        let system_msgs = self
+            .messages
+            .iter()
+            .filter(|m| m.role == MessageRole::System)
+            .count();
+
+        let total_chars: usize = self.messages.iter().map(|m| m.content.len()).sum();
+        let avg_msg_length = if !self.messages.is_empty() {
+            total_chars / self.messages.len()
+        } else {
+            0
+        };
+
+        let total_media = self
+            .messages
+            .iter()
+            .map(|m| m.media_attachments.len())
+            .sum();
+
+        ConversationStats {
+            total_messages: self.messages.len(),
+            user_messages: user_msgs,
+            assistant_messages: assistant_msgs,
+            system_messages: system_msgs,
+            total_characters: total_chars,
+            avg_message_length: avg_msg_length,
+            total_media_attachments: total_media,
+            active_agents: self.agents.len(),
+        }
+    }
+
+    /// Clear all messages
+    pub fn clear_conversation(&mut self) {
+        self.messages.clear();
+        self.message_list_state.select(Some(0));
+    }
+
+    /// Get context window (last N messages)
+    pub fn get_context_window(&self, window_size: usize) -> Vec<&ChatMessage> {
+        let start = if self.messages.len() > window_size {
+            self.messages.len() - window_size
+        } else {
+            0
+        };
+        self.messages[start..].iter().collect()
+    }
+
+    /// Calculate estimated tokens (rough approximation)
+    pub fn estimate_tokens(&self) -> usize {
+        // Rough estimate: ~4 characters per token
+        self.messages.iter().map(|m| m.content.len() / 4).sum()
+    }
+
+    /// Get agent performance metrics
+    pub fn get_agent_metrics(&self) -> Vec<AgentMetrics> {
+        self.agents
+            .iter()
+            .map(|agent| {
+                let uptime = chrono::Utc::now()
+                    .signed_duration_since(agent.created_at)
+                    .num_seconds();
+                let idle_time = chrono::Utc::now()
+                    .signed_duration_since(agent.last_activity)
+                    .num_seconds();
+
+                AgentMetrics {
+                    name: agent.name.clone(),
+                    status: agent.status.clone(),
+                    uptime_seconds: uptime,
+                    idle_seconds: idle_time,
+                    tool_count: agent.tools.len(),
+                }
+            })
+            .collect()
+    }
+
+    /// Toggle auto-scroll setting
+    pub fn toggle_auto_scroll(&mut self) {
+        self.config.auto_scroll = !self.config.auto_scroll;
+    }
+
+    /// Toggle timestamp display
+    pub fn toggle_timestamps(&mut self) {
+        self.config.show_timestamps = !self.config.show_timestamps;
+    }
+
+    /// Toggle media preview
+    pub fn toggle_media_preview(&mut self) {
+        self.config.enable_media_preview = !self.config.enable_media_preview;
+    }
+
+    /// Get current mode as string
+    pub fn get_mode_string(&self) -> &'static str {
+        match self.mode {
+            AppMode::Chat => "Chat",
+            AppMode::AgentSwarm => "Agent Swarm",
+            AppMode::MediaBrowser => "Media Browser",
+            AppMode::Settings => "Settings",
+            AppMode::DistributedAgents => "Distributed Agents",
+            AppMode::AdvancedReasoning => "Advanced Reasoning",
+            AppMode::Search => "Search",
+        }
+    }
+
+    /// Get help text for current mode
+    pub fn get_help_text(&self) -> Vec<String> {
+        match self.mode {
+            AppMode::Chat => vec![
+                "Enter: Send message".to_string(),
+                "Ctrl+C: Copy selected".to_string(),
+                "Ctrl+E: Export conversation".to_string(),
+                "Ctrl+L: Clear conversation".to_string(),
+                "Ctrl+F: Search messages".to_string(),
+                "Tab: Switch mode".to_string(),
+                "Ctrl+Q: Quit".to_string(),
+            ],
+            AppMode::AgentSwarm => vec![
+                "Enter: Start selected agent".to_string(),
+                "Space: Pause/Resume".to_string(),
+                "D: Delete selected agent".to_string(),
+                "N: New agent".to_string(),
+                "M: View metrics".to_string(),
+                "Tab: Switch mode".to_string(),
+            ],
+            AppMode::MediaBrowser => vec![
+                "Enter: Select/Deselect media".to_string(),
+                "D: Delete selected".to_string(),
+                "A: Add media file".to_string(),
+                "P: Preview".to_string(),
+                "C: Clear selection".to_string(),
+                "Tab: Switch mode".to_string(),
+            ],
+            AppMode::Settings => vec![
+                "1: Toggle auto-scroll".to_string(),
+                "2: Toggle timestamps".to_string(),
+                "3: Toggle media preview".to_string(),
+                "↑/↓: Navigate settings".to_string(),
+                "Enter: Change value".to_string(),
+                "Tab: Switch mode".to_string(),
+            ],
+            AppMode::DistributedAgents => vec![
+                "Enter: Deploy agent".to_string(),
+                "S: View swarm status".to_string(),
+                "C: Coordinate agents".to_string(),
+                "H: Health check".to_string(),
+                "Tab: Switch mode".to_string(),
+            ],
+            AppMode::AdvancedReasoning => vec![
+                "Enter: Start reasoning".to_string(),
+                "G: Set goal".to_string(),
+                "P: Plan steps".to_string(),
+                "E: Execute plan".to_string(),
+                "V: Visualize reasoning".to_string(),
+                "Tab: Switch mode".to_string(),
+            ],
+            AppMode::Search => vec![
+                "Type: Enter search query".to_string(),
+                "Enter: Execute search".to_string(),
+                "↑/↓: Navigate results".to_string(),
+                "Esc: Clear search / Return to Chat".to_string(),
+                "Ctrl+C: Copy selected result".to_string(),
+                "Tab: Switch mode".to_string(),
+            ],
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ConversationStats {
+    pub total_messages: usize,
+    pub user_messages: usize,
+    pub assistant_messages: usize,
+    pub system_messages: usize,
+    pub total_characters: usize,
+    pub avg_message_length: usize,
+    pub total_media_attachments: usize,
+    pub active_agents: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct AgentMetrics {
+    pub name: String,
+    pub status: AgentStatus,
+    pub uptime_seconds: i64,
+    pub idle_seconds: i64,
+    pub tool_count: usize,
 }

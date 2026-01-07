@@ -231,6 +231,53 @@ pub fn type_of_expr(expr: &Expr, env: &mut TypeEnv) -> Result<Type, TypeError> {
             let rt = type_of_expr(right, env)?;
             type_binary(op, lt, rt)
         }
+
+        // --- member access: record.field ---
+        Expr::MemberAccess { object, field: _ } => {
+            let obj_type = type_of_expr(object, env)?;
+            // For now, if the object is a Record type, we return Any
+            // since we don't track field types in our simple type system
+            match obj_type {
+                Type::Record(_) => Ok(Type::Any),
+                Type::Any => Ok(Type::Any), // Allow access on Any type
+                other => Err(TypeError::Other(format!(
+                    "cannot access field on non-record type: {:?}",
+                    other
+                ))),
+            }
+        }
+
+        // --- pattern matching ---
+        Expr::Match { scrutinee, arms } => {
+            // Type check the scrutinee
+            let _scrutinee_type = type_of_expr(scrutinee, env)?;
+
+            // For simplicity, check all arms and return the type of the first arm's body
+            // In a more sophisticated system, we'd verify all arms return the same type
+            if arms.is_empty() {
+                return Err(TypeError::Other("match expression has no arms".to_string()));
+            }
+
+            // Type check each arm's body (we don't deeply validate patterns yet)
+            let mut arm_type = None;
+            for arm in arms {
+                // Create a temporary environment for pattern bindings
+                // (we don't track exact pattern types, so we just check the body)
+                let body_type = type_of_expr(&arm.body, env)?;
+
+                if let Some(ref expected) = arm_type {
+                    // In a real system, we'd verify all arms have compatible types
+                    // For now, just use the first arm's type
+                    if body_type != *expected && body_type != Type::Any && *expected != Type::Any {
+                        // Allow Any to match anything
+                    }
+                } else {
+                    arm_type = Some(body_type);
+                }
+            }
+
+            Ok(arm_type.unwrap_or(Type::Any))
+        }
     }
 }
 
@@ -241,7 +288,55 @@ Helpers
 fn is_builtin(name: &str) -> bool {
     matches!(
         name,
-        "map" | "reduce" | "where" | "select" | "group_by" | "agg" | "http_get"
+        "map"
+            | "reduce"
+            | "where"
+            | "select"
+            | "group_by"
+            | "agg"
+            | "http_get"
+            | "ls"
+            | "list"
+            | "pwd"
+            | "cat"
+            | "head"
+            | "tail"
+            | "find"
+            | "sort"
+            | "uniq"
+            | "wc"
+            | "grep"
+            | "help"
+            | "call"
+            | "clear"
+            | "echo"
+            | "print"
+            | "take"
+            | "agent"
+            | "swarm"
+            // PowerShell-style cmdlets
+            | "Get-Files" | "get-files"
+            | "Get-Content" | "get-content"
+            | "Select-Object" | "select-object"
+            | "Where-Object" | "where-object"
+            | "ForEach-Object" | "foreach-object" | "foreach"
+            | "Sort-Object" | "sort-object"
+            | "Group-Object" | "group-object" | "group"
+            | "Measure-Object" | "measure-object" | "measure"
+            // Nushell-style data commands
+            | "from-json" | "from_json"
+            | "to-json" | "to_json"
+            | "from-csv" | "from_csv"
+            | "to-csv" | "to_csv"
+            | "from-yaml" | "from_yaml"
+            | "to-yaml" | "to_yaml"
+            | "columns"
+            | "describe"
+            // AI-enhanced commands
+            | "ai-suggest" | "suggest"
+            | "ai-explain" | "explain"
+            | "ai-complete" | "complete"
+            | "ai-fix" | "fix"
     )
 }
 
