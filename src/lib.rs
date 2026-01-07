@@ -9,6 +9,7 @@ pub mod evolution;
 pub mod neural;
 pub mod os_tools;
 pub mod parser;
+pub mod plugins;
 pub mod repl;
 pub mod rl;
 pub mod secure_config;
