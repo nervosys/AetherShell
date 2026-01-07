@@ -780,7 +780,7 @@ mod tests {
             vec![0.5, 1.0, 0.5, 0.0],
             vec![0.0, 0.5, 1.0, 0.5],
         ];
-        
+
         // Test individual encoding
         let message = consensus.encode_state(&agent_inputs[0]);
         assert_eq!(message.len(), 8);

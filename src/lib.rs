@@ -10,6 +10,7 @@ pub mod neural;
 pub mod os_tools;
 pub mod parser;
 pub mod repl;
+pub mod rl;
 pub mod secure_config;
 pub mod security;
 pub mod shell_features;
