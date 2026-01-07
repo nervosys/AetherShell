@@ -5,6 +5,8 @@ pub mod ast;
 pub mod builtins;
 pub mod env;
 pub mod eval;
+pub mod evolution;
+pub mod neural;
 pub mod os_tools;
 pub mod parser;
 pub mod repl;
