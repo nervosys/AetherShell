@@ -2547,8 +2547,7 @@ fn bi_describe(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 ///   ai("prompt", {model: "openai:gpt-4o"})    - Specify model
 fn bi_ai(args: Vec<Value>, input: Option<Value>, _env: &mut Env) -> Result<Value> {
     // SECURITY: Rate limit AI calls
-    check_rate_limit("bi_ai", 30, Duration::from_secs(60))
-        .context("AI rate limit exceeded")?;
+    check_rate_limit("bi_ai", 30, Duration::from_secs(60)).context("AI rate limit exceeded")?;
 
     // Get prompt from input or first argument
     let prompt = if let Some(input) = input {
@@ -2578,9 +2577,15 @@ fn bi_ai(args: Vec<Value>, input: Option<Value>, _env: &mut Env) -> Result<Value
     });
 
     // Extract multi-modal content if present
-    let images = config.as_ref().and_then(|c| extract_string_array(c, "images"));
-    let audio = config.as_ref().and_then(|c| extract_string_array(c, "audio"));
-    let video = config.as_ref().and_then(|c| extract_string_array(c, "video"));
+    let images = config
+        .as_ref()
+        .and_then(|c| extract_string_array(c, "images"));
+    let audio = config
+        .as_ref()
+        .and_then(|c| extract_string_array(c, "audio"));
+    let video = config
+        .as_ref()
+        .and_then(|c| extract_string_array(c, "video"));
     let _model = config.as_ref().and_then(|c| {
         c.get("model").and_then(|v| {
             if let Value::Str(s) = v {
@@ -2612,18 +2617,19 @@ fn bi_ai(args: Vec<Value>, input: Option<Value>, _env: &mut Env) -> Result<Value
                 // SECURITY: Validate path
                 let validated_path = validate_read_path(&path)
                     .context(format!("ai: invalid image path: {}", path))?;
-                
+
                 // Read and base64 encode the image
-                let data = fs::read(&validated_path)
-                    .context(format!("ai: failed to read image: {}", validated_path.display()))?;
-                
+                let data = fs::read(&validated_path).context(format!(
+                    "ai: failed to read image: {}",
+                    validated_path.display()
+                ))?;
+
                 // SECURITY: Check file size
-                check_file_size_limit(data.len() as u64)
-                    .context("ai: image file too large")?;
-                
+                check_file_size_limit(data.len() as u64).context("ai: image file too large")?;
+
                 use base64::{engine::general_purpose::STANDARD, Engine as _};
                 let encoded = STANDARD.encode(&data);
-                
+
                 content_parts.push(crate::ai::MultiModalContent {
                     text: None,
                     image_url: None,
@@ -2641,17 +2647,18 @@ fn bi_ai(args: Vec<Value>, input: Option<Value>, _env: &mut Env) -> Result<Value
             for path in audio_paths {
                 let validated_path = validate_read_path(&path)
                     .context(format!("ai: invalid audio path: {}", path))?;
-                
-                let data = fs::read(&validated_path)
-                    .context(format!("ai: failed to read audio: {}", validated_path.display()))?;
-                
+
+                let data = fs::read(&validated_path).context(format!(
+                    "ai: failed to read audio: {}",
+                    validated_path.display()
+                ))?;
+
                 // SECURITY: Check file size
-                check_file_size_limit(data.len() as u64)
-                    .context("ai: audio file too large")?;
-                
+                check_file_size_limit(data.len() as u64).context("ai: audio file too large")?;
+
                 use base64::{engine::general_purpose::STANDARD, Engine as _};
                 let encoded = STANDARD.encode(&data);
-                
+
                 content_parts.push(crate::ai::MultiModalContent {
                     text: None,
                     image_url: None,
@@ -2669,17 +2676,18 @@ fn bi_ai(args: Vec<Value>, input: Option<Value>, _env: &mut Env) -> Result<Value
             for path in video_paths {
                 let validated_path = validate_read_path(&path)
                     .context(format!("ai: invalid video path: {}", path))?;
-                
-                let data = fs::read(&validated_path)
-                    .context(format!("ai: failed to read video: {}", validated_path.display()))?;
-                
+
+                let data = fs::read(&validated_path).context(format!(
+                    "ai: failed to read video: {}",
+                    validated_path.display()
+                ))?;
+
                 // SECURITY: Check file size
-                check_file_size_limit(data.len() as u64)
-                    .context("ai: video file too large")?;
-                
+                check_file_size_limit(data.len() as u64).context("ai: video file too large")?;
+
                 use base64::{engine::general_purpose::STANDARD, Engine as _};
                 let encoded = STANDARD.encode(&data);
-                
+
                 content_parts.push(crate::ai::MultiModalContent {
                     text: None,
                     image_url: None,
@@ -2699,13 +2707,13 @@ fn bi_ai(args: Vec<Value>, input: Option<Value>, _env: &mut Env) -> Result<Value
 
         let response = crate::ai::complete_multimodal_sync(&[message])
             .context("ai: multi-modal completion failed")?;
-        
+
         Ok(Value::Str(response))
     } else {
         // Simple text-only request
-        let response = crate::ai::complete_sync_router(&validated_prompt)
-            .context("ai: completion failed")?;
-        
+        let response =
+            crate::ai::complete_sync_router(&validated_prompt).context("ai: completion failed")?;
+
         Ok(Value::Str(response))
     }
 }
