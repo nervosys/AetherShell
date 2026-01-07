@@ -25,19 +25,17 @@ ae
 [1,2,3,4,5] | map(fn(x) => x * 2) | reduce(fn(a,b) => a + b, 0)
 # => 30
 
+# AI query (set AETHER_AI=openai and OPENAI_API_KEY for real responses)
+ai("Explain quantum computing in simple terms")
+
 # AI with vision
 ai("Describe this image", {images: ["photo.jpg"]})
 
-# Multi-agent swarm
-swarm([
-  {id: "researcher", model: "openai:gpt-4", role: "Research"},
-  {id: "writer", model: "anthropic:claude-3", role: "Write"}
-], "router")
+# AI agent with tools
+agent("Find all TODO comments in src/", ["ls", "cat", "grep"])
 
-# Neural network evolution
+# Neural network creation
 let brain = nn_create("agent", [4, 8, 2])
-let pop = population(50, "nn", evolution_config({layer_sizes: [4, 8, 2]}))
-let trained = evolve(pop, fitness_fn, 100)
 ```
 
 **Set your API key:** `export OPENAI_API_KEY="sk-..."` or `ae ai keys store openai sk-...`
@@ -50,56 +48,46 @@ let trained = evolve(pop, fitness_fn, 100)
 
 AetherShell is the **ONLY shell in the world** that combines:
 
-### 🥇 **Exclusive Features (No Competitors)**
+### 🥇 **Exclusive Features**
 
-1. **Multi-Agent Orchestration** 🤖
-   - Deploy swarms of AI agents with different models and capabilities
-   - Coordinate agents with Router, Round-Robin, or Blackboard strategies
-   - Share context and results across agent teams
-   - **No other shell can do this!**
+1. **AI Agents with Tool Access** 🤖
+   - Deploy AI agents that can use shell tools (ls, cat, grep, etc.)
+   - Goal-directed task execution with step limits
+   - Dry-run mode for previewing actions
+   - *Multi-agent swarm orchestration coming soon!*
 
 2. **AI Communication Protocols** 💬
    - **MCP**: Model Context Protocol for standardized tool integration
-   - **A2A**: Agent-to-Agent messaging with direct/broadcast/delegate
+   - **A2A**: Agent-to-Agent messaging framework
    - **NANDA**: Negotiation And Dynamic Agents for consensus
-   - **AgenticBinary**: Maximum information density binary protocol (16 semantic opcodes)
-   - **Syntax KB**: Persistent knowledge base for protocol discovery and sharing
-   - **These protocols are AetherShell exclusives!**
+   - **AgenticBinary**: Binary protocol for information density
+   - **Syntax KB**: Knowledge base for protocol discovery
 
-3. **Local MCP Servers** 🔧
-   - Run local MCP servers that give AI agents controlled access to:
-     - Operating system (filesystem, processes, commands)
-     - Cloud services (AWS, Azure, Google Cloud)
-     - Development tools (Git, Docker, databases)
-     - Web scraping and custom APIs
-   - Better than raw command execution—structured and safe!
-   - **No other shell has this integration!**
+3. **Multi-Modal AI Native** 🎨
+   - Analyze images with `ai("prompt", {images: [...]})`
+   - Process audio with `ai("prompt", {audio: [...]})`
+   - Analyze video with `ai("prompt", {video: [...]})`
+   - Mix multiple media types in single queries
 
-4. **Multi-Modal AI Native** 🎨
-   - Analyze images, transcribe audio, process video directly in pipelines
-   - Mix text + images + audio + video in single AI queries
-   - No other shell has native multi-modal support!
-
-5. **Typed Functional Pipelines** 💎
+4. **Typed Functional Pipelines** 💎
    - Hindley-Milner type inference (like Haskell, OCaml)
    - Structured data: Records, Arrays, Tables—not text streams
-   - First-class functions, pattern matching, lazy evaluation
-   - Type safety prevents entire classes of shell scripting errors
+   - First-class functions, pattern matching
+   - Type safety prevents shell scripting errors
 
-6. **🧠 Neural Networks & Evolutionary Learning** 🆕
-   - In-shell neural network creation, training, and mutation
-   - Consensus networks for multi-agent distributed decision making
-   - Evolutionary algorithms with population-based optimization
-   - NEAT topology evolution and coevolution for protocol learning
-   - **Train AI swarms to develop their own communication protocols!**
+5. **🧠 Neural Networks & Evolutionary Learning**
+   - In-shell neural network creation and mutation
+   - Consensus networks for distributed decision making
+   - Evolutionary algorithms with population optimization
+   - NEAT topology evolution
 
 ### ✨ **Revolutionary Features**
 
-### 🧠 **AI Integration Beyond Competition**
+### 🧠 **AI Integration**
 
-- **Multi-Agent Swarms**: Coordinate teams of AI agents working together on complex tasks
-- **Vision AI**: Analyze images, screenshots, and visual content directly in your terminal
-- **Audio Processing**: Transcribe speech, analyze audio files, and voice commands
+- **AI Queries**: Direct AI queries with `ai()` function
+- **Vision AI**: Analyze images and screenshots
+- **Audio Processing**: Transcribe speech and audio files
 - **Video Analysis**: Process video content with AI-powered insights
 - **Smart Agents**: Deploy specialized AI agents with tool access and reasoning
 - **Protocol Support**: MCP, A2A, and NANDA for advanced agent coordination
@@ -224,86 +212,41 @@ ae --bash script.sh   # Run Bash script in compatibility mode
 
 ## 🎯 Experience the Magic
 
-### 🤖 **Multi-Agent Orchestration (UNIQUE!)**
+### 🤖 **AI Agents**
 
-**Deploy a research team with different AI models:**
-
-```ae
-# Coordinate GPT-4, Claude, and local models working together!
-swarm([
-  {id: "researcher", model: "openai:gpt-4", role: "Find research papers"},
-  {id: "analyst", model: "anthropic:claude-3-opus", role: "Analyze trends"},
-  {id: "writer", model: "openai:gpt-4o-mini", role: "Write summary"}
-], "router")
-```
-
-**Agents communicate via A2A Protocol:**
+**Create an AI agent with tool access:**
 
 ```ae
-# Create agents that talk to each other
-coordinator = agent("Coordinate tasks", ["management"])
-worker = agent("Process data", ["analysis"])
+# Agent with goal and allowed tools
+# Set AETHER_AI=openai and OPENAI_API_KEY for real AI responses
+agent("Find all TODO comments in the codebase", ["ls", "cat", "grep"])
 
-# Direct messaging
-coordinator.send_message(worker.id, "Process sales_2024.csv")
-
-# Broadcasting
-coordinator.broadcast("New task available")
-
-# Task delegation with context
-coordinator.delegate_task(worker.id, "analyze_data", {
-  source: "sales.csv",
-  metrics: ["revenue", "growth"]
+# Agent with configuration record
+agent({
+  goal: "Analyze the project structure",
+  tools: ["ls", "cat"],
+  max_steps: 5,
+  dry_run: true  # Preview without executing
 })
 ```
 
-**Negotiate consensus with NANDA Protocol:**
+**AI queries with multi-modal support:**
 
 ```ae
-# Agents vote on proposals to reach consensus
-coordinator = nanda_coordinator(agents, 0.75, 3)  # 75% threshold
+# Simple text query
+ai("Explain the difference between TCP and UDP")
 
-# Propose a decision
-neg_id = coordinator.propose(agent_id, {
-```ae
-# Create agents that talk to each other
-coordinator := agent("Coordinate tasks", ["management"])
-worker := agent("Process data", ["analysis"])
+# Query with images
+ai("What's in this screenshot?", {images: ["screenshot.png"]})
 
-# Direct messaging
-coordinator.send_message(worker.id, "Process sales_2024.csv")
-
-# Broadcasting
-coordinator.broadcast("New task available")
-
-# Task delegation with context
-coordinator.delegate_task(worker.id, "analyze_data", {
-  source: "sales.csv",
-  metrics: ["revenue", "growth"]
-})
+# Query with multiple images
+ai("Compare these diagrams", {images: ["diagram1.png", "diagram2.png"]})
 ```
 
-**Negotiate consensus with NANDA Protocol:**
-
-```ae
-# Agents vote on proposals to reach consensus
-coordinator = nanda_coordinator(agents, 0.75, 3)  # 75% threshold
-
-# Propose task allocation
-neg_id = coordinator.propose(agent_id, {
-  type: "TaskAllocation",
-  task: build_dashboard_task,
-  allocation: {...}
-})
-
-# Agents vote
-coordinator.vote(neg_id, "agent1", {type: "Accept"})
-coordinator.vote(neg_id, "agent2", {type: "Accept"})
-coordinator.vote(neg_id, "agent3", {type: "Accept"})
-
-# Check consensus
-status = coordinator.get_status(neg_id)  # => "Accepted"
-```
+> **🔮 Coming Soon: Multi-Agent Swarms**
+>
+> The full swarm syntax for coordinating multiple agents with different models
+> is under active development. Current agent functionality uses single-agent mode.
 
 ### 🔧 **Local MCP Servers (Safe Tool Access)**
 
@@ -503,171 +446,58 @@ square = fn(x) => x * x
 
 ## 🔥 Powerful Real-World Examples
 
-### 🤖 Multi-Agent Code Review System
+### 🤖 AI-Assisted Code Review
 
 ```ae
-# Deploy specialized agents for comprehensive code review
-swarm([
-  {
-    id: "security", 
-    model: "openai:gpt-4",
-    role: "Check for security vulnerabilities",
-    tools: ["mcp:read_file", "mcp:execute_command"]
-  },
-  {
-    id: "performance",
-    model: "anthropic:claude-3-opus", 
-    role: "Analyze performance and optimization opportunities"
-  },
-  {
-    id: "style",
-    model: "openai:gpt-4o-mini",
-    role: "Check code style and best practices"
-  }
-], "round_robin", read_text("src/main.rs"))
-
-# Agents communicate findings via A2A
-# Reach consensus on changes via NANDA
-# Result: Multi-perspective code review impossible with other shells!
+# Use an AI agent to review code for issues
+# Set AETHER_AI=openai and OPENAI_API_KEY for real AI responses
+code_content = read_text("src/main.rs")
+ai("Review this Rust code for potential bugs, security issues, and improvements:\n" + code_content)
 ```
 
 ### 📊 Intelligent Data Processing Pipeline
 
 ```ae
 # Type-safe data transformation with AI insights
-sales_data := load_csv("sales_2024.csv")
-  | where(fn(r) => r.amount > 1000)
-  | group_by(fn(r) => r.region)
-  | map(fn(g) => {
-      region: g.key,
-      total: sum(g.values.map(fn(v) => v.amount)),
-      count: len(g.values),
-      top_products: g.values
-        | sort_by(fn(v) => v.amount, "desc")
-        | take(3)
-        | map(fn(v) => v.product)
-    })
-  | sort_by(fn(r) => r.total, "desc")
+# Process files and get AI analysis
+files = ls("./src") | where(fn(f) => f.ext == ".rs")
+file_info = files | map(fn(f) => {name: f.name, size: f.size})
+print(file_info)
 
-# Get AI insights on the processed data
-sales_data | ai("Analyze these sales trends and provide recommendations")
-
-# All types are checked at compile time!
-# Array<Record<region: String, total: Float, count: Int, top_products: Array<String>>>
+# Get AI insights on project structure
+ai("Based on a Rust project with these files, suggest improvements: " + to_json(file_info))
 ```
 
-### 🎨 Multi-Modal Content Creation
+### 🎨 Multi-Modal Content Analysis
 
 ```ae
-# Combine multiple media types with AI agents
-content_swarm := swarm([
-  {
-    id: "researcher",
-    model: "anthropic:claude-3-sonnet",
-    role: "Analyze images and gather context",
-    tools: ["mcp:fetch_url"]
-  },
-  {
-    id: "writer",
-    model: "openai:gpt-4o",
-    role: "Create engaging content from research"
-  },
-  {
-    id: "editor",
-    model: "anthropic:claude-3-opus",
-    role: "Polish and fact-check"
-  }
-], "blackboard")
-
-# Feed multi-modal data to the swarm
-result := content_swarm.execute({
-  images: ["product_photo.jpg", "infographic.png"],
-  audio: ["customer_testimonial.mp3"],
-  video: ["demo_video.mp4"],
-  task: "Create comprehensive product review article"
+# Analyze images with AI
+ai("What's shown in this image? List the main objects.", {
+  images: ["photo.jpg"]
 })
 
-# No other shell can orchestrate multi-agent multi-modal workflows!
+# Compare multiple images
+ai("Compare these two screenshots and describe the differences", {
+  images: ["before.png", "after.png"]
+})
+
+# Analyze with audio context
+ai("Transcribe and summarize this audio recording", {
+  audio: ["meeting.mp3"]
+})
 ```
 
 ### 🔍 Smart File Organization with AI Vision
 
 ```ae
-# Automatically categorize and tag photos using AI
-ls("~/Pictures")
-  | where(fn(f) => f.ext in [".jpg", ".png", ".jpeg"])
+# Analyze and describe images in a directory
+ls("./images")
+  | where(fn(f) => f.ext == ".jpg" || f.ext == ".png")
   | map(fn(photo) => {
       path: photo.path,
       name: photo.name,
-      # AI analyzes each image
-      analysis: ai("Describe: scene type, objects, colors, mood", {
-        images: [photo.path]
-      }),
-      # Extract structured data
-      tags: ai("Generate 5 relevant tags for this image", {
-        images: [photo.path]
-      }) | split(",") | map(fn(t) => t.trim())
+      description: ai("Briefly describe this image", {images: [photo.path]})
     })
-  | group_by(fn(p) => p.analysis.scene_type)
-  | each(fn(group) => {
-      # Create folders and organize
-      mkdir("./organized/${group.key}")
-      group.values | each(fn(photo) => {
-        copy(photo.path, "./organized/${group.key}/${photo.name}")
-      })
-    })
-
-# Typed pipelines + AI vision = Smart automation!
-```
-
-### 🌐 Distributed Agent Network
-
-```ae
-# Create a negotiation-based task allocation system
-agents := [
-  agent("db_specialist", ["database", "sql", "optimization"]),
-  agent("api_specialist", ["rest", "graphql", "microservices"]),
-  agent("frontend_specialist", ["react", "ui", "ux"]),
-  agent("ml_specialist", ["machine-learning", "pytorch", "data-science"])
-]
-
-# Setup NANDA coordinator for consensus
-coordinator := nanda_coordinator(
-  agents | map(fn(a) => a.id),
-  0.75,  # 75% consensus required
-  3      # Minimum 3 agents must vote
-)
-
-# Propose complex project breakdown
-project := {
-  name: "AI-powered analytics dashboard",
-  tasks: [
-    {id: 1, desc: "Design data schema", capabilities: ["database"]},
-    {id: 2, desc: "Build ML models", capabilities: ["machine-learning"]},
-    {id: 3, desc: "Create API endpoints", capabilities: ["rest"]},
-    {id: 4, desc: "Build dashboard UI", capabilities: ["react", "ui"]}
-  ]
-}
-
-# Agents negotiate task allocation automatically
-allocator := nanda_task_allocator(coordinator)
-project.tasks | each(fn(task) => allocator.add_task(task))
-
-agent_capabilities := agents | map(fn(a) => {
-  id: a.id,
-  capabilities: a.capabilities
-}) | to_map
-
-negotiations := allocator.allocate_tasks(agent_capabilities)
-
-# Vote and reach consensus
-negotiations | each(fn(neg) => {
-  # Agents automatically accept tasks matching their capabilities
-  coordinator.vote(neg.id, neg.assigned_agent, {type: "Accept"})
-})
-
-# Result: Optimal task allocation through AI negotiation
-# This coordination is impossible with traditional shells!
 ```
 
 ---
