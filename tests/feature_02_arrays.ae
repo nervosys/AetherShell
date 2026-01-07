@@ -1,0 +1,12 @@
+// Test 2: Arrays
+
+print("Test 2: Arrays")
+arr = [1, 2, 3, 4, 5]
+print(arr)
+empty = []
+print(empty)
+nested = [[1, 2], [3, 4]]
+print(nested)
+mixed = [1, "hello", true]
+print(mixed)
+print("✓ Arrays work")

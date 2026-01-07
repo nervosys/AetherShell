@@ -1,0 +1,8 @@
+print("Testing comprehensive file system commands")
+print("Current directory: " + pwd())
+ls(".") | where fn(f) => !f.is_dir | take(3) | print("First 3 files:")
+cat("README.md") | head(3) | print("First 3 lines of README:")
+find(".", "*.ae") | take(5) | print("AE files found:")
+"apple\nbanana\napple\ncherry\nbanana" | sort() | uniq() | print("Sorted unique fruits:")
+cat("README.md") | grep("shell") | head(2) | print("Lines mentioning shell:")
+cat("README.md") | wc() | print("README stats:")

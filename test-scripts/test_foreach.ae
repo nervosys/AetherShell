@@ -1,0 +1,13 @@
+print("=== Testing foreach behavior ===")
+
+let simple_arr = [100, 200]
+print("Direct array:")
+simple_arr | foreach(fn(x) => print("Direct: " + x))
+
+print("")
+print("Array from first(2):")
+let result_arr = [10, 20, 30] | first(2)
+result_arr | foreach(fn(x) => print("From first: " + x))
+
+print("")
+print("Test completed")

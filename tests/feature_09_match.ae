@@ -1,0 +1,16 @@
+// Test 9: Match expressions
+
+print("Test 9: Match Expressions")
+result = match 2 {
+  1 => "one",
+  2 => "two",
+  _ => "other"
+}
+print(result)
+guard_result = match 5 {
+  x if x < 3 => "small",
+  x if x < 7 => "medium",
+  _ => "large"
+}
+print(guard_result)
+print("✓ Match expressions work")

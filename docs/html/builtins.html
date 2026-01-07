@@ -1,0 +1,931 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Built-in Functions - AetherShell Documentation</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/ayu-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', (event) => {
+            document.querySelectorAll('pre code').forEach((block) => {
+                hljs.highlightElement(block);
+            });
+        });
+    </script>
+</head>
+
+<body>
+    <nav class="sidebar">
+        <div class="logo">
+            <h1>🚀 AetherShell</h1>
+            <p class="version">v1.0.0</p>
+        </div>
+        <ul class="nav-menu">
+            <li><a href="index.html">Home</a></li>
+            <li><a href="quickstart.html">Quick Start</a></li>
+            <li><a href="tutorial.html">Tutorial</a></li>
+            <li><a href="syntax.html">Syntax Reference</a></li>
+            <li><a href="builtins.html" class="active">Built-in Functions</a></li>
+            <li><a href="types.html">Type System</a></li>
+            <li><a href="ai.html">AI & Agents</a></li>
+            <li><a href="syntax-kb.html">Syntax KB</a></li>
+            <li><a href="examples.html">Examples</a></li>
+            <li><a href="api.html">API Reference</a></li>
+        </ul>
+        <div class="sidebar-footer">
+            <a href="https://github.com/nervosys/AetherShell" target="_blank">GitHub</a>
+        </div>
+    </nav>
+
+    <main class="content">
+        <header class="page-header">
+            <h1>🔧 Built-in Functions</h1>
+            <p class="subtitle">Complete reference for all 72 built-in functions</p>
+        </header>
+
+        <section class="feature-section">
+            <h2>Function Categories</h2>
+            <div class="card-grid">
+                <a href="#general" class="card">
+                    <h3>General (6)</h3>
+                    <p>help, call, clear, echo, print, http_get</p>
+                </a>
+                <a href="#filesystem" class="card">
+                    <h3>File System (11)</h3>
+                    <p>ls, pwd, cat, head, tail, find, sort, uniq, wc, grep, read_text</p>
+                </a>
+                <a href="#pipeline" class="card">
+                    <h3>Pipelines (11)</h3>
+                    <p>map, where, reduce, take, keys, len, type_of, first, last, any, all</p>
+                </a>
+                <a href="#string" class="card">
+                    <h3>Strings (9)</h3>
+                    <p>split, join, trim, upper, lower, replace, contains, starts_with, ends_with</p>
+                </a>
+                <a href="#array" class="card">
+                    <h3>Arrays (9)</h3>
+                    <p>flatten, reverse, slice, range, zip, push, concat, Some, None</p>
+                </a>
+                <a href="#math" class="card">
+                    <h3>Math (8)</h3>
+                    <p>abs, min, max, floor, ceil, round, sqrt, pow</p>
+                </a>
+                <a href="#utility" class="card">
+                    <h3>Utility (9)</h3>
+                    <p>exit, env, set_env, sleep, time, json_parse, json_stringify, call, clear</p>
+                </a>
+                <a href="#mcp" class="card">
+                    <h3>MCP (4)</h3>
+                    <p>mcp_servers, mcp_detect, mcp_cache_clear, mcp_cache_status</p>
+                </a>
+                <a href="#syntax-kb" class="card">
+                    <h3>Syntax KB (7)</h3>
+                    <p>syntax_get, syntax_list, syntax_search, syntax_add, syntax_categories, ab_encode, ab_decode</p>
+                </a>
+            </div>
+        </section>
+
+        <section id="general" class="feature-section">
+            <h2>General Functions</h2>
+
+            <div class="function-ref">
+                <h3><code>help()</code></h3>
+                <p><span class="badge">Index: 0</span></p>
+                <p><strong>Description:</strong> Display help for all built-in functions</p>
+                <pre><code>help()  // Shows all functions and descriptions</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>call(function, ...args)</code></h3>
+                <p><span class="badge">Index: 1</span></p>
+                <p><strong>Description:</strong> Call a function with arguments</p>
+                <pre><code>f = fn(x) => x * 2
+call(f, 5)  // 10
+
+// Pipeline mode
+5 | call(fn(x) => x * 2)  // 10</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>clear()</code></h3>
+                <p><span class="badge">Index: 2</span></p>
+                <p><strong>Description:</strong> Clear the terminal screen</p>
+                <pre><code>clear()  // Clears screen</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>echo(...values)</code></h3>
+                <p><span class="badge">Index: 3</span></p>
+                <p><strong>Description:</strong> Print values separated by spaces</p>
+                <pre><code>echo("Hello", "World")  // "Hello World"
+echo(1, 2, 3)           // "1 2 3"</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>print(value)</code></h3>
+                <p><span class="badge">Index: 4</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Print a value and return it (for pipeline chaining)</p>
+                <pre><code>print([1, 2, 3])  // Prints [1, 2, 3]
+
+// Pipeline mode
+[1,2,3] | map(fn(x) => x * 2) | print  // Prints [2, 4, 6]</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>http_get(url)</code></h3>
+                <p><span class="badge">Index: 5</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Make HTTP GET request</p>
+                <pre><code>response = http_get("https://api.example.com/data")
+print(response)
+
+// Pipeline mode
+"https://api.example.com/data" | http_get | json_parse</code></pre>
+            </div>
+        </section>
+
+        <section id="filesystem" class="feature-section">
+            <h2>File System Functions</h2>
+
+            <div class="function-ref">
+                <h3><code>ls(path)</code> / <code>list(path)</code></h3>
+                <p><span class="badge">Index: 8</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> List directory contents as table of records</p>
+                <pre><code>files = ls(".")
+files = ls("/home/user/docs")
+
+// Pipeline mode
+"." | ls | where(fn(f) => f.size > 1000)</code></pre>
+                <p><strong>Returns:</strong> Array of records with <code>{name, type, size, modified}</code></p>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>pwd()</code></h3>
+                <p><span class="badge">Index: 9</span></p>
+                <p><strong>Description:</strong> Print working directory</p>
+                <pre><code>current = pwd()
+print(current)  // "/home/user/project"</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>cat(path)</code></h3>
+                <p><span class="badge">Index: 10</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Read entire file contents</p>
+                <pre><code>content = cat("README.md")
+print(content)
+
+// Pipeline mode
+"README.md" | cat | split("\n") | len</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>read_text(path)</code></h3>
+                <p><span class="badge">Index: 11</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Alias for <code>cat</code></p>
+                <pre><code>text = read_text("file.txt")</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>head(path, n)</code></h3>
+                <p><span class="badge">Index: 12</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Read first N lines of file</p>
+                <pre><code>preview = head("large-file.txt", 10)
+
+// Pipeline mode (array)
+[1,2,3,4,5] | head(3)  // [1, 2, 3]</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>tail(path, n)</code></h3>
+                <p><span class="badge">Index: 13</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Read last N lines of file</p>
+                <pre><code>last_lines = tail("log.txt", 20)
+
+// Pipeline mode (array)
+[1,2,3,4,5] | tail(2)  // [4, 5]</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>find(path, pattern)</code></h3>
+                <p><span class="badge">Index: 14</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Find files matching glob pattern</p>
+                <pre><code>rust_files = find(".", "*.rs")
+all_docs = find("docs", "*.md")
+
+// Pipeline mode
+"src" | find("*.rs")</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>sort(array)</code></h3>
+                <p><span class="badge">Index: 15</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Sort array in ascending order</p>
+                <pre><code>sorted = sort([3, 1, 4, 1, 5])  // [1, 1, 3, 4, 5]
+
+// Pipeline mode
+[3, 1, 4] | sort  // [1, 3, 4]</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>uniq(array)</code></h3>
+                <p><span class="badge">Index: 16</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Remove consecutive duplicates</p>
+                <pre><code>unique = uniq([1, 1, 2, 2, 3])  // [1, 2, 3]
+
+// Pipeline mode
+[1, 1, 2, 3, 3] | uniq  // [1, 2, 3]</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>wc(path)</code></h3>
+                <p><span class="badge">Index: 17</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Count lines, words, characters in file</p>
+                <pre><code>stats = wc("README.md")  // {lines: 50, words: 300, chars: 2000}
+
+// Pipeline mode
+"file.txt" | wc</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>grep(path, pattern)</code></h3>
+                <p><span class="badge">Index: 18</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Search file for lines matching pattern</p>
+                <pre><code>matches = grep("README.md", "AetherShell")
+
+// Pipeline mode
+"log.txt" | grep("ERROR")</code></pre>
+            </div>
+        </section>
+
+        <section id="pipeline" class="feature-section">
+            <h2>Pipeline Functions</h2>
+
+            <div class="function-ref">
+                <h3><code>map(array, fn)</code></h3>
+                <p><span class="badge">Index: 19</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Transform each element in array</p>
+                <pre><code>doubled = map([1, 2, 3], fn(x) => x * 2)  // [2, 4, 6]
+
+// Pipeline mode
+[1, 2, 3] | map(fn(x) => x * 2)  // [2, 4, 6]</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>where(array, fn)</code></h3>
+                <p><span class="badge">Index: 20</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Filter elements that satisfy predicate</p>
+                <pre><code>evens = where([1,2,3,4,5,6], fn(x) => x % 2 == 0)  // [2,4,6]
+
+// Pipeline mode
+[1,2,3,4,5] | where(fn(x) => x > 2)  // [3,4,5]</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>reduce(array, fn, init)</code></h3>
+                <p><span class="badge">Index: 21</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Fold array to single value</p>
+                <pre><code>sum = reduce([1,2,3,4], fn(a,b) => a+b, 0)  // 10
+
+// Pipeline mode
+[1,2,3,4] | reduce(fn(a,b) => a+b, 0)  // 10</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>take(array, n)</code></h3>
+                <p><span class="badge">Index: 22</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Take first N elements</p>
+                <pre><code>first_three = take([1,2,3,4,5], 3)  // [1,2,3]
+
+// Pipeline mode
+[1,2,3,4,5] | take(2)  // [1,2]</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>keys(record)</code></h3>
+                <p><span class="badge">Index: 23</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Get all keys from record</p>
+                <pre><code>k = keys({name: "Alice", age: 30})  // ["name", "age"]
+
+// Pipeline mode
+{x: 1, y: 2} | keys  // ["x", "y"]</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>len(value)</code> / <code>length(value)</code></h3>
+                <p><span class="badge">Index: 24</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Get length of array, string, or record</p>
+                <pre><code>len([1,2,3])     // 3
+len("hello")     // 5
+len({x: 1, y: 2}) // 2
+
+// Pipeline mode
+[1,2,3,4] | len  // 4</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>type_of(value)</code> / <code>typeof(value)</code></h3>
+                <p><span class="badge">Index: 25</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Get type name of value</p>
+                <pre><code>type_of(42)       // "Int"
+type_of(3.14)     // "Float"
+type_of("hello")  // "Str"
+type_of([1,2,3])  // "Array"
+
+// Pipeline mode
+42 | type_of  // "Int"</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>first(array)</code></h3>
+                <p><span class="badge">Index: 26</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Get first element of array</p>
+                <pre><code>first([10, 20, 30])  // 10
+
+// Pipeline mode
+[10, 20, 30] | first  // 10</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>last(array)</code></h3>
+                <p><span class="badge">Index: 27</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Get last element of array</p>
+                <pre><code>last([10, 20, 30])  // 30
+
+// Pipeline mode
+[10, 20, 30] | last  // 30</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>any(array, fn)</code></h3>
+                <p><span class="badge">Index: 28</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Check if any element satisfies predicate</p>
+                <pre><code>has_even = any([1,3,5,6], fn(x) => x % 2 == 0)  // true
+
+// Pipeline mode
+[1,3,5] | any(fn(x) => x > 4)  // true</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>all(array, fn)</code></h3>
+                <p><span class="badge">Index: 29</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Check if all elements satisfy predicate</p>
+                <pre><code>all_positive = all([1,2,3,4], fn(x) => x > 0)  // true
+
+// Pipeline mode
+[2,4,6] | all(fn(x) => x % 2 == 0)  // true</code></pre>
+            </div>
+        </section>
+
+        <section id="string" class="feature-section">
+            <h2>String Functions</h2>
+
+            <div class="function-ref">
+                <h3><code>split(str, delimiter)</code></h3>
+                <p><span class="badge">Index: 34</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Split string by delimiter</p>
+                <pre><code>words = split("a,b,c", ",")  // ["a", "b", "c"]
+
+// Pipeline mode
+"hello world" | split(" ")  // ["hello", "world"]</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>join(array, separator)</code></h3>
+                <p><span class="badge">Index: 35</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Join array elements with separator</p>
+                <pre><code>joined = join(["a", "b", "c"], ",")  // "a,b,c"
+
+// Pipeline mode
+["hello", "world"] | join(" ")  // "hello world"</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>trim(str)</code></h3>
+                <p><span class="badge">Index: 36</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Remove leading/trailing whitespace</p>
+                <pre><code>trimmed = trim("  hello  ")  // "hello"
+
+// Pipeline mode
+"  spaces  " | trim  // "spaces"</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>upper(str)</code></h3>
+                <p><span class="badge">Index: 37</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Convert to uppercase</p>
+                <pre><code>upper("hello")  // "HELLO"
+
+// Pipeline mode
+"hello" | upper  // "HELLO"</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>lower(str)</code></h3>
+                <p><span class="badge">Index: 38</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Convert to lowercase</p>
+                <pre><code>lower("HELLO")  // "hello"
+
+// Pipeline mode
+"HELLO" | lower  // "hello"</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>replace(str, from, to)</code></h3>
+                <p><span class="badge">Index: 39</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Replace all occurrences</p>
+                <pre><code>replaced = replace("hello world", "world", "AetherShell")
+
+// Pipeline mode
+"foo bar foo" | replace("foo", "baz")  // "baz bar baz"</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>contains(str, substr)</code></h3>
+                <p><span class="badge">Index: 40</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Check if string contains substring</p>
+                <pre><code>contains("hello world", "world")  // true
+
+// Pipeline mode
+"hello" | contains("lo")  // true</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>starts_with(str, prefix)</code></h3>
+                <p><span class="badge">Index: 41</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Check if string starts with prefix</p>
+                <pre><code>starts_with("hello", "he")  // true
+
+// Pipeline mode
+"hello" | starts_with("he")  // true</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>ends_with(str, suffix)</code></h3>
+                <p><span class="badge">Index: 42</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Check if string ends with suffix</p>
+                <pre><code>ends_with("hello", "lo")  // true
+
+// Pipeline mode
+"hello.txt" | ends_with(".txt")  // true</code></pre>
+            </div>
+        </section>
+
+        <section id="array" class="feature-section">
+            <h2>Array Functions</h2>
+
+            <div class="function-ref">
+                <h3><code>Some(value)</code></h3>
+                <p><span class="badge">Index: 6</span></p>
+                <p><strong>Description:</strong> Create Option with value</p>
+                <pre><code>opt = Some(42)  // Option containing 42</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>None()</code></h3>
+                <p><span class="badge">Index: 7</span></p>
+                <p><strong>Description:</strong> Create empty Option</p>
+                <pre><code>empty = None()  // Empty option</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>flatten(array)</code></h3>
+                <p><span class="badge">Index: 43</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Flatten nested arrays by one level</p>
+                <pre><code>flat = flatten([[1,2], [3,4]])  // [1, 2, 3, 4]
+
+// Pipeline mode
+[[1,2], [3,4]] | flatten  // [1, 2, 3, 4]</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>reverse(array)</code></h3>
+                <p><span class="badge">Index: 44</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Reverse array elements</p>
+                <pre><code>reversed = reverse([1,2,3,4])  // [4, 3, 2, 1]
+
+// Pipeline mode
+[1,2,3] | reverse  // [3, 2, 1]</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>slice(array, start, end)</code></h3>
+                <p><span class="badge">Index: 45</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Extract subarray from start to end (exclusive)</p>
+                <pre><code>sub = slice([1,2,3,4,5], 1, 4)  // [2, 3, 4]
+
+// Pipeline mode
+[1,2,3,4,5] | slice(1, 3)  // [2, 3]</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>range(start, end)</code></h3>
+                <p><span class="badge">Index: 46</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Create array of numbers from start to end (exclusive)</p>
+                <pre><code>nums = range(1, 6)  // [1, 2, 3, 4, 5]
+range(0, 10)        // [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+// Pipeline mode
+5 | range(10)  // [5, 6, 7, 8, 9]</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>zip(array1, array2)</code></h3>
+                <p><span class="badge">Index: 47</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Zip two arrays into array of pairs</p>
+                <pre><code>pairs = zip([1,2,3], ["a","b","c"])  // [[1,"a"], [2,"b"], [3,"c"]]
+
+// Pipeline mode
+[1,2,3] | zip(["a","b","c"])  // [[1,"a"], [2,"b"], [3,"c"]]</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>push(array, value)</code></h3>
+                <p><span class="badge">Index: 48</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Add element to end of array</p>
+                <pre><code>new_arr = push([1,2,3], 4)  // [1, 2, 3, 4]
+
+// Pipeline mode
+[1,2,3] | push(4)  // [1, 2, 3, 4]</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>concat(array1, array2)</code></h3>
+                <p><span class="badge">Index: 49</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Concatenate two arrays</p>
+                <pre><code>combined = concat([1,2], [3,4])  // [1, 2, 3, 4]
+
+// Pipeline mode
+[1,2] | concat([3,4])  // [1, 2, 3, 4]</code></pre>
+            </div>
+        </section>
+
+        <section id="math" class="feature-section">
+            <h2>Math Functions</h2>
+
+            <div class="function-ref">
+                <h3><code>abs(num)</code></h3>
+                <p><span class="badge">Index: 50</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Absolute value</p>
+                <pre><code>abs(-42)   // 42
+abs(3.14)  // 3.14
+
+// Pipeline mode
+-10 | abs  // 10</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>min(a, b)</code></h3>
+                <p><span class="badge">Index: 51</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Minimum of two numbers</p>
+                <pre><code>min(10, 20)  // 10
+
+// Pipeline mode
+10 | min(20)  // 10</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>max(a, b)</code></h3>
+                <p><span class="badge">Index: 52</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Maximum of two numbers</p>
+                <pre><code>max(10, 20)  // 20
+
+// Pipeline mode
+10 | max(20)  // 20</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>floor(num)</code></h3>
+                <p><span class="badge">Index: 53</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Round down to nearest integer</p>
+                <pre><code>floor(3.9)   // 3
+floor(-2.1)  // -3
+
+// Pipeline mode
+3.9 | floor  // 3</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>ceil(num)</code></h3>
+                <p><span class="badge">Index: 54</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Round up to nearest integer</p>
+                <pre><code>ceil(3.1)   // 4
+ceil(-2.9)  // -2
+
+// Pipeline mode
+3.1 | ceil  // 4</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>round(num)</code></h3>
+                <p><span class="badge">Index: 55</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Round to nearest integer</p>
+                <pre><code>round(3.5)  // 4
+round(3.4)  // 3
+
+// Pipeline mode
+3.7 | round  // 4</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>sqrt(num)</code></h3>
+                <p><span class="badge">Index: 56</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Square root</p>
+                <pre><code>sqrt(16)  // 4
+sqrt(2)   // 1.414...
+
+// Pipeline mode
+16 | sqrt  // 4</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>pow(base, exponent)</code></h3>
+                <p><span class="badge">Index: 57</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Power/exponentiation</p>
+                <pre><code>pow(2, 8)   // 256
+pow(10, 3)  // 1000
+
+// Pipeline mode
+2 | pow(8)  // 256</code></pre>
+            </div>
+        </section>
+
+        <section id="utility" class="feature-section">
+            <h2>Utility Functions</h2>
+
+            <div class="function-ref">
+                <h3><code>exit(code)</code></h3>
+                <p><span class="badge">Index: 58</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Exit shell with code</p>
+                <pre><code>exit(0)   // Exit successfully
+exit(1)   // Exit with error
+
+// Pipeline mode
+1 | exit  // Exit with code 1</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>env(var)</code></h3>
+                <p><span class="badge">Index: 59</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Get environment variable</p>
+                <pre><code>home = env("HOME")
+path = env("PATH")
+
+// Pipeline mode
+"HOME" | env  // "/home/user"</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>set_env(var, value)</code></h3>
+                <p><span class="badge">Index: 60</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Set environment variable</p>
+                <pre><code>set_env("MY_VAR", "value")
+
+// Pipeline mode
+"value" | set_env("MY_VAR")</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>sleep(seconds)</code></h3>
+                <p><span class="badge">Index: 61</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Sleep for N seconds</p>
+                <pre><code>sleep(2)  // Sleep 2 seconds
+
+// Pipeline mode
+2 | sleep</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>time(fn)</code></h3>
+                <p><span class="badge">Index: 62</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Time function execution</p>
+                <pre><code>duration = time(fn() => {
+    range(1, 1000) | reduce(fn(a,b) => a+b, 0)
+})</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>json_parse(str)</code></h3>
+                <p><span class="badge">Index: 63</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Parse JSON string to value</p>
+                <pre><code>obj = json_parse('{"name":"Alice","age":30}')
+
+// Pipeline mode
+'{"x":1}' | json_parse  // {x: 1}</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>json_stringify(value)</code></h3>
+                <p><span class="badge">Index: 64</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Convert value to JSON string</p>
+                <pre><code>json = json_stringify({name: "Alice", age: 30})
+
+// Pipeline mode
+{x: 1, y: 2} | json_stringify  // '{"x":1,"y":2}'</code></pre>
+            </div>
+        </section>
+
+        <section id="mcp" class="feature-section">
+            <h2>MCP (Model Context Protocol) Functions</h2>
+
+            <div class="function-ref">
+                <h3><code>mcp_servers()</code> / <code>mcp-servers()</code></h3>
+                <p><span class="badge">Index: 30</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> List available MCP servers</p>
+                <pre><code>servers = mcp_servers()
+print(servers)</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>mcp_detect(path)</code> / <code>mcp-detect(path)</code></h3>
+                <p><span class="badge">Index: 31</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Detect MCP servers in path</p>
+                <pre><code>found = mcp_detect(".")
+
+// Pipeline mode
+"./servers" | mcp_detect</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>mcp_cache_clear()</code> / <code>mcp-cache-clear()</code></h3>
+                <p><span class="badge">Index: 32</span></p>
+                <p><strong>Description:</strong> Clear MCP cache</p>
+                <pre><code>mcp_cache_clear()</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>mcp_cache_status()</code> / <code>mcp-cache-status()</code></h3>
+                <p><span class="badge">Index: 33</span></p>
+                <p><strong>Description:</strong> Get MCP cache status</p>
+                <pre><code>status = mcp_cache_status()
+print(status)</code></pre>
+            </div>
+        </section>
+
+        <section id="syntax-kb" class="feature-section">
+            <h2>Syntax Knowledge Base Functions</h2>
+
+            <div class="function-ref">
+                <h3><code>syntax_get(id)</code></h3>
+                <p><span class="badge">Index: 65</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Retrieve syntax entry by ID</p>
+                <pre><code>ab_spec = syntax_get("ab")
+print(ab_spec.name)         // "AgenticBinary Protocol"
+print(ab_spec.category)     // "protocol"
+
+// Pipeline mode
+"ab" | syntax_get</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>syntax_list([category])</code></h3>
+                <p><span class="badge">Index: 66</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> List syntax IDs, optionally filtered by category</p>
+                <pre><code>all = syntax_list()             // All IDs
+protocols = syntax_list("protocol")  // ["ab", "jsonrpc", "http"]
+
+// Pipeline mode
+"protocol" | syntax_list</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>syntax_search(query)</code></h3>
+                <p><span class="badge">Index: 67</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Search syntax by keyword</p>
+                <pre><code>results = syntax_search("binary")  // ["ab"]
+all_proto = syntax_search("protocol")
+
+// Pipeline mode
+"agent" | syntax_search</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>syntax_add(record)</code></h3>
+                <p><span class="badge">Index: 68</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Add custom syntax entry</p>
+                <pre><code>new_syntax = {
+    id: "myproto",
+    name: "My Protocol",
+    category: "protocol",
+    specification: "Custom protocol spec...",
+    examples: ["example1", "example2"]
+}
+syntax_add(new_syntax)
+
+// Pipeline mode
+{id: "test", name: "Test"} | syntax_add</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>syntax_categories()</code></h3>
+                <p><span class="badge">Index: 69</span></p>
+                <p><strong>Description:</strong> List all available categories</p>
+                <pre><code>cats = syntax_categories()
+// ["protocol", "grammar", "format", "encoding", "schema"]
+print(cats)</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>ab_encode(msg_type, opcode, payload)</code></h3>
+                <p><span class="badge">Index: 70</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Encode AgenticBinary message</p>
+                <p><strong>Message Types:</strong> <code>"command"</code>, <code>"query"</code>,
+                    <code>"response"</code>, <code>"event"</code>
+                </p>
+                <p><strong>Opcodes:</strong> <code>"ping"</code>, <code>"ack"</code>, <code>"query"</code>,
+                    <code>"exec"</code>, <code>"data"</code>, <code>"error"</code>, <code>"sync"</code>,
+                    <code>"auth"</code>, <code>"delegate"</code>, <code>"collaborate"</code>, <code>"learn"</code>,
+                    <code>"reason"</code>, <code>"plan"</code>, <code>"observe"</code>, <code>"reflect"</code>,
+                    <code>"extend"</code>
+                </p>
+                <pre><code>// Encode a PING command
+ping = ab_encode("command", "ping", "hello")
+// [0, 5, 104, 101, 108, 108, 111]
+
+// Encode ACK response
+ack = ab_encode("response", "ack", "received")
+
+// Pipeline mode
+"task_data" | ab_encode("command", "exec")</code></pre>
+            </div>
+
+            <div class="function-ref">
+                <h3><code>ab_decode(bytes)</code></h3>
+                <p><span class="badge">Index: 71</span> <span class="badge badge-success">Pipeline</span></p>
+                <p><strong>Description:</strong> Decode AgenticBinary message</p>
+                <pre><code>bytes = [0, 5, 104, 101, 108, 108, 111]
+decoded = ab_decode(bytes)
+print(decoded.msg_type)  // "Command"
+print(decoded.opcode)    // "PING"
+print(decoded.payload)   // "hello"
+
+// Pipeline mode
+[0, 5, 104, 101, 108, 108, 111] | ab_decode</code></pre>
+            </div>
+        </section>
+
+        <section class="feature-section">
+            <h2>Pipeline Support Summary</h2>
+            <p>Functions marked with <span class="badge badge-success">Pipeline</span> support both direct calls and
+                pipeline operations:</p>
+
+            <pre><code>// Direct call
+map([1,2,3], fn(x) => x * 2)
+
+// Pipeline call (piped value becomes first argument)
+[1,2,3] | map(fn(x) => x * 2)
+
+// Both produce the same result!</code></pre>
+
+            <p><strong>Total functions with pipeline support:</strong> 65 of 72</p>
+        </section>
+
+        <div class="alert alert-success">
+            <strong>Next:</strong> Learn about the <a href="types.html">Type System</a> or explore <a
+                href="examples.html">Code Examples</a>.
+        </div>
+    </main>
+
+    <footer>
+        <p>&copy; 2025 AetherShell. Built with Rust 🦀</p>
+    </footer>
+
+    <style>
+        .function-ref {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            margin-bottom: 1.5rem;
+            border-left: 4px solid var(--primary-color);
+        }
+
+        .function-ref h3 {
+            color: var(--primary-color);
+            margin-bottom: 0.5rem;
+        }
+
+        .function-ref code {
+            font-size: 1.1em;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 12px;
+            font-size: 0.85em;
+            font-weight: 600;
+            background: #e0e7ff;
+            color: #4c51bf;
+            margin-right: 0.5rem;
+        }
+
+        .badge-success {
+            background: #d1fae5;
+            color: #065f46;
+        }
+    </style>
+</body>
+
+</html>

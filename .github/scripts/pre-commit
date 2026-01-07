@@ -1,0 +1,58 @@
+#!/bin/bash
+# MED-005 FIX: Pre-commit hook for security checks
+# Install: cp .github/scripts/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+
+echo "🔒 Running security checks..."
+
+# Check for common secret patterns
+echo "🔍 Scanning for secrets..."
+
+# Patterns to check for
+SECRET_PATTERNS=(
+    "AKIA[0-9A-Z]{16}"                           # AWS Access Key
+    "(?i)(api[_-]?key|apikey)[\s]*[:=][\s]*['\"][a-zA-Z0-9]{32,}['\"]"  # API keys
+    "(?i)(secret|password|passwd|pwd)[\s]*[:=][\s]*['\"][^'\"]{8,}['\"]"  # Secrets
+    "sk_live_[0-9a-zA-Z]{24,}"                   # Stripe live key
+    "pk_live_[0-9a-zA-Z]{24,}"                   # Stripe publishable key
+    "-----BEGIN.*PRIVATE KEY-----"               # Private keys
+    "ghp_[a-zA-Z0-9]{36}"                        # GitHub Personal Access Token
+    "gho_[a-zA-Z0-9]{36}"                        # GitHub OAuth Token
+)
+
+FOUND_SECRETS=false
+
+for pattern in "${SECRET_PATTERNS[@]}"; do
+    if git diff --cached --diff-filter=ACMR | grep -E "$pattern" > /dev/null; then
+        echo "⚠️  WARNING: Potential secret found matching pattern: $pattern"
+        FOUND_SECRETS=true
+    fi
+done
+
+if [ "$FOUND_SECRETS" = true ]; then
+    echo ""
+    echo "❌ Potential secrets detected in staged files!"
+    echo "   Please review and remove any sensitive data before committing."
+    echo "   If this is a false positive, you can bypass with: git commit --no-verify"
+    exit 1
+fi
+
+echo "✅ No secrets detected"
+
+# Check for TODO/FIXME security issues
+echo "🔍 Checking for security TODOs..."
+if git diff --cached --diff-filter=ACMR | grep -E "TODO.*SECURITY|FIXME.*SECURITY" > /dev/null; then
+    echo "⚠️  Warning: Security-related TODOs found. Please address before release."
+fi
+
+# Run cargo audit if available
+if command -v cargo-audit &> /dev/null; then
+    echo "🔍 Running cargo audit..."
+    if ! cargo audit --deny warnings 2>&1 | grep -q "error:"; then
+        echo "✅ No critical vulnerabilities found"
+    else
+        echo "⚠️  Vulnerabilities found - check cargo audit output"
+    fi
+fi
+
+echo "✅ Pre-commit security checks passed!"
+exit 0

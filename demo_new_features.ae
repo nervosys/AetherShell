@@ -1,0 +1,95 @@
+print("===================================================")
+print("   New Features Demonstration")
+print("===================================================")
+
+print("\n=== STRING FUNCTIONS ===")
+text = "hello,world,test"
+parts = text | split(",")
+print(parts)
+
+joined = parts | join("-")
+print(joined)
+
+print("  trimmed  " | trim())
+print("hello" | upper())
+print("WORLD" | lower())
+
+result = "hello world" | replace("world", "universe")
+print(result)
+
+print("hello world" | contains("world"))
+print("hello world" | starts_with("hello"))
+print("hello world" | ends_with("world"))
+
+print("\n=== ARRAY FUNCTIONS ===")
+nested = [[1,2],[3,4],[5,6]]
+print(nested | flatten())
+
+nums = [1,2,3,4,5]
+print(nums | reverse())
+
+print(nums | slice(1, 4))
+
+print(range(5))
+print(range(2, 7))
+print(range(0, 10, 2))
+
+arr1 = [1,2,3]
+arr2 = ["a","b","c"]
+print(arr1 | zip(arr2))
+
+base = [1,2,3]
+print(base | push(4))
+print(base | concat([4,5,6]))
+
+print("\n=== MATH FUNCTIONS ===")
+print(abs(-42))
+print(min(3, 7))
+print(max(3, 7))
+print(floor(3.7))
+print(ceil(3.2))
+print(round(3.5))
+print(sqrt(16))
+print(pow(2, 8))
+
+print("\n=== UTILITY FUNCTIONS ===")
+timestamp = time()
+print(timestamp)
+
+home = env("HOME")
+print(home)
+
+obj = {name: "Alice", age: 30, active: true}
+json_str = obj | json_stringify()
+print(json_str)
+
+parsed = json_str | json_parse()
+print(parsed)
+
+print("\n=== COMPLEX PIPELINES ===")
+pipeline1 = range(1, 21)
+  | where(fn(x) => x % 2 == 0)
+  | map(fn(x) => x * x)
+  | take(5)
+print(pipeline1)
+
+pipeline2 = [[1,2,3],[4,5],[6,7,8,9]]
+  | flatten()
+  | where(fn(x) => x > 3)
+  | map(fn(x) => pow(x, 2))
+  | reverse()
+print(pipeline2)
+
+print("\n=== FUNCTIONAL PROGRAMMING ===")
+sum_of_squares = range(1, 11)
+  | map(fn(x) => x * x)
+  | reduce(fn(a, b) => a + b, 0)
+print(sum_of_squares)
+
+factorial = range(1, 6)
+  | reduce(fn(a, b) => a * b, 1)
+print(factorial)
+
+print("\n===================================================")
+print("   All New Features Working!")
+print("===================================================")

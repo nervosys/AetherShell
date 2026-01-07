@@ -1,7 +1,7 @@
 print("Hello, Æther!")
 
-name := "world"
+name = "world"
 print("Hi, ${name}!")
 
-# External command passthrough (falls back to sh([...]) internally)
+// External command passthrough (falls back to sh([...]) internally)
 !"echo from external"

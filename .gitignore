@@ -1,3 +1,33 @@
-.env
+# Build artifacts
 target/
-SPEC.md_old
+*.exe
+*.pdb
+
+# Environment and secrets
+.env
+
+# Temporary files
+temp/
+*.tmp
+*.log
+*_test.ae
+launch_test.*
+security_audit_report.json
+
+# Editor files
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Rust artifacts
+Cargo.lock.bak
+
+# Development artifacts
+*.backup
+*.orig
+.test_output/

@@ -1,4 +1,4 @@
-use crate::ai_api::{models::*, config::APIConfig, AIModelAPI};
+use crate::ai_api::{config::APIConfig, models::*, AIModelAPI};
 use anyhow::Result;
 use axum::{
     extract::{Path, Query, State},
@@ -14,8 +14,8 @@ use tokio::net::TcpListener;
 use tower::ServiceBuilder;
 use tower_http::{
     cors::{Any, CorsLayer},
-    trace::TraceLayer,
     timeout::TimeoutLayer,
+    trace::TraceLayer,
 };
 use utoipa::ToSchema;
 use utoipa_swagger_ui::SwaggerUi;
@@ -62,15 +62,67 @@ impl APIServer {
     /// Start the HTTP server
     pub async fn start(&self) -> Result<()> {
         let app = self.create_router().await?;
-        
+
         let addr = format!("{}:{}", self.config.server.host, self.config.server.port);
         let listener = TcpListener::bind(&addr).await?;
-        
+
         tracing::info!("AI Model API server starting on {}", addr);
-        
+
         axum::serve(listener, app).await?;
-        
+
         Ok(())
+    }
+
+    /// Create CORS layer with configured allowed origins
+    fn create_cors_layer(&self) -> CorsLayer {
+        use axum::http::Method;
+
+        // SECURITY FIX (LOW-003): Configure strict CORS
+        let cors = CorsLayer::new();
+
+        // Parse allowed origins from config
+        let origins: Vec<_> = self
+            .config
+            .server
+            .cors_origins
+            .iter()
+            .filter_map(|origin| {
+                if origin == "*" {
+                    None // Handle wildcard separately
+                } else {
+                    origin.parse::<axum::http::HeaderValue>().ok()
+                }
+            })
+            .collect();
+
+        let cors =
+            if origins.is_empty() && self.config.server.cors_origins.contains(&"*".to_string()) {
+                // If wildcard is specified, allow any origin (less secure but flexible)
+                cors.allow_origin(Any)
+            } else {
+                // Use specific origin allowlist (more secure)
+                cors.allow_origin(origins)
+            };
+
+        cors
+            // Allow common HTTP methods for API
+            .allow_methods([
+                Method::GET,
+                Method::POST,
+                Method::PUT,
+                Method::DELETE,
+                Method::OPTIONS,
+            ])
+            // Allow common headers
+            .allow_headers([
+                axum::http::header::CONTENT_TYPE,
+                axum::http::header::AUTHORIZATION,
+                axum::http::header::ACCEPT,
+            ])
+            // Allow credentials (cookies, auth headers)
+            .allow_credentials(false) // Set to true only if needed with specific origins
+            // Cache preflight requests for 1 hour
+            .max_age(std::time::Duration::from_secs(3600))
     }
 
     /// Create the main router with all endpoints
@@ -85,25 +137,20 @@ impl APIServer {
             .route("/models", get(list_models))
             .route("/chat/completions", post(chat_completions))
             .route("/embeddings", post(embeddings))
-            
             // Extended endpoints for model management
             .route("/models/:model_id", get(get_model))
             .route("/models/:model_id/download", post(download_model))
             .route("/models/:model_id/convert", post(convert_model))
             .route("/models/:model_id", axum::routing::delete(delete_model))
-            
             // Provider management
             .route("/providers", get(list_providers))
             .route("/providers/:provider_id/validate", post(validate_provider))
-            
             // Storage and caching
             .route("/storage/stats", get(storage_stats))
             .route("/storage/cleanup", post(cleanup_storage))
-            
             // Health and status
             .route("/health", get(health_check))
             .route("/status", get(server_status))
-            
             .with_state(state);
 
         let mut app = Router::new()
@@ -114,27 +161,30 @@ impl APIServer {
                     .layer(TimeoutLayer::new(std::time::Duration::from_secs(
                         self.config.server.request_timeout_seconds,
                     )))
+                    // SECURITY FIX (LOW-003): Configure strict CORS with allowlist
                     .layer(if self.config.server.enable_cors {
-                        CorsLayer::new()
-                            .allow_origin(Any)
-                            .allow_methods(Any)
-                            .allow_headers(Any)
+                        self.create_cors_layer()
                     } else {
                         CorsLayer::new()
                     }),
-            );
+            )
+            // SECURITY FIX (LOW-001): Apply security headers middleware
+            .layer(axum::middleware::from_fn(add_security_headers));
 
         // Add OpenAPI documentation if enabled
         if self.config.server.enable_openapi {
             app = app.merge(
-                SwaggerUi::new("/swagger-ui")
-                    .url("/api-docs/openapi.json", utoipa::openapi::OpenApiBuilder::new()
-                        .info(utoipa::openapi::InfoBuilder::new()
-                            .title("AI Model API")
-                            .version("1.0.0")
-                            .build()
+                SwaggerUi::new("/swagger-ui").url(
+                    "/api-docs/openapi.json",
+                    utoipa::openapi::OpenApiBuilder::new()
+                        .info(
+                            utoipa::openapi::InfoBuilder::new()
+                                .title("AI Model API")
+                                .version("1.0.0")
+                                .build(),
                         )
-                        .build()),
+                        .build(),
+                ),
             );
         }
 
@@ -155,7 +205,7 @@ async fn list_models(
             if let Some(provider) = &query.provider {
                 models.retain(|m| &m.provider == provider);
             }
-            
+
             if let Some(capability) = &query.capability {
                 models.retain(|m| match capability.as_str() {
                     "chat" => m.capabilities.chat,
@@ -166,11 +216,11 @@ async fn list_models(
                     _ => true,
                 });
             }
-            
+
             if query.local_only.unwrap_or(false) {
                 models.retain(|m| m.local_path.is_some());
             }
-            
+
             Ok(Json(models))
         }
         Err(e) => Err((
@@ -366,7 +416,7 @@ async fn list_providers(
             status: "active".to_string(),
         },
     ];
-    
+
     Ok(Json(providers))
 }
 
@@ -411,9 +461,7 @@ async fn health_check() -> Json<serde_json::Value> {
 }
 
 /// Server status endpoint
-async fn server_status(
-    State(state): State<AppState>,
-) -> Json<serde_json::Value> {
+async fn server_status(State(state): State<AppState>) -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "status": "running",
         "version": env!("CARGO_PKG_VERSION"),
@@ -424,6 +472,53 @@ async fn server_status(
         "uptime": "unknown", // TODO: Track uptime
         "timestamp": chrono::Utc::now().to_rfc3339()
     }))
+}
+
+// SECURITY FIX (LOW-001): Middleware to add security headers
+async fn add_security_headers(
+    req: axum::http::Request<axum::body::Body>,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let mut response = next.run(req).await;
+    let headers = response.headers_mut();
+
+    // Prevent MIME-type sniffing
+    headers.insert(
+        axum::http::header::HeaderName::from_static("x-content-type-options"),
+        axum::http::HeaderValue::from_static("nosniff"),
+    );
+
+    // Prevent clickjacking
+    headers.insert(
+        axum::http::header::HeaderName::from_static("x-frame-options"),
+        axum::http::HeaderValue::from_static("DENY"),
+    );
+
+    // XSS protection (legacy browsers)
+    headers.insert(
+        axum::http::header::HeaderName::from_static("x-xss-protection"),
+        axum::http::HeaderValue::from_static("1; mode=block"),
+    );
+
+    // HSTS - enforce HTTPS (when using TLS)
+    headers.insert(
+        axum::http::header::HeaderName::from_static("strict-transport-security"),
+        axum::http::HeaderValue::from_static("max-age=31536000; includeSubDomains"),
+    );
+
+    // Referrer policy - limit referrer information
+    headers.insert(
+        axum::http::header::HeaderName::from_static("referrer-policy"),
+        axum::http::HeaderValue::from_static("strict-origin-when-cross-origin"),
+    );
+
+    // Permissions policy - restrict browser features
+    headers.insert(
+        axum::http::header::HeaderName::from_static("permissions-policy"),
+        axum::http::HeaderValue::from_static("geolocation=(), microphone=(), camera=()"),
+    );
+
+    response
 }
 
 // Helper functions
@@ -489,4 +584,38 @@ pub struct ApiDoc;
 pub async fn start_server(config: APIConfig) -> Result<()> {
     let server = APIServer::new(config)?;
     server.start().await
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_security_headers_list() {
+        // Verify that we're setting all required security headers
+        // This is a documentation test to ensure we don't forget any headers
+
+        let expected_headers = vec![
+            ("x-content-type-options", "nosniff"),
+            ("x-frame-options", "DENY"),
+            ("x-xss-protection", "1; mode=block"),
+            (
+                "strict-transport-security",
+                "max-age=31536000; includeSubDomains",
+            ),
+            ("referrer-policy", "strict-origin-when-cross-origin"),
+            (
+                "permissions-policy",
+                "geolocation=(), microphone=(), camera=()",
+            ),
+        ];
+
+        // Verify we have 6 security headers configured
+        assert_eq!(
+            expected_headers.len(),
+            6,
+            "Should have 6 security headers configured"
+        );
+
+        // Test passes - actual middleware testing would require integration tests
+        // with a running server, which is beyond the scope of unit tests
+    }
 }

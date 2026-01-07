@@ -1,0 +1,175 @@
+# Changelog
+
+All notable changes to AetherShell will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Added - Security & Compliance
+- **FIPS 140-2 Compliance**: Full compliance with Federal Information Processing Standard Publication 140-2 for cryptographic operations
+  - Uses FIPS-approved algorithms (SHA-256, AES, ECDHE)
+  - rustls-tls for FIPS-compliant TLS/SSL
+  - No custom cryptographic implementations
+  - Comprehensive compliance documentation and verification script
+- Automated FIPS compliance verification script (`verify_fips_compliance.ps1`)
+
+### Changed - Breaking Changes
+- **Immutable by Default**: Variables are now immutable by default. Use `let mut x = value` or `mut x = value` to create mutable variables. Simple assignment `x = value` creates an immutable binding that can be shadowed but not reassigned. This improves safety and aligns with modern functional programming practices.
+
+### Added
+- Comprehensive immutability enforcement with 6 dedicated tests
+- Mutability tracking in environment to prevent reassignment of immutable variables
+- Clear error messages guiding users to use `let mut` for mutable variables
+
+## [0.1.0] - 2025-10-22
+
+### Added - Core Language Features
+- **Typed Functional Language**: Hindley-Milner type inference
+- **Structured Data**: Records, Arrays, Tables (not text streams)
+- **First-Class Functions**: Lambdas, closures, higher-order functions
+- **Pattern Matching**: Match expressions with guards
+- **Pipelines**: Typed data transformation pipelines
+- **Mutable Variables**: `mut` keyword for mutable bindings
+- **Dot Notation**: Field access on records (`record.field`)
+
+### Added - AI Integration
+- **Multi-Modal AI**: Native support for images, audio, and video
+- **AI Function**: `ai(prompt)` and `ai(prompt, {images: [...], audio: [...], video: [...]})`
+- **Multi-Agent System**: Agent creation, coordination, and swarms
+- **Agent Protocols**:
+  - MCP (Model Context Protocol) for tool integration
+  - A2A (Agent-to-Agent) communication
+  - NANDA (Negotiation And Dynamic Agents) consensus
+- **AI Model Management**: OpenRouter-style API server
+- **Local Model Support**: XDG-compliant storage and format conversion
+- **Provider Support**: OpenAI, Anthropic, Ollama, and custom backends
+- **LLM Backend Integration**: vLLM, TensorRT-LLM, SGLang, llama.cpp
+
+### Added - Builtins
+- **File Operations**: `read_text(path)`, `ls(path)`
+- **Data Operations**: `map()`, `where()`, `reduce()`, `group()`
+- **Type Operations**: `type_of(value)`, `keys(record)`, `len(value)`
+- **HTTP**: `http_get(url)`, `http_post(url, data)`
+- **Utilities**: `print()`, `range()`, `take()`, `first()`
+
+### Added - Terminal UI
+- **Interactive TUI**: Modern terminal interface (`ae --tui`)
+- **Media Viewer**: Display images, audio, video in terminal
+- **Chat Interface**: Conversational AI with multimodal support
+- **Agent Dashboard**: Monitor and control agent swarms
+- **Media Selection**: Batch selection for multimodal queries
+
+### Added - Infrastructure
+- **Bash Compatibility**: Transpiler for running .sh scripts
+- **REPL Mode**: Interactive shell with command history
+- **Script Execution**: Run .ae files directly
+- **XDG Compliance**: Standard config and data directories
+- **Cross-Platform**: Windows, Linux, macOS support
+
+### Added - AI Model CLI (`aimodel`)
+- **Server Management**: Start/stop API server with OpenAI-compatible endpoints
+- **Model Management**: List, search, download, remove models
+- **Format Conversion**: Convert between GGUF, SafeTensors, PyTorch, ONNX, TensorFlow
+- **Storage Management**: XDG-compliant local storage with statistics
+- **Provider Configuration**: Manage API keys for OpenAI, Anthropic, etc.
+- **Backend Management**: Auto-detect and configure vLLM, SGLang, TensorRT-LLM, llama.cpp
+- **Alias System**: Create shortcuts for frequently used models
+
+### Added - Examples
+- `00_hello.ae`: Hello world and basic syntax
+- `01_pipelines.ae`: Pipeline transformations
+- `02_tables.ae`: Table operations and file system queries
+- `03_http.ae`: HTTP requests with typed responses
+- `04_match.ae`: Pattern matching examples
+- `05_ai.ae`: AI integration basics
+- `06_agent.ae`: Agent deployment
+- `07_uri_types.ae`: URI type system
+- `12_multi_agent_orchestration.ae`: Multi-agent architecture patterns
+- `13_multimodal_ai.ae`: Multi-modal AI concepts
+- `14_typed_pipelines.ae`: Type-safe functional programming
+- `15_ai_protocols.ae`: MCP, A2A, NANDA demonstrations
+- `16_mcp_servers.ae`: MCP server concepts
+- `17_syntax_showcase.ae`: Core language features
+- `18_mutable_variables.ae`: Mutable variable patterns
+- `19_showcase.ae`: Pipeline showcase
+- `98_dot_notation.ae`: Comprehensive dot notation examples
+- `99_comprehensive_test.ae`: All features validation
+
+### Added - Documentation
+- Comprehensive README with feature overview
+- Quick Reference guide for all syntax
+- MCP Servers integration guide
+- AI Protocols technical report
+- Competitive analysis
+- Project structure documentation
+- Contributing guidelines
+- Type system deep dive
+- TUI usage guide
+
+### Added - Testing
+- 25+ unit tests for core language features
+- Integration tests for AI functionality
+- TUI component tests
+- Multimodal AI backend tests
+- Bash transpiler tests
+- Example validation (18/18 passing)
+- OS tools cross-platform tests
+
+## Technical Details
+
+### Language Design
+- **Parser**: Hand-written recursive descent parser
+- **Type System**: Hindley-Milner with type inference
+- **Evaluator**: Tree-walking interpreter with environment chains
+- **Values**: Sum type for Int, Float, String, Bool, Array, Record, Table, Lambda, Uri, Null
+- **Error Handling**: Anyhow for ergonomic error propagation
+
+### AI Architecture
+- **Backend Trait**: `MultiModalLlmBackend` for provider abstraction
+- **Message Format**: Unified message structure for all providers
+- **Media Processing**: Image display (viuer), audio playback (rodio)
+- **API Server**: Axum-based HTTP server with OpenAI-compatible endpoints
+- **Format Conversion**: Support for 5+ model formats with quantization
+- **Local Storage**: XDG Base Directory compliance
+
+### TUI Implementation
+- **Framework**: Ratatui for rendering
+- **State Management**: Application state machine with tab navigation
+- **Media Display**: Terminal-based image rendering and audio waveforms
+- **Input Handling**: Crossterm for keyboard/mouse events
+
+### Performance
+- **Memory Safe**: Rust's ownership system prevents memory bugs
+- **Zero Copy**: Efficient data handling where possible
+- **Async Support**: Tokio runtime for concurrent operations
+- **Lazy Evaluation**: Pipelines evaluate on-demand
+
+## Breaking Changes
+
+N/A - Initial release
+
+## Migration Guide
+
+N/A - Initial release
+
+## Known Issues
+
+- String multiplication (e.g., `"=" * 50`) not supported - use literal strings
+- If statements only work in expression context (ternary) - use `match` for statement-level conditionals
+- Pipeline ending with `| len` requires workaround - split into two statements
+- Numeric array indexing (`array.0`) not supported - use `map` or functional patterns
+
+## Future Plans
+
+See [Roadmap](README.md#🛣️-roadmap) for upcoming features.
+
+---
+
+## Version History
+
+- **0.1.0** (2025-10-22): Initial public release
+
+[Unreleased]: https://github.com/nervosys/AetherShell/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/nervosys/AetherShell/releases/tag/v0.1.0

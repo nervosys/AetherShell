@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AetherShell Documentation</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/ayu-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', (event) => {
+            document.querySelectorAll('pre code').forEach((block) => {
+                hljs.highlightElement(block);
+            });
+        });
+    </script>
+</head>
+
+<body>
+    <nav class="sidebar">
+        <div class="logo">
+            <h1>🚀 AetherShell</h1>
+            <p class="version">v1.0.0</p>
+        </div>
+        <ul class="nav-menu">
+            <li><a href="index.html" class="active">Home</a></li>
+            <li><a href="quickstart.html">Quick Start</a></li>
+            <li><a href="tutorial.html">Tutorial</a></li>
+            <li><a href="syntax.html">Syntax Reference</a></li>
+            <li><a href="builtins.html">Built-in Functions</a></li>
+            <li><a href="types.html">Type System</a></li>
+            <li><a href="ai.html">AI & Agents</a></li>
+            <li><a href="syntax-kb.html">Syntax KB</a></li>
+            <li><a href="examples.html">Examples</a></li>
+            <li><a href="api.html">API Reference</a></li>
+        </ul>
+        <div class="sidebar-footer">
+            <a href="https://github.com/nervosys/AetherShell" target="_blank">GitHub</a>
+        </div>
+    </nav>
+
+    <main class="content">
+        <header class="page-header">
+            <h1>AetherShell Documentation</h1>
+            <p class="subtitle">The world's first multi-agent shell with typed functional pipelines</p>
+        </header>
+
+        <section class="hero">
+            <div class="hero-content">
+                <h2>Welcome to AetherShell</h2>
+                <p>AetherShell is a next-generation shell that combines:</p>
+                <ul class="feature-list">
+                    <li>🤖 <strong>Multi-Agent Orchestration</strong> - Deploy AI agent swarms</li>
+                    <li>💎 <strong>Typed Functional Pipelines</strong> - Hindley-Milner type inference</li>
+                    <li>🎨 <strong>Multi-Modal AI</strong> - Images, audio, video processing</li>
+                    <li>💬 <strong>AgenticBinary Protocol</strong> - Maximum information density</li>
+                    <li>🔧 <strong>MCP Integration</strong> - Standardized tool access</li>
+                </ul>
+            </div>
+        </section>
+
+        <section class="quick-links">
+            <div class="card-grid">
+                <a href="quickstart.html" class="card">
+                    <h3>⚡ Quick Start</h3>
+                    <p>Get up and running in 5 minutes</p>
+                </a>
+                <a href="tutorial.html" class="card">
+                    <h3>📚 Tutorial</h3>
+                    <p>Learn AetherShell step-by-step</p>
+                </a>
+                <a href="syntax.html" class="card">
+                    <h3>📖 Syntax Reference</h3>
+                    <p>Complete language guide</p>
+                </a>
+                <a href="examples.html" class="card">
+                    <h3>💡 Examples</h3>
+                    <p>Real-world code samples</p>
+                </a>
+            </div>
+        </section>
+
+        <section class="features">
+            <h2>What Makes AetherShell Unique?</h2>
+
+            <div class="feature-section">
+                <h3>🤖 Multi-Agent Orchestration</h3>
+                <p>The <strong>ONLY</strong> shell that can deploy swarms of AI agents with different models and
+                    capabilities:</p>
+                <pre><code>swarm({
+    agents: [
+        {id: "analyzer", model: "gpt-4o", role: "analyze"},
+        {id: "writer", model: "claude-3", role: "write"},
+        {id: "reviewer", model: "llama3", role: "review"}
+    ],
+    strategy: "router",
+    max_steps: 10
+})</code></pre>
+            </div>
+
+            <div class="feature-section">
+                <h3>💬 AgenticBinary Protocol</h3>
+                <p>Maximum information density binary protocol with 16 semantic opcodes:</p>
+                <pre><code>// Encode agent message (3-5x compression)
+msg = ab_encode("command", "delegate", "task:analyze_data")
+
+// Decode with full details
+decoded = ab_decode(msg)
+print(decoded.opcode)  // "DELEGATE"</code></pre>
+            </div>
+
+            <div class="feature-section">
+                <h3>💎 Typed Functional Pipelines</h3>
+                <p>Structured data flows with type inference:</p>
+                <pre><code>// Type-safe data transformations
+[1,2,3,4,5]
+| map(fn(x) => x * 2)
+| where(fn(x) => x > 5)
+| reduce(fn(a,b) => a + b, 0)
+// Result: 24 (type: Int)</code></pre>
+            </div>
+        </section>
+
+        <section class="getting-started">
+            <h2>Getting Started</h2>
+            <div class="steps">
+                <div class="step">
+                    <div class="step-number">1</div>
+                    <div class="step-content">
+                        <h4>Install AetherShell</h4>
+                        <pre><code>cargo build --release
+./target/release/ae</code></pre>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-number">2</div>
+                    <div class="step-content">
+                        <h4>Run Your First Command</h4>
+                        <pre><code>print("Hello, AetherShell!")
+[1,2,3] | map(fn(x) => x * 2)</code></pre>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-number">3</div>
+                    <div class="step-content">
+                        <h4>Explore AI Features</h4>
+                        <pre><code>agent("List files in current directory", "ls", 5)</code></pre>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="resources">
+            <h2>Learning Resources</h2>
+            <div class="resource-grid">
+                <div class="resource-item">
+                    <h4>📘 Documentation</h4>
+                    <ul>
+                        <li><a href="quickstart.html">Quick Start Guide</a></li>
+                        <li><a href="tutorial.html">Interactive Tutorial</a></li>
+                        <li><a href="syntax.html">Syntax Reference</a></li>
+                        <li><a href="types.html">Type System Guide</a></li>
+                    </ul>
+                </div>
+                <div class="resource-item">
+                    <h4>💡 Examples</h4>
+                    <ul>
+                        <li><a href="examples.html#pipelines">Pipelines</a></li>
+                        <li><a href="examples.html#ai">AI Integration</a></li>
+                        <li><a href="examples.html#agents">Multi-Agent</a></li>
+                        <li><a href="examples.html#syntax-kb">Syntax KB</a></li>
+                    </ul>
+                </div>
+                <div class="resource-item">
+                    <h4>🔧 Advanced Topics</h4>
+                    <ul>
+                        <li><a href="ai.html">AI & Agent Systems</a></li>
+                        <li><a href="syntax-kb.html">Syntax Knowledge Base</a></li>
+                        <li><a href="api.html">API Reference</a></li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <p>&copy; 2025 AetherShell. Built with Rust 🦀</p>
+    </footer>
+</body>
+
+</html>

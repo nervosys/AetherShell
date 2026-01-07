@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Syntax Knowledge Base - AetherShell Documentation</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/ayu-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', (event) => {
+            document.querySelectorAll('pre code').forEach((block) => {
+                hljs.highlightElement(block);
+            });
+        });
+    </script>
+</head>
+
+<body>
+    <nav class="sidebar">
+        <div class="logo">
+            <h1>🚀 AetherShell</h1>
+            <p class="version">v1.0.0</p>
+        </div>
+        <ul class="nav-menu">
+            <li><a href="index.html">Home</a></li>
+            <li><a href="quickstart.html">Quick Start</a></li>
+            <li><a href="tutorial.html">Tutorial</a></li>
+            <li><a href="syntax.html">Syntax Reference</a></li>
+            <li><a href="builtins.html">Built-in Functions</a></li>
+            <li><a href="types.html">Type System</a></li>
+            <li><a href="ai.html">AI & Agents</a></li>
+            <li><a href="syntax-kb.html" class="active">Syntax KB</a></li>
+            <li><a href="examples.html">Examples</a></li>
+            <li><a href="api.html">API Reference</a></li>
+        </ul>
+        <div class="sidebar-footer">
+            <a href="https://github.com/nervosys/AetherShell" target="_blank">GitHub</a>
+        </div>
+    </nav>
+
+    <main class="content">
+        <header class="page-header">
+            <h1>📚 Syntax Knowledge Base</h1>
+            <p class="subtitle">Shared syntax repository for multi-agent communication</p>
+        </header>
+
+        <section class="feature-section">
+            <h2>Overview</h2>
+            <p>The Syntax Knowledge Base (Syntax KB) is a persistent, thread-safe storage system for syntax definitions,
+                protocols, and schemas. It enables:</p>
+
+            <ul>
+                <li>🔍 <strong>Syntax Discovery</strong> - Agents can query available protocols and formats</li>
+                <li>🤝 <strong>Inter-Agent Communication</strong> - Shared understanding of data structures</li>
+                <li>📖 <strong>Self-Documentation</strong> - Built-in specifications with examples</li>
+                <li>🔧 <strong>Extensibility</strong> - Add custom syntaxes at runtime</li>
+                <li>💾 <strong>Persistence</strong> - Stored in <code>~/.aethershell/syntax_kb.json</code></li>
+            </ul>
+
+            <div class="alert alert-info">
+                <strong>Key Feature:</strong> The AgenticBinary protocol uses the Syntax KB for agent coordination and
+                efficient message passing.
+            </div>
+        </section>
+
+        <section class="feature-section">
+            <h2>Built-in Syntaxes</h2>
+
+            <h3>AgenticBinary Protocol (ab)</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Property</th>
+                        <th>Value</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>ID</strong></td>
+                        <td><code>ab</code></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Category</strong></td>
+                        <td><code>protocol</code></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Name</strong></td>
+                        <td>AgenticBinary Protocol</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Description</strong></td>
+                        <td>Compact binary protocol for agent-to-agent communication</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Compression</strong></td>
+                        <td>3-5x more compact than JSON</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>JSON-RPC (jsonrpc)</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Property</th>
+                        <th>Value</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>ID</strong></td>
+                        <td><code>jsonrpc</code></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Category</strong></td>
+                        <td><code>protocol</code></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Name</strong></td>
+                        <td>JSON-RPC 2.0</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Description</strong></td>
+                        <td>Remote procedure call protocol using JSON</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>HTTP (http)</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Property</th>
+                        <th>Value</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>ID</strong></td>
+                        <td><code>http</code></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Category</strong></td>
+                        <td><code>protocol</code></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Name</strong></td>
+                        <td>HTTP Protocol</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Description</strong></td>
+                        <td>Hypertext Transfer Protocol</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section class="feature-section">
+            <h2>Syntax KB Functions</h2>
+
+            <h3>Retrieving Syntax</h3>
+            <pre><code>// Get specific syntax by ID
+ab_spec = syntax_get("ab")
+
+// Access fields
+print(ab_spec.id)             // "ab"
+print(ab_spec.name)           // "AgenticBinary Protocol"
+print(ab_spec.category)       // "protocol"
+print(ab_spec.specification)  // Full spec...
+print(ab_spec.examples)       // Array of examples
+
+// Pipeline mode
+"ab" | syntax_get | keys  // List all fields</code></pre>
+
+            <h3>Listing Syntaxes</h3>
+            <pre><code>// List all syntax IDs
+all_ids = syntax_list()
+print(all_ids)  // ["ab", "jsonrpc", "http"]
+
+// List by category
+protocols = syntax_list("protocol")
+print(protocols)  // ["ab", "jsonrpc", "http"]
+
+// Pipeline mode
+"protocol" | syntax_list  // Filter by category</code></pre>
+
+            <h3>Searching Syntax</h3>
+            <pre><code>// Keyword search
+binary_results = syntax_search("binary")
+print(binary_results)  // ["ab"]
+
+agent_results = syntax_search("agent")
+print(agent_results)  // ["ab"]
+
+// Pipeline mode
+"protocol" | syntax_search</code></pre>
+
+            <h3>Adding Custom Syntax</h3>
+            <pre><code>// Define new syntax
+my_protocol = {
+    id: "myproto",
+    name: "My Custom Protocol",
+    category: "protocol",
+    specification: "Custom binary protocol for domain-specific tasks...",
+    examples: [
+        "Example 1: Header format",
+        "Example 2: Payload encoding"
+    ]
+}
+
+// Add to knowledge base
+syntax_add(my_protocol)
+
+// Verify it was added
+retrieved = syntax_get("myproto")
+print(retrieved.name)  // "My Custom Protocol"
+
+// Pipeline mode
+{id: "test", name: "Test"} | syntax_add</code></pre>
+
+            <h3>Listing Categories</h3>
+            <pre><code>// Get all available categories
+categories = syntax_categories()
+print(categories)
+// ["protocol", "grammar", "format", "encoding", "schema"]</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>AgenticBinary in Syntax KB</h2>
+
+            <h3>Learning the Protocol</h3>
+            <pre><code>// Agent retrieves AB protocol specification
+spec = syntax_get("ab")
+
+// Agent learns the protocol structure
+print("Protocol: ${spec.name}")
+print("Category: ${spec.category}")
+print("Specification:")
+print(spec.specification)
+
+// Agent studies examples
+spec.examples | map(fn(ex) => print(ex))</code></pre>
+
+            <h3>Protocol Specification Fields</h3>
+            <pre><code>ab_spec = syntax_get("ab")
+
+// Core fields
+ab_spec.id               // "ab"
+ab_spec.name             // "AgenticBinary Protocol"
+ab_spec.category         // "protocol"
+
+// Detailed information
+ab_spec.specification    // Full protocol description
+ab_spec.examples         // Usage examples
+
+// Protocol details (within specification)
+// - Header format: 0bVVTTCCCC
+// - Message types: command, query, response, event
+// - 16 semantic opcodes
+// - Varint payload encoding</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>Multi-Agent Usage Pattern</h2>
+
+            <h3>Phase 1: Protocol Discovery</h3>
+            <pre><code>// Worker discovers available protocols
+protocols = syntax_list("protocol")
+print("Available protocols: ${protocols}")
+
+// Worker selects AgenticBinary
+spec = syntax_get("ab")
+print("Using: ${spec.name}")</code></pre>
+
+            <h3>Phase 2: Protocol Learning</h3>
+            <pre><code>// Worker learns protocol specification
+learn_msg = ab_encode("command", "learn", spec.specification)
+
+// Worker acknowledges learning
+ack = ab_encode("response", "ack", "learned:ab_protocol")</code></pre>
+
+            <h3>Phase 3: Communication</h3>
+            <pre><code>// Now workers can communicate using AgenticBinary
+ping = ab_encode("command", "ping", "worker1:ready")
+ack = ab_encode("response", "ack", "coordinator:acknowledged")
+task = ab_encode("command", "delegate", "analyze_logs")
+result = ab_encode("response", "data", "complete:analysis.json")</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>Custom Syntax Examples</h2>
+
+            <h3>Domain-Specific Format</h3>
+            <pre><code>// Define custom data format
+csv_format = {
+    id: "csv",
+    name: "CSV Format",
+    category: "format",
+    specification: "Comma-Separated Values format...",
+    examples: [
+        "name,age,city\nAlice,30,NYC\nBob,25,LA"
+    ]
+}
+syntax_add(csv_format)</code></pre>
+
+            <h3>Custom Grammar</h3>
+            <pre><code>// Define custom grammar
+my_grammar = {
+    id: "mygrammar",
+    name: "My DSL Grammar",
+    category: "grammar",
+    specification: "expr := term (('+' | '-') term)*...",
+    examples: [
+        "1 + 2 * 3",
+        "(x + y) / z"
+    ]
+}
+syntax_add(my_grammar)</code></pre>
+
+            <h3>Encoding Scheme</h3>
+            <pre><code>// Define custom encoding
+base58_encoding = {
+    id: "base58",
+    name: "Base58 Encoding",
+    category: "encoding",
+    specification: "Bitcoin-style Base58 encoding...",
+    examples: [
+        "123456 => BukQL",
+        "hello => Cn8eVZg"
+    ]
+}
+syntax_add(base58_encoding)</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>Syntax KB Storage</h2>
+
+            <h3>Persistence Location</h3>
+            <pre><code># Unix/Linux/Mac
+~/.aethershell/syntax_kb.json
+
+# Windows
+%USERPROFILE%\.aethershell\syntax_kb.json</code></pre>
+
+            <h3>Storage Format (JSON)</h3>
+            <pre><code>{
+  "version": 1,
+  "syntaxes": [
+    {
+      "id": "ab",
+      "name": "AgenticBinary Protocol",
+      "category": "protocol",
+      "specification": "...",
+      "examples": [...]
+    },
+    {
+      "id": "jsonrpc",
+      "name": "JSON-RPC 2.0",
+      "category": "protocol",
+      "specification": "...",
+      "examples": [...]
+    }
+  ]
+}</code></pre>
+
+            <h3>Thread Safety</h3>
+            <p>The Syntax KB uses:</p>
+            <ul>
+                <li>🔒 <code>OnceLock&lt;Mutex&lt;SyntaxKB&gt;&gt;</code> for thread-safe singleton</li>
+                <li>🔄 Automatic file synchronization on updates</li>
+                <li>💾 Atomic writes to prevent corruption</li>
+            </ul>
+        </section>
+
+        <section class="feature-section">
+            <h2>Categories</h2>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>Category</th>
+                        <th>Description</th>
+                        <th>Examples</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>protocol</code></td>
+                        <td>Communication protocols</td>
+                        <td>ab, jsonrpc, http, websocket</td>
+                    </tr>
+                    <tr>
+                        <td><code>grammar</code></td>
+                        <td>Language grammars</td>
+                        <td>EBNF, PEG, regex patterns</td>
+                    </tr>
+                    <tr>
+                        <td><code>format</code></td>
+                        <td>Data formats</td>
+                        <td>JSON, CSV, XML, YAML</td>
+                    </tr>
+                    <tr>
+                        <td><code>encoding</code></td>
+                        <td>Encoding schemes</td>
+                        <td>base64, base58, UTF-8</td>
+                    </tr>
+                    <tr>
+                        <td><code>schema</code></td>
+                        <td>Data schemas</td>
+                        <td>JSON Schema, Protobuf</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section class="feature-section">
+            <h2>Best Practices</h2>
+
+            <h3>Syntax Entry Guidelines</h3>
+            <div class="alert alert-success">
+                <strong>ID:</strong> Use lowercase, alphanumeric, hyphens allowed<br>
+                <strong>Category:</strong> Use predefined categories when possible<br>
+                <strong>Specification:</strong> Include complete, clear documentation<br>
+                <strong>Examples:</strong> Provide 2-3 practical examples
+            </div>
+
+            <h3>Multi-Agent Communication</h3>
+            <ul>
+                <li>🔹 Use <code>syntax_get("ab")</code> to ensure agents speak the same protocol</li>
+                <li>🔹 Share custom syntaxes via <code>LEARN</code> opcode</li>
+                <li>🔹 Query available syntaxes with <code>syntax_list()</code> for discovery</li>
+                <li>🔹 Search by keyword using <code>syntax_search()</code></li>
+            </ul>
+
+            <h3>Performance Tips</h3>
+            <ul>
+                <li>✅ Cache retrieved syntaxes locally in agent memory</li>
+                <li>✅ Use <code>syntax_list(category)</code> to filter results</li>
+                <li>✅ Avoid repeated <code>syntax_add()</code> calls for same syntax</li>
+            </ul>
+        </section>
+
+        <section class="feature-section">
+            <h2>Complete Example</h2>
+            <p>See <code>examples/12_syntax_kb.ae</code> for a comprehensive demonstration including:</p>
+
+            <ul>
+                <li>✅ Retrieving built-in syntaxes</li>
+                <li>✅ Searching by keyword</li>
+                <li>✅ AgenticBinary encode/decode</li>
+                <li>✅ Adding custom syntax</li>
+                <li>✅ Multi-agent workflow simulation</li>
+            </ul>
+
+            <pre><code># Run the example
+ae examples/12_syntax_kb.ae</code></pre>
+        </section>
+
+        <div class="alert alert-success">
+            <strong>Next:</strong> See <a href="examples.html">Code Examples</a> or check the <a href="api.html">API
+                Reference</a>.
+        </div>
+    </main>
+
+    <footer>
+        <p>&copy; 2025 AetherShell. Built with Rust 🦀</p>
+    </footer>
+</body>
+
+</html>

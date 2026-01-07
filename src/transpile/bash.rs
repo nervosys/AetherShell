@@ -14,7 +14,7 @@
 //! (or small helper) that runs an external command. If you prefer a different name,
 //! adjust `render_external_call` below.
 
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 
 /// Transpile a whole Bash script (multi-line) to Aether code.
 pub fn transpile_bash_to_ae(src: &str) -> Result<String> {
@@ -310,7 +310,10 @@ fn parse_single_token(s: &str) -> Result<Token> {
     // Parse a single token that may be quoted; reuse the splitting and expect exactly one token.
     let toks = split_shell_words(s)?;
     if toks.len() == 1 {
-        Ok(toks.into_iter().next().unwrap())
+        Ok(toks
+            .into_iter()
+            .next()
+            .ok_or_else(|| anyhow!("Expected single token in bash value"))?)
     } else {
         Err(anyhow!("expected single token, got {}", toks.len()))
     }

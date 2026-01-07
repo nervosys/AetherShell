@@ -1,8 +1,8 @@
-# Option-like demo + pattern matching
-value := Some(42)
+// Option-like demo + pattern matching
+value = Some(42)
 
 match value {
-  None => print("no value"),
+  None() => print("no value"),
   Some(x) if x > 40 => print("big: ${x}"),
   Some(x) => print("small: ${x}")
 }

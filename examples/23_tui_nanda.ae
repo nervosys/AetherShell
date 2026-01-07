@@ -1,0 +1,86 @@
+/* AetherShell TUI NANDA Protocol Demo
+   Launch with: ae --tui
+   
+   This demo showcases NANDA (Negotiation And Distributed Agreement):
+   - Consensus-based decision making
+   - Voting mechanisms
+   - Negotiation workflows
+   - Task allocation with agreement
+*/
+
+/* Create coordinator for consensus-based decisions */
+coordinator := nanda_coordinator {
+  agents: ["agent1", "agent2", "agent3", "agent4"],
+  consensus_threshold: 0.75,  /* 75% agreement required */
+  voting_timeout: 30000       /* 30 seconds */
+}
+
+/* Propose a coordination strategy */
+neg1 := nanda_propose coordinator {
+  type: "CoordinationStrategy",
+  content: "Use round-robin policy for task distribution",
+  proposed_by: "agent1",
+  requires_consensus: true
+}
+
+/* Agents vote on the proposal */
+nanda_vote coordinator neg1 "agent1" {type: "Accept"}
+nanda_vote coordinator neg1 "agent2" {type: "Accept"}
+nanda_vote coordinator neg1 "agent3" {type: "CounterProposal", alternative: "Use router policy instead"}
+nanda_vote coordinator neg1 "agent4" {type: "Accept"}
+
+/* Propose task allocation */
+neg2 := nanda_propose coordinator {
+  type: "TaskAllocation",
+  content: {
+    task1: "agent1",
+    task2: "agent2",
+    task3: "agent3"
+  },
+  proposed_by: "coordinator",
+  requires_consensus: true
+}
+
+/* Vote on task allocation */
+nanda_vote coordinator neg2 "agent1" {type: "Accept"}
+nanda_vote coordinator neg2 "agent2" {type: "Accept"}
+nanda_vote coordinator neg2 "agent3" {type: "Accept"}
+nanda_vote coordinator neg2 "agent4" {type: "Abstain"}
+
+/* Propose resource allocation */
+neg3 := nanda_propose coordinator {
+  type: "ResourceAllocation",
+  content: {
+    compute: "distributed",
+    storage: "shared",
+    bandwidth: "prioritized"
+  },
+  proposed_by: "agent2",
+  deadline: 60000  /* 60 seconds to reach consensus */
+}
+
+/* Counter-proposal example */
+nanda_vote coordinator neg3 "agent1" {
+  type: "CounterProposal",
+  alternative: {
+    compute: "centralized",
+    storage: "shared",
+    bandwidth: "balanced"
+  }
+}
+
+/* The TUI provides:
+   - Proposal tracking dashboard
+   - Real-time vote counting
+   - Consensus progress bars
+   - Agent voting history
+   - Negotiation timeline
+   - Counter-proposal comparison view
+   - Quorum status indicators
+   - Decision audit trail
+   - Deadlock detection warnings
+   - Consensus threshold visualization
+*/
+
+print "TUI NANDA Protocol Demo Ready! Launch with: ae --tui"
+print "Watch consensus emerge through democratic agent voting!"

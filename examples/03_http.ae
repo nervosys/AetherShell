@@ -1,12 +1,11 @@
-resp := http_get "https://api.github.com"
+resp = http_get("https://api.github.com")
 
-print(resp.status)
-print(resp.headers."content-type")
+// Access response fields with dot notation
+print("Status: " + resp.status)
+print("Response type: " + type_of(resp))
+print("Response has " + len(keys(resp)) + " fields")
+print("")
 
-# If JSON, body is auto-decoded to records/arrays.
-# Show a few top-level keys if it's an object.
-match resp.body {
-  { .. } => print("object keys: ${keys(resp.body)}"),
-  [ .. ] => print("array length: ${len(resp.body)}"),
-  _      => print("body: ${resp.body}")
-}
+// Show field names
+print("Fields in response:")
+print(keys(resp))

@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 
 use crate::ast::{BinOp, Expr, Stmt, UnOp};
 
@@ -12,6 +12,7 @@ enum Tok {
     RBrace,
     Comma,
     Colon,
+    Dot,
     Pipe,
     Equal,
     FatArrow,
@@ -158,6 +159,10 @@ fn lex(src: &str) -> Result<Vec<Spanned>> {
                 it.next();
                 push_tok(&mut out, Tok::Colon, ":");
             }
+            '.' => {
+                it.next();
+                push_tok(&mut out, Tok::Dot, ".");
+            }
             '|' => {
                 it.next();
                 if it.peek() == Some(&'|') {
@@ -241,6 +246,18 @@ fn lex(src: &str) -> Result<Vec<Spanned>> {
             }
             '/' => {
                 it.next();
+                // Check for line comment //
+                if it.peek() == Some(&'/') {
+                    it.next(); // consume second /
+                               // Skip until end of line
+                    while let Some(&ch) = it.peek() {
+                        if ch == '\n' {
+                            break;
+                        }
+                        it.next();
+                    }
+                    continue; // Don't push a token, just skip the comment
+                }
                 push_tok(&mut out, Tok::Slash, "/");
             }
             '%' => {
@@ -343,7 +360,34 @@ fn is_ident_part(c: char) -> bool {
 
 impl Parser {
     fn parse_stmt(&mut self) -> Result<Stmt> {
-        if self.match_tok(Tok::Let) {
+        // Check for `mut name = value` (mutable without let)
+        if self.check(Tok::Mut) && self.peek_ahead(1) == Some(Tok::Ident) {
+            let peek2 = self.peek_ahead(2);
+            if peek2 == Some(Tok::Equal) {
+                self.match_tok(Tok::Mut); // consume 'mut'
+                let name = self.need_ident("expected identifier after mut")?;
+                self.need(Tok::Equal, "expected '='")?;
+                let value = self.parse_expr()?;
+                return Ok(Stmt::Let {
+                    name,
+                    value,
+                    is_mut: true,
+                });
+            }
+        }
+
+        // Check for `name = value` (simple assignment with type inference)
+        if self.check(Tok::Ident) && self.peek_ahead(1) == Some(Tok::Equal) {
+            let name = self.need_ident("expected identifier")?;
+            self.need(Tok::Equal, "expected '='")?;
+            let value = self.parse_expr()?;
+            Ok(Stmt::Let {
+                name,
+                value,
+                is_mut: false,
+            })
+        } else if self.match_tok(Tok::Let) {
+            // Keep let/let mut for explicit declarations
             let is_mut = self.match_tok(Tok::Mut);
             let name = self.need_ident("expected identifier after let")?;
             if self.match_tok(Tok::Colon) {
@@ -651,6 +695,13 @@ impl Parser {
                     args,
                     named: Vec::new(),
                 };
+            } else if self.match_tok(Tok::Dot) {
+                // Member access: obj.field
+                let field = self.need_ident("expected field name after '.'")?;
+                e = Expr::MemberAccess {
+                    object: Box::new(e),
+                    field,
+                };
             } else {
                 break;
             }
@@ -736,6 +787,9 @@ impl Parser {
             self.need(Tok::RBrace, "expected '}'")?;
             return Ok(Expr::Record(kvs));
         }
+        if self.match_tok(Tok::Match) {
+            return self.parse_match();
+        }
         if self.match_tok(Tok::Fn) {
             return self.parse_lambda_after_fn();
         }
@@ -787,19 +841,158 @@ impl Parser {
         }
         self.need(Tok::RParen, "expected ')' after parameter list")?;
         self.need(Tok::FatArrow, "expected '=>' after parameter list")?;
-        // Parse the lambda body without allowing top-level pipes so a following
-        // `|` is treated as the outer pipeline, not part of the lambda body.
-        // Also disable the word-call sugar while parsing the lambda body to
-        // avoid greedily consuming trailing atoms that belong to an outer
-        // call (e.g. `fn(a,b)=> a+b 0`). Restore the previous flag afterwards.
+        // Parse the lambda body - include pipes as part of the body expression.
+        // Disable word-call sugar while parsing to avoid greedily consuming
+        // trailing atoms that belong to an outer call (e.g. `fn(a,b)=> a+b 0`).
         let prev_allow = self.allow_word_call;
         self.allow_word_call = false;
-        let body = self.parse_logic_or()?;
+        let body = self.parse_pipe()?; // Changed from parse_logic_or() to parse_pipe()
         self.allow_word_call = prev_allow;
         Ok(Expr::Lambda {
             params,
             body: Box::new(body),
         })
+    }
+
+    fn parse_match(&mut self) -> Result<Expr> {
+        // match expr { arms }
+        // Disable word-call to prevent consuming the '{' as a record argument
+        let prev_allow = self.allow_word_call;
+        self.allow_word_call = false;
+        let scrutinee = Box::new(self.parse_pipe()?); // parse just the scrutinee, no word-call
+        self.allow_word_call = prev_allow;
+
+        self.need(Tok::LBrace, "expected '{' after match expression")?;
+
+        let mut arms = Vec::new();
+        while !self.check(Tok::RBrace) && !self.check(Tok::Eof) {
+            let arm = self.parse_match_arm()?;
+            arms.push(arm);
+            // Optional comma after each arm
+            self.match_tok(Tok::Comma);
+        }
+
+        self.need(Tok::RBrace, "expected '}' after match arms")?;
+        Ok(Expr::Match { scrutinee, arms })
+    }
+
+    fn parse_match_arm(&mut self) -> Result<crate::ast::MatchArm> {
+        use crate::ast::MatchArm;
+
+        let pattern = self.parse_pattern()?;
+
+        // Optional guard: if condition
+        let guard = if self.match_tok(Tok::If) {
+            Some(Box::new(self.parse_expr()?))
+        } else {
+            None
+        };
+
+        self.need(Tok::FatArrow, "expected '=>' in match arm")?;
+        let body = Box::new(self.parse_expr()?);
+
+        Ok(MatchArm {
+            pattern,
+            guard,
+            body,
+        })
+    }
+
+    fn parse_pattern(&mut self) -> Result<crate::ast::Pattern> {
+        use crate::ast::Pattern;
+
+        // Wildcard: _
+        if self.check(Tok::Ident) && self.peek().text == "_" {
+            self.i += 1;
+            return Ok(Pattern::Wildcard);
+        }
+
+        // Literals
+        if self.match_tok(Tok::Int) {
+            let n: i64 = self.prev().text.parse().unwrap_or(0);
+            return Ok(Pattern::LitInt(n));
+        }
+        if self.match_tok(Tok::String) {
+            let s = self.prev().text.clone();
+            return Ok(Pattern::LitStr(s));
+        }
+        if self.match_tok(Tok::True) {
+            return Ok(Pattern::LitBool(true));
+        }
+        if self.match_tok(Tok::False) {
+            return Ok(Pattern::LitBool(false));
+        }
+        if self.match_tok(Tok::Null) {
+            return Ok(Pattern::Null);
+        }
+
+        // Array pattern: [p1, p2, ...]
+        if self.match_tok(Tok::LBracket) {
+            let mut patterns = Vec::new();
+            if !self.check(Tok::RBracket) {
+                loop {
+                    patterns.push(self.parse_pattern()?);
+                    if self.match_tok(Tok::Comma) {
+                        continue;
+                    }
+                    break;
+                }
+            }
+            self.need(Tok::RBracket, "expected ']' in array pattern")?;
+            return Ok(Pattern::Array(patterns));
+        }
+
+        // Record pattern: {field1, field2} or {field1: p1, field2: p2}
+        if self.match_tok(Tok::LBrace) {
+            let mut fields = Vec::new();
+            if !self.check(Tok::RBrace) {
+                loop {
+                    let key = self.need_ident("expected field name in record pattern")?;
+                    let pattern = if self.match_tok(Tok::Colon) {
+                        self.parse_pattern()?
+                    } else {
+                        // Shorthand: {x} means {x: x}
+                        Pattern::Ident(key.clone())
+                    };
+                    fields.push((key, pattern));
+                    if self.match_tok(Tok::Comma) {
+                        continue;
+                    }
+                    break;
+                }
+            }
+            self.need(Tok::RBrace, "expected '}' in record pattern")?;
+            return Ok(Pattern::Record(fields));
+        }
+
+        // Constructor pattern: Name(args...) or just Name
+        if self.check(Tok::Ident) {
+            let name = self.need_ident("expected pattern")?;
+
+            // Check if it's a constructor call with args
+            if self.match_tok(Tok::LParen) {
+                let mut args = Vec::new();
+                if !self.check(Tok::RParen) {
+                    loop {
+                        args.push(self.parse_pattern()?);
+                        if self.match_tok(Tok::Comma) {
+                            continue;
+                        }
+                        break;
+                    }
+                }
+                self.need(Tok::RParen, "expected ')' in constructor pattern")?;
+                return Ok(Pattern::Constructor { name, args });
+            }
+
+            // Otherwise it's just a variable binding
+            return Ok(Pattern::Ident(name));
+        }
+
+        Err(anyhow!(
+            "unexpected token in pattern: {:?}",
+            self.peek().kind
+        ))
     }
 
     // ---- small helpers ----
@@ -808,6 +1001,13 @@ impl Parser {
     }
     fn check_any(&self, ks: &[Tok]) -> bool {
         ks.iter().any(|k| self.peek().kind == *k)
+    }
+    fn peek_ahead(&self, offset: usize) -> Option<Tok> {
+        if self.i + offset < self.toks.len() {
+            Some(self.toks[self.i + offset].kind)
+        } else {
+            None
+        }
     }
     fn match_tok(&mut self, k: Tok) -> bool {
         if self.check(k) {

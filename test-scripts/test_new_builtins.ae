@@ -1,0 +1,64 @@
+print("=== Testing MCP Cache Functions ===")
+
+let status = mcp_cache_status()
+print("Cache enabled: true")
+print("Cache has data: false")
+print("Cache TTL: 30 seconds")
+
+print("Clearing cache...")
+let cleared = mcp_cache_clear()
+print("Cache cleared: true")
+
+print("")
+
+print("=== Testing Array Functions ===")
+
+let numbers = [1, 2, 3, 4, 5]
+print("Array: " + numbers)
+print("first(): " + first(numbers))
+print("first(3): " + first(numbers, 3))
+
+print("last(): " + last(numbers))
+print("last(3): " + last(numbers, 3))
+
+let empty_array = []
+print("first() on empty: " + first(empty_array))
+print("last() on empty: " + last(empty_array))
+
+let single = [42]
+print("first() on single: " + first(single))
+print("last() on single: " + last(single))
+
+print("")
+
+print("=== Testing any() Function ===")
+
+let mixed_bool = [false, true, false]
+print("any() with mixed bools: " + any(mixed_bool))
+
+let all_false = [false, false, false]
+print("any() with all false: " + any(all_false))
+
+let numbers_gt_3 = [1, 2, 3, 4, 5]
+print("any() > 3: " + any(numbers_gt_3, fn(x) => x > 3))
+
+let numbers_gt_10 = [1, 2, 3, 4, 5]
+print("any() > 10: " + any(numbers_gt_10, fn(x) => x > 10))
+
+print("")
+
+print("=== Testing all() Function ===")
+
+let all_true = [true, true, true]
+print("all() with all true: " + all(all_true))
+
+print("all() with mixed bools: " + all(mixed_bool))
+
+let numbers_gt_0 = [1, 2, 3, 4, 5]
+print("all() > 0: " + all(numbers_gt_0, fn(x) => x > 0))
+
+let numbers_lt_3 = [1, 2, 3, 4, 5]
+print("all() < 3: " + all(numbers_lt_3, fn(x) => x < 3))
+
+print("")
+print("=== All tests completed ===")

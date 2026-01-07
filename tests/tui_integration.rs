@@ -29,7 +29,9 @@ mod tui_integration_tests {
     struct TestMessage {
         pub role: String,
         pub content: String,
+        #[allow(dead_code)]
         pub timestamp: String,
+        #[allow(dead_code)]
         pub id: Uuid,
     }
 
@@ -46,7 +48,9 @@ mod tui_integration_tests {
     #[derive(Debug, Clone)]
     enum AgentStatus {
         Idle,
+        #[allow(dead_code)]
         Active,
+        #[allow(dead_code)]
         Processing,
         Error(String),
     }
@@ -54,7 +58,9 @@ mod tui_integration_tests {
     #[derive(Debug, Clone)]
     struct TestMediaFile {
         pub path: PathBuf,
+        #[allow(dead_code)]
         pub file_type: MediaType,
+        #[allow(dead_code)]
         pub size: u64,
         pub selected: bool,
     }

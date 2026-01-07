@@ -1,0 +1,12 @@
+// Test 4: Arithmetic
+
+print("Test 4: Arithmetic")
+add = 10 + 5
+print(add)
+sub = 10 - 5
+print(sub)
+mul = 10 * 5
+print(mul)
+div = 10 / 5
+print(div)
+print("✓ Arithmetic works")

@@ -1,0 +1,133 @@
+// AetherShell - Mutable Variables Showcase
+// Demonstrating all three mutable syntax options
+
+print("=== AetherShell Mutable Variables ===\n")
+
+// ============================================
+// IMMUTABLE vs MUTABLE
+// ============================================
+
+print("Immutable variables (cannot change):")
+x = 42
+name = "Alice"
+print("  x = ${x}, name = ${name}")
+
+print("\nMutable variables (can change):")
+mut counter = 0
+mut total = 100
+let mut score = 50
+
+print("  Initial: counter=${counter}, total=${total}, score=${score}")
+
+counter = counter + 10
+total = total - 20
+score = score * 2
+
+print("  Modified: counter=${counter}, total=${total}, score=${score}")
+
+// ============================================
+// PRACTICAL EXAMPLES
+// ============================================
+
+print("\n=== Counter Pattern ===")
+mut clicks = 0
+print("Clicks: ${clicks}")
+clicks = clicks + 1
+print("After click: ${clicks}")
+clicks = clicks + 1
+print("After another click: ${clicks}")
+
+print("\n=== Accumulator Pattern ===")
+mut sum = 0
+numbers = [10, 20, 30, 40, 50]
+print("Numbers: ${numbers}")
+
+// Manually accumulate (pipeline reduce not available yet)
+sum = sum + 10
+sum = sum + 20
+sum = sum + 30
+sum = sum + 40
+sum = sum + 50
+print("Sum: ${sum}")
+
+print("\n=== State Machine ===")
+mut state = "idle"
+mut attempts = 0
+print("Initial state: ${state}, attempts: ${attempts}")
+
+state = "connecting"
+attempts = attempts + 1
+print("State: ${state}, attempts: ${attempts}")
+
+state = "connected"
+print("State: ${state}, attempts: ${attempts}")
+
+state = "ready"
+print("Final state: ${state}")
+
+print("\n=== Progress Tracking ===")
+mut progress = 0.0
+mut status = "Starting"
+
+print("${status}: ${progress}%")
+
+progress = progress + 25.0
+status = "Loading"
+print("${status}: ${progress}%")
+
+progress = progress + 25.0
+status = "Processing"
+print("${status}: ${progress}%")
+
+progress = progress + 25.0
+status = "Finalizing"
+print("${status}: ${progress}%")
+
+progress = progress + 25.0
+status = "Complete"
+print("${status}: ${progress}%")
+
+print("\n=== String Mutations ===")
+mut message = "Hello"
+print("Message: ${message}")
+
+message = "Hello, World"
+print("Updated: ${message}")
+
+message = "Hello, AetherShell!"
+print("Final: ${message}")
+
+print("\n=== Boolean Flags ===")
+mut is_active = false
+mut is_loading = false
+mut is_complete = false
+
+print("Active=${is_active}, Loading=${is_loading}, Complete=${is_complete}")
+
+is_loading = true
+print("Active=${is_active}, Loading=${is_loading}, Complete=${is_complete}")
+
+is_active = true
+is_loading = false
+print("Active=${is_active}, Loading=${is_loading}, Complete=${is_complete}")
+
+is_complete = true
+print("Active=${is_active}, Loading=${is_loading}, Complete=${is_complete}")
+
+print("\n=== Price Calculator ===")
+mut base_price = 100.0
+mut discount = 0.0
+mut tax = 0.0
+
+print("Base price: $${base_price}")
+
+discount = base_price * 0.1
+base_price = base_price - discount
+print("After 10% discount: $${base_price}")
+
+tax = base_price * 0.08
+mut final_price = base_price + tax
+print("After 8% tax: $${final_price}")
+
+print("\n✅ Mutable variables make state management easy!")
+print("   Use 'mut x = value' for clean, concise syntax.")

@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tutorial - AetherShell Documentation</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/ayu-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', (event) => {
+            document.querySelectorAll('pre code').forEach((block) => {
+                hljs.highlightElement(block);
+            });
+        });
+    </script>
+</head>
+
+<body>
+    <nav class="sidebar">
+        <div class="logo">
+            <h1>🚀 AetherShell</h1>
+            <p class="version">v1.0.0</p>
+        </div>
+        <ul class="nav-menu">
+            <li><a href="index.html">Home</a></li>
+            <li><a href="quickstart.html">Quick Start</a></li>
+            <li><a href="tutorial.html" class="active">Tutorial</a></li>
+            <li><a href="syntax.html">Syntax Reference</a></li>
+            <li><a href="builtins.html">Built-in Functions</a></li>
+            <li><a href="types.html">Type System</a></li>
+            <li><a href="ai.html">AI & Agents</a></li>
+            <li><a href="syntax-kb.html">Syntax KB</a></li>
+            <li><a href="examples.html">Examples</a></li>
+            <li><a href="api.html">API Reference</a></li>
+        </ul>
+        <div class="sidebar-footer">
+            <a href="https://github.com/nervosys/AetherShell" target="_blank">GitHub</a>
+        </div>
+    </nav>
+
+    <main class="content">
+        <header class="page-header">
+            <h1>📚 AetherShell Tutorial</h1>
+            <p class="subtitle">Learn AetherShell from basics to advanced features</p>
+        </header>
+
+        <nav class="tutorial-nav">
+            <h3>Tutorial Contents</h3>
+            <ol>
+                <li><a href="#basics">Lesson 1: Basics</a></li>
+                <li><a href="#pipelines">Lesson 2: Pipelines</a></li>
+                <li><a href="#functions">Lesson 3: Functions</a></li>
+                <li><a href="#types">Lesson 4: Type System</a></li>
+                <li><a href="#records">Lesson 5: Records & Tables</a></li>
+                <li><a href="#files">Lesson 6: File Operations</a></li>
+                <li><a href="#ai-basics">Lesson 7: AI Basics</a></li>
+                <li><a href="#agents">Lesson 8: Multi-Agent Systems</a></li>
+                <li><a href="#syntax-kb">Lesson 9: Syntax Knowledge Base</a></li>
+                <li><a href="#advanced">Lesson 10: Advanced Patterns</a></li>
+            </ol>
+        </nav>
+
+        <section id="basics" class="feature-section">
+            <h2>Lesson 1: Basics</h2>
+
+            <h3>1.1 Variables and Values</h3>
+            <p>AetherShell uses <strong>immutable bindings by default</strong>. Use <code>=</code> for immutable,
+                <code>:=</code> for mutable.
+            </p>
+
+            <pre><code>// Immutable binding (cannot be reassigned)
+x = 10
+print(x)  // 10
+
+// Mutable binding (can be reassigned)
+y := 20
+y = 30
+print(y)  // 30
+
+// String values
+name = "Alice"
+greeting = "Hello, ${name}!"
+print(greeting)  // "Hello, Alice!"</code></pre>
+
+            <h3>1.2 Basic Types</h3>
+            <pre><code>// Numbers
+integer = 42           // Int
+floating = 3.14        // Float
+
+// Strings
+text = "Hello"         // Str
+
+// Booleans
+flag = true            // Bool
+condition = false      // Bool
+
+// Arrays
+numbers = [1, 2, 3]    // Array
+mixed = [1, "two", 3]  // Arrays can be heterogeneous
+
+// Null
+nothing = null         // Null</code></pre>
+
+            <h3>1.3 Operators</h3>
+            <pre><code>// Arithmetic
+10 + 5    // 15
+10 - 5    // 5
+10 * 5    // 50
+10 / 5    // 2
+10 % 3    // 1
+
+// Comparison
+10 == 10  // true
+10 != 5   // true
+10 > 5    // true
+10 < 20   // true
+10 >= 10  // true
+10 <= 10  // true
+
+// Logical
+true && false   // false
+true || false   // true
+!true           // false
+
+// String concatenation
+"Hello" + " " + "World"  // "Hello World"</code></pre>
+
+            <div class="alert alert-success">
+                <strong>Exercise:</strong> Try calculating the area of a circle with radius 5 using
+                <code>pi = 3.14</code>.
+            </div>
+        </section>
+
+        <section id="pipelines" class="feature-section">
+            <h2>Lesson 2: Pipelines - The Heart of AetherShell</h2>
+
+            <h3>2.1 What are Pipelines?</h3>
+            <p>Pipelines let you chain operations together, passing data from left to right using the <code>|</code>
+                operator.</p>
+
+            <pre><code>// Simple pipeline
+[1, 2, 3] | print
+
+// Multi-step pipeline
+[1, 2, 3, 4, 5]
+| map(fn(x) => x * 2)      // [2, 4, 6, 8, 10]
+| where(fn(x) => x > 5)    // [6, 8, 10]
+| reduce(fn(a,b) => a+b, 0) // 24
+| print</code></pre>
+
+            <h3>2.2 Pipeline with map</h3>
+            <pre><code>// Double all numbers
+[1, 2, 3] | map(fn(x) => x * 2)
+// Result: [2, 4, 6]
+
+// Square all numbers
+range(1, 6) | map(fn(n) => n * n)
+// Result: [1, 4, 9, 16, 25]
+
+// Convert to uppercase
+["hello", "world"] | map(fn(s) => upper(s))
+// Result: ["HELLO", "WORLD"]</code></pre>
+
+            <h3>2.3 Pipeline with where (filter)</h3>
+            <pre><code>// Filter even numbers
+[1, 2, 3, 4, 5, 6] | where(fn(x) => x % 2 == 0)
+// Result: [2, 4, 6]
+
+// Filter long strings
+["a", "bb", "ccc"] | where(fn(s) => len(s) > 1)
+// Result: ["bb", "ccc"]</code></pre>
+
+            <h3>2.4 Pipeline with reduce</h3>
+            <pre><code>// Sum of array
+[1, 2, 3, 4, 5] | reduce(fn(a, b) => a + b, 0)
+// Result: 15
+
+// Product of array
+[1, 2, 3, 4] | reduce(fn(a, b) => a * b, 1)
+// Result: 24
+
+// Find maximum
+[3, 7, 2, 9, 1] | reduce(fn(a, b) => max(a, b), 0)
+// Result: 9</code></pre>
+
+            <h3>2.5 Complex Pipeline Example</h3>
+            <pre><code>// Calculate sum of squares of even numbers from 1-10
+range(1, 11)
+| where(fn(x) => x % 2 == 0)           // [2, 4, 6, 8, 10]
+| map(fn(x) => x * x)                   // [4, 16, 36, 64, 100]
+| reduce(fn(acc, val) => acc + val, 0)  // 220
+| print</code></pre>
+
+            <div class="alert alert-success">
+                <strong>Exercise:</strong> Create a pipeline that finds all odd numbers from 1-20, triples them, and
+                sums the result.
+            </div>
+        </section>
+
+        <section id="functions" class="feature-section">
+            <h2>Lesson 3: Functions</h2>
+
+            <h3>3.1 Lambda Syntax</h3>
+            <pre><code>// Single parameter
+double = fn(x) => x * 2
+print(double(5))  // 10
+
+// Multiple parameters
+add = fn(a, b) => a + b
+multiply = fn(a, b) => a * b
+
+print(add(3, 4))       // 7
+print(multiply(3, 4))  // 12
+
+// No parameters
+get_pi = fn() => 3.14159
+print(get_pi())  // 3.14159</code></pre>
+
+            <h3>3.2 Functions in Pipelines</h3>
+            <pre><code>// Inline functions
+[1, 2, 3] | map(fn(x) => x * x)
+
+// Named functions
+square = fn(x) => x * x
+[1, 2, 3] | map(square)
+
+// Both work the same!</code></pre>
+
+            <h3>3.3 Higher-Order Functions</h3>
+            <pre><code>// Function that returns a function
+make_adder = fn(n) => fn(x) => x + n
+
+add5 = make_adder(5)
+add10 = make_adder(10)
+
+print(add5(3))   // 8
+print(add10(3))  // 13
+
+// Function composition
+compose = fn(f, g) => fn(x) => f(g(x))
+
+times2 = fn(x) => x * 2
+plus3 = fn(x) => x + 3
+
+times2_then_plus3 = compose(plus3, times2)
+print(times2_then_plus3(5))  // 13 (5*2=10, 10+3=13)</code></pre>
+
+            <div class="alert alert-info">
+                <strong>Pro Tip:</strong> AetherShell supports closures - functions can capture variables from their
+                enclosing scope!
+            </div>
+        </section>
+
+        <section id="types" class="feature-section">
+            <h2>Lesson 4: Type System</h2>
+
+            <h3>4.1 Type Inference</h3>
+            <p>AetherShell uses <strong>Hindley-Milner type inference</strong>. Types are automatically inferred!</p>
+
+            <pre><code>// Types are inferred, not declared
+x = 42              // Inferred as Int
+y = 3.14            // Inferred as Float
+s = "hello"         // Inferred as Str
+arr = [1, 2, 3]     // Inferred as Array
+
+// Check types at runtime
+print(type_of(x))    // "Int"
+print(type_of(y))    // "Float"
+print(type_of(s))    // "Str"
+print(type_of(arr))  // "Array"</code></pre>
+
+            <h3>4.2 Structured Types</h3>
+            <pre><code>// Records (like objects/structs)
+person = {
+    name: "Alice",
+    age: 30,
+    active: true
+}
+
+print(person.name)   // "Alice"
+print(person.age)    // 30
+
+// Arrays of records
+users = [
+    {name: "Alice", age: 30},
+    {name: "Bob", age: 25},
+    {name: "Charlie", age: 35}
+]
+
+// Filter and transform
+adults = users | where(fn(u) => u.age >= 30)
+names = adults | map(fn(u) => u.name)</code></pre>
+
+            <h3>4.3 Type Safety</h3>
+            <pre><code>// Operations must be type-compatible
+x = 10
+// x + "hello"  // Error: cannot add Int and Str
+
+// But you can convert types
+num_str = "42"
+// num = parse_int(num_str)  // Convert string to int</code></pre>
+        </section>
+
+        <section id="records" class="feature-section">
+            <h2>Lesson 5: Records & Tables</h2>
+
+            <h3>5.1 Working with Records</h3>
+            <pre><code>// Create a record
+user = {
+    id: 1,
+    name: "Alice",
+    email: "alice@example.com",
+    roles: ["admin", "user"]
+}
+
+// Access fields
+print(user.name)      // "Alice"
+print(user.roles)     // ["admin", "user"]
+
+// Get all keys
+keys(user)  // ["id", "name", "email", "roles"]</code></pre>
+
+            <h3>5.2 Tables (Arrays of Records)</h3>
+            <pre><code>// File listings are tables!
+files = ls(".")
+
+// Filter large files
+large_files = files | where(fn(f) => f.size > 10000)
+
+// Get just names
+file_names = large_files | map(fn(f) => f.name)
+
+// Count files
+total = files | len
+print("Total files: ${total}")</code></pre>
+
+            <h3>5.3 Table Transformations</h3>
+            <pre><code>// Create a table
+products = [
+    {name: "Laptop", price: 999, stock: 5},
+    {name: "Mouse", price: 25, stock: 50},
+    {name: "Keyboard", price: 75, stock: 20}
+]
+
+// Find expensive items
+expensive = products | where(fn(p) => p.price > 50)
+
+// Calculate total value
+total_value = products 
+| map(fn(p) => p.price * p.stock)
+| reduce(fn(a, b) => a + b, 0)
+
+print("Total inventory value: $${total_value}")</code></pre>
+        </section>
+
+        <section id="files" class="feature-section">
+            <h2>Lesson 6: File Operations</h2>
+
+            <h3>6.1 Listing Files</h3>
+            <pre><code>// List current directory
+files = ls(".")
+print(files)
+
+// Filter by type
+dirs = files | where(fn(f) => f.type == "directory")
+regular = files | where(fn(f) => f.type == "file")</code></pre>
+
+            <h3>6.2 Reading Files</h3>
+            <pre><code>// Read entire file
+content = cat("README.md")
+print(content)
+
+// Read first 10 lines
+preview = head("README.md", 10)
+
+// Read last 10 lines
+tail_lines = tail("logfile.txt", 10)</code></pre>
+
+            <h3>6.3 Searching Files</h3>
+            <pre><code>// Find all Rust files
+rust_files = find(".", "*.rs")
+print(rust_files)
+
+// Search file content
+matches = grep("README.md", "AetherShell")
+print(matches)</code></pre>
+
+            <h3>6.4 Processing Text Files</h3>
+            <pre><code>// Read file and process lines
+cat("data.csv")
+| split("\n")                    // Split into lines
+| where(fn(line) => len(line) > 0)  // Remove empty lines
+| map(fn(line) => split(line, ",")) // Split each line by comma
+| print</code></pre>
+        </section>
+
+        <section id="ai-basics" class="feature-section">
+            <h2>Lesson 7: AI Basics</h2>
+
+            <h3>7.1 Simple AI Agent</h3>
+            <pre><code>// Deploy an agent with a goal
+result = agent("Count all .rs files in src/", "ls,find", 5)
+print(result)</code></pre>
+
+            <h3>7.2 AgenticBinary Protocol</h3>
+            <pre><code>// Encode a message
+ping_msg = ab_encode("command", "ping", "hello")
+print(ping_msg)  // [0, 5, 104, 101, 108, 108, 111]
+
+// Decode the message
+decoded = ab_decode(ping_msg)
+print(decoded.msg_type)  // "Command"
+print(decoded.opcode)    // "PING"
+print(decoded.payload)   // "hello"</code></pre>
+
+            <h3>7.3 All Message Types</h3>
+            <pre><code>// Command messages
+cmd = ab_encode("command", "exec", "run_task")
+
+// Query messages
+query = ab_encode("query", "query", "get_status")
+
+// Response messages
+resp = ab_encode("response", "ack", "received")
+
+// Event messages
+event = ab_encode("event", "sync", "state_update")</code></pre>
+
+            <div class="alert alert-info">
+                <strong>Note:</strong> AI features require setting up environment variables like
+                <code>OPENAI_API_KEY</code> or running local models with Ollama.
+            </div>
+        </section>
+
+        <section id="agents" class="feature-section">
+            <h2>Lesson 8: Multi-Agent Systems</h2>
+
+            <h3>8.1 Agent Communication</h3>
+            <pre><code>// Worker registers with coordinator
+worker_ready = ab_encode("response", "ack", "worker1:ready")
+
+// Coordinator delegates task
+task = ab_encode("command", "delegate", "analyze_logs")
+
+// Worker executes
+exec = ab_encode("command", "exec", "started:analysis")
+
+// Worker reports result
+result = ab_encode("response", "data", "analysis_complete")</code></pre>
+
+            <h3>8.2 Agent Collaboration</h3>
+            <pre><code>// Agent requests help
+collab_req = ab_encode("command", "collaborate", "agent2:need_data")
+
+// Agent shares knowledge
+learn_msg = ab_encode("command", "learn", "protocol:new_syntax")
+
+// Agent acknowledges learning
+ack = ab_encode("response", "ack", "learned:new_syntax")</code></pre>
+
+            <h3>8.3 Error Handling</h3>
+            <pre><code>// Agent encounters error
+error = ab_encode("response", "error", "task_failed:timeout")
+
+// Coordinator reassigns
+retry = ab_encode("command", "delegate", "retry_task")</code></pre>
+        </section>
+
+        <section id="syntax-kb" class="feature-section">
+            <h2>Lesson 9: Syntax Knowledge Base</h2>
+
+            <h3>9.1 Discovering Protocols</h3>
+            <pre><code>// List all available protocols
+protocols = syntax_list("protocol")
+print(protocols)  // ["ab", "jsonrpc", "http"]
+
+// Get protocol details
+ab_spec = syntax_get("ab")
+print(ab_spec.name)           // "AgenticBinary Protocol"
+print(ab_spec.specification)  // Full spec...</code></pre>
+
+            <h3>9.2 Searching Syntax</h3>
+            <pre><code>// Search for binary-related syntax
+results = syntax_search("binary")
+print(results)  // ["ab"]
+
+// Search for all protocols
+all_protos = syntax_search("protocol")
+print(all_protos)</code></pre>
+
+            <h3>9.3 Adding Custom Syntax</h3>
+            <pre><code>// Define custom protocol
+my_protocol = {
+    id: "myproto",
+    name: "My Custom Protocol",
+    category: "protocol",
+    specification: "Custom communication protocol...",
+    examples: ["example 1", "example 2"]
+}
+
+// Add to knowledge base
+syntax_add(my_protocol)
+
+// Retrieve it later
+retrieved = syntax_get("myproto")
+print(retrieved.name)  // "My Custom Protocol"</code></pre>
+        </section>
+
+        <section id="advanced" class="feature-section">
+            <h2>Lesson 10: Advanced Patterns</h2>
+
+            <h3>10.1 Factorial with Reduce</h3>
+            <pre><code>// Calculate 5! = 120
+factorial = fn(n) =>
+    range(1, n + 1)
+    | reduce(fn(a, b) => a * b, 1)
+
+print(factorial(5))  // 120
+print(factorial(10)) // 3628800</code></pre>
+
+            <h3>10.2 Fibonacci Sequence</h3>
+            <pre><code>// Generate first N fibonacci numbers
+fib = fn(n) => {
+    a := 0
+    b := 1
+    result := [0, 1]
+    i := 2
+    while (i < n) {
+        next = a + b
+        result = push(result, next)
+        a = b
+        b = next
+        i = i + 1
+    }
+    result
+}
+
+print(fib(10))  // [0, 1, 1, 2, 3, 5, 8, 13, 21, 34]</code></pre>
+
+            <h3>10.3 Data Processing Pipeline</h3>
+            <pre><code>// Process CSV data
+cat("data.csv")
+| split("\n")                          // Lines
+| where(fn(line) => len(line) > 0)    // Non-empty
+| map(fn(line) => split(line, ","))   // Parse CSV
+| where(fn(row) => len(row) > 2)      // Valid rows
+| map(fn(row) => {                    // Extract fields
+    name: row[0],
+    age: row[1],
+    city: row[2]
+  })
+| where(fn(person) => person.age > "30")  // Filter
+| map(fn(p) => p.name)                 // Get names
+| print</code></pre>
+
+            <h3>10.4 Multi-Agent Task Distribution</h3>
+            <pre><code>// Complete workflow example
+// See examples/13_agent_coordination.ae for full implementation
+
+// 1. Workers learn protocol
+spec = syntax_get("ab")
+
+// 2. Workers signal ready
+worker1_ready = ab_encode("response", "ack", "worker1:ready")
+
+// 3. Coordinator delegates tasks
+task1 = ab_encode("command", "delegate", "analyze_data")
+task2 = ab_encode("command", "delegate", "process_logs")
+
+// 4. Workers execute and report
+exec1 = ab_encode("command", "exec", "started:analyze")
+result1 = ab_encode("response", "data", "complete:results.json")
+
+// 5. Coordinator reflects
+reflection = ab_encode("command", "reflect", "efficiency:95%")</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>🎓 Congratulations!</h2>
+            <p>You've completed the AetherShell tutorial! You now know:</p>
+            <ul>
+                <li>✅ Basic syntax and types</li>
+                <li>✅ Powerful pipeline operations</li>
+                <li>✅ Functional programming with lambdas</li>
+                <li>✅ Type system and type inference</li>
+                <li>✅ Records and table processing</li>
+                <li>✅ File operations</li>
+                <li>✅ AI agent integration</li>
+                <li>✅ Multi-agent coordination</li>
+                <li>✅ Syntax Knowledge Base</li>
+                <li>✅ Advanced patterns</li>
+            </ul>
+
+            <h3>Next Steps</h3>
+            <div class="card-grid">
+                <a href="syntax.html" class="card">
+                    <h3>📖 Full Syntax Reference</h3>
+                    <p>Complete language specification</p>
+                </a>
+                <a href="builtins.html" class="card">
+                    <h3>🔧 Built-in Functions</h3>
+                    <p>All 72 built-in functions</p>
+                </a>
+                <a href="examples.html" class="card">
+                    <h3>💡 More Examples</h3>
+                    <p>Real-world code samples</p>
+                </a>
+                <a href="api.html" class="card">
+                    <h3>📚 API Reference</h3>
+                    <p>Complete API documentation</p>
+                </a>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <p>&copy; 2025 AetherShell. Built with Rust 🦀</p>
+    </footer>
+
+    <style>
+        .tutorial-nav {
+            background: white;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            margin-bottom: 2rem;
+        }
+
+        .tutorial-nav h3 {
+            color: var(--primary-color);
+            margin-bottom: 1rem;
+        }
+
+        .tutorial-nav ol {
+            padding-left: 1.5rem;
+        }
+
+        .tutorial-nav li {
+            padding: 0.5rem 0;
+        }
+
+        .tutorial-nav a {
+            color: var(--text-color);
+            text-decoration: none;
+        }
+
+        .tutorial-nav a:hover {
+            color: var(--primary-color);
+            text-decoration: underline;
+        }
+    </style>
+</body>
+
+</html>

@@ -1,0 +1,10 @@
+// Test 7: Lambdas
+
+print("Test 7: Lambdas")
+identity = fn(x) => x
+print(identity(42))
+double = fn(x) => x * 2
+print(double(21))
+add = fn(a, b) => a + b
+print(add(3, 4))
+print("✓ Lambdas work")

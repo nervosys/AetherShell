@@ -42,15 +42,15 @@ mod tui_app_tests {
         assert_eq!(app.mode, AppMode::MediaBrowser);
 
         // Test wrap around
-        app.tab_index = 5;
+        app.tab_index = 6;
         app.next_tab();
         assert_eq!(app.tab_index, 0);
         assert_eq!(app.mode, AppMode::Chat);
 
         // Test previous tab
         app.previous_tab();
-        assert_eq!(app.tab_index, 5);
-        assert_eq!(app.mode, AppMode::AdvancedReasoning);
+        assert_eq!(app.tab_index, 6);
+        assert_eq!(app.mode, AppMode::Search);
     }
 
     #[test]
@@ -285,13 +285,14 @@ mod tui_app_tests {
         let app = App::new().unwrap();
         let titles = app.get_tab_titles();
 
-        assert_eq!(titles.len(), 6);
+        assert_eq!(titles.len(), 7);
         assert_eq!(titles[0], "Chat");
         assert_eq!(titles[1], "Agents");
         assert_eq!(titles[2], "Media");
         assert_eq!(titles[3], "Settings");
         assert_eq!(titles[4], "Distributed");
         assert_eq!(titles[5], "Reasoning");
+        assert_eq!(titles[6], "Search");
     }
 
     #[test]

@@ -1,0 +1,1 @@
+"zebra\napple\nbanana\ncat" | sort()

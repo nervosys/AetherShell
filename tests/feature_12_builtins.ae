@@ -1,0 +1,14 @@
+// Test 12: Builtins
+
+print("Test 12: Builtins")
+map_result = map([1, 2, 3], fn(x) => x * 2)
+print(map_result)
+where_result = where([1, 2, 3, 4, 5], fn(x) => x > 3)
+print(where_result)
+reduce_result = reduce([1, 2, 3, 4], fn(a, b) => a + b, 0)
+print(reduce_result)
+len_result = len([1, 2, 3])
+print(len_result)
+type_result = type_of(42)
+print(type_result)
+print("✓ Builtins work")

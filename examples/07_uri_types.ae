@@ -1,12 +1,12 @@
-# Aether distinguishes URIs from Strings at type level.
+// Aether distinguishes URIs from Strings at type level.
 
-let a = "https://example.com"   # Uri
-let b = "s3://bucket/key"       # Uri
-let c = "not a uri"             # String
+let a = "https://example.com"   // Uri
+let b = "s3://bucket/key"       // Uri
+let c = "not a uri"             // String
 
-print(type_of(a))  # => Uri
-print(type_of(b))  # => Uri
-print(type_of(c))  # => String
+print(type_of(a))  // => Uri
+print(type_of(b))  // => Uri
+print(type_of(c))  // => String
 
-# Comparisons across types (Uri vs String) will typecheck to Bool or error at runtime
+// Comparisons across types (Uri vs String) will typecheck to Bool or error at runtime
 print(a == b)

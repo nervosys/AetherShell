@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Reference - AetherShell Documentation</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/ayu-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', (event) => {
+            document.querySelectorAll('pre code').forEach((block) => {
+                hljs.highlightElement(block);
+            });
+        });
+    </script>
+</head>
+
+<body>
+    <nav class="sidebar">
+        <div class="logo">
+            <h1>🚀 AetherShell</h1>
+            <p class="version">v1.0.0</p>
+        </div>
+        <ul class="nav-menu">
+            <li><a href="index.html">Home</a></li>
+            <li><a href="quickstart.html">Quick Start</a></li>
+            <li><a href="tutorial.html">Tutorial</a></li>
+            <li><a href="syntax.html">Syntax Reference</a></li>
+            <li><a href="builtins.html">Built-in Functions</a></li>
+            <li><a href="types.html">Type System</a></li>
+            <li><a href="ai.html">AI & Agents</a></li>
+            <li><a href="syntax-kb.html">Syntax KB</a></li>
+            <li><a href="examples.html">Examples</a></li>
+            <li><a href="api.html" class="active">API Reference</a></li>
+        </ul>
+        <div class="sidebar-footer">
+            <a href="https://github.com/nervosys/AetherShell" target="_blank">GitHub</a>
+        </div>
+    </nav>
+
+    <main class="content">
+        <header class="page-header">
+            <h1>📚 API Reference</h1>
+            <p class="subtitle">Programmatic interface and library usage</p>
+        </header>
+
+        <section class="feature-section">
+            <h2>Overview</h2>
+            <p>AetherShell provides multiple interfaces for programmatic usage:</p>
+
+            <ul>
+                <li>📦 <strong>Rust Library</strong> - Embed AetherShell in Rust applications</li>
+                <li>🔧 <strong>Command-line Interface</strong> - Execute scripts from shell</li>
+                <li>🖥️ <strong>REPL API</strong> - Interactive programming interface</li>
+                <li>🌐 <strong>HTTP API</strong> (Future) - REST API for remote execution</li>
+            </ul>
+        </section>
+
+        <section class="feature-section">
+            <h2>Rust Library API</h2>
+
+            <h3>Adding Dependency</h3>
+            <pre><code>[dependencies]
+aether_shell = { path = "../AetherShell" }
+# or when published:
+# aether_shell = "1.0.0"</code></pre>
+
+            <h3>Basic Usage</h3>
+            <pre><code>use aether_shell::{parser, eval, env::Env};
+
+fn main() -> anyhow::Result&lt;()&gt; {
+    // Parse AetherShell code
+    let program = parser::parse_program(r#"
+        [1, 2, 3, 4, 5]
+        | map(fn(x) => x * 2)
+        | reduce(fn(a,b) => a + b, 0)
+    "#)?;
+    
+    // Create environment
+    let mut env = Env::new();
+    
+    // Evaluate
+    let result = eval::eval_program(&program, &mut env)?;
+    
+    println!("Result: {:?}", result);
+    Ok(())
+}</code></pre>
+
+            <h3>Core Modules</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Module</th>
+                        <th>Description</th>
+                        <th>Key Types</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>parser</code></td>
+                        <td>Parse AetherShell code to AST</td>
+                        <td><code>parse_program()</code>, <code>parse_expr()</code></td>
+                    </tr>
+                    <tr>
+                        <td><code>ast</code></td>
+                        <td>Abstract Syntax Tree definitions</td>
+                        <td><code>Expr</code>, <code>Stmt</code>, <code>BinOp</code></td>
+                    </tr>
+                    <tr>
+                        <td><code>eval</code></td>
+                        <td>AST evaluation engine</td>
+                        <td><code>eval_program()</code>, <code>eval_expr()</code></td>
+                    </tr>
+                    <tr>
+                        <td><code>value</code></td>
+                        <td>Runtime value system</td>
+                        <td><code>Value</code>, <code>Lambda</code></td>
+                    </tr>
+                    <tr>
+                        <td><code>env</code></td>
+                        <td>Variable environment</td>
+                        <td><code>Env</code></td>
+                    </tr>
+                    <tr>
+                        <td><code>builtins</code></td>
+                        <td>Built-in functions</td>
+                        <td><code>eval_builtin()</code></td>
+                    </tr>
+                    <tr>
+                        <td><code>syntax_kb</code></td>
+                        <td>Syntax Knowledge Base</td>
+                        <td><code>SyntaxKB</code>, <code>AgenticBinary</code></td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section class="feature-section">
+            <h2>Value System</h2>
+
+            <h3>Value Enum</h3>
+            <pre><code>pub enum Value {
+    Null,
+    Int(i64),
+    Float(f64),
+    Str(String),
+    Bool(bool),
+    Array(Vec&lt;Value&gt;),
+    Record(BTreeMap&lt;String, Value&gt;),
+    Lambda(Lambda),
+}</code></pre>
+
+            <h3>Creating Values</h3>
+            <pre><code>use aether_shell::value::Value;
+use std::collections::BTreeMap;
+
+// Primitive values
+let num = Value::Int(42);
+let text = Value::Str("hello".to_string());
+let flag = Value::Bool(true);
+
+// Collections
+let arr = Value::Array(vec![
+    Value::Int(1),
+    Value::Int(2),
+    Value::Int(3),
+]);
+
+let mut map = BTreeMap::new();
+map.insert("name".to_string(), Value::Str("Alice".to_string()));
+map.insert("age".to_string(), Value::Int(30));
+let record = Value::Record(map);</code></pre>
+
+            <h3>Value Operations</h3>
+            <pre><code>use aether_shell::value::Value;
+
+// Pattern matching
+match value {
+    Value::Int(n) => println!("Integer: {}", n),
+    Value::Str(s) => println!("String: {}", s),
+    Value::Array(arr) => println!("Array with {} elements", arr.len()),
+    Value::Record(map) => println!("Record with {} fields", map.len()),
+    _ => println!("Other type"),
+}</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>Parser API</h2>
+
+            <h3>Parsing Programs</h3>
+            <pre><code>use aether_shell::parser;
+
+// Parse full program
+let program = parser::parse_program(r#"
+    x = 10
+    y = 20
+    x + y
+"#)?;
+
+// Parse single expression
+let expr = parser::parse_expr("1 + 2 * 3")?;</code></pre>
+
+            <h3>AST Types</h3>
+            <pre><code>use aether_shell::ast::{Expr, Stmt, BinOp};
+
+pub enum Expr {
+    Literal(Value),
+    Ident(String),
+    BinOp(Box&lt;Expr&gt;, BinOp, Box&lt;Expr&gt;),
+    Pipeline(Box&lt;Expr&gt;, Box&lt;Expr&gt;),
+    Lambda(Vec&lt;String&gt;, Vec&lt;Stmt&gt;, Box&lt;Expr&gt;),
+    Call(Box&lt;Expr&gt;, Vec&lt;Expr&gt;),
+    FieldAccess(Box&lt;Expr&gt;, String),
+    IndexAccess(Box&lt;Expr&gt;, Box&lt;Expr&gt;),
+    // ... more variants
+}
+
+pub enum Stmt {
+    VarDecl(String, Mutability, Expr),
+    Expression(Expr),
+}</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>Evaluator API</h2>
+
+            <h3>Evaluating Code</h3>
+            <pre><code>use aether_shell::{parser, eval, env::Env};
+
+fn evaluate_code(code: &str) -> anyhow::Result&lt;Value&gt; {
+    let program = parser::parse_program(code)?;
+    let mut env = Env::new();
+    eval::eval_program(&program, &mut env)
+}
+
+// Usage
+let result = evaluate_code("[1,2,3] | len")?;
+assert_eq!(result, Value::Int(3));</code></pre>
+
+            <h3>Environment Management</h3>
+            <pre><code>use aether_shell::env::Env;
+
+// Create environment
+let mut env = Env::new();
+
+// Set variables
+env.set("x", Value::Int(10));
+env.set_mutable("counter", Value::Int(0));
+
+// Get variables
+if let Some(value) = env.get("x") {
+    println!("x = {:?}", value);
+}
+
+// Child scope
+{
+    let mut child_env = env.child();
+    child_env.set("y", Value::Int(20));
+    // y only visible in child scope
+}</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>Syntax Knowledge Base API</h2>
+
+            <h3>Accessing Syntax KB</h3>
+            <pre><code>use aether_shell::syntax_kb::{get_kb, SyntaxEntry};
+
+fn get_protocol() -> anyhow::Result&lt;()&gt; {
+    let kb = get_kb()?;
+    
+    // Get entry
+    if let Some(entry) = kb.get("ab") {
+        println!("Protocol: {}", entry.name);
+        println!("Category: {}", entry.category);
+    }
+    
+    // Search
+    let results = kb.search("binary");
+    println!("Found {} results", results.len());
+    
+    // List by category
+    let protocols = kb.list_by_category("protocol");
+    
+    Ok(())
+}</code></pre>
+
+            <h3>Adding Entries</h3>
+            <pre><code>use aether_shell::syntax_kb::{get_kb, SyntaxEntry};
+
+fn add_custom_syntax() -> anyhow::Result&lt;()&gt; {
+    let kb = get_kb()?;
+    
+    let entry = SyntaxEntry {
+        id: "myproto".to_string(),
+        name: "My Protocol".to_string(),
+        category: "protocol".to_string(),
+        specification: "Custom protocol specification...".to_string(),
+        examples: vec!["example1".to_string(), "example2".to_string()],
+    };
+    
+    kb.add(entry)?;
+    Ok(())
+}</code></pre>
+
+            <h3>AgenticBinary Encoding/Decoding</h3>
+            <pre><code>use aether_shell::syntax_kb::AgenticBinary;
+
+fn encode_decode() -> anyhow::Result&lt;()&gt; {
+    // Encode message
+    let bytes = AgenticBinary::encode("command", "ping", "hello")?;
+    
+    // Decode message
+    let msg = AgenticBinary::decode(&bytes)?;
+    
+    println!("Type: {}", msg.msg_type);
+    println!("Opcode: {}", msg.opcode);
+    println!("Payload: {}", msg.payload);
+    
+    Ok(())
+}</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>Command-Line Interface</h2>
+
+            <h3>Basic Usage</h3>
+            <pre><code># Run script file
+ae script.ae
+
+# Run with arguments
+ae script.ae arg1 arg2
+
+# REPL mode
+ae
+
+# TUI mode
+ae --tui
+
+# Execute inline code
+ae -c "print([1,2,3] | len)"</code></pre>
+
+            <h3>Environment Variables</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Variable</th>
+                        <th>Purpose</th>
+                        <th>Example</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>AETHER_AI</code></td>
+                        <td>Default AI provider</td>
+                        <td><code>openai</code>, <code>ollama</code></td>
+                    </tr>
+                    <tr>
+                        <td><code>OPENAI_API_KEY</code></td>
+                        <td>OpenAI API key</td>
+                        <td><code>sk-...</code></td>
+                    </tr>
+                    <tr>
+                        <td><code>AGENT_ALLOW_CMDS</code></td>
+                        <td>Whitelisted agent commands</td>
+                        <td><code>ls,find,grep,cat</code></td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>Exit Codes</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Code</th>
+                        <th>Meaning</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>0</code></td>
+                        <td>Success</td>
+                    </tr>
+                    <tr>
+                        <td><code>1</code></td>
+                        <td>General error</td>
+                    </tr>
+                    <tr>
+                        <td><code>2</code></td>
+                        <td>Parse error</td>
+                    </tr>
+                    <tr>
+                        <td><code>3</code></td>
+                        <td>Runtime error</td>
+                    </tr>
+                    <tr>
+                        <td><code>4</code></td>
+                        <td>File not found</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section class="feature-section">
+            <h2>REPL API</h2>
+
+            <h3>Interactive Session</h3>
+            <pre><code># Start REPL
+ae
+
+# Execute commands
+> x = 10
+> y = 20
+> x + y
+30
+
+# Multi-line input
+> [1, 2, 3, 4, 5]
+| map(fn(x) => x * 2)
+| print
+
+# Load file
+> load("script.ae")
+
+# Exit
+> exit(0)</code></pre>
+
+            <h3>REPL Commands</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Command</th>
+                        <th>Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>help()</code></td>
+                        <td>Show help</td>
+                    </tr>
+                    <tr>
+                        <td><code>clear()</code></td>
+                        <td>Clear screen</td>
+                    </tr>
+                    <tr>
+                        <td><code>exit(code)</code></td>
+                        <td>Exit REPL</td>
+                    </tr>
+                    <tr>
+                        <td><code>env("VAR")</code></td>
+                        <td>Get environment variable</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section class="feature-section">
+            <h2>Type Checking API</h2>
+
+            <h3>Type Inference</h3>
+            <pre><code>use aether_shell::typecheck;
+
+fn check_types() -> anyhow::Result&lt;()&gt; {
+    let program = parser::parse_program(r#"
+        x = 10
+        y = 20
+        x + y
+    "#)?;
+    
+    // Infer types
+    let type_env = typecheck::infer_program(&program)?;
+    
+    // Get type of variable
+    if let Some(ty) = type_env.get("x") {
+        println!("x has type: {:?}", ty);
+    }
+    
+    Ok(())
+}</code></pre>
+
+            <h3>Type Representation</h3>
+            <pre><code>pub enum Type {
+    Int,
+    Float,
+    Str,
+    Bool,
+    Null,
+    Array(Box&lt;Type&gt;),
+    Record(BTreeMap&lt;String, Type&gt;),
+    Lambda(Vec&lt;Type&gt;, Box&lt;Type&gt;),
+    Var(String),  // Type variable for polymorphism
+}</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>Error Handling</h2>
+
+            <h3>Error Types</h3>
+            <pre><code>use anyhow::{Result, Context};
+
+fn safe_evaluation(code: &str) -> Result&lt;Value&gt; {
+    let program = parser::parse_program(code)
+        .context("Failed to parse code")?;
+    
+    let mut env = Env::new();
+    
+    let result = eval::eval_program(&program, &mut env)
+        .context("Failed to evaluate program")?;
+    
+    Ok(result)
+}
+
+// Usage with error handling
+match safe_evaluation("[1,2,3] | len") {
+    Ok(value) => println!("Result: {:?}", value),
+    Err(e) => eprintln!("Error: {}", e),
+}</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>Building & Compilation</h2>
+
+            <h3>Build Commands</h3>
+            <pre><code># Build debug binary
+cargo build
+
+# Build release binary
+cargo build --release
+
+# Build all binaries (ae + aimodel)
+cargo build --bins --release
+
+# Run tests
+cargo test
+
+# Run with features
+cargo build --features "ai,mcp"</code></pre>
+
+            <h3>Binary Outputs</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Binary</th>
+                        <th>Purpose</th>
+                        <th>Location</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>ae</code></td>
+                        <td>Main AetherShell executable</td>
+                        <td><code>target/release/ae.exe</code></td>
+                    </tr>
+                    <tr>
+                        <td><code>aimodel</code></td>
+                        <td>AI model management tool</td>
+                        <td><code>target/release/aimodel.exe</code></td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section class="feature-section">
+            <h2>Extension Points</h2>
+
+            <h3>Adding Custom Builtins</h3>
+            <pre><code>// In builtins.rs
+
+// 1. Add to lookup
+map.insert("my_function", 72);
+
+// 2. Add to dispatch table
+|args, input, _| bi_my_function(args, input),
+
+// 3. Implement function
+fn bi_my_function(args: Vec&lt;Value&gt;, input: Option&lt;Value&gt;) -> Result&lt;Value&gt; {
+    // Get argument or piped input
+    let value = if let Some(inp) = input {
+        inp
+    } else {
+        args.get(0).context("Expected argument")?.clone()
+    };
+    
+    // Process and return
+    Ok(value)
+}</code></pre>
+
+            <h3>Adding to Syntax KB</h3>
+            <pre><code>// In syntax_kb.rs - add_builtin_syntaxes()
+
+kb.add(SyntaxEntry {
+    id: "my_protocol".to_string(),
+    name: "My Custom Protocol".to_string(),
+    category: "protocol".to_string(),
+    specification: "Protocol specification...".to_string(),
+    examples: vec!["example1".to_string()],
+})?;</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>Performance Considerations</h2>
+
+            <h3>Optimization Tips</h3>
+            <ul>
+                <li>🔹 Use release builds for production: <code>cargo build --release</code></li>
+                <li>🔹 Pipeline operations are lazy-evaluated when possible</li>
+                <li>🔹 AgenticBinary is 3-5x more compact than JSON</li>
+                <li>🔹 Syntax KB caches are thread-safe and efficient</li>
+                <li>🔹 Type inference happens at parse time</li>
+            </ul>
+
+            <h3>Memory Usage</h3>
+            <pre><code>// Values are reference-counted internally
+let arr = Value::Array(vec![...]);  // No deep copies
+let shared = arr.clone();  // Cheap clone (Rc)</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>Testing</h2>
+
+            <h3>Unit Tests</h3>
+            <pre><code>#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_pipeline() -> Result&lt;()&gt; {
+        let program = parser::parse_program(
+            "[1,2,3] | map(fn(x) => x * 2)"
+        )?;
+        
+        let mut env = Env::new();
+        let result = eval::eval_program(&program, &mut env)?;
+        
+        assert_eq!(
+            result,
+            Value::Array(vec![
+                Value::Int(2),
+                Value::Int(4),
+                Value::Int(6)
+            ])
+        );
+        
+        Ok(())
+    }
+}</code></pre>
+
+            <h3>Running Tests</h3>
+            <pre><code># All tests
+cargo test
+
+# Specific test
+cargo test test_pipeline
+
+# With output
+cargo test -- --nocapture
+
+# Integration tests only
+cargo test --test '*'</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>Documentation</h2>
+
+            <h3>Generate Rust Docs</h3>
+            <pre><code># Generate documentation
+cargo doc --open
+
+# With dependencies
+cargo doc --open --document-private-items</code></pre>
+
+            <h3>API Documentation Location</h3>
+            <pre><code>target/doc/aether_shell/index.html</code></pre>
+        </section>
+
+        <div class="alert alert-success">
+            <strong>Complete!</strong> You now have the full AetherShell API reference. For more details, see the <a
+                href="https://github.com/nervosys/AetherShell">GitHub repository</a>.
+        </div>
+    </main>
+
+    <footer>
+        <p>&copy; 2025 AetherShell. Built with Rust 🦀</p>
+    </footer>
+</body>
+
+</html>

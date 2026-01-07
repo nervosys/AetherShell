@@ -1,0 +1,66 @@
+# Multi-Backend AI Example
+# This example demonstrates using different AI backends in AetherShell
+
+# 1. Using different backends explicitly via model URIs
+print("=== Testing Different AI Backends ===")
+
+# OpenAI (cloud) - requires OPENAI_API_KEY
+# let openai_result = ai("openai:gpt-4o-mini", "Say hello in French")
+# print("OpenAI:", openai_result)
+
+# Ollama (local) - requires ollama server running
+# let ollama_result = ai("ollama:llama3", "Say hello in Spanish")
+# print("Ollama:", ollama_result)
+
+# vLLM (local high-performance) - requires vLLM server running
+# let vllm_result = ai("vllm:meta-llama/Llama-3-8B", "Say hello in German")
+# print("vLLM:", vllm_result)
+
+# llama.cpp (local efficient) - requires llama.cpp server running
+# let llamacpp_result = ai("llamacpp:model", "Say hello in Italian")
+# print("llama.cpp:", llamacpp_result)
+
+# 2. Using environment variable to set default backend
+# export AETHER_AI=ollama  # or vllm, llamacpp, openai, etc.
+# let default_result = ai("What is 2+2?")
+# print("Default backend:", default_result)
+
+# 3. Multi-agent with different backends for different roles
+# let agents = [
+#     {
+#         name: "planner",
+#         model: "openai:gpt-4o",  # Use powerful cloud model for planning
+#         role: "Plan the approach"
+#     },
+#     {
+#         name: "executor",
+#         model: "vllm:codellama-34b",  # Use fast local model for execution
+#         role: "Execute the plan"
+#     },
+#     {
+#         name: "reviewer",
+#         model: "ollama:llama3",  # Use local model for review
+#         role: "Review the results"
+#     }
+# ]
+# let result = agent_swarm(agents, "Create a Python script")
+# print("Swarm result:", result)
+
+# 4. Backend selection based on task complexity
+# fn choose_backend(complexity) => 
+#     if complexity == "high" then "openai:gpt-4o"
+#     else if complexity == "medium" then "vllm:meta-llama/Llama-3-70B"
+#     else "ollama:llama3"
+# 
+# let simple_task = ai(choose_backend("low"), "What is 1+1?")
+# let complex_task = ai(choose_backend("high"), "Explain quantum entanglement")
+
+print("=== Backend Configuration ===")
+print("To use these backends, you need to:")
+print("1. For Ollama: Run 'ollama serve' and 'ollama pull llama3'")
+print("2. For vLLM: Run 'python -m vllm.entrypoints.openai.api_server --model MODEL'")
+print("3. For llama.cpp: Run './server -m model.gguf --port 8080'")
+print("4. For OpenAI: Set OPENAI_API_KEY environment variable")
+print("")
+print("Set default backend: export AETHER_AI=ollama  # or vllm, llamacpp, openai")
+print("Or use model URIs: ai(\"vllm:model\", \"prompt\")")

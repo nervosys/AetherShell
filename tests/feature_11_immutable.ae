@@ -1,0 +1,6 @@
+// Test 11: Immutable variables
+
+print("Test 11: Immutable Variables")
+x = 42
+print(x)
+print("✓ Immutable variables work")

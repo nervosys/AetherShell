@@ -2,7 +2,7 @@ use crate::ai_api::{models::*, storage::ModelStorage};
 use anyhow::Result;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
@@ -72,27 +72,27 @@ impl ModelDownloader {
     pub fn new(storage: ModelStorage) -> Result<Self> {
         let cache_dir = storage.get_cache_dir().to_path_buf();
         fs::create_dir_all(&cache_dir)?;
-        
+
+        // SECURITY FIX (LOW-002): Use secure HTTP client with timeouts
+        let client =
+            crate::security::create_secure_async_client().unwrap_or_else(|_| Client::new());
+
         Ok(Self {
-            client: Client::new(),
+            client,
             storage,
             cache_dir,
         })
     }
 
     /// Download a model from Hugging Face
-    pub async fn download_model(
-        &mut self,
-        request: DownloadRequest,
-    ) -> Result<LocalModelMetadata> {
+    pub async fn download_model(&mut self, request: DownloadRequest) -> Result<LocalModelMetadata> {
         match &request.source.origin {
-            origin if origin == "huggingface" => {
-                self.download_huggingface_model(request).await
-            }
-            origin if origin == "url" => {
-                self.download_from_url(request).await
-            }
-            _ => Err(anyhow::anyhow!("Unsupported model source: {}", request.source.origin)),
+            origin if origin == "huggingface" => self.download_huggingface_model(request).await,
+            origin if origin == "url" => self.download_from_url(request).await,
+            _ => Err(anyhow::anyhow!(
+                "Unsupported model source: {}",
+                request.source.origin
+            )),
         }
     }
 
@@ -102,19 +102,24 @@ impl ModelDownloader {
         request: DownloadRequest,
     ) -> Result<LocalModelMetadata> {
         let model_id = &request.model_id;
-        
+
         // Get model info from Hugging Face API
         let model_info = self.fetch_huggingface_model_info(model_id).await?;
-        
+
         // Determine which files to download based on format preference
         let files_to_download = self.select_files_to_download(&model_info, &request)?;
-        
+
         if files_to_download.is_empty() {
-            return Err(anyhow::anyhow!("No suitable files found for model {}", model_id));
+            return Err(anyhow::anyhow!(
+                "No suitable files found for model {}",
+                model_id
+            ));
         }
 
         // Create temporary directory for download
-        let temp_dir = self.cache_dir.join(format!("download_{}", uuid::Uuid::new_v4()));
+        let temp_dir = self
+            .cache_dir
+            .join(format!("download_{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&temp_dir)?;
 
         let mut downloaded_files = Vec::new();
@@ -126,9 +131,9 @@ impl ModelDownloader {
                 "https://huggingface.co/{}/resolve/main/{}",
                 model_id, file.rfilename
             );
-            
+
             let local_path = temp_dir.join(&file.rfilename);
-            
+
             // Create subdirectories if needed
             if let Some(parent) = local_path.parent() {
                 fs::create_dir_all(parent)?;
@@ -136,16 +141,16 @@ impl ModelDownloader {
 
             let downloaded_size = self.download_file(&file_url, &local_path).await?;
             total_size += downloaded_size;
-            
+
             downloaded_files.push((file.clone(), local_path));
         }
 
         // Determine the main model file and format
         let (_main_file, main_path, format) = self.identify_main_model_file(&downloaded_files)?;
-        
+
         // Read the main model file
         let model_data = fs::read(&main_path)?;
-        
+
         // Calculate checksum
         let mut hasher = Sha256::new();
         hasher.update(&model_data);
@@ -178,10 +183,13 @@ impl ModelDownloader {
         };
 
         // Store the model
-        self.storage.store_model(&model_data, metadata.clone()).await?;
+        self.storage
+            .store_model(&model_data, metadata.clone())
+            .await?;
 
         // Copy additional files to storage if needed
-        self.store_additional_files(&downloaded_files, &metadata).await?;
+        self.store_additional_files(&downloaded_files, &metadata)
+            .await?;
 
         // Clean up temporary directory
         if let Err(_) = fs::remove_dir_all(&temp_dir) {
@@ -192,18 +200,20 @@ impl ModelDownloader {
     }
 
     /// Download model from a direct URL
-    async fn download_from_url(
-        &mut self,
-        request: DownloadRequest,
-    ) -> Result<LocalModelMetadata> {
-        let url = request.source.url.clone()
+    async fn download_from_url(&mut self, request: DownloadRequest) -> Result<LocalModelMetadata> {
+        let url = request
+            .source
+            .url
+            .clone()
             .ok_or_else(|| anyhow::anyhow!("URL required for URL source"))?;
 
-        let temp_path = self.cache_dir.join(format!("temp_{}", uuid::Uuid::new_v4()));
+        let temp_path = self
+            .cache_dir
+            .join(format!("temp_{}", uuid::Uuid::new_v4()));
         let downloaded_size = self.download_file(&url, &temp_path).await?;
-        
+
         let model_data = fs::read(&temp_path)?;
-        
+
         // Calculate checksum
         let mut hasher = Sha256::new();
         hasher.update(&model_data);
@@ -242,7 +252,9 @@ impl ModelDownloader {
             source: request.source,
         };
 
-        self.storage.store_model(&model_data, metadata.clone()).await?;
+        self.storage
+            .store_model(&model_data, metadata.clone())
+            .await?;
 
         // Clean up temporary file
         if let Err(_) = fs::remove_file(&temp_path) {
@@ -255,8 +267,9 @@ impl ModelDownloader {
     /// Fetch model information from Hugging Face API
     async fn fetch_huggingface_model_info(&self, model_id: &str) -> Result<HuggingFaceModelInfo> {
         let url = format!("https://huggingface.co/api/models/{}", model_id);
-        
-        let response = self.client
+
+        let response = self
+            .client
             .get(&url)
             .header("User-Agent", "ai-model-api/1.0")
             .send()
@@ -264,7 +277,7 @@ impl ModelDownloader {
 
         if !response.status().is_success() {
             return Err(anyhow::anyhow!(
-                "Failed to fetch model info: HTTP {}", 
+                "Failed to fetch model info: HTTP {}",
                 response.status()
             ));
         }
@@ -275,28 +288,32 @@ impl ModelDownloader {
 
     /// Download a single file with progress tracking
     async fn download_file(&self, url: &str, local_path: &Path) -> Result<u64> {
-        let response = self.client
+        let response = self
+            .client
             .get(url)
             .header("User-Agent", "ai-model-api/1.0")
             .send()
             .await?;
 
         if !response.status().is_success() {
-            return Err(anyhow::anyhow!("Failed to download file: HTTP {}", response.status()));
+            return Err(anyhow::anyhow!(
+                "Failed to download file: HTTP {}",
+                response.status()
+            ));
         }
 
         let _total_size = response.content_length();
         let mut file = tokio::fs::File::create(local_path).await?;
         let mut downloaded = 0u64;
-        
+
         let mut stream = response.bytes_stream();
         use futures_util::StreamExt;
-        
+
         while let Some(chunk) = stream.next().await {
             let chunk = chunk?;
             file.write_all(&chunk).await?;
             downloaded += chunk.len() as u64;
-            
+
             // TODO: Report progress
         }
 
@@ -311,7 +328,7 @@ impl ModelDownloader {
         request: &DownloadRequest,
     ) -> Result<Vec<HuggingFaceFile>> {
         let mut selected_files = Vec::new();
-        
+
         // Priority order for different formats
         let format_extensions = match &request.format_preference {
             Some(ModelFormat::GGUF) => vec!["gguf"],
@@ -344,10 +361,11 @@ impl ModelDownloader {
 
         // Always include config and tokenizer files
         for file in &model_info.siblings {
-            if file.rfilename == "config.json" 
+            if file.rfilename == "config.json"
                 || file.rfilename == "tokenizer.json"
                 || file.rfilename == "tokenizer_config.json"
-                || file.rfilename.starts_with("tokenizer") {
+                || file.rfilename.starts_with("tokenizer")
+            {
                 selected_files.push(file.clone());
             }
         }
@@ -365,19 +383,19 @@ impl ModelDownloader {
                 return Ok((file.clone(), path.clone(), ModelFormat::GGUF));
             }
         }
-        
+
         for (file, path) in files {
             if file.rfilename.ends_with(".safetensors") {
                 return Ok((file.clone(), path.clone(), ModelFormat::SafeTensors));
             }
         }
-        
+
         for (file, path) in files {
             if file.rfilename.ends_with(".bin") || file.rfilename.ends_with(".pt") {
                 return Ok((file.clone(), path.clone(), ModelFormat::PyTorch));
             }
         }
-        
+
         Err(anyhow::anyhow!("No suitable model file found"))
     }
 
@@ -392,7 +410,10 @@ impl ModelDownloader {
     }
 
     /// Find tokenizer file path
-    fn find_tokenizer_file(&self, files: &[(HuggingFaceFile, std::path::PathBuf)]) -> Option<String> {
+    fn find_tokenizer_file(
+        &self,
+        files: &[(HuggingFaceFile, std::path::PathBuf)],
+    ) -> Option<String> {
         for (file, path) in files {
             if file.rfilename == "tokenizer.json" {
                 return Some(path.to_string_lossy().to_string());
@@ -461,23 +482,45 @@ impl ModelDownloader {
     }
 
     /// Extract model parameters from metadata
-    fn extract_parameters(&self, model_info: &HuggingFaceModelInfo) -> HashMap<String, serde_json::Value> {
+    fn extract_parameters(
+        &self,
+        model_info: &HuggingFaceModelInfo,
+    ) -> HashMap<String, serde_json::Value> {
         let mut params = HashMap::new();
-        
-        params.insert("downloads".to_string(), serde_json::Value::Number(model_info.downloads.into()));
-        params.insert("likes".to_string(), serde_json::Value::Number(model_info.likes.into()));
-        
+
+        params.insert(
+            "downloads".to_string(),
+            serde_json::Value::Number(model_info.downloads.into()),
+        );
+        params.insert(
+            "likes".to_string(),
+            serde_json::Value::Number(model_info.likes.into()),
+        );
+
         if let Some(library) = &model_info.library_name {
-            params.insert("library_name".to_string(), serde_json::Value::String(library.clone()));
-        }
-        
-        if let Some(pipeline) = &model_info.pipeline_tag {
-            params.insert("pipeline_tag".to_string(), serde_json::Value::String(pipeline.clone()));
+            params.insert(
+                "library_name".to_string(),
+                serde_json::Value::String(library.clone()),
+            );
         }
 
-        params.insert("tags".to_string(), serde_json::Value::Array(
-            model_info.tags.iter().map(|t| serde_json::Value::String(t.clone())).collect()
-        ));
+        if let Some(pipeline) = &model_info.pipeline_tag {
+            params.insert(
+                "pipeline_tag".to_string(),
+                serde_json::Value::String(pipeline.clone()),
+            );
+        }
+
+        params.insert(
+            "tags".to_string(),
+            serde_json::Value::Array(
+                model_info
+                    .tags
+                    .iter()
+                    .map(|t| serde_json::Value::String(t.clone()))
+                    .collect(),
+            ),
+        );
 
         params
     }
@@ -486,7 +529,7 @@ impl ModelDownloader {
     fn infer_format_from_url(&self, url: &str) -> Result<ModelFormat> {
         let url_parsed = Url::parse(url)?;
         let path = url_parsed.path();
-        
+
         if path.ends_with(".gguf") {
             Ok(ModelFormat::GGUF)
         } else if path.ends_with(".safetensors") {
@@ -510,10 +553,13 @@ impl ModelDownloader {
 
     /// Search Hugging Face models
     async fn search_huggingface_models(&self, query: &str) -> Result<Vec<ModelSearchResult>> {
-        let url = format!("https://huggingface.co/api/models?search={}&limit=20", 
-                         urlencoding::encode(query));
-        
-        let response = self.client
+        let url = format!(
+            "https://huggingface.co/api/models?search={}&limit=20",
+            urlencoding::encode(query)
+        );
+
+        let response = self
+            .client
             .get(&url)
             .header("User-Agent", "ai-model-api/1.0")
             .send()
@@ -524,18 +570,21 @@ impl ModelDownloader {
         }
 
         let models: Vec<HuggingFaceModelInfo> = response.json().await?;
-        
-        let results = models.into_iter().map(|model| ModelSearchResult {
-            id: model.id.clone(),
-            name: model.id,
-            description: format!("Hugging Face model with {} downloads", model.downloads),
-            source: "huggingface".to_string(),
-            downloads: Some(model.downloads),
-            likes: Some(model.likes),
-            tags: model.tags,
-            library_name: model.library_name,
-            pipeline_tag: model.pipeline_tag,
-        }).collect();
+
+        let results = models
+            .into_iter()
+            .map(|model| ModelSearchResult {
+                id: model.id.clone(),
+                name: model.id,
+                description: format!("Hugging Face model with {} downloads", model.downloads),
+                source: "huggingface".to_string(),
+                downloads: Some(model.downloads),
+                likes: Some(model.likes),
+                tags: model.tags,
+                library_name: model.library_name,
+                pipeline_tag: model.pipeline_tag,
+            })
+            .collect();
 
         Ok(results)
     }

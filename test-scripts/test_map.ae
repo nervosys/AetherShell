@@ -1,0 +1,15 @@
+print("=== Testing basic map/foreach ===")
+
+let nums = [1, 2, 3]
+print("Testing map with simple addition:")
+let mapped = nums | map(fn(x) => x + 10)
+print(mapped)
+
+print("")
+print("Testing map with print (should show side effects):")
+let mapped2 = nums | map(fn(x) => print("Processing: " + x))
+print("Mapped result:")
+print(mapped2)
+
+print("")
+print("Done")

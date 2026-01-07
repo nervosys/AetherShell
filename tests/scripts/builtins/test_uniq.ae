@@ -1,0 +1,1 @@
+"apple\napple\nbanana\nbanana\nbanana\ncat" | uniq()

@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI & Agents - AetherShell Documentation</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/ayu-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', (event) => {
+            document.querySelectorAll('pre code').forEach((block) => {
+                hljs.highlightElement(block);
+            });
+        });
+    </script>
+</head>
+
+<body>
+    <nav class="sidebar">
+        <div class="logo">
+            <h1>🚀 AetherShell</h1>
+            <p class="version">v1.0.0</p>
+        </div>
+        <ul class="nav-menu">
+            <li><a href="index.html">Home</a></li>
+            <li><a href="quickstart.html">Quick Start</a></li>
+            <li><a href="tutorial.html">Tutorial</a></li>
+            <li><a href="syntax.html">Syntax Reference</a></li>
+            <li><a href="builtins.html">Built-in Functions</a></li>
+            <li><a href="types.html">Type System</a></li>
+            <li><a href="ai.html" class="active">AI & Agents</a></li>
+            <li><a href="syntax-kb.html">Syntax KB</a></li>
+            <li><a href="examples.html">Examples</a></li>
+            <li><a href="api.html">API Reference</a></li>
+        </ul>
+        <div class="sidebar-footer">
+            <a href="https://github.com/nervosys/AetherShell" target="_blank">GitHub</a>
+        </div>
+    </nav>
+
+    <main class="content">
+        <header class="page-header">
+            <h1>🤖 AI & Agents</h1>
+            <p class="subtitle">Multi-modal AI, agent systems, and protocols</p>
+        </header>
+
+        <section class="feature-section">
+            <h2>Overview</h2>
+            <p>AetherShell integrates AI capabilities at the language level, enabling:</p>
+
+            <ul>
+                <li>🤖 <strong>AI Agents</strong> - Autonomous task execution with tool access</li>
+                <li>🔄 <strong>Multi-Agent Systems</strong> - Coordinated agent workflows</li>
+                <li>📡 <strong>AgenticBinary Protocol</strong> - Efficient inter-agent communication</li>
+                <li>🎨 <strong>Multi-Modal Support</strong> - Images, audio, video processing</li>
+                <li>🌐 <strong>Model URIs</strong> - Unified interface to AI providers</li>
+            </ul>
+        </section>
+
+        <section class="feature-section">
+            <h2>AI Model URIs</h2>
+
+            <h3>Supported Providers</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Provider</th>
+                        <th>URI Scheme</th>
+                        <th>Example</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>OpenAI</td>
+                        <td><code>openai:</code></td>
+                        <td><code>openai:gpt-4o-mini</code></td>
+                    </tr>
+                    <tr>
+                        <td>Ollama (Local)</td>
+                        <td><code>ollama:</code></td>
+                        <td><code>ollama:llama3</code></td>
+                    </tr>
+                    <tr>
+                        <td>Compatibility</td>
+                        <td><code>compat:</code></td>
+                        <td><code>compat:mixtral</code></td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>Environment Setup</h3>
+            <pre><code># Set default AI provider
+export AETHER_AI=openai
+
+# OpenAI API key
+export OPENAI_API_KEY=sk-...
+
+# Ollama (local models)
+ollama pull llama3</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>Single Agent Execution</h2>
+
+            <h3>Basic Agent</h3>
+            <pre><code>// Deploy agent with goal and allowed tools
+result = agent(
+    "Count all Rust source files in src/",
+    "ls,find",    // Whitelisted commands
+    5             // Max iterations
+)
+print(result)</code></pre>
+
+            <h3>Agent with Tool Restrictions</h3>
+            <pre><code>// Whitelist specific tools for security
+export AGENT_ALLOW_CMDS=ls,cat,grep,find
+
+// Agent can only use allowed tools
+analysis = agent(
+    "Find all TODO comments in the codebase",
+    "grep,find",
+    10
+)</code></pre>
+
+            <h3>Agent Workflow</h3>
+            <div class="step-container">
+                <div class="step">
+                    <h4>1. Goal Understanding</h4>
+                    <p>Agent parses natural language goal</p>
+                </div>
+                <div class="step">
+                    <h4>2. Planning</h4>
+                    <p>Determines required tools and steps</p>
+                </div>
+                <div class="step">
+                    <h4>3. Execution</h4>
+                    <p>Iteratively executes tools and processes results</p>
+                </div>
+                <div class="step">
+                    <h4>4. Result</h4>
+                    <p>Returns final answer or artifact</p>
+                </div>
+            </div>
+        </section>
+
+        <section class="feature-section">
+            <h2>AgenticBinary Protocol</h2>
+
+            <h3>Protocol Overview</h3>
+            <p>A compact binary protocol designed for efficient agent-to-agent communication. 3-5x more compact than
+                JSON.</p>
+
+            <div class="alert alert-info">
+                <strong>Format:</strong> 8-bit header + varint-encoded payload<br>
+                <strong>Header:</strong> <code>0bVVTTCCCC</code> (Version 2 bits + MsgType 2 bits + Opcode 4 bits)
+            </div>
+
+            <h3>Message Types</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Type</th>
+                        <th>Code</th>
+                        <th>Usage</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>command</code></td>
+                        <td>0b00</td>
+                        <td>Execute actions, delegate tasks</td>
+                    </tr>
+                    <tr>
+                        <td><code>query</code></td>
+                        <td>0b01</td>
+                        <td>Request information, status</td>
+                    </tr>
+                    <tr>
+                        <td><code>response</code></td>
+                        <td>0b10</td>
+                        <td>Return results, acknowledgments</td>
+                    </tr>
+                    <tr>
+                        <td><code>event</code></td>
+                        <td>0b11</td>
+                        <td>Notifications, state changes</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>Semantic Opcodes (16 total)</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Opcode</th>
+                        <th>Name</th>
+                        <th>Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>0</td>
+                        <td><code>PING</code></td>
+                        <td>Health check, connection test</td>
+                    </tr>
+                    <tr>
+                        <td>1</td>
+                        <td><code>ACK</code></td>
+                        <td>Acknowledgment of receipt</td>
+                    </tr>
+                    <tr>
+                        <td>2</td>
+                        <td><code>QUERY</code></td>
+                        <td>Information request</td>
+                    </tr>
+                    <tr>
+                        <td>3</td>
+                        <td><code>EXEC</code></td>
+                        <td>Execute command/task</td>
+                    </tr>
+                    <tr>
+                        <td>4</td>
+                        <td><code>DATA</code></td>
+                        <td>Data payload transfer</td>
+                    </tr>
+                    <tr>
+                        <td>5</td>
+                        <td><code>ERROR</code></td>
+                        <td>Error notification</td>
+                    </tr>
+                    <tr>
+                        <td>6</td>
+                        <td><code>SYNC</code></td>
+                        <td>State synchronization</td>
+                    </tr>
+                    <tr>
+                        <td>7</td>
+                        <td><code>AUTH</code></td>
+                        <td>Authentication/authorization</td>
+                    </tr>
+                    <tr>
+                        <td>8</td>
+                        <td><code>DELEGATE</code></td>
+                        <td>Task delegation</td>
+                    </tr>
+                    <tr>
+                        <td>9</td>
+                        <td><code>COLLABORATE</code></td>
+                        <td>Request collaboration</td>
+                    </tr>
+                    <tr>
+                        <td>10</td>
+                        <td><code>LEARN</code></td>
+                        <td>Knowledge sharing</td>
+                    </tr>
+                    <tr>
+                        <td>11</td>
+                        <td><code>REASON</code></td>
+                        <td>Reasoning/inference</td>
+                    </tr>
+                    <tr>
+                        <td>12</td>
+                        <td><code>PLAN</code></td>
+                        <td>Planning activity</td>
+                    </tr>
+                    <tr>
+                        <td>13</td>
+                        <td><code>OBSERVE</code></td>
+                        <td>Observation/monitoring</td>
+                    </tr>
+                    <tr>
+                        <td>14</td>
+                        <td><code>REFLECT</code></td>
+                        <td>Self-reflection</td>
+                    </tr>
+                    <tr>
+                        <td>15</td>
+                        <td><code>EXTEND</code></td>
+                        <td>Extension/customization</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>Encoding Messages</h3>
+            <pre><code>// Encode a PING command
+ping = ab_encode("command", "ping", "hello")
+// Returns: [0, 5, 104, 101, 108, 108, 111]
+//   Header: 0 (version=0, type=command, opcode=PING)
+//   Payload: varint(5) + "hello"
+
+// Encode ACK response
+ack = ab_encode("response", "ack", "received")
+
+// Encode DELEGATE command
+task = ab_encode("command", "delegate", "analyze_data")
+
+// Encode DATA response
+result = ab_encode("response", "data", "complete")</code></pre>
+
+            <h3>Decoding Messages</h3>
+            <pre><code>// Receive binary message
+bytes = [0, 5, 104, 101, 108, 108, 111]
+
+// Decode to structured format
+msg = ab_decode(bytes)
+
+print(msg.msg_type)  // "Command"
+print(msg.opcode)    // "PING"
+print(msg.payload)   // "hello"</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>Multi-Agent Coordination</h2>
+
+            <h3>Agent Roles</h3>
+            <div class="card-grid">
+                <div class="card">
+                    <h4>🎯 Coordinator</h4>
+                    <p>Manages workflow, delegates tasks, collects results</p>
+                </div>
+                <div class="card">
+                    <h4>⚙️ Worker</h4>
+                    <p>Executes specific tasks, reports progress</p>
+                </div>
+                <div class="card">
+                    <h4>📚 Specialist</h4>
+                    <p>Domain expert for specific operations</p>
+                </div>
+                <div class="card">
+                    <h4>🔍 Observer</h4>
+                    <p>Monitors system, detects issues</p>
+                </div>
+            </div>
+
+            <h3>Coordination Example</h3>
+            <pre><code>// Phase 1: Workers learn protocol
+spec = syntax_get("ab")
+worker1_msg = ab_encode("command", "learn", spec.specification)
+worker2_msg = ab_encode("command", "learn", spec.specification)
+
+// Phase 2: Workers signal ready
+worker1_ready = ab_encode("response", "ack", "worker1:ready")
+worker2_ready = ab_encode("response", "ack", "worker2:ready")
+
+// Phase 3: Coordinator delegates tasks
+task1 = ab_encode("command", "delegate", "worker1:analyze_logs")
+task2 = ab_encode("command", "delegate", "worker2:process_data")
+
+// Phase 4: Workers execute
+exec1 = ab_encode("command", "exec", "started:log_analysis")
+exec2 = ab_encode("command", "exec", "started:data_processing")
+
+// Phase 5: Workers collaborate (if needed)
+collab = ab_encode("command", "collaborate", "worker2:need_log_data")
+
+// Phase 6: Workers report results
+result1 = ab_encode("response", "data", "complete:analysis.json")
+result2 = ab_encode("response", "data", "complete:processed.json")
+
+// Phase 7: Coordinator reflects
+reflection = ab_encode("command", "reflect", "efficiency:95%")</code></pre>
+
+            <h3>Communication Patterns</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Pattern</th>
+                        <th>Opcodes</th>
+                        <th>Use Case</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Task Delegation</td>
+                        <td>DELEGATE → ACK → EXEC → DATA</td>
+                        <td>Coordinator assigns work to workers</td>
+                    </tr>
+                    <tr>
+                        <td>Collaboration</td>
+                        <td>COLLABORATE → ACK → DATA</td>
+                        <td>Agents request help from peers</td>
+                    </tr>
+                    <tr>
+                        <td>Knowledge Sharing</td>
+                        <td>LEARN → ACK → SYNC</td>
+                        <td>Distribute new information across swarm</td>
+                    </tr>
+                    <tr>
+                        <td>Error Handling</td>
+                        <td>ERROR → DELEGATE (retry)</td>
+                        <td>Recover from failures, reassign tasks</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section class="feature-section">
+            <h2>Multi-Modal AI</h2>
+
+            <h3>Supported Modalities</h3>
+            <div class="card-grid">
+                <div class="card">
+                    <h4>📝 Text</h4>
+                    <p>Natural language processing, generation, understanding</p>
+                </div>
+                <div class="card">
+                    <h4>🖼️ Images</h4>
+                    <p>Image analysis, generation, object detection</p>
+                </div>
+                <div class="card">
+                    <h4>🎵 Audio</h4>
+                    <p>Speech recognition, audio transcription</p>
+                </div>
+                <div class="card">
+                    <h4>🎬 Video</h4>
+                    <p>Video analysis, frame extraction</p>
+                </div>
+            </div>
+
+            <h3>Multi-Modal Examples (Future API)</h3>
+            <pre><code>// Analyze image
+// image_data = cat("photo.jpg")
+// result = ai_analyze(image_data, "Describe this image")
+
+// Transcribe audio
+// audio = cat("recording.mp3")
+// transcript = ai_transcribe(audio)
+
+// Generate image from text
+// image = ai_generate("A futuristic cityscape at sunset")
+// save(image, "output.png")</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>Model Context Protocol (MCP)</h2>
+
+            <h3>MCP Integration</h3>
+            <p>AetherShell supports the Model Context Protocol for standardized AI tool integration.</p>
+
+            <h3>MCP Functions</h3>
+            <pre><code>// List available MCP servers
+servers = mcp_servers()
+print(servers)
+
+// Detect MCP servers in directory
+detected = mcp_detect("./tools")
+
+// Cache management
+mcp_cache_clear()
+status = mcp_cache_status()</code></pre>
+
+            <h3>MCP Server Discovery</h3>
+            <pre><code>// Scan workspace for MCP tools
+tools = mcp_detect(".")
+
+// Connect to specific server
+// connection = mcp_connect("filesystem-server")
+
+// Call tool through MCP
+// result = mcp_call(connection, "read_file", {path: "data.txt"})</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>Best Practices</h2>
+
+            <h3>Security</h3>
+            <div class="alert alert-warning">
+                <strong>Tool Whitelisting:</strong> Always specify allowed commands when deploying agents<br>
+                <strong>API Keys:</strong> Store API keys in environment variables, never hardcode<br>
+                <strong>Validation:</strong> Validate agent outputs before executing actions
+            </div>
+
+            <h3>Performance</h3>
+            <ul>
+                <li>🔹 Use AgenticBinary for frequent agent communication (3-5x compression)</li>
+                <li>🔹 Cache Syntax KB entries to reduce lookups</li>
+                <li>🔹 Batch agent tasks when possible to reduce API calls</li>
+                <li>🔹 Prefer local models (Ollama) for low-latency operations</li>
+            </ul>
+
+            <h3>Error Handling</h3>
+            <pre><code>// Check agent result status
+result = agent("Task description", "ls,find", 5)
+
+if type_of(result) == "Record" && result.status == "error" {
+    print("Agent failed: ${result.message}")
+    // Retry or fallback logic
+} else {
+    print("Success: ${result}")
+}</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>Complete Multi-Agent Example</h2>
+            <p>See <code>examples/13_agent_coordination.ae</code> for a full 10-phase workflow with:</p>
+
+            <ul>
+                <li>✅ 4 agents (Coordinator + 3 Workers)</li>
+                <li>✅ 17 messages exchanged</li>
+                <li>✅ All major opcodes demonstrated</li>
+                <li>✅ Task delegation, collaboration, learning</li>
+                <li>✅ Error handling and recovery</li>
+                <li>✅ Final reflection and metrics</li>
+            </ul>
+
+            <pre><code># Run the example
+ae examples/13_agent_coordination.ae</code></pre>
+        </section>
+
+        <div class="alert alert-success">
+            <strong>Next:</strong> Learn about <a href="syntax-kb.html">Syntax Knowledge Base</a> or see <a
+                href="examples.html">Code Examples</a>.
+        </div>
+    </main>
+
+    <footer>
+        <p>&copy; 2025 AetherShell. Built with Rust 🦀</p>
+    </footer>
+</body>
+
+</html>

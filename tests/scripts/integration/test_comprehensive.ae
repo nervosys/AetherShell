@@ -1,0 +1,24 @@
+# Test comprehensive file system commands
+
+# Basic directory operations
+pwd()
+print("Current directory: " + pwd())
+
+# List files
+ls(".")
+print("Files in current directory: " + str(ls(".") | where fn(f) => !f.is_dir | take(5)))
+
+# File operations with pipelines
+cat("README.md") | head(5) | print("First 5 lines of README:")
+
+# Pattern matching
+find(".", "*.ae") | print("AE files found:")
+
+# Text processing pipelines
+"apple\nbanana\napple\ncherry\nbanana" | sort() | uniq() | print("Sorted unique fruits:")
+
+# Complex pipeline
+cat("README.md") | grep("AI") | head(3) | print("First 3 lines mentioning AI:")
+
+# Word count
+cat("README.md") | wc() | print("README word count:")

@@ -1,0 +1,35 @@
+//!/usr/bin/env ae
+// AI Protocols
+
+print("AI Protocols Demo")
+print("==================================================")
+
+// MCP Protocol
+print("\nMCP - Model Context Protocol")
+tools = [{name: "fetch_url"}, {name: "read_file"}]
+print("Tools: ${len(tools)}")
+
+// A2A Protocol
+print("\nA2A - Agent Communication")
+msg = {from: "coord", to: "worker"}
+print("Message: ${msg.from} to ${msg.to}")
+
+// NANDA Protocol
+print("\nNANDA - Negotiation")
+votes = [{agent: "a1", vote: "Accept"}, {agent: "a2", vote: "Accept"}]
+accepted_votes = votes | where(fn(v) => v.vote == "Accept")
+accepts = len(accepted_votes)
+total = len(votes)
+print("Votes: ${accepts}/${total}")
+
+// Check consensus
+threshold = 0.75
+pct = accepts / total
+reached = pct >= threshold
+status = match reached {
+  true => "Consensus",
+  false => "No consensus"
+}
+print("Status: ${status}")
+
+print("\nComplete!")

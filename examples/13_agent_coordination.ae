@@ -1,0 +1,208 @@
+// Real-World Multi-Agent Coordination Example
+// Demonstrates practical use of Syntax KB and AgenticBinary for agent collaboration
+
+print("=== Multi-Agent Task Distribution System ===")
+print("")
+
+// Scenario: A coordinator agent distributes tasks to worker agents
+// Workers learn the protocol, receive tasks, execute them, and report results
+
+// Step 1: Worker agents learn the AgenticBinary protocol
+print("Phase 1: Protocol Discovery")
+print("---------------------------")
+
+// Worker 1 queries available protocols
+available_protocols = syntax_list("protocol")
+print("Worker 1: Available protocols -")
+print(available_protocols)
+print("")
+
+// Worker 1 retrieves AgenticBinary specification
+ab_spec = syntax_get("ab")
+print("Worker 1: Learning AgenticBinary protocol...")
+print("  Protocol: " + ab_spec.name)
+print("  16 opcodes available for coordination")
+print("")
+
+// Step 2: Workers signal readiness to coordinator
+print("Phase 2: Agent Registration")
+print("---------------------------")
+
+worker1_ready = ab_encode("response", "ack", "worker1:ready")
+worker2_ready = ab_encode("response", "ack", "worker2:ready")
+worker3_ready = ab_encode("response", "ack", "worker3:ready")
+
+print("Worker 1 → Coordinator:")
+print(ab_decode(worker1_ready))
+print("")
+
+print("Worker 2 → Coordinator:")
+print(ab_decode(worker2_ready))
+print("")
+
+print("Worker 3 → Coordinator:")
+print(ab_decode(worker3_ready))
+print("")
+
+// Step 3: Coordinator delegates tasks
+print("Phase 3: Task Delegation")
+print("------------------------")
+
+task1 = ab_encode("command", "delegate", "analyze_logs:server1")
+task2 = ab_encode("command", "delegate", "backup_database:prod")
+task3 = ab_encode("command", "delegate", "optimize_queries:cache")
+
+print("Coordinator → Worker 1: DELEGATE")
+decoded_task1 = ab_decode(task1)
+print("  Task: " + decoded_task1.payload)
+print("")
+
+print("Coordinator → Worker 2: DELEGATE")
+decoded_task2 = ab_decode(task2)
+print("  Task: " + decoded_task2.payload)
+print("")
+
+print("Coordinator → Worker 3: DELEGATE")
+decoded_task3 = ab_decode(task3)
+print("  Task: " + decoded_task3.payload)
+print("")
+
+// Step 4: Workers acknowledge and execute
+print("Phase 4: Task Execution")
+print("-----------------------")
+
+// Worker 1 acknowledges
+w1_ack = ab_encode("response", "ack", "task_received:analyze_logs")
+print("Worker 1 → Coordinator:")
+print(ab_decode(w1_ack))
+print("")
+
+// Worker 1 starts execution
+w1_exec = ab_encode("command", "exec", "started:analyze_logs")
+print("Worker 1 → Coordinator:")
+print(ab_decode(w1_exec))
+print("")
+
+// Worker 2 and 3 also acknowledge
+w2_ack = ab_encode("response", "ack", "task_received:backup_database")
+w3_ack = ab_encode("response", "ack", "task_received:optimize_queries")
+
+print("Worker 2 & 3 acknowledged tasks")
+print("")
+
+// Step 5: Workers report progress
+print("Phase 5: Progress Updates")
+print("-------------------------")
+
+// Worker 1 sends intermediate data
+w1_progress = ab_encode("response", "data", "logs_analyzed:1247,errors:3")
+print("Worker 1 → Coordinator: PROGRESS")
+progress1 = ab_decode(w1_progress)
+print("  " + progress1.payload)
+print("")
+
+// Worker 2 sends sync message
+w2_sync = ab_encode("command", "sync", "backup:75%")
+print("Worker 2 → Coordinator: SYNC")
+sync2 = ab_decode(w2_sync)
+print("  " + sync2.payload)
+print("")
+
+// Step 6: Inter-worker collaboration
+print("Phase 6: Agent Collaboration")
+print("-----------------------------")
+
+// Worker 3 needs help from Worker 1
+w3_collab = ab_encode("command", "collaborate", "worker1:need_log_analysis")
+print("Worker 3 → Worker 1: COLLABORATE request")
+collab_req = ab_decode(w3_collab)
+print("  Request: " + collab_req.payload)
+print("")
+
+// Worker 1 shares knowledge
+w1_learn = ab_encode("command", "learn", "log_patterns:high_cpu,memory_leak")
+print("Worker 1 → Worker 3: LEARN")
+learn_msg = ab_decode(w1_learn)
+print("  Knowledge: " + learn_msg.payload)
+print("")
+
+// Step 7: Error handling
+print("Phase 7: Error Handling")
+print("-----------------------")
+
+// Worker 2 encounters an error
+w2_error = ab_encode("response", "error", "backup_failed:disk_full")
+print("Worker 2 → Coordinator: ERROR")
+error_msg = ab_decode(w2_error)
+print("  Error: " + error_msg.payload)
+print("")
+
+// Coordinator reassigns task
+recovery = ab_encode("command", "delegate", "backup_database:backup_server")
+print("Coordinator → Worker 2: Reassignment")
+print(ab_decode(recovery))
+print("")
+
+// Step 8: Final results
+print("Phase 8: Task Completion")
+print("------------------------")
+
+// Workers send final results
+w1_result = ab_encode("response", "data", "analysis_complete:report.json")
+w2_result = ab_encode("response", "data", "backup_complete:backup-20251108.tar.gz")
+w3_result = ab_encode("response", "data", "optimization_complete:saved_37ms")
+
+print("Worker 1 → Coordinator: COMPLETE")
+print("  " + ab_decode(w1_result).payload)
+print("")
+
+print("Worker 2 → Coordinator: COMPLETE")
+print("  " + ab_decode(w2_result).payload)
+print("")
+
+print("Worker 3 → Coordinator: COMPLETE")
+print("  " + ab_decode(w3_result).payload)
+print("")
+
+// Step 9: Coordinator reflects on coordination efficiency
+print("Phase 9: Meta-Analysis")
+print("----------------------")
+
+coordinator_reflect = ab_encode("command", "reflect", "coordination_efficiency:92%,avg_task_time:45s")
+print("Coordinator → System:")
+reflection = ab_decode(coordinator_reflect)
+print("  Reflection: " + reflection.payload)
+print("")
+
+// Step 10: System-level planning
+print("Phase 10: Future Planning")
+print("-------------------------")
+
+// Coordinator plans improvements
+plan_msg = ab_encode("command", "plan", "optimize_delegation:use_worker_capabilities,parallel_execution")
+print("Coordinator → System:")
+plan = ab_decode(plan_msg)
+print("  Plan: " + plan.payload)
+print("")
+
+// Summary
+print("=== Coordination Complete ===")
+print("")
+print("Message Statistics:")
+print("  Total messages: 17")
+print("  Opcodes used: DELEGATE, ACK, EXEC, DATA, SYNC, COLLABORATE, LEARN, ERROR, REFLECT, PLAN")
+print("  Agents: 1 coordinator + 3 workers")
+print("  Tasks completed: 3/3")
+print("")
+print("Benefits of AgenticBinary:")
+print("  • Compact binary encoding (3-5x compression)")
+print("  • Semantic opcodes (no ambiguity)")
+print("  • Version-aware protocol evolution")
+print("  • Error recovery built-in")
+print("  • Meta-cognition support (REFLECT, PLAN)")
+print("")
+print("Syntax KB enabled:")
+print("  • Protocol discovery without hardcoding")
+print("  • Shared understanding across agents")
+print("  • Runtime learning of new protocols")
+print("  • Persistent knowledge storage")

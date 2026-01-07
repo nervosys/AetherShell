@@ -1,0 +1,129 @@
+// Syntax Knowledge Base Demonstration
+// Showcases the Syntax KB system for multi-agent communication
+
+print("=== Syntax Knowledge Base Demo ===")
+print("")
+
+// 1. Get details of AgenticBinary protocol
+print("AgenticBinary Protocol Details:")
+print(syntax_get("ab"))
+print("")
+
+// 2. Search for protocols
+print("Search for 'protocol':")
+print(syntax_search("protocol"))
+print("")
+
+// 3. AgenticBinary Encoding Example
+print("=== AgenticBinary Encoding ===")
+print("")
+
+// Encode a PING message (Command type, PING opcode)
+print("Encoding PING message:")
+ping_bytes = ab_encode("command", "ping", "hello")
+print(ping_bytes)
+print("")
+
+// Decode the message back
+print("Decoding PING message:")
+ping_decoded = ab_decode(ping_bytes)
+print(ping_decoded)
+print("")
+
+// Encode a QUERY message
+print("Encoding QUERY message:")
+query_bytes = ab_encode("query", "query", "What is the weather?")
+print(query_bytes)
+decoded_query = ab_decode(query_bytes)
+print(decoded_query)
+print("")
+
+// Encode a DELEGATE message for agent coordination
+print("Encoding DELEGATE message:")
+delegate_bytes = ab_encode("command", "delegate", "task:analyze_data")
+print(delegate_bytes)
+print(ab_decode(delegate_bytes))
+print("")
+
+// Encode a COLLABORATE message
+print("Encoding COLLABORATE message:")
+collab_bytes = ab_encode("command", "collaborate", "agent_2,agent_3")
+print(collab_bytes)
+print(ab_decode(collab_bytes))
+print("")
+
+// 4. Add a custom syntax entry
+print("=== Adding Custom Syntax ===")
+print("")
+
+custom_syntax = {
+    id: "http",
+    name: "HTTP Protocol",
+    category: "protocol",
+    specification: "Hypertext Transfer Protocol - RFC 2616",
+    examples: ["GET /index.html HTTP/1.1", "POST /api/data HTTP/1.1"]
+}
+
+print("Adding HTTP protocol syntax:")
+syntax_add(custom_syntax)
+print("HTTP added successfully!")
+print("")
+
+// Verify it was added
+print("Verify HTTP syntax entry:")
+print(syntax_get("http"))
+print("")
+
+// Search for HTTP
+print("Search for HTTP:")
+print(syntax_search("http"))
+print("")
+
+// 5. Multi-agent Communication Simulation
+print("=== Multi-Agent Communication Example ===")
+print("")
+
+// Agent 1 sends a LEARN message
+print("Agent 1 → Agent 2: LEARN message")
+learn_msg = ab_encode("command", "learn", "syntax:agenticbinary")
+print(ab_decode(learn_msg))
+print("")
+
+// Agent 2 acknowledges
+print("Agent 2 → Agent 1: ACK message")
+ack_msg = ab_encode("response", "ack", "learned:ab")
+print(ab_decode(ack_msg))
+print("")
+
+// Agent 1 delegates task
+print("Agent 1 → Agent 2: DELEGATE task")
+task_msg = ab_encode("command", "delegate", "task:encode_message")
+print(ab_decode(task_msg))
+print("")
+
+// Agent 2 executes
+print("Agent 2 → Agent 1: EXEC response")
+exec_msg = ab_encode("command", "exec", "executing:encode_message")
+print(ab_decode(exec_msg))
+print("")
+
+// Agent 2 sends back data
+print("Agent 2 → Agent 1: DATA response")
+data_msg = ab_encode("response", "data", "result:success")
+print(ab_decode(data_msg))
+print("")
+
+print("=== Syntax KB Demo Complete ===")
+print("")
+print("Summary:")
+print("- Retrieved AgenticBinary protocol details")
+print("- Searched syntax database")
+print("- Encoded/decoded binary messages with various opcodes")
+print("- Added custom HTTP syntax entry")
+print("- Simulated multi-agent communication workflow")
+print("")
+print("The Syntax KB enables agents to:")
+print("  1. Discover and share syntax definitions")
+print("  2. Communicate efficiently using AgenticBinary protocol")
+print("  3. Coordinate tasks through semantic opcodes")
+print("  4. Learn and memorize protocols dynamically")

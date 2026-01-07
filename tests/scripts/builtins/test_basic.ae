@@ -1,0 +1,2 @@
+print "Demo 1: Basic array operations"
+print ([1, 2, 3, 4, 5] | take 3)

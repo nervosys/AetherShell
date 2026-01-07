@@ -1,21 +1,51 @@
-# Multi-modal AI Chat Example
-# This example demonstrates how to use multi-modal features in the TUI
+/* AetherShell TUI Multimodal Demo
+   Launch with: ae --tui
+   
+   This demo showcases multimodal AI capabilities:
+   - Image analysis
+   - Audio processing
+   - Video understanding
+   - Mixed media conversations
+*/
 
-# First, launch the TUI
-# ae --tui
+/* Analyze an image with GPT-4o */
+ai "openai:gpt-4o" {
+  prompt: "What's in this image? Describe it in detail.",
+  media: ["./demos/sample_image.jpg"]
+}
 
-# In the TUI:
-# 1. Switch to Media tab (press 3 or Tab until you reach Media)
-# 2. Add some image files (press 'o' to open - placeholder in demo)
-# 3. Switch back to Chat tab (press 1)
-# 4. Select media files in the Media sidebar
-# 5. Type your message and press Enter
+/* Audio transcription and analysis */
+ai "openai:gpt-4o" {
+  prompt: "Transcribe this audio and summarize the main points.",
+  media: ["./demos/sample_audio.mp3"]
+}
 
-# Example conversation:
-goal := "Analyze the image and describe what you see in detail"
+/* Video understanding */
+ai "openai:gpt-4o" {
+  prompt: "What's happening in this video? Describe the key actions.",
+  media: ["./demos/sample_video.mp4"]
+}
 
-# The TUI will automatically process multi-modal inputs when media is attached
-"What do you see in this image?" | ai | print
+/* Multiple images comparison */
+ai "openai:gpt-4o" {
+  prompt: "Compare these two images and describe the differences.",
+  media: ["./demos/image1.jpg", "./demos/image2.jpg"]
+}
 
-# For agent-based analysis:
-agent goal ["print", "ls"] 5 | print
+/* Mixed media: text, image, and context */
+ai "openai:gpt-4o" {
+  prompt: "Based on this diagram and the audio explanation, summarize the concept.",
+  media: ["./demos/diagram.png", "./demos/explanation.mp3"]
+}
+
+/* The TUI provides:
+   - Media preview pane (images, audio waveforms, video thumbnails)
+   - Drag-and-drop media attachment
+   - Media gallery navigation
+   - Format support: JPG, PNG, MP3, WAV, MP4, WebM
+   - Base64 encoding for API transmission
+   - Progress indicators for large files
+*/
+
+print "TUI Multimodal Demo Ready! Launch with: ae --tui"
+print "Note: Replace sample media paths with your actual files"

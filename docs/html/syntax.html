@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Syntax Reference - AetherShell Documentation</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/ayu-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', (event) => {
+            document.querySelectorAll('pre code').forEach((block) => {
+                hljs.highlightElement(block);
+            });
+        });
+    </script>
+</head>
+
+<body>
+    <nav class="sidebar">
+        <div class="logo">
+            <h1>🚀 AetherShell</h1>
+            <p class="version">v1.0.0</p>
+        </div>
+        <ul class="nav-menu">
+            <li><a href="index.html">Home</a></li>
+            <li><a href="quickstart.html">Quick Start</a></li>
+            <li><a href="tutorial.html">Tutorial</a></li>
+            <li><a href="syntax.html" class="active">Syntax Reference</a></li>
+            <li><a href="builtins.html">Built-in Functions</a></li>
+            <li><a href="types.html">Type System</a></li>
+            <li><a href="ai.html">AI & Agents</a></li>
+            <li><a href="syntax-kb.html">Syntax KB</a></li>
+            <li><a href="examples.html">Examples</a></li>
+            <li><a href="api.html">API Reference</a></li>
+        </ul>
+        <div class="sidebar-footer">
+            <a href="https://github.com/nervosys/AetherShell" target="_blank">GitHub</a>
+        </div>
+    </nav>
+
+    <main class="content">
+        <header class="page-header">
+            <h1>📖 Syntax Reference</h1>
+            <p class="subtitle">Complete AetherShell language specification</p>
+        </header>
+
+        <section class="feature-section">
+            <h2>Overview</h2>
+            <p>AetherShell is a <strong>functional-first</strong>, <strong>typed</strong> shell language with AST-based
+                evaluation and Hindley-Milner type inference. Every construct is an <strong>expression</strong> that
+                returns a value.</p>
+
+            <div class="alert alert-info">
+                <strong>Key Principle:</strong> In AetherShell, data flows as structured <code>Value</code> types (Int,
+                Float, String, Array, Record, Lambda), not raw text.
+            </div>
+        </section>
+
+        <section class="feature-section">
+            <h2>Literals</h2>
+
+            <h3>Numbers</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Type</th>
+                        <th>Syntax</th>
+                        <th>Examples</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Integer</td>
+                        <td><code>digits</code></td>
+                        <td><code>42</code>, <code>0</code>, <code>-123</code></td>
+                    </tr>
+                    <tr>
+                        <td>Float</td>
+                        <td><code>digits.digits</code></td>
+                        <td><code>3.14</code>, <code>0.5</code>, <code>-2.718</code></td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>Strings</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Form</th>
+                        <th>Syntax</th>
+                        <th>Example</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Plain</td>
+                        <td><code>"text"</code></td>
+                        <td><code>"Hello, world!"</code></td>
+                    </tr>
+                    <tr>
+                        <td>Interpolated</td>
+                        <td><code>"text ${expr} text"</code></td>
+                        <td><code>"Result: ${x + 1}"</code></td>
+                    </tr>
+                    <tr>
+                        <td>Escapes</td>
+                        <td><code>\n \t \\ \"</code></td>
+                        <td><code>"Line 1\nLine 2"</code></td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>Booleans & Null</h3>
+            <pre><code>true      // Boolean true
+false     // Boolean false
+null      // Null value</code></pre>
+
+            <h3>Arrays</h3>
+            <pre><code>[]                    // Empty array
+[1, 2, 3]            // Integer array
+["a", "b", "c"]      // String array
+[1, "two", 3.0]      // Heterogeneous array
+[[1,2], [3,4]]       // Nested arrays</code></pre>
+
+            <h3>Records (Objects)</h3>
+            <pre><code>{}                           // Empty record
+{x: 10}                      // Single field
+{name: "Alice", age: 30}     // Multiple fields
+{x: 1, nested: {y: 2}}       // Nested records</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>Variables</h2>
+
+            <h3>Immutable Bindings</h3>
+            <pre><code>x = 10           // Immutable - cannot reassign
+name = "Alice"   // Immutable string
+list = [1,2,3]   // Immutable reference
+
+// x = 20  // ERROR: Cannot reassign immutable binding</code></pre>
+
+            <h3>Mutable Bindings</h3>
+            <pre><code>y := 10          // Mutable - can reassign
+y = 20           // OK
+y = y + 5        // OK
+
+counter := 0
+counter = counter + 1  // OK</code></pre>
+
+            <div class="alert alert-warning">
+                <strong>Important:</strong> Use <code>=</code> for immutable (default), <code>:=</code> for mutable
+                bindings.
+            </div>
+        </section>
+
+        <section class="feature-section">
+            <h2>Operators</h2>
+
+            <h3>Arithmetic Operators</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Operator</th>
+                        <th>Description</th>
+                        <th>Example</th>
+                        <th>Result</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>+</code></td>
+                        <td>Addition</td>
+                        <td><code>10 + 5</code></td>
+                        <td><code>15</code></td>
+                    </tr>
+                    <tr>
+                        <td><code>-</code></td>
+                        <td>Subtraction</td>
+                        <td><code>10 - 5</code></td>
+                        <td><code>5</code></td>
+                    </tr>
+                    <tr>
+                        <td><code>*</code></td>
+                        <td>Multiplication</td>
+                        <td><code>10 * 5</code></td>
+                        <td><code>50</code></td>
+                    </tr>
+                    <tr>
+                        <td><code>/</code></td>
+                        <td>Division</td>
+                        <td><code>10 / 5</code></td>
+                        <td><code>2</code></td>
+                    </tr>
+                    <tr>
+                        <td><code>%</code></td>
+                        <td>Modulo</td>
+                        <td><code>10 % 3</code></td>
+                        <td><code>1</code></td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>Comparison Operators</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Operator</th>
+                        <th>Description</th>
+                        <th>Example</th>
+                        <th>Result</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>==</code></td>
+                        <td>Equal</td>
+                        <td><code>10 == 10</code></td>
+                        <td><code>true</code></td>
+                    </tr>
+                    <tr>
+                        <td><code>!=</code></td>
+                        <td>Not equal</td>
+                        <td><code>10 != 5</code></td>
+                        <td><code>true</code></td>
+                    </tr>
+                    <tr>
+                        <td><code>&lt;</code></td>
+                        <td>Less than</td>
+                        <td><code>5 &lt; 10</code></td>
+                        <td><code>true</code></td>
+                    </tr>
+                    <tr>
+                        <td><code>&gt;</code></td>
+                        <td>Greater than</td>
+                        <td><code>10 &gt; 5</code></td>
+                        <td><code>true</code></td>
+                    </tr>
+                    <tr>
+                        <td><code>&lt;=</code></td>
+                        <td>Less or equal</td>
+                        <td><code>10 &lt;= 10</code></td>
+                        <td><code>true</code></td>
+                    </tr>
+                    <tr>
+                        <td><code>&gt;=</code></td>
+                        <td>Greater or equal</td>
+                        <td><code>10 &gt;= 10</code></td>
+                        <td><code>true</code></td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>Logical Operators</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Operator</th>
+                        <th>Description</th>
+                        <th>Example</th>
+                        <th>Result</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>&&</code></td>
+                        <td>Logical AND</td>
+                        <td><code>true && false</code></td>
+                        <td><code>false</code></td>
+                    </tr>
+                    <tr>
+                        <td><code>||</code></td>
+                        <td>Logical OR</td>
+                        <td><code>true || false</code></td>
+                        <td><code>true</code></td>
+                    </tr>
+                    <tr>
+                        <td><code>!</code></td>
+                        <td>Logical NOT</td>
+                        <td><code>!true</code></td>
+                        <td><code>false</code></td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>String Operators</h3>
+            <pre><code>// Concatenation
+"Hello" + " " + "World"  // "Hello World"
+
+// Interpolation
+name = "Alice"
+"Hello, ${name}!"        // "Hello, Alice!"</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>Functions (Lambdas)</h2>
+
+            <h3>Lambda Syntax</h3>
+            <pre><code>// General form: fn(params) => expression
+
+// No parameters
+get_pi = fn() => 3.14159
+
+// Single parameter
+double = fn(x) => x * 2
+
+// Multiple parameters
+add = fn(a, b) => a + b
+multiply = fn(x, y, z) => x * y * z
+
+// Block body
+complex = fn(x) => {
+    temp = x * 2
+    result = temp + 10
+    result
+}</code></pre>
+
+            <h3>Function Application</h3>
+            <pre><code>// Direct call
+double = fn(x) => x * 2
+result = double(5)  // 10
+
+// In pipeline
+[1,2,3] | map(fn(x) => x * 2)
+
+// As argument
+apply = fn(f, x) => f(x)
+apply(double, 5)  // 10</code></pre>
+
+            <h3>Closures</h3>
+            <pre><code>// Functions capture outer scope
+make_adder = fn(n) => fn(x) => x + n
+
+add5 = make_adder(5)
+add5(3)   // 8
+add5(10)  // 15</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>Pipeline Operator</h2>
+
+            <h3>Basic Pipeline</h3>
+            <pre><code>// Syntax: expr | function
+value | print
+[1,2,3] | len
+
+// Chaining
+[1,2,3] | map(fn(x) => x * 2) | print</code></pre>
+
+            <h3>Multi-line Pipelines</h3>
+            <pre><code>[1, 2, 3, 4, 5, 6]
+| where(fn(x) => x % 2 == 0)    // [2, 4, 6]
+| map(fn(x) => x * x)            // [4, 16, 36]
+| reduce(fn(a, b) => a + b, 0)  // 56
+| print</code></pre>
+
+            <h3>Pipeline Context</h3>
+            <p>The value on the left is passed as the <strong>first argument</strong> to the function on the right.</p>
+            <pre><code>// These are equivalent:
+[1,2,3] | map(fn(x) => x * 2)
+map([1,2,3], fn(x) => x * 2)
+
+// Explicit vs piped
+len([1,2,3])      // Direct call
+[1,2,3] | len     // Piped call</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>Control Flow</h2>
+
+            <h3>If Expression</h3>
+            <pre><code>// Syntax: if condition { expr } else { expr }
+
+x = 10
+result = if x > 5 {
+    "large"
+} else {
+    "small"
+}
+// result = "large"
+
+// Nested if
+status = if x > 10 {
+    "high"
+} else if x > 5 {
+    "medium"
+} else {
+    "low"
+}</code></pre>
+
+            <h3>Match Expression</h3>
+            <pre><code>// Pattern matching
+value = 2
+result = match value {
+    1 => "one",
+    2 => "two",
+    3 => "three",
+    _ => "other"
+}
+// result = "two"
+
+// Match with guards (future feature)
+// match x {
+//     n if n > 0 => "positive",
+//     0 => "zero",
+//     _ => "negative"
+// }</code></pre>
+
+            <h3>While Loop</h3>
+            <pre><code>// Syntax: while condition { statements }
+
+i := 0
+sum := 0
+while (i < 10) {
+    sum = sum + i
+    i = i + 1
+}
+// sum = 45</code></pre>
+
+            <div class="alert alert-info">
+                <strong>Note:</strong> Prefer functional approaches (map, reduce, filter) over loops when possible.
+            </div>
+        </section>
+
+        <section class="feature-section">
+            <h2>Record Access</h2>
+
+            <h3>Field Access</h3>
+            <pre><code>person = {name: "Alice", age: 30}
+
+// Dot notation
+person.name  // "Alice"
+person.age   // 30
+
+// Nested access
+data = {user: {name: "Bob", id: 123}}
+data.user.name  // "Bob"</code></pre>
+
+            <h3>Array Indexing</h3>
+            <pre><code>arr = [10, 20, 30, 40]
+
+// Zero-indexed
+arr[0]   // 10
+arr[2]   // 30
+arr[-1]  // 40 (last element)
+
+// Nested
+matrix = [[1,2], [3,4]]
+matrix[0][1]  // 2</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>Comments</h2>
+
+            <pre><code>// Single-line comment
+
+x = 10  // Inline comment
+
+// Multi-line comments:
+// Line 1
+// Line 2
+// Line 3
+
+/* Block comments (if supported)
+   Multi-line
+   Comment block
+*/</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>Blocks & Scope</h2>
+
+            <h3>Block Expressions</h3>
+            <pre><code>// Block evaluates to last expression
+result = {
+    x = 10
+    y = 20
+    x + y
+}
+// result = 30</code></pre>
+
+            <h3>Lexical Scoping</h3>
+            <pre><code>x = 10
+{
+    x = 20  // Shadows outer x
+    print(x)  // 20
+}
+print(x)  // Still 10 (outer scope unchanged with =)</code></pre>
+
+            <h3>Mutable Scoping</h3>
+            <pre><code>x := 10
+{
+    x = 20  // Modifies outer x (mutable)
+    print(x)  // 20
+}
+print(x)  // 20 (outer x was modified)</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>Type Annotations (Future)</h2>
+
+            <div class="alert alert-warning">
+                <strong>Note:</strong> Type inference is automatic. Explicit annotations may be added in future
+                versions.
+            </div>
+
+            <pre><code>// Current (inferred)
+add = fn(a, b) => a + b
+
+// Future possibility (annotated)
+// add: (Int, Int) => Int = fn(a, b) => a + b
+// name: Str = "Alice"
+// items: [Int] = [1, 2, 3]</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>Reserved Keywords</h2>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>Keyword</th>
+                        <th>Usage</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>fn</code></td>
+                        <td>Lambda definition</td>
+                    </tr>
+                    <tr>
+                        <td><code>if</code></td>
+                        <td>Conditional</td>
+                    </tr>
+                    <tr>
+                        <td><code>else</code></td>
+                        <td>Alternative branch</td>
+                    </tr>
+                    <tr>
+                        <td><code>match</code></td>
+                        <td>Pattern matching</td>
+                    </tr>
+                    <tr>
+                        <td><code>while</code></td>
+                        <td>Loop</td>
+                    </tr>
+                    <tr>
+                        <td><code>true</code></td>
+                        <td>Boolean literal</td>
+                    </tr>
+                    <tr>
+                        <td><code>false</code></td>
+                        <td>Boolean literal</td>
+                    </tr>
+                    <tr>
+                        <td><code>null</code></td>
+                        <td>Null literal</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section class="feature-section">
+            <h2>Grammar Summary (EBNF-style)</h2>
+
+            <pre><code>Program    = Statement*
+Statement  = VarDecl | Expression
+
+VarDecl    = Ident "=" Expression          // Immutable
+           | Ident ":=" Expression         // Mutable
+
+Expression = Literal
+           | Ident
+           | Lambda
+           | Pipeline
+           | BinaryOp
+           | UnaryOp
+           | IfExpr
+           | MatchExpr
+           | WhileExpr
+           | Block
+           | Call
+           | FieldAccess
+           | IndexAccess
+
+Literal    = Int | Float | String | Bool | Null | Array | Record
+
+Lambda     = "fn" "(" Params? ")" "=>" (Expression | Block)
+
+Pipeline   = Expression "|" Expression
+
+BinaryOp   = Expression Operator Expression
+Operator   = "+" | "-" | "*" | "/" | "%" | "==" | "!=" | "&lt;" | "&gt;" | "&lt;=" | "&gt;=" | "&&" | "||"
+
+UnaryOp    = "!" Expression | "-" Expression
+
+IfExpr     = "if" Expression Block ("else" (Block | IfExpr))?
+
+MatchExpr  = "match" Expression "{" MatchArm+ "}"
+MatchArm   = Pattern "=>" Expression ","
+
+WhileExpr  = "while" "(" Expression ")" Block
+
+Block      = "{" Statement* Expression? "}"
+
+Call       = Expression "(" Args? ")"
+
+FieldAccess = Expression "." Ident
+IndexAccess = Expression "[" Expression "]"</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>Operator Precedence</h2>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>Precedence</th>
+                        <th>Operator</th>
+                        <th>Associativity</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>1 (Highest)</td>
+                        <td><code>.</code> <code>[]</code> <code>()</code></td>
+                        <td>Left</td>
+                    </tr>
+                    <tr>
+                        <td>2</td>
+                        <td><code>!</code> <code>-</code> (unary)</td>
+                        <td>Right</td>
+                    </tr>
+                    <tr>
+                        <td>3</td>
+                        <td><code>*</code> <code>/</code> <code>%</code></td>
+                        <td>Left</td>
+                    </tr>
+                    <tr>
+                        <td>4</td>
+                        <td><code>+</code> <code>-</code></td>
+                        <td>Left</td>
+                    </tr>
+                    <tr>
+                        <td>5</td>
+                        <td><code>&lt;</code> <code>&gt;</code> <code>&lt;=</code> <code>&gt;=</code></td>
+                        <td>Left</td>
+                    </tr>
+                    <tr>
+                        <td>6</td>
+                        <td><code>==</code> <code>!=</code></td>
+                        <td>Left</td>
+                    </tr>
+                    <tr>
+                        <td>7</td>
+                        <td><code>&&</code></td>
+                        <td>Left</td>
+                    </tr>
+                    <tr>
+                        <td>8</td>
+                        <td><code>||</code></td>
+                        <td>Left</td>
+                    </tr>
+                    <tr>
+                        <td>9</td>
+                        <td><code>|</code> (pipeline)</td>
+                        <td>Left</td>
+                    </tr>
+                    <tr>
+                        <td>10 (Lowest)</td>
+                        <td><code>=</code> <code>:=</code></td>
+                        <td>Right</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section class="feature-section">
+            <h2>Quick Reference Card</h2>
+
+            <div class="card">
+                <h3>Essential Syntax</h3>
+                <pre><code>// Variables
+x = 10              // Immutable
+y := 20             // Mutable
+
+// Functions
+fn(x) => x * 2
+fn(a, b) => a + b
+
+// Pipelines
+[1,2,3] | map(fn(x) => x * 2)
+
+// Arrays & Records
+[1, 2, 3]
+{name: "Alice", age: 30}
+
+// Control flow
+if x > 0 { "pos" } else { "neg" }
+match x { 1 => "one", _ => "other" }
+while (i < 10) { i = i + 1 }
+
+// Operators
++ - * / %           // Arithmetic
+== != < > <= >=     // Comparison
+&& || !             // Logical
+|                   // Pipeline</code></pre>
+            </div>
+        </section>
+
+        <div class="alert alert-success">
+            <strong>Next:</strong> Check out <a href="builtins.html">Built-in Functions</a> for all available
+            operations, or <a href="types.html">Type System</a> to understand type inference.
+        </div>
+    </main>
+
+    <footer>
+        <p>&copy; 2025 AetherShell. Built with Rust 🦀</p>
+    </footer>
+</body>
+
+</html>

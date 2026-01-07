@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Type System - AetherShell Documentation</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/ayu-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', (event) => {
+            document.querySelectorAll('pre code').forEach((block) => {
+                hljs.highlightElement(block);
+            });
+        });
+    </script>
+</head>
+
+<body>
+    <nav class="sidebar">
+        <div class="logo">
+            <h1>🚀 AetherShell</h1>
+            <p class="version">v1.0.0</p>
+        </div>
+        <ul class="nav-menu">
+            <li><a href="index.html">Home</a></li>
+            <li><a href="quickstart.html">Quick Start</a></li>
+            <li><a href="tutorial.html">Tutorial</a></li>
+            <li><a href="syntax.html">Syntax Reference</a></li>
+            <li><a href="builtins.html">Built-in Functions</a></li>
+            <li><a href="types.html" class="active">Type System</a></li>
+            <li><a href="ai.html">AI & Agents</a></li>
+            <li><a href="syntax-kb.html">Syntax KB</a></li>
+            <li><a href="examples.html">Examples</a></li>
+            <li><a href="api.html">API Reference</a></li>
+        </ul>
+        <div class="sidebar-footer">
+            <a href="https://github.com/nervosys/AetherShell" target="_blank">GitHub</a>
+        </div>
+    </nav>
+
+    <main class="content">
+        <header class="page-header">
+            <h1>🔍 Type System</h1>
+            <p class="subtitle">Hindley-Milner type inference with structured values</p>
+        </header>
+
+        <section class="feature-section">
+            <h2>Overview</h2>
+            <p>AetherShell uses <strong>Hindley-Milner type inference</strong>, the same powerful type system found in
+                Haskell, ML, and other functional languages. This means:</p>
+
+            <ul>
+                <li>✅ <strong>No type annotations required</strong> - types are automatically inferred</li>
+                <li>✅ <strong>Type safety</strong> - catches type errors before runtime</li>
+                <li>✅ <strong>Parametric polymorphism</strong> - functions work with any compatible type</li>
+                <li>✅ <strong>Structured data</strong> - values flow as structured types, not raw text</li>
+            </ul>
+
+            <div class="alert alert-info">
+                <strong>Key Principle:</strong> Data flows as <code>Value</code> types (Int, Float, String, Array,
+                Record, Lambda), not bash-style text streams.
+            </div>
+        </section>
+
+        <section class="feature-section">
+            <h2>Core Types</h2>
+
+            <h3>Primitive Types</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Type</th>
+                        <th>Description</th>
+                        <th>Examples</th>
+                        <th>Operations</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>Int</code></td>
+                        <td>Integer numbers</td>
+                        <td><code>42</code>, <code>-10</code>, <code>0</code></td>
+                        <td>Arithmetic, comparison</td>
+                    </tr>
+                    <tr>
+                        <td><code>Float</code></td>
+                        <td>Floating-point numbers</td>
+                        <td><code>3.14</code>, <code>-2.5</code>, <code>0.1</code></td>
+                        <td>Arithmetic, comparison</td>
+                    </tr>
+                    <tr>
+                        <td><code>Str</code></td>
+                        <td>UTF-8 strings</td>
+                        <td><code>"hello"</code>, <code>"world"</code></td>
+                        <td>Concatenation, interpolation</td>
+                    </tr>
+                    <tr>
+                        <td><code>Bool</code></td>
+                        <td>Boolean values</td>
+                        <td><code>true</code>, <code>false</code></td>
+                        <td>Logical operations</td>
+                    </tr>
+                    <tr>
+                        <td><code>Null</code></td>
+                        <td>Absence of value</td>
+                        <td><code>null</code></td>
+                        <td>Equality checks</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>Compound Types</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Type</th>
+                        <th>Description</th>
+                        <th>Example</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>Array</code></td>
+                        <td>Ordered collection of values</td>
+                        <td><code>[1, 2, 3]</code>, <code>["a", "b"]</code></td>
+                    </tr>
+                    <tr>
+                        <td><code>Record</code></td>
+                        <td>Key-value mappings (objects/structs)</td>
+                        <td><code>{name: "Alice", age: 30}</code></td>
+                    </tr>
+                    <tr>
+                        <td><code>Lambda</code></td>
+                        <td>First-class functions</td>
+                        <td><code>fn(x) => x * 2</code></td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>Type Checking</h3>
+            <pre><code>// Check types at runtime
+type_of(42)          // "Int"
+type_of(3.14)        // "Float"
+type_of("hello")     // "Str"
+type_of(true)        // "Bool"
+type_of(null)        // "Null"
+type_of([1,2,3])     // "Array"
+type_of({x: 1})      // "Record"
+type_of(fn(x) => x)  // "Lambda"</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>Type Inference</h2>
+
+            <h3>Automatic Inference</h3>
+            <p>Types are inferred from context - no declarations needed:</p>
+
+            <pre><code>// Integer inferred
+x = 42
+
+// Float inferred
+y = 3.14
+
+// String inferred
+name = "Alice"
+
+// Array inferred
+numbers = [1, 2, 3]
+
+// Record inferred
+person = {name: "Bob", age: 25}
+
+// Lambda inferred
+double = fn(x) => x * 2</code></pre>
+
+            <h3>Polymorphic Functions</h3>
+            <p>Functions can work with multiple types:</p>
+
+            <pre><code>// Works with any array type
+first = fn(arr) => arr[0]
+
+first([1, 2, 3])           // 1 (Int)
+first(["a", "b", "c"])     // "a" (Str)
+first([[1,2], [3,4]])      // [1,2] (Array)
+
+// Type signature (conceptual): ∀a. [a] → a</code></pre>
+
+            <h3>Type Constraints</h3>
+            <p>Operations enforce type compatibility:</p>
+
+            <pre><code>// Valid: same types
+10 + 5          // 15 (Int + Int = Int)
+3.14 + 2.86     // 6.0 (Float + Float = Float)
+"Hello " + "World"  // "Hello World" (Str + Str = Str)
+
+// Invalid: incompatible types
+// 10 + "hello"  // Error: Cannot add Int and Str
+// true * 5      // Error: Cannot multiply Bool and Int</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>Mutability: <code>=</code> vs <code>:=</code></h2>
+
+            <h3>Immutable Bindings (<code>=</code>)</h3>
+            <p>Default behavior - creates a binding that cannot be reassigned:</p>
+
+            <pre><code>x = 10
+print(x)  // 10
+
+// x = 20  // ERROR: Cannot reassign immutable binding
+
+// But you can shadow in a new scope
+{
+    x = 20  // Creates NEW binding in this scope
+    print(x)  // 20
+}
+print(x)  // Still 10 (outer scope unchanged)</code></pre>
+
+            <h3>Mutable Bindings (<code>:=</code>)</h3>
+            <p>Allows reassignment of the same variable:</p>
+
+            <pre><code>y := 10
+print(y)  // 10
+
+y = 20    // OK - reassignment allowed
+print(y)  // 20
+
+y = y + 5  // OK
+print(y)  // 25</code></pre>
+
+            <h3>When to Use Each</h3>
+            <div class="card-grid">
+                <div class="card">
+                    <h4>Use <code>=</code> (Immutable)</h4>
+                    <ul>
+                        <li>Default choice</li>
+                        <li>Functional programming patterns</li>
+                        <li>Values that don't change</li>
+                        <li>Safer, easier to reason about</li>
+                    </ul>
+                </div>
+                <div class="card">
+                    <h4>Use <code>:=</code> (Mutable)</h4>
+                    <ul>
+                        <li>Counters and accumulators</li>
+                        <li>Loop variables</li>
+                        <li>State that must change</li>
+                        <li>Imperative algorithms</li>
+                    </ul>
+                </div>
+            </div>
+
+            <h3>Examples</h3>
+            <pre><code>// Functional style (immutable)
+sum = [1, 2, 3, 4, 5]
+    | reduce(fn(a, b) => a + b, 0)
+print(sum)  // 15
+
+// Imperative style (mutable)
+total := 0
+i := 1
+while (i <= 5) {
+    total = total + i
+    i = i + 1
+}
+print(total)  // 15</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>Arrays</h2>
+
+            <h3>Array Types</h3>
+            <pre><code>// Homogeneous arrays (same type)
+ints = [1, 2, 3, 4]           // [Int]
+strs = ["a", "b", "c"]        // [Str]
+bools = [true, false, true]   // [Bool]
+
+// Heterogeneous arrays (mixed types)
+mixed = [1, "two", 3.0, true]  // [Value]
+
+// Nested arrays
+matrix = [[1,2], [3,4], [5,6]]  // [[Int]]</code></pre>
+
+            <h3>Array Operations</h3>
+            <pre><code>arr = [1, 2, 3, 4, 5]
+
+// Indexing
+arr[0]     // 1
+arr[4]     // 5
+arr[-1]    // 5 (last element)
+
+// Length
+len(arr)   // 5
+
+// Transformation
+arr | map(fn(x) => x * 2)      // [2, 4, 6, 8, 10]
+arr | where(fn(x) => x > 2)    // [3, 4, 5]
+arr | reduce(fn(a,b) => a+b, 0) // 15
+
+// Slicing
+slice(arr, 1, 4)  // [2, 3, 4]
+take(arr, 3)      // [1, 2, 3]</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>Records (Objects)</h2>
+
+            <h3>Record Structure</h3>
+            <pre><code>// Simple record
+point = {x: 10, y: 20}
+
+// Nested records
+person = {
+    name: "Alice",
+    age: 30,
+    address: {
+        street: "123 Main St",
+        city: "Springfield"
+    },
+    hobbies: ["reading", "coding", "music"]
+}</code></pre>
+
+            <h3>Record Access</h3>
+            <pre><code>person = {name: "Alice", age: 30}
+
+// Field access
+person.name    // "Alice"
+person.age     // 30
+
+// Nested access
+person.address.city  // "Springfield"
+
+// Get all keys
+keys(person)  // ["name", "age"]
+
+// Check field count
+len(person)   // 2</code></pre>
+
+            <h3>Records in Pipelines</h3>
+            <pre><code>// Table of records (database-like)
+users = [
+    {name: "Alice", age: 30, active: true},
+    {name: "Bob", age: 25, active: false},
+    {name: "Charlie", age: 35, active: true}
+]
+
+// Filter active users
+active = users | where(fn(u) => u.active)
+
+// Get names of active users
+names = active | map(fn(u) => u.name)
+
+// Find average age
+avg = users
+    | map(fn(u) => u.age)
+    | reduce(fn(a,b) => a+b, 0)
+    | fn(total) => total / len(users)</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>Functions (Lambdas)</h2>
+
+            <h3>Lambda Types</h3>
+            <pre><code>// Type: () → Int
+get_answer = fn() => 42
+
+// Type: Int → Int
+double = fn(x) => x * 2
+
+// Type: (Int, Int) → Int
+add = fn(a, b) => a + b
+
+// Type: [Int] → Int
+sum = fn(arr) => arr | reduce(fn(a,b) => a+b, 0)
+
+// Type: (Int → Int) → (Int → Int)  (Higher-order)
+twice = fn(f) => fn(x) => f(f(x))</code></pre>
+
+            <h3>Function Composition</h3>
+            <pre><code>// Compose functions
+compose = fn(f, g) => fn(x) => f(g(x))
+
+times2 = fn(x) => x * 2
+plus3 = fn(x) => x + 3
+
+// times2_then_plus3 : Int → Int
+times2_then_plus3 = compose(plus3, times2)
+
+times2_then_plus3(5)  // 13 (5*2 = 10, 10+3 = 13)</code></pre>
+
+            <h3>Closures</h3>
+            <pre><code>// Functions capture their environment
+make_counter = fn(start) => {
+    count := start
+    fn() => {
+        old = count
+        count = count + 1
+        old
+    }
+}
+
+counter = make_counter(10)
+counter()  // 10
+counter()  // 11
+counter()  // 12</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>Type Coercion & Conversion</h2>
+
+            <h3>Automatic Coercion</h3>
+            <p>Limited automatic coercion for convenience:</p>
+
+            <pre><code>// Int promotes to Float in mixed operations
+10 + 3.14    // 13.14 (Int→Float, then Float+Float)
+
+// String interpolation converts values
+x = 42
+"Answer: ${x}"  // "Answer: 42" (Int→Str)</code></pre>
+
+            <h3>Explicit Conversion (Future)</h3>
+            <p>Explicit conversion functions may be added:</p>
+
+            <pre><code>// Future possibilities
+// to_int("42")      // 42
+// to_float("3.14")  // 3.14
+// to_string(42)     // "42"</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>Type Safety</h2>
+
+            <h3>Static Guarantees</h3>
+            <p>Type inference catches errors before runtime:</p>
+
+            <pre><code>// Type mismatch caught early
+// f = fn(x) => x + "hello"
+// f(10)  // Error: Cannot add Int and Str
+
+// Undefined field access caught
+// person = {name: "Alice"}
+// person.age  // Error: Field 'age' does not exist</code></pre>
+
+            <h3>Runtime Type Checks</h3>
+            <pre><code>// Check types dynamically
+value = 42
+
+if type_of(value) == "Int" {
+    print("It's an integer!")
+}
+
+// Pattern matching (conceptual)
+// match value {
+//     Int => "number",
+//     Str => "text",
+//     _ => "other"
+// }</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>Advanced Type Patterns</h2>
+
+            <h3>Generic Data Structures</h3>
+            <pre><code>// Stack implementation
+make_stack = fn() => {
+    items := []
+    {
+        push: fn(x) => items = push(items, x),
+        pop: fn() => {
+            top = last(items)
+            items = slice(items, 0, len(items) - 1)
+            top
+        },
+        peek: fn() => last(items),
+        is_empty: fn() => len(items) == 0
+    }
+}
+
+stack = make_stack()
+stack.push(1)
+stack.push(2)
+stack.pop()   // 2
+stack.peek()  // 1</code></pre>
+
+            <h3>Type-Driven Development</h3>
+            <pre><code>// Design by types
+// map : ([a], (a → b)) → [b]
+// filter : ([a], (a → Bool)) → [a]
+// reduce : ([a], (b, a → b), b) → b
+
+// Compose higher-order operations
+process = fn(data) =>
+    data
+    | where(fn(x) => x > 0)           // [a] → [a]
+    | map(fn(x) => x * 2)              // [a] → [b]
+    | reduce(fn(acc, x) => acc + x, 0) // [a] → b</code></pre>
+        </section>
+
+        <section class="feature-section">
+            <h2>Type System Benefits</h2>
+
+            <div class="card-grid">
+                <div class="card">
+                    <h3>🔒 Safety</h3>
+                    <p>Catch type errors before runtime, preventing crashes and unexpected behavior.</p>
+                </div>
+                <div class="card">
+                    <h3>📝 Clarity</h3>
+                    <p>Types document code intent, making it easier to understand and maintain.</p>
+                </div>
+                <div class="card">
+                    <h3>🚀 Performance</h3>
+                    <p>Type information enables optimizations and efficient execution.</p>
+                </div>
+                <div class="card">
+                    <h3>🔄 Refactoring</h3>
+                    <p>Safe refactoring - type checker ensures changes don't break code.</p>
+                </div>
+            </div>
+        </section>
+
+        <div class="alert alert-success">
+            <strong>Next:</strong> Learn about <a href="ai.html">AI & Agents</a> or explore <a
+                href="syntax-kb.html">Syntax Knowledge Base</a>.
+        </div>
+    </main>
+
+    <footer>
+        <p>&copy; 2025 AetherShell. Built with Rust 🦀</p>
+    </footer>
+</body>
+
+</html>
