@@ -33,6 +33,7 @@ pub struct APIServer {
 pub struct AppState {
     pub api: Arc<AIModelAPI>,
     pub config: APIConfig,
+    pub start_time: std::time::Instant,
 }
 
 /// Query parameters for model listing
@@ -132,6 +133,7 @@ impl APIServer {
         let state = AppState {
             api: self.api.clone(),
             config: self.config.clone(),
+            start_time: std::time::Instant::now(),
         };
 
         let api_routes = Router::new()
@@ -833,6 +835,15 @@ async fn health_check() -> Json<serde_json::Value> {
 
 /// Server status endpoint
 async fn server_status(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let uptime = state.start_time.elapsed();
+    let uptime_str = format!(
+        "{}d {}h {}m {}s",
+        uptime.as_secs() / 86400,
+        (uptime.as_secs() % 86400) / 3600,
+        (uptime.as_secs() % 3600) / 60,
+        uptime.as_secs() % 60
+    );
+    
     Json(serde_json::json!({
         "status": "running",
         "version": env!("CARGO_PKG_VERSION"),
@@ -840,7 +851,8 @@ async fn server_status(State(state): State<AppState>) -> Json<serde_json::Value>
             "cors_enabled": state.config.server.enable_cors,
             "openapi_enabled": state.config.server.enable_openapi,
         },
-        "uptime": "unknown", // TODO: Track uptime
+        "uptime": uptime_str,
+        "uptime_seconds": uptime.as_secs(),
         "timestamp": chrono::Utc::now().to_rfc3339()
     }))
 }

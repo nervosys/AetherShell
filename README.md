@@ -1269,7 +1269,7 @@ export OPENAI_API_KEY="sk-..."  # Insecure!
 
 ---
 
-## �🛣️ Roadmap
+## 🛣️ Roadmap
 
 ### Recently Completed ✅ (January 2026)
 
@@ -1281,21 +1281,23 @@ export OPENAI_API_KEY="sk-..."  # Insecure!
 - **✅ AI Model Management**: OpenRouter-style API server with multi-provider support
 - **✅ Local Model Storage**: XDG-compliant storage with format conversion
 - **✅ Model Downloads**: Hugging Face integration and CLI management tools
+- **✅ Streaming AI responses**: Real-time token streaming via SSE in API server
+- **✅ Reinforcement Learning**: Q-Learning, SARSA, Policy Gradient, Actor-Critic, DQN
+- **✅ Distributed agents**: Network-connected agent swarms with latency/geo/cost optimization
+- **✅ IDE integration**: VS Code extension and LSP language server
 
 ### Near-term (Q1 2026)
 
-- **Streaming AI responses**: Real-time token streaming in TUI and API
 - **Plugin system**: Extensible architecture for custom backends  
 - **Advanced media**: Video streaming and real-time audio processing
 - **Mobile TUI**: Touch-friendly interface adaptations
-- **Reinforcement Learning**: Q-learning and policy gradient methods
+- **WASM support**: Browser-based shell via WebAssembly
 
 ### Long-term (2026+)
 
 - **Module system**: Package management and imports
-- **Distributed agents**: Network-connected agent swarms
 - **Advanced AI strategies**: Multi-modal reasoning and planning
-- **IDE integration**: VS Code extension and language server
+- **Cloud deployment**: Hosted agent swarms
 
 ---
 
