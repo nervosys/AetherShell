@@ -438,65 +438,69 @@ async fn main() -> Result<()> {
 async fn run_server(config: APIConfig, args: ServerArgs) -> Result<()> {
     if args.daemon {
         println!("Starting server in daemon mode...");
-        
+
         #[cfg(unix)]
         {
             use std::process::Command;
-            
+
             // Fork a new process
             let exe = std::env::current_exe()?;
             let mut cmd = Command::new(&exe);
             cmd.arg("server")
-                .arg("--host").arg(&config.server.host)
-                .arg("--port").arg(config.server.port.to_string());
-            
+                .arg("--host")
+                .arg(&config.server.host)
+                .arg("--port")
+                .arg(config.server.port.to_string());
+
             if args.cors {
                 cmd.arg("--cors");
             }
             if args.require_api_key {
                 cmd.arg("--require-api-key");
             }
-            
+
             // Spawn detached
             let child = cmd
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
                 .spawn()?;
-            
+
             // Write PID file
             let pid_file = dirs::runtime_dir()
                 .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
                 .join("aimodel-server.pid");
             std::fs::write(&pid_file, child.id().to_string())?;
-            
+
             println!("Server started in background (PID: {})", child.id());
             println!("PID file: {}", pid_file.display());
             println!("To stop: kill {}", child.id());
             return Ok(());
         }
-        
+
         #[cfg(windows)]
         {
-            use std::process::Command;
             use std::os::windows::process::CommandExt;
-            
+            use std::process::Command;
+
             const CREATE_NO_WINDOW: u32 = 0x08000000;
             const DETACHED_PROCESS: u32 = 0x00000008;
-            
+
             let exe = std::env::current_exe()?;
             let mut cmd = Command::new(&exe);
             cmd.arg("server")
-                .arg("--host").arg(&config.server.host)
-                .arg("--port").arg(config.server.port.to_string());
-            
+                .arg("--host")
+                .arg(&config.server.host)
+                .arg("--port")
+                .arg(config.server.port.to_string());
+
             if args.cors {
                 cmd.arg("--cors");
             }
             if args.require_api_key {
                 cmd.arg("--require-api-key");
             }
-            
+
             // Spawn detached on Windows
             let child = cmd
                 .creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS)
@@ -504,13 +508,13 @@ async fn run_server(config: APIConfig, args: ServerArgs) -> Result<()> {
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
                 .spawn()?;
-            
+
             // Write PID file
             let pid_file = dirs::data_local_dir()
                 .unwrap_or_else(|| std::path::PathBuf::from("C:\\Temp"))
                 .join("aimodel-server.pid");
             std::fs::write(&pid_file, child.id().to_string())?;
-            
+
             println!("Server started in background (PID: {})", child.id());
             println!("PID file: {}", pid_file.display());
             println!("To stop: taskkill /PID {} /F", child.id());
@@ -745,45 +749,65 @@ async fn run_config(config_manager: ConfigManager, args: ConfigArgs) -> Result<(
         ConfigAction::Set { key, value } => {
             println!("Setting {}: {}", key, value);
             let mut config = config_manager.load_config()?;
-            
+
             // Parse and set the configuration value
             match key.as_str() {
                 "server.host" => config.server.host = value,
                 "server.port" => {
-                    config.server.port = value.parse().map_err(|_| anyhow::anyhow!("Invalid port number"))?;
+                    config.server.port = value
+                        .parse()
+                        .map_err(|_| anyhow::anyhow!("Invalid port number"))?;
                 }
                 "server.enable_cors" => {
-                    config.server.enable_cors = value.parse().map_err(|_| anyhow::anyhow!("Invalid boolean value"))?;
+                    config.server.enable_cors = value
+                        .parse()
+                        .map_err(|_| anyhow::anyhow!("Invalid boolean value"))?;
                 }
                 "server.enable_openapi" => {
-                    config.server.enable_openapi = value.parse().map_err(|_| anyhow::anyhow!("Invalid boolean value"))?;
+                    config.server.enable_openapi = value
+                        .parse()
+                        .map_err(|_| anyhow::anyhow!("Invalid boolean value"))?;
                 }
                 "providers.openai.enabled" => {
-                    config.providers.openai.enabled = value.parse().map_err(|_| anyhow::anyhow!("Invalid boolean value"))?;
+                    config.providers.openai.enabled = value
+                        .parse()
+                        .map_err(|_| anyhow::anyhow!("Invalid boolean value"))?;
                 }
                 "providers.anthropic.enabled" => {
-                    config.providers.anthropic.enabled = value.parse().map_err(|_| anyhow::anyhow!("Invalid boolean value"))?;
+                    config.providers.anthropic.enabled = value
+                        .parse()
+                        .map_err(|_| anyhow::anyhow!("Invalid boolean value"))?;
                 }
                 "providers.local.enabled" => {
-                    config.providers.local.enabled = value.parse().map_err(|_| anyhow::anyhow!("Invalid boolean value"))?;
+                    config.providers.local.enabled = value
+                        .parse()
+                        .map_err(|_| anyhow::anyhow!("Invalid boolean value"))?;
                 }
                 "storage.max_cache_size_gb" => {
-                    config.storage.max_cache_size_gb = Some(value.parse().map_err(|_| anyhow::anyhow!("Invalid number"))?);
+                    config.storage.max_cache_size_gb = Some(
+                        value
+                            .parse()
+                            .map_err(|_| anyhow::anyhow!("Invalid number"))?,
+                    );
                 }
                 "storage.auto_cleanup_days" => {
-                    config.storage.auto_cleanup_days = Some(value.parse().map_err(|_| anyhow::anyhow!("Invalid number"))?);
+                    config.storage.auto_cleanup_days = Some(
+                        value
+                            .parse()
+                            .map_err(|_| anyhow::anyhow!("Invalid number"))?,
+                    );
                 }
                 _ => {
                     return Err(anyhow::anyhow!("Unknown configuration key: {}", key));
                 }
             }
-            
+
             config_manager.save_config(&config)?;
             println!("Configuration updated successfully");
         }
         ConfigAction::Get { key } => {
             let config = config_manager.load_config()?;
-            
+
             let value = match key.as_str() {
                 "server.host" => config.server.host.clone(),
                 "server.port" => config.server.port.to_string(),
@@ -792,13 +816,21 @@ async fn run_config(config_manager: ConfigManager, args: ConfigArgs) -> Result<(
                 "providers.openai.enabled" => config.providers.openai.enabled.to_string(),
                 "providers.anthropic.enabled" => config.providers.anthropic.enabled.to_string(),
                 "providers.local.enabled" => config.providers.local.enabled.to_string(),
-                "storage.max_cache_size_gb" => config.storage.max_cache_size_gb.map(|v| v.to_string()).unwrap_or_else(|| "not set".to_string()),
-                "storage.auto_cleanup_days" => config.storage.auto_cleanup_days.map(|v| v.to_string()).unwrap_or_else(|| "not set".to_string()),
+                "storage.max_cache_size_gb" => config
+                    .storage
+                    .max_cache_size_gb
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "not set".to_string()),
+                "storage.auto_cleanup_days" => config
+                    .storage
+                    .auto_cleanup_days
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "not set".to_string()),
                 _ => {
                     return Err(anyhow::anyhow!("Unknown configuration key: {}", key));
                 }
             };
-            
+
             println!("{}: {}", key, value);
         }
         ConfigAction::Reset => {
@@ -883,17 +915,20 @@ async fn run_provider(config: APIConfig, args: ProviderArgs) -> Result<()> {
         }
         ProviderAction::Test { provider } => {
             println!("Testing provider: {}", provider);
-            
+
             let test_result = match provider.as_str() {
                 "openai" => {
                     if std::env::var("OPENAI_API_KEY").is_ok() {
                         // Try to list models to verify API key works
                         let client = aether_shell::security::create_secure_async_client()
                             .unwrap_or_else(|_| reqwest::Client::new());
-                        
+
                         match client
                             .get("https://api.openai.com/v1/models")
-                            .header("Authorization", format!("Bearer {}", std::env::var("OPENAI_API_KEY").unwrap()))
+                            .header(
+                                "Authorization",
+                                format!("Bearer {}", std::env::var("OPENAI_API_KEY").unwrap()),
+                            )
                             .send()
                             .await
                         {
@@ -901,10 +936,11 @@ async fn run_provider(config: APIConfig, args: ProviderArgs) -> Result<()> {
                                 println!("  ✓ OpenAI API connection successful");
                                 Ok(())
                             }
-                            Ok(response) => {
-                                Err(anyhow::anyhow!("API returned status: {}", response.status()))
-                            }
-                            Err(e) => Err(anyhow::anyhow!("Connection failed: {}", e))
+                            Ok(response) => Err(anyhow::anyhow!(
+                                "API returned status: {}",
+                                response.status()
+                            )),
+                            Err(e) => Err(anyhow::anyhow!("Connection failed: {}", e)),
                         }
                     } else {
                         Err(anyhow::anyhow!("OPENAI_API_KEY not set"))
@@ -914,18 +950,14 @@ async fn run_provider(config: APIConfig, args: ProviderArgs) -> Result<()> {
                     if std::env::var("ANTHROPIC_API_KEY").is_ok() {
                         let client = aether_shell::security::create_secure_async_client()
                             .unwrap_or_else(|_| reqwest::Client::new());
-                        
+
                         // Anthropic doesn't have a simple models endpoint, so we just check the base URL
-                        match client
-                            .get("https://api.anthropic.com")
-                            .send()
-                            .await
-                        {
+                        match client.get("https://api.anthropic.com").send().await {
                             Ok(_) => {
                                 println!("  ✓ Anthropic API is reachable (key validation requires actual API call)");
                                 Ok(())
                             }
-                            Err(e) => Err(anyhow::anyhow!("Connection failed: {}", e))
+                            Err(e) => Err(anyhow::anyhow!("Connection failed: {}", e)),
                         }
                     } else {
                         Err(anyhow::anyhow!("ANTHROPIC_API_KEY not set"))
@@ -943,9 +975,9 @@ async fn run_provider(config: APIConfig, args: ProviderArgs) -> Result<()> {
                         Err(anyhow::anyhow!("Ollama not running on localhost:11434"))
                     }
                 }
-                _ => Err(anyhow::anyhow!("Unknown provider: {}", provider))
+                _ => Err(anyhow::anyhow!("Unknown provider: {}", provider)),
             };
-            
+
             if let Err(e) = test_result {
                 println!("  ✗ Test failed: {}", e);
             }
@@ -954,7 +986,7 @@ async fn run_provider(config: APIConfig, args: ProviderArgs) -> Result<()> {
             println!("Configuring provider: {}", provider);
             if let Some(key) = api_key {
                 println!("API key provided (length: {})", key.len());
-                
+
                 // Store the API key in the appropriate environment variable
                 let env_var_name = match provider.as_str() {
                     "openai" => "OPENAI_API_KEY",
@@ -965,11 +997,15 @@ async fn run_provider(config: APIConfig, args: ProviderArgs) -> Result<()> {
                         return Ok(());
                     }
                 };
-                
+
                 // Note: This only sets for current process. For persistent storage,
                 // we'd need to use the secure credential store
                 println!("  To persist this API key, add to your shell profile:");
-                println!("    export {}=\"{}...\"", env_var_name, &key[..std::cmp::min(8, key.len())]);
+                println!(
+                    "    export {}=\"{}...\"",
+                    env_var_name,
+                    &key[..std::cmp::min(8, key.len())]
+                );
                 println!("  Or use the secure keyring:");
                 println!("    aimodel keys set {} [API_KEY]", provider);
             } else {
@@ -977,12 +1013,18 @@ async fn run_provider(config: APIConfig, args: ProviderArgs) -> Result<()> {
                 let env_var = match provider.as_str() {
                     "openai" => std::env::var("OPENAI_API_KEY").ok(),
                     "anthropic" => std::env::var("ANTHROPIC_API_KEY").ok(),
-                    "huggingface" => std::env::var("HF_TOKEN").ok().or_else(|| std::env::var("HUGGINGFACE_TOKEN").ok()),
-                    _ => None
+                    "huggingface" => std::env::var("HF_TOKEN")
+                        .ok()
+                        .or_else(|| std::env::var("HUGGINGFACE_TOKEN").ok()),
+                    _ => None,
                 };
-                
+
                 if let Some(key) = env_var {
-                    println!("  API key is configured ({}... length: {})", &key[..std::cmp::min(8, key.len())], key.len());
+                    println!(
+                        "  API key is configured ({}... length: {})",
+                        &key[..std::cmp::min(8, key.len())],
+                        key.len()
+                    );
                 } else {
                     println!("  No API key configured for {}", provider);
                 }
@@ -1114,7 +1156,7 @@ async fn run_backend(config: APIConfig, args: BackendArgs) -> Result<()> {
         BackendAction::Status { backend } => {
             if let Some(backend_name) = backend {
                 println!("Checking status of {} backend...", backend_name);
-                
+
                 let (default_port, health_path) = match backend_name.as_str() {
                     "vllm" => (8000, "/health"),
                     "tensorrt-llm" => (8001, "/v2/health/ready"),
@@ -1123,16 +1165,19 @@ async fn run_backend(config: APIConfig, args: BackendArgs) -> Result<()> {
                     "ollama" => (11434, "/api/tags"),
                     _ => (8080, "/health"),
                 };
-                
+
                 // Try to connect to the backend
                 match std::net::TcpStream::connect(format!("127.0.0.1:{}", default_port)) {
                     Ok(_) => {
-                        println!("  ✓ {} backend is running on port {}", backend_name, default_port);
-                        
+                        println!(
+                            "  ✓ {} backend is running on port {}",
+                            backend_name, default_port
+                        );
+
                         // Try health endpoint
                         let client = aether_shell::security::create_secure_async_client()
                             .unwrap_or_else(|_| reqwest::Client::new());
-                        
+
                         match client
                             .get(&format!("http://127.0.0.1:{}{}", default_port, health_path))
                             .timeout(std::time::Duration::from_secs(5))
@@ -1151,12 +1196,15 @@ async fn run_backend(config: APIConfig, args: BackendArgs) -> Result<()> {
                         }
                     }
                     Err(_) => {
-                        println!("  ✗ {} backend is not running on port {}", backend_name, default_port);
+                        println!(
+                            "  ✗ {} backend is not running on port {}",
+                            backend_name, default_port
+                        );
                     }
                 }
             } else {
                 println!("Checking status of all backends...\n");
-                
+
                 let backends = vec![
                     ("ollama", 11434, "/api/tags"),
                     ("llama.cpp", 8080, "/health"),
@@ -1164,12 +1212,14 @@ async fn run_backend(config: APIConfig, args: BackendArgs) -> Result<()> {
                     ("tensorrt-llm", 8001, "/v2/health/ready"),
                     ("sglang", 30000, "/health"),
                 ];
-                
+
                 for (name, port, _health) in backends {
                     let status = if std::net::TcpStream::connect_timeout(
                         &format!("127.0.0.1:{}", port).parse().unwrap(),
-                        std::time::Duration::from_millis(500)
-                    ).is_ok() {
+                        std::time::Duration::from_millis(500),
+                    )
+                    .is_ok()
+                    {
                         "✓ running"
                     } else {
                         "✗ stopped"
@@ -1474,13 +1524,13 @@ fn human_bytes(bytes: u64) -> String {
 /// Auto-detect model format from file extension and content
 fn detect_model_format(path: &str) -> Result<ModelFormat> {
     use std::path::Path;
-    
+
     let path_obj = Path::new(path);
     let extension = path_obj
         .extension()
         .and_then(|e| e.to_str())
         .map(|e| e.to_lowercase());
-    
+
     // First try to detect by extension
     if let Some(ext) = &extension {
         let format = match ext.as_str() {
@@ -1491,32 +1541,38 @@ fn detect_model_format(path: &str) -> Result<ModelFormat> {
             "onnx" => Some(ModelFormat::ONNX),
             _ => None,
         };
-        
+
         if let Some(f) = format {
             return Ok(f);
         }
     }
-    
+
     // Check for common directory patterns (HuggingFace format)
     if path_obj.is_dir() {
         // Check for safetensors files
-        if path_obj.join("model.safetensors").exists() 
-            || path_obj.read_dir().ok().map(|entries| {
-                entries.filter_map(|e| e.ok())
-                    .any(|e| e.path().extension().map(|ext| ext == "safetensors").unwrap_or(false))
-            }).unwrap_or(false) 
+        if path_obj.join("model.safetensors").exists()
+            || path_obj
+                .read_dir()
+                .ok()
+                .map(|entries| {
+                    entries.filter_map(|e| e.ok()).any(|e| {
+                        e.path()
+                            .extension()
+                            .map(|ext| ext == "safetensors")
+                            .unwrap_or(false)
+                    })
+                })
+                .unwrap_or(false)
         {
             return Ok(ModelFormat::SafeTensors);
         }
-        
+
         // Check for pytorch files
-        if path_obj.join("pytorch_model.bin").exists() 
-            || path_obj.join("model.pt").exists() 
-        {
+        if path_obj.join("pytorch_model.bin").exists() || path_obj.join("model.pt").exists() {
             return Ok(ModelFormat::PyTorch);
         }
     }
-    
+
     // Try to detect by file magic bytes
     if path_obj.is_file() {
         if let Ok(mut file) = std::fs::File::open(path) {
@@ -1527,39 +1583,46 @@ fn detect_model_format(path: &str) -> Result<ModelFormat> {
                 if &magic[0..4] == b"GGUF" {
                     return Ok(ModelFormat::GGUF);
                 }
-                
+
                 // ONNX files often start with protobuf header (0x08)
                 // and contain "onnx" in the header
                 if magic[0] == 0x08 {
                     // Read more to check for ONNX
-                    if std::fs::read(path).ok().map(|data| {
-                        data.windows(4).any(|w| w == b"onnx")
-                    }).unwrap_or(false) {
+                    if std::fs::read(path)
+                        .ok()
+                        .map(|data| data.windows(4).any(|w| w == b"onnx"))
+                        .unwrap_or(false)
+                    {
                         return Ok(ModelFormat::ONNX);
                     }
                 }
-                
+
                 // PyTorch files are ZIP archives (PKzip signature)
                 if &magic[0..4] == b"PK\x03\x04" {
                     return Ok(ModelFormat::PyTorch);
                 }
-                
+
                 // SafeTensors files start with JSON header containing "weight_map"
                 // They have a header length as first 8 bytes (little endian)
                 let header_len = u64::from_le_bytes(magic);
                 if header_len > 0 && header_len < 1_000_000 {
                     // Likely safetensors format
-                    if std::fs::read(path).ok().map(|data| {
-                        data.len() > 8 && String::from_utf8_lossy(&data[8..data.len().min(1024)])
-                            .contains("\"dtype\"")
-                    }).unwrap_or(false) {
+                    if std::fs::read(path)
+                        .ok()
+                        .map(|data| {
+                            data.len() > 8
+                                && String::from_utf8_lossy(&data[8..data.len().min(1024)])
+                                    .contains("\"dtype\"")
+                        })
+                        .unwrap_or(false)
+                    {
                         return Ok(ModelFormat::SafeTensors);
                     }
                 }
             }
         }
     }
-    
+
     // Default fallback
     println!("Warning: Could not auto-detect format, assuming PyTorch");
     Ok(ModelFormat::PyTorch)

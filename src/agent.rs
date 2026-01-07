@@ -44,6 +44,11 @@ pub struct Plan {
 /// - Validates goal for prompt injection (max 4000 chars)
 /// - Sanitizes control characters
 /// - Logs plan creation
+///
+/// # Planning Strategy
+/// - Uses pattern matching for common task types
+/// - Decomposes complex goals into atomic steps
+/// - Each step has validated tool name and arguments
 pub fn plan(goal: &str) -> Result<Plan> {
     // Validate goal for prompt injection
     let sanitized_goal =
@@ -62,12 +67,163 @@ pub fn plan(goal: &str) -> Result<Plan> {
         }
     );
 
-    // Trivial planner for the skeleton
-    // TODO: Wire to actual LLM-based planning with tool registry
+    // Pattern-based task decomposition
+    let steps = decompose_goal(&sanitized_goal);
+    
     Ok(Plan {
         goal: sanitized_goal,
-        steps: vec![],
+        steps,
     })
+}
+
+/// Decompose a goal into executable steps using pattern matching
+fn decompose_goal(goal: &str) -> Vec<Step> {
+    let goal_lower = goal.to_lowercase();
+    let mut steps = Vec::new();
+    
+    // File operations
+    if goal_lower.contains("list") && (goal_lower.contains("file") || goal_lower.contains("dir")) {
+        let path = extract_path_from_goal(goal).unwrap_or_else(|| ".".to_string());
+        steps.push(Step {
+            tool: "ls".to_string(),
+            args: serde_json::json!({"path": path}),
+        });
+    }
+    
+    if goal_lower.contains("read") && goal_lower.contains("file") {
+        if let Some(path) = extract_path_from_goal(goal) {
+            steps.push(Step {
+                tool: "cat".to_string(),
+                args: serde_json::json!({"path": path}),
+            });
+        }
+    }
+    
+    if goal_lower.contains("find") || goal_lower.contains("search") {
+        let pattern = extract_pattern_from_goal(goal).unwrap_or_else(|| "*".to_string());
+        let path = extract_path_from_goal(goal).unwrap_or_else(|| ".".to_string());
+        steps.push(Step {
+            tool: "find".to_string(),
+            args: serde_json::json!({"path": path, "pattern": pattern}),
+        });
+    }
+    
+    // Git operations
+    if goal_lower.contains("git") {
+        if goal_lower.contains("status") {
+            steps.push(Step {
+                tool: "git".to_string(),
+                args: serde_json::json!({"command": "status"}),
+            });
+        }
+        if goal_lower.contains("commit") {
+            steps.push(Step {
+                tool: "git".to_string(),
+                args: serde_json::json!({"command": "commit"}),
+            });
+        }
+        if goal_lower.contains("push") {
+            steps.push(Step {
+                tool: "git".to_string(),
+                args: serde_json::json!({"command": "push"}),
+            });
+        }
+        if goal_lower.contains("pull") {
+            steps.push(Step {
+                tool: "git".to_string(),
+                args: serde_json::json!({"command": "pull"}),
+            });
+        }
+    }
+    
+    // System information
+    if goal_lower.contains("system") || goal_lower.contains("environment") {
+        steps.push(Step {
+            tool: "env".to_string(),
+            args: serde_json::json!({}),
+        });
+    }
+    
+    if goal_lower.contains("process") || goal_lower.contains("running") {
+        steps.push(Step {
+            tool: "ps".to_string(),
+            args: serde_json::json!({}),
+        });
+    }
+    
+    // Network operations
+    if goal_lower.contains("download") || goal_lower.contains("fetch") {
+        if let Some(url) = extract_url_from_goal(goal) {
+            steps.push(Step {
+                tool: "http_get".to_string(),
+                args: serde_json::json!({"url": url}),
+            });
+        }
+    }
+    
+    // If no specific patterns matched, create a generic analyze step
+    if steps.is_empty() {
+        steps.push(Step {
+            tool: "analyze".to_string(),
+            args: serde_json::json!({"goal": goal}),
+        });
+    }
+    
+    steps
+}
+
+/// Extract a file path from a goal string
+fn extract_path_from_goal(goal: &str) -> Option<String> {
+    // Look for quoted paths first
+    if let Some(start) = goal.find('"') {
+        if let Some(end) = goal[start + 1..].find('"') {
+            return Some(goal[start + 1..start + 1 + end].to_string());
+        }
+    }
+    if let Some(start) = goal.find('\'') {
+        if let Some(end) = goal[start + 1..].find('\'') {
+            return Some(goal[start + 1..start + 1 + end].to_string());
+        }
+    }
+    
+    // Look for path-like patterns
+    for word in goal.split_whitespace() {
+        if word.contains('/') || word.contains('\\') || word.starts_with('.') {
+            // Validate it looks like a path
+            if !word.contains('<') && !word.contains('>') && !word.contains('|') {
+                return Some(word.to_string());
+            }
+        }
+    }
+    
+    None
+}
+
+/// Extract a search pattern from a goal string
+fn extract_pattern_from_goal(goal: &str) -> Option<String> {
+    // Look for "for <pattern>" or "named <pattern>"
+    let patterns = ["for ", "named ", "matching ", "like "];
+    for pattern in patterns {
+        if let Some(idx) = goal.to_lowercase().find(pattern) {
+            let rest = &goal[idx + pattern.len()..];
+            if let Some(word) = rest.split_whitespace().next() {
+                // Remove quotes if present
+                let word = word.trim_matches(|c| c == '"' || c == '\'');
+                return Some(word.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Extract a URL from a goal string  
+fn extract_url_from_goal(goal: &str) -> Option<String> {
+    for word in goal.split_whitespace() {
+        if word.starts_with("http://") || word.starts_with("https://") {
+            return Some(word.to_string());
+        }
+    }
+    None
 }
 
 /// Execute a plan with full security validation
@@ -489,6 +645,66 @@ mod tests {
         // Empty goal
         let result = plan("");
         assert!(result.is_err());
+    }
+    
+    #[test]
+    fn test_plan_decomposition_files() {
+        // Test file listing goal
+        let result = plan("List all files in /tmp directory").unwrap();
+        assert!(!result.steps.is_empty());
+        assert_eq!(result.steps[0].tool, "ls");
+        
+        // Test file reading goal
+        let result = plan("Read file '/etc/hosts'").unwrap();
+        assert!(!result.steps.is_empty());
+        assert_eq!(result.steps[0].tool, "cat");
+    }
+    
+    #[test]
+    fn test_plan_decomposition_git() {
+        // Test git status goal
+        let result = plan("Check git status").unwrap();
+        assert!(!result.steps.is_empty());
+        assert_eq!(result.steps[0].tool, "git");
+        
+        // Test git push goal
+        let result = plan("Push changes to git").unwrap();
+        assert!(!result.steps.is_empty());
+        assert_eq!(result.steps[0].tool, "git");
+    }
+    
+    #[test]
+    fn test_plan_decomposition_search() {
+        let result = plan("Find files matching '*.rs' in src/").unwrap();
+        assert!(!result.steps.is_empty());
+        assert_eq!(result.steps[0].tool, "find");
+    }
+    
+    #[test]
+    fn test_path_extraction() {
+        assert_eq!(extract_path_from_goal("read file '/tmp/test.txt'"), Some("/tmp/test.txt".to_string()));
+        assert_eq!(extract_path_from_goal("list ./src directory"), Some("./src".to_string()));
+        assert_eq!(extract_path_from_goal("check /var/log"), Some("/var/log".to_string()));
+    }
+    
+    #[test]
+    fn test_pattern_extraction() {
+        assert_eq!(extract_pattern_from_goal("find files matching '*.rs'"), Some("*.rs".to_string()));
+        assert_eq!(extract_pattern_from_goal("search for TODO"), Some("TODO".to_string()));
+        assert_eq!(extract_pattern_from_goal("files named config.json"), Some("config.json".to_string()));
+    }
+    
+    #[test]
+    fn test_url_extraction() {
+        assert_eq!(
+            extract_url_from_goal("download from https://example.com/file.txt"),
+            Some("https://example.com/file.txt".to_string())
+        );
+        assert_eq!(
+            extract_url_from_goal("fetch http://api.test.com/data"),
+            Some("http://api.test.com/data".to_string())
+        );
+        assert_eq!(extract_url_from_goal("no url here"), None);
     }
 
     #[test]
