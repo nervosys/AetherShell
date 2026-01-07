@@ -8,6 +8,8 @@ use walkdir::WalkDir;
 use crate::{
     env::Env,
     eval::eval_expr,
+    evolution::{CrossoverStrategy, EvolutionConfig, FitnessResult, Population, SelectionStrategy},
+    neural::{Activation, ConsensusNetwork, NeuralNetwork},
     security::{
         check_file_size_limit, check_rate_limit, create_secure_http_client, validate_ai_prompt,
         validate_http_url, validate_read_path,
@@ -123,6 +125,31 @@ lazy_static::lazy_static! {
         map.insert("ab_encode", 70);
         map.insert("ab_decode", 71);
 
+        // Neural Network functions (72-82)
+        map.insert("nn_create", 72);
+        map.insert("nn_forward", 73);
+        map.insert("nn_mutate", 74);
+        map.insert("nn_crossover", 75);
+        map.insert("nn_params", 76);
+        map.insert("nn_set_params", 77);
+        map.insert("nn_layers", 78);
+        map.insert("nn_info", 79);
+        map.insert("consensus_net", 80);
+        map.insert("consensus_vote", 81);
+        map.insert("activation", 82);
+
+        // Evolution functions (83-92)
+        map.insert("population", 83);
+        map.insert("evolve", 84);
+        map.insert("evolve_step", 85);
+        map.insert("fitness", 86);
+        map.insert("best_individual", 87);
+        map.insert("evolution_stats", 88);
+        map.insert("selection_strategy", 89);
+        map.insert("crossover_strategy", 90);
+        map.insert("evolution_config", 91);
+        map.insert("coevolve", 92);
+
         map
     };
 }
@@ -210,6 +237,29 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_syntax_categories(args, input),
     |args, input, _| bi_ab_encode(args, input),
     |args, input, _| bi_ab_decode(args, input),
+    // 72-82: Neural Network functions
+    |args, input, _| bi_nn_create(args, input),
+    |args, input, _| bi_nn_forward(args, input),
+    |args, input, _| bi_nn_mutate(args, input),
+    |args, input, _| bi_nn_crossover(args, input),
+    |args, input, _| bi_nn_params(args, input),
+    |args, input, _| bi_nn_set_params(args, input),
+    |args, input, _| bi_nn_layers(args, input),
+    |args, input, _| bi_nn_info(args, input),
+    |args, input, _| bi_consensus_net(args, input),
+    |args, input, _| bi_consensus_vote(args, input),
+    |args, input, _| bi_activation(args, input),
+    // 83-92: Evolution functions
+    |args, input, env| bi_population(args, input, env),
+    |args, input, env| bi_evolve(args, input, env),
+    |args, input, env| bi_evolve_step(args, input, env),
+    |args, input, env| bi_fitness(args, input, env),
+    |args, input, _| bi_best_individual(args, input),
+    |args, input, _| bi_evolution_stats(args, input),
+    |args, input, _| bi_selection_strategy(args, input),
+    |args, input, _| bi_crossover_strategy(args, input),
+    |args, input, _| bi_evolution_config(args, input),
+    |args, input, env| bi_coevolve(args, input, env),
 ];
 
 fn fast_builtin_lookup(
@@ -4291,4 +4341,1069 @@ fn bi_ab_decode(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     );
 
     Ok(Value::Record(result))
+}
+
+// --------------- Neural Network Builtins ---------------
+
+/// nn_create(name, layer_sizes, [hidden_activation], [output_activation])
+/// Creates a feedforward neural network
+/// Args:
+///   - name: String - Network name/identifier
+///   - layer_sizes: Array[Int] - Sizes of each layer [input, hidden..., output]
+///   - hidden_activation: String (optional) - "relu", "sigmoid", "tanh", "swish" (default: "relu")
+///   - output_activation: String (optional) - activation for output layer (default: "tanh")
+/// Returns: Record - Network representation
+///
+/// Example:
+///   nn_create("policy", [8, 16, 8, 4])  # 8 inputs, 2 hidden layers, 4 outputs
+fn bi_nn_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if args.is_empty() {
+        return Err(anyhow!("nn_create requires at least name and layer_sizes"));
+    }
+
+    let name = expect_string("nn_create", &args[0])?;
+    let layer_sizes_val = args
+        .get(1)
+        .ok_or_else(|| anyhow!("nn_create requires layer_sizes array"))?;
+    let layer_sizes_arr = expect_array("nn_create", layer_sizes_val)?;
+
+    let layer_sizes: Vec<usize> = layer_sizes_arr
+        .iter()
+        .map(|v| expect_int("nn_create", v).map(|i| i as usize))
+        .collect::<Result<Vec<_>>>()?;
+
+    if layer_sizes.len() < 2 {
+        return Err(anyhow!(
+            "nn_create requires at least 2 layers (input and output)"
+        ));
+    }
+
+    let hidden_activation = args
+        .get(2)
+        .and_then(|v| {
+            if let Value::Str(s) = v {
+                Some(s.as_str())
+            } else {
+                None
+            }
+        })
+        .and_then(Activation::from_str)
+        .unwrap_or(Activation::ReLU);
+
+    let output_activation = args
+        .get(3)
+        .and_then(|v| {
+            if let Value::Str(s) = v {
+                Some(s.as_str())
+            } else {
+                None
+            }
+        })
+        .and_then(Activation::from_str)
+        .unwrap_or(Activation::Tanh);
+
+    let network =
+        NeuralNetwork::feedforward(name, &layer_sizes, hidden_activation, output_activation);
+    nn_to_value(&network)
+}
+
+/// nn_forward(network, input)
+/// Forward pass through the network
+/// Args:
+///   - network: Record - Network from nn_create
+///   - input: Array[Float] - Input values
+/// Returns: Array[Float] - Output values
+fn bi_nn_forward(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let has_input = input.is_some();
+    let network_val = input
+        .or_else(|| args.get(0).cloned())
+        .ok_or_else(|| anyhow!("nn_forward requires network"))?;
+
+    let network = value_to_nn(&network_val)?;
+
+    let input_val = args
+        .get(if has_input { 0 } else { 1 })
+        .ok_or_else(|| anyhow!("nn_forward requires input array"))?;
+    let input_arr = expect_array("nn_forward", input_val)?;
+
+    let input_vec: Vec<f64> = input_arr
+        .iter()
+        .map(|v| value_to_f64(v))
+        .collect::<Result<Vec<_>>>()?;
+
+    let output = network.forward(&input_vec);
+    Ok(Value::Array(output.into_iter().map(Value::Float).collect()))
+}
+
+/// nn_mutate(network, rate, strength)
+/// Mutate network parameters
+/// Args:
+///   - network: Record - Network to mutate
+///   - rate: Float - Mutation probability (0.0-1.0)
+///   - strength: Float - Mutation magnitude
+/// Returns: Record - Mutated network
+fn bi_nn_mutate(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let has_input = input.is_some();
+    let network_val = input
+        .or_else(|| args.get(0).cloned())
+        .ok_or_else(|| anyhow!("nn_mutate requires network"))?;
+
+    let network = value_to_nn(&network_val)?;
+
+    let idx = if has_input { 0 } else { 1 };
+    let rate = args.get(idx).map(value_to_f64).transpose()?.unwrap_or(0.1);
+    let strength = args
+        .get(idx + 1)
+        .map(value_to_f64)
+        .transpose()?
+        .unwrap_or(0.3);
+
+    let mutated = network.mutate(rate, strength);
+    nn_to_value(&mutated)
+}
+
+/// nn_crossover(network1, network2)
+/// Crossover two networks
+/// Args:
+///   - network1: Record - First parent network
+///   - network2: Record - Second parent network
+/// Returns: Record - Child network
+fn bi_nn_crossover(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if args.len() < 2 {
+        return Err(anyhow!("nn_crossover requires two networks"));
+    }
+
+    let net1 = value_to_nn(&args[0])?;
+    let net2 = value_to_nn(&args[1])?;
+
+    let child = NeuralNetwork::crossover(&net1, &net2);
+    nn_to_value(&child)
+}
+
+/// nn_params(network)
+/// Get network parameters as flat array
+/// Args:
+///   - network: Record - Network
+/// Returns: Array[Float] - All weights and biases
+fn bi_nn_params(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let network_val = input
+        .or_else(|| args.get(0).cloned())
+        .ok_or_else(|| anyhow!("nn_params requires network"))?;
+
+    let network = value_to_nn(&network_val)?;
+    let params = network.get_params();
+    Ok(Value::Array(params.into_iter().map(Value::Float).collect()))
+}
+
+/// nn_set_params(network, params)
+/// Set network parameters from flat array
+/// Args:
+///   - network: Record - Network
+///   - params: Array[Float] - New parameters
+/// Returns: Record - Updated network
+fn bi_nn_set_params(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let has_input = input.is_some();
+    let network_val = input
+        .or_else(|| args.get(0).cloned())
+        .ok_or_else(|| anyhow!("nn_set_params requires network"))?;
+
+    let mut network = value_to_nn(&network_val)?;
+
+    let idx = if has_input { 0 } else { 1 };
+    let params_val = args
+        .get(idx)
+        .ok_or_else(|| anyhow!("nn_set_params requires params array"))?;
+    let params_arr = expect_array("nn_set_params", params_val)?;
+
+    let params: Vec<f64> = params_arr
+        .iter()
+        .map(value_to_f64)
+        .collect::<Result<Vec<_>>>()?;
+
+    network.set_params(&params);
+    nn_to_value(&network)
+}
+
+/// nn_layers(network)
+/// Get layer information
+/// Args:
+///   - network: Record - Network
+/// Returns: Array[Record] - Layer specifications
+fn bi_nn_layers(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let network_val = input
+        .or_else(|| args.get(0).cloned())
+        .ok_or_else(|| anyhow!("nn_layers requires network"))?;
+
+    let network = value_to_nn(&network_val)?;
+
+    let layers: Vec<Value> = network
+        .layers
+        .iter()
+        .map(|layer| {
+            let mut rec = BTreeMap::new();
+            rec.insert(
+                "input_size".to_string(),
+                Value::Int(layer.input_size as i64),
+            );
+            rec.insert(
+                "output_size".to_string(),
+                Value::Int(layer.output_size as i64),
+            );
+            rec.insert(
+                "activation".to_string(),
+                Value::Str(format!("{:?}", layer.activation)),
+            );
+            rec.insert(
+                "param_count".to_string(),
+                Value::Int(layer.param_count() as i64),
+            );
+            Value::Record(rec)
+        })
+        .collect();
+
+    Ok(Value::Array(layers))
+}
+
+/// nn_info(network)
+/// Get network summary information
+/// Args:
+///   - network: Record - Network
+/// Returns: Record - Network info including total params, layer count, etc.
+fn bi_nn_info(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let network_val = input
+        .or_else(|| args.get(0).cloned())
+        .ok_or_else(|| anyhow!("nn_info requires network"))?;
+
+    let network = value_to_nn(&network_val)?;
+
+    let mut info = BTreeMap::new();
+    info.insert("name".to_string(), Value::Str(network.name.clone()));
+    info.insert(
+        "layer_count".to_string(),
+        Value::Int(network.layers.len() as i64),
+    );
+    info.insert(
+        "param_count".to_string(),
+        Value::Int(network.param_count() as i64),
+    );
+
+    if let Some(first) = network.layers.first() {
+        info.insert(
+            "input_size".to_string(),
+            Value::Int(first.input_size as i64),
+        );
+    }
+    if let Some(last) = network.layers.last() {
+        info.insert(
+            "output_size".to_string(),
+            Value::Int(last.output_size as i64),
+        );
+    }
+
+    Ok(Value::Record(info))
+}
+
+/// consensus_net(name, agent_count, input_size, hidden_size, output_size)
+/// Create a consensus network for distributed decision making
+/// Args:
+///   - name: String - Network name
+///   - agent_count: Int - Number of agents
+///   - input_size: Int - Input dimension
+///   - hidden_size: Int - Hidden layer size
+///   - output_size: Int - Output dimension (decision size)
+/// Returns: Record - Consensus network
+fn bi_consensus_net(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if args.len() < 5 {
+        return Err(anyhow!(
+            "consensus_net requires name, agent_count, input_size, hidden_size, output_size"
+        ));
+    }
+
+    let name = expect_string("consensus_net", &args[0])?;
+    let agent_count = expect_int("consensus_net", &args[1])? as usize;
+    let input_size = expect_int("consensus_net", &args[2])? as usize;
+    let hidden_size = expect_int("consensus_net", &args[3])? as usize;
+    let output_size = expect_int("consensus_net", &args[4])? as usize;
+
+    let consensus = ConsensusNetwork::new(name, agent_count, input_size, hidden_size, output_size);
+    consensus_net_to_value(&consensus)
+}
+
+/// consensus_vote(network, agent_inputs)
+/// Run consensus voting across all agents
+/// Args:
+///   - network: Record - Consensus network
+///   - agent_inputs: Array[Array[Float]] - Each agent's input
+/// Returns: Record - {decisions: Array[Array], consensus: Array[Float], confidence: Float}
+fn bi_consensus_vote(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let has_input = input.is_some();
+    let network_val = input
+        .or_else(|| args.get(0).cloned())
+        .ok_or_else(|| anyhow!("consensus_vote requires network"))?;
+
+    let mut network = value_to_consensus_net(&network_val)?;
+
+    let idx = if has_input { 0 } else { 1 };
+    let inputs_val = args
+        .get(idx)
+        .ok_or_else(|| anyhow!("consensus_vote requires agent_inputs"))?;
+    let inputs_arr = expect_array("consensus_vote", inputs_val)?;
+
+    let agent_inputs: Vec<Vec<f64>> = inputs_arr
+        .iter()
+        .map(|v| {
+            let arr = expect_array("consensus_vote", v)?;
+            arr.iter().map(value_to_f64).collect()
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    let (decisions, consensus) = network.consensus(&agent_inputs);
+
+    // Calculate confidence as 1 - variance of decisions
+    let decision_dim = decisions.first().map(|d| d.len()).unwrap_or(0);
+    let mean: Vec<f64> = (0..decision_dim)
+        .map(|i| {
+            decisions
+                .iter()
+                .map(|d| d.get(i).copied().unwrap_or(0.0))
+                .sum::<f64>()
+                / decisions.len().max(1) as f64
+        })
+        .collect();
+    let variance: f64 = decisions
+        .iter()
+        .map(|d: &Vec<f64>| {
+            d.iter()
+                .zip(&mean)
+                .map(|(a, b)| (a - b).powi(2))
+                .sum::<f64>()
+        })
+        .sum::<f64>()
+        / decisions.len().max(1) as f64;
+    let confidence = 1.0 / (1.0 + variance);
+
+    let mut result = BTreeMap::new();
+    result.insert(
+        "decisions".to_string(),
+        Value::Array(
+            decisions
+                .into_iter()
+                .map(|d: Vec<f64>| Value::Array(d.into_iter().map(Value::Float).collect()))
+                .collect(),
+        ),
+    );
+    result.insert(
+        "consensus".to_string(),
+        Value::Array(consensus.into_iter().map(Value::Float).collect()),
+    );
+    result.insert("confidence".to_string(), Value::Float(confidence));
+
+    Ok(Value::Record(result))
+}
+
+/// activation(name)
+/// Get activation function by name
+/// Args:
+///   - name: String - "relu", "sigmoid", "tanh", "softmax", "linear", "swish", "leaky_relu"
+/// Returns: Record - Activation function info
+fn bi_activation(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = args
+        .get(0)
+        .and_then(|v| {
+            if let Value::Str(s) = v {
+                Some(s.as_str())
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| anyhow!("activation requires name string"))?;
+
+    let activation = Activation::from_str(name)
+        .ok_or_else(|| anyhow!("Unknown activation: {}. Valid: relu, sigmoid, tanh, softmax, linear, swish, leaky_relu", name))?;
+
+    let mut info = BTreeMap::new();
+    info.insert("name".to_string(), Value::Str(format!("{:?}", activation)));
+    info.insert(
+        "description".to_string(),
+        Value::Str(
+            match activation {
+                Activation::ReLU => "Rectified Linear Unit: max(0, x)",
+                Activation::Sigmoid => "Sigmoid: 1/(1+e^-x), outputs 0-1",
+                Activation::Tanh => "Hyperbolic tangent: outputs -1 to 1",
+                Activation::Softmax => "Softmax: probability distribution",
+                Activation::Linear => "Linear: f(x) = x",
+                Activation::LeakyReLU(_) => "Leaky ReLU: x if x>0, else 0.01*x",
+                Activation::Swish => "Swish: x * sigmoid(x)",
+            }
+            .to_string(),
+        ),
+    );
+
+    Ok(Value::Record(info))
+}
+
+// --------------- Evolution Builtins ---------------
+
+/// population(size, genome_type, [config])
+/// Create a population for evolution
+/// Args:
+///   - size: Int - Population size
+///   - genome_type: String - "nn" for neural network, "vec" for float vector
+///   - config: Record (optional) - Evolution configuration
+/// Returns: Record - Population state
+fn bi_population(args: Vec<Value>, _input: Option<Value>, _env: &mut Env) -> Result<Value> {
+    if args.len() < 2 {
+        return Err(anyhow!("population requires size and genome_type"));
+    }
+
+    let size = expect_int("population", &args[0])? as usize;
+    let genome_type = expect_string("population", &args[1])?;
+
+    let mut config = EvolutionConfig::default();
+    config.population_size = size;
+
+    // Parse optional config
+    if let Some(Value::Record(cfg)) = args.get(2) {
+        if let Some(Value::Float(r)) = cfg.get("mutation_rate") {
+            config.mutation_rate = *r;
+        }
+        if let Some(Value::Float(s)) = cfg.get("mutation_strength") {
+            config.mutation_strength = *s;
+        }
+        if let Some(Value::Float(c)) = cfg.get("crossover_rate") {
+            config.crossover_rate = *c;
+        }
+        if let Some(Value::Int(e)) = cfg.get("elitism") {
+            config.elitism = *e as usize;
+        }
+        if let Some(Value::Int(g)) = cfg.get("generations") {
+            config.generations = *g as usize;
+        }
+    }
+
+    // Create population based on genome type
+    match genome_type {
+        "nn" => {
+            let pop: Population<NeuralNetwork> = Population::new(config.clone());
+            population_to_value(&pop, "nn")
+        }
+        "vec" | "vector" => {
+            let pop: Population<Vec<f64>> = Population::new(config.clone());
+            population_to_value(&pop, "vec")
+        }
+        _ => Err(anyhow!(
+            "Unknown genome_type: {}. Valid: nn, vec",
+            genome_type
+        )),
+    }
+}
+
+/// evolve(population, fitness_fn, generations)
+/// Run evolution for multiple generations
+/// Args:
+///   - population: Record - Population from population()
+///   - fitness_fn: Lambda - fn(genome) => Float
+///   - generations: Int - Number of generations
+/// Returns: Record - Updated population with stats
+fn bi_evolve(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Value> {
+    let has_input = input.is_some();
+    let pop_val = input
+        .or_else(|| args.get(0).cloned())
+        .ok_or_else(|| anyhow!("evolve requires population"))?;
+
+    let idx = if has_input { 0 } else { 1 };
+    let fitness_fn = args
+        .get(idx)
+        .ok_or_else(|| anyhow!("evolve requires fitness function"))?;
+    let lambda = need_lambda(fitness_fn, "evolve")?.clone();
+
+    let generations = args
+        .get(idx + 1)
+        .map(|v| expect_int("evolve", v))
+        .transpose()?
+        .unwrap_or(10) as usize;
+
+    let genome_type = get_population_genome_type(&pop_val)?;
+
+    match genome_type.as_str() {
+        "nn" => {
+            let mut pop = value_to_population_nn(&pop_val)?;
+            for _ in 0..generations {
+                pop.evolve(|genome| {
+                    let genome_val = nn_to_value(genome).unwrap_or(Value::Null);
+                    let result =
+                        call_lambda(&lambda, &[genome_val], env).unwrap_or(Value::Float(0.0));
+                    let score = value_to_f64(&result).unwrap_or(0.0);
+                    FitnessResult::new(score)
+                });
+            }
+            population_to_value(&pop, "nn")
+        }
+        "vec" => {
+            let mut pop = value_to_population_vec(&pop_val)?;
+            for _ in 0..generations {
+                pop.evolve(|genome| {
+                    let genome_val =
+                        Value::Array(genome.iter().map(|&f| Value::Float(f)).collect());
+                    let result =
+                        call_lambda(&lambda, &[genome_val], env).unwrap_or(Value::Float(0.0));
+                    let score = value_to_f64(&result).unwrap_or(0.0);
+                    FitnessResult::new(score)
+                });
+            }
+            population_to_value(&pop, "vec")
+        }
+        _ => Err(anyhow!("Unknown genome type: {}", genome_type)),
+    }
+}
+
+/// evolve_step(population, fitness_fn)
+/// Run single evolution step
+fn bi_evolve_step(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Value> {
+    let has_input = input.is_some();
+    let pop_val = input
+        .or_else(|| args.get(0).cloned())
+        .ok_or_else(|| anyhow!("evolve_step requires population"))?;
+
+    let idx = if has_input { 0 } else { 1 };
+    let fitness_fn = args
+        .get(idx)
+        .ok_or_else(|| anyhow!("evolve_step requires fitness function"))?;
+    let lambda = need_lambda(fitness_fn, "evolve_step")?.clone();
+
+    let genome_type = get_population_genome_type(&pop_val)?;
+
+    match genome_type.as_str() {
+        "nn" => {
+            let mut pop = value_to_population_nn(&pop_val)?;
+            pop.evolve(|genome| {
+                let genome_val = nn_to_value(genome).unwrap_or(Value::Null);
+                let result = call_lambda(&lambda, &[genome_val], env).unwrap_or(Value::Float(0.0));
+                let score = value_to_f64(&result).unwrap_or(0.0);
+                FitnessResult::new(score)
+            });
+            population_to_value(&pop, "nn")
+        }
+        "vec" => {
+            let mut pop = value_to_population_vec(&pop_val)?;
+            pop.evolve(|genome| {
+                let genome_val = Value::Array(genome.iter().map(|&f| Value::Float(f)).collect());
+                let result = call_lambda(&lambda, &[genome_val], env).unwrap_or(Value::Float(0.0));
+                let score = value_to_f64(&result).unwrap_or(0.0);
+                FitnessResult::new(score)
+            });
+            population_to_value(&pop, "vec")
+        }
+        _ => Err(anyhow!("Unknown genome type: {}", genome_type)),
+    }
+}
+
+/// fitness(population, fitness_fn)
+/// Evaluate fitness of all individuals
+fn bi_fitness(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Value> {
+    let has_input = input.is_some();
+    let pop_val = input
+        .or_else(|| args.get(0).cloned())
+        .ok_or_else(|| anyhow!("fitness requires population"))?;
+
+    let idx = if has_input { 0 } else { 1 };
+    let fitness_fn = args
+        .get(idx)
+        .ok_or_else(|| anyhow!("fitness requires fitness function"))?;
+    let lambda = need_lambda(fitness_fn, "fitness")?.clone();
+
+    let genome_type = get_population_genome_type(&pop_val)?;
+
+    match genome_type.as_str() {
+        "nn" => {
+            let mut pop = value_to_population_nn(&pop_val)?;
+            pop.evaluate(|genome| {
+                let genome_val = nn_to_value(genome).unwrap_or(Value::Null);
+                let result = call_lambda(&lambda, &[genome_val], env).unwrap_or(Value::Float(0.0));
+                let score = value_to_f64(&result).unwrap_or(0.0);
+                FitnessResult::new(score)
+            });
+            population_to_value(&pop, "nn")
+        }
+        "vec" => {
+            let mut pop = value_to_population_vec(&pop_val)?;
+            pop.evaluate(|genome| {
+                let genome_val = Value::Array(genome.iter().map(|&f| Value::Float(f)).collect());
+                let result = call_lambda(&lambda, &[genome_val], env).unwrap_or(Value::Float(0.0));
+                let score = value_to_f64(&result).unwrap_or(0.0);
+                FitnessResult::new(score)
+            });
+            population_to_value(&pop, "vec")
+        }
+        _ => Err(anyhow!("Unknown genome type: {}", genome_type)),
+    }
+}
+
+/// best_individual(population)
+/// Get the best individual from population
+fn bi_best_individual(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let pop_val = input
+        .or_else(|| args.get(0).cloned())
+        .ok_or_else(|| anyhow!("best_individual requires population"))?;
+
+    let genome_type = get_population_genome_type(&pop_val)?;
+
+    match genome_type.as_str() {
+        "nn" => {
+            let pop = value_to_population_nn(&pop_val)?;
+            let best = pop
+                .individuals
+                .iter()
+                .max_by(|a, b| {
+                    a.score()
+                        .partial_cmp(&b.score())
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .ok_or_else(|| anyhow!("Empty population"))?;
+
+            let mut result = BTreeMap::new();
+            result.insert("genome".to_string(), nn_to_value(&best.genome)?);
+            result.insert("fitness".to_string(), Value::Float(best.score()));
+            result.insert("generation".to_string(), Value::Int(best.generation as i64));
+            result.insert("id".to_string(), Value::Int(best.id as i64));
+            Ok(Value::Record(result))
+        }
+        "vec" => {
+            let pop = value_to_population_vec(&pop_val)?;
+            let best = pop
+                .individuals
+                .iter()
+                .max_by(|a, b| {
+                    a.score()
+                        .partial_cmp(&b.score())
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .ok_or_else(|| anyhow!("Empty population"))?;
+
+            let mut result = BTreeMap::new();
+            result.insert(
+                "genome".to_string(),
+                Value::Array(best.genome.iter().map(|&f| Value::Float(f)).collect()),
+            );
+            result.insert("fitness".to_string(), Value::Float(best.score()));
+            result.insert("generation".to_string(), Value::Int(best.generation as i64));
+            result.insert("id".to_string(), Value::Int(best.id as i64));
+            Ok(Value::Record(result))
+        }
+        _ => Err(anyhow!("Unknown genome type: {}", genome_type)),
+    }
+}
+
+/// evolution_stats(population)
+/// Get evolution statistics
+fn bi_evolution_stats(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let pop_val = input
+        .or_else(|| args.get(0).cloned())
+        .ok_or_else(|| anyhow!("evolution_stats requires population"))?;
+
+    if let Value::Record(rec) = &pop_val {
+        if let Some(Value::Record(stats)) = rec.get("stats") {
+            return Ok(Value::Record(stats.clone()));
+        }
+    }
+
+    Err(anyhow!("Could not extract stats from population"))
+}
+
+/// selection_strategy(name, [param])
+/// Create selection strategy
+/// Args:
+///   - name: String - "tournament", "roulette", "rank", "truncation", "elite"
+///   - param: Int/Float (optional) - Strategy parameter
+fn bi_selection_strategy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = args
+        .get(0)
+        .and_then(|v| {
+            if let Value::Str(s) = v {
+                Some(s.as_str())
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| anyhow!("selection_strategy requires name"))?;
+
+    let strategy = match name.to_lowercase().as_str() {
+        "tournament" => {
+            let size = args
+                .get(1)
+                .map(|v| expect_int("selection_strategy", v))
+                .transpose()?
+                .unwrap_or(3) as usize;
+            SelectionStrategy::Tournament(size)
+        }
+        "roulette" => SelectionStrategy::Roulette,
+        "rank" => SelectionStrategy::Rank,
+        "truncation" => {
+            let ratio = args.get(1).map(value_to_f64).transpose()?.unwrap_or(0.5);
+            SelectionStrategy::Truncation(ratio)
+        }
+        "elite" => {
+            let n = args
+                .get(1)
+                .map(|v| expect_int("selection_strategy", v))
+                .transpose()?
+                .unwrap_or(5) as usize;
+            SelectionStrategy::Elite(n)
+        }
+        _ => return Err(anyhow!("Unknown selection strategy: {}", name)),
+    };
+
+    let mut result = BTreeMap::new();
+    result.insert(
+        "type".to_string(),
+        Value::Str("selection_strategy".to_string()),
+    );
+    result.insert("name".to_string(), Value::Str(format!("{:?}", strategy)));
+    Ok(Value::Record(result))
+}
+
+/// crossover_strategy(name, [param])
+/// Create crossover strategy
+fn bi_crossover_strategy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = args
+        .get(0)
+        .and_then(|v| {
+            if let Value::Str(s) = v {
+                Some(s.as_str())
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| anyhow!("crossover_strategy requires name"))?;
+
+    let strategy = match name.to_lowercase().as_str() {
+        "single_point" | "singlepoint" => CrossoverStrategy::SinglePoint,
+        "two_point" | "twopoint" => CrossoverStrategy::TwoPoint,
+        "uniform" => {
+            let prob = args.get(1).map(value_to_f64).transpose()?.unwrap_or(0.5);
+            CrossoverStrategy::Uniform(prob)
+        }
+        "blend" => {
+            let alpha = args.get(1).map(value_to_f64).transpose()?.unwrap_or(0.5);
+            CrossoverStrategy::Blend(alpha)
+        }
+        "sbx" => {
+            let eta = args.get(1).map(value_to_f64).transpose()?.unwrap_or(20.0);
+            CrossoverStrategy::SBX(eta)
+        }
+        _ => return Err(anyhow!("Unknown crossover strategy: {}", name)),
+    };
+
+    let mut result = BTreeMap::new();
+    result.insert(
+        "type".to_string(),
+        Value::Str("crossover_strategy".to_string()),
+    );
+    result.insert("name".to_string(), Value::Str(format!("{:?}", strategy)));
+    Ok(Value::Record(result))
+}
+
+/// evolution_config([options])
+/// Create evolution configuration
+fn bi_evolution_config(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut config = EvolutionConfig::default();
+
+    if let Some(Value::Record(opts)) = args.get(0) {
+        if let Some(v) = opts.get("population_size") {
+            config.population_size = expect_int("evolution_config", v)? as usize;
+        }
+        if let Some(v) = opts.get("generations") {
+            config.generations = expect_int("evolution_config", v)? as usize;
+        }
+        if let Some(v) = opts.get("mutation_rate") {
+            config.mutation_rate = value_to_f64(v)?;
+        }
+        if let Some(v) = opts.get("mutation_strength") {
+            config.mutation_strength = value_to_f64(v)?;
+        }
+        if let Some(v) = opts.get("crossover_rate") {
+            config.crossover_rate = value_to_f64(v)?;
+        }
+        if let Some(v) = opts.get("elitism") {
+            config.elitism = expect_int("evolution_config", v)? as usize;
+        }
+    }
+
+    let mut result = BTreeMap::new();
+    result.insert(
+        "type".to_string(),
+        Value::Str("evolution_config".to_string()),
+    );
+    result.insert(
+        "population_size".to_string(),
+        Value::Int(config.population_size as i64),
+    );
+    result.insert(
+        "generations".to_string(),
+        Value::Int(config.generations as i64),
+    );
+    result.insert(
+        "mutation_rate".to_string(),
+        Value::Float(config.mutation_rate),
+    );
+    result.insert(
+        "mutation_strength".to_string(),
+        Value::Float(config.mutation_strength),
+    );
+    result.insert(
+        "crossover_rate".to_string(),
+        Value::Float(config.crossover_rate),
+    );
+    result.insert("elitism".to_string(), Value::Int(config.elitism as i64));
+    Ok(Value::Record(result))
+}
+
+/// coevolve(populations, fitness_fn, generations)
+/// Run coevolution across multiple populations
+fn bi_coevolve(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Value> {
+    let has_input = input.is_some();
+    let pops_val = input
+        .or_else(|| args.get(0).cloned())
+        .ok_or_else(|| anyhow!("coevolve requires populations array"))?;
+
+    let pops_arr = expect_array("coevolve", &pops_val)?;
+
+    let idx = if has_input { 0 } else { 1 };
+    let fitness_fn = args
+        .get(idx)
+        .ok_or_else(|| anyhow!("coevolve requires fitness function"))?;
+    let lambda = need_lambda(fitness_fn, "coevolve")?.clone();
+
+    let generations = args
+        .get(idx + 1)
+        .map(|v| expect_int("coevolve", v))
+        .transpose()?
+        .unwrap_or(10) as usize;
+
+    // For simplicity, evolve each population with fitness relative to others
+    let mut results = Vec::new();
+    for pop_val in pops_arr {
+        let genome_type = get_population_genome_type(pop_val)?;
+
+        match genome_type.as_str() {
+            "nn" => {
+                let mut pop = value_to_population_nn(pop_val)?;
+                for _ in 0..generations {
+                    pop.evolve(|genome| {
+                        let genome_val = nn_to_value(genome).unwrap_or(Value::Null);
+                        let result =
+                            call_lambda(&lambda, &[genome_val], env).unwrap_or(Value::Float(0.0));
+                        let score = value_to_f64(&result).unwrap_or(0.0);
+                        FitnessResult::new(score)
+                    });
+                }
+                results.push(population_to_value(&pop, "nn")?);
+            }
+            "vec" => {
+                let mut pop = value_to_population_vec(pop_val)?;
+                for _ in 0..generations {
+                    pop.evolve(|genome| {
+                        let genome_val =
+                            Value::Array(genome.iter().map(|&f| Value::Float(f)).collect());
+                        let result =
+                            call_lambda(&lambda, &[genome_val], env).unwrap_or(Value::Float(0.0));
+                        let score = value_to_f64(&result).unwrap_or(0.0);
+                        FitnessResult::new(score)
+                    });
+                }
+                results.push(population_to_value(&pop, "vec")?);
+            }
+            _ => return Err(anyhow!("Unknown genome type: {}", genome_type)),
+        }
+    }
+
+    Ok(Value::Array(results))
+}
+
+// --------------- Neural/Evolution Helpers ---------------
+
+fn value_to_f64(v: &Value) -> Result<f64> {
+    match v {
+        Value::Float(f) => Ok(*f),
+        Value::Int(i) => Ok(*i as f64),
+        _ => Err(anyhow!("Expected numeric value, got {:?}", v)),
+    }
+}
+
+fn nn_to_value(network: &NeuralNetwork) -> Result<Value> {
+    let json = serde_json::to_string(network).context("Failed to serialize network")?;
+
+    let mut rec = BTreeMap::new();
+    rec.insert("type".to_string(), Value::Str("neural_network".to_string()));
+    rec.insert("name".to_string(), Value::Str(network.name.clone()));
+    rec.insert(
+        "layer_count".to_string(),
+        Value::Int(network.layers.len() as i64),
+    );
+    rec.insert(
+        "param_count".to_string(),
+        Value::Int(network.param_count() as i64),
+    );
+    rec.insert("_data".to_string(), Value::Str(json));
+    Ok(Value::Record(rec))
+}
+
+fn value_to_nn(v: &Value) -> Result<NeuralNetwork> {
+    if let Value::Record(rec) = v {
+        if let Some(Value::Str(data)) = rec.get("_data") {
+            return serde_json::from_str(data).context("Failed to deserialize network");
+        }
+    }
+    Err(anyhow!("Invalid neural network value"))
+}
+
+fn consensus_net_to_value(network: &ConsensusNetwork) -> Result<Value> {
+    let json = serde_json::to_string(network).context("Failed to serialize consensus network")?;
+
+    let mut rec = BTreeMap::new();
+    rec.insert(
+        "type".to_string(),
+        Value::Str("consensus_network".to_string()),
+    );
+    rec.insert("name".to_string(), Value::Str(network.name.clone()));
+    rec.insert(
+        "agent_count".to_string(),
+        Value::Int(network.agent_networks.len() as i64),
+    );
+    rec.insert("_data".to_string(), Value::Str(json));
+    Ok(Value::Record(rec))
+}
+
+fn value_to_consensus_net(v: &Value) -> Result<ConsensusNetwork> {
+    if let Value::Record(rec) = v {
+        if let Some(Value::Str(data)) = rec.get("_data") {
+            return serde_json::from_str(data).context("Failed to deserialize consensus network");
+        }
+    }
+    Err(anyhow!("Invalid consensus network value"))
+}
+
+fn get_population_genome_type(v: &Value) -> Result<String> {
+    if let Value::Record(rec) = v {
+        if let Some(Value::Str(gt)) = rec.get("genome_type") {
+            return Ok(gt.clone());
+        }
+    }
+    Err(anyhow!("Could not determine genome type from population"))
+}
+
+fn population_to_value<G: crate::evolution::Evolvable + serde::Serialize>(
+    pop: &Population<G>,
+    genome_type: &str,
+) -> Result<Value> {
+    let json = serde_json::to_string(&pop.individuals).context("Failed to serialize population")?;
+    let config_json = serde_json::to_string(&pop.config).context("Failed to serialize config")?;
+
+    let mut stats = BTreeMap::new();
+    stats.insert(
+        "generation".to_string(),
+        Value::Int(pop.stats.generation as i64),
+    );
+    stats.insert(
+        "best_fitness".to_string(),
+        Value::Float(pop.stats.best_fitness),
+    );
+    stats.insert(
+        "avg_fitness".to_string(),
+        Value::Float(pop.stats.avg_fitness),
+    );
+    stats.insert(
+        "worst_fitness".to_string(),
+        Value::Float(pop.stats.worst_fitness),
+    );
+    stats.insert("diversity".to_string(), Value::Float(pop.stats.diversity));
+    stats.insert(
+        "history".to_string(),
+        Value::Array(
+            pop.stats
+                .fitness_history
+                .iter()
+                .map(|&f| Value::Float(f))
+                .collect(),
+        ),
+    );
+
+    let mut rec = BTreeMap::new();
+    rec.insert("type".to_string(), Value::Str("population".to_string()));
+    rec.insert(
+        "genome_type".to_string(),
+        Value::Str(genome_type.to_string()),
+    );
+    rec.insert("size".to_string(), Value::Int(pop.individuals.len() as i64));
+    rec.insert("generation".to_string(), Value::Int(pop.generation as i64));
+    rec.insert("stats".to_string(), Value::Record(stats));
+    rec.insert("_individuals".to_string(), Value::Str(json));
+    rec.insert("_config".to_string(), Value::Str(config_json));
+    Ok(Value::Record(rec))
+}
+
+fn value_to_population_nn(v: &Value) -> Result<Population<NeuralNetwork>> {
+    if let Value::Record(rec) = v {
+        let individuals: Vec<crate::evolution::Individual<NeuralNetwork>> =
+            if let Some(Value::Str(data)) = rec.get("_individuals") {
+                serde_json::from_str(data).context("Failed to deserialize individuals")?
+            } else {
+                return Err(anyhow!("Missing _individuals in population"));
+            };
+
+        let config: EvolutionConfig = if let Some(Value::Str(data)) = rec.get("_config") {
+            serde_json::from_str(data).context("Failed to deserialize config")?
+        } else {
+            EvolutionConfig::default()
+        };
+
+        let generation = if let Some(Value::Int(g)) = rec.get("generation") {
+            *g as usize
+        } else {
+            0
+        };
+
+        Ok(Population {
+            individuals,
+            generation,
+            config,
+            stats: crate::evolution::EvolutionStats::new(),
+            next_id: 0,
+        })
+    } else {
+        Err(anyhow!("Invalid population value"))
+    }
+}
+
+fn value_to_population_vec(v: &Value) -> Result<Population<Vec<f64>>> {
+    if let Value::Record(rec) = v {
+        let individuals: Vec<crate::evolution::Individual<Vec<f64>>> =
+            if let Some(Value::Str(data)) = rec.get("_individuals") {
+                serde_json::from_str(data).context("Failed to deserialize individuals")?
+            } else {
+                return Err(anyhow!("Missing _individuals in population"));
+            };
+
+        let config: EvolutionConfig = if let Some(Value::Str(data)) = rec.get("_config") {
+            serde_json::from_str(data).context("Failed to deserialize config")?
+        } else {
+            EvolutionConfig::default()
+        };
+
+        let generation = if let Some(Value::Int(g)) = rec.get("generation") {
+            *g as usize
+        } else {
+            0
+        };
+
+        Ok(Population {
+            individuals,
+            generation,
+            config,
+            stats: crate::evolution::EvolutionStats::new(),
+            next_id: 0,
+        })
+    } else {
+        Err(anyhow!("Invalid population value"))
+    }
 }
