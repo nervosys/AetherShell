@@ -49,6 +49,16 @@
                 "language": "aethershell",
                 "scopeName": "source.aethershell",
                 "path": "./syntaxes/aethershell.tmLanguage.json"
+            },
+            {
+                "scopeName": "markdown.aethershell.codeblock",
+                "path": "./syntaxes/aethershell.markdown.tmLanguage.json",
+                "injectTo": [
+                    "text.html.markdown"
+                ],
+                "embeddedLanguages": {
+                    "meta.embedded.block.aethershell": "aethershell"
+                }
             }
         ],
         "configuration": {
