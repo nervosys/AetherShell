@@ -1,11 +1,11 @@
 //! UI rendering for the TUI
 
 use ratatui::{
-    Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, Borders, List, ListItem, Paragraph, Tabs, Wrap},
+    Frame,
 };
 
 use super::app::{AgentStatus, App, AppMode, InputMode, MessageRole};

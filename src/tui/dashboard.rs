@@ -1,11 +1,11 @@
 //! TUI Performance Dashboard and Statistics
 
 use ratatui::{
-    Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Gauge, List, ListItem, Paragraph, Wrap},
+    Frame,
 };
 
 use super::app::App;
