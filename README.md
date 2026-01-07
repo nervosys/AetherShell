@@ -479,28 +479,24 @@ employees = [
 ]  # Array<Record<name: String, age: Int, salary: Float>>
 
 high_earners = employees
-  | where(fn(e) => e.salary > 70000)
+  | where(fn(e) => e.salary > 70000.0)  # Note: use 70000.0 for Float comparison
   | map(fn(e) => {name: e.name, monthly: e.salary / 12.0})
 ```
 
 **First-class functions:**
 
 ```ae
-# Functions are values
-multiply_by = fn(n) => fn(x) => x * n
-double = multiply_by(2)
-triple = multiply_by(3)
+# Functions are values - pass lambdas to higher-order functions
+double = fn(x) => x * 2
+triple = fn(x) => x * 3
+square = fn(x) => x * x
 
 [1,2,3,4,5] | map(double)   # => [2,4,6,8,10]
 [1,2,3,4,5] | map(triple)   # => [3,6,9,12,15]
+[1,2,3,4,5] | map(square)   # => [1,4,9,16,25]
 
-# Composition
-compose = fn(f, g) => fn(x) => f(g(x))
-add_one = fn(x) => x + 1
-square = fn(x) => x * x
-add_then_square = compose(square, add_one)
-
-add_then_square(5)  # => 36 (i.e., (5+1)²)
+# Chain operations
+[1,2,3,4,5] | map(fn(x) => x + 1) | map(fn(x) => x * x)  # => [4,9,16,25,36]
 ```
 
 ---
@@ -724,12 +720,17 @@ let mut counter = 0    # Traditional mutable
 **Pattern Matching:**
 
 ```ae
-let msg = Some(42)
-match msg {
-  None => print("no value"),
-  Some(x) if x > 40 => print("big: ${x}"),
-  Some(x) => print("small: ${x}")
+# Match on arrays and literals
+let nums = [1, 2, 3]
+match nums {
+  [] => print("empty"),
+  [x] => print("single: ${x}"),
+  [x, y, ...rest] => print("multiple: ${x}, ${y}")
 }
+
+# Match with Option types
+let val = Some(42)
+print(val)  # => {_tag: "Some", _value: 42}
 ```
 
 **Typed HTTP:**
