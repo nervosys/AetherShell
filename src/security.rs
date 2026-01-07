@@ -1129,7 +1129,7 @@ pub enum ErrorLevel {
 /// - CVSS 5.3 → 1.2 (77% reduction)
 ///
 /// # Example
-/// ```rust
+/// ```rust,ignore
 /// // Instead of:
 /// Err(anyhow!("Path {} outside allowed dirs {:?}", path, dirs))
 ///
@@ -1241,6 +1241,7 @@ pub fn sanitize_path_in_error(path: &str) -> String {
 /// # Example
 ///
 /// ```rust
+/// use aether_shell::security::sanitize_tui_output;
 /// let malicious = "\x1b]0;Hack\x07\x1b[2J\x1b[HCleared!";
 /// let safe = sanitize_tui_output(malicious);
 /// assert_eq!(safe, "Cleared!");

@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Instant;
+use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{RwLock, mpsc};
 use uuid::Uuid;
@@ -30,6 +32,20 @@ pub struct NetworkAgent {
     pub load: f32,
     pub status: NetworkAgentStatus,
     pub last_heartbeat: chrono::DateTime<chrono::Utc>,
+    #[serde(default)]
+    pub location: Option<GeoLocation>,
+    #[serde(default)]
+    pub cost_per_task: f64,
+    #[serde(default)]
+    pub latency_ms: f64,
+}
+
+/// Geographic location for proximity-based selection
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GeoLocation {
+    pub latitude: f64,
+    pub longitude: f64,
+    pub region: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -93,6 +109,7 @@ pub struct DistributedCoordinator {
     pub strategy: DistributionStrategy,
     pub load_balancer: LoadBalancer,
     pub failure_handler: FailureHandler,
+    pub coordinator_location: Option<GeoLocation>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -152,6 +169,12 @@ pub enum NetworkMessage {
     SwarmUpdate {
         swarm_status: SwarmStatus,
     },
+    Ping {
+        timestamp: u64,
+    },
+    Pong {
+        timestamp: u64,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -161,6 +184,49 @@ pub struct SwarmStatus {
     pub completed_tasks: usize,
     pub average_load: f32,
     pub network_latency: f64,
+}
+
+/// Measure network latency to a specific address
+async fn measure_latency(addr: SocketAddr) -> f64 {
+    let start = Instant::now();
+    
+    match TcpStream::connect(addr).await {
+        Ok(mut stream) => {
+            // Send a ping message
+            let timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64;
+            
+            let ping = NetworkMessage::Ping { timestamp };
+            if let Ok(bytes) = serde_json::to_vec(&ping) {
+                let len = bytes.len() as u32;
+                let _ = stream.write_all(&len.to_be_bytes()).await;
+                let _ = stream.write_all(&bytes).await;
+            }
+            
+            start.elapsed().as_secs_f64() * 1000.0 // Convert to milliseconds
+        }
+        Err(_) => {
+            f64::MAX // Connection failed
+        }
+    }
+}
+
+/// Calculate geographic distance using Haversine formula
+fn haversine_distance(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
+    const EARTH_RADIUS_KM: f64 = 6371.0;
+    
+    let lat1_rad = lat1.to_radians();
+    let lat2_rad = lat2.to_radians();
+    let delta_lat = (lat2 - lat1).to_radians();
+    let delta_lon = (lon2 - lon1).to_radians();
+    
+    let a = (delta_lat / 2.0).sin().powi(2)
+        + lat1_rad.cos() * lat2_rad.cos() * (delta_lon / 2.0).sin().powi(2);
+    let c = 2.0 * a.sqrt().asin();
+    
+    EARTH_RADIUS_KM * c
 }
 
 impl DistributedSwarm {
@@ -260,12 +326,34 @@ impl DistributedSwarm {
             0.0
         };
 
+        // Calculate average network latency from all agents
+        let network_latency = if total_agents > 0 {
+            let latency_sum: f64 = agents.values().map(|a| a.latency_ms).sum();
+            latency_sum / total_agents as f64
+        } else {
+            0.0
+        };
+
         SwarmStatus {
             total_agents,
             active_tasks,
             completed_tasks,
             average_load,
-            network_latency: 0.0, // TODO: Implement latency measurement
+            network_latency,
+        }
+    }
+
+    /// Update latency measurements for all agents
+    pub async fn update_latencies(&self) {
+        let agents_read = self.network_agents.read().await;
+        let addresses: Vec<_> = agents_read.values().map(|a| (a.id, a.address)).collect();
+        drop(agents_read);
+
+        for (agent_id, addr) in addresses {
+            let latency = measure_latency(addr).await;
+            if let Some(agent) = self.network_agents.write().await.get_mut(&agent_id) {
+                agent.latency_ms = latency;
+            }
         }
     }
 
@@ -336,7 +424,13 @@ impl DistributedCoordinator {
                 retry_delay: 5000,
                 fallback_strategy: FallbackStrategy::ReassignToOther,
             },
+            coordinator_location: None,
         }
+    }
+
+    /// Set the coordinator's geographic location for proximity calculations
+    pub fn set_location(&mut self, location: GeoLocation) {
+        self.coordinator_location = Some(location);
     }
 
     /// Select the best agent for a task based on the current strategy
@@ -384,16 +478,54 @@ impl DistributedCoordinator {
                     .map(|agent| agent.id)
             }
             DistributionStrategy::GeographicProximity => {
-                // TODO: Implement geographic proximity selection
-                available_agents.first().map(|agent| agent.id)
+                // Select agent closest to coordinator
+                if let Some(ref coord_loc) = self.coordinator_location {
+                    available_agents
+                        .iter()
+                        .filter(|a| a.location.is_some())
+                        .min_by(|a, b| {
+                            let a_loc = a.location.as_ref().unwrap();
+                            let b_loc = b.location.as_ref().unwrap();
+                            let dist_a = haversine_distance(
+                                coord_loc.latitude, coord_loc.longitude,
+                                a_loc.latitude, a_loc.longitude
+                            );
+                            let dist_b = haversine_distance(
+                                coord_loc.latitude, coord_loc.longitude,
+                                b_loc.latitude, b_loc.longitude
+                            );
+                            dist_a.partial_cmp(&dist_b).unwrap_or(std::cmp::Ordering::Equal)
+                        })
+                        .map(|agent| agent.id)
+                } else {
+                    // Fallback to load-balanced if no location
+                    available_agents
+                        .iter()
+                        .min_by(|a, b| a.load.partial_cmp(&b.load).unwrap_or(std::cmp::Ordering::Equal))
+                        .map(|agent| agent.id)
+                }
             }
             DistributionStrategy::CostOptimized => {
-                // TODO: Implement cost-based selection
-                available_agents.first().map(|agent| agent.id)
+                // Select agent with lowest cost per task
+                available_agents
+                    .iter()
+                    .min_by(|a, b| {
+                        a.cost_per_task
+                            .partial_cmp(&b.cost_per_task)
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    })
+                    .map(|agent| agent.id)
             }
             DistributionStrategy::LatencyOptimized => {
-                // TODO: Implement latency-based selection
-                available_agents.first().map(|agent| agent.id)
+                // Select agent with lowest network latency
+                available_agents
+                    .iter()
+                    .min_by(|a, b| {
+                        a.latency_ms
+                            .partial_cmp(&b.latency_ms)
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    })
+                    .map(|agent| agent.id)
             }
         };
 
@@ -414,16 +546,86 @@ impl DistributedCoordinator {
 
 /// Handle incoming network connections
 async fn handle_connection(
-    _stream: TcpStream,
+    stream: TcpStream,
     addr: SocketAddr,
-    _agents: Arc<RwLock<HashMap<Uuid, NetworkAgent>>>,
-    _message_tx: mpsc::UnboundedSender<NetworkMessage>,
+    agents: Arc<RwLock<HashMap<Uuid, NetworkAgent>>>,
+    message_tx: mpsc::UnboundedSender<NetworkMessage>,
 ) {
-    println!("New connection from: {}", addr);
-
-    // TODO: Implement message protocol for agent communication
-    // This would handle serialization/deserialization of NetworkMessage
-    // and maintain persistent connections with agents
+    tracing::info!("New connection from: {}", addr);
+    
+    let (reader, mut writer) = stream.into_split();
+    let mut reader = BufReader::new(reader);
+    
+    loop {
+        // Read message length (4 bytes, big-endian)
+        let mut len_buf = [0u8; 4];
+        if reader.read_exact(&mut len_buf).await.is_err() {
+            break; // Connection closed
+        }
+        let msg_len = u32::from_be_bytes(len_buf) as usize;
+        
+        // Read message body
+        let mut msg_buf = vec![0u8; msg_len];
+        if reader.read_exact(&mut msg_buf).await.is_err() {
+            break;
+        }
+        
+        // Deserialize and handle message
+        match serde_json::from_slice::<NetworkMessage>(&msg_buf) {
+            Ok(message) => {
+                match &message {
+                    NetworkMessage::AgentRegistration { agent } => {
+                        let mut agents_write = agents.write().await;
+                        agents_write.insert(agent.id, agent.clone());
+                        let _ = message_tx.send(message.clone());
+                        
+                        // Send acknowledgment
+                        let ack = serde_json::json!({"status": "registered", "agent_id": agent.id.to_string()});
+                        let ack_bytes = serde_json::to_vec(&ack).unwrap();
+                        let _ = writer.write_all(&(ack_bytes.len() as u32).to_be_bytes()).await;
+                        let _ = writer.write_all(&ack_bytes).await;
+                    }
+                    NetworkMessage::Heartbeat { agent_id, load, status } => {
+                        let mut agents_write = agents.write().await;
+                        if let Some(agent) = agents_write.get_mut(agent_id) {
+                            agent.load = *load;
+                            agent.status = status.clone();
+                            agent.last_heartbeat = chrono::Utc::now();
+                        }
+                        let _ = message_tx.send(message.clone());
+                    }
+                    NetworkMessage::TaskResult { task_id, result } => {
+                        let _ = message_tx.send(NetworkMessage::TaskResult {
+                            task_id: *task_id,
+                            result: result.clone(),
+                        });
+                    }
+                    NetworkMessage::AgentShutdown { agent_id } => {
+                        let mut agents_write = agents.write().await;
+                        agents_write.remove(agent_id);
+                        let _ = message_tx.send(message.clone());
+                    }
+                    NetworkMessage::Ping { timestamp } => {
+                        // Respond with Pong
+                        let pong = NetworkMessage::Pong { timestamp: *timestamp };
+                        if let Ok(pong_bytes) = serde_json::to_vec(&pong) {
+                            let _ = writer.write_all(&(pong_bytes.len() as u32).to_be_bytes()).await;
+                            let _ = writer.write_all(&pong_bytes).await;
+                        }
+                    }
+                    _ => {
+                        // Forward other messages to the channel
+                        let _ = message_tx.send(message);
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Failed to parse message from {}: {}", addr, e);
+            }
+        }
+    }
+    
+    tracing::info!("Connection closed from: {}", addr);
 }
 
 /// Client for connecting to a distributed swarm
@@ -449,18 +651,66 @@ impl SwarmClient {
         Ok(())
     }
 
-    pub async fn register_agent(&self, _agent: NetworkAgent) -> Result<()> {
-        // TODO: Send registration message to swarm coordinator
-        Ok(())
+    /// Send a message to the swarm coordinator
+    async fn send_message(&mut self, message: &NetworkMessage) -> Result<()> {
+        if let Some(ref mut stream) = self.connection {
+            let msg_bytes = serde_json::to_vec(message)?;
+            stream.write_all(&(msg_bytes.len() as u32).to_be_bytes()).await?;
+            stream.write_all(&msg_bytes).await?;
+            stream.flush().await?;
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("Not connected to swarm"))
+        }
     }
 
-    pub async fn send_heartbeat(&self, _load: f32, _status: NetworkAgentStatus) -> Result<()> {
-        // TODO: Send heartbeat message
-        Ok(())
+    /// Read a response from the swarm
+    async fn read_response(&mut self) -> Result<serde_json::Value> {
+        if let Some(ref mut stream) = self.connection {
+            let mut len_buf = [0u8; 4];
+            stream.read_exact(&mut len_buf).await?;
+            let msg_len = u32::from_be_bytes(len_buf) as usize;
+            
+            let mut msg_buf = vec![0u8; msg_len];
+            stream.read_exact(&mut msg_buf).await?;
+            
+            Ok(serde_json::from_slice(&msg_buf)?)
+        } else {
+            Err(anyhow::anyhow!("Not connected to swarm"))
+        }
     }
 
-    pub async fn send_task_result(&self, _task_id: Uuid, _result: TaskResult) -> Result<()> {
-        // TODO: Send task completion result
+    pub async fn register_agent(&mut self, agent: NetworkAgent) -> Result<()> {
+        let message = NetworkMessage::AgentRegistration { agent };
+        self.send_message(&message).await?;
+        
+        // Wait for acknowledgment
+        let response = self.read_response().await?;
+        if response.get("status").and_then(|s| s.as_str()) == Some("registered") {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("Registration failed"))
+        }
+    }
+
+    pub async fn send_heartbeat(&mut self, load: f32, status: NetworkAgentStatus) -> Result<()> {
+        let message = NetworkMessage::Heartbeat {
+            agent_id: self.agent_id,
+            load,
+            status,
+        };
+        self.send_message(&message).await
+    }
+
+    pub async fn send_task_result(&mut self, task_id: Uuid, result: TaskResult) -> Result<()> {
+        let message = NetworkMessage::TaskResult { task_id, result };
+        self.send_message(&message).await
+    }
+
+    pub async fn shutdown(&mut self) -> Result<()> {
+        let message = NetworkMessage::AgentShutdown { agent_id: self.agent_id };
+        self.send_message(&message).await?;
+        self.connection = None;
         Ok(())
     }
 }
@@ -491,6 +741,9 @@ mod tests {
             load: 0.0,
             status: NetworkAgentStatus::Available,
             last_heartbeat: chrono::Utc::now(),
+            location: None,
+            cost_per_task: 0.01,
+            latency_ms: 0.0,
         };
 
         swarm.register_agent(agent.clone()).await.unwrap();
@@ -512,6 +765,9 @@ mod tests {
             load: 0.0,
             status: NetworkAgentStatus::Available,
             last_heartbeat: chrono::Utc::now(),
+            location: None,
+            cost_per_task: 0.0,
+            latency_ms: 0.0,
         };
 
         let required = vec!["text".to_string(), "image".to_string()];
@@ -519,5 +775,16 @@ mod tests {
 
         let score = coordinator.calculate_capability_score(&agent, &required);
         assert_eq!(score, 2);
+    }
+
+    #[test]
+    fn test_haversine_distance() {
+        // New York to London approximately 5570 km
+        let dist = haversine_distance(40.7128, -74.0060, 51.5074, -0.1278);
+        assert!(dist > 5500.0 && dist < 5700.0);
+        
+        // Same point should be 0
+        let dist = haversine_distance(0.0, 0.0, 0.0, 0.0);
+        assert!(dist < 0.001);
     }
 }

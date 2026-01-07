@@ -96,6 +96,21 @@ impl ModelConverter {
         }
     }
 
+    /// Check if conversion between formats is supported
+    pub fn can_convert(&self, source: &ModelFormat, target: &ModelFormat) -> bool {
+        if source == target {
+            return true;
+        }
+        self.conversion_rules.get(&(source.clone(), target.clone()))
+            .map(|s| !matches!(s, ConversionStrategy::Unsupported))
+            .unwrap_or(false)
+    }
+
+    /// Get the conversion strategy for a format pair
+    pub fn get_strategy(&self, source: &ModelFormat, target: &ModelFormat) -> Option<&ConversionStrategy> {
+        self.conversion_rules.get(&(source.clone(), target.clone()))
+    }
+
     /// Convert a model from one format to another
     pub async fn convert_model(&self, request: ConversionRequest) -> Result<ConversionResult> {
         let _start_time = std::time::Instant::now();

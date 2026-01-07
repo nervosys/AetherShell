@@ -97,40 +97,40 @@ AetherShell is the **ONLY shell in the world** that combines:
 
 ### 🧠 **AI Integration Beyond Competition**
 
-* **Multi-Agent Swarms**: Coordinate teams of AI agents working together on complex tasks
-* **Vision AI**: Analyze images, screenshots, and visual content directly in your terminal
-* **Audio Processing**: Transcribe speech, analyze audio files, and voice commands
-* **Video Analysis**: Process video content with AI-powered insights
-* **Smart Agents**: Deploy specialized AI agents with tool access and reasoning
-* **Protocol Support**: MCP, A2A, and NANDA for advanced agent coordination
-* **🆕 Model Management**: OpenRouter-style API server with local model management and format conversion
-* **🆕 Neural Networks**: Create and evolve neural networks directly in the shell
-* **🆕 Evolutionary Learning**: Population-based optimization and coevolution
+- **Multi-Agent Swarms**: Coordinate teams of AI agents working together on complex tasks
+- **Vision AI**: Analyze images, screenshots, and visual content directly in your terminal
+- **Audio Processing**: Transcribe speech, analyze audio files, and voice commands
+- **Video Analysis**: Process video content with AI-powered insights
+- **Smart Agents**: Deploy specialized AI agents with tool access and reasoning
+- **Protocol Support**: MCP, A2A, and NANDA for advanced agent coordination
+- **🆕 Model Management**: OpenRouter-style API server with local model management and format conversion
+- **🆕 Neural Networks**: Create and evolve neural networks directly in the shell
+- **🆕 Evolutionary Learning**: Population-based optimization and coevolution
 
 ### 🎨 **Beautiful Terminal UI (TUI)**
 
-* **Interactive Interface**: Modern, responsive terminal GUI with real-time updates
-* **Media Viewer**: Display images, play audio, and preview videos in terminal
-* **Chat Interface**: Conversational AI with context-aware responses
-* **Agent Dashboard**: Monitor and control your AI agent swarms
-* **Multimodal Sessions**: Seamlessly mix text, images, audio in conversations
+- **Interactive Interface**: Modern, responsive terminal GUI with real-time updates
+- **Media Viewer**: Display images, play audio, and preview videos in terminal
+- **Chat Interface**: Conversational AI with context-aware responses
+- **Agent Dashboard**: Monitor and control your AI agent swarms
+- **Multimodal Sessions**: Seamlessly mix text, images, audio in conversations
 
 ### 💪 **Advanced Programming Features**
 
-* **Typed Pipelines**: Pass structured records/tables, not just raw text
-* **Rust-Grade Safety**: Memory-safe runtime with zero-cost abstractions
-* **Strong Type System**: Hindley–Milner inference with algebraic data types
-* **Metaprogramming**: Hygienic macros and AST manipulation
-* **Async/Await**: Built-in structured concurrency and cancellation
-* **POSIX Compatibility**: Run existing tools seamlessly
+- **Typed Pipelines**: Pass structured records/tables, not just raw text
+- **Rust-Grade Safety**: Memory-safe runtime with zero-cost abstractions
+- **Strong Type System**: Hindley–Milner inference with algebraic data types
+- **Metaprogramming**: Hygienic macros and AST manipulation
+- **Async/Await**: Built-in structured concurrency and cancellation
+- **POSIX Compatibility**: Run existing tools seamlessly
 
 ### 🔄 **Seamless Interoperability**
 
-* **Bash Compatibility**: Transpile and run existing `.sh` scripts
-* **Command Integration**: Auto-wrap unknown commands in safe shells
-* **Multi-Backend AI**: Support for OpenAI, Anthropic, and local providers via unified API
-* **OS Tools Database**: Cross-platform native command integration
-* **🆕 XDG Compliance**: Standards-compliant local storage and configuration management
+- **Bash Compatibility**: Transpile and run existing `.sh` scripts
+- **Command Integration**: Auto-wrap unknown commands in safe shells
+- **Multi-Backend AI**: Support for OpenAI, Anthropic, and local providers via unified API
+- **OS Tools Database**: Cross-platform native command integration
+- **🆕 XDG Compliance**: Standards-compliant local storage and configuration management
 
 ---
 
@@ -698,16 +698,16 @@ print("Hello, Aether!")
 **Variables:**
 
 ```ae
-// Simple = for type inference (recommended)
+# Simple = for type inference (recommended)
 name = "world"         // Type inferred as String
 count = 42             // Type inferred as Int
 items = [1, 2, 3]      // Type inferred as Array<Int>
 
-// Mutable variables
+# Mutable variables
 mut counter = 0        // Mutable
 mut total = 100        // Also mutable
 
-// Alternative syntax (explicit)
+# Alternative syntax (explicit)
 let name = "world"     // Explicit let keyword
 let mut counter = 0    // Traditional mutable
 ```

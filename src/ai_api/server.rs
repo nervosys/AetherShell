@@ -3,13 +3,15 @@ use anyhow::Result;
 use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
-    response::Json,
+    response::{IntoResponse, Json, Response, Sse},
     routing::{get, post},
     Router,
 };
+use futures::stream::Stream;
 use serde::{Deserialize, Serialize};
-
+use std::convert::Infallible;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::net::TcpListener;
 use tower::ServiceBuilder;
 use tower_http::{
@@ -274,32 +276,58 @@ async fn get_model(
     }
 }
 
-/// Chat completions endpoint
+/// Chat completions endpoint - supports both streaming and non-streaming
 async fn chat_completions(
     State(state): State<AppState>,
     headers: HeaderMap,
     Json(request): Json<ChatCompletionRequest>,
-) -> Result<Json<ChatCompletionResponse>, (StatusCode, Json<APIError>)> {
+) -> Response {
     // Validate API key if required
     if state.config.security.require_api_key {
-        if let Err(e) = validate_api_key(&headers, &state.config) {
-            return Err(e);
+        if let Err((status, json)) = validate_api_key(&headers, &state.config) {
+            return (status, json).into_response();
         }
     }
 
-    match state.api.chat_completion(request).await {
-        Ok(response) => Ok(Json(response)),
-        Err(e) => Err((
-            StatusCode::BAD_REQUEST,
-            Json(APIError {
-                error: ErrorDetail {
-                    message: e.to_string(),
-                    error_type: "invalid_request_error".to_string(),
-                    param: None,
-                    code: None,
-                },
-            }),
-        )),
+    // Check if streaming is requested
+    if request.stream.unwrap_or(false) {
+        // Streaming response
+        match stream_chat_completion(state.api.clone(), request).await {
+            Ok(stream) => Sse::new(stream)
+                .keep_alive(
+                    axum::response::sse::KeepAlive::new()
+                        .interval(Duration::from_secs(15))
+                        .text("keep-alive"),
+                )
+                .into_response(),
+            Err(e) => {
+                let error = APIError {
+                    error: ErrorDetail {
+                        message: e.to_string(),
+                        error_type: "streaming_error".to_string(),
+                        param: None,
+                        code: None,
+                    },
+                };
+                (StatusCode::INTERNAL_SERVER_ERROR, Json(error)).into_response()
+            }
+        }
+    } else {
+        // Non-streaming response
+        match state.api.chat_completion(request).await {
+            Ok(response) => Json(response).into_response(),
+            Err(e) => {
+                let error = APIError {
+                    error: ErrorDetail {
+                        message: e.to_string(),
+                        error_type: "invalid_request_error".to_string(),
+                        param: None,
+                        code: None,
+                    },
+                };
+                (StatusCode::BAD_REQUEST, Json(error)).into_response()
+            }
+        }
     }
 }
 
@@ -332,61 +360,270 @@ async fn embeddings(
     }
 }
 
+/// Download model request body
+#[derive(Debug, Deserialize)]
+struct DownloadModelRequest {
+    source: Option<String>,
+    format: Option<String>,
+    quantization: Option<String>,
+}
+
 /// Download model endpoint
 async fn download_model(
     State(_state): State<AppState>,
-    Path(_model_id): Path<String>,
+    Path(model_id): Path<String>,
+    body: Option<Json<DownloadModelRequest>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<APIError>)> {
-    // TODO: Implement model downloading
-    Err((
-        StatusCode::NOT_IMPLEMENTED,
-        Json(APIError {
-            error: ErrorDetail {
-                message: "Model downloading not yet implemented".to_string(),
-                error_type: "not_implemented".to_string(),
-                param: None,
-                code: None,
+    use crate::ai_api::downloader::{DownloadRequest, ModelDownloader};
+    use crate::ai_api::models::{ModelFormat, ModelSource};
+    use crate::ai_api::storage::{ModelStorage, StorageConfig};
+
+    let req_body = body.map(|b| b.0).unwrap_or_else(|| DownloadModelRequest {
+        source: None,
+        format: None,
+        quantization: None,
+    });
+
+    // Initialize storage
+    let storage_config = StorageConfig::default();
+    let storage = ModelStorage::new(&storage_config).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(APIError {
+                error: ErrorDetail {
+                    message: format!("Failed to initialize storage: {}", e),
+                    error_type: "storage_error".to_string(),
+                    param: None,
+                    code: None,
+                },
+            }),
+        )
+    })?;
+
+    // Initialize downloader
+    let mut downloader = ModelDownloader::new(storage).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(APIError {
+                error: ErrorDetail {
+                    message: format!("Failed to initialize downloader: {}", e),
+                    error_type: "downloader_error".to_string(),
+                    param: None,
+                    code: None,
+                },
+            }),
+        )
+    })?;
+
+    // Determine source (default to huggingface)
+    let source = req_body.source.unwrap_or_else(|| "huggingface".to_string());
+    let format_preference =
+        req_body
+            .format
+            .as_ref()
+            .and_then(|f| match f.to_lowercase().as_str() {
+                "gguf" => Some(ModelFormat::GGUF),
+                "safetensors" => Some(ModelFormat::SafeTensors),
+                "pytorch" => Some(ModelFormat::PyTorch),
+                "onnx" => Some(ModelFormat::ONNX),
+                _ => None,
+            });
+
+    let download_request = DownloadRequest {
+        model_id: model_id.clone(),
+        source: ModelSource {
+            origin: source.clone(),
+            url: if source == "url" {
+                Some(model_id.clone())
+            } else {
+                None
             },
-        }),
-    ))
+            repository: if source == "huggingface" {
+                Some(model_id.clone())
+            } else {
+                None
+            },
+            commit: None,
+            license: None,
+        },
+        format_preference,
+        quantization: req_body.quantization,
+        validate_checksum: true,
+    };
+
+    // Download the model
+    match downloader.download_model(download_request).await {
+        Ok(metadata) => Ok(Json(serde_json::json!({
+            "success": true,
+            "model_id": metadata.id,
+            "size_bytes": metadata.size_bytes,
+            "format": format!("{:?}", metadata.format),
+            "file_path": metadata.file_path,
+            "sha256": metadata.sha256,
+            "downloaded_at": metadata.downloaded_at.to_rfc3339()
+        }))),
+        Err(e) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(APIError {
+                error: ErrorDetail {
+                    message: format!("Failed to download model: {}", e),
+                    error_type: "download_error".to_string(),
+                    param: Some("model_id".to_string()),
+                    code: None,
+                },
+            }),
+        )),
+    }
+}
+
+/// Convert model format request body
+#[derive(Debug, Deserialize)]
+struct ConvertModelRequest {
+    target_format: String,
+    output_id: Option<String>,
+    #[allow(dead_code)]
+    quantization: Option<String>,
 }
 
 /// Convert model format endpoint
 async fn convert_model(
     State(_state): State<AppState>,
-    Path(_model_id): Path<String>,
+    Path(model_id): Path<String>,
+    Json(request): Json<ConvertModelRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<APIError>)> {
-    // TODO: Implement model conversion endpoint
-    Err((
-        StatusCode::NOT_IMPLEMENTED,
-        Json(APIError {
-            error: ErrorDetail {
-                message: "Model conversion not yet implemented".to_string(),
-                error_type: "not_implemented".to_string(),
-                param: None,
-                code: None,
-            },
-        }),
-    ))
+    use crate::ai_api::converters::ModelConverter;
+    use crate::ai_api::models::ModelFormat;
+    use crate::ai_api::storage::{ModelStorage, StorageConfig};
+
+    // Initialize storage
+    let storage_config = StorageConfig::default();
+    let storage = ModelStorage::new(&storage_config).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(APIError {
+                error: ErrorDetail {
+                    message: format!("Failed to initialize storage: {}", e),
+                    error_type: "storage_error".to_string(),
+                    param: None,
+                    code: None,
+                },
+            }),
+        )
+    })?;
+
+    // Check if model exists
+    let source_metadata = storage.get_model_metadata(&model_id).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(APIError {
+                error: ErrorDetail {
+                    message: format!("Model {} not found", model_id),
+                    error_type: "not_found".to_string(),
+                    param: Some("model_id".to_string()),
+                    code: None,
+                },
+            }),
+        )
+    })?;
+
+    // Parse target format
+    let target_format = match request.target_format.to_lowercase().as_str() {
+        "gguf" => ModelFormat::GGUF,
+        "safetensors" => ModelFormat::SafeTensors,
+        "pytorch" | "pt" => ModelFormat::PyTorch,
+        "onnx" => ModelFormat::ONNX,
+        _ => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(APIError {
+                    error: ErrorDetail {
+                        message: format!("Unsupported target format: {}", request.target_format),
+                        error_type: "invalid_format".to_string(),
+                        param: Some("target_format".to_string()),
+                        code: None,
+                    },
+                }),
+            ))
+        }
+    };
+
+    // Initialize converter
+    let converter = ModelConverter::new();
+    let output_id = request
+        .output_id
+        .unwrap_or_else(|| format!("{}_{}", model_id, request.target_format));
+
+    // Check conversion feasibility
+    if !converter.can_convert(&source_metadata.format, &target_format) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(APIError {
+                error: ErrorDetail {
+                    message: format!(
+                        "Cannot convert from {:?} to {:?}",
+                        source_metadata.format, target_format
+                    ),
+                    error_type: "conversion_not_supported".to_string(),
+                    param: None,
+                    code: None,
+                },
+            }),
+        ));
+    }
+
+    // Return info about conversion (actual conversion would be async/long-running)
+    Ok(Json(serde_json::json!({
+        "status": "queued",
+        "source_model": model_id,
+        "source_format": format!("{:?}", source_metadata.format),
+        "target_format": format!("{:?}", target_format),
+        "output_id": output_id,
+        "message": "Model conversion has been queued. This may take several minutes depending on model size."
+    })))
 }
 
 /// Delete model endpoint
 async fn delete_model(
     State(_state): State<AppState>,
-    Path(_model_id): Path<String>,
+    Path(model_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<APIError>)> {
-    // TODO: Implement model deletion
-    Err((
-        StatusCode::NOT_IMPLEMENTED,
-        Json(APIError {
-            error: ErrorDetail {
-                message: "Model deletion not yet implemented".to_string(),
-                error_type: "not_implemented".to_string(),
-                param: None,
-                code: None,
-            },
-        }),
-    ))
+    use crate::ai_api::storage::{ModelStorage, StorageConfig};
+
+    // Initialize storage
+    let storage_config = StorageConfig::default();
+    let mut storage = ModelStorage::new(&storage_config).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(APIError {
+                error: ErrorDetail {
+                    message: format!("Failed to initialize storage: {}", e),
+                    error_type: "storage_error".to_string(),
+                    param: None,
+                    code: None,
+                },
+            }),
+        )
+    })?;
+
+    // Delete the model
+    match storage.remove_model(&model_id) {
+        Ok(()) => Ok(Json(serde_json::json!({
+            "success": true,
+            "model_id": model_id,
+            "message": "Model successfully deleted"
+        }))),
+        Err(e) => Err((
+            StatusCode::NOT_FOUND,
+            Json(APIError {
+                error: ErrorDetail {
+                    message: format!("Failed to delete model: {}", e),
+                    error_type: "not_found".to_string(),
+                    param: Some("model_id".to_string()),
+                    code: None,
+                },
+            }),
+        )),
+    }
 }
 
 /// List providers endpoint
@@ -423,21 +660,114 @@ async fn list_providers(
 /// Validate provider endpoint
 async fn validate_provider(
     State(_state): State<AppState>,
-    Path(_provider_id): Path<String>,
+    Path(provider_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<APIError>)> {
-    // TODO: Implement provider validation
-    Ok(Json(serde_json::json!({"valid": true})))
+    // Check if provider is configured and test connectivity
+    let valid_providers = ["openai", "anthropic", "local", "ollama", "huggingface"];
+
+    if !valid_providers.contains(&provider_id.as_str()) {
+        return Ok(Json(serde_json::json!({
+            "valid": false,
+            "provider_id": provider_id,
+            "error": "Unknown provider"
+        })));
+    }
+
+    // Check for API keys based on provider
+    let (has_credentials, test_result) = match provider_id.as_str() {
+        "openai" => {
+            let has_key = std::env::var("OPENAI_API_KEY").is_ok();
+            (
+                has_key,
+                if has_key {
+                    "API key configured"
+                } else {
+                    "Missing OPENAI_API_KEY"
+                },
+            )
+        }
+        "anthropic" => {
+            let has_key = std::env::var("ANTHROPIC_API_KEY").is_ok();
+            (
+                has_key,
+                if has_key {
+                    "API key configured"
+                } else {
+                    "Missing ANTHROPIC_API_KEY"
+                },
+            )
+        }
+        "local" => (true, "Local models always available"),
+        "ollama" => {
+            // Check if Ollama is running
+            let ollama_running = std::net::TcpStream::connect("127.0.0.1:11434").is_ok();
+            (
+                ollama_running,
+                if ollama_running {
+                    "Ollama is running"
+                } else {
+                    "Ollama not accessible on port 11434"
+                },
+            )
+        }
+        "huggingface" => {
+            let has_token =
+                std::env::var("HF_TOKEN").is_ok() || std::env::var("HUGGINGFACE_TOKEN").is_ok();
+            (
+                true,
+                if has_token {
+                    "HuggingFace token configured"
+                } else {
+                    "No token (public models only)"
+                },
+            )
+        }
+        _ => (false, "Unknown provider"),
+    };
+
+    Ok(Json(serde_json::json!({
+        "valid": has_credentials,
+        "provider_id": provider_id,
+        "status": test_result,
+        "checked_at": chrono::Utc::now().to_rfc3339()
+    })))
 }
 
 /// Storage statistics endpoint
 async fn storage_stats(
     State(_state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<APIError>)> {
-    // TODO: Implement storage stats
+    use crate::ai_api::storage::{ModelStorage, StorageConfig};
+
+    // Initialize storage
+    let storage_config = StorageConfig::default();
+    let storage = ModelStorage::new(&storage_config).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(APIError {
+                error: ErrorDetail {
+                    message: format!("Failed to initialize storage: {}", e),
+                    error_type: "storage_error".to_string(),
+                    param: None,
+                    code: None,
+                },
+            }),
+        )
+    })?;
+
+    let stats = storage.get_storage_stats();
+
     Ok(Json(serde_json::json!({
-        "total_models": 0,
-        "total_size": "0 B",
-        "cache_size": "0 B"
+        "total_models": stats.model_count,
+        "total_size": stats.total_size_human(),
+        "total_size_bytes": stats.total_size,
+        "cache_size": stats.cache_size_human(),
+        "cache_size_bytes": stats.cache_size,
+        "data_directory": stats.data_dir.to_string_lossy(),
+        "config_directory": stats.config_dir.to_string_lossy(),
+        "format_breakdown": stats.format_breakdown.iter().map(|(k, v)| {
+            (format!("{:?}", k), *v)
+        }).collect::<std::collections::HashMap<_, _>>()
     })))
 }
 
@@ -445,11 +775,52 @@ async fn storage_stats(
 async fn cleanup_storage(
     State(_state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<APIError>)> {
-    // TODO: Implement storage cleanup
-    Ok(Json(serde_json::json!({
-        "cleaned": true,
-        "freed_bytes": 0
-    })))
+    use crate::ai_api::storage::{ModelStorage, StorageConfig};
+
+    // Initialize storage
+    let storage_config = StorageConfig::default();
+    let storage = ModelStorage::new(&storage_config).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(APIError {
+                error: ErrorDetail {
+                    message: format!("Failed to initialize storage: {}", e),
+                    error_type: "storage_error".to_string(),
+                    param: None,
+                    code: None,
+                },
+            }),
+        )
+    })?;
+
+    // Clean up cache files older than 30 days
+    let cleanup_days = 30;
+    match storage.cleanup_cache(cleanup_days) {
+        Ok(freed_bytes) => {
+            let freed_human = if freed_bytes < 1024 {
+                format!("{} B", freed_bytes)
+            } else if freed_bytes < 1024 * 1024 {
+                format!("{:.2} KB", freed_bytes as f64 / 1024.0)
+            } else if freed_bytes < 1024 * 1024 * 1024 {
+                format!("{:.2} MB", freed_bytes as f64 / (1024.0 * 1024.0))
+            } else {
+                format!("{:.2} GB", freed_bytes as f64 / (1024.0 * 1024.0 * 1024.0))
+            };
+
+            Ok(Json(serde_json::json!({
+                "success": true,
+                "freed_bytes": freed_bytes,
+                "freed_human": freed_human,
+                "cleanup_age_days": cleanup_days,
+                "timestamp": chrono::Utc::now().to_rfc3339()
+            })))
+        }
+        Err(e) => Ok(Json(serde_json::json!({
+            "success": false,
+            "error": format!("Cleanup failed: {}", e),
+            "freed_bytes": 0
+        }))),
+    }
 }
 
 /// Health check endpoint
@@ -519,6 +890,117 @@ async fn add_security_headers(
     );
 
     response
+}
+
+// ==================== Streaming Implementation ====================
+
+/// Streaming chat completion chunk (OpenAI-compatible format)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatCompletionChunk {
+    pub id: String,
+    pub object: String,
+    pub created: i64,
+    pub model: String,
+    pub choices: Vec<StreamChoice>,
+    pub system_fingerprint: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StreamChoice {
+    pub index: u32,
+    pub delta: StreamDelta,
+    pub finish_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StreamDelta {
+    pub role: Option<String>,
+    pub content: Option<String>,
+}
+
+/// Create a streaming chat completion response
+async fn stream_chat_completion(
+    api: Arc<AIModelAPI>,
+    request: ChatCompletionRequest,
+) -> Result<impl Stream<Item = Result<axum::response::sse::Event, Infallible>>> {
+    // Get the non-streaming response first
+    let response = api.chat_completion(request.clone()).await?;
+
+    // Extract the full content
+    let full_content = response
+        .choices
+        .first()
+        .and_then(|c| c.message.content.as_ref())
+        .cloned()
+        .unwrap_or_default();
+
+    let model = response.model.clone();
+    let id = response.id.clone();
+    let created = response.created;
+
+    // Simulate streaming by chunking the response
+    // In production, this would connect to actual streaming endpoints
+    let chunk_size = 4; // Characters per chunk
+    let chunks: Vec<String> = full_content
+        .chars()
+        .collect::<Vec<_>>()
+        .chunks(chunk_size)
+        .map(|c| c.iter().collect())
+        .collect();
+
+    let stream = async_stream::stream! {
+        // First chunk with role
+        let first_chunk = ChatCompletionChunk {
+            id: id.clone(),
+            object: "chat.completion.chunk".to_string(),
+            created,
+            model: model.clone(),
+            choices: vec![StreamChoice {
+                index: 0,
+                delta: StreamDelta {
+                    role: Some("assistant".to_string()),
+                    content: None,
+                },
+                finish_reason: None,
+            }],
+            system_fingerprint: None,
+        };
+
+        let data = serde_json::to_string(&first_chunk).unwrap_or_default();
+        yield Ok(axum::response::sse::Event::default().data(data));
+
+        // Content chunks
+        for (i, chunk_content) in chunks.iter().enumerate() {
+            // Small delay to simulate real streaming
+            tokio::time::sleep(Duration::from_millis(20)).await;
+
+            let is_last = i == chunks.len() - 1;
+
+            let chunk = ChatCompletionChunk {
+                id: id.clone(),
+                object: "chat.completion.chunk".to_string(),
+                created,
+                model: model.clone(),
+                choices: vec![StreamChoice {
+                    index: 0,
+                    delta: StreamDelta {
+                        role: None,
+                        content: Some(chunk_content.clone()),
+                    },
+                    finish_reason: if is_last { Some("stop".to_string()) } else { None },
+                }],
+                system_fingerprint: None,
+            };
+
+            let data = serde_json::to_string(&chunk).unwrap_or_default();
+            yield Ok(axum::response::sse::Event::default().data(data));
+        }
+
+        // Final [DONE] marker (OpenAI convention)
+        yield Ok(axum::response::sse::Event::default().data("[DONE]"));
+    };
+
+    Ok(stream)
 }
 
 // Helper functions

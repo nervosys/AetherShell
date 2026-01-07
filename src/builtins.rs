@@ -10,6 +10,10 @@ use crate::{
     eval::eval_expr,
     evolution::{CrossoverStrategy, EvolutionConfig, FitnessResult, Population, SelectionStrategy},
     neural::{Activation, ConsensusNetwork, NeuralNetwork},
+    rl::{
+        ActorCriticAgent, DQNAgent, GridWorld, PolicyGradientAgent, QLearningAgent, ReplayBuffer,
+        SarsaAgent,
+    },
     security::{
         check_file_size_limit, check_rate_limit, create_secure_http_client, validate_ai_prompt,
         validate_http_url, validate_read_path,
@@ -150,6 +154,23 @@ lazy_static::lazy_static! {
         map.insert("evolution_config", 91);
         map.insert("coevolve", 92);
 
+        // Reinforcement Learning functions (93-107)
+        map.insert("rl_agent", 93);
+        map.insert("rl_action", 94);
+        map.insert("rl_update", 95);
+        map.insert("rl_sarsa_agent", 96);
+        map.insert("rl_sarsa_update", 97);
+        map.insert("rl_pg_agent", 98);
+        map.insert("rl_pg_step", 99);
+        map.insert("rl_pg_episode_end", 100);
+        map.insert("rl_ac_agent", 101);
+        map.insert("rl_ac_update", 102);
+        map.insert("rl_dqn_agent", 103);
+        map.insert("rl_dqn_step", 104);
+        map.insert("rl_replay_buffer", 105);
+        map.insert("rl_gridworld", 106);
+        map.insert("rl_env_step", 107);
+
         map
     };
 }
@@ -260,6 +281,22 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_crossover_strategy(args, input),
     |args, input, _| bi_evolution_config(args, input),
     |args, input, env| bi_coevolve(args, input, env),
+    // 93-107: Reinforcement Learning functions
+    |args, input, _| bi_rl_agent(args, input),
+    |args, input, _| bi_rl_action(args, input),
+    |args, input, _| bi_rl_update(args, input),
+    |args, input, _| bi_rl_sarsa_agent(args, input),
+    |args, input, _| bi_rl_sarsa_update(args, input),
+    |args, input, _| bi_rl_pg_agent(args, input),
+    |args, input, _| bi_rl_pg_step(args, input),
+    |args, input, _| bi_rl_pg_episode_end(args, input),
+    |args, input, _| bi_rl_ac_agent(args, input),
+    |args, input, _| bi_rl_ac_update(args, input),
+    |args, input, _| bi_rl_dqn_agent(args, input),
+    |args, input, _| bi_rl_dqn_step(args, input),
+    |args, input, _| bi_rl_replay_buffer(args, input),
+    |args, input, _| bi_rl_gridworld(args, input),
+    |args, input, _| bi_rl_env_step(args, input),
 ];
 
 fn fast_builtin_lookup(
@@ -5405,5 +5442,831 @@ fn value_to_population_vec(v: &Value) -> Result<Population<Vec<f64>>> {
         })
     } else {
         Err(anyhow!("Invalid population value"))
+    }
+}
+
+// ==================== Reinforcement Learning Builtins ====================
+
+/// Create a Q-learning agent
+/// Usage: rl_agent(name, state_size, action_size, [config])
+fn bi_rl_agent(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let args = if args.is_empty() && input.is_some() {
+        vec![input.unwrap()]
+    } else {
+        args
+    };
+
+    if args.is_empty() {
+        return Err(anyhow!(
+            "rl_agent requires: name, state_size, action_size, [config]"
+        ));
+    }
+
+    let name = match &args[0] {
+        Value::Str(s) => s.clone(),
+        _ => return Err(anyhow!("rl_agent: name must be a string")),
+    };
+
+    let state_size = match args.get(1) {
+        Some(Value::Int(n)) => *n as usize,
+        _ => return Err(anyhow!("rl_agent: state_size must be an integer")),
+    };
+
+    let action_size = match args.get(2) {
+        Some(Value::Int(n)) => *n as usize,
+        _ => return Err(anyhow!("rl_agent: action_size must be an integer")),
+    };
+
+    // Parse optional config
+    let (learning_rate, discount, epsilon) = if let Some(Value::Record(config)) = args.get(3) {
+        (
+            config
+                .get("learning_rate")
+                .and_then(|v| match v {
+                    Value::Float(f) => Some(*f),
+                    _ => None,
+                })
+                .unwrap_or(0.1),
+            config
+                .get("discount")
+                .and_then(|v| match v {
+                    Value::Float(f) => Some(*f),
+                    _ => None,
+                })
+                .unwrap_or(0.99),
+            config
+                .get("epsilon")
+                .and_then(|v| match v {
+                    Value::Float(f) => Some(*f),
+                    _ => None,
+                })
+                .unwrap_or(0.1),
+        )
+    } else {
+        (0.1, 0.99, 0.1)
+    };
+
+    let agent = QLearningAgent::new(
+        &name,
+        state_size,
+        action_size,
+        learning_rate,
+        discount,
+        epsilon,
+    );
+    q_agent_to_value(&agent)
+}
+
+/// Select action using Q-learning agent
+/// Usage: rl_action(agent, state)
+fn bi_rl_action(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let args = if args.is_empty() && input.is_some() {
+        vec![input.unwrap()]
+    } else {
+        args
+    };
+
+    if args.len() < 2 {
+        return Err(anyhow!("rl_action requires: agent, state"));
+    }
+
+    let agent = value_to_q_agent(&args[0])?;
+
+    let state = match &args[1] {
+        Value::Int(s) => *s as usize,
+        _ => return Err(anyhow!("rl_action: state must be an integer")),
+    };
+
+    let action = agent.select_action(state);
+    Ok(Value::Int(action as i64))
+}
+
+/// Update Q-learning agent
+/// Usage: rl_update(agent, state, action, reward, next_state, done)
+fn bi_rl_update(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let args = if args.is_empty() && input.is_some() {
+        vec![input.unwrap()]
+    } else {
+        args
+    };
+
+    if args.len() < 6 {
+        return Err(anyhow!(
+            "rl_update requires: agent, state, action, reward, next_state, done"
+        ));
+    }
+
+    let mut agent = value_to_q_agent(&args[0])?;
+
+    let state = match &args[1] {
+        Value::Int(s) => *s as usize,
+        _ => return Err(anyhow!("state must be integer")),
+    };
+
+    let action = match &args[2] {
+        Value::Int(a) => *a as usize,
+        _ => return Err(anyhow!("action must be integer")),
+    };
+
+    let reward = match &args[3] {
+        Value::Float(r) => *r,
+        Value::Int(r) => *r as f64,
+        _ => return Err(anyhow!("reward must be number")),
+    };
+
+    let next_state = match &args[4] {
+        Value::Int(s) => *s as usize,
+        _ => return Err(anyhow!("next_state must be integer")),
+    };
+
+    let done = match &args[5] {
+        Value::Bool(b) => *b,
+        _ => return Err(anyhow!("done must be boolean")),
+    };
+
+    agent.update(state, action, reward, next_state, done);
+    q_agent_to_value(&agent)
+}
+
+/// Create a SARSA agent
+fn bi_rl_sarsa_agent(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let args = if args.is_empty() && input.is_some() {
+        vec![input.unwrap()]
+    } else {
+        args
+    };
+
+    if args.len() < 3 {
+        return Err(anyhow!(
+            "rl_sarsa_agent requires: name, state_size, action_size"
+        ));
+    }
+
+    let name = match &args[0] {
+        Value::Str(s) => s.clone(),
+        _ => return Err(anyhow!("name must be string")),
+    };
+
+    let state_size = match &args[1] {
+        Value::Int(n) => *n as usize,
+        _ => return Err(anyhow!("state_size must be integer")),
+    };
+
+    let action_size = match &args[2] {
+        Value::Int(n) => *n as usize,
+        _ => return Err(anyhow!("action_size must be integer")),
+    };
+
+    let agent = SarsaAgent::new(&name, state_size, action_size, 0.1, 0.99, 0.1);
+    sarsa_agent_to_value(&agent)
+}
+
+/// Update SARSA agent
+fn bi_rl_sarsa_update(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let args = if args.is_empty() && input.is_some() {
+        vec![input.unwrap()]
+    } else {
+        args
+    };
+
+    if args.len() < 7 {
+        return Err(anyhow!(
+            "rl_sarsa_update requires: agent, state, action, reward, next_state, next_action, done"
+        ));
+    }
+
+    let mut agent = value_to_sarsa_agent(&args[0])?;
+
+    let state = match &args[1] {
+        Value::Int(s) => *s as usize,
+        _ => return Err(anyhow!("state must be integer")),
+    };
+
+    let action = match &args[2] {
+        Value::Int(a) => *a as usize,
+        _ => return Err(anyhow!("action must be integer")),
+    };
+
+    let reward = match &args[3] {
+        Value::Float(r) => *r,
+        Value::Int(r) => *r as f64,
+        _ => return Err(anyhow!("reward must be number")),
+    };
+
+    let next_state = match &args[4] {
+        Value::Int(s) => *s as usize,
+        _ => return Err(anyhow!("next_state must be integer")),
+    };
+
+    let next_action = match &args[5] {
+        Value::Int(a) => *a as usize,
+        _ => return Err(anyhow!("next_action must be integer")),
+    };
+
+    let done = match &args[6] {
+        Value::Bool(b) => *b,
+        _ => return Err(anyhow!("done must be boolean")),
+    };
+
+    agent.update(state, action, reward, next_state, next_action, done);
+    sarsa_agent_to_value(&agent)
+}
+
+/// Create a Policy Gradient agent
+fn bi_rl_pg_agent(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let args = if args.is_empty() && input.is_some() {
+        vec![input.unwrap()]
+    } else {
+        args
+    };
+
+    if args.len() < 3 {
+        return Err(anyhow!(
+            "rl_pg_agent requires: name, state_dim, action_size"
+        ));
+    }
+
+    let name = match &args[0] {
+        Value::Str(s) => s.clone(),
+        _ => return Err(anyhow!("name must be string")),
+    };
+
+    let state_dim = match &args[1] {
+        Value::Int(n) => *n as usize,
+        _ => return Err(anyhow!("state_dim must be integer")),
+    };
+
+    let action_size = match &args[2] {
+        Value::Int(n) => *n as usize,
+        _ => return Err(anyhow!("action_size must be integer")),
+    };
+
+    let agent = PolicyGradientAgent::new(&name, state_dim, action_size, 0.01, 0.99);
+    pg_agent_to_value(&agent)
+}
+
+/// Record step for Policy Gradient agent
+fn bi_rl_pg_step(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let args = if args.is_empty() && input.is_some() {
+        vec![input.unwrap()]
+    } else {
+        args
+    };
+
+    if args.len() < 4 {
+        return Err(anyhow!("rl_pg_step requires: agent, state, action, reward"));
+    }
+
+    let mut agent = value_to_pg_agent(&args[0])?;
+
+    let state: Vec<f64> = match &args[1] {
+        Value::Array(arr) => arr
+            .iter()
+            .map(|v| match v {
+                Value::Float(f) => Ok(*f),
+                Value::Int(i) => Ok(*i as f64),
+                _ => Err(anyhow!("state elements must be numbers")),
+            })
+            .collect::<Result<Vec<_>>>()?,
+        _ => return Err(anyhow!("state must be array")),
+    };
+
+    let action = match &args[2] {
+        Value::Int(a) => *a as usize,
+        _ => return Err(anyhow!("action must be integer")),
+    };
+
+    let reward = match &args[3] {
+        Value::Float(r) => *r,
+        Value::Int(r) => *r as f64,
+        _ => return Err(anyhow!("reward must be number")),
+    };
+
+    agent.record_step(state, action, reward);
+    pg_agent_to_value(&agent)
+}
+
+/// End episode for Policy Gradient agent (triggers update)
+fn bi_rl_pg_episode_end(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let args = if args.is_empty() && input.is_some() {
+        vec![input.unwrap()]
+    } else {
+        args
+    };
+
+    if args.is_empty() {
+        return Err(anyhow!("rl_pg_episode_end requires: agent"));
+    }
+
+    let mut agent = value_to_pg_agent(&args[0])?;
+    agent.end_episode();
+    pg_agent_to_value(&agent)
+}
+
+/// Create an Actor-Critic agent
+fn bi_rl_ac_agent(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let args = if args.is_empty() && input.is_some() {
+        vec![input.unwrap()]
+    } else {
+        args
+    };
+
+    if args.len() < 3 {
+        return Err(anyhow!(
+            "rl_ac_agent requires: name, state_dim, action_size"
+        ));
+    }
+
+    let name = match &args[0] {
+        Value::Str(s) => s.clone(),
+        _ => return Err(anyhow!("name must be string")),
+    };
+
+    let state_dim = match &args[1] {
+        Value::Int(n) => *n as usize,
+        _ => return Err(anyhow!("state_dim must be integer")),
+    };
+
+    let action_size = match &args[2] {
+        Value::Int(n) => *n as usize,
+        _ => return Err(anyhow!("action_size must be integer")),
+    };
+
+    let agent = ActorCriticAgent::new(&name, state_dim, action_size, 0.01, 0.01, 0.99);
+    ac_agent_to_value(&agent)
+}
+
+/// Update Actor-Critic agent
+fn bi_rl_ac_update(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let args = if args.is_empty() && input.is_some() {
+        vec![input.unwrap()]
+    } else {
+        args
+    };
+
+    if args.len() < 6 {
+        return Err(anyhow!(
+            "rl_ac_update requires: agent, state, action, reward, next_state, done"
+        ));
+    }
+
+    let mut agent = value_to_ac_agent(&args[0])?;
+
+    let state: Vec<f64> = match &args[1] {
+        Value::Array(arr) => arr
+            .iter()
+            .map(|v| match v {
+                Value::Float(f) => Ok(*f),
+                Value::Int(i) => Ok(*i as f64),
+                _ => Err(anyhow!("state elements must be numbers")),
+            })
+            .collect::<Result<Vec<_>>>()?,
+        _ => return Err(anyhow!("state must be array")),
+    };
+
+    let action = match &args[2] {
+        Value::Int(a) => *a as usize,
+        _ => return Err(anyhow!("action must be integer")),
+    };
+
+    let reward = match &args[3] {
+        Value::Float(r) => *r,
+        Value::Int(r) => *r as f64,
+        _ => return Err(anyhow!("reward must be number")),
+    };
+
+    let next_state: Vec<f64> = match &args[4] {
+        Value::Array(arr) => arr
+            .iter()
+            .map(|v| match v {
+                Value::Float(f) => Ok(*f),
+                Value::Int(i) => Ok(*i as f64),
+                _ => Err(anyhow!("next_state elements must be numbers")),
+            })
+            .collect::<Result<Vec<_>>>()?,
+        _ => return Err(anyhow!("next_state must be array")),
+    };
+
+    let done = match &args[5] {
+        Value::Bool(b) => *b,
+        _ => return Err(anyhow!("done must be boolean")),
+    };
+
+    agent.update(&state, action, reward, &next_state, done);
+    ac_agent_to_value(&agent)
+}
+
+/// Create a DQN agent
+fn bi_rl_dqn_agent(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let args = if args.is_empty() && input.is_some() {
+        vec![input.unwrap()]
+    } else {
+        args
+    };
+
+    if args.len() < 3 {
+        return Err(anyhow!(
+            "rl_dqn_agent requires: name, state_dim, action_size, [hidden_sizes]"
+        ));
+    }
+
+    let name = match &args[0] {
+        Value::Str(s) => s.clone(),
+        _ => return Err(anyhow!("name must be string")),
+    };
+
+    let state_dim = match &args[1] {
+        Value::Int(n) => *n as usize,
+        _ => return Err(anyhow!("state_dim must be integer")),
+    };
+
+    let action_size = match &args[2] {
+        Value::Int(n) => *n as usize,
+        _ => return Err(anyhow!("action_size must be integer")),
+    };
+
+    let hidden_sizes: Vec<usize> = if let Some(Value::Array(arr)) = args.get(3) {
+        arr.iter()
+            .map(|v| match v {
+                Value::Int(n) => Ok(*n as usize),
+                _ => Err(anyhow!("hidden_sizes must be array of integers")),
+            })
+            .collect::<Result<Vec<_>>>()?
+    } else {
+        vec![64, 64] // Default hidden layers
+    };
+
+    let agent = DQNAgent::new(
+        &name,
+        state_dim,
+        action_size,
+        &hidden_sizes,
+        0.001, // learning rate
+        0.99,  // discount
+        1.0,   // epsilon
+        10000, // buffer size
+    );
+    dqn_agent_to_value(&agent)
+}
+
+/// Step DQN agent (store experience and train)
+fn bi_rl_dqn_step(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let args = if args.is_empty() && input.is_some() {
+        vec![input.unwrap()]
+    } else {
+        args
+    };
+
+    if args.len() < 6 {
+        return Err(anyhow!(
+            "rl_dqn_step requires: agent, state, action, reward, next_state, done"
+        ));
+    }
+
+    let mut agent = value_to_dqn_agent(&args[0])?;
+
+    let state: Vec<f64> = match &args[1] {
+        Value::Array(arr) => arr
+            .iter()
+            .map(|v| match v {
+                Value::Float(f) => Ok(*f),
+                Value::Int(i) => Ok(*i as f64),
+                _ => Err(anyhow!("state elements must be numbers")),
+            })
+            .collect::<Result<Vec<_>>>()?,
+        _ => return Err(anyhow!("state must be array")),
+    };
+
+    let action = match &args[2] {
+        Value::Int(a) => *a as usize,
+        _ => return Err(anyhow!("action must be integer")),
+    };
+
+    let reward = match &args[3] {
+        Value::Float(r) => *r,
+        Value::Int(r) => *r as f64,
+        _ => return Err(anyhow!("reward must be number")),
+    };
+
+    let next_state: Vec<f64> = match &args[4] {
+        Value::Array(arr) => arr
+            .iter()
+            .map(|v| match v {
+                Value::Float(f) => Ok(*f),
+                Value::Int(i) => Ok(*i as f64),
+                _ => Err(anyhow!("next_state elements must be numbers")),
+            })
+            .collect::<Result<Vec<_>>>()?,
+        _ => return Err(anyhow!("next_state must be array")),
+    };
+
+    let done = match &args[5] {
+        Value::Bool(b) => *b,
+        _ => return Err(anyhow!("done must be boolean")),
+    };
+
+    agent.step(state, action, reward, next_state, done);
+    dqn_agent_to_value(&agent)
+}
+
+/// Create a replay buffer
+fn bi_rl_replay_buffer(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let args = if args.is_empty() && input.is_some() {
+        vec![input.unwrap()]
+    } else {
+        args
+    };
+
+    let capacity = match args.first() {
+        Some(Value::Int(n)) => *n as usize,
+        _ => 10000, // Default capacity
+    };
+
+    let buffer = ReplayBuffer::new(capacity);
+    replay_buffer_to_value(&buffer)
+}
+
+/// Create a gridworld environment
+fn bi_rl_gridworld(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let args = if args.is_empty() && input.is_some() {
+        vec![input.unwrap()]
+    } else {
+        args
+    };
+
+    let width = match args.first() {
+        Some(Value::Int(n)) => *n as usize,
+        _ => 5,
+    };
+
+    let height = match args.get(1) {
+        Some(Value::Int(n)) => *n as usize,
+        _ => width,
+    };
+
+    let env = GridWorld::new(width, height);
+    gridworld_to_value(&env)
+}
+
+/// Step gridworld environment
+fn bi_rl_env_step(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let args = if args.is_empty() && input.is_some() {
+        vec![input.unwrap()]
+    } else {
+        args
+    };
+
+    if args.len() < 2 {
+        return Err(anyhow!("rl_env_step requires: env, action"));
+    }
+
+    let mut env = value_to_gridworld(&args[0])?;
+
+    let action = match &args[1] {
+        Value::Int(a) => *a as usize,
+        _ => return Err(anyhow!("action must be integer")),
+    };
+
+    let (next_state, reward, done) = env.step(action);
+
+    let mut result = BTreeMap::new();
+    result.insert("state".to_string(), Value::Int(next_state as i64));
+    result.insert("reward".to_string(), Value::Float(reward));
+    result.insert("done".to_string(), Value::Bool(done));
+    result.insert("env".to_string(), gridworld_to_value(&env)?);
+
+    Ok(Value::Record(result))
+}
+
+// ==================== RL Helper Functions ====================
+
+fn q_agent_to_value(agent: &QLearningAgent) -> Result<Value> {
+    let json = serde_json::to_string(agent).context("Failed to serialize Q-learning agent")?;
+
+    let mut rec = BTreeMap::new();
+    rec.insert(
+        "type".to_string(),
+        Value::Str("q_learning_agent".to_string()),
+    );
+    rec.insert("name".to_string(), Value::Str(agent.name.clone()));
+    rec.insert(
+        "state_size".to_string(),
+        Value::Int(agent.state_size as i64),
+    );
+    rec.insert(
+        "action_size".to_string(),
+        Value::Int(agent.action_size as i64),
+    );
+    rec.insert("epsilon".to_string(), Value::Float(agent.epsilon));
+    rec.insert("steps".to_string(), Value::Int(agent.steps as i64));
+    rec.insert("_data".to_string(), Value::Str(json));
+
+    Ok(Value::Record(rec))
+}
+
+fn value_to_q_agent(v: &Value) -> Result<QLearningAgent> {
+    if let Value::Record(rec) = v {
+        if let Some(Value::Str(data)) = rec.get("_data") {
+            serde_json::from_str(data).context("Failed to deserialize Q-learning agent")
+        } else {
+            Err(anyhow!("Invalid Q-learning agent: missing _data"))
+        }
+    } else {
+        Err(anyhow!("Invalid Q-learning agent value"))
+    }
+}
+
+fn sarsa_agent_to_value(agent: &SarsaAgent) -> Result<Value> {
+    let json = serde_json::to_string(agent).context("Failed to serialize SARSA agent")?;
+
+    let mut rec = BTreeMap::new();
+    rec.insert("type".to_string(), Value::Str("sarsa_agent".to_string()));
+    rec.insert("name".to_string(), Value::Str(agent.name.clone()));
+    rec.insert(
+        "state_size".to_string(),
+        Value::Int(agent.state_size as i64),
+    );
+    rec.insert(
+        "action_size".to_string(),
+        Value::Int(agent.action_size as i64),
+    );
+    rec.insert("epsilon".to_string(), Value::Float(agent.epsilon));
+    rec.insert("steps".to_string(), Value::Int(agent.steps as i64));
+    rec.insert("_data".to_string(), Value::Str(json));
+
+    Ok(Value::Record(rec))
+}
+
+fn value_to_sarsa_agent(v: &Value) -> Result<SarsaAgent> {
+    if let Value::Record(rec) = v {
+        if let Some(Value::Str(data)) = rec.get("_data") {
+            serde_json::from_str(data).context("Failed to deserialize SARSA agent")
+        } else {
+            Err(anyhow!("Invalid SARSA agent: missing _data"))
+        }
+    } else {
+        Err(anyhow!("Invalid SARSA agent value"))
+    }
+}
+
+fn pg_agent_to_value(agent: &PolicyGradientAgent) -> Result<Value> {
+    let json = serde_json::to_string(agent).context("Failed to serialize PG agent")?;
+
+    let mut rec = BTreeMap::new();
+    rec.insert(
+        "type".to_string(),
+        Value::Str("policy_gradient_agent".to_string()),
+    );
+    rec.insert("name".to_string(), Value::Str(agent.name.clone()));
+    rec.insert("state_dim".to_string(), Value::Int(agent.state_dim as i64));
+    rec.insert(
+        "action_size".to_string(),
+        Value::Int(agent.action_size as i64),
+    );
+    rec.insert("episodes".to_string(), Value::Int(agent.episodes as i64));
+    rec.insert("_data".to_string(), Value::Str(json));
+
+    Ok(Value::Record(rec))
+}
+
+fn value_to_pg_agent(v: &Value) -> Result<PolicyGradientAgent> {
+    if let Value::Record(rec) = v {
+        if let Some(Value::Str(data)) = rec.get("_data") {
+            serde_json::from_str(data).context("Failed to deserialize PG agent")
+        } else {
+            Err(anyhow!("Invalid PG agent: missing _data"))
+        }
+    } else {
+        Err(anyhow!("Invalid PG agent value"))
+    }
+}
+
+fn ac_agent_to_value(agent: &ActorCriticAgent) -> Result<Value> {
+    let json = serde_json::to_string(agent).context("Failed to serialize AC agent")?;
+
+    let mut rec = BTreeMap::new();
+    rec.insert(
+        "type".to_string(),
+        Value::Str("actor_critic_agent".to_string()),
+    );
+    rec.insert("name".to_string(), Value::Str(agent.name.clone()));
+    rec.insert("state_dim".to_string(), Value::Int(agent.state_dim as i64));
+    rec.insert(
+        "action_size".to_string(),
+        Value::Int(agent.action_size as i64),
+    );
+    rec.insert("steps".to_string(), Value::Int(agent.steps as i64));
+    rec.insert("_data".to_string(), Value::Str(json));
+
+    Ok(Value::Record(rec))
+}
+
+fn value_to_ac_agent(v: &Value) -> Result<ActorCriticAgent> {
+    if let Value::Record(rec) = v {
+        if let Some(Value::Str(data)) = rec.get("_data") {
+            serde_json::from_str(data).context("Failed to deserialize AC agent")
+        } else {
+            Err(anyhow!("Invalid AC agent: missing _data"))
+        }
+    } else {
+        Err(anyhow!("Invalid AC agent value"))
+    }
+}
+
+fn dqn_agent_to_value(agent: &DQNAgent) -> Result<Value> {
+    let json = serde_json::to_string(agent).context("Failed to serialize DQN agent")?;
+
+    let mut rec = BTreeMap::new();
+    rec.insert("type".to_string(), Value::Str("dqn_agent".to_string()));
+    rec.insert("name".to_string(), Value::Str(agent.name.clone()));
+    rec.insert("state_dim".to_string(), Value::Int(agent.state_dim as i64));
+    rec.insert(
+        "action_size".to_string(),
+        Value::Int(agent.action_size as i64),
+    );
+    rec.insert("epsilon".to_string(), Value::Float(agent.epsilon));
+    rec.insert("steps".to_string(), Value::Int(agent.steps as i64));
+    rec.insert(
+        "buffer_size".to_string(),
+        Value::Int(agent.replay_buffer.len() as i64),
+    );
+    rec.insert("_data".to_string(), Value::Str(json));
+
+    Ok(Value::Record(rec))
+}
+
+fn value_to_dqn_agent(v: &Value) -> Result<DQNAgent> {
+    if let Value::Record(rec) = v {
+        if let Some(Value::Str(data)) = rec.get("_data") {
+            serde_json::from_str(data).context("Failed to deserialize DQN agent")
+        } else {
+            Err(anyhow!("Invalid DQN agent: missing _data"))
+        }
+    } else {
+        Err(anyhow!("Invalid DQN agent value"))
+    }
+}
+
+fn replay_buffer_to_value(buffer: &ReplayBuffer) -> Result<Value> {
+    let json = serde_json::to_string(buffer).context("Failed to serialize replay buffer")?;
+
+    let mut rec = BTreeMap::new();
+    rec.insert("type".to_string(), Value::Str("replay_buffer".to_string()));
+    rec.insert("capacity".to_string(), Value::Int(buffer.capacity as i64));
+    rec.insert("size".to_string(), Value::Int(buffer.len() as i64));
+    rec.insert("_data".to_string(), Value::Str(json));
+
+    Ok(Value::Record(rec))
+}
+
+fn gridworld_to_value(env: &GridWorld) -> Result<Value> {
+    let mut rec = BTreeMap::new();
+    rec.insert("type".to_string(), Value::Str("gridworld".to_string()));
+    rec.insert("width".to_string(), Value::Int(env.width as i64));
+    rec.insert("height".to_string(), Value::Int(env.height as i64));
+    rec.insert("agent_x".to_string(), Value::Int(env.agent_pos.0 as i64));
+    rec.insert("agent_y".to_string(), Value::Int(env.agent_pos.1 as i64));
+    rec.insert("goal_x".to_string(), Value::Int(env.goal_pos.0 as i64));
+    rec.insert("goal_y".to_string(), Value::Int(env.goal_pos.1 as i64));
+    rec.insert(
+        "state_size".to_string(),
+        Value::Int(env.state_size() as i64),
+    );
+    rec.insert(
+        "action_size".to_string(),
+        Value::Int(env.action_size() as i64),
+    );
+
+    Ok(Value::Record(rec))
+}
+
+fn value_to_gridworld(v: &Value) -> Result<GridWorld> {
+    if let Value::Record(rec) = v {
+        let width = match rec.get("width") {
+            Some(Value::Int(n)) => *n as usize,
+            _ => return Err(anyhow!("Invalid gridworld: missing width")),
+        };
+
+        let height = match rec.get("height") {
+            Some(Value::Int(n)) => *n as usize,
+            _ => return Err(anyhow!("Invalid gridworld: missing height")),
+        };
+
+        let agent_x = match rec.get("agent_x") {
+            Some(Value::Int(n)) => *n as usize,
+            _ => 0,
+        };
+
+        let agent_y = match rec.get("agent_y") {
+            Some(Value::Int(n)) => *n as usize,
+            _ => 0,
+        };
+
+        let mut env = GridWorld::new(width, height);
+        env.agent_pos = (agent_x, agent_y);
+
+        Ok(env)
+    } else {
+        Err(anyhow!("Invalid gridworld value"))
     }
 }
