@@ -1,3 +1,6 @@
+[workspace]
+members = [".", "crates/aethershell-lsp"]
+
 [package]
 name = "aether_shell"
 version = "0.1.0"
