@@ -150,7 +150,7 @@ fn draw_chat_sidebar(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(agent_info, chunks[1]);
 
     // Conversation statistics panel
-    dashboard::render_stats_panel(f, app, chunks[2]);
+    dashboard::draw_stats_panel(f, app, chunks[2]);
 }
 
 fn draw_agent_swarm(f: &mut Frame, app: &App, area: Rect) {
@@ -240,7 +240,7 @@ fn draw_agent_details(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(details_paragraph, chunks[0]);
 
     // Agent performance metrics
-    dashboard::render_agent_metrics(f, app, chunks[1]);
+    dashboard::draw_agent_metrics(f, app, chunks[1]);
 
     // Agent controls help
     let help_text = "n: New Agent | d: Delete | Enter: Start Task | c: Chat | m: Metrics";
@@ -350,7 +350,7 @@ fn draw_settings(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(settings, chunks[0]);
 
     // Keyboard shortcuts help panel
-    dashboard::render_help_panel(f, app, chunks[1]);
+    dashboard::draw_help_panel(f, app, chunks[1]);
 }
 
 fn draw_footer(f: &mut Frame, app: &App, area: Rect) {

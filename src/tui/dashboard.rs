@@ -10,8 +10,8 @@ use ratatui::{
 
 use super::app::App;
 
-/// Render the statistics dashboard
-pub fn render_stats_panel(f: &mut Frame, app: &App, area: Rect) {
+/// Draw the statistics dashboard
+pub fn draw_stats_panel(f: &mut Frame, app: &App, area: Rect) {
     let stats = app.get_stats();
 
     let chunks = Layout::default()
@@ -131,8 +131,8 @@ pub fn render_stats_panel(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(agent_stats, chunks[3]);
 }
 
-/// Render help panel with keyboard shortcuts
-pub fn render_help_panel(f: &mut Frame, app: &App, area: Rect) {
+/// Draw help panel with keyboard shortcuts
+pub fn draw_help_panel(f: &mut Frame, app: &App, area: Rect) {
     let help_text = app.get_help_text();
 
     let help_items: Vec<ListItem> = help_text
@@ -170,8 +170,8 @@ pub fn render_help_panel(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(help_list, area);
 }
 
-/// Render agent metrics dashboard
-pub fn render_agent_metrics(f: &mut Frame, app: &App, area: Rect) {
+/// Draw agent metrics dashboard
+pub fn draw_agent_metrics(f: &mut Frame, app: &App, area: Rect) {
     let metrics = app.get_agent_metrics();
 
     let chunks = Layout::default()
@@ -256,8 +256,8 @@ fn format_duration(seconds: i64) -> String {
     }
 }
 
-/// Render context window indicator
-pub fn render_context_window(f: &mut Frame, app: &App, area: Rect) {
+/// Draw context window indicator
+pub fn draw_context_window(f: &mut Frame, app: &App, area: Rect) {
     let window_size = 10; // Last 10 messages
     let context = app.get_context_window(window_size);
 
@@ -281,8 +281,8 @@ pub fn render_context_window(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(context_para, area);
 }
 
-/// Render export confirmation
-pub fn render_export_notification(f: &mut Frame, area: Rect, format: &str) {
+/// Draw export confirmation
+pub fn draw_export_notification(f: &mut Frame, area: Rect, format: &str) {
     let notification = Paragraph::new(format!("✅ Conversation exported to {}", format))
         .style(
             Style::default()
