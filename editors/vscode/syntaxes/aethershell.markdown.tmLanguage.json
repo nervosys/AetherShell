@@ -39,9 +39,24 @@
                     "contentName": "meta.embedded.block.aethershell",
                     "patterns": [
                         {
+                            "include": "#aethershell-comments"
+                        },
+                        {
                             "include": "source.aethershell"
                         }
                     ]
+                }
+            ]
+        },
+        "aethershell-comments": {
+            "patterns": [
+                {
+                    "name": "comment.line.number-sign.aethershell",
+                    "match": "#.*$"
+                },
+                {
+                    "name": "comment.line.double-slash.aethershell",
+                    "match": "//.*$"
                 }
             ]
         }
