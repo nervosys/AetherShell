@@ -929,13 +929,14 @@ ae --tui
 ### 2. **Content Creation Swarm**
 
 ```ae
-# Deploy specialized agents for blog creation
-swarm "create tech blog post" [
-  "researcher:gather latest AI trends",
-  "writer:draft engaging content", 
-  "editor:polish and optimize SEO",
-  "designer:suggest visual elements"
-] --strategy=specialized --max_iterations=3
+# Deploy specialized agents for blog creation (requires AI config)
+# Set AETHER_AI=openai and OPENAI_API_KEY for real responses
+swarm({
+  goal: "create tech blog post",
+  tools: ["ls", "cat", "grep"],
+  max_steps: 10,
+  dry_run: true
+})
 ```
 
 ### 3. **Interactive Media Analysis**
