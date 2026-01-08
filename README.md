@@ -295,73 +295,37 @@ let prompts = mcp_prompts()      # find-tool, explain-tool
 
 ### 🔧 **Local MCP Servers (Safe Tool Access)**
 
-**Give AI agents access to OS and cloud tools via local MCP servers:**
+> **Note**: MCP server hosting features are planned for future releases. Current MCP features use the built-in tool catalog.
+
+**Current MCP tool usage:**
 
 ```ae
-# Start filesystem MCP server (safe, controlled access)
-fs_server = mcp_server_start({
-  name: "filesystem",
-  type: "builtin",
-  config: {
-    allowed_paths: ["./", "~/Projects"],
-    excluded_patterns: [".git/", "node_modules/"]
-  }
-})
+# Available now: Query and execute from 130+ built-in tools
+let tools = mcp_tools()
+print(len(tools))  # 130
 
-# Agent with filesystem tools
-agent = agent_with_mcp(
-  "Organize project files",
-  ["mcp:read_file", "mcp:list_dir", "mcp:search_files"],
-  fs_server.endpoint
-)
+# Filter tools by category
+let dev_tools = mcp_tools({category: "development"})
+print(len(dev_tools))  # 23
 
-# Agent uses MCP tools safely
-todos = agent.call_mcp_tool("search_files", {
-  path: "./src",
-  pattern: "TODO:|FIXME:"
-})
+# Execute tools via MCP protocol
+let result = mcp_call("git", {command: "status"})
+print(result.is_error)  # false
+
+# Get server information
+let server = mcp_server()
+print(server.tool_count)  # 130
 ```
 
-**AWS infrastructure with MCP:**
+**Planned: Agent with filesystem tools (conceptual):**
 
-```ae
-# Start AWS MCP server (read-only for safety)
-aws_server = mcp_server_start({
-  name: "aws",
-  type: "cloud",
-  provider: "aws",
-  config: {
-    region: "us-east-1",
-    services: ["s3", "ec2", "lambda"],
-    read_only: true
-  }
-})
-
-# DevOps agent with cloud tools
-devops = agent_with_mcp(
-  "Analyze infrastructure",
-  ["mcp:s3_list", "mcp:ec2_describe", "mcp:lambda_list"],
-  aws_server.endpoint
-)
-
-# Agent analyzes your AWS setup
-analysis = devops.execute("Check EC2 instances and suggest optimizations")
 ```
-
-**Docker, Git, Databases—all via MCP:**
-
-```ae
-# Multiple MCP servers running simultaneously
-git_server = mcp_server_start({name: "git", type: "builtin"})
-docker_server = mcp_server_start({name: "docker", type: "builtin"})
-db_server = mcp_server_start({name: "postgres", type: "database"})
-
-# Agent with access to all tools
-full_stack_agent = agent_with_mcp(
-  "DevOps assistant",
-  ["mcp:git_status", "mcp:docker_ps", "mcp:db_query"],
-  [git_server.endpoint, docker_server.endpoint, db_server.endpoint]
-)
+# Coming soon: Start custom MCP servers
+# fs_server = mcp_server_start({
+#   name: "filesystem",
+#   type: "builtin",
+#   config: {allowed_paths: ["./", "~/Projects"]}
+# })
 ```
 
 ### 🎨 **Multi-Modal AI (Images, Audio, Video)**
@@ -442,13 +406,12 @@ ai("Generate meeting minutes with action items", {
 ```ae
 # ls returns typed records, not strings!
 ls(".")
-  | where(fn(f) => f.size > 1000 && f.ext == ".rs")
+  | where(fn(f) => f.size > 1000 && !f.is_dir)
   | map(fn(f) => {
       name: f.name,
-      size_kb: f.size / 1024.0,
-      age_days: (now() - f.modified) / 86400
+      size_kb: f.size / 1024,
+      modified: f.modified
     })
-  | sort_by(fn(f) => f.size_kb, "desc")
   | take(10)
 ```
 
@@ -505,7 +468,7 @@ ai("Review this Rust code for potential bugs, security issues, and improvements:
 ```ae
 # Type-safe data transformation with AI insights
 # Process files and get AI analysis
-files = ls("./src") | where(fn(f) => f.ext == ".rs")
+files = ls("./src") | where(fn(f) => !f.is_dir)
 file_info = files | map(fn(f) => {name: f.name, size: f.size})
 print(file_info)
 
@@ -537,7 +500,7 @@ ai("Transcribe and summarize this audio recording", {
 ```ae
 # Analyze and describe images in a directory
 ls("./images")
-  | where(fn(f) => f.ext == ".jpg" || f.ext == ".png")
+  | where(fn(f) => !f.is_dir)
   | map(fn(photo) => {
       path: photo.path,
       name: photo.name,
@@ -588,7 +551,7 @@ let mut counter = 0    # Traditional mutable
 **Structured Pipelines:**
 
 ```ae
-[1,2,3,4] | map fn(x) => x*x | reduce fn(a,b) => a+b 0
+[1,2,3,4] | map(fn(x) => x*x) | reduce(fn(a,b) => a+b, 0)
 # → 30
 ```
 
@@ -611,9 +574,9 @@ print(val)  # => {_tag: "Some", _value: 42}
 **Typed HTTP:**
 
 ```ae
-resp := http_get "https://api.github.com"
+resp = http_get("https://api.github.com")
 print(resp.status)
-print(resp.headers."content-type")
+print(resp.body)
 ```
 
 ---
@@ -807,30 +770,20 @@ The AI model system integrates seamlessly with Aether Shell's existing AI featur
 
 ```ae
 # Use different LLM backends seamlessly
-vllm_response := ai("vllm:microsoft/DialoGPT-medium", "Hello, how are you?")
-sglang_response := ai("sglang:meta-llama/Llama-2-7b-chat-hf", "Explain machine learning")
-llamacpp_response := ai("llama.cpp:llama-2-7b-chat", "Write code to sort an array")
+# Set AETHER_AI environment variable to configure provider
+vllm_response = ai("Hello, how are you?")
 
-# Switch between providers dynamically  
-openai_response := ai("openai:gpt-4", "Explain quantum computing")
-anthropic_response := ai("anthropic:claude-3", "Write a poem about code")
+# Use MCP tools for model management
+let tools = mcp_tools()
+print(len(tools))  # 130 tools available
 
-# Auto-detect and use fastest available backend
-fastest_backend := ai_backends() | first
-response := ai("${fastest_backend}:best-model", "What's the weather like?")
+# Model information via HTTP
+models = http_get("http://localhost:8080/v1/models")
+print(models.status)
 
-# Model information and backend health checks
-models := http_get("http://localhost:8080/v1/models")
-local_models := models.data | where fn(m) => m.provider in ["vllm", "sglang", "llama.cpp"]
-
-# Performance comparison across backends
-backends := ["vllm", "sglang", "llama.cpp"]
-results := backends | each fn(backend) => {
-    start_time := now()
-    response := ai("${backend}:model", "Hello")
-    end_time := now()
-    {backend: backend, latency_ms: end_time - start_time, response: response}
-}
+# Batch processing with pipelines
+backends = ["openai", "ollama", "compat"]
+results = backends | map(fn(backend) => {name: backend, available: true})
 ```
 
 ---
@@ -895,10 +848,11 @@ echo 'echo hello | wc -l' | ae -b
 echo hello | wc -l
 ```
 
-**into Aether:**
+**into Aether (conceptual transpiler output):**
 
 ```ae
-echo("hello") | sh(["wc","-l"])
+# Transpiled bash commands use echo() builtin and pipelines
+echo("hello")
 ```
 
 ---
@@ -966,26 +920,27 @@ swarm "create tech blog post" [
 ### 3. **Interactive Media Analysis**
 
 ```ae
-# Batch process images with AI descriptions
-ls("./photos") 
-  | where fn(f) => f.ext in [".jpg", ".png"]
-  | map fn(img) => {
-      file: img.path,
-      analysis: img | ai("describe this image in detail"),
-      tags: img | ai("generate 5 relevant tags")
-    }
-  | save_json("photo_analysis.json")
+# Batch process files with AI descriptions (conceptual - requires AI config)
+# Set AETHER_AI=openai and OPENAI_API_KEY for real AI responses
+files = ls("./photos") | where(fn(f) => !f.is_dir)
+print(len(files))
+
+# Process each file
+file_info = files | map(fn(f) => {name: f.name, path: f.path, size: f.size})
+print(file_info)
 ```
 
 ### 4. **Voice-Controlled Automation**
 
 ```ae
-# Record voice command and execute
-audio_input := record_audio(5) # 5 seconds
-command := audio_input | ai("transcribe and extract shell command")
-result := command | sh([]) 
-print("Executed: ${command}")
-print("Result: ${result}")
+# Audio processing with AI (requires AETHER_AI config)
+# Example: transcribe audio and execute commands
+# audio_result = ai("transcribe this audio", {audio: ["recording.mp3"]})
+
+# Execute tools via tool_exec (198 tools available)
+result = tool_exec("git", ["status"])
+print(result.success)  # true
+print(result.stdout)   # Git status output
 ```
 
 ---
@@ -1061,7 +1016,7 @@ print("Result: ${result}")
 #### 📚 Documentation Guides
 
 - **[Quick Reference](docs/QUICK_REFERENCE.md)**: One-page guide to all syntax and patterns
-- **[Type System Guide](docs/TYPE_SYSTEM_GUIDE.md)**: Deep dive into `:=` vs `=` and type inference
+- **[Type System Guide](docs/TYPE_SYSTEM_GUIDE.md)**: Deep dive into `let` vs `=` and type inference
 - **[MCP Servers Guide](docs/MCP_SERVERS_GUIDE.md)**: Complete reference for infrastructure integration
 - **[AI Protocols Report](docs/AI_PROTOCOLS_FINAL_REPORT.md)**: A2A and NANDA implementation details
 - **[Syntax KB Guide](docs/SYNTAX_KB.md)**: AgenticBinary protocol and knowledge base reference
