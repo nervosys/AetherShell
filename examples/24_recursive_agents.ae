@@ -1,0 +1,100 @@
+# Recursive Language Models (RLM) - Hierarchical Agent Spawning
+# 
+# RLM allows agents to spawn subagents to decompose complex tasks.
+# This enables divide-and-conquer strategies for complex problems.
+
+# ============================================================
+# Basic Configuration
+# ============================================================
+
+# Get default RLM configuration
+let default_config = rlm_config()
+print(default_config)
+# Output: {max_depth: 5, max_agents: 50, agent_timeout_secs: 60, ...}
+
+# Create custom configuration
+let custom_config = rlm_config({
+    max_depth: 3,           # Maximum recursion depth
+    max_agents: 20,         # Maximum total agents
+    timeout: 30,            # Per-agent timeout in seconds
+    trace: true             # Enable trace logging
+})
+print(custom_config)
+
+# ============================================================
+# Hierarchy Statistics
+# ============================================================
+
+# Get current hierarchy statistics (before running any agents)
+let stats = rlm_stats()
+print(stats)
+# Output: {total_spawned: 0, currently_active: 0, messages_sent: 0, ...}
+
+# ============================================================
+# Running Recursive Agents
+# ============================================================
+
+# Simple recursive agent (will use default config)
+# The agent can spawn subagents to handle subtasks
+# let result = rlm_agent("list all files in current directory", ["ls", "cat"])
+# print(result)
+
+# With custom config
+# let result = rlm_agent(
+#     "analyze project structure and summarize key files",
+#     ["ls", "cat", "grep", "find"],
+#     {max_depth: 2, max_agents: 10}
+# )
+# print(result)
+
+# ============================================================
+# Architecture Overview
+# ============================================================
+
+# RLM creates a hierarchy of agents:
+#
+# RootAgent (depth=0)
+# ├── SubAgent1 (depth=1) - "analyze src/"
+# │   ├── SubAgent1.1 (depth=2) - "read main.rs"
+# │   └── SubAgent1.2 (depth=2) - "read lib.rs"
+# └── SubAgent2 (depth=1) - "analyze tests/"
+#     └── SubAgent2.1 (depth=2) - "summarize test files"
+
+# Each agent can:
+# - Execute tools directly
+# - Spawn subagents for subtasks
+# - Receive results from children
+# - Send messages to siblings/parents
+
+# ============================================================
+# Spawning Single Subagents
+# ============================================================
+
+# rlm_spawn creates a single-depth agent for a specific task
+# let worker = rlm_spawn("file_reader", "read README.md contents", ["cat"])
+# print(worker)
+# Output: {name: "file_reader", goal: "...", output: "...", success: true}
+
+# ============================================================
+# Message Types in RLM
+# ============================================================
+
+# Agents communicate via messages:
+# - Task:       Parent assigns work to child
+# - Result:     Child returns output to parent
+# - Query:      Inter-agent questions
+# - Response:   Answers to queries
+# - Broadcast:  Messages to all siblings
+# - Escalation: Problems sent to parent
+
+# ============================================================
+# Safety Limits
+# ============================================================
+
+# RLM has built-in safety limits:
+# - max_depth: Prevents infinite recursion
+# - max_agents: Limits total agents spawned
+# - timeout: Each agent has a timeout
+# - cycle_detection: Prevents duplicate agent paths
+
+print("RLM examples loaded - uncomment lines to run with an AI backend")

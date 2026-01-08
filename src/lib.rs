@@ -12,6 +12,7 @@ pub mod parser;
 pub mod plugins;
 pub mod repl;
 pub mod rl;
+pub mod rlm; // Recursive Language Models for hierarchical agent spawning
 pub mod secure_config;
 pub mod security;
 pub mod shell_features;
