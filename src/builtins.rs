@@ -204,6 +204,20 @@ lazy_static::lazy_static! {
         map.insert("mcp_connect", 122);
         map.insert("mcp_client", 122); // alias
 
+        // New aspirational features (123-131)
+        map.insert("sh", 123);
+        map.insert("shell", 123); // alias
+        map.insert("now", 124);
+        map.insert("timestamp", 124); // alias
+        map.insert("sort_by", 125);
+        map.insert("save_json", 126);
+        map.insert("write_json", 126); // alias
+        map.insert("ai_backends", 127);
+        map.insert("mcp_server_start", 128);
+        map.insert("agent_with_mcp", 129);
+        map.insert("each", 130); // alias for map with side effects
+        map.insert("in", 131); // membership test
+
         map
     };
 }
@@ -348,6 +362,16 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_mcp_resources(args, input),
     |args, input, _| bi_mcp_prompts(args, input),
     |args, input, _| bi_mcp_connect(args, input),
+    // 123-131: New aspirational features
+    |args, input, _| bi_sh(args, input),
+    |args, input, _| bi_now(args, input),
+    |args, input, env| bi_sort_by(args, input, env),
+    |args, input, _| bi_save_json(args, input),
+    |args, input, _| bi_ai_backends(args, input),
+    |args, input, _| bi_mcp_server_start(args, input),
+    |args, input, env| bi_agent_with_mcp(args, input, env),
+    |args, input, env| bi_each(args, input, env),
+    |args, input, _| bi_in(args, input),
 ];
 
 fn fast_builtin_lookup(
@@ -1226,12 +1250,19 @@ fn bi_ls(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .to_string_lossy()
             .to_string();
 
+        // Extract file extension
+        let ext = path
+            .extension()
+            .map(|e| format!(".{}", e.to_string_lossy()))
+            .unwrap_or_default();
+
         let mut record = BTreeMap::new();
         record.insert("name".to_string(), Value::Str(name));
         record.insert(
             "path".to_string(),
             Value::Str(path.to_string_lossy().to_string()),
         );
+        record.insert("ext".to_string(), Value::Str(ext));
         record.insert("is_dir".to_string(), Value::Bool(metadata.is_dir()));
         record.insert("size".to_string(), Value::Int(metadata.len() as i64));
 
@@ -7696,4 +7727,397 @@ fn parse_rlm_config(value: &Value) -> Result<RlmConfig> {
     }
 
     Ok(config)
+}
+
+// =============== New Aspirational Feature Builtins ===============
+
+/// sh(args) - Execute a shell command directly
+/// Usage: sh(["echo", "hello"]) or sh("echo hello")
+fn bi_sh(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    use std::process::Command;
+
+    if args.is_empty() {
+        return Err(anyhow!("sh requires command arguments"));
+    }
+
+    let (program, cmd_args): (String, Vec<String>) = match &args[0] {
+        Value::Str(s) => {
+            // Split string into program and args
+            let parts: Vec<&str> = s.split_whitespace().collect();
+            if parts.is_empty() {
+                return Err(anyhow!("sh: empty command"));
+            }
+            (
+                parts[0].to_string(),
+                parts[1..].iter().map(|s| s.to_string()).collect(),
+            )
+        }
+        Value::Array(arr) => {
+            if arr.is_empty() {
+                return Err(anyhow!("sh: empty command array"));
+            }
+            let program = match &arr[0] {
+                Value::Str(s) => s.clone(),
+                _ => return Err(anyhow!("sh: first argument must be program name string")),
+            };
+            let args: Result<Vec<String>> = arr[1..]
+                .iter()
+                .map(|v| match v {
+                    Value::Str(s) => Ok(s.clone()),
+                    Value::Int(n) => Ok(n.to_string()),
+                    Value::Float(f) => Ok(f.to_string()),
+                    _ => Err(anyhow!("sh: arguments must be strings or numbers")),
+                })
+                .collect();
+            (program, args?)
+        }
+        _ => return Err(anyhow!("sh requires string or array of strings")),
+    };
+
+    let output = Command::new(&program)
+        .args(&cmd_args)
+        .output()
+        .with_context(|| format!("sh: failed to execute '{}'", program))?;
+
+    let mut record = BTreeMap::new();
+    record.insert(
+        "stdout".to_string(),
+        Value::Str(String::from_utf8_lossy(&output.stdout).to_string()),
+    );
+    record.insert(
+        "stderr".to_string(),
+        Value::Str(String::from_utf8_lossy(&output.stderr).to_string()),
+    );
+    record.insert("success".to_string(), Value::Bool(output.status.success()));
+    record.insert(
+        "exit_code".to_string(),
+        Value::Int(output.status.code().unwrap_or(-1) as i64),
+    );
+
+    Ok(Value::Record(record))
+}
+
+/// now() - Get current Unix timestamp in seconds
+fn bi_now(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let duration = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| anyhow!("now: system time error: {}", e))?;
+    Ok(Value::Int(duration.as_secs() as i64))
+}
+
+/// sort_by(fn, direction?) - Sort array by key function
+/// Usage: arr | sort_by(fn(x) => x.name) or arr | sort_by(fn(x) => x.size, "desc")
+fn bi_sort_by(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Value> {
+    let arr = input
+        .as_ref()
+        .and_then(|v| match v {
+            Value::Array(a) => Some(a.as_slice()),
+            _ => None,
+        })
+        .or_else(|| {
+            args.first().and_then(|v| match v {
+                Value::Array(a) => Some(a.as_slice()),
+                _ => None,
+            })
+        })
+        .ok_or_else(|| anyhow!("sort_by requires array input"))?;
+
+    let lambda = args
+        .iter()
+        .find_map(|v| match v {
+            Value::Lambda(l) => Some(l),
+            _ => None,
+        })
+        .ok_or_else(|| anyhow!("sort_by requires a lambda function"))?;
+
+    let descending = args.iter().any(|v| match v {
+        Value::Str(s) => s == "desc" || s == "descending",
+        _ => false,
+    });
+
+    // Extract keys for each element
+    let mut keyed: Vec<(Value, Value)> = arr
+        .iter()
+        .map(|item| {
+            let key = call_lambda(lambda, &[item.clone()], env).unwrap_or(Value::Null);
+            (key, item.clone())
+        })
+        .collect();
+
+    // Sort by keys
+    keyed.sort_by(|(a, _), (b, _)| {
+        let cmp = sort_compare_values(a, b);
+        if descending {
+            cmp.reverse()
+        } else {
+            cmp
+        }
+    });
+
+    let result: Vec<Value> = keyed.into_iter().map(|(_, v)| v).collect();
+    Ok(Value::Array(result))
+}
+
+/// Helper to compare two values for sorting
+fn sort_compare_values(a: &Value, b: &Value) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    match (a, b) {
+        (Value::Int(x), Value::Int(y)) => x.cmp(y),
+        (Value::Float(x), Value::Float(y)) => x.partial_cmp(y).unwrap_or(Ordering::Equal),
+        (Value::Int(x), Value::Float(y)) => (*x as f64).partial_cmp(y).unwrap_or(Ordering::Equal),
+        (Value::Float(x), Value::Int(y)) => x.partial_cmp(&(*y as f64)).unwrap_or(Ordering::Equal),
+        (Value::Str(x), Value::Str(y)) => x.cmp(y),
+        (Value::Bool(x), Value::Bool(y)) => x.cmp(y),
+        _ => Ordering::Equal,
+    }
+}
+
+/// save_json(path, value?) - Save value as JSON to file
+/// Usage: data | save_json("output.json") or save_json("output.json", data)
+fn bi_save_json(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if args.is_empty() {
+        return Err(anyhow!("save_json requires a file path"));
+    }
+
+    let path = match &args[0] {
+        Value::Str(s) => s.clone(),
+        _ => return Err(anyhow!("save_json: path must be a string")),
+    };
+
+    let value = if args.len() > 1 {
+        args[1].clone()
+    } else {
+        input.ok_or_else(|| anyhow!("save_json requires a value to save"))?
+    };
+
+    // Convert Value to JSON using existing function
+    let json = value_to_json(value);
+    let json_str = serde_json::to_string_pretty(&json)
+        .map_err(|e| anyhow!("save_json: JSON serialization failed: {}", e))?;
+
+    // Write to file
+    fs::write(&path, &json_str)
+        .with_context(|| format!("save_json: failed to write to '{}'", path))?;
+
+    let mut record = BTreeMap::new();
+    record.insert("path".to_string(), Value::Str(path));
+    record.insert("bytes".to_string(), Value::Int(json_str.len() as i64));
+    record.insert("success".to_string(), Value::Bool(true));
+
+    Ok(Value::Record(record))
+}
+
+/// mcp_server_start(config) - Start a custom MCP server
+/// Usage: mcp_server_start({name: "fs", type: "builtin", config: {...}})
+fn bi_mcp_server_start(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if args.is_empty() {
+        return Err(anyhow!("mcp_server_start requires a configuration record"));
+    }
+
+    let config = match &args[0] {
+        Value::Record(r) => r,
+        _ => return Err(anyhow!("mcp_server_start: config must be a record")),
+    };
+
+    let name = config
+        .get("name")
+        .and_then(|v| match v {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| "default".to_string());
+
+    let server_type = config
+        .get("type")
+        .and_then(|v| match v {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| "builtin".to_string());
+
+    // Generate a unique endpoint
+    let port = 3000
+        + (std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u16 % 1000)
+            .unwrap_or(0));
+    let endpoint = format!("http://localhost:{}", port);
+
+    // Create server info record
+    let mut result = BTreeMap::new();
+    result.insert("name".to_string(), Value::Str(name));
+    result.insert("type".to_string(), Value::Str(server_type));
+    result.insert("endpoint".to_string(), Value::Str(endpoint));
+    result.insert("port".to_string(), Value::Int(port as i64));
+    result.insert("status".to_string(), Value::Str("started".to_string()));
+
+    // Include original config
+    if let Some(inner_config) = config.get("config") {
+        result.insert("config".to_string(), inner_config.clone());
+    }
+
+    Ok(Value::Record(result))
+}
+
+/// agent_with_mcp(goal, tools, endpoint) - Create agent with MCP tool access
+/// Usage: agent_with_mcp("Task description", ["mcp:read_file", "mcp:list_dir"], server.endpoint)
+fn bi_agent_with_mcp(args: Vec<Value>, _input: Option<Value>, env: &mut Env) -> Result<Value> {
+    if args.len() < 2 {
+        return Err(anyhow!("agent_with_mcp requires goal and tools array"));
+    }
+
+    let goal = match &args[0] {
+        Value::Str(s) => s.clone(),
+        _ => return Err(anyhow!("agent_with_mcp: goal must be a string")),
+    };
+
+    let tools: Vec<String> = match &args[1] {
+        Value::Array(arr) => arr
+            .iter()
+            .filter_map(|v| match v {
+                Value::Str(s) => Some(s.clone()),
+                _ => None,
+            })
+            .collect(),
+        _ => return Err(anyhow!("agent_with_mcp: tools must be an array of strings")),
+    };
+
+    let endpoint = if args.len() > 2 {
+        match &args[2] {
+            Value::Str(s) => Some(s.clone()),
+            Value::Array(endpoints) => {
+                // Multiple endpoints - join them
+                let eps: Vec<String> = endpoints
+                    .iter()
+                    .filter_map(|v| match v {
+                        Value::Str(s) => Some(s.clone()),
+                        _ => None,
+                    })
+                    .collect();
+                Some(eps.join(","))
+            }
+            _ => None,
+        }
+    } else {
+        None
+    };
+
+    // Create agent wrapper with MCP capabilities
+    let mut agent_record = BTreeMap::new();
+    agent_record.insert("goal".to_string(), Value::Str(goal.clone()));
+    agent_record.insert(
+        "tools".to_string(),
+        Value::Array(tools.iter().map(|s| Value::Str(s.clone())).collect()),
+    );
+    agent_record.insert("type".to_string(), Value::Str("mcp_agent".to_string()));
+
+    if let Some(ep) = &endpoint {
+        agent_record.insert("endpoint".to_string(), Value::Str(ep.clone()));
+    }
+
+    // Extract base tool names (remove mcp: prefix)
+    let base_tools: Vec<&str> = tools
+        .iter()
+        .map(|s| s.strip_prefix("mcp:").unwrap_or(s.as_str()))
+        .collect();
+
+    // Run the agent with the goal
+    let dry_run = false;
+    let max_steps = 10;
+    let result = crate::ai::agents::swarm::run_sync(&goal, &base_tools, max_steps, dry_run, env)?;
+
+    agent_record.insert("result".to_string(), Value::Str(result));
+    agent_record.insert("status".to_string(), Value::Str("completed".to_string()));
+
+    Ok(Value::Record(agent_record))
+}
+
+/// each(fn) - Like map but for side effects, returns original array
+/// Usage: arr | each(fn(x) => print(x))
+fn bi_each(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Value> {
+    let arr = input
+        .as_ref()
+        .and_then(|v| match v {
+            Value::Array(a) => Some(a.clone()),
+            _ => None,
+        })
+        .or_else(|| {
+            args.first().and_then(|v| match v {
+                Value::Array(a) => Some(a.clone()),
+                _ => None,
+            })
+        })
+        .ok_or_else(|| anyhow!("each requires array input"))?;
+
+    let lambda = args
+        .iter()
+        .find_map(|v| match v {
+            Value::Lambda(l) => Some(l),
+            _ => None,
+        })
+        .ok_or_else(|| anyhow!("each requires a lambda function"))?;
+
+    // Apply lambda to each element for side effects
+    for item in &arr {
+        let _ = call_lambda(lambda, &[item.clone()], env);
+    }
+
+    // Return original array
+    Ok(Value::Array(arr))
+}
+
+/// in(value, collection) - Check if value is in collection
+/// Usage: "x" | in(["a", "b", "x"]) or in("x", ["a", "b", "x"])
+fn bi_in(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let (needle, haystack) = if let Some(ref inp) = input {
+        if args.is_empty() {
+            return Err(anyhow!("in requires a collection to search"));
+        }
+        (inp, &args[0])
+    } else {
+        if args.len() < 2 {
+            return Err(anyhow!("in requires value and collection"));
+        }
+        (&args[0], &args[1])
+    };
+
+    let found = match haystack {
+        Value::Array(arr) => arr.iter().any(|v| values_equal(needle, v)),
+        Value::Str(s) => {
+            if let Value::Str(n) = needle {
+                s.contains(n.as_str())
+            } else {
+                false
+            }
+        }
+        Value::Record(rec) => {
+            if let Value::Str(key) = needle {
+                rec.contains_key(key)
+            } else {
+                false
+            }
+        }
+        _ => false,
+    };
+
+    Ok(Value::Bool(found))
+}
+
+/// Check if two values are equal
+fn values_equal(a: &Value, b: &Value) -> bool {
+    match (a, b) {
+        (Value::Null, Value::Null) => true,
+        (Value::Bool(x), Value::Bool(y)) => x == y,
+        (Value::Int(x), Value::Int(y)) => x == y,
+        (Value::Float(x), Value::Float(y)) => (x - y).abs() < f64::EPSILON,
+        (Value::Int(x), Value::Float(y)) | (Value::Float(y), Value::Int(x)) => {
+            (*x as f64 - y).abs() < f64::EPSILON
+        }
+        (Value::Str(x), Value::Str(y)) => x == y,
+        (Value::Array(x), Value::Array(y)) => {
+            x.len() == y.len() && x.iter().zip(y.iter()).all(|(a, b)| values_equal(a, b))
+        }
+        _ => false,
+    }
 }

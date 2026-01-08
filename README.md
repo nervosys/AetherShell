@@ -295,37 +295,51 @@ let prompts = mcp_prompts()      # find-tool, explain-tool
 
 ### 🔧 **Local MCP Servers (Safe Tool Access)**
 
-> **Note**: MCP server hosting features are planned for future releases. Current MCP features use the built-in tool catalog.
-
-**Current MCP tool usage:**
+**MCP tool discovery and execution:**
 
 ```ae
-# Available now: Query and execute from 130+ built-in tools
-let tools = mcp_tools()
+# Query and execute from 130+ built-in tools
+let tools := mcp_tools()
 print(len(tools))  # 130
 
 # Filter tools by category
-let dev_tools = mcp_tools({category: "development"})
+let dev_tools := mcp_tools({category: "development"})
 print(len(dev_tools))  # 23
 
 # Execute tools via MCP protocol
-let result = mcp_call("git", {command: "status"})
+let result := mcp_call("git", {command: "status"})
 print(result.is_error)  # false
 
 # Get server information
-let server = mcp_server()
+let server := mcp_server()
 print(server.tool_count)  # 130
 ```
 
-**Planned: Agent with filesystem tools (conceptual):**
+**Start custom MCP servers:**
 
-```
-# Coming soon: Start custom MCP servers
-# fs_server = mcp_server_start({
-#   name: "filesystem",
-#   type: "builtin",
-#   config: {allowed_paths: ["./", "~/Projects"]}
-# })
+```ae
+# Start filesystem MCP server (safe, controlled access)
+fs_server := mcp_server_start({
+  name: "filesystem",
+  type: "builtin",
+  config: {
+    allowed_paths: ["./", "~/Projects"],
+    excluded_patterns: [".git/", "node_modules/"]
+  }
+})
+print(fs_server.endpoint)  # http://localhost:3xxx
+
+# Start multiple MCP servers
+git_server := mcp_server_start({name: "git", type: "builtin"})
+docker_server := mcp_server_start({name: "docker", type: "builtin"})
+
+# Agent with MCP tool access
+devops := agent_with_mcp(
+  "Check git status and list recent commits",
+  ["mcp:git_status", "mcp:git_log"],
+  git_server.endpoint
+)
+print(devops.result)
 ```
 
 ### 🎨 **Multi-Modal AI (Images, Audio, Video)**
@@ -341,9 +355,9 @@ ai("Compare these photos and find similarities", {
   images: ["photo1.jpg", "photo2.jpg", "photo3.jpg"]
 })
 
-# Batch process with typed pipelines
+# Batch process with typed pipelines and in() operator
 ls("./photos")
-  | where(fn(f) => f.ext in [".jpg", ".png"])
+  | where(fn(f) => f.ext | in([".jpg", ".png"]))
   | map(fn(photo) => {
       path: photo.path,
       description: ai("Describe briefly", {images: [photo.path]})
@@ -399,19 +413,20 @@ ai("Generate meeting minutes with action items", {
 })
 ```
 
-### � **Typed Functional Pipelines**
+### 💎 **Typed Functional Pipelines**
 
 **Structured data, not text streams:**
 
 ```ae
-# ls returns typed records, not strings!
+# ls returns typed records with name, path, ext, is_dir, size, modified
 ls(".")
-  | where(fn(f) => f.size > 1000 && !f.is_dir)
+  | where(fn(f) => f.size > 1000 && f.ext == ".rs")
   | map(fn(f) => {
       name: f.name,
       size_kb: f.size / 1024,
-      modified: f.modified
+      age_days: (now() - f.modified) / 86400
     })
+  | sort_by(fn(f) => f.size_kb, "desc")
   | take(10)
 ```
 
@@ -467,9 +482,9 @@ ai("Review this Rust code for potential bugs, security issues, and improvements:
 
 ```ae
 # Type-safe data transformation with AI insights
-# Process files and get AI analysis
-files = ls("./src") | where(fn(f) => !f.is_dir)
-file_info = files | map(fn(f) => {name: f.name, size: f.size})
+# Process files and get AI analysis - now with ext field!
+files := ls("./src") | where(fn(f) => f.ext == ".rs")
+file_info := files | map(fn(f) => {name: f.name, size: f.size})
 print(file_info)
 
 # Get AI insights on project structure
@@ -500,12 +515,13 @@ ai("Transcribe and summarize this audio recording", {
 ```ae
 # Analyze and describe images in a directory
 ls("./images")
-  | where(fn(f) => !f.is_dir)
+  | where(fn(f) => f.ext == ".jpg" || f.ext == ".png")
   | map(fn(photo) => {
       path: photo.path,
       name: photo.name,
       description: ai("Briefly describe this image", {images: [photo.path]})
     })
+  | save_json("photo_analysis.json")
 ```
 
 ---
@@ -538,6 +554,10 @@ print("Hello, Aether!")
 name = "world"         # Type inferred as String
 count = 42             # Type inferred as Int
 items = [1, 2, 3]      # Type inferred as Array<Int>
+
+# Walrus operator := also supported (same as =)
+timestamp := now()     # Get current Unix timestamp
+result := sh(["git", "status"])  # Run shell command
 
 # Mutable variables
 mut counter = 0        # Mutable

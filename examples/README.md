@@ -268,7 +268,7 @@ ae -c "ls('.') | where(fn(f) => f.ext == '.rs') | map(fn(f) => {file: f.name, an
 ### Demo 2: Image Batch Processing
 ```bash
 # Describe all images in a directory
-ae -c "ls('./photos') | where(fn(f) => f.ext in ['.jpg', '.png']) | map(fn(f) => ai('Describe this image', {images: [f.path]}))"
+ae -c "ls('./photos') | where(fn(f) => f.ext | in(['.jpg', '.png'])) | map(fn(f) => ai('Describe this image', {images: [f.path]}))"
 ```
 
 ### Demo 3: Multi-Agent Task
