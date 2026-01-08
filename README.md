@@ -1027,9 +1027,9 @@ print(result.stdout)   # Git status output
 - [`examples/00_hello.ae`](examples/00_hello.ae): Basic syntax introduction
 - [`examples/05_ai.ae`](examples/05_ai.ae): AI integration examples
 - [`examples/06_agent.ae`](examples/06_agent.ae): Agent deployment
-- [`examples/09_tui_basic.ae`](examples/09_tui_basic.ae): TUI usage guide
-- [`examples/10_multimodal.ae`](examples/10_multimodal.ae): Multimodal AI workflows
-- [`examples/11_agent_swarm.ae`](examples/11_agent_swarm.ae): Advanced swarm coordination
+- [`examples/09_tui_multimodal.ae`](examples/09_tui_multimodal.ae): TUI multimodal guide
+- [`examples/10_tui_agent_swarm.ae`](examples/10_tui_agent_swarm.ae): TUI agent swarm workflows
+- [`examples/11_tui_showcase.ae`](examples/11_tui_showcase.ae): TUI showcase
 - [`examples/12_syntax_kb.ae`](examples/12_syntax_kb.ae): Syntax Knowledge Base and AgenticBinary protocol
 - [`examples/13_agent_coordination.ae`](examples/13_agent_coordination.ae): Real-world multi-agent task distribution
 
@@ -1118,8 +1118,8 @@ export OPENAI_API_KEY="sk-..."  # Insecure!
 
 ### Security Documentation
 
-- **[Security Audit](docs/SECURITY_AUDIT_RED_TEAM.md)**: Comprehensive red team assessment
-- **[Security Fixes](docs/SECURITY_FIXES_IMPLEMENTED.md)**: Implemented mitigations and status
+- **[Security Audit](docs/security/SECURITY_AUDIT_RED_TEAM.md)**: Comprehensive red team assessment
+- **[Security Fixes](docs/security/SECURITY_FIXES_IMPLEMENTED.md)**: Implemented mitigations and status
 - **[Memory Sanitization](docs/MEMORY_SANITIZATION_HIGH-002.md)**: API key protection details
 
 **Security Status**: 40% risk reduction achieved (6.8/10 → 4.1/10)
