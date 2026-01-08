@@ -57,7 +57,7 @@ AetherShell is the **ONLY shell in the world** that combines:
    - *Multi-agent swarm orchestration coming soon!*
 
 2. **AI Communication Protocols** 💬
-   - **MCP**: Model Context Protocol for standardized tool integration
+   - **MCP**: Model Context Protocol with 130+ tools across 27 categories
    - **A2A**: Agent-to-Agent messaging framework
    - **NANDA**: Negotiation And Dynamic Agents for consensus
    - **AgenticBinary**: Binary protocol for information density
@@ -247,6 +247,51 @@ ai("Compare these diagrams", {images: ["diagram1.png", "diagram2.png"]})
 >
 > The full swarm syntax for coordinating multiple agents with different models
 > is under active development. Current agent functionality uses single-agent mode.
+
+### 🔧 **MCP Tool Use (Model Context Protocol)**
+
+**Access 130+ tools via the built-in MCP server:**
+
+```ae
+# List all available MCP tools
+let tools = mcp_tools()
+print(len(tools))  # => 130
+
+# Search for specific tools
+let git_tools = mcp_tools({search: "git"})
+# => [{name: "git", description: "Distributed version control", ...}, ...]
+
+# Filter by category
+let dev_tools = mcp_tools({category: "development"})
+let ml_tools = mcp_tools({category: "machinelearning"})
+let k8s_tools = mcp_tools({category: "kubernetes"})
+
+# Execute tools via MCP protocol
+let result = mcp_call("git", {command: "status"})
+print(result.content)  # Git status output
+
+let files = mcp_call("curl", {url: "https://api.github.com"})
+print(files.is_error)  # false on success
+
+# Get MCP server information
+let server = mcp_server()
+print(server.tool_count)       # 130
+print(server.protocol_version) # "2024-11-05"
+
+# List available resources and prompts
+let resources = mcp_resources()  # tools, categories, system-info
+let prompts = mcp_prompts()      # find-tool, explain-tool
+```
+
+**Tool Categories (27 total):**
+- **Development**: git, cargo, npm, go, rustc, make, gradle, maven
+- **Containers**: docker, kubectl, helm, k9s, minikube, kind
+- **MachineLearning**: ollama, huggingface-cli, tensorboard, wandb, mlflow
+- **Cloud**: aws, az, gcloud, gsutil, terraform, packer
+- **Security**: openssl, gpg, ssh, vault, sops, age
+- **Data**: jq, yq, duckdb, sqlite3, pgcli, redis-cli
+- **Media**: ffmpeg, imagemagick, yt-dlp, pandoc, sox
+- **And more**: FileSystem, NetworkTools, Archives, Monitoring...
 
 ### 🔧 **Local MCP Servers (Safe Tool Access)**
 
@@ -968,9 +1013,10 @@ print("Result: ${result}")
 
 ### OS Tools Integration
 
-- **Cross-platform database**: 25+ native OS tools (Linux/Windows/macOS)
-- **Safety levels**: Safe, Moderate, RequiresAdmin classification
-- **Command recommendations**: AI-powered tool suggestions
+- **Cross-platform database**: 200+ native OS tools (Linux/Windows/macOS)
+- **27 categories**: Development, Containers, ML, Cloud, Security, Data, Media, etc.
+- **Safety levels**: Safe, Caution, Dangerous, Critical classification
+- **MCP protocol**: Standardized tool discovery and execution
 - **Platform filtering**: OS-specific tool availability
 
 ---
@@ -986,12 +1032,13 @@ print("Result: ${result}")
 
 ### Test Coverage
 
-- **450+ tests**: Comprehensive test suite
-- **Unit tests**: Individual component validation
+- **140+ tests**: Comprehensive test suite
+- **Unit tests**: 90 library tests for core functionality
+- **MCP tests**: 40 tests for tool use and protocol compliance
 - **Integration tests**: End-to-end workflow testing
 - **TUI tests**: Interactive interface validation
 - **AI tests**: Multimodal backend testing
-- **OS Tools tests**: Cross-platform command database validation
+- **OS Tools tests**: 13 tests for cross-platform command database
 - **Neural/Evolution tests**: ML primitive validation
 
 ---

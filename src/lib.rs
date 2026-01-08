@@ -6,6 +6,7 @@ pub mod builtins;
 pub mod env;
 pub mod eval;
 pub mod evolution;
+pub mod mcp; // Model Context Protocol server/client for AI tool access
 pub mod neural;
 pub mod os_tools;
 pub mod parser;
