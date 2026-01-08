@@ -12,6 +12,7 @@ enum Tok {
     RBrace,
     Comma,
     Colon,
+    ColonEqual, // := walrus operator
     Dot,
     Pipe,
     Equal,
@@ -157,7 +158,12 @@ fn lex(src: &str) -> Result<Vec<Spanned>> {
             }
             ':' => {
                 it.next();
-                push_tok(&mut out, Tok::Colon, ":");
+                if it.peek() == Some(&'=') {
+                    it.next();
+                    push_tok(&mut out, Tok::ColonEqual, ":=");
+                } else {
+                    push_tok(&mut out, Tok::Colon, ":");
+                }
             }
             '.' => {
                 it.next();
@@ -375,10 +381,13 @@ impl Parser {
         // Check for `mut name = value` (mutable without let)
         if self.check(Tok::Mut) && self.peek_ahead(1) == Some(Tok::Ident) {
             let peek2 = self.peek_ahead(2);
-            if peek2 == Some(Tok::Equal) {
+            if peek2 == Some(Tok::Equal) || peek2 == Some(Tok::ColonEqual) {
                 self.match_tok(Tok::Mut); // consume 'mut'
                 let name = self.need_ident("expected identifier after mut")?;
-                self.need(Tok::Equal, "expected '='")?;
+                // Accept either = or :=
+                if !self.match_tok(Tok::Equal) {
+                    self.need(Tok::ColonEqual, "expected '=' or ':='")?;
+                }
                 let value = self.parse_expr()?;
                 return Ok(Stmt::Let {
                     name,
@@ -388,24 +397,35 @@ impl Parser {
             }
         }
 
-        // Check for `name = value` (simple assignment with type inference)
-        if self.check(Tok::Ident) && self.peek_ahead(1) == Some(Tok::Equal) {
-            let name = self.need_ident("expected identifier")?;
-            self.need(Tok::Equal, "expected '='")?;
-            let value = self.parse_expr()?;
-            Ok(Stmt::Let {
-                name,
-                value,
-                is_mut: false,
-            })
-        } else if self.match_tok(Tok::Let) {
+        // Check for `name = value` or `name := value` (simple assignment with type inference)
+        if self.check(Tok::Ident) {
+            let peek1 = self.peek_ahead(1);
+            if peek1 == Some(Tok::Equal) || peek1 == Some(Tok::ColonEqual) {
+                let name = self.need_ident("expected identifier")?;
+                // Accept either = or :=
+                if !self.match_tok(Tok::Equal) {
+                    self.need(Tok::ColonEqual, "expected '=' or ':='")?;
+                }
+                let value = self.parse_expr()?;
+                return Ok(Stmt::Let {
+                    name,
+                    value,
+                    is_mut: false,
+                });
+            }
+        }
+
+        if self.match_tok(Tok::Let) {
             // Keep let/let mut for explicit declarations
             let is_mut = self.match_tok(Tok::Mut);
             let name = self.need_ident("expected identifier after let")?;
             if self.match_tok(Tok::Colon) {
                 let _ = self.need_ident("expected type after ':'")?;
             }
-            self.need(Tok::Equal, "expected '=' in let")?;
+            // Accept either = or :=
+            if !self.match_tok(Tok::Equal) {
+                self.need(Tok::ColonEqual, "expected '=' or ':=' in let")?;
+            }
             let value = self.parse_expr()?;
             Ok(Stmt::Let {
                 name,
