@@ -118,6 +118,17 @@ pub enum ToolCategory {
     Reconnaissance, // Information gathering, OSINT
     Forensics,      // Memory analysis, disk forensics
     Cryptography,   // Encryption, hashing, certificates
+    // Cloud & DevOps categories
+    CloudAWS,       // AWS CLI tools
+    CloudAzure,     // Azure CLI tools
+    CloudGCP,       // Google Cloud tools
+    Kubernetes,     // Kubernetes management
+    Containers,     // Docker, Podman
+    Infrastructure, // Terraform, Ansible, Pulumi
+    // Data & Analytics categories
+    Database,        // Database clients and tools
+    DataProcessing,  // ETL, data transformation
+    MachineLearning, // ML tools and frameworks
 }
 
 /// Cross-platform command mapping for seamless OS translation
@@ -358,6 +369,14 @@ impl OSToolsDatabase {
         db.populate_network_tools();
         db.populate_web_tools();
         db.populate_cyber_tools();
+        db.populate_cloud_tools();
+        db.populate_container_tools();
+        db.populate_data_tools();
+        db.populate_sysadmin_tools();
+        db.populate_security_tools();
+        db.populate_ai_tools();
+        db.populate_media_tools();
+        db.populate_api_tools();
         db.build_indices();
         db
     }
@@ -2681,6 +2700,5359 @@ impl OSToolsDatabase {
                 name: "file".to_string(),
                 description: "File to hash".to_string(),
                 param_type: ParameterType::Path,
+                required: true,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+    }
+
+    /// Populate cloud provider tools (AWS, Azure, GCP)
+    fn populate_cloud_tools(&mut self) {
+        // ==================== AWS Tools ====================
+        self.add_tool(OSTool {
+            name: "aws".to_string(),
+            description: "Amazon Web Services CLI - manage AWS resources".to_string(),
+            category: ToolCategory::CloudAWS,
+            command: "aws".to_string(),
+            common_args: vec![
+                "s3".to_string(),
+                "ec2".to_string(),
+                "lambda".to_string(),
+                "iam".to_string(),
+            ],
+            examples: vec![
+                ToolExample {
+                    description: "List S3 buckets".to_string(),
+                    command: "aws s3 ls".to_string(),
+                    expected_output: None,
+                },
+                ToolExample {
+                    description: "Describe EC2 instances".to_string(),
+                    command: "aws ec2 describe-instances".to_string(),
+                    expected_output: None,
+                },
+            ],
+            safety_level: SafetyLevel::Caution,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![
+                ToolParameter {
+                    name: "service".to_string(),
+                    description: "AWS service (s3, ec2, lambda, etc.)".to_string(),
+                    param_type: ParameterType::String,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![
+                        "s3".to_string(),
+                        "ec2".to_string(),
+                        "lambda".to_string(),
+                        "iam".to_string(),
+                        "rds".to_string(),
+                        "ecs".to_string(),
+                        "eks".to_string(),
+                        "dynamodb".to_string(),
+                        "sqs".to_string(),
+                    ],
+                },
+                ToolParameter {
+                    name: "command".to_string(),
+                    description: "Service command".to_string(),
+                    param_type: ParameterType::String,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+                ToolParameter {
+                    name: "region".to_string(),
+                    description: "AWS region".to_string(),
+                    param_type: ParameterType::String,
+                    required: false,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+            ],
+        });
+
+        // ==================== Azure Tools ====================
+        self.add_tool(OSTool {
+            name: "az".to_string(),
+            description: "Azure CLI - manage Azure resources".to_string(),
+            category: ToolCategory::CloudAzure,
+            command: "az".to_string(),
+            common_args: vec!["vm".to_string(), "storage".to_string(), "aks".to_string()],
+            examples: vec![
+                ToolExample {
+                    description: "List resource groups".to_string(),
+                    command: "az group list".to_string(),
+                    expected_output: None,
+                },
+                ToolExample {
+                    description: "List VMs".to_string(),
+                    command: "az vm list".to_string(),
+                    expected_output: None,
+                },
+            ],
+            safety_level: SafetyLevel::Caution,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![
+                ToolParameter {
+                    name: "group".to_string(),
+                    description: "Command group (vm, storage, aks, etc.)".to_string(),
+                    param_type: ParameterType::String,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![
+                        "vm".to_string(),
+                        "storage".to_string(),
+                        "aks".to_string(),
+                        "acr".to_string(),
+                        "network".to_string(),
+                        "group".to_string(),
+                        "webapp".to_string(),
+                        "sql".to_string(),
+                        "keyvault".to_string(),
+                    ],
+                },
+                ToolParameter {
+                    name: "command".to_string(),
+                    description: "Command within group".to_string(),
+                    param_type: ParameterType::String,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+            ],
+        });
+
+        // ==================== Google Cloud Tools ====================
+        self.add_tool(OSTool {
+            name: "gcloud".to_string(),
+            description: "Google Cloud CLI - manage GCP resources".to_string(),
+            category: ToolCategory::CloudGCP,
+            command: "gcloud".to_string(),
+            common_args: vec![
+                "compute".to_string(),
+                "storage".to_string(),
+                "container".to_string(),
+            ],
+            examples: vec![
+                ToolExample {
+                    description: "List compute instances".to_string(),
+                    command: "gcloud compute instances list".to_string(),
+                    expected_output: None,
+                },
+                ToolExample {
+                    description: "List GKE clusters".to_string(),
+                    command: "gcloud container clusters list".to_string(),
+                    expected_output: None,
+                },
+            ],
+            safety_level: SafetyLevel::Caution,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![
+                ToolParameter {
+                    name: "group".to_string(),
+                    description: "Command group".to_string(),
+                    param_type: ParameterType::String,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![
+                        "compute".to_string(),
+                        "storage".to_string(),
+                        "container".to_string(),
+                        "run".to_string(),
+                        "functions".to_string(),
+                        "sql".to_string(),
+                        "pubsub".to_string(),
+                        "iam".to_string(),
+                    ],
+                },
+                ToolParameter {
+                    name: "command".to_string(),
+                    description: "Command".to_string(),
+                    param_type: ParameterType::String,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+            ],
+        });
+
+        self.add_tool(OSTool {
+            name: "gsutil".to_string(),
+            description: "Google Cloud Storage utility".to_string(),
+            category: ToolCategory::CloudGCP,
+            command: "gsutil".to_string(),
+            common_args: vec![
+                "ls".to_string(),
+                "cp".to_string(),
+                "mb".to_string(),
+                "rb".to_string(),
+            ],
+            examples: vec![
+                ToolExample {
+                    description: "List buckets".to_string(),
+                    command: "gsutil ls".to_string(),
+                    expected_output: None,
+                },
+                ToolExample {
+                    description: "Copy file to bucket".to_string(),
+                    command: "gsutil cp file.txt gs://bucket/".to_string(),
+                    expected_output: None,
+                },
+            ],
+            safety_level: SafetyLevel::Caution,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![
+                ToolParameter {
+                    name: "command".to_string(),
+                    description: "gsutil command".to_string(),
+                    param_type: ParameterType::String,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![
+                        "ls".to_string(),
+                        "cp".to_string(),
+                        "mv".to_string(),
+                        "rm".to_string(),
+                        "mb".to_string(),
+                    ],
+                },
+                ToolParameter {
+                    name: "source".to_string(),
+                    description: "Source path or URI".to_string(),
+                    param_type: ParameterType::String,
+                    required: false,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+                ToolParameter {
+                    name: "destination".to_string(),
+                    description: "Destination path or URI".to_string(),
+                    param_type: ParameterType::String,
+                    required: false,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+            ],
+        });
+
+        // ==================== Infrastructure as Code ====================
+        self.add_tool(OSTool {
+            name: "terraform".to_string(),
+            description: "Infrastructure as Code tool".to_string(),
+            category: ToolCategory::Infrastructure,
+            command: "terraform".to_string(),
+            common_args: vec![
+                "init".to_string(),
+                "plan".to_string(),
+                "apply".to_string(),
+                "destroy".to_string(),
+            ],
+            examples: vec![
+                ToolExample {
+                    description: "Initialize Terraform".to_string(),
+                    command: "terraform init".to_string(),
+                    expected_output: None,
+                },
+                ToolExample {
+                    description: "Plan infrastructure changes".to_string(),
+                    command: "terraform plan".to_string(),
+                    expected_output: None,
+                },
+            ],
+            safety_level: SafetyLevel::Dangerous,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![
+                ToolParameter {
+                    name: "command".to_string(),
+                    description: "Terraform command".to_string(),
+                    param_type: ParameterType::String,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![
+                        "init".to_string(),
+                        "plan".to_string(),
+                        "apply".to_string(),
+                        "destroy".to_string(),
+                        "validate".to_string(),
+                        "fmt".to_string(),
+                        "output".to_string(),
+                        "state".to_string(),
+                    ],
+                },
+                ToolParameter {
+                    name: "auto_approve".to_string(),
+                    description: "Skip interactive approval".to_string(),
+                    param_type: ParameterType::Boolean,
+                    required: false,
+                    default_value: Some("false".to_string()),
+                    enum_values: vec![],
+                },
+            ],
+        });
+
+        self.add_tool(OSTool {
+            name: "ansible".to_string(),
+            description: "IT automation and configuration management".to_string(),
+            category: ToolCategory::Infrastructure,
+            command: "ansible".to_string(),
+            common_args: vec!["-i".to_string(), "-m".to_string(), "-a".to_string()],
+            examples: vec![ToolExample {
+                description: "Ping all hosts".to_string(),
+                command: "ansible all -m ping".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Dangerous,
+            requires_admin: false,
+            supported_os: vec![OperatingSystem::Linux, OperatingSystem::MacOS],
+            cross_platform: None,
+            parameters: vec![
+                ToolParameter {
+                    name: "pattern".to_string(),
+                    description: "Host pattern".to_string(),
+                    param_type: ParameterType::String,
+                    required: true,
+                    default_value: Some("all".to_string()),
+                    enum_values: vec![],
+                },
+                ToolParameter {
+                    name: "module".to_string(),
+                    description: "Ansible module".to_string(),
+                    param_type: ParameterType::String,
+                    required: false,
+                    default_value: None,
+                    enum_values: vec![
+                        "ping".to_string(),
+                        "shell".to_string(),
+                        "copy".to_string(),
+                        "file".to_string(),
+                    ],
+                },
+            ],
+        });
+
+        self.add_tool(OSTool {
+            name: "ansible-playbook".to_string(),
+            description: "Run Ansible playbooks".to_string(),
+            category: ToolCategory::Infrastructure,
+            command: "ansible-playbook".to_string(),
+            common_args: vec!["-i".to_string(), "-e".to_string(), "--check".to_string()],
+            examples: vec![ToolExample {
+                description: "Run playbook".to_string(),
+                command: "ansible-playbook site.yml".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Dangerous,
+            requires_admin: false,
+            supported_os: vec![OperatingSystem::Linux, OperatingSystem::MacOS],
+            cross_platform: None,
+            parameters: vec![
+                ToolParameter {
+                    name: "playbook".to_string(),
+                    description: "Playbook file".to_string(),
+                    param_type: ParameterType::Path,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+                ToolParameter {
+                    name: "inventory".to_string(),
+                    description: "Inventory file".to_string(),
+                    param_type: ParameterType::Path,
+                    required: false,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+            ],
+        });
+
+        self.add_tool(OSTool {
+            name: "pulumi".to_string(),
+            description: "Infrastructure as Code using real programming languages".to_string(),
+            category: ToolCategory::Infrastructure,
+            command: "pulumi".to_string(),
+            common_args: vec![
+                "up".to_string(),
+                "preview".to_string(),
+                "destroy".to_string(),
+            ],
+            examples: vec![ToolExample {
+                description: "Preview changes".to_string(),
+                command: "pulumi preview".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Dangerous,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "command".to_string(),
+                description: "Pulumi command".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![
+                    "up".to_string(),
+                    "preview".to_string(),
+                    "destroy".to_string(),
+                    "stack".to_string(),
+                ],
+            }],
+        });
+    }
+
+    /// Populate container and orchestration tools
+    fn populate_container_tools(&mut self) {
+        // ==================== Docker ====================
+        self.add_tool(OSTool {
+            name: "docker".to_string(),
+            description: "Container runtime and management".to_string(),
+            category: ToolCategory::Containers,
+            command: "docker".to_string(),
+            common_args: vec![
+                "run".to_string(),
+                "build".to_string(),
+                "ps".to_string(),
+                "images".to_string(),
+            ],
+            examples: vec![
+                ToolExample {
+                    description: "List running containers".to_string(),
+                    command: "docker ps".to_string(),
+                    expected_output: None,
+                },
+                ToolExample {
+                    description: "Build image".to_string(),
+                    command: "docker build -t myapp .".to_string(),
+                    expected_output: None,
+                },
+            ],
+            safety_level: SafetyLevel::Caution,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![
+                ToolParameter {
+                    name: "command".to_string(),
+                    description: "Docker command".to_string(),
+                    param_type: ParameterType::String,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![
+                        "run".to_string(),
+                        "build".to_string(),
+                        "ps".to_string(),
+                        "images".to_string(),
+                        "pull".to_string(),
+                        "push".to_string(),
+                        "exec".to_string(),
+                        "logs".to_string(),
+                        "stop".to_string(),
+                        "rm".to_string(),
+                        "rmi".to_string(),
+                        "network".to_string(),
+                        "volume".to_string(),
+                        "compose".to_string(),
+                    ],
+                },
+                ToolParameter {
+                    name: "image".to_string(),
+                    description: "Image name".to_string(),
+                    param_type: ParameterType::String,
+                    required: false,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+            ],
+        });
+
+        self.add_tool(OSTool {
+            name: "docker-compose".to_string(),
+            description: "Multi-container Docker applications".to_string(),
+            category: ToolCategory::Containers,
+            command: "docker-compose".to_string(),
+            common_args: vec![
+                "up".to_string(),
+                "down".to_string(),
+                "build".to_string(),
+                "logs".to_string(),
+            ],
+            examples: vec![ToolExample {
+                description: "Start services".to_string(),
+                command: "docker-compose up -d".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Caution,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![
+                ToolParameter {
+                    name: "command".to_string(),
+                    description: "Compose command".to_string(),
+                    param_type: ParameterType::String,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![
+                        "up".to_string(),
+                        "down".to_string(),
+                        "build".to_string(),
+                        "logs".to_string(),
+                        "ps".to_string(),
+                    ],
+                },
+                ToolParameter {
+                    name: "detach".to_string(),
+                    description: "Run in background".to_string(),
+                    param_type: ParameterType::Boolean,
+                    required: false,
+                    default_value: Some("false".to_string()),
+                    enum_values: vec![],
+                },
+            ],
+        });
+
+        self.add_tool(OSTool {
+            name: "podman".to_string(),
+            description: "Daemonless container engine".to_string(),
+            category: ToolCategory::Containers,
+            command: "podman".to_string(),
+            common_args: vec!["run".to_string(), "build".to_string(), "ps".to_string()],
+            examples: vec![ToolExample {
+                description: "Run container".to_string(),
+                command: "podman run -it alpine".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Caution,
+            requires_admin: false,
+            supported_os: vec![OperatingSystem::Linux, OperatingSystem::MacOS],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "command".to_string(),
+                description: "Podman command".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![
+                    "run".to_string(),
+                    "build".to_string(),
+                    "ps".to_string(),
+                    "images".to_string(),
+                ],
+            }],
+        });
+
+        // ==================== Kubernetes ====================
+        self.add_tool(OSTool {
+            name: "kubectl".to_string(),
+            description: "Kubernetes CLI".to_string(),
+            category: ToolCategory::Kubernetes,
+            command: "kubectl".to_string(),
+            common_args: vec![
+                "get".to_string(),
+                "apply".to_string(),
+                "delete".to_string(),
+                "describe".to_string(),
+            ],
+            examples: vec![
+                ToolExample {
+                    description: "List pods".to_string(),
+                    command: "kubectl get pods".to_string(),
+                    expected_output: None,
+                },
+                ToolExample {
+                    description: "Apply manifest".to_string(),
+                    command: "kubectl apply -f deployment.yaml".to_string(),
+                    expected_output: None,
+                },
+            ],
+            safety_level: SafetyLevel::Caution,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![
+                ToolParameter {
+                    name: "command".to_string(),
+                    description: "kubectl command".to_string(),
+                    param_type: ParameterType::String,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![
+                        "get".to_string(),
+                        "apply".to_string(),
+                        "delete".to_string(),
+                        "describe".to_string(),
+                        "logs".to_string(),
+                        "exec".to_string(),
+                        "port-forward".to_string(),
+                        "scale".to_string(),
+                    ],
+                },
+                ToolParameter {
+                    name: "resource".to_string(),
+                    description: "Resource type".to_string(),
+                    param_type: ParameterType::String,
+                    required: false,
+                    default_value: None,
+                    enum_values: vec![
+                        "pods".to_string(),
+                        "services".to_string(),
+                        "deployments".to_string(),
+                        "configmaps".to_string(),
+                        "secrets".to_string(),
+                        "nodes".to_string(),
+                    ],
+                },
+                ToolParameter {
+                    name: "namespace".to_string(),
+                    description: "Kubernetes namespace".to_string(),
+                    param_type: ParameterType::String,
+                    required: false,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+            ],
+        });
+
+        self.add_tool(OSTool {
+            name: "helm".to_string(),
+            description: "Kubernetes package manager".to_string(),
+            category: ToolCategory::Kubernetes,
+            command: "helm".to_string(),
+            common_args: vec![
+                "install".to_string(),
+                "upgrade".to_string(),
+                "list".to_string(),
+            ],
+            examples: vec![
+                ToolExample {
+                    description: "Install chart".to_string(),
+                    command: "helm install myapp ./chart".to_string(),
+                    expected_output: None,
+                },
+                ToolExample {
+                    description: "List releases".to_string(),
+                    command: "helm list".to_string(),
+                    expected_output: None,
+                },
+            ],
+            safety_level: SafetyLevel::Caution,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![
+                ToolParameter {
+                    name: "command".to_string(),
+                    description: "Helm command".to_string(),
+                    param_type: ParameterType::String,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![
+                        "install".to_string(),
+                        "upgrade".to_string(),
+                        "uninstall".to_string(),
+                        "list".to_string(),
+                        "repo".to_string(),
+                        "search".to_string(),
+                    ],
+                },
+                ToolParameter {
+                    name: "release".to_string(),
+                    description: "Release name".to_string(),
+                    param_type: ParameterType::String,
+                    required: false,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+            ],
+        });
+
+        self.add_tool(OSTool {
+            name: "k9s".to_string(),
+            description: "Kubernetes TUI".to_string(),
+            category: ToolCategory::Kubernetes,
+            command: "k9s".to_string(),
+            common_args: vec!["--namespace".to_string(), "--context".to_string()],
+            examples: vec![ToolExample {
+                description: "Launch k9s".to_string(),
+                command: "k9s".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "namespace".to_string(),
+                description: "Starting namespace".to_string(),
+                param_type: ParameterType::String,
+                required: false,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "minikube".to_string(),
+            description: "Local Kubernetes cluster".to_string(),
+            category: ToolCategory::Kubernetes,
+            command: "minikube".to_string(),
+            common_args: vec![
+                "start".to_string(),
+                "stop".to_string(),
+                "status".to_string(),
+            ],
+            examples: vec![ToolExample {
+                description: "Start cluster".to_string(),
+                command: "minikube start".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Caution,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "command".to_string(),
+                description: "Minikube command".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![
+                    "start".to_string(),
+                    "stop".to_string(),
+                    "delete".to_string(),
+                    "status".to_string(),
+                ],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "kind".to_string(),
+            description: "Kubernetes in Docker".to_string(),
+            category: ToolCategory::Kubernetes,
+            command: "kind".to_string(),
+            common_args: vec![
+                "create".to_string(),
+                "delete".to_string(),
+                "get".to_string(),
+            ],
+            examples: vec![ToolExample {
+                description: "Create cluster".to_string(),
+                command: "kind create cluster".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Caution,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "command".to_string(),
+                description: "kind command".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![
+                    "create".to_string(),
+                    "delete".to_string(),
+                    "get".to_string(),
+                    "load".to_string(),
+                ],
+            }],
+        });
+    }
+
+    /// Populate database and data tools
+    fn populate_data_tools(&mut self) {
+        // ==================== Database Tools ====================
+        self.add_tool(OSTool {
+            name: "psql".to_string(),
+            description: "PostgreSQL interactive terminal".to_string(),
+            category: ToolCategory::Database,
+            command: "psql".to_string(),
+            common_args: vec!["-h".to_string(), "-U".to_string(), "-d".to_string()],
+            examples: vec![ToolExample {
+                description: "Connect to database".to_string(),
+                command: "psql -h localhost -U postgres -d mydb".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Caution,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![
+                ToolParameter {
+                    name: "host".to_string(),
+                    description: "Database host".to_string(),
+                    param_type: ParameterType::String,
+                    required: false,
+                    default_value: Some("localhost".to_string()),
+                    enum_values: vec![],
+                },
+                ToolParameter {
+                    name: "user".to_string(),
+                    description: "Database user".to_string(),
+                    param_type: ParameterType::String,
+                    required: false,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+                ToolParameter {
+                    name: "database".to_string(),
+                    description: "Database name".to_string(),
+                    param_type: ParameterType::String,
+                    required: false,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+                ToolParameter {
+                    name: "command".to_string(),
+                    description: "SQL command to execute".to_string(),
+                    param_type: ParameterType::String,
+                    required: false,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+            ],
+        });
+
+        self.add_tool(OSTool {
+            name: "mysql".to_string(),
+            description: "MySQL command-line client".to_string(),
+            category: ToolCategory::Database,
+            command: "mysql".to_string(),
+            common_args: vec!["-h".to_string(), "-u".to_string(), "-p".to_string()],
+            examples: vec![ToolExample {
+                description: "Connect to MySQL".to_string(),
+                command: "mysql -h localhost -u root -p".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Caution,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![
+                ToolParameter {
+                    name: "host".to_string(),
+                    description: "Database host".to_string(),
+                    param_type: ParameterType::String,
+                    required: false,
+                    default_value: Some("localhost".to_string()),
+                    enum_values: vec![],
+                },
+                ToolParameter {
+                    name: "user".to_string(),
+                    description: "Database user".to_string(),
+                    param_type: ParameterType::String,
+                    required: false,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+                ToolParameter {
+                    name: "database".to_string(),
+                    description: "Database name".to_string(),
+                    param_type: ParameterType::String,
+                    required: false,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+            ],
+        });
+
+        self.add_tool(OSTool {
+            name: "mongosh".to_string(),
+            description: "MongoDB Shell".to_string(),
+            category: ToolCategory::Database,
+            command: "mongosh".to_string(),
+            common_args: vec!["--host".to_string(), "--port".to_string()],
+            examples: vec![ToolExample {
+                description: "Connect to MongoDB".to_string(),
+                command: "mongosh mongodb://localhost:27017/mydb".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Caution,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "uri".to_string(),
+                description: "MongoDB connection URI".to_string(),
+                param_type: ParameterType::String,
+                required: false,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "redis-cli".to_string(),
+            description: "Redis command-line interface".to_string(),
+            category: ToolCategory::Database,
+            command: "redis-cli".to_string(),
+            common_args: vec!["-h".to_string(), "-p".to_string(), "-a".to_string()],
+            examples: vec![ToolExample {
+                description: "Connect to Redis".to_string(),
+                command: "redis-cli -h localhost -p 6379".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Caution,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![
+                ToolParameter {
+                    name: "host".to_string(),
+                    description: "Redis host".to_string(),
+                    param_type: ParameterType::String,
+                    required: false,
+                    default_value: Some("localhost".to_string()),
+                    enum_values: vec![],
+                },
+                ToolParameter {
+                    name: "port".to_string(),
+                    description: "Redis port".to_string(),
+                    param_type: ParameterType::Port,
+                    required: false,
+                    default_value: Some("6379".to_string()),
+                    enum_values: vec![],
+                },
+                ToolParameter {
+                    name: "command".to_string(),
+                    description: "Redis command".to_string(),
+                    param_type: ParameterType::String,
+                    required: false,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+            ],
+        });
+
+        self.add_tool(OSTool {
+            name: "sqlite3".to_string(),
+            description: "SQLite command-line shell".to_string(),
+            category: ToolCategory::Database,
+            command: "sqlite3".to_string(),
+            common_args: vec!["-column".to_string(), "-header".to_string()],
+            examples: vec![ToolExample {
+                description: "Open database".to_string(),
+                command: "sqlite3 mydb.db".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Caution,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "database".to_string(),
+                description: "Database file path".to_string(),
+                param_type: ParameterType::Path,
+                required: true,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        // ==================== Data Processing Tools ====================
+        self.add_tool(OSTool {
+            name: "csvtool".to_string(),
+            description: "CSV file manipulation".to_string(),
+            category: ToolCategory::DataProcessing,
+            command: "csvtool".to_string(),
+            common_args: vec!["col".to_string(), "head".to_string(), "join".to_string()],
+            examples: vec![ToolExample {
+                description: "Extract columns".to_string(),
+                command: "csvtool col 1,3 data.csv".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![OperatingSystem::Linux, OperatingSystem::MacOS],
+            cross_platform: None,
+            parameters: vec![
+                ToolParameter {
+                    name: "command".to_string(),
+                    description: "csvtool command".to_string(),
+                    param_type: ParameterType::String,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![
+                        "col".to_string(),
+                        "head".to_string(),
+                        "join".to_string(),
+                        "cat".to_string(),
+                    ],
+                },
+                ToolParameter {
+                    name: "file".to_string(),
+                    description: "CSV file".to_string(),
+                    param_type: ParameterType::Path,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+            ],
+        });
+
+        self.add_tool(OSTool {
+            name: "xsv".to_string(),
+            description: "Fast CSV toolkit".to_string(),
+            category: ToolCategory::DataProcessing,
+            command: "xsv".to_string(),
+            common_args: vec![
+                "select".to_string(),
+                "search".to_string(),
+                "stats".to_string(),
+            ],
+            examples: vec![ToolExample {
+                description: "Get statistics".to_string(),
+                command: "xsv stats data.csv".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![
+                ToolParameter {
+                    name: "command".to_string(),
+                    description: "xsv command".to_string(),
+                    param_type: ParameterType::String,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![
+                        "select".to_string(),
+                        "search".to_string(),
+                        "stats".to_string(),
+                        "sort".to_string(),
+                    ],
+                },
+                ToolParameter {
+                    name: "file".to_string(),
+                    description: "CSV file".to_string(),
+                    param_type: ParameterType::Path,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+            ],
+        });
+
+        self.add_tool(OSTool {
+            name: "mlr".to_string(),
+            description: "Miller - like awk for CSV/JSON".to_string(),
+            category: ToolCategory::DataProcessing,
+            command: "mlr".to_string(),
+            common_args: vec!["--csv".to_string(), "--json".to_string()],
+            examples: vec![ToolExample {
+                description: "Filter CSV".to_string(),
+                command: "mlr --csv filter '$age > 30' data.csv".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![
+                ToolParameter {
+                    name: "format".to_string(),
+                    description: "Input format".to_string(),
+                    param_type: ParameterType::String,
+                    required: false,
+                    default_value: Some("--csv".to_string()),
+                    enum_values: vec![
+                        "--csv".to_string(),
+                        "--json".to_string(),
+                        "--pprint".to_string(),
+                    ],
+                },
+                ToolParameter {
+                    name: "command".to_string(),
+                    description: "mlr command".to_string(),
+                    param_type: ParameterType::String,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+                ToolParameter {
+                    name: "file".to_string(),
+                    description: "Input file".to_string(),
+                    param_type: ParameterType::Path,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+            ],
+        });
+
+        // ==================== ML Tools ====================
+        self.add_tool(OSTool {
+            name: "python".to_string(),
+            description: "Python interpreter".to_string(),
+            category: ToolCategory::MachineLearning,
+            command: "python".to_string(),
+            common_args: vec!["-c".to_string(), "-m".to_string()],
+            examples: vec![ToolExample {
+                description: "Run script".to_string(),
+                command: "python script.py".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Caution,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: Some(CrossPlatformCommand {
+                canonical: "python".to_string(),
+                linux: Some("python3".to_string()),
+                bsd: Some("python3".to_string()),
+                macos: Some("python3".to_string()),
+                windows: Some("python".to_string()),
+                ios: Some("python3".to_string()),
+                android: Some("python".to_string()),
+                arg_mappings: HashMap::new(),
+            }),
+            parameters: vec![
+                ToolParameter {
+                    name: "script".to_string(),
+                    description: "Python script to run".to_string(),
+                    param_type: ParameterType::Path,
+                    required: false,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+                ToolParameter {
+                    name: "code".to_string(),
+                    description: "Python code to execute".to_string(),
+                    param_type: ParameterType::String,
+                    required: false,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+            ],
+        });
+
+        self.add_tool(OSTool {
+            name: "pip".to_string(),
+            description: "Python package installer".to_string(),
+            category: ToolCategory::MachineLearning,
+            command: "pip".to_string(),
+            common_args: vec![
+                "install".to_string(),
+                "list".to_string(),
+                "freeze".to_string(),
+            ],
+            examples: vec![ToolExample {
+                description: "Install package".to_string(),
+                command: "pip install numpy pandas".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Caution,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: Some(CrossPlatformCommand {
+                canonical: "pip".to_string(),
+                linux: Some("pip3".to_string()),
+                bsd: Some("pip3".to_string()),
+                macos: Some("pip3".to_string()),
+                windows: Some("pip".to_string()),
+                ios: Some("pip3".to_string()),
+                android: Some("pip".to_string()),
+                arg_mappings: HashMap::new(),
+            }),
+            parameters: vec![
+                ToolParameter {
+                    name: "command".to_string(),
+                    description: "pip command".to_string(),
+                    param_type: ParameterType::String,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![
+                        "install".to_string(),
+                        "uninstall".to_string(),
+                        "list".to_string(),
+                        "freeze".to_string(),
+                    ],
+                },
+                ToolParameter {
+                    name: "packages".to_string(),
+                    description: "Package names".to_string(),
+                    param_type: ParameterType::Array,
+                    required: false,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+            ],
+        });
+
+        self.add_tool(OSTool {
+            name: "jupyter".to_string(),
+            description: "Jupyter notebook server".to_string(),
+            category: ToolCategory::MachineLearning,
+            command: "jupyter".to_string(),
+            common_args: vec!["notebook".to_string(), "lab".to_string()],
+            examples: vec![ToolExample {
+                description: "Start Jupyter Lab".to_string(),
+                command: "jupyter lab".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "command".to_string(),
+                description: "Jupyter command".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: Some("lab".to_string()),
+                enum_values: vec![
+                    "notebook".to_string(),
+                    "lab".to_string(),
+                    "nbconvert".to_string(),
+                ],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "ollama".to_string(),
+            description: "Local LLM runner".to_string(),
+            category: ToolCategory::MachineLearning,
+            command: "ollama".to_string(),
+            common_args: vec!["run".to_string(), "pull".to_string(), "list".to_string()],
+            examples: vec![
+                ToolExample {
+                    description: "Run model".to_string(),
+                    command: "ollama run llama3".to_string(),
+                    expected_output: None,
+                },
+                ToolExample {
+                    description: "List models".to_string(),
+                    command: "ollama list".to_string(),
+                    expected_output: None,
+                },
+            ],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![
+                ToolParameter {
+                    name: "command".to_string(),
+                    description: "ollama command".to_string(),
+                    param_type: ParameterType::String,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![
+                        "run".to_string(),
+                        "pull".to_string(),
+                        "list".to_string(),
+                        "rm".to_string(),
+                        "serve".to_string(),
+                    ],
+                },
+                ToolParameter {
+                    name: "model".to_string(),
+                    description: "Model name".to_string(),
+                    param_type: ParameterType::String,
+                    required: false,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+            ],
+        });
+
+        self.add_tool(OSTool {
+            name: "conda".to_string(),
+            description: "Conda package and environment manager".to_string(),
+            category: ToolCategory::MachineLearning,
+            command: "conda".to_string(),
+            common_args: vec![
+                "create".to_string(),
+                "activate".to_string(),
+                "install".to_string(),
+            ],
+            examples: vec![ToolExample {
+                description: "Create environment".to_string(),
+                command: "conda create -n myenv python=3.11".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Caution,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![
+                ToolParameter {
+                    name: "command".to_string(),
+                    description: "conda command".to_string(),
+                    param_type: ParameterType::String,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![
+                        "create".to_string(),
+                        "activate".to_string(),
+                        "deactivate".to_string(),
+                        "install".to_string(),
+                        "list".to_string(),
+                        "env".to_string(),
+                    ],
+                },
+                ToolParameter {
+                    name: "name".to_string(),
+                    description: "Environment name".to_string(),
+                    param_type: ParameterType::String,
+                    required: false,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+            ],
+        });
+
+        // Additional ML/Data tools
+        self.add_tool(OSTool {
+            name: "dvc".to_string(),
+            description: "Data Version Control for ML experiments".to_string(),
+            category: ToolCategory::MachineLearning,
+            command: "dvc".to_string(),
+            common_args: vec![
+                "init".to_string(),
+                "add".to_string(),
+                "push".to_string(),
+                "pull".to_string(),
+            ],
+            examples: vec![ToolExample {
+                description: "Track data file".to_string(),
+                command: "dvc add data/dataset.csv".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "command".to_string(),
+                description: "DVC command".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![
+                    "init".to_string(),
+                    "add".to_string(),
+                    "push".to_string(),
+                    "pull".to_string(),
+                    "repro".to_string(),
+                ],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "mlflow".to_string(),
+            description: "MLflow experiment tracking and model registry".to_string(),
+            category: ToolCategory::MachineLearning,
+            command: "mlflow".to_string(),
+            common_args: vec!["ui".to_string(), "run".to_string(), "models".to_string()],
+            examples: vec![ToolExample {
+                description: "Start MLflow UI".to_string(),
+                command: "mlflow ui".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "command".to_string(),
+                description: "MLflow command".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![
+                    "ui".to_string(),
+                    "run".to_string(),
+                    "models".to_string(),
+                    "server".to_string(),
+                ],
+            }],
+        });
+    }
+
+    /// Additional system administration and DevOps tools
+    fn populate_sysadmin_tools(&mut self) {
+        // System monitoring tools
+        self.add_tool(OSTool {
+            name: "htop".to_string(),
+            description: "Interactive process viewer".to_string(),
+            category: ToolCategory::Monitoring,
+            command: "htop".to_string(),
+            common_args: vec![],
+            examples: vec![ToolExample {
+                description: "Start htop".to_string(),
+                command: "htop".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::BSD,
+            ],
+            cross_platform: None,
+            parameters: vec![],
+        });
+
+        self.add_tool(OSTool {
+            name: "btop".to_string(),
+            description: "Modern resource monitor".to_string(),
+            category: ToolCategory::Monitoring,
+            command: "btop".to_string(),
+            common_args: vec![],
+            examples: vec![ToolExample {
+                description: "Start btop".to_string(),
+                command: "btop".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![],
+        });
+
+        self.add_tool(OSTool {
+            name: "glances".to_string(),
+            description: "Cross-platform system monitoring tool".to_string(),
+            category: ToolCategory::Monitoring,
+            command: "glances".to_string(),
+            common_args: vec!["-w".to_string()],
+            examples: vec![ToolExample {
+                description: "Start web interface".to_string(),
+                command: "glances -w".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "mode".to_string(),
+                description: "Run mode".to_string(),
+                param_type: ParameterType::String,
+                required: false,
+                default_value: None,
+                enum_values: vec!["-w".to_string(), "-s".to_string(), "-c".to_string()],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "iotop".to_string(),
+            description: "I/O monitoring tool".to_string(),
+            category: ToolCategory::Monitoring,
+            command: "iotop".to_string(),
+            common_args: vec!["-o".to_string()],
+            examples: vec![ToolExample {
+                description: "Show only active I/O".to_string(),
+                command: "iotop -o".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: true,
+            supported_os: vec![OperatingSystem::Linux],
+            cross_platform: None,
+            parameters: vec![],
+        });
+
+        self.add_tool(OSTool {
+            name: "nethogs".to_string(),
+            description: "Network bandwidth monitoring per process".to_string(),
+            category: ToolCategory::Monitoring,
+            command: "nethogs".to_string(),
+            common_args: vec![],
+            examples: vec![ToolExample {
+                description: "Monitor network usage".to_string(),
+                command: "nethogs".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: true,
+            supported_os: vec![OperatingSystem::Linux],
+            cross_platform: None,
+            parameters: vec![],
+        });
+
+        // Disk tools
+        self.add_tool(OSTool {
+            name: "ncdu".to_string(),
+            description: "NCurses disk usage analyzer".to_string(),
+            category: ToolCategory::FileSystem,
+            command: "ncdu".to_string(),
+            common_args: vec![],
+            examples: vec![ToolExample {
+                description: "Analyze current directory".to_string(),
+                command: "ncdu .".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::BSD,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "path".to_string(),
+                description: "Directory to analyze".to_string(),
+                param_type: ParameterType::Path,
+                required: false,
+                default_value: Some(".".to_string()),
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "duf".to_string(),
+            description: "Modern disk usage/free utility".to_string(),
+            category: ToolCategory::FileSystem,
+            command: "duf".to_string(),
+            common_args: vec![],
+            examples: vec![ToolExample {
+                description: "Show disk usage".to_string(),
+                command: "duf".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![],
+        });
+
+        self.add_tool(OSTool {
+            name: "dust".to_string(),
+            description: "Modern du alternative".to_string(),
+            category: ToolCategory::FileSystem,
+            command: "dust".to_string(),
+            common_args: vec![],
+            examples: vec![ToolExample {
+                description: "Show directory sizes".to_string(),
+                command: "dust".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "path".to_string(),
+                description: "Directory to analyze".to_string(),
+                param_type: ParameterType::Path,
+                required: false,
+                default_value: Some(".".to_string()),
+                enum_values: vec![],
+            }],
+        });
+
+        // Modern CLI tools
+        self.add_tool(OSTool {
+            name: "bat".to_string(),
+            description: "Cat clone with syntax highlighting".to_string(),
+            category: ToolCategory::FileSystem,
+            command: "bat".to_string(),
+            common_args: vec!["--style=full".to_string()],
+            examples: vec![ToolExample {
+                description: "View file with highlighting".to_string(),
+                command: "bat file.rs".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "file".to_string(),
+                description: "File to display".to_string(),
+                param_type: ParameterType::Path,
+                required: true,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "exa".to_string(),
+            description: "Modern ls replacement".to_string(),
+            category: ToolCategory::FileSystem,
+            command: "exa".to_string(),
+            common_args: vec!["-la".to_string(), "--git".to_string()],
+            examples: vec![ToolExample {
+                description: "List with git status".to_string(),
+                command: "exa -la --git".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![OperatingSystem::Linux, OperatingSystem::MacOS],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "path".to_string(),
+                description: "Directory to list".to_string(),
+                param_type: ParameterType::Path,
+                required: false,
+                default_value: Some(".".to_string()),
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "eza".to_string(),
+            description: "Modern ls replacement (exa fork)".to_string(),
+            category: ToolCategory::FileSystem,
+            command: "eza".to_string(),
+            common_args: vec![
+                "-la".to_string(),
+                "--git".to_string(),
+                "--icons".to_string(),
+            ],
+            examples: vec![ToolExample {
+                description: "List with icons".to_string(),
+                command: "eza -la --icons".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "path".to_string(),
+                description: "Directory to list".to_string(),
+                param_type: ParameterType::Path,
+                required: false,
+                default_value: Some(".".to_string()),
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "fd".to_string(),
+            description: "Fast find alternative".to_string(),
+            category: ToolCategory::SearchTools,
+            command: "fd".to_string(),
+            common_args: vec![],
+            examples: vec![ToolExample {
+                description: "Find files".to_string(),
+                command: "fd '*.rs'".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![
+                ToolParameter {
+                    name: "pattern".to_string(),
+                    description: "Search pattern".to_string(),
+                    param_type: ParameterType::String,
+                    required: false,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+                ToolParameter {
+                    name: "path".to_string(),
+                    description: "Search path".to_string(),
+                    param_type: ParameterType::Path,
+                    required: false,
+                    default_value: Some(".".to_string()),
+                    enum_values: vec![],
+                },
+            ],
+        });
+
+        self.add_tool(OSTool {
+            name: "rg".to_string(),
+            description: "Ripgrep - fast recursive grep".to_string(),
+            category: ToolCategory::SearchTools,
+            command: "rg".to_string(),
+            common_args: vec!["--smart-case".to_string()],
+            examples: vec![ToolExample {
+                description: "Search in code".to_string(),
+                command: "rg 'function' --type rust".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![
+                ToolParameter {
+                    name: "pattern".to_string(),
+                    description: "Search pattern".to_string(),
+                    param_type: ParameterType::String,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+                ToolParameter {
+                    name: "path".to_string(),
+                    description: "Search path".to_string(),
+                    param_type: ParameterType::Path,
+                    required: false,
+                    default_value: Some(".".to_string()),
+                    enum_values: vec![],
+                },
+            ],
+        });
+
+        self.add_tool(OSTool {
+            name: "fzf".to_string(),
+            description: "Fuzzy finder".to_string(),
+            category: ToolCategory::SearchTools,
+            command: "fzf".to_string(),
+            common_args: vec!["--preview".to_string()],
+            examples: vec![ToolExample {
+                description: "Interactive file search".to_string(),
+                command: "fzf --preview 'cat {}'".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![],
+        });
+
+        self.add_tool(OSTool {
+            name: "ag".to_string(),
+            description: "The Silver Searcher".to_string(),
+            category: ToolCategory::SearchTools,
+            command: "ag".to_string(),
+            common_args: vec![],
+            examples: vec![ToolExample {
+                description: "Search pattern".to_string(),
+                command: "ag 'TODO'".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "pattern".to_string(),
+                description: "Search pattern".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        // JSON/YAML tools
+        self.add_tool(OSTool {
+            name: "jq".to_string(),
+            description: "JSON processor".to_string(),
+            category: ToolCategory::DataProcessing,
+            command: "jq".to_string(),
+            common_args: vec![".".to_string()],
+            examples: vec![ToolExample {
+                description: "Pretty print JSON".to_string(),
+                command: "cat data.json | jq '.'".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![
+                ToolParameter {
+                    name: "filter".to_string(),
+                    description: "jq filter expression".to_string(),
+                    param_type: ParameterType::String,
+                    required: false,
+                    default_value: Some(".".to_string()),
+                    enum_values: vec![],
+                },
+                ToolParameter {
+                    name: "file".to_string(),
+                    description: "JSON file".to_string(),
+                    param_type: ParameterType::Path,
+                    required: false,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+            ],
+        });
+
+        self.add_tool(OSTool {
+            name: "yq".to_string(),
+            description: "YAML processor".to_string(),
+            category: ToolCategory::DataProcessing,
+            command: "yq".to_string(),
+            common_args: vec![".".to_string()],
+            examples: vec![ToolExample {
+                description: "Read YAML".to_string(),
+                command: "yq '.key' file.yaml".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![
+                ToolParameter {
+                    name: "expression".to_string(),
+                    description: "yq expression".to_string(),
+                    param_type: ParameterType::String,
+                    required: false,
+                    default_value: Some(".".to_string()),
+                    enum_values: vec![],
+                },
+                ToolParameter {
+                    name: "file".to_string(),
+                    description: "YAML file".to_string(),
+                    param_type: ParameterType::Path,
+                    required: false,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+            ],
+        });
+
+        // Git tools
+        self.add_tool(OSTool {
+            name: "git".to_string(),
+            description: "Distributed version control".to_string(),
+            category: ToolCategory::Development,
+            command: "git".to_string(),
+            common_args: vec!["status".to_string(), "log".to_string(), "diff".to_string()],
+            examples: vec![
+                ToolExample {
+                    description: "Check status".to_string(),
+                    command: "git status".to_string(),
+                    expected_output: None,
+                },
+                ToolExample {
+                    description: "View log".to_string(),
+                    command: "git log --oneline -10".to_string(),
+                    expected_output: None,
+                },
+            ],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+                OperatingSystem::BSD,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "command".to_string(),
+                description: "Git command".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![
+                    "status".to_string(),
+                    "log".to_string(),
+                    "diff".to_string(),
+                    "add".to_string(),
+                    "commit".to_string(),
+                    "push".to_string(),
+                    "pull".to_string(),
+                    "branch".to_string(),
+                    "checkout".to_string(),
+                ],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "gh".to_string(),
+            description: "GitHub CLI".to_string(),
+            category: ToolCategory::Development,
+            command: "gh".to_string(),
+            common_args: vec!["pr".to_string(), "issue".to_string(), "repo".to_string()],
+            examples: vec![ToolExample {
+                description: "List PRs".to_string(),
+                command: "gh pr list".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "command".to_string(),
+                description: "gh command".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![
+                    "pr".to_string(),
+                    "issue".to_string(),
+                    "repo".to_string(),
+                    "workflow".to_string(),
+                    "release".to_string(),
+                ],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "lazygit".to_string(),
+            description: "Terminal UI for git".to_string(),
+            category: ToolCategory::Development,
+            command: "lazygit".to_string(),
+            common_args: vec![],
+            examples: vec![ToolExample {
+                description: "Open lazygit".to_string(),
+                command: "lazygit".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![],
+        });
+
+        self.add_tool(OSTool {
+            name: "delta".to_string(),
+            description: "Syntax-highlighting pager for git/diff".to_string(),
+            category: ToolCategory::Development,
+            command: "delta".to_string(),
+            common_args: vec![],
+            examples: vec![ToolExample {
+                description: "Use with git diff".to_string(),
+                command: "git diff | delta".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![],
+        });
+
+        // HTTP/API tools
+        self.add_tool(OSTool {
+            name: "httpie".to_string(),
+            description: "User-friendly HTTP client".to_string(),
+            category: ToolCategory::WebTools,
+            command: "http".to_string(),
+            common_args: vec![],
+            examples: vec![ToolExample {
+                description: "GET request".to_string(),
+                command: "http GET https://api.example.com".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![
+                ToolParameter {
+                    name: "method".to_string(),
+                    description: "HTTP method".to_string(),
+                    param_type: ParameterType::String,
+                    required: false,
+                    default_value: Some("GET".to_string()),
+                    enum_values: vec![
+                        "GET".to_string(),
+                        "POST".to_string(),
+                        "PUT".to_string(),
+                        "DELETE".to_string(),
+                        "PATCH".to_string(),
+                    ],
+                },
+                ToolParameter {
+                    name: "url".to_string(),
+                    description: "URL to request".to_string(),
+                    param_type: ParameterType::String,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+            ],
+        });
+
+        self.add_tool(OSTool {
+            name: "xh".to_string(),
+            description: "Fast HTTPie alternative".to_string(),
+            category: ToolCategory::WebTools,
+            command: "xh".to_string(),
+            common_args: vec![],
+            examples: vec![ToolExample {
+                description: "GET request".to_string(),
+                command: "xh GET https://api.example.com".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![
+                ToolParameter {
+                    name: "method".to_string(),
+                    description: "HTTP method".to_string(),
+                    param_type: ParameterType::String,
+                    required: false,
+                    default_value: Some("GET".to_string()),
+                    enum_values: vec![
+                        "GET".to_string(),
+                        "POST".to_string(),
+                        "PUT".to_string(),
+                        "DELETE".to_string(),
+                    ],
+                },
+                ToolParameter {
+                    name: "url".to_string(),
+                    description: "URL to request".to_string(),
+                    param_type: ParameterType::String,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+            ],
+        });
+
+        // Network diagnostics
+        self.add_tool(OSTool {
+            name: "mtr".to_string(),
+            description: "Network diagnostic tool combining ping and traceroute".to_string(),
+            category: ToolCategory::NetworkTools,
+            command: "mtr".to_string(),
+            common_args: vec!["--report".to_string()],
+            examples: vec![ToolExample {
+                description: "Network trace".to_string(),
+                command: "mtr --report google.com".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::BSD,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "host".to_string(),
+                description: "Target host".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "nmap".to_string(),
+            description: "Network scanner".to_string(),
+            category: ToolCategory::NetworkTools,
+            command: "nmap".to_string(),
+            common_args: vec!["-sV".to_string()],
+            examples: vec![ToolExample {
+                description: "Scan ports".to_string(),
+                command: "nmap -sV localhost".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Caution,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "target".to_string(),
+                description: "Target host or network".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        // Text editors
+        self.add_tool(OSTool {
+            name: "nvim".to_string(),
+            description: "Neovim text editor".to_string(),
+            category: ToolCategory::Development,
+            command: "nvim".to_string(),
+            common_args: vec![],
+            examples: vec![ToolExample {
+                description: "Edit file".to_string(),
+                command: "nvim file.txt".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "file".to_string(),
+                description: "File to edit".to_string(),
+                param_type: ParameterType::Path,
+                required: false,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "helix".to_string(),
+            description: "Helix text editor".to_string(),
+            category: ToolCategory::Development,
+            command: "hx".to_string(),
+            common_args: vec![],
+            examples: vec![ToolExample {
+                description: "Edit file".to_string(),
+                command: "hx file.txt".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "file".to_string(),
+                description: "File to edit".to_string(),
+                param_type: ParameterType::Path,
+                required: false,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        // Compression tools
+        self.add_tool(OSTool {
+            name: "zstd".to_string(),
+            description: "Fast compression algorithm".to_string(),
+            category: ToolCategory::Archives,
+            command: "zstd".to_string(),
+            common_args: vec![],
+            examples: vec![ToolExample {
+                description: "Compress file".to_string(),
+                command: "zstd file.txt".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "file".to_string(),
+                description: "File to compress".to_string(),
+                param_type: ParameterType::Path,
+                required: true,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "pigz".to_string(),
+            description: "Parallel gzip".to_string(),
+            category: ToolCategory::Archives,
+            command: "pigz".to_string(),
+            common_args: vec![],
+            examples: vec![ToolExample {
+                description: "Compress with multiple cores".to_string(),
+                command: "pigz file.txt".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![OperatingSystem::Linux, OperatingSystem::MacOS],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "file".to_string(),
+                description: "File to compress".to_string(),
+                param_type: ParameterType::Path,
+                required: true,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        // File transfer
+        self.add_tool(OSTool {
+            name: "rsync".to_string(),
+            description: "Fast incremental file transfer".to_string(),
+            category: ToolCategory::FileSystem,
+            command: "rsync".to_string(),
+            common_args: vec!["-avz".to_string()],
+            examples: vec![ToolExample {
+                description: "Sync directories".to_string(),
+                command: "rsync -avz src/ dest/".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Caution,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::BSD,
+            ],
+            cross_platform: None,
+            parameters: vec![
+                ToolParameter {
+                    name: "source".to_string(),
+                    description: "Source path".to_string(),
+                    param_type: ParameterType::Path,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+                ToolParameter {
+                    name: "destination".to_string(),
+                    description: "Destination path".to_string(),
+                    param_type: ParameterType::Path,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+            ],
+        });
+
+        self.add_tool(OSTool {
+            name: "rclone".to_string(),
+            description: "Cloud storage sync".to_string(),
+            category: ToolCategory::FileSystem,
+            command: "rclone".to_string(),
+            common_args: vec!["sync".to_string(), "copy".to_string()],
+            examples: vec![ToolExample {
+                description: "Sync to cloud".to_string(),
+                command: "rclone sync local/ remote:bucket/".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Caution,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "command".to_string(),
+                description: "rclone command".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![
+                    "sync".to_string(),
+                    "copy".to_string(),
+                    "ls".to_string(),
+                    "lsd".to_string(),
+                    "config".to_string(),
+                ],
+            }],
+        });
+
+        // System tools
+        self.add_tool(OSTool {
+            name: "tmux".to_string(),
+            description: "Terminal multiplexer".to_string(),
+            category: ToolCategory::Utilities,
+            command: "tmux".to_string(),
+            common_args: vec!["new".to_string(), "attach".to_string()],
+            examples: vec![ToolExample {
+                description: "New session".to_string(),
+                command: "tmux new -s main".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::BSD,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "command".to_string(),
+                description: "tmux command".to_string(),
+                param_type: ParameterType::String,
+                required: false,
+                default_value: None,
+                enum_values: vec![
+                    "new".to_string(),
+                    "attach".to_string(),
+                    "ls".to_string(),
+                    "kill-session".to_string(),
+                ],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "zellij".to_string(),
+            description: "Modern terminal workspace".to_string(),
+            category: ToolCategory::Utilities,
+            command: "zellij".to_string(),
+            common_args: vec![],
+            examples: vec![ToolExample {
+                description: "Start zellij".to_string(),
+                command: "zellij".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![OperatingSystem::Linux, OperatingSystem::MacOS],
+            cross_platform: None,
+            parameters: vec![],
+        });
+
+        // Build tools
+        self.add_tool(OSTool {
+            name: "make".to_string(),
+            description: "Build automation tool".to_string(),
+            category: ToolCategory::Development,
+            command: "make".to_string(),
+            common_args: vec![],
+            examples: vec![ToolExample {
+                description: "Build project".to_string(),
+                command: "make".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Caution,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+                OperatingSystem::BSD,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "target".to_string(),
+                description: "Make target".to_string(),
+                param_type: ParameterType::String,
+                required: false,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "cmake".to_string(),
+            description: "Cross-platform build system".to_string(),
+            category: ToolCategory::Development,
+            command: "cmake".to_string(),
+            common_args: vec![".".to_string()],
+            examples: vec![ToolExample {
+                description: "Configure build".to_string(),
+                command: "cmake -B build".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "path".to_string(),
+                description: "Source directory".to_string(),
+                param_type: ParameterType::Path,
+                required: false,
+                default_value: Some(".".to_string()),
+                enum_values: vec![],
+            }],
+        });
+
+        // Language tools
+        self.add_tool(OSTool {
+            name: "cargo".to_string(),
+            description: "Rust package manager".to_string(),
+            category: ToolCategory::Development,
+            command: "cargo".to_string(),
+            common_args: vec!["build".to_string(), "test".to_string(), "run".to_string()],
+            examples: vec![
+                ToolExample {
+                    description: "Build project".to_string(),
+                    command: "cargo build --release".to_string(),
+                    expected_output: None,
+                },
+                ToolExample {
+                    description: "Run tests".to_string(),
+                    command: "cargo test".to_string(),
+                    expected_output: None,
+                },
+            ],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "command".to_string(),
+                description: "Cargo command".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![
+                    "build".to_string(),
+                    "test".to_string(),
+                    "run".to_string(),
+                    "check".to_string(),
+                    "clippy".to_string(),
+                    "fmt".to_string(),
+                    "doc".to_string(),
+                ],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "npm".to_string(),
+            description: "Node.js package manager".to_string(),
+            category: ToolCategory::Development,
+            command: "npm".to_string(),
+            common_args: vec!["install".to_string(), "run".to_string()],
+            examples: vec![ToolExample {
+                description: "Install dependencies".to_string(),
+                command: "npm install".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Caution,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "command".to_string(),
+                description: "npm command".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![
+                    "install".to_string(),
+                    "run".to_string(),
+                    "start".to_string(),
+                    "test".to_string(),
+                    "build".to_string(),
+                ],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "pnpm".to_string(),
+            description: "Fast Node.js package manager".to_string(),
+            category: ToolCategory::Development,
+            command: "pnpm".to_string(),
+            common_args: vec!["install".to_string(), "run".to_string()],
+            examples: vec![ToolExample {
+                description: "Install dependencies".to_string(),
+                command: "pnpm install".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Caution,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "command".to_string(),
+                description: "pnpm command".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![
+                    "install".to_string(),
+                    "run".to_string(),
+                    "start".to_string(),
+                    "test".to_string(),
+                    "build".to_string(),
+                ],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "bun".to_string(),
+            description: "Fast JavaScript runtime and toolkit".to_string(),
+            category: ToolCategory::Development,
+            command: "bun".to_string(),
+            common_args: vec!["run".to_string(), "install".to_string()],
+            examples: vec![ToolExample {
+                description: "Run script".to_string(),
+                command: "bun run script.ts".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "command".to_string(),
+                description: "Bun command".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![
+                    "run".to_string(),
+                    "install".to_string(),
+                    "build".to_string(),
+                    "test".to_string(),
+                ],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "deno".to_string(),
+            description: "Secure JavaScript/TypeScript runtime".to_string(),
+            category: ToolCategory::Development,
+            command: "deno".to_string(),
+            common_args: vec!["run".to_string(), "task".to_string()],
+            examples: vec![ToolExample {
+                description: "Run script".to_string(),
+                command: "deno run script.ts".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "command".to_string(),
+                description: "Deno command".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![
+                    "run".to_string(),
+                    "task".to_string(),
+                    "compile".to_string(),
+                    "test".to_string(),
+                    "bench".to_string(),
+                ],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "go".to_string(),
+            description: "Go programming language".to_string(),
+            category: ToolCategory::Development,
+            command: "go".to_string(),
+            common_args: vec!["build".to_string(), "run".to_string(), "test".to_string()],
+            examples: vec![ToolExample {
+                description: "Build project".to_string(),
+                command: "go build".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "command".to_string(),
+                description: "Go command".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![
+                    "build".to_string(),
+                    "run".to_string(),
+                    "test".to_string(),
+                    "mod".to_string(),
+                    "get".to_string(),
+                ],
+            }],
+        });
+
+        // Additional language tools
+        self.add_tool(OSTool {
+            name: "rustc".to_string(),
+            description: "Rust compiler".to_string(),
+            category: ToolCategory::Development,
+            command: "rustc".to_string(),
+            common_args: vec!["--version".to_string()],
+            examples: vec![ToolExample {
+                description: "Compile file".to_string(),
+                command: "rustc main.rs".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "file".to_string(),
+                description: "Source file".to_string(),
+                param_type: ParameterType::Path,
+                required: true,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "rustup".to_string(),
+            description: "Rust toolchain manager".to_string(),
+            category: ToolCategory::Development,
+            command: "rustup".to_string(),
+            common_args: vec!["update".to_string(), "show".to_string()],
+            examples: vec![ToolExample {
+                description: "Update Rust".to_string(),
+                command: "rustup update".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "command".to_string(),
+                description: "Rustup command".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![
+                    "update".to_string(),
+                    "show".to_string(),
+                    "default".to_string(),
+                    "target".to_string(),
+                    "component".to_string(),
+                ],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "java".to_string(),
+            description: "Java runtime".to_string(),
+            category: ToolCategory::Development,
+            command: "java".to_string(),
+            common_args: vec!["-version".to_string()],
+            examples: vec![ToolExample {
+                description: "Run Java app".to_string(),
+                command: "java -jar app.jar".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "jar".to_string(),
+                description: "JAR file to run".to_string(),
+                param_type: ParameterType::Path,
+                required: false,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "mvn".to_string(),
+            description: "Maven build tool".to_string(),
+            category: ToolCategory::Development,
+            command: "mvn".to_string(),
+            common_args: vec![
+                "clean".to_string(),
+                "install".to_string(),
+                "package".to_string(),
+            ],
+            examples: vec![ToolExample {
+                description: "Build project".to_string(),
+                command: "mvn clean install".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "goal".to_string(),
+                description: "Maven goal".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![
+                    "clean".to_string(),
+                    "compile".to_string(),
+                    "test".to_string(),
+                    "package".to_string(),
+                    "install".to_string(),
+                    "deploy".to_string(),
+                ],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "gradle".to_string(),
+            description: "Gradle build tool".to_string(),
+            category: ToolCategory::Development,
+            command: "gradle".to_string(),
+            common_args: vec!["build".to_string(), "test".to_string()],
+            examples: vec![ToolExample {
+                description: "Build project".to_string(),
+                command: "gradle build".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "task".to_string(),
+                description: "Gradle task".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![
+                    "build".to_string(),
+                    "test".to_string(),
+                    "clean".to_string(),
+                    "assemble".to_string(),
+                ],
+            }],
+        });
+    }
+
+    /// Security and cryptography tools
+    fn populate_security_tools(&mut self) {
+        self.add_tool(OSTool {
+            name: "openssl".to_string(),
+            description: "OpenSSL cryptographic toolkit".to_string(),
+            category: ToolCategory::Security,
+            command: "openssl".to_string(),
+            common_args: vec!["version".to_string()],
+            examples: vec![
+                ToolExample {
+                    description: "Generate RSA key".to_string(),
+                    command: "openssl genrsa -out key.pem 2048".to_string(),
+                    expected_output: None,
+                },
+                ToolExample {
+                    description: "Generate self-signed cert".to_string(),
+                    command:
+                        "openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365"
+                            .to_string(),
+                    expected_output: None,
+                },
+            ],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+                OperatingSystem::BSD,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "command".to_string(),
+                description: "OpenSSL command".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![
+                    "genrsa".to_string(),
+                    "req".to_string(),
+                    "x509".to_string(),
+                    "enc".to_string(),
+                    "dgst".to_string(),
+                    "s_client".to_string(),
+                ],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "ssh".to_string(),
+            description: "Secure shell client".to_string(),
+            category: ToolCategory::Security,
+            command: "ssh".to_string(),
+            common_args: vec!["-v".to_string()],
+            examples: vec![ToolExample {
+                description: "Connect to server".to_string(),
+                command: "ssh user@hostname".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+                OperatingSystem::BSD,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "destination".to_string(),
+                description: "user@host".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "ssh-keygen".to_string(),
+            description: "SSH key generator".to_string(),
+            category: ToolCategory::Security,
+            command: "ssh-keygen".to_string(),
+            common_args: vec!["-t".to_string(), "ed25519".to_string()],
+            examples: vec![ToolExample {
+                description: "Generate ED25519 key".to_string(),
+                command: "ssh-keygen -t ed25519 -C 'email@example.com'".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+                OperatingSystem::BSD,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "type".to_string(),
+                description: "Key type".to_string(),
+                param_type: ParameterType::String,
+                required: false,
+                default_value: Some("ed25519".to_string()),
+                enum_values: vec![
+                    "rsa".to_string(),
+                    "ed25519".to_string(),
+                    "ecdsa".to_string(),
+                ],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "gpg".to_string(),
+            description: "GNU Privacy Guard".to_string(),
+            category: ToolCategory::Cryptography,
+            command: "gpg".to_string(),
+            common_args: vec!["--list-keys".to_string()],
+            examples: vec![
+                ToolExample {
+                    description: "List keys".to_string(),
+                    command: "gpg --list-keys".to_string(),
+                    expected_output: None,
+                },
+                ToolExample {
+                    description: "Encrypt file".to_string(),
+                    command: "gpg -c file.txt".to_string(),
+                    expected_output: None,
+                },
+            ],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+                OperatingSystem::BSD,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "operation".to_string(),
+                description: "GPG operation".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![
+                    "--encrypt".to_string(),
+                    "--decrypt".to_string(),
+                    "--sign".to_string(),
+                    "--verify".to_string(),
+                    "--list-keys".to_string(),
+                ],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "age".to_string(),
+            description: "Modern file encryption".to_string(),
+            category: ToolCategory::Cryptography,
+            command: "age".to_string(),
+            common_args: vec![],
+            examples: vec![ToolExample {
+                description: "Encrypt file".to_string(),
+                command: "age -r recipient -o file.age file.txt".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "file".to_string(),
+                description: "File to encrypt".to_string(),
+                param_type: ParameterType::Path,
+                required: true,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "sops".to_string(),
+            description: "Secrets management".to_string(),
+            category: ToolCategory::Security,
+            command: "sops".to_string(),
+            common_args: vec!["--encrypt".to_string(), "--decrypt".to_string()],
+            examples: vec![ToolExample {
+                description: "Edit encrypted file".to_string(),
+                command: "sops secrets.yaml".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "file".to_string(),
+                description: "Secrets file".to_string(),
+                param_type: ParameterType::Path,
+                required: true,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "vault".to_string(),
+            description: "HashiCorp Vault secrets management".to_string(),
+            category: ToolCategory::Security,
+            command: "vault".to_string(),
+            common_args: vec!["status".to_string()],
+            examples: vec![ToolExample {
+                description: "Read secret".to_string(),
+                command: "vault kv get secret/myapp".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Caution,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "command".to_string(),
+                description: "Vault command".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![
+                    "status".to_string(),
+                    "login".to_string(),
+                    "kv".to_string(),
+                    "secrets".to_string(),
+                ],
+            }],
+        });
+
+        // Network security tools
+        self.add_tool(OSTool {
+            name: "tcpdump".to_string(),
+            description: "Network packet analyzer".to_string(),
+            category: ToolCategory::NetworkTools,
+            command: "tcpdump".to_string(),
+            common_args: vec!["-i".to_string(), "any".to_string()],
+            examples: vec![ToolExample {
+                description: "Capture packets".to_string(),
+                command: "tcpdump -i eth0 -w capture.pcap".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Caution,
+            requires_admin: true,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::BSD,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "interface".to_string(),
+                description: "Network interface".to_string(),
+                param_type: ParameterType::String,
+                required: false,
+                default_value: Some("any".to_string()),
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "wireshark".to_string(),
+            description: "Network protocol analyzer (CLI: tshark)".to_string(),
+            category: ToolCategory::NetworkTools,
+            command: "tshark".to_string(),
+            common_args: vec!["-i".to_string()],
+            examples: vec![ToolExample {
+                description: "Capture traffic".to_string(),
+                command: "tshark -i eth0".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Caution,
+            requires_admin: true,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "interface".to_string(),
+                description: "Network interface".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "netcat".to_string(),
+            description: "Network utility (nc)".to_string(),
+            category: ToolCategory::NetworkTools,
+            command: "nc".to_string(),
+            common_args: vec!["-v".to_string()],
+            examples: vec![ToolExample {
+                description: "Port check".to_string(),
+                command: "nc -zv hostname 80".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Caution,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::BSD,
+            ],
+            cross_platform: None,
+            parameters: vec![
+                ToolParameter {
+                    name: "host".to_string(),
+                    description: "Target host".to_string(),
+                    param_type: ParameterType::String,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+                ToolParameter {
+                    name: "port".to_string(),
+                    description: "Target port".to_string(),
+                    param_type: ParameterType::Integer,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+            ],
+        });
+
+        self.add_tool(OSTool {
+            name: "socat".to_string(),
+            description: "Multipurpose relay".to_string(),
+            category: ToolCategory::NetworkTools,
+            command: "socat".to_string(),
+            common_args: vec![],
+            examples: vec![ToolExample {
+                description: "TCP proxy".to_string(),
+                command: "socat TCP-LISTEN:8080,fork TCP:localhost:80".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Caution,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::BSD,
+            ],
+            cross_platform: None,
+            parameters: vec![],
+        });
+
+        // System administration
+        self.add_tool(OSTool {
+            name: "systemctl".to_string(),
+            description: "Systemd service manager".to_string(),
+            category: ToolCategory::SystemInfo,
+            command: "systemctl".to_string(),
+            common_args: vec!["status".to_string()],
+            examples: vec![
+                ToolExample {
+                    description: "Service status".to_string(),
+                    command: "systemctl status nginx".to_string(),
+                    expected_output: None,
+                },
+                ToolExample {
+                    description: "List services".to_string(),
+                    command: "systemctl list-units --type=service".to_string(),
+                    expected_output: None,
+                },
+            ],
+            safety_level: SafetyLevel::Caution,
+            requires_admin: false,
+            supported_os: vec![OperatingSystem::Linux],
+            cross_platform: None,
+            parameters: vec![
+                ToolParameter {
+                    name: "command".to_string(),
+                    description: "systemctl command".to_string(),
+                    param_type: ParameterType::String,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![
+                        "status".to_string(),
+                        "start".to_string(),
+                        "stop".to_string(),
+                        "restart".to_string(),
+                        "enable".to_string(),
+                        "disable".to_string(),
+                        "list-units".to_string(),
+                    ],
+                },
+                ToolParameter {
+                    name: "service".to_string(),
+                    description: "Service name".to_string(),
+                    param_type: ParameterType::String,
+                    required: false,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+            ],
+        });
+
+        self.add_tool(OSTool {
+            name: "journalctl".to_string(),
+            description: "Systemd journal viewer".to_string(),
+            category: ToolCategory::SystemInfo,
+            command: "journalctl".to_string(),
+            common_args: vec!["-f".to_string(), "-u".to_string()],
+            examples: vec![ToolExample {
+                description: "Follow logs".to_string(),
+                command: "journalctl -f -u nginx".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![OperatingSystem::Linux],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "unit".to_string(),
+                description: "Service unit".to_string(),
+                param_type: ParameterType::String,
+                required: false,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "dmesg".to_string(),
+            description: "Kernel ring buffer".to_string(),
+            category: ToolCategory::SystemInfo,
+            command: "dmesg".to_string(),
+            common_args: vec!["-T".to_string()],
+            examples: vec![ToolExample {
+                description: "View kernel messages".to_string(),
+                command: "dmesg -T | tail -50".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![OperatingSystem::Linux, OperatingSystem::BSD],
+            cross_platform: None,
+            parameters: vec![],
+        });
+
+        self.add_tool(OSTool {
+            name: "lsof".to_string(),
+            description: "List open files".to_string(),
+            category: ToolCategory::SystemInfo,
+            command: "lsof".to_string(),
+            common_args: vec!["-i".to_string()],
+            examples: vec![ToolExample {
+                description: "List network connections".to_string(),
+                command: "lsof -i :80".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::BSD,
+            ],
+            cross_platform: None,
+            parameters: vec![],
+        });
+
+        self.add_tool(OSTool {
+            name: "strace".to_string(),
+            description: "System call tracer".to_string(),
+            category: ToolCategory::Development,
+            command: "strace".to_string(),
+            common_args: vec!["-f".to_string()],
+            examples: vec![ToolExample {
+                description: "Trace process".to_string(),
+                command: "strace -f -p 1234".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Caution,
+            requires_admin: true,
+            supported_os: vec![OperatingSystem::Linux],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "pid".to_string(),
+                description: "Process ID".to_string(),
+                param_type: ParameterType::Integer,
+                required: false,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "perf".to_string(),
+            description: "Linux profiling tool".to_string(),
+            category: ToolCategory::Development,
+            command: "perf".to_string(),
+            common_args: vec!["stat".to_string(), "record".to_string()],
+            examples: vec![ToolExample {
+                description: "Profile command".to_string(),
+                command: "perf stat ./myprogram".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![OperatingSystem::Linux],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "command".to_string(),
+                description: "Perf command".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![
+                    "stat".to_string(),
+                    "record".to_string(),
+                    "report".to_string(),
+                    "top".to_string(),
+                ],
+            }],
+        });
+
+        // Virtualization
+        self.add_tool(OSTool {
+            name: "vagrant".to_string(),
+            description: "Development environment manager".to_string(),
+            category: ToolCategory::Infrastructure,
+            command: "vagrant".to_string(),
+            common_args: vec!["up".to_string(), "ssh".to_string()],
+            examples: vec![ToolExample {
+                description: "Start VM".to_string(),
+                command: "vagrant up".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "command".to_string(),
+                description: "Vagrant command".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![
+                    "up".to_string(),
+                    "halt".to_string(),
+                    "destroy".to_string(),
+                    "ssh".to_string(),
+                    "status".to_string(),
+                ],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "packer".to_string(),
+            description: "Machine image builder".to_string(),
+            category: ToolCategory::Infrastructure,
+            command: "packer".to_string(),
+            common_args: vec!["build".to_string(), "validate".to_string()],
+            examples: vec![ToolExample {
+                description: "Build image".to_string(),
+                command: "packer build template.pkr.hcl".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Caution,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "command".to_string(),
+                description: "Packer command".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![
+                    "build".to_string(),
+                    "validate".to_string(),
+                    "fmt".to_string(),
+                    "init".to_string(),
+                ],
+            }],
+        });
+
+        // Text processing
+        self.add_tool(OSTool {
+            name: "sed".to_string(),
+            description: "Stream editor".to_string(),
+            category: ToolCategory::TextProcessing,
+            command: "sed".to_string(),
+            common_args: vec!["-i".to_string()],
+            examples: vec![ToolExample {
+                description: "Replace text".to_string(),
+                command: "sed 's/old/new/g' file.txt".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::BSD,
+            ],
+            cross_platform: None,
+            parameters: vec![
+                ToolParameter {
+                    name: "expression".to_string(),
+                    description: "Sed expression".to_string(),
+                    param_type: ParameterType::String,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+                ToolParameter {
+                    name: "file".to_string(),
+                    description: "Input file".to_string(),
+                    param_type: ParameterType::Path,
+                    required: false,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+            ],
+        });
+
+        self.add_tool(OSTool {
+            name: "awk".to_string(),
+            description: "Pattern scanning and processing".to_string(),
+            category: ToolCategory::TextProcessing,
+            command: "awk".to_string(),
+            common_args: vec![],
+            examples: vec![ToolExample {
+                description: "Print column".to_string(),
+                command: "awk '{print $1}' file.txt".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::BSD,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "program".to_string(),
+                description: "AWK program".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "tr".to_string(),
+            description: "Translate characters".to_string(),
+            category: ToolCategory::TextProcessing,
+            command: "tr".to_string(),
+            common_args: vec![],
+            examples: vec![ToolExample {
+                description: "Lowercase to uppercase".to_string(),
+                command: "echo 'hello' | tr 'a-z' 'A-Z'".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::BSD,
+            ],
+            cross_platform: None,
+            parameters: vec![
+                ToolParameter {
+                    name: "set1".to_string(),
+                    description: "Characters to replace".to_string(),
+                    param_type: ParameterType::String,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+                ToolParameter {
+                    name: "set2".to_string(),
+                    description: "Replacement characters".to_string(),
+                    param_type: ParameterType::String,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+            ],
+        });
+
+        self.add_tool(OSTool {
+            name: "cut".to_string(),
+            description: "Remove sections from lines".to_string(),
+            category: ToolCategory::TextProcessing,
+            command: "cut".to_string(),
+            common_args: vec!["-d".to_string(), "-f".to_string()],
+            examples: vec![ToolExample {
+                description: "Extract field".to_string(),
+                command: "cut -d',' -f1 data.csv".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::BSD,
+            ],
+            cross_platform: None,
+            parameters: vec![
+                ToolParameter {
+                    name: "delimiter".to_string(),
+                    description: "Field delimiter".to_string(),
+                    param_type: ParameterType::String,
+                    required: false,
+                    default_value: Some("\t".to_string()),
+                    enum_values: vec![],
+                },
+                ToolParameter {
+                    name: "fields".to_string(),
+                    description: "Field numbers".to_string(),
+                    param_type: ParameterType::String,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+            ],
+        });
+
+        self.add_tool(OSTool {
+            name: "sort".to_string(),
+            description: "Sort lines".to_string(),
+            category: ToolCategory::TextProcessing,
+            command: "sort".to_string(),
+            common_args: vec!["-n".to_string(), "-r".to_string(), "-u".to_string()],
+            examples: vec![ToolExample {
+                description: "Sort numerically".to_string(),
+                command: "sort -n numbers.txt".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+                OperatingSystem::BSD,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "file".to_string(),
+                description: "Input file".to_string(),
+                param_type: ParameterType::Path,
+                required: false,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "uniq".to_string(),
+            description: "Report or filter repeated lines".to_string(),
+            category: ToolCategory::TextProcessing,
+            command: "uniq".to_string(),
+            common_args: vec!["-c".to_string()],
+            examples: vec![ToolExample {
+                description: "Count occurrences".to_string(),
+                command: "sort file.txt | uniq -c".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::BSD,
+            ],
+            cross_platform: None,
+            parameters: vec![],
+        });
+
+        self.add_tool(OSTool {
+            name: "wc".to_string(),
+            description: "Word, line, character count".to_string(),
+            category: ToolCategory::TextProcessing,
+            command: "wc".to_string(),
+            common_args: vec!["-l".to_string(), "-w".to_string(), "-c".to_string()],
+            examples: vec![ToolExample {
+                description: "Count lines".to_string(),
+                command: "wc -l file.txt".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+                OperatingSystem::BSD,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "file".to_string(),
+                description: "Input file".to_string(),
+                param_type: ParameterType::Path,
+                required: false,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "head".to_string(),
+            description: "Output first part of files".to_string(),
+            category: ToolCategory::TextProcessing,
+            command: "head".to_string(),
+            common_args: vec!["-n".to_string()],
+            examples: vec![ToolExample {
+                description: "First 20 lines".to_string(),
+                command: "head -n 20 file.txt".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+                OperatingSystem::BSD,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "lines".to_string(),
+                description: "Number of lines".to_string(),
+                param_type: ParameterType::Integer,
+                required: false,
+                default_value: Some("10".to_string()),
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "tail".to_string(),
+            description: "Output last part of files".to_string(),
+            category: ToolCategory::TextProcessing,
+            command: "tail".to_string(),
+            common_args: vec!["-n".to_string(), "-f".to_string()],
+            examples: vec![ToolExample {
+                description: "Follow log file".to_string(),
+                command: "tail -f /var/log/syslog".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+                OperatingSystem::BSD,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "lines".to_string(),
+                description: "Number of lines".to_string(),
+                param_type: ParameterType::Integer,
+                required: false,
+                default_value: Some("10".to_string()),
+                enum_values: vec![],
+            }],
+        });
+
+        // Archive tools
+        self.add_tool(OSTool {
+            name: "7z".to_string(),
+            description: "7-Zip archiver".to_string(),
+            category: ToolCategory::Archives,
+            command: "7z".to_string(),
+            common_args: vec!["a".to_string(), "x".to_string()],
+            examples: vec![ToolExample {
+                description: "Create archive".to_string(),
+                command: "7z a archive.7z files/".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "command".to_string(),
+                description: "7z command".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![
+                    "a".to_string(),
+                    "x".to_string(),
+                    "l".to_string(),
+                    "t".to_string(),
+                ],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "unzip".to_string(),
+            description: "Extract ZIP archives".to_string(),
+            category: ToolCategory::Archives,
+            command: "unzip".to_string(),
+            common_args: vec!["-l".to_string()],
+            examples: vec![ToolExample {
+                description: "Extract archive".to_string(),
+                command: "unzip archive.zip".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::BSD,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "file".to_string(),
+                description: "ZIP file".to_string(),
+                param_type: ParameterType::Path,
+                required: true,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        // Process tools
+        self.add_tool(OSTool {
+            name: "pgrep".to_string(),
+            description: "Find processes by name".to_string(),
+            category: ToolCategory::ProcessManagement,
+            command: "pgrep".to_string(),
+            common_args: vec!["-l".to_string()],
+            examples: vec![ToolExample {
+                description: "Find process".to_string(),
+                command: "pgrep -l nginx".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::BSD,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "pattern".to_string(),
+                description: "Process name pattern".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "pkill".to_string(),
+            description: "Kill processes by name".to_string(),
+            category: ToolCategory::ProcessManagement,
+            command: "pkill".to_string(),
+            common_args: vec![],
+            examples: vec![ToolExample {
+                description: "Kill process".to_string(),
+                command: "pkill -9 nginx".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Dangerous,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::BSD,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "pattern".to_string(),
+                description: "Process name pattern".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        // Misc utilities
+        self.add_tool(OSTool {
+            name: "watch".to_string(),
+            description: "Execute program periodically".to_string(),
+            category: ToolCategory::Utilities,
+            command: "watch".to_string(),
+            common_args: vec!["-n".to_string(), "1".to_string()],
+            examples: vec![ToolExample {
+                description: "Watch directory".to_string(),
+                command: "watch -n 1 ls -la".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::BSD,
+            ],
+            cross_platform: None,
+            parameters: vec![
+                ToolParameter {
+                    name: "interval".to_string(),
+                    description: "Refresh interval (seconds)".to_string(),
+                    param_type: ParameterType::Integer,
+                    required: false,
+                    default_value: Some("2".to_string()),
+                    enum_values: vec![],
+                },
+                ToolParameter {
+                    name: "command".to_string(),
+                    description: "Command to run".to_string(),
+                    param_type: ParameterType::String,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+            ],
+        });
+
+        self.add_tool(OSTool {
+            name: "xargs".to_string(),
+            description: "Build and execute commands from input".to_string(),
+            category: ToolCategory::Utilities,
+            command: "xargs".to_string(),
+            common_args: vec!["-I".to_string(), "{}".to_string()],
+            examples: vec![ToolExample {
+                description: "Delete files".to_string(),
+                command: "find . -name '*.tmp' | xargs rm".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Caution,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::BSD,
+            ],
+            cross_platform: None,
+            parameters: vec![],
+        });
+
+        self.add_tool(OSTool {
+            name: "tee".to_string(),
+            description: "Read from stdin and write to stdout and files".to_string(),
+            category: ToolCategory::Utilities,
+            command: "tee".to_string(),
+            common_args: vec!["-a".to_string()],
+            examples: vec![ToolExample {
+                description: "Log output".to_string(),
+                command: "command | tee output.log".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+                OperatingSystem::BSD,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "file".to_string(),
+                description: "Output file".to_string(),
+                param_type: ParameterType::Path,
+                required: true,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "time".to_string(),
+            description: "Time command execution".to_string(),
+            category: ToolCategory::Utilities,
+            command: "time".to_string(),
+            common_args: vec![],
+            examples: vec![ToolExample {
+                description: "Measure time".to_string(),
+                command: "time ./script.sh".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::BSD,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "command".to_string(),
+                description: "Command to time".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "hyperfine".to_string(),
+            description: "Command-line benchmarking tool".to_string(),
+            category: ToolCategory::Development,
+            command: "hyperfine".to_string(),
+            common_args: vec!["--warmup".to_string(), "3".to_string()],
+            examples: vec![ToolExample {
+                description: "Benchmark commands".to_string(),
+                command: "hyperfine 'fd .' 'find .'".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "command".to_string(),
+                description: "Command to benchmark".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "tokei".to_string(),
+            description: "Code statistics".to_string(),
+            category: ToolCategory::Development,
+            command: "tokei".to_string(),
+            common_args: vec![],
+            examples: vec![ToolExample {
+                description: "Count lines of code".to_string(),
+                command: "tokei .".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "path".to_string(),
+                description: "Directory to analyze".to_string(),
+                param_type: ParameterType::Path,
+                required: false,
+                default_value: Some(".".to_string()),
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "difft".to_string(),
+            description: "Structural diff tool".to_string(),
+            category: ToolCategory::Development,
+            command: "difft".to_string(),
+            common_args: vec![],
+            examples: vec![ToolExample {
+                description: "Compare files".to_string(),
+                command: "difft file1.rs file2.rs".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![
+                ToolParameter {
+                    name: "file1".to_string(),
+                    description: "First file".to_string(),
+                    param_type: ParameterType::Path,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+                ToolParameter {
+                    name: "file2".to_string(),
+                    description: "Second file".to_string(),
+                    param_type: ParameterType::Path,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+            ],
+        });
+    }
+
+    /// AI/ML and data science tools
+    fn populate_ai_tools(&mut self) {
+        self.add_tool(OSTool {
+            name: "huggingface-cli".to_string(),
+            description: "Hugging Face Hub CLI".to_string(),
+            category: ToolCategory::MachineLearning,
+            command: "huggingface-cli".to_string(),
+            common_args: vec!["download".to_string(), "login".to_string()],
+            examples: vec![ToolExample {
+                description: "Download model".to_string(),
+                command: "huggingface-cli download meta-llama/Llama-2-7b".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "command".to_string(),
+                description: "CLI command".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![
+                    "download".to_string(),
+                    "login".to_string(),
+                    "upload".to_string(),
+                    "repo".to_string(),
+                ],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "transformers-cli".to_string(),
+            description: "Transformers library CLI".to_string(),
+            category: ToolCategory::MachineLearning,
+            command: "transformers-cli".to_string(),
+            common_args: vec!["convert".to_string()],
+            examples: vec![ToolExample {
+                description: "Convert model".to_string(),
+                command: "transformers-cli convert --model_type bert".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![],
+        });
+
+        self.add_tool(OSTool {
+            name: "llm".to_string(),
+            description: "LLM CLI tool by Simon Willison".to_string(),
+            category: ToolCategory::MachineLearning,
+            command: "llm".to_string(),
+            common_args: vec!["chat".to_string(), "prompt".to_string()],
+            examples: vec![ToolExample {
+                description: "Chat with model".to_string(),
+                command: "llm chat -m gpt-4".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "model".to_string(),
+                description: "Model to use".to_string(),
+                param_type: ParameterType::String,
+                required: false,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "vllm".to_string(),
+            description: "vLLM inference server".to_string(),
+            category: ToolCategory::MachineLearning,
+            command: "vllm".to_string(),
+            common_args: vec!["serve".to_string()],
+            examples: vec![ToolExample {
+                description: "Start server".to_string(),
+                command: "vllm serve meta-llama/Llama-2-7b-hf".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![OperatingSystem::Linux],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "model".to_string(),
+                description: "Model to serve".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "llamacpp".to_string(),
+            description: "llama.cpp inference".to_string(),
+            category: ToolCategory::MachineLearning,
+            command: "llama-cli".to_string(),
+            common_args: vec!["-m".to_string()],
+            examples: vec![ToolExample {
+                description: "Run inference".to_string(),
+                command: "llama-cli -m model.gguf -p 'Hello'".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "model".to_string(),
+                description: "Model file path".to_string(),
+                param_type: ParameterType::Path,
+                required: true,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "whisper".to_string(),
+            description: "OpenAI Whisper speech recognition".to_string(),
+            category: ToolCategory::MachineLearning,
+            command: "whisper".to_string(),
+            common_args: vec!["--model".to_string(), "base".to_string()],
+            examples: vec![ToolExample {
+                description: "Transcribe audio".to_string(),
+                command: "whisper audio.mp3 --model base".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![
+                ToolParameter {
+                    name: "file".to_string(),
+                    description: "Audio file".to_string(),
+                    param_type: ParameterType::Path,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+                ToolParameter {
+                    name: "model".to_string(),
+                    description: "Model size".to_string(),
+                    param_type: ParameterType::String,
+                    required: false,
+                    default_value: Some("base".to_string()),
+                    enum_values: vec![
+                        "tiny".to_string(),
+                        "base".to_string(),
+                        "small".to_string(),
+                        "medium".to_string(),
+                        "large".to_string(),
+                    ],
+                },
+            ],
+        });
+
+        self.add_tool(OSTool {
+            name: "stable-diffusion".to_string(),
+            description: "Stable Diffusion image generation".to_string(),
+            category: ToolCategory::MachineLearning,
+            command: "sd".to_string(),
+            common_args: vec!["--prompt".to_string()],
+            examples: vec![ToolExample {
+                description: "Generate image".to_string(),
+                command: "sd --prompt 'a cat in space'".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "prompt".to_string(),
+                description: "Image prompt".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "tensorboard".to_string(),
+            description: "TensorFlow visualization toolkit".to_string(),
+            category: ToolCategory::MachineLearning,
+            command: "tensorboard".to_string(),
+            common_args: vec!["--logdir".to_string()],
+            examples: vec![ToolExample {
+                description: "Start TensorBoard".to_string(),
+                command: "tensorboard --logdir=./logs".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "logdir".to_string(),
+                description: "Log directory".to_string(),
+                param_type: ParameterType::Path,
+                required: true,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "wandb".to_string(),
+            description: "Weights & Biases ML tracking".to_string(),
+            category: ToolCategory::MachineLearning,
+            command: "wandb".to_string(),
+            common_args: vec!["login".to_string(), "sync".to_string()],
+            examples: vec![ToolExample {
+                description: "Login to W&B".to_string(),
+                command: "wandb login".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "command".to_string(),
+                description: "W&B command".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![
+                    "login".to_string(),
+                    "sync".to_string(),
+                    "artifact".to_string(),
+                    "sweep".to_string(),
+                ],
+            }],
+        });
+
+        // Data science tools
+        self.add_tool(OSTool {
+            name: "duckdb".to_string(),
+            description: "DuckDB analytical database".to_string(),
+            category: ToolCategory::Database,
+            command: "duckdb".to_string(),
+            common_args: vec![],
+            examples: vec![ToolExample {
+                description: "Query CSV".to_string(),
+                command: "duckdb -c \"SELECT * FROM 'data.csv' LIMIT 10\"".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "database".to_string(),
+                description: "Database file".to_string(),
+                param_type: ParameterType::Path,
+                required: false,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "clickhouse".to_string(),
+            description: "ClickHouse column-oriented database".to_string(),
+            category: ToolCategory::Database,
+            command: "clickhouse-client".to_string(),
+            common_args: vec!["--query".to_string()],
+            examples: vec![ToolExample {
+                description: "Run query".to_string(),
+                command: "clickhouse-client --query 'SELECT 1'".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Caution,
+            requires_admin: false,
+            supported_os: vec![OperatingSystem::Linux, OperatingSystem::MacOS],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "query".to_string(),
+                description: "SQL query".to_string(),
+                param_type: ParameterType::String,
+                required: false,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "datasette".to_string(),
+            description: "SQLite data exploration tool".to_string(),
+            category: ToolCategory::Database,
+            command: "datasette".to_string(),
+            common_args: vec!["serve".to_string()],
+            examples: vec![ToolExample {
+                description: "Serve database".to_string(),
+                command: "datasette serve data.db".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "database".to_string(),
+                description: "SQLite database".to_string(),
+                param_type: ParameterType::Path,
+                required: true,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "litecli".to_string(),
+            description: "SQLite CLI with autocomplete".to_string(),
+            category: ToolCategory::Database,
+            command: "litecli".to_string(),
+            common_args: vec![],
+            examples: vec![ToolExample {
+                description: "Open database".to_string(),
+                command: "litecli data.db".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "database".to_string(),
+                description: "SQLite database".to_string(),
+                param_type: ParameterType::Path,
+                required: false,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "pgcli".to_string(),
+            description: "PostgreSQL CLI with autocomplete".to_string(),
+            category: ToolCategory::Database,
+            command: "pgcli".to_string(),
+            common_args: vec![],
+            examples: vec![ToolExample {
+                description: "Connect to database".to_string(),
+                command: "pgcli postgres://user:pass@localhost/db".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Caution,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "connection".to_string(),
+                description: "Connection string".to_string(),
+                param_type: ParameterType::String,
+                required: false,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "mycli".to_string(),
+            description: "MySQL CLI with autocomplete".to_string(),
+            category: ToolCategory::Database,
+            command: "mycli".to_string(),
+            common_args: vec!["-u".to_string()],
+            examples: vec![ToolExample {
+                description: "Connect to MySQL".to_string(),
+                command: "mycli -u root -h localhost".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Caution,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "user".to_string(),
+                description: "Username".to_string(),
+                param_type: ParameterType::String,
+                required: false,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        // Data processing
+        self.add_tool(OSTool {
+            name: "dasel".to_string(),
+            description: "Query and modify JSON/YAML/TOML/CSV/XML".to_string(),
+            category: ToolCategory::DataProcessing,
+            command: "dasel".to_string(),
+            common_args: vec!["-f".to_string()],
+            examples: vec![ToolExample {
+                description: "Query JSON".to_string(),
+                command: "dasel -f config.json '.database.host'".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "file".to_string(),
+                description: "Input file".to_string(),
+                param_type: ParameterType::Path,
+                required: true,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "fx".to_string(),
+            description: "Interactive JSON viewer".to_string(),
+            category: ToolCategory::DataProcessing,
+            command: "fx".to_string(),
+            common_args: vec![],
+            examples: vec![ToolExample {
+                description: "View JSON".to_string(),
+                command: "cat data.json | fx".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![],
+        });
+
+        self.add_tool(OSTool {
+            name: "gron".to_string(),
+            description: "Make JSON greppable".to_string(),
+            category: ToolCategory::DataProcessing,
+            command: "gron".to_string(),
+            common_args: vec![],
+            examples: vec![ToolExample {
+                description: "Flatten JSON".to_string(),
+                command: "gron data.json | grep 'name'".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "file".to_string(),
+                description: "JSON file".to_string(),
+                param_type: ParameterType::Path,
+                required: false,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "pup".to_string(),
+            description: "HTML parsing tool".to_string(),
+            category: ToolCategory::DataProcessing,
+            command: "pup".to_string(),
+            common_args: vec![],
+            examples: vec![ToolExample {
+                description: "Extract links".to_string(),
+                command: "curl -s example.com | pup 'a attr{href}'".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "selector".to_string(),
+                description: "CSS selector".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "htmlq".to_string(),
+            description: "Like jq but for HTML".to_string(),
+            category: ToolCategory::DataProcessing,
+            command: "htmlq".to_string(),
+            common_args: vec![],
+            examples: vec![ToolExample {
+                description: "Extract text".to_string(),
+                command: "curl -s example.com | htmlq 'title'".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "selector".to_string(),
+                description: "CSS selector".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+    }
+
+    /// Media and image processing tools
+    fn populate_media_tools(&mut self) {
+        self.add_tool(OSTool {
+            name: "ffmpeg".to_string(),
+            description: "Multimedia framework".to_string(),
+            category: ToolCategory::Media,
+            command: "ffmpeg".to_string(),
+            common_args: vec!["-i".to_string()],
+            examples: vec![
+                ToolExample {
+                    description: "Convert video".to_string(),
+                    command: "ffmpeg -i input.mp4 output.webm".to_string(),
+                    expected_output: None,
+                },
+                ToolExample {
+                    description: "Extract audio".to_string(),
+                    command: "ffmpeg -i video.mp4 -vn audio.mp3".to_string(),
+                    expected_output: None,
+                },
+            ],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![
+                ToolParameter {
+                    name: "input".to_string(),
+                    description: "Input file".to_string(),
+                    param_type: ParameterType::Path,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+                ToolParameter {
+                    name: "output".to_string(),
+                    description: "Output file".to_string(),
+                    param_type: ParameterType::Path,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+            ],
+        });
+
+        self.add_tool(OSTool {
+            name: "ffprobe".to_string(),
+            description: "Multimedia stream analyzer".to_string(),
+            category: ToolCategory::Media,
+            command: "ffprobe".to_string(),
+            common_args: vec![
+                "-v".to_string(),
+                "quiet".to_string(),
+                "-print_format".to_string(),
+                "json".to_string(),
+            ],
+            examples: vec![ToolExample {
+                description: "Get video info".to_string(),
+                command: "ffprobe -v quiet -print_format json -show_format video.mp4".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "file".to_string(),
+                description: "Media file".to_string(),
+                param_type: ParameterType::Path,
+                required: true,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "imagemagick".to_string(),
+            description: "Image manipulation".to_string(),
+            category: ToolCategory::Media,
+            command: "convert".to_string(),
+            common_args: vec![],
+            examples: vec![
+                ToolExample {
+                    description: "Resize image".to_string(),
+                    command: "convert input.jpg -resize 50% output.jpg".to_string(),
+                    expected_output: None,
+                },
+                ToolExample {
+                    description: "Convert format".to_string(),
+                    command: "convert image.png image.jpg".to_string(),
+                    expected_output: None,
+                },
+            ],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![
+                ToolParameter {
+                    name: "input".to_string(),
+                    description: "Input image".to_string(),
+                    param_type: ParameterType::Path,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+                ToolParameter {
+                    name: "output".to_string(),
+                    description: "Output image".to_string(),
+                    param_type: ParameterType::Path,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+            ],
+        });
+
+        self.add_tool(OSTool {
+            name: "exiftool".to_string(),
+            description: "Read/write EXIF metadata".to_string(),
+            category: ToolCategory::Media,
+            command: "exiftool".to_string(),
+            common_args: vec![],
+            examples: vec![ToolExample {
+                description: "View metadata".to_string(),
+                command: "exiftool photo.jpg".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "file".to_string(),
+                description: "Media file".to_string(),
+                param_type: ParameterType::Path,
+                required: true,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "yt-dlp".to_string(),
+            description: "Video downloader".to_string(),
+            category: ToolCategory::Media,
+            command: "yt-dlp".to_string(),
+            common_args: vec!["--format".to_string(), "best".to_string()],
+            examples: vec![ToolExample {
+                description: "Download video".to_string(),
+                command: "yt-dlp 'https://youtube.com/watch?v=...'".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "url".to_string(),
+                description: "Video URL".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "sox".to_string(),
+            description: "Sound eXchange audio processor".to_string(),
+            category: ToolCategory::Media,
+            command: "sox".to_string(),
+            common_args: vec![],
+            examples: vec![ToolExample {
+                description: "Convert audio".to_string(),
+                command: "sox input.wav output.mp3".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![
+                ToolParameter {
+                    name: "input".to_string(),
+                    description: "Input audio".to_string(),
+                    param_type: ParameterType::Path,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+                ToolParameter {
+                    name: "output".to_string(),
+                    description: "Output audio".to_string(),
+                    param_type: ParameterType::Path,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+            ],
+        });
+
+        self.add_tool(OSTool {
+            name: "gifsicle".to_string(),
+            description: "GIF manipulation tool".to_string(),
+            category: ToolCategory::Media,
+            command: "gifsicle".to_string(),
+            common_args: vec!["--optimize".to_string()],
+            examples: vec![ToolExample {
+                description: "Optimize GIF".to_string(),
+                command: "gifsicle --optimize=3 input.gif -o output.gif".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "file".to_string(),
+                description: "GIF file".to_string(),
+                param_type: ParameterType::Path,
+                required: true,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "pdftk".to_string(),
+            description: "PDF toolkit".to_string(),
+            category: ToolCategory::Media,
+            command: "pdftk".to_string(),
+            common_args: vec![],
+            examples: vec![ToolExample {
+                description: "Merge PDFs".to_string(),
+                command: "pdftk file1.pdf file2.pdf cat output merged.pdf".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "input".to_string(),
+                description: "Input PDF".to_string(),
+                param_type: ParameterType::Path,
+                required: true,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "pandoc".to_string(),
+            description: "Universal document converter".to_string(),
+            category: ToolCategory::Media,
+            command: "pandoc".to_string(),
+            common_args: vec!["-o".to_string()],
+            examples: vec![ToolExample {
+                description: "Convert Markdown to PDF".to_string(),
+                command: "pandoc document.md -o document.pdf".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![
+                ToolParameter {
+                    name: "input".to_string(),
+                    description: "Input file".to_string(),
+                    param_type: ParameterType::Path,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+                ToolParameter {
+                    name: "output".to_string(),
+                    description: "Output file".to_string(),
+                    param_type: ParameterType::Path,
+                    required: true,
+                    default_value: None,
+                    enum_values: vec![],
+                },
+            ],
+        });
+    }
+
+    /// Additional web and API tools
+    fn populate_api_tools(&mut self) {
+        self.add_tool(OSTool {
+            name: "grpcurl".to_string(),
+            description: "gRPC command line tool".to_string(),
+            category: ToolCategory::WebTools,
+            command: "grpcurl".to_string(),
+            common_args: vec!["-plaintext".to_string()],
+            examples: vec![ToolExample {
+                description: "List services".to_string(),
+                command: "grpcurl -plaintext localhost:50051 list".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "address".to_string(),
+                description: "Server address".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "websocat".to_string(),
+            description: "WebSocket client".to_string(),
+            category: ToolCategory::WebTools,
+            command: "websocat".to_string(),
+            common_args: vec![],
+            examples: vec![ToolExample {
+                description: "Connect to WebSocket".to_string(),
+                command: "websocat ws://localhost:8080/ws".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "url".to_string(),
+                description: "WebSocket URL".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "hey".to_string(),
+            description: "HTTP load generator".to_string(),
+            category: ToolCategory::WebTools,
+            command: "hey".to_string(),
+            common_args: vec![
+                "-n".to_string(),
+                "200".to_string(),
+                "-c".to_string(),
+                "50".to_string(),
+            ],
+            examples: vec![ToolExample {
+                description: "Load test".to_string(),
+                command: "hey -n 200 -c 50 http://localhost:8080".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Caution,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "url".to_string(),
+                description: "Target URL".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "wrk".to_string(),
+            description: "HTTP benchmarking tool".to_string(),
+            category: ToolCategory::WebTools,
+            command: "wrk".to_string(),
+            common_args: vec!["-t12".to_string(), "-c400".to_string(), "-d30s".to_string()],
+            examples: vec![ToolExample {
+                description: "Benchmark".to_string(),
+                command: "wrk -t12 -c400 -d30s http://localhost:8080".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Caution,
+            requires_admin: false,
+            supported_os: vec![OperatingSystem::Linux, OperatingSystem::MacOS],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "url".to_string(),
+                description: "Target URL".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "vegeta".to_string(),
+            description: "HTTP load testing tool".to_string(),
+            category: ToolCategory::WebTools,
+            command: "vegeta".to_string(),
+            common_args: vec!["attack".to_string()],
+            examples: vec![ToolExample {
+                description: "Attack endpoint".to_string(),
+                command: "echo 'GET http://localhost' | vegeta attack -duration=5s | vegeta report"
+                    .to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Caution,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![],
+        });
+
+        self.add_tool(OSTool {
+            name: "postman".to_string(),
+            description: "Postman CLI (newman)".to_string(),
+            category: ToolCategory::WebTools,
+            command: "newman".to_string(),
+            common_args: vec!["run".to_string()],
+            examples: vec![ToolExample {
+                description: "Run collection".to_string(),
+                command: "newman run collection.json".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "collection".to_string(),
+                description: "Collection file".to_string(),
+                param_type: ParameterType::Path,
+                required: true,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "ngrok".to_string(),
+            description: "Secure tunnel to localhost".to_string(),
+            category: ToolCategory::WebTools,
+            command: "ngrok".to_string(),
+            common_args: vec!["http".to_string()],
+            examples: vec![ToolExample {
+                description: "Expose local server".to_string(),
+                command: "ngrok http 8080".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Caution,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "port".to_string(),
+                description: "Local port".to_string(),
+                param_type: ParameterType::Integer,
+                required: true,
+                default_value: None,
+                enum_values: vec![],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "cloudflared".to_string(),
+            description: "Cloudflare Tunnel client".to_string(),
+            category: ToolCategory::WebTools,
+            command: "cloudflared".to_string(),
+            common_args: vec!["tunnel".to_string()],
+            examples: vec![ToolExample {
+                description: "Quick tunnel".to_string(),
+                command: "cloudflared tunnel --url http://localhost:8080".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Caution,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "command".to_string(),
+                description: "Cloudflared command".to_string(),
+                param_type: ParameterType::String,
+                required: true,
+                default_value: None,
+                enum_values: vec![
+                    "tunnel".to_string(),
+                    "access".to_string(),
+                    "service".to_string(),
+                ],
+            }],
+        });
+
+        self.add_tool(OSTool {
+            name: "mkcert".to_string(),
+            description: "Local HTTPS certificates".to_string(),
+            category: ToolCategory::Security,
+            command: "mkcert".to_string(),
+            common_args: vec!["-install".to_string()],
+            examples: vec![ToolExample {
+                description: "Create cert".to_string(),
+                command: "mkcert localhost 127.0.0.1 ::1".to_string(),
+                expected_output: None,
+            }],
+            safety_level: SafetyLevel::Safe,
+            requires_admin: false,
+            supported_os: vec![
+                OperatingSystem::Linux,
+                OperatingSystem::MacOS,
+                OperatingSystem::Windows,
+            ],
+            cross_platform: None,
+            parameters: vec![ToolParameter {
+                name: "domains".to_string(),
+                description: "Domain names".to_string(),
+                param_type: ParameterType::String,
                 required: true,
                 default_value: None,
                 enum_values: vec![],

@@ -1,0 +1,39 @@
+# Test MCP tool functionality
+# Simple verification tests
+
+# Test 1: List all tools
+let all_tools = mcp_tools()
+print("Total MCP tools:")
+print(len(all_tools))
+
+# Test 2: Search for git-related tools
+let git_tools = mcp_tools({ search: "git" })
+print("Git-related tools:")
+print(len(git_tools))
+
+# Test 3: Get tools by category
+let dev_tools = mcp_tools({ category: "development" })
+print("Development tools:")
+print(len(dev_tools))
+
+# Test 4: List MCP resources
+let resources = mcp_resources()
+print("MCP resources:")
+print(len(resources))
+
+# Test 5: List MCP prompts
+let prompts = mcp_prompts()
+print("MCP prompts:")
+print(len(prompts))
+
+# Test 6: Get MCP server info
+let info = mcp_server()
+print("Tool count from server:")
+print(info.tool_count)
+
+# Test 7: Verify tool call with git
+let result = mcp_call("git", { command: "version" })
+print("Git call success:")
+print(result.is_error == false)
+
+print("MCP tests complete!")

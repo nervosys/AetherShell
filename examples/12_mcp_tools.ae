@@ -1,0 +1,73 @@
+# MCP Tools Example
+# Demonstrates the Model Context Protocol integration for AI agent tool access
+
+# Create a basic MCP server (with default safe configuration)
+let server = mcp_server()
+print("MCP Server Info:")
+print(server)
+
+# Create a server with specific safety level
+let safe_server = mcp_server({ max_safety_level: "safe" })
+print("Safe server tool count: " + safe_server.tool_count)
+
+# Create a server for specific categories only
+let k8s_server = mcp_server({ categories: ["kubernetes", "containers"] })
+print("K8s/Container server tool count: " + k8s_server.tool_count)
+
+# List all available MCP tools
+print("\n--- All MCP Tools ---")
+let all_tools = mcp_tools()
+print("Total tools available: " + len(all_tools))
+
+# List tools by category
+print("\n--- Kubernetes Tools ---")
+let k8s_tools = mcp_tools({ category: "kubernetes" })
+k8s_tools | map(fn(t) => print("  - " + t.name + ": " + t.description))
+
+print("\n--- Database Tools ---")
+let db_tools = mcp_tools({ category: "database" })
+db_tools | map(fn(t) => print("  - " + t.name + ": " + t.description))
+
+# Search for tools
+print("\n--- Search: 'git' ---")
+let git_tools = mcp_tools({ search: "git" })
+git_tools | map(fn(t) => print("  - " + t.name))
+
+# List MCP resources
+print("\n--- MCP Resources ---")
+let resources = mcp_resources()
+resources | map(fn(r) => print("  - " + r.name + ": " + r.uri))
+
+# List MCP prompts
+print("\n--- MCP Prompts ---")
+let prompts = mcp_prompts()
+prompts | map(fn(p) => print("  - " + p.name))
+
+# Get a specific prompt
+let find_prompt = mcp_prompts("find-tool")
+if find_prompt != null {
+    print("\nFind-tool prompt:")
+    print(find_prompt)
+}
+
+# Try connecting to an external MCP server (demo)
+print("\n--- External MCP Server (demo) ---")
+let external = mcp_connect("http://localhost:3001")
+if external.available {
+    print("Connected to: " + external.name)
+    print("Tools: " + len(external.tools))
+} else {
+    print("Not connected (expected in demo mode)")
+}
+
+# Call a tool (if available)
+print("\n--- Tool Call Demo ---")
+let result = mcp_call("ls", { path: "." })
+if result.is_error {
+    print("Tool call failed (expected if ls not available)")
+} else {
+    print("Tool output:")
+    result.content | map(fn(c) => print(c.text))
+}
+
+print("\nMCP integration complete!")

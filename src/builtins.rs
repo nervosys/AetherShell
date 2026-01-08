@@ -191,6 +191,19 @@ lazy_static::lazy_static! {
         map.insert("rlm_spawn", 116);
         map.insert("spawn_agent", 116); // alias
 
+        // MCP Server/Client functions (117-122)
+        map.insert("mcp_server", 117);
+        map.insert("mcp_tools", 118);
+        map.insert("mcp_list_tools", 118); // alias
+        map.insert("mcp_call", 119);
+        map.insert("mcp_call_tool", 119); // alias
+        map.insert("mcp_resources", 120);
+        map.insert("mcp_list_resources", 120); // alias
+        map.insert("mcp_prompts", 121);
+        map.insert("mcp_list_prompts", 121); // alias
+        map.insert("mcp_connect", 122);
+        map.insert("mcp_client", 122); // alias
+
         map
     };
 }
@@ -328,6 +341,13 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_rlm_config(args, input),
     |args, input, _| bi_rlm_stats(args, input),
     |args, input, env| bi_rlm_spawn(args, input, env),
+    // 117-122: MCP Server/Client functions
+    |args, input, _| bi_mcp_server(args, input),
+    |args, input, _| bi_mcp_tools(args, input),
+    |args, input, _| bi_mcp_call(args, input),
+    |args, input, _| bi_mcp_resources(args, input),
+    |args, input, _| bi_mcp_prompts(args, input),
+    |args, input, _| bi_mcp_connect(args, input),
 ];
 
 fn fast_builtin_lookup(
@@ -563,9 +583,26 @@ AI Backend Detection:
 - ai_backends                   # list available AI backends with details
 - ai_detect                     # auto-select best available AI backend
 
-MCP Server Integration:
+MCP Server Integration (Discovery):
 - mcp_servers                   # list available MCP servers and tools
 - mcp_detect [endpoint]         # find specific MCP server or first available
+- mcp_cache_clear               # clear MCP detection cache
+- mcp_cache_status              # get cache status info
+
+MCP Server/Client (Enhanced):
+- mcp_server [config]           # create local MCP server for AI tools
+- mcp_tools  [filter]           # list MCP tools with schemas
+- mcp_call   <name> [args]      # call MCP tool by name
+- mcp_resources [type]          # list MCP resources
+- mcp_prompts [name]            # list prompts or get specific one
+- mcp_connect <endpoint>        # connect to external MCP server
+
+OS Tools (40+ tools for AI agents):
+- tools       [category]        # list available OS tools
+- tool_info   <name>            # get detailed tool information
+- tool_search <query>           # search tools by keyword
+- tool_schema <name>            # get tool input schema
+- tool_exec   <name> [args]     # execute tool
 
 Syntax Knowledge Base:
 - syntax_get      <id>                      # get syntax entry by ID
@@ -3269,6 +3306,508 @@ fn bi_mcp_cache_status(_args: Vec<Value>, _input: Option<Value>) -> Result<Value
     record.insert("has_cached_data".to_string(), Value::Bool(has_cached_data));
 
     Ok(Value::Record(record))
+}
+
+// ==================== MCP Server/Client Functions ====================
+
+/// Helper function to map category strings to ToolCategory enum
+fn parse_tool_category(s: &str) -> Option<crate::os_tools::ToolCategory> {
+    use crate::os_tools::ToolCategory;
+    match s.to_lowercase().as_str() {
+        "filesystem" | "file_system" => Some(ToolCategory::FileSystem),
+        "textprocessing" | "text_processing" | "text" => Some(ToolCategory::TextProcessing),
+        "networktools" | "network_tools" | "network" => Some(ToolCategory::NetworkTools),
+        "systeminfo" | "system_info" | "system" => Some(ToolCategory::SystemInfo),
+        "processmanagement" | "process_management" | "process" => {
+            Some(ToolCategory::ProcessManagement)
+        }
+        "archives" | "archive" => Some(ToolCategory::Archives),
+        "searchtools" | "search_tools" | "search" => Some(ToolCategory::SearchTools),
+        "monitoring" => Some(ToolCategory::Monitoring),
+        "development" | "dev" => Some(ToolCategory::Development),
+        "media" => Some(ToolCategory::Media),
+        "security" => Some(ToolCategory::Security),
+        "utilities" | "util" => Some(ToolCategory::Utilities),
+        "webtools" | "web_tools" | "web" => Some(ToolCategory::WebTools),
+        "cybersecurity" | "cyber_security" | "cyber" => Some(ToolCategory::CyberSecurity),
+        "reconnaissance" | "recon" => Some(ToolCategory::Reconnaissance),
+        "forensics" => Some(ToolCategory::Forensics),
+        "cryptography" | "crypto" => Some(ToolCategory::Cryptography),
+        "cloudaws" | "cloud_aws" | "aws" => Some(ToolCategory::CloudAWS),
+        "cloudazure" | "cloud_azure" | "azure" => Some(ToolCategory::CloudAzure),
+        "cloudgcp" | "cloud_gcp" | "gcp" => Some(ToolCategory::CloudGCP),
+        "kubernetes" | "k8s" => Some(ToolCategory::Kubernetes),
+        "containers" | "docker" | "podman" => Some(ToolCategory::Containers),
+        "infrastructure" | "terraform" | "ansible" => Some(ToolCategory::Infrastructure),
+        "database" | "db" => Some(ToolCategory::Database),
+        "dataprocessing" | "data_processing" | "data" => Some(ToolCategory::DataProcessing),
+        "machinelearning" | "machine_learning" | "ml" => Some(ToolCategory::MachineLearning),
+        _ => None,
+    }
+}
+
+/// mcp_server(config?) - Create a local MCP server instance for AI tool access
+/// Args:
+///   - config (optional): Record with configuration options
+///     - max_safety_level: String - "safe", "caution", "dangerous", "critical" (default: "caution")
+///     - allow_admin: Bool - Allow admin tools (default: false)
+///     - categories: Array[String] - Limit to specific tool categories (default: all)
+///     - blocked_tools: Array[String] - Tools to block (default: [])
+/// Returns: Record with MCP server information
+///
+/// Example:
+///   let server = mcp_server()
+///   let safe_server = mcp_server({ max_safety_level: "safe" })
+///   let k8s_server = mcp_server({ categories: ["kubernetes", "containers"] })
+fn bi_mcp_server(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    use crate::mcp::{McpConfig, McpServer};
+    use crate::os_tools::SafetyLevel;
+
+    // Parse config from args
+    let mut config = McpConfig::default();
+    let mut allowed_categories = None;
+
+    if !args.is_empty() {
+        if let Value::Record(rec) = &args[0] {
+            // Parse safety level
+            if let Some(Value::Str(level)) = rec.get("max_safety_level") {
+                config.max_safety_level = match level.to_lowercase().as_str() {
+                    "safe" => SafetyLevel::Safe,
+                    "caution" => SafetyLevel::Caution,
+                    "dangerous" => SafetyLevel::Dangerous,
+                    "critical" => SafetyLevel::Critical,
+                    _ => SafetyLevel::Caution,
+                };
+            }
+
+            // Parse allow_admin
+            if let Some(Value::Bool(b)) = rec.get("allow_admin") {
+                config.allow_admin_tools = *b;
+            }
+
+            // Parse blocked_tools
+            if let Some(Value::Array(arr)) = rec.get("blocked_tools") {
+                config.blocked_tools = arr
+                    .iter()
+                    .filter_map(|v| {
+                        if let Value::Str(s) = v {
+                            Some(s.clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+            }
+
+            // Parse categories
+            if let Some(Value::Array(arr)) = rec.get("categories") {
+                let cats: Vec<_> = arr
+                    .iter()
+                    .filter_map(|v| {
+                        if let Value::Str(s) = v {
+                            parse_tool_category(s)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                if !cats.is_empty() {
+                    allowed_categories = Some(cats);
+                }
+            }
+        }
+    }
+
+    // Set allowed_categories in config
+    config.allowed_categories = allowed_categories;
+
+    // Create MCP server
+    let server = McpServer::with_config(config);
+    let init_result = server.initialize();
+
+    // Return server info as record
+    let mut record = BTreeMap::new();
+    record.insert(
+        "protocol_version".to_string(),
+        Value::Str(init_result.protocol_version),
+    );
+    record.insert(
+        "server_name".to_string(),
+        Value::Str(init_result.server_info.name),
+    );
+    record.insert(
+        "server_version".to_string(),
+        Value::Str(init_result.server_info.version),
+    );
+    record.insert(
+        "tool_count".to_string(),
+        Value::Int(server.list_tools().len() as i64),
+    );
+
+    let capabilities: Vec<Value> = vec![
+        Value::Str("tools".to_string()),
+        Value::Str("resources".to_string()),
+        Value::Str("prompts".to_string()),
+    ];
+    record.insert("capabilities".to_string(), Value::Array(capabilities));
+
+    Ok(Value::Record(record))
+}
+
+/// mcp_tools(config?) - List available MCP tools with their schemas
+/// Args:
+///   - config (optional): Record with filter options
+///     - category: String - Filter by category
+///     - search: String - Search by name/description
+///     - safety_level: String - Max safety level
+/// Returns: Array of tool records with name, description, and input schema
+///
+/// Example:
+///   let all_tools = mcp_tools()
+///   let k8s_tools = mcp_tools({ category: "kubernetes" })
+///   let git_tools = mcp_tools({ search: "git" })
+fn bi_mcp_tools(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    use crate::mcp::{McpConfig, McpServer};
+    use crate::os_tools::SafetyLevel;
+
+    // Parse filters
+    let mut config = McpConfig::default();
+    let mut search_filter: Option<String> = None;
+
+    if !args.is_empty() {
+        if let Value::Record(rec) = &args[0] {
+            // Parse category filter
+            if let Some(Value::Str(cat_str)) = rec.get("category") {
+                if let Some(cat) = parse_tool_category(cat_str) {
+                    config.allowed_categories = Some(vec![cat]);
+                }
+            }
+
+            // Parse search filter
+            if let Some(Value::Str(s)) = rec.get("search") {
+                search_filter = Some(s.clone());
+            }
+
+            // Parse safety level
+            if let Some(Value::Str(level)) = rec.get("safety_level") {
+                config.max_safety_level = match level.to_lowercase().as_str() {
+                    "safe" => SafetyLevel::Safe,
+                    "caution" => SafetyLevel::Caution,
+                    "dangerous" => SafetyLevel::Dangerous,
+                    "critical" => SafetyLevel::Critical,
+                    _ => SafetyLevel::Caution,
+                };
+            }
+        }
+    }
+
+    let server = McpServer::with_config(config);
+    let tools = server.list_tools();
+
+    // Apply search filter
+    let filtered_tools: Vec<_> = if let Some(ref search) = search_filter {
+        let search_lower = search.to_lowercase();
+        tools
+            .into_iter()
+            .filter(|t| {
+                t.name.to_lowercase().contains(&search_lower)
+                    || t.description.to_lowercase().contains(&search_lower)
+            })
+            .collect()
+    } else {
+        tools
+    };
+
+    let tool_records: Vec<Value> = filtered_tools
+        .into_iter()
+        .map(|tool| {
+            let mut rec = BTreeMap::new();
+            rec.insert("name".to_string(), Value::Str(tool.name));
+            rec.insert("description".to_string(), Value::Str(tool.description));
+            rec.insert(
+                "input_schema".to_string(),
+                Value::Str(tool.input_schema.to_string()),
+            );
+            Value::Record(rec)
+        })
+        .collect();
+
+    Ok(Value::Array(tool_records))
+}
+
+/// mcp_call(name, args?) - Call an MCP tool by name with arguments
+/// Args:
+///   - name: String - Tool name to call
+///   - args (optional): Record - Arguments for the tool
+/// Returns: Record with result content or error
+///
+/// Example:
+///   let result = mcp_call("ls", { path: "." })
+///   let files = mcp_call("find", { directory: "/home", pattern: "*.rs" })
+fn bi_mcp_call(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    use crate::mcp::{McpContent, McpServer, McpToolCall};
+    use std::collections::HashMap;
+
+    if args.is_empty() {
+        return Err(anyhow!("mcp_call requires tool name as first argument"));
+    }
+
+    let tool_name = expect_string("mcp_call", &args[0])?;
+
+    // Build arguments HashMap
+    let tool_args: HashMap<String, serde_json::Value> = if args.len() > 1 {
+        match &args[1] {
+            Value::Record(rec) => rec
+                .iter()
+                .map(|(k, v)| (k.clone(), value_to_json_owned(v.clone())))
+                .collect(),
+            _ => HashMap::new(),
+        }
+    } else {
+        HashMap::new()
+    };
+
+    let server = McpServer::new();
+    let call = McpToolCall {
+        name: tool_name.to_string(),
+        arguments: tool_args,
+    };
+
+    let result = server.call_tool(call);
+
+    let mut record = BTreeMap::new();
+    record.insert(
+        "is_error".to_string(),
+        Value::Bool(result.is_error.unwrap_or(false)),
+    );
+
+    let content_values: Vec<Value> = result
+        .content
+        .into_iter()
+        .map(|c| {
+            let mut content_rec = BTreeMap::new();
+            match c {
+                McpContent::Text { text } => {
+                    content_rec.insert("type".to_string(), Value::Str("text".to_string()));
+                    content_rec.insert("text".to_string(), Value::Str(text));
+                }
+                McpContent::Image { data, mime_type } => {
+                    content_rec.insert("type".to_string(), Value::Str("image".to_string()));
+                    content_rec.insert("data".to_string(), Value::Str(data));
+                    content_rec.insert("mime_type".to_string(), Value::Str(mime_type));
+                }
+                McpContent::Resource { uri, mime_type } => {
+                    content_rec.insert("type".to_string(), Value::Str("resource".to_string()));
+                    content_rec.insert("uri".to_string(), Value::Str(uri));
+                    if let Some(mt) = mime_type {
+                        content_rec.insert("mime_type".to_string(), Value::Str(mt));
+                    }
+                }
+            }
+            Value::Record(content_rec)
+        })
+        .collect();
+    record.insert("content".to_string(), Value::Array(content_values));
+
+    Ok(Value::Record(record))
+}
+
+/// mcp_resources(type?) - List available MCP resources
+/// Args:
+///   - type (optional): String - Filter by resource type ("text", "blob", etc.)
+/// Returns: Array of resource records
+///
+/// Example:
+///   let resources = mcp_resources()
+///   let text_resources = mcp_resources("text")
+fn bi_mcp_resources(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    use crate::mcp::McpServer;
+
+    let type_filter = if !args.is_empty() {
+        if let Value::Str(s) = &args[0] {
+            Some(s.clone())
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let server = McpServer::new();
+    let resources = server.list_resources();
+
+    let filtered: Vec<_> = if let Some(ref t) = type_filter {
+        resources
+            .into_iter()
+            .filter(|r| r.mime_type.as_ref().map(|m| m.contains(t)).unwrap_or(false))
+            .collect()
+    } else {
+        resources
+    };
+
+    let resource_records: Vec<Value> = filtered
+        .into_iter()
+        .map(|res| {
+            let mut rec = BTreeMap::new();
+            rec.insert("uri".to_string(), Value::Str(res.uri));
+            rec.insert("name".to_string(), Value::Str(res.name));
+            if let Some(desc) = res.description {
+                rec.insert("description".to_string(), Value::Str(desc));
+            }
+            if let Some(mime) = res.mime_type {
+                rec.insert("mime_type".to_string(), Value::Str(mime));
+            }
+            Value::Record(rec)
+        })
+        .collect();
+
+    Ok(Value::Array(resource_records))
+}
+
+/// mcp_prompts(name?) - List available MCP prompts or get specific prompt
+/// Args:
+///   - name (optional): String - Get specific prompt by name
+/// Returns: Array of prompt records or single prompt
+///
+/// Example:
+///   let prompts = mcp_prompts()
+///   let find_prompt = mcp_prompts("find-tool")
+fn bi_mcp_prompts(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    use crate::mcp::McpServer;
+
+    let server = McpServer::new();
+    let prompts = server.list_prompts();
+
+    if !args.is_empty() {
+        if let Value::Str(name) = &args[0] {
+            if let Some(prompt) = prompts.into_iter().find(|p| &p.name == name) {
+                let mut rec = BTreeMap::new();
+                rec.insert("name".to_string(), Value::Str(prompt.name));
+                if let Some(desc) = prompt.description {
+                    rec.insert("description".to_string(), Value::Str(desc));
+                }
+                if let Some(arguments) = prompt.arguments {
+                    let args_values: Vec<Value> = arguments
+                        .into_iter()
+                        .map(|arg| {
+                            let mut arg_rec = BTreeMap::new();
+                            arg_rec.insert("name".to_string(), Value::Str(arg.name));
+                            if let Some(desc) = arg.description {
+                                arg_rec.insert("description".to_string(), Value::Str(desc));
+                            }
+                            arg_rec.insert(
+                                "required".to_string(),
+                                Value::Bool(arg.required.unwrap_or(false)),
+                            );
+                            Value::Record(arg_rec)
+                        })
+                        .collect();
+                    rec.insert("arguments".to_string(), Value::Array(args_values));
+                }
+                return Ok(Value::Record(rec));
+            }
+            return Ok(Value::Null);
+        }
+    }
+
+    let prompt_records: Vec<Value> = prompts
+        .into_iter()
+        .map(|prompt| {
+            let mut rec = BTreeMap::new();
+            rec.insert("name".to_string(), Value::Str(prompt.name));
+            if let Some(desc) = prompt.description {
+                rec.insert("description".to_string(), Value::Str(desc));
+            }
+            if let Some(arguments) = prompt.arguments {
+                let args_values: Vec<Value> = arguments
+                    .into_iter()
+                    .map(|arg| {
+                        let mut arg_rec = BTreeMap::new();
+                        arg_rec.insert("name".to_string(), Value::Str(arg.name));
+                        if let Some(desc) = arg.description {
+                            arg_rec.insert("description".to_string(), Value::Str(desc));
+                        }
+                        arg_rec.insert(
+                            "required".to_string(),
+                            Value::Bool(arg.required.unwrap_or(false)),
+                        );
+                        Value::Record(arg_rec)
+                    })
+                    .collect();
+                rec.insert("arguments".to_string(), Value::Array(args_values));
+            }
+            Value::Record(rec)
+        })
+        .collect();
+
+    Ok(Value::Array(prompt_records))
+}
+
+/// mcp_connect(endpoint) - Connect to an external MCP server
+/// Args:
+///   - endpoint: String - Server endpoint URL (e.g., "http://localhost:3001")
+/// Returns: Record with connection info and available tools
+///
+/// Example:
+///   let client = mcp_connect("http://localhost:3001")
+///   let tools = client.tools
+fn bi_mcp_connect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if args.is_empty() {
+        return Err(anyhow!("mcp_connect requires endpoint URL"));
+    }
+
+    let endpoint = expect_string("mcp_connect", &args[0])?;
+
+    // Try to detect MCP server at endpoint
+    let servers = crate::ai::detect_mcp_servers();
+    if let Some(server) = servers.iter().find(|s| s.endpoint == endpoint) {
+        let mut record = BTreeMap::new();
+        record.insert("endpoint".to_string(), Value::Str(server.endpoint.clone()));
+        record.insert("name".to_string(), Value::Str(server.name.clone()));
+        record.insert("available".to_string(), Value::Bool(server.available));
+
+        let tools: Vec<Value> = server.tools.iter().map(|t| Value::Str(t.clone())).collect();
+        record.insert("tools".to_string(), Value::Array(tools));
+
+        return Ok(Value::Record(record));
+    }
+
+    // Server not detected, return basic info indicating unavailable
+    let mut record = BTreeMap::new();
+    record.insert("endpoint".to_string(), Value::Str(endpoint.to_string()));
+    record.insert("name".to_string(), Value::Str("unknown".to_string()));
+    record.insert("available".to_string(), Value::Bool(false));
+    record.insert("tools".to_string(), Value::Array(vec![]));
+    record.insert(
+        "error".to_string(),
+        Value::Str("Server not responding or not detected".to_string()),
+    );
+
+    Ok(Value::Record(record))
+}
+
+// Helper function to convert owned Value to serde_json::Value
+fn value_to_json_owned(v: Value) -> serde_json::Value {
+    match v {
+        Value::Null => serde_json::Value::Null,
+        Value::Bool(b) => serde_json::Value::Bool(b),
+        Value::Int(i) => serde_json::Value::Number(serde_json::Number::from(i)),
+        Value::Float(f) => serde_json::Number::from_f64(f)
+            .map(serde_json::Value::Number)
+            .unwrap_or(serde_json::Value::Null),
+        Value::Str(s) => serde_json::Value::String(s),
+        Value::Array(arr) => {
+            serde_json::Value::Array(arr.into_iter().map(value_to_json_owned).collect())
+        }
+        Value::Record(rec) => {
+            let map: serde_json::Map<String, serde_json::Value> = rec
+                .into_iter()
+                .map(|(k, v)| (k, value_to_json_owned(v)))
+                .collect();
+            serde_json::Value::Object(map)
+        }
+        _ => serde_json::Value::Null,
+    }
 }
 
 /// first(n?) - Get first n elements from array input (default: 1)
