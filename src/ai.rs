@@ -1206,7 +1206,7 @@ pub fn auto_select_backend() -> Option<String> {
     None
 }
 
-fn backend_from_env() -> Box<dyn LlmBackend> {
+pub fn backend_from_env() -> Box<dyn LlmBackend> {
     // First check for explicit configuration
     let model_uri = std::env::var("AETHER_MODEL_URI").ok().or_else(|| {
         std::env::var("AETHER_AI").ok().map(|ai| {
@@ -1230,7 +1230,7 @@ fn backend_from_env() -> Box<dyn LlmBackend> {
 
     backend_from_model(uri)
 }
-fn backend_from_model(uri: String) -> Box<dyn LlmBackend> {
+pub fn backend_from_model(uri: String) -> Box<dyn LlmBackend> {
     let m = parse_model_ref(&uri);
     match m.provider {
         Provider::OpenAI => Box::new(OpenAiBackend),
@@ -1251,7 +1251,7 @@ fn render_prompt(msgs: &[ChatMessage]) -> String {
     s
 }
 
-fn parse_agent_command(text: &str) -> (Option<J>, String) {
+pub fn parse_agent_command(text: &str) -> (Option<J>, String) {
     if let Some(start) = text.find("```json") {
         if let Some(end) = text[start + 7..].find("```") {
             let json_str = &text[start + 7..start + 7 + end];
@@ -1267,7 +1267,7 @@ fn parse_agent_command(text: &str) -> (Option<J>, String) {
 }
 
 use crate::value::Value;
-fn display_value(v: &Value) -> String {
+pub fn display_value(v: &Value) -> String {
     match v {
         Value::Null => "null".into(),
         Value::Bool(b) => b.to_string(),

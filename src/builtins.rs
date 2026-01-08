@@ -10,10 +10,12 @@ use crate::{
     eval::eval_expr,
     evolution::{CrossoverStrategy, EvolutionConfig, FitnessResult, Population, SelectionStrategy},
     neural::{Activation, ConsensusNetwork, NeuralNetwork},
+    os_tools::{execute_tool_safe, OSToolsDatabase, OperatingSystem, ToolCategory},
     rl::{
         ActorCriticAgent, DQNAgent, GridWorld, PolicyGradientAgent, QLearningAgent, ReplayBuffer,
         SarsaAgent,
     },
+    rlm::{run_recursive, run_recursive_with_model, RlmConfig},
     security::{
         check_file_size_limit, check_rate_limit, create_secure_http_client, validate_ai_prompt,
         validate_http_url, validate_read_path,
@@ -171,6 +173,24 @@ lazy_static::lazy_static! {
         map.insert("rl_gridworld", 106);
         map.insert("rl_env_step", 107);
 
+        // OS Tools functions (108-112)
+        map.insert("tools", 108);
+        map.insert("tool_list", 108); // alias
+        map.insert("tool_info", 109);
+        map.insert("tool_schema", 110);
+        map.insert("tool_schemas", 110); // alias
+        map.insert("tool_exec", 111);
+        map.insert("tool_execute", 111); // alias
+        map.insert("tool_search", 112);
+
+        // Recursive Language Model functions (113-116)
+        map.insert("rlm_agent", 113);
+        map.insert("recursive_agent", 113); // alias
+        map.insert("rlm_config", 114);
+        map.insert("rlm_stats", 115);
+        map.insert("rlm_spawn", 116);
+        map.insert("spawn_agent", 116); // alias
+
         map
     };
 }
@@ -297,6 +317,17 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_rl_replay_buffer(args, input),
     |args, input, _| bi_rl_gridworld(args, input),
     |args, input, _| bi_rl_env_step(args, input),
+    // 108-112: OS Tools functions
+    |args, input, _| bi_tools(args, input),
+    |args, input, _| bi_tool_info(args, input),
+    |args, input, _| bi_tool_schema(args, input),
+    |args, input, _| bi_tool_exec(args, input),
+    |args, input, _| bi_tool_search(args, input),
+    // 113-116: Recursive Language Model functions
+    |args, input, env| bi_rlm_agent(args, input, env),
+    |args, input, _| bi_rlm_config(args, input),
+    |args, input, _| bi_rlm_stats(args, input),
+    |args, input, env| bi_rlm_spawn(args, input, env),
 ];
 
 fn fast_builtin_lookup(
@@ -548,6 +579,15 @@ Syntax Knowledge Base:
 AI / Agents (require ai module present):
 - agent <goal> [tools...] [max_steps] [dry_run]
 - swarm <json-config|record>  OR  <goal> [tools...] [max_steps] [dry_run]
+
+Recursive Language Models (RLM):
+- rlm_agent <goal> [tools] [config]         # run agent that can spawn subagents
+- rlm_config {opts}                         # create RLM configuration
+- rlm_stats  ()                             # get hierarchy statistics
+- rlm_spawn  <name> <goal> [tools]          # spawn a single subagent
+
+RLM Configuration Options:
+  {max_depth: 5, max_agents: 50, timeout: 60, trace: true}
 
 Examples:
   # Pipelines
@@ -6474,4 +6514,647 @@ fn value_to_gridworld(v: &Value) -> Result<GridWorld> {
     } else {
         Err(anyhow!("Invalid gridworld value"))
     }
+}
+
+// ===========================================================================
+// OS Tools Builtins
+// ===========================================================================
+
+/// List all available tools or filter by category/OS
+/// Usage: tools() | tools("network") | tools("linux")
+fn bi_tools(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let db = OSToolsDatabase::new();
+
+    // Get filter if provided
+    let filter = args.first().and_then(|v| {
+        if let Value::Str(s) = v {
+            Some(s.to_lowercase())
+        } else {
+            None
+        }
+    });
+
+    let tools: Vec<&crate::os_tools::OSTool> = if let Some(ref f) = filter {
+        // Check if it's an OS filter
+        let os_filter = match f.as_str() {
+            "linux" => Some(OperatingSystem::Linux),
+            "bsd" | "freebsd" | "openbsd" | "netbsd" => Some(OperatingSystem::BSD),
+            "macos" | "mac" | "darwin" => Some(OperatingSystem::MacOS),
+            "windows" | "win" => Some(OperatingSystem::Windows),
+            "ios" | "iphone" => Some(OperatingSystem::iOS),
+            "android" => Some(OperatingSystem::Android),
+            _ => None,
+        };
+
+        if let Some(os) = os_filter {
+            db.get_tools_by_os(&os)
+        } else {
+            // Check if it's a category filter
+            let cat_filter = match f.as_str() {
+                "filesystem" | "file" | "files" => Some(ToolCategory::FileSystem),
+                "text" | "textprocessing" => Some(ToolCategory::TextProcessing),
+                "network" | "net" => Some(ToolCategory::NetworkTools),
+                "system" | "systeminfo" | "sysinfo" => Some(ToolCategory::SystemInfo),
+                "process" | "processes" => Some(ToolCategory::ProcessManagement),
+                "archive" | "archives" | "compression" => Some(ToolCategory::Archives),
+                "search" => Some(ToolCategory::SearchTools),
+                "monitor" | "monitoring" => Some(ToolCategory::Monitoring),
+                "dev" | "development" => Some(ToolCategory::Development),
+                "media" => Some(ToolCategory::Media),
+                "security" | "sec" => Some(ToolCategory::Security),
+                "util" | "utilities" => Some(ToolCategory::Utilities),
+                "web" | "webtools" => Some(ToolCategory::WebTools),
+                "cyber" | "cybersecurity" | "pentest" => Some(ToolCategory::CyberSecurity),
+                "recon" | "reconnaissance" | "osint" => Some(ToolCategory::Reconnaissance),
+                "forensics" | "forensic" => Some(ToolCategory::Forensics),
+                "crypto" | "cryptography" => Some(ToolCategory::Cryptography),
+                _ => None,
+            };
+
+            if let Some(cat) = cat_filter {
+                db.get_tools_by_category(&cat)
+            } else {
+                // Fallback to search
+                db.search_tools(f)
+            }
+        }
+    } else {
+        // Return all tools
+        db.tools.values().collect()
+    };
+
+    // Convert to Value::Array of Records
+    let tool_values: Vec<Value> = tools
+        .iter()
+        .map(|t| {
+            let mut rec = BTreeMap::new();
+            rec.insert("name".to_string(), Value::Str(t.name.clone()));
+            rec.insert("description".to_string(), Value::Str(t.description.clone()));
+            rec.insert("command".to_string(), Value::Str(t.command.clone()));
+            rec.insert(
+                "category".to_string(),
+                Value::Str(format!("{:?}", t.category)),
+            );
+            rec.insert(
+                "safety".to_string(),
+                Value::Str(format!("{:?}", t.safety_level)),
+            );
+            rec.insert("requires_admin".to_string(), Value::Bool(t.requires_admin));
+            rec.insert(
+                "supported_os".to_string(),
+                Value::Array(
+                    t.supported_os
+                        .iter()
+                        .map(|os| Value::Str(format!("{:?}", os)))
+                        .collect(),
+                ),
+            );
+            Value::Record(rec)
+        })
+        .collect();
+
+    Ok(Value::Array(tool_values))
+}
+
+/// Get detailed information about a specific tool
+/// Usage: tool_info("curl") | tool_info("nmap")
+fn bi_tool_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let tool_name = args
+        .first()
+        .and_then(|v| {
+            if let Value::Str(s) = v {
+                Some(s.clone())
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| anyhow!("tool_info requires tool name as argument"))?;
+
+    let db = OSToolsDatabase::new();
+    let tool = db
+        .get_tool(&tool_name)
+        .ok_or_else(|| anyhow!("Tool '{}' not found", tool_name))?;
+
+    let mut rec = BTreeMap::new();
+    rec.insert("name".to_string(), Value::Str(tool.name.clone()));
+    rec.insert(
+        "description".to_string(),
+        Value::Str(tool.description.clone()),
+    );
+    rec.insert("command".to_string(), Value::Str(tool.command.clone()));
+    rec.insert(
+        "category".to_string(),
+        Value::Str(format!("{:?}", tool.category)),
+    );
+    rec.insert(
+        "safety_level".to_string(),
+        Value::Str(format!("{:?}", tool.safety_level)),
+    );
+    rec.insert(
+        "requires_admin".to_string(),
+        Value::Bool(tool.requires_admin),
+    );
+    rec.insert(
+        "supported_os".to_string(),
+        Value::Array(
+            tool.supported_os
+                .iter()
+                .map(|os| Value::Str(format!("{:?}", os)))
+                .collect(),
+        ),
+    );
+    rec.insert(
+        "common_args".to_string(),
+        Value::Array(
+            tool.common_args
+                .iter()
+                .map(|a| Value::Str(a.clone()))
+                .collect(),
+        ),
+    );
+
+    // Add examples
+    let examples: Vec<Value> = tool
+        .examples
+        .iter()
+        .map(|ex| {
+            let mut ex_rec = BTreeMap::new();
+            ex_rec.insert(
+                "description".to_string(),
+                Value::Str(ex.description.clone()),
+            );
+            ex_rec.insert("command".to_string(), Value::Str(ex.command.clone()));
+            if let Some(ref output) = ex.expected_output {
+                ex_rec.insert("expected_output".to_string(), Value::Str(output.clone()));
+            }
+            Value::Record(ex_rec)
+        })
+        .collect();
+    rec.insert("examples".to_string(), Value::Array(examples));
+
+    // Add parameters if available
+    let params: Vec<Value> = tool
+        .parameters
+        .iter()
+        .map(|p| {
+            let mut p_rec = BTreeMap::new();
+            p_rec.insert("name".to_string(), Value::Str(p.name.clone()));
+            p_rec.insert("description".to_string(), Value::Str(p.description.clone()));
+            p_rec.insert(
+                "type".to_string(),
+                Value::Str(format!("{:?}", p.param_type)),
+            );
+            p_rec.insert("required".to_string(), Value::Bool(p.required));
+            if let Some(ref default) = p.default_value {
+                p_rec.insert("default".to_string(), Value::Str(default.clone()));
+            }
+            if !p.enum_values.is_empty() {
+                p_rec.insert(
+                    "enum_values".to_string(),
+                    Value::Array(
+                        p.enum_values
+                            .iter()
+                            .map(|v| Value::Str(v.clone()))
+                            .collect(),
+                    ),
+                );
+            }
+            Value::Record(p_rec)
+        })
+        .collect();
+    rec.insert("parameters".to_string(), Value::Array(params));
+
+    Ok(Value::Record(rec))
+}
+
+/// Get OpenAI-compatible function calling schemas for tools
+/// Usage: tool_schema("curl") | tool_schema() for all | tool_schema("network") for category
+fn bi_tool_schema(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let db = OSToolsDatabase::new();
+
+    let filter = args.first().and_then(|v| {
+        if let Value::Str(s) = v {
+            Some(s.clone())
+        } else {
+            None
+        }
+    });
+
+    let schemas = if let Some(ref name) = filter {
+        // Check if it's a specific tool
+        if let Some(tool) = db.get_tool(name) {
+            vec![tool.to_openai_function_schema()]
+        } else {
+            // Check if it's a category
+            let cat = match name.to_lowercase().as_str() {
+                "network" | "net" => Some(ToolCategory::NetworkTools),
+                "web" | "webtools" => Some(ToolCategory::WebTools),
+                "cyber" | "cybersecurity" => Some(ToolCategory::CyberSecurity),
+                "filesystem" | "file" => Some(ToolCategory::FileSystem),
+                "security" | "sec" => Some(ToolCategory::Security),
+                "forensics" => Some(ToolCategory::Forensics),
+                "crypto" | "cryptography" => Some(ToolCategory::Cryptography),
+                _ => None,
+            };
+
+            if let Some(c) = cat {
+                db.get_category_schemas(&c)
+            } else {
+                // Search and return schemas for matching tools
+                db.search_tools(name)
+                    .iter()
+                    .map(|t| t.to_openai_function_schema())
+                    .collect()
+            }
+        }
+    } else {
+        // Return all schemas
+        db.to_openai_function_schemas()
+    };
+
+    // Convert serde_json::Value to our Value
+    let schema_values: Vec<Value> = schemas.into_iter().map(|s| json_to_value(s)).collect();
+
+    Ok(Value::Array(schema_values))
+}
+
+/// Execute a tool with given arguments
+/// Usage: tool_exec("ls", ["-la"]) | tool_exec("curl", ["-s", "https://example.com"])
+fn bi_tool_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if args.is_empty() {
+        return Err(anyhow!(
+            "tool_exec requires: tool_name, [args], [allow_dangerous]"
+        ));
+    }
+
+    let tool_name = if let Value::Str(s) = &args[0] {
+        s.clone()
+    } else {
+        return Err(anyhow!(
+            "tool_exec: first argument must be tool name string"
+        ));
+    };
+
+    let tool_args: Vec<String> = if args.len() > 1 {
+        if let Value::Array(arr) = &args[1] {
+            arr.iter()
+                .filter_map(|v| {
+                    if let Value::Str(s) = v {
+                        Some(s.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        } else if let Value::Str(s) = &args[1] {
+            // Single argument as string
+            vec![s.clone()]
+        } else {
+            vec![]
+        }
+    } else {
+        vec![]
+    };
+
+    let allow_dangerous = if args.len() > 2 {
+        if let Value::Bool(b) = &args[2] {
+            *b
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
+    let db = OSToolsDatabase::new();
+
+    let result = execute_tool_safe(&db, &tool_name, &tool_args, allow_dangerous)
+        .map_err(|e| anyhow!("Tool execution failed: {}", e))?;
+
+    // Convert result to Value::Record
+    let mut rec = BTreeMap::new();
+    rec.insert("success".to_string(), Value::Bool(result.success));
+    rec.insert("stdout".to_string(), Value::Str(result.stdout));
+    rec.insert("stderr".to_string(), Value::Str(result.stderr));
+    rec.insert(
+        "exit_code".to_string(),
+        result
+            .exit_code
+            .map(|c| Value::Int(c as i64))
+            .unwrap_or(Value::Null),
+    );
+    rec.insert("tool_name".to_string(), Value::Str(result.tool_name));
+    rec.insert(
+        "command_executed".to_string(),
+        Value::Str(result.command_executed),
+    );
+    rec.insert(
+        "execution_time_ms".to_string(),
+        Value::Int(result.execution_time_ms as i64),
+    );
+
+    Ok(Value::Record(rec))
+}
+
+/// Search for tools by keyword or description
+/// Usage: tool_search("network") | tool_search("file copy")
+fn bi_tool_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let query = args
+        .first()
+        .and_then(|v| {
+            if let Value::Str(s) = v {
+                Some(s.clone())
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| anyhow!("tool_search requires a search query"))?;
+
+    let db = OSToolsDatabase::new();
+
+    // Use get_recommended_tools for smart search
+    let tools = db.get_recommended_tools(&query);
+
+    // If no recommendations, fall back to regular search
+    let tools = if tools.is_empty() {
+        db.search_tools(&query)
+    } else {
+        tools
+    };
+
+    let tool_values: Vec<Value> = tools
+        .iter()
+        .map(|t| {
+            let mut rec = BTreeMap::new();
+            rec.insert("name".to_string(), Value::Str(t.name.clone()));
+            rec.insert("description".to_string(), Value::Str(t.description.clone()));
+            rec.insert("command".to_string(), Value::Str(t.command.clone()));
+            rec.insert(
+                "category".to_string(),
+                Value::Str(format!("{:?}", t.category)),
+            );
+            rec.insert(
+                "safety".to_string(),
+                Value::Str(format!("{:?}", t.safety_level)),
+            );
+            Value::Record(rec)
+        })
+        .collect();
+
+    Ok(Value::Array(tool_values))
+}
+
+// ===========================================================================
+// Recursive Language Model (RLM) Builtins
+// ===========================================================================
+
+/// Run a recursive agent that can spawn subagents
+/// Usage: rlm_agent("goal", ["tool1", "tool2"])
+///        rlm_agent("goal", ["tools"], {max_depth: 3, max_agents: 20})
+fn bi_rlm_agent(args: Vec<Value>, _input: Option<Value>, env: &mut Env) -> Result<Value> {
+    if args.is_empty() {
+        return Err(anyhow!("rlm_agent requires: goal, [tools], [config]"));
+    }
+
+    let goal = if let Value::Str(s) = &args[0] {
+        s.clone()
+    } else {
+        return Err(anyhow!("rlm_agent: first argument must be goal string"));
+    };
+
+    // Parse tool names
+    let tool_names: Vec<String> = if args.len() > 1 {
+        if let Value::Array(arr) = &args[1] {
+            arr.iter()
+                .filter_map(|v| {
+                    if let Value::Str(s) = v {
+                        Some(s.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        } else {
+            vec![
+                "ls".to_string(),
+                "cat".to_string(),
+                "grep".to_string(),
+                "find".to_string(),
+            ]
+        }
+    } else {
+        vec![
+            "ls".to_string(),
+            "cat".to_string(),
+            "grep".to_string(),
+            "find".to_string(),
+        ]
+    };
+
+    // Parse config if provided
+    let config = if args.len() > 2 {
+        parse_rlm_config(&args[2])?
+    } else {
+        RlmConfig::default()
+    };
+
+    // Check for model URI
+    let model_uri = if args.len() > 3 {
+        if let Value::Str(s) = &args[3] {
+            Some(s.clone())
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let tool_refs: Vec<&str> = tool_names.iter().map(|s| s.as_str()).collect();
+
+    let (result, stats) = if let Some(uri) = model_uri {
+        run_recursive_with_model(&goal, &tool_refs, &uri, config, false, env)?
+    } else {
+        run_recursive(&goal, &tool_refs, config, false, env)?
+    };
+
+    // Return result with stats
+    let mut rec = BTreeMap::new();
+    rec.insert("output".to_string(), Value::Str(result));
+    rec.insert(
+        "total_agents".to_string(),
+        Value::Int(stats.total_spawned as i64),
+    );
+    rec.insert(
+        "active_agents".to_string(),
+        Value::Int(stats.currently_active as i64),
+    );
+    rec.insert(
+        "messages_sent".to_string(),
+        Value::Int(stats.messages_sent as i64),
+    );
+    rec.insert(
+        "elapsed_ms".to_string(),
+        Value::Int(stats.elapsed_ms as i64),
+    );
+
+    Ok(Value::Record(rec))
+}
+
+/// Create an RLM configuration
+/// Usage: rlm_config({max_depth: 5, max_agents: 50, timeout: 60})
+fn bi_rlm_config(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let config = if args.is_empty() {
+        RlmConfig::default()
+    } else {
+        parse_rlm_config(&args[0])?
+    };
+
+    let mut rec = BTreeMap::new();
+    rec.insert("max_depth".to_string(), Value::Int(config.max_depth as i64));
+    rec.insert(
+        "max_agents".to_string(),
+        Value::Int(config.max_agents as i64),
+    );
+    rec.insert(
+        "agent_timeout_secs".to_string(),
+        Value::Int(config.agent_timeout_secs as i64),
+    );
+    rec.insert(
+        "max_concurrent_children".to_string(),
+        Value::Int(config.max_concurrent_children as i64),
+    );
+    rec.insert(
+        "trace_enabled".to_string(),
+        Value::Bool(config.trace_enabled),
+    );
+    if let Some(uri) = config.subagent_model_uri {
+        rec.insert("subagent_model_uri".to_string(), Value::Str(uri));
+    }
+
+    Ok(Value::Record(rec))
+}
+
+/// Get RLM statistics from the last run
+/// Usage: rlm_stats()
+fn bi_rlm_stats(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    // If input is a record with stats, format it nicely
+    let stats_value = input.or_else(|| args.first().cloned());
+
+    if let Some(Value::Record(rec)) = stats_value {
+        // Already a stats record, return as-is
+        return Ok(Value::Record(rec));
+    }
+
+    // Return default stats structure
+    let mut rec = BTreeMap::new();
+    rec.insert("total_spawned".to_string(), Value::Int(0));
+    rec.insert("currently_active".to_string(), Value::Int(0));
+    rec.insert("messages_sent".to_string(), Value::Int(0));
+    rec.insert("elapsed_ms".to_string(), Value::Int(0));
+    rec.insert("max_depth".to_string(), Value::Int(5));
+    rec.insert("max_agents".to_string(), Value::Int(50));
+
+    Ok(Value::Record(rec))
+}
+
+/// Spawn a subagent (used in agent context)
+/// Usage: rlm_spawn("name", "goal", ["tools"])
+fn bi_rlm_spawn(args: Vec<Value>, _input: Option<Value>, env: &mut Env) -> Result<Value> {
+    if args.len() < 2 {
+        return Err(anyhow!("rlm_spawn requires: name, goal, [tools]"));
+    }
+
+    let name = if let Value::Str(s) = &args[0] {
+        s.clone()
+    } else {
+        return Err(anyhow!("rlm_spawn: name must be a string"));
+    };
+
+    let goal = if let Value::Str(s) = &args[1] {
+        s.clone()
+    } else {
+        return Err(anyhow!("rlm_spawn: goal must be a string"));
+    };
+
+    let tool_names: Vec<String> = if args.len() > 2 {
+        if let Value::Array(arr) = &args[2] {
+            arr.iter()
+                .filter_map(|v| {
+                    if let Value::Str(s) = v {
+                        Some(s.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        } else {
+            vec!["ls".to_string(), "cat".to_string()]
+        }
+    } else {
+        vec!["ls".to_string(), "cat".to_string()]
+    };
+
+    // Run a single-depth recursive agent for the spawn
+    let config = RlmConfig {
+        max_depth: 1, // Single level only
+        max_agents: 5,
+        agent_timeout_secs: 30,
+        ..Default::default()
+    };
+
+    let tool_refs: Vec<&str> = tool_names.iter().map(|s| s.as_str()).collect();
+    let (result, stats) = run_recursive(&goal, &tool_refs, config, false, env)?;
+
+    let mut rec = BTreeMap::new();
+    rec.insert("name".to_string(), Value::Str(name));
+    rec.insert("goal".to_string(), Value::Str(goal));
+    rec.insert("output".to_string(), Value::Str(result));
+    rec.insert("success".to_string(), Value::Bool(stats.total_spawned > 0));
+    rec.insert(
+        "agents_used".to_string(),
+        Value::Int(stats.total_spawned as i64),
+    );
+    rec.insert(
+        "elapsed_ms".to_string(),
+        Value::Int(stats.elapsed_ms as i64),
+    );
+
+    Ok(Value::Record(rec))
+}
+
+/// Parse RLM configuration from a Value
+fn parse_rlm_config(value: &Value) -> Result<RlmConfig> {
+    let mut config = RlmConfig::default();
+
+    if let Value::Record(rec) = value {
+        if let Some(Value::Int(n)) = rec.get("max_depth") {
+            config.max_depth = *n as usize;
+        }
+        if let Some(Value::Int(n)) = rec.get("max_agents") {
+            config.max_agents = *n as usize;
+        }
+        if let Some(Value::Int(n)) = rec.get("timeout") {
+            config.agent_timeout_secs = *n as u64;
+        }
+        if let Some(Value::Int(n)) = rec.get("agent_timeout_secs") {
+            config.agent_timeout_secs = *n as u64;
+        }
+        if let Some(Value::Int(n)) = rec.get("max_concurrent_children") {
+            config.max_concurrent_children = *n as usize;
+        }
+        if let Some(Value::Bool(b)) = rec.get("trace_enabled") {
+            config.trace_enabled = *b;
+        }
+        if let Some(Value::Bool(b)) = rec.get("trace") {
+            config.trace_enabled = *b;
+        }
+        if let Some(Value::Str(s)) = rec.get("model_uri") {
+            config.subagent_model_uri = Some(s.clone());
+        }
+        if let Some(Value::Str(s)) = rec.get("subagent_model_uri") {
+            config.subagent_model_uri = Some(s.clone());
+        }
+    }
+
+    Ok(config)
 }
