@@ -273,8 +273,8 @@ ae -c "ls('./photos') | where(fn(f) => f.ext | in(['.jpg', '.png'])) | map(fn(f)
 
 ### Demo 3: Multi-Agent Task
 ```bash
-# Deploy a research swarm
-ae -c "swarm([{id: 'r', model: 'openai:gpt-4', role: 'research'}, {id: 'w', model: 'anthropic:claude-3-opus', role: 'write'}], 'router')"
+# Deploy an agent with tools (requires AETHER_AI config)
+ae -c "agent({goal: 'Analyze project structure', tools: ['ls', 'cat'], max_steps: 3, dry_run: true})"
 ```
 
 ---
