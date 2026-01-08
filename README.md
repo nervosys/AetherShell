@@ -582,8 +582,9 @@ let mut counter = 0    # Traditional mutable
 let nums = [1, 2, 3]
 match nums {
   [] => print("empty"),
-  [x] => print("single: ${x}"),
-  [x, y, ...rest] => print("multiple: ${x}, ${y}")
+  [x] => print("single"),
+  [x, y] => print("pair"),
+  _ => print("multiple elements")
 }
 
 # Match with Option types
