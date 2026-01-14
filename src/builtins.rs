@@ -176,6 +176,7 @@ lazy_static::lazy_static! {
         // OS Tools functions (108-112)
         map.insert("tools", 108);
         map.insert("tool_list", 108); // alias
+        map.insert("os_tools", 108); // alias for tools
         map.insert("tool_info", 109);
         map.insert("tool_schema", 110);
         map.insert("tool_schemas", 110); // alias
@@ -218,10 +219,13 @@ lazy_static::lazy_static! {
         map.insert("each", 130); // alias for map with side effects
         map.insert("in", 131); // membership test
 
-        // Additional utility functions (132-134)
+        // Additional utility functions (132-136)
         map.insert("values", 132);
         map.insert("sum", 133);
         map.insert("unique", 134);
+        map.insert("avg", 135);
+        map.insert("mean", 135); // alias for avg
+        map.insert("product", 136);
 
         map
     };
@@ -377,10 +381,12 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, env| bi_agent_with_mcp(args, input, env),
     |args, input, env| bi_each(args, input, env),
     |args, input, _| bi_in(args, input),
-    // 132-134: Additional utility functions
+    // 132-136: Additional utility functions
     |args, input, _| bi_values(args, input),
     |args, input, _| bi_sum(args, input),
     |args, input, _| bi_unique(args, input),
+    |args, input, _| bi_avg(args, input),
+    |args, input, _| bi_product(args, input),
 ];
 
 fn fast_builtin_lookup(
@@ -1051,6 +1057,91 @@ fn bi_unique(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
 
     Ok(Value::Array(unique))
+}
+
+fn bi_avg(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let arr = if let Some(input_val) = input {
+        input_val
+    } else if !args.is_empty() {
+        args[0].clone()
+    } else {
+        return Err(anyhow!("avg: requires an Array as input or argument"));
+    };
+
+    match arr {
+        Value::Array(items) => {
+            if items.is_empty() {
+                return Ok(Value::Float(f64::NAN));
+            }
+
+            let mut sum: f64 = 0.0;
+            for item in &items {
+                match item {
+                    Value::Int(n) => sum += *n as f64,
+                    Value::Float(f) => sum += *f,
+                    _ => {
+                        return Err(anyhow!(
+                            "avg: array must contain only numbers, got {:?}",
+                            item
+                        ))
+                    }
+                }
+            }
+
+            Ok(Value::Float(sum / items.len() as f64))
+        }
+        _ => Err(anyhow!("avg: requires an Array, got {:?}", arr)),
+    }
+}
+
+fn bi_product(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let arr = if let Some(input_val) = input {
+        input_val
+    } else if !args.is_empty() {
+        args[0].clone()
+    } else {
+        return Err(anyhow!("product: requires an Array as input or argument"));
+    };
+
+    match arr {
+        Value::Array(items) => {
+            let mut int_product: i64 = 1;
+            let mut float_product: f64 = 1.0;
+            let mut has_float = false;
+
+            for item in items {
+                match item {
+                    Value::Int(n) => {
+                        if has_float {
+                            float_product *= n as f64;
+                        } else {
+                            int_product *= n;
+                        }
+                    }
+                    Value::Float(f) => {
+                        if !has_float {
+                            float_product = int_product as f64;
+                            has_float = true;
+                        }
+                        float_product *= f;
+                    }
+                    _ => {
+                        return Err(anyhow!(
+                            "product: array must contain only numbers, got {:?}",
+                            item
+                        ))
+                    }
+                }
+            }
+
+            if has_float {
+                Ok(Value::Float(float_product))
+            } else {
+                Ok(Value::Int(int_product))
+            }
+        }
+        _ => Err(anyhow!("product: requires an Array, got {:?}", arr)),
+    }
 }
 
 fn bi_len(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
