@@ -1199,7 +1199,7 @@ All blocking security issues have been resolved:
 
 ---
 
-*For security issues, contact: security@nervosys.com*
+*For security issues, contact: security@nervosys.ai*
 
 
-*For security issues, contact: security@nervosys.com*
+*For security issues, contact: security@nervosys.ai*

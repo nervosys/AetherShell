@@ -12,7 +12,7 @@
 
 ### Package Metadata (Cargo.toml)
 - [x] **edition** - Set to "2021" (stable)
-- [x] **authors** - Nervosys <contact@nervosys.com>
+- [x] **authors** - Nervosys <contact@nervosys.ai>
 - [x] **description** - "The world's first multi-agent shell with typed functional pipelines and multi-modal AI"
 - [x] **license** - "MIT"
 - [x] **repository** - https://github.com/nervosys/AetherShell
