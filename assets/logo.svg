@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400">
+  <defs>
+    <!-- Gradient for the main æ symbol -->
+    <linearGradient id="aetherGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#6366f1;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#8b5cf6;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#a855f7;stop-opacity:1" />
+    </linearGradient>
+    
+    <!-- Glow effect -->
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="8" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    
+    <!-- Outer ring gradient -->
+    <linearGradient id="ringGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#4f46e5;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#7c3aed;stop-opacity:1" />
+    </linearGradient>
+    
+    <!-- Neural network node gradient -->
+    <radialGradient id="nodeGradient" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" style="stop-color:#c4b5fd;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#8b5cf6;stop-opacity:1" />
+    </radialGradient>
+  </defs>
+  
+  <!-- Background circle -->
+  <circle cx="200" cy="200" r="190" fill="#0f172a"/>
+  
+  <!-- Outer decorative ring -->
+  <circle cx="200" cy="200" r="175" fill="none" stroke="url(#ringGradient)" stroke-width="3" opacity="0.6"/>
+  
+  <!-- Neural network connections (subtle background) -->
+  <g opacity="0.3" stroke="#6366f1" stroke-width="1.5">
+    <!-- Connection lines forming a network pattern -->
+    <line x1="80" y1="120" x2="140" y2="180"/>
+    <line x1="140" y1="180" x2="200" y2="140"/>
+    <line x1="200" y1="140" x2="260" y2="180"/>
+    <line x1="260" y1="180" x2="320" y2="120"/>
+    <line x1="80" y1="280" x2="140" y2="220"/>
+    <line x1="140" y1="220" x2="200" y2="260"/>
+    <line x1="200" y1="260" x2="260" y2="220"/>
+    <line x1="260" y1="220" x2="320" y2="280"/>
+    <line x1="140" y1="180" x2="140" y2="220"/>
+    <line x1="260" y1="180" x2="260" y2="220"/>
+  </g>
+  
+  <!-- Neural network nodes -->
+  <g filter="url(#glow)">
+    <circle cx="80" cy="120" r="8" fill="url(#nodeGradient)" opacity="0.5"/>
+    <circle cx="320" cy="120" r="8" fill="url(#nodeGradient)" opacity="0.5"/>
+    <circle cx="80" cy="280" r="8" fill="url(#nodeGradient)" opacity="0.5"/>
+    <circle cx="320" cy="280" r="8" fill="url(#nodeGradient)" opacity="0.5"/>
+    <circle cx="140" cy="180" r="6" fill="url(#nodeGradient)" opacity="0.4"/>
+    <circle cx="260" cy="180" r="6" fill="url(#nodeGradient)" opacity="0.4"/>
+    <circle cx="140" cy="220" r="6" fill="url(#nodeGradient)" opacity="0.4"/>
+    <circle cx="260" cy="220" r="6" fill="url(#nodeGradient)" opacity="0.4"/>
+  </g>
+  
+  <!-- Pipeline arrows (subtle) -->
+  <g opacity="0.25" fill="none" stroke="#a855f7" stroke-width="2">
+    <path d="M 60 200 L 100 200 L 95 195 M 100 200 L 95 205"/>
+    <path d="M 300 200 L 340 200 L 335 195 M 340 200 L 335 205"/>
+  </g>
+  
+  <!-- Main æ symbol -->
+  <text x="200" y="245" 
+        font-family="Georgia, 'Times New Roman', serif" 
+        font-size="180" 
+        font-weight="bold"
+        fill="url(#aetherGradient)" 
+        text-anchor="middle"
+        filter="url(#glow)">æ</text>
+  
+  <!-- Subtle terminal prompt accent -->
+  <text x="115" y="155" 
+        font-family="'Fira Code', 'Consolas', monospace" 
+        font-size="24" 
+        fill="#22d3ee" 
+        opacity="0.7">$</text>
+  
+  <!-- Subtle cursor blink line -->
+  <rect x="285" y="225" width="3" height="30" fill="#22d3ee" opacity="0.6">
+    <animate attributeName="opacity" values="0.6;0;0.6" dur="1.2s" repeatCount="indefinite"/>
+  </rect>
+</svg>
