@@ -218,6 +218,11 @@ lazy_static::lazy_static! {
         map.insert("each", 130); // alias for map with side effects
         map.insert("in", 131); // membership test
 
+        // Additional utility functions (132-134)
+        map.insert("values", 132);
+        map.insert("sum", 133);
+        map.insert("unique", 134);
+
         map
     };
 }
@@ -372,6 +377,10 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, env| bi_agent_with_mcp(args, input, env),
     |args, input, env| bi_each(args, input, env),
     |args, input, _| bi_in(args, input),
+    // 132-134: Additional utility functions
+    |args, input, _| bi_values(args, input),
+    |args, input, _| bi_sum(args, input),
+    |args, input, _| bi_unique(args, input),
 ];
 
 fn fast_builtin_lookup(
@@ -940,6 +949,108 @@ fn bi_keys(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         }
         _ => Err(anyhow!("keys: requires a Record, got {:?}", val)),
     }
+}
+
+fn bi_values(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let val = if let Some(input_val) = input {
+        input_val
+    } else if !args.is_empty() {
+        args[0].clone()
+    } else {
+        return Err(anyhow!("values: requires a Record as input or argument"));
+    };
+
+    match val {
+        Value::Record(map) => {
+            let values: Vec<Value> = map.values().cloned().collect();
+            Ok(Value::Array(values))
+        }
+        _ => Err(anyhow!("values: requires a Record, got {:?}", val)),
+    }
+}
+
+fn bi_sum(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let arr = if let Some(input_val) = input {
+        input_val
+    } else if !args.is_empty() {
+        args[0].clone()
+    } else {
+        return Err(anyhow!("sum: requires an Array as input or argument"));
+    };
+
+    match arr {
+        Value::Array(items) => {
+            let mut int_sum: i64 = 0;
+            let mut float_sum: f64 = 0.0;
+            let mut has_float = false;
+
+            for item in items {
+                match item {
+                    Value::Int(n) => {
+                        if has_float {
+                            float_sum += n as f64;
+                        } else {
+                            int_sum += n;
+                        }
+                    }
+                    Value::Float(f) => {
+                        if !has_float {
+                            float_sum = int_sum as f64;
+                            has_float = true;
+                        }
+                        float_sum += f;
+                    }
+                    _ => {
+                        return Err(anyhow!(
+                            "sum: array must contain only numbers, got {:?}",
+                            item
+                        ))
+                    }
+                }
+            }
+
+            if has_float {
+                Ok(Value::Float(float_sum))
+            } else {
+                Ok(Value::Int(int_sum))
+            }
+        }
+        _ => Err(anyhow!("sum: requires an Array, got {:?}", arr)),
+    }
+}
+
+fn bi_unique(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let array = if let Some(input) = input {
+        match input {
+            Value::Array(arr) => arr,
+            Value::Str(s) => {
+                let lines: Vec<Value> =
+                    s.lines().map(|line| Value::Str(line.to_string())).collect();
+                lines
+            }
+            _ => return Err(anyhow!("unique: input must be an array or string")),
+        }
+    } else if !args.is_empty() {
+        match &args[0] {
+            Value::Array(arr) => arr.clone(),
+            _ => return Err(anyhow!("unique: argument must be an array")),
+        }
+    } else {
+        return Err(anyhow!("unique: no input provided"));
+    };
+
+    // True unique - removes all duplicates (not just consecutive)
+    let mut seen = std::collections::HashSet::new();
+    let mut unique = Vec::new();
+
+    for item in array {
+        let key = format!("{:?}", item);
+        if seen.insert(key) {
+            unique.push(item);
+        }
+    }
+
+    Ok(Value::Array(unique))
 }
 
 fn bi_len(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
