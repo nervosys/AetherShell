@@ -228,13 +228,14 @@ lazy_static::lazy_static! {
         map.insert("mean", 135); // alias for avg
         map.insert("product", 136);
 
-        // Configuration functions (137-142)
+        // Configuration functions (137-143)
         map.insert("config", 137);
         map.insert("config_get", 138);
         map.insert("config_set", 139);
         map.insert("config_path", 140);
         map.insert("config_init", 141);
         map.insert("config_reload", 142);
+        map.insert("themes", 143);
 
         map
     };
@@ -403,6 +404,7 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |_, _, _| bi_config_path(),
     |_, _, _| bi_config_init(),
     |_, _, _| bi_config_reload(),
+    |_, _, _| bi_themes(),
 ];
 
 fn fast_builtin_lookup(
@@ -1445,6 +1447,16 @@ fn bi_config_reload() -> Result<Value> {
         Ok(_) => Ok(Value::Str("Configuration reloaded".to_string())),
         Err(e) => Err(anyhow!("Failed to reload config: {}", e)),
     }
+}
+
+/// List all available color themes
+fn bi_themes() -> Result<Value> {
+    use crate::config::Theme;
+    let themes: Vec<Value> = Theme::list()
+        .iter()
+        .map(|s| Value::Str(s.to_string()))
+        .collect();
+    Ok(Value::Array(themes))
 }
 
 fn bi_len(args: Vec<Value>, input: Option<Value>) -> Result<Value> {

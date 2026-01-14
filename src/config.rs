@@ -681,33 +681,161 @@ mode = "emacs"
 /// Built-in color themes
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Theme {
+    // Popular dark themes
     Catppuccin,
+    CatppuccinLatte,
     Monokai,
     Dracula,
     Nord,
     Gruvbox,
+    GruvboxLight,
     Solarized,
+    SolarizedLight,
+    TokyoNight,
+    TokyoNightStorm,
+    TokyoNightLight,
+    OneDark,
+    OneLight,
+    Material,
+    MaterialOcean,
+    Palenight,
+    Ayu,
+    AyuLight,
+    AyuMirage,
+    Synthwave84,
+    Cyberpunk,
+    Everforest,
+    EverforestLight,
+    Kanagawa,
+    RosePine,
+    RosePineMoon,
+    RosePineDawn,
+    Nightfox,
+    Dawnfox,
+    Github,
+    GithubLight,
+    Cobalt2,
+    Horizon,
+    Spacegray,
+    Atom,
+    Sublime,
+    VsCode,
     Custom,
 }
 
 impl Theme {
     pub fn from_str(s: &str) -> Self {
-        match s.to_lowercase().as_str() {
-            "catppuccin" => Theme::Catppuccin,
-            "monokai" => Theme::Monokai,
+        match s.to_lowercase().replace(['-', '_'], "").as_str() {
+            "catppuccin" | "catppuccinmocha" => Theme::Catppuccin,
+            "catppuccinlatte" => Theme::CatppuccinLatte,
+            "monokai" | "monokaiclassic" => Theme::Monokai,
             "dracula" => Theme::Dracula,
             "nord" => Theme::Nord,
-            "gruvbox" => Theme::Gruvbox,
-            "solarized" | "solarized-dark" => Theme::Solarized,
+            "gruvbox" | "gruvboxdark" => Theme::Gruvbox,
+            "gruvboxlight" => Theme::GruvboxLight,
+            "solarized" | "solarizeddark" => Theme::Solarized,
+            "solarizedlight" => Theme::SolarizedLight,
+            "tokyonight" | "tokyonightnight" => Theme::TokyoNight,
+            "tokyonightstorm" => Theme::TokyoNightStorm,
+            "tokyonightlight" | "tokyonightday" => Theme::TokyoNightLight,
+            "onedark" | "atomonedark" => Theme::OneDark,
+            "onelight" | "atomonelight" => Theme::OneLight,
+            "material" | "materialdark" => Theme::Material,
+            "materialocean" => Theme::MaterialOcean,
+            "palenight" | "materialpalenight" => Theme::Palenight,
+            "ayu" | "ayudark" => Theme::Ayu,
+            "ayulight" => Theme::AyuLight,
+            "ayumirage" => Theme::AyuMirage,
+            "synthwave" | "synthwave84" => Theme::Synthwave84,
+            "cyberpunk" | "neon" => Theme::Cyberpunk,
+            "everforest" | "everforestdark" => Theme::Everforest,
+            "everforestlight" => Theme::EverforestLight,
+            "kanagawa" | "kanagawawave" => Theme::Kanagawa,
+            "rosepine" | "rosepinedark" => Theme::RosePine,
+            "rosepinemoon" => Theme::RosePineMoon,
+            "rosepinedawn" => Theme::RosePineDawn,
+            "nightfox" => Theme::Nightfox,
+            "dawnfox" => Theme::Dawnfox,
+            "github" | "githubdark" => Theme::Github,
+            "githublight" => Theme::GithubLight,
+            "cobalt" | "cobalt2" => Theme::Cobalt2,
+            "horizon" => Theme::Horizon,
+            "spacegray" => Theme::Spacegray,
+            "atom" => Theme::Atom,
+            "sublime" | "sublimetext" => Theme::Sublime,
+            "vscode" | "vscodedark" | "darkplus" => Theme::VsCode,
             "custom" => Theme::Custom,
             _ => Theme::Catppuccin, // Default
         }
     }
 
+    /// List all available theme names
+    pub fn list() -> Vec<&'static str> {
+        vec![
+            "catppuccin",
+            "catppuccin-latte",
+            "monokai",
+            "dracula",
+            "nord",
+            "gruvbox",
+            "gruvbox-light",
+            "solarized",
+            "solarized-light",
+            "tokyo-night",
+            "tokyo-night-storm",
+            "tokyo-night-light",
+            "one-dark",
+            "one-light",
+            "material",
+            "material-ocean",
+            "palenight",
+            "ayu",
+            "ayu-light",
+            "ayu-mirage",
+            "synthwave84",
+            "cyberpunk",
+            "everforest",
+            "everforest-light",
+            "kanagawa",
+            "rose-pine",
+            "rose-pine-moon",
+            "rose-pine-dawn",
+            "nightfox",
+            "dawnfox",
+            "github",
+            "github-light",
+            "cobalt2",
+            "horizon",
+            "spacegray",
+            "atom",
+            "sublime",
+            "vscode",
+        ]
+    }
+
     /// Get colors for this theme
     pub fn colors(&self) -> CustomColors {
         match self {
-            Theme::Catppuccin => CustomColors::default(), // Already Catppuccin
+            // === Catppuccin (Mocha - default) ===
+            Theme::Catppuccin => CustomColors::default(),
+
+            // === Catppuccin Latte (Light) ===
+            Theme::CatppuccinLatte => CustomColors {
+                number: "#40a02b".to_string(),      // Green
+                string: "#40a02b".to_string(),      // Green
+                boolean: "#8839ef".to_string(),     // Mauve
+                keyword: "#8839ef".to_string(),     // Mauve
+                punctuation: "#1e66f5".to_string(), // Blue
+                key: "#04a5e5".to_string(),         // Sky
+                uri: "#df8e1d".to_string(),         // Yellow
+                error: "#d20f39".to_string(),       // Red
+                warning: "#fe640b".to_string(),     // Peach
+                success: "#40a02b".to_string(),     // Green
+                dim: "#9ca0b0".to_string(),         // Overlay0
+                comment: "#9ca0b0".to_string(),
+            },
+
+            // === Monokai Classic ===
             Theme::Monokai => CustomColors {
                 number: "#ae81ff".to_string(),
                 string: "#e6db74".to_string(),
@@ -722,6 +850,8 @@ impl Theme {
                 dim: "#75715e".to_string(),
                 comment: "#75715e".to_string(),
             },
+
+            // === Dracula ===
             Theme::Dracula => CustomColors {
                 number: "#bd93f9".to_string(),
                 string: "#f1fa8c".to_string(),
@@ -736,6 +866,8 @@ impl Theme {
                 dim: "#6272a4".to_string(),
                 comment: "#6272a4".to_string(),
             },
+
+            // === Nord ===
             Theme::Nord => CustomColors {
                 number: "#b48ead".to_string(),
                 string: "#a3be8c".to_string(),
@@ -750,6 +882,8 @@ impl Theme {
                 dim: "#4c566a".to_string(),
                 comment: "#4c566a".to_string(),
             },
+
+            // === Gruvbox Dark ===
             Theme::Gruvbox => CustomColors {
                 number: "#d3869b".to_string(),
                 string: "#b8bb26".to_string(),
@@ -764,6 +898,24 @@ impl Theme {
                 dim: "#928374".to_string(),
                 comment: "#928374".to_string(),
             },
+
+            // === Gruvbox Light ===
+            Theme::GruvboxLight => CustomColors {
+                number: "#8f3f71".to_string(),
+                string: "#79740e".to_string(),
+                boolean: "#8f3f71".to_string(),
+                keyword: "#9d0006".to_string(),
+                punctuation: "#3c3836".to_string(),
+                key: "#076678".to_string(),
+                uri: "#b57614".to_string(),
+                error: "#9d0006".to_string(),
+                warning: "#af3a03".to_string(),
+                success: "#79740e".to_string(),
+                dim: "#928374".to_string(),
+                comment: "#928374".to_string(),
+            },
+
+            // === Solarized Dark ===
             Theme::Solarized => CustomColors {
                 number: "#d33682".to_string(),
                 string: "#2aa198".to_string(),
@@ -778,6 +930,487 @@ impl Theme {
                 dim: "#586e75".to_string(),
                 comment: "#586e75".to_string(),
             },
+
+            // === Solarized Light ===
+            Theme::SolarizedLight => CustomColors {
+                number: "#d33682".to_string(),
+                string: "#2aa198".to_string(),
+                boolean: "#d33682".to_string(),
+                keyword: "#859900".to_string(),
+                punctuation: "#657b83".to_string(),
+                key: "#268bd2".to_string(),
+                uri: "#b58900".to_string(),
+                error: "#dc322f".to_string(),
+                warning: "#cb4b16".to_string(),
+                success: "#859900".to_string(),
+                dim: "#93a1a1".to_string(),
+                comment: "#93a1a1".to_string(),
+            },
+
+            // === Tokyo Night ===
+            Theme::TokyoNight => CustomColors {
+                number: "#ff9e64".to_string(),
+                string: "#9ece6a".to_string(),
+                boolean: "#ff9e64".to_string(),
+                keyword: "#bb9af7".to_string(),
+                punctuation: "#c0caf5".to_string(),
+                key: "#7dcfff".to_string(),
+                uri: "#e0af68".to_string(),
+                error: "#f7768e".to_string(),
+                warning: "#e0af68".to_string(),
+                success: "#9ece6a".to_string(),
+                dim: "#565f89".to_string(),
+                comment: "#565f89".to_string(),
+            },
+
+            // === Tokyo Night Storm ===
+            Theme::TokyoNightStorm => CustomColors {
+                number: "#ff9e64".to_string(),
+                string: "#9ece6a".to_string(),
+                boolean: "#ff9e64".to_string(),
+                keyword: "#bb9af7".to_string(),
+                punctuation: "#a9b1d6".to_string(),
+                key: "#7dcfff".to_string(),
+                uri: "#e0af68".to_string(),
+                error: "#f7768e".to_string(),
+                warning: "#e0af68".to_string(),
+                success: "#9ece6a".to_string(),
+                dim: "#565f89".to_string(),
+                comment: "#565f89".to_string(),
+            },
+
+            // === Tokyo Night Light ===
+            Theme::TokyoNightLight => CustomColors {
+                number: "#965027".to_string(),
+                string: "#485e30".to_string(),
+                boolean: "#965027".to_string(),
+                keyword: "#7847bd".to_string(),
+                punctuation: "#343b58".to_string(),
+                key: "#0f4b6e".to_string(),
+                uri: "#8c6c3e".to_string(),
+                error: "#8c4351".to_string(),
+                warning: "#8c6c3e".to_string(),
+                success: "#485e30".to_string(),
+                dim: "#9699a3".to_string(),
+                comment: "#9699a3".to_string(),
+            },
+
+            // === One Dark (Atom) ===
+            Theme::OneDark => CustomColors {
+                number: "#d19a66".to_string(),
+                string: "#98c379".to_string(),
+                boolean: "#d19a66".to_string(),
+                keyword: "#c678dd".to_string(),
+                punctuation: "#abb2bf".to_string(),
+                key: "#56b6c2".to_string(),
+                uri: "#e5c07b".to_string(),
+                error: "#e06c75".to_string(),
+                warning: "#e5c07b".to_string(),
+                success: "#98c379".to_string(),
+                dim: "#5c6370".to_string(),
+                comment: "#5c6370".to_string(),
+            },
+
+            // === One Light ===
+            Theme::OneLight => CustomColors {
+                number: "#986801".to_string(),
+                string: "#50a14f".to_string(),
+                boolean: "#986801".to_string(),
+                keyword: "#a626a4".to_string(),
+                punctuation: "#383a42".to_string(),
+                key: "#0184bc".to_string(),
+                uri: "#c18401".to_string(),
+                error: "#e45649".to_string(),
+                warning: "#c18401".to_string(),
+                success: "#50a14f".to_string(),
+                dim: "#a0a1a7".to_string(),
+                comment: "#a0a1a7".to_string(),
+            },
+
+            // === Material Dark ===
+            Theme::Material => CustomColors {
+                number: "#f78c6c".to_string(),
+                string: "#c3e88d".to_string(),
+                boolean: "#f78c6c".to_string(),
+                keyword: "#c792ea".to_string(),
+                punctuation: "#eeffff".to_string(),
+                key: "#89ddff".to_string(),
+                uri: "#ffcb6b".to_string(),
+                error: "#ff5370".to_string(),
+                warning: "#ffcb6b".to_string(),
+                success: "#c3e88d".to_string(),
+                dim: "#546e7a".to_string(),
+                comment: "#546e7a".to_string(),
+            },
+
+            // === Material Ocean ===
+            Theme::MaterialOcean => CustomColors {
+                number: "#f78c6c".to_string(),
+                string: "#c3e88d".to_string(),
+                boolean: "#f78c6c".to_string(),
+                keyword: "#c792ea".to_string(),
+                punctuation: "#a6accd".to_string(),
+                key: "#89ddff".to_string(),
+                uri: "#ffcb6b".to_string(),
+                error: "#ff5370".to_string(),
+                warning: "#ffcb6b".to_string(),
+                success: "#c3e88d".to_string(),
+                dim: "#464b5d".to_string(),
+                comment: "#464b5d".to_string(),
+            },
+
+            // === Material Palenight ===
+            Theme::Palenight => CustomColors {
+                number: "#f78c6c".to_string(),
+                string: "#c3e88d".to_string(),
+                boolean: "#f78c6c".to_string(),
+                keyword: "#c792ea".to_string(),
+                punctuation: "#a6accd".to_string(),
+                key: "#82aaff".to_string(),
+                uri: "#ffcb6b".to_string(),
+                error: "#ff5370".to_string(),
+                warning: "#ffcb6b".to_string(),
+                success: "#c3e88d".to_string(),
+                dim: "#676e95".to_string(),
+                comment: "#676e95".to_string(),
+            },
+
+            // === Ayu Dark ===
+            Theme::Ayu => CustomColors {
+                number: "#e6b450".to_string(),
+                string: "#aad94c".to_string(),
+                boolean: "#e6b450".to_string(),
+                keyword: "#ff8f40".to_string(),
+                punctuation: "#bfbdb6".to_string(),
+                key: "#59c2ff".to_string(),
+                uri: "#ffb454".to_string(),
+                error: "#d95757".to_string(),
+                warning: "#ffb454".to_string(),
+                success: "#aad94c".to_string(),
+                dim: "#636a72".to_string(),
+                comment: "#636a72".to_string(),
+            },
+
+            // === Ayu Light ===
+            Theme::AyuLight => CustomColors {
+                number: "#ff9940".to_string(),
+                string: "#86b300".to_string(),
+                boolean: "#ff9940".to_string(),
+                keyword: "#fa8d3e".to_string(),
+                punctuation: "#5c6166".to_string(),
+                key: "#399ee6".to_string(),
+                uri: "#f2ae49".to_string(),
+                error: "#e65050".to_string(),
+                warning: "#f2ae49".to_string(),
+                success: "#86b300".to_string(),
+                dim: "#8a9199".to_string(),
+                comment: "#8a9199".to_string(),
+            },
+
+            // === Ayu Mirage ===
+            Theme::AyuMirage => CustomColors {
+                number: "#ffcc66".to_string(),
+                string: "#d5ff80".to_string(),
+                boolean: "#ffcc66".to_string(),
+                keyword: "#ffae57".to_string(),
+                punctuation: "#cbccc6".to_string(),
+                key: "#73d0ff".to_string(),
+                uri: "#ffd580".to_string(),
+                error: "#ff6666".to_string(),
+                warning: "#ffd580".to_string(),
+                success: "#d5ff80".to_string(),
+                dim: "#5c6773".to_string(),
+                comment: "#5c6773".to_string(),
+            },
+
+            // === Synthwave '84 ===
+            Theme::Synthwave84 => CustomColors {
+                number: "#f97e72".to_string(),
+                string: "#ff8b39".to_string(),
+                boolean: "#f97e72".to_string(),
+                keyword: "#fede5d".to_string(),
+                punctuation: "#ffffff".to_string(),
+                key: "#36f9f6".to_string(),
+                uri: "#ff7edb".to_string(),
+                error: "#fe4450".to_string(),
+                warning: "#fede5d".to_string(),
+                success: "#72f1b8".to_string(),
+                dim: "#848bbd".to_string(),
+                comment: "#848bbd".to_string(),
+            },
+
+            // === Cyberpunk / Neon ===
+            Theme::Cyberpunk => CustomColors {
+                number: "#ff00ff".to_string(), // Magenta
+                string: "#00ffff".to_string(), // Cyan
+                boolean: "#ff00ff".to_string(),
+                keyword: "#ffff00".to_string(), // Yellow
+                punctuation: "#ffffff".to_string(),
+                key: "#00ff00".to_string(),     // Green
+                uri: "#ff69b4".to_string(),     // Hot pink
+                error: "#ff0000".to_string(),   // Red
+                warning: "#ffa500".to_string(), // Orange
+                success: "#00ff00".to_string(),
+                dim: "#808080".to_string(),
+                comment: "#808080".to_string(),
+            },
+
+            // === Everforest Dark ===
+            Theme::Everforest => CustomColors {
+                number: "#d699b6".to_string(),
+                string: "#a7c080".to_string(),
+                boolean: "#d699b6".to_string(),
+                keyword: "#e67e80".to_string(),
+                punctuation: "#d3c6aa".to_string(),
+                key: "#7fbbb3".to_string(),
+                uri: "#dbbc7f".to_string(),
+                error: "#e67e80".to_string(),
+                warning: "#e69875".to_string(),
+                success: "#a7c080".to_string(),
+                dim: "#859289".to_string(),
+                comment: "#859289".to_string(),
+            },
+
+            // === Everforest Light ===
+            Theme::EverforestLight => CustomColors {
+                number: "#df69ba".to_string(),
+                string: "#8da101".to_string(),
+                boolean: "#df69ba".to_string(),
+                keyword: "#f85552".to_string(),
+                punctuation: "#5c6a72".to_string(),
+                key: "#35a77c".to_string(),
+                uri: "#dfa000".to_string(),
+                error: "#f85552".to_string(),
+                warning: "#f57d26".to_string(),
+                success: "#8da101".to_string(),
+                dim: "#939f91".to_string(),
+                comment: "#939f91".to_string(),
+            },
+
+            // === Kanagawa ===
+            Theme::Kanagawa => CustomColors {
+                number: "#d27e99".to_string(),
+                string: "#98bb6c".to_string(),
+                boolean: "#d27e99".to_string(),
+                keyword: "#957fb8".to_string(),
+                punctuation: "#dcd7ba".to_string(),
+                key: "#7e9cd8".to_string(),
+                uri: "#e6c384".to_string(),
+                error: "#c34043".to_string(),
+                warning: "#ff9e3b".to_string(),
+                success: "#98bb6c".to_string(),
+                dim: "#727169".to_string(),
+                comment: "#727169".to_string(),
+            },
+
+            // === Rosé Pine ===
+            Theme::RosePine => CustomColors {
+                number: "#ebbcba".to_string(),
+                string: "#f6c177".to_string(),
+                boolean: "#ebbcba".to_string(),
+                keyword: "#c4a7e7".to_string(),
+                punctuation: "#e0def4".to_string(),
+                key: "#9ccfd8".to_string(),
+                uri: "#f6c177".to_string(),
+                error: "#eb6f92".to_string(),
+                warning: "#f6c177".to_string(),
+                success: "#31748f".to_string(),
+                dim: "#6e6a86".to_string(),
+                comment: "#6e6a86".to_string(),
+            },
+
+            // === Rosé Pine Moon ===
+            Theme::RosePineMoon => CustomColors {
+                number: "#ea9a97".to_string(),
+                string: "#f6c177".to_string(),
+                boolean: "#ea9a97".to_string(),
+                keyword: "#c4a7e7".to_string(),
+                punctuation: "#e0def4".to_string(),
+                key: "#9ccfd8".to_string(),
+                uri: "#f6c177".to_string(),
+                error: "#eb6f92".to_string(),
+                warning: "#f6c177".to_string(),
+                success: "#3e8fb0".to_string(),
+                dim: "#6e6a86".to_string(),
+                comment: "#6e6a86".to_string(),
+            },
+
+            // === Rosé Pine Dawn (Light) ===
+            Theme::RosePineDawn => CustomColors {
+                number: "#d7827e".to_string(),
+                string: "#ea9d34".to_string(),
+                boolean: "#d7827e".to_string(),
+                keyword: "#907aa9".to_string(),
+                punctuation: "#575279".to_string(),
+                key: "#56949f".to_string(),
+                uri: "#ea9d34".to_string(),
+                error: "#b4637a".to_string(),
+                warning: "#ea9d34".to_string(),
+                success: "#286983".to_string(),
+                dim: "#9893a5".to_string(),
+                comment: "#9893a5".to_string(),
+            },
+
+            // === Nightfox ===
+            Theme::Nightfox => CustomColors {
+                number: "#f4a261".to_string(),
+                string: "#81b29a".to_string(),
+                boolean: "#f4a261".to_string(),
+                keyword: "#9d79d6".to_string(),
+                punctuation: "#cdcecf".to_string(),
+                key: "#63cdcf".to_string(),
+                uri: "#dbc074".to_string(),
+                error: "#c94f6d".to_string(),
+                warning: "#dbc074".to_string(),
+                success: "#81b29a".to_string(),
+                dim: "#738091".to_string(),
+                comment: "#738091".to_string(),
+            },
+
+            // === Dawnfox (Light) ===
+            Theme::Dawnfox => CustomColors {
+                number: "#b95d76".to_string(),
+                string: "#618774".to_string(),
+                boolean: "#b95d76".to_string(),
+                keyword: "#806e9c".to_string(),
+                punctuation: "#575279".to_string(),
+                key: "#597b8c".to_string(),
+                uri: "#b79a3e".to_string(),
+                error: "#9d4059".to_string(),
+                warning: "#b79a3e".to_string(),
+                success: "#618774".to_string(),
+                dim: "#898b93".to_string(),
+                comment: "#898b93".to_string(),
+            },
+
+            // === GitHub Dark ===
+            Theme::Github => CustomColors {
+                number: "#79c0ff".to_string(),
+                string: "#a5d6ff".to_string(),
+                boolean: "#79c0ff".to_string(),
+                keyword: "#ff7b72".to_string(),
+                punctuation: "#c9d1d9".to_string(),
+                key: "#7ee787".to_string(),
+                uri: "#a5d6ff".to_string(),
+                error: "#ff7b72".to_string(),
+                warning: "#d29922".to_string(),
+                success: "#7ee787".to_string(),
+                dim: "#8b949e".to_string(),
+                comment: "#8b949e".to_string(),
+            },
+
+            // === GitHub Light ===
+            Theme::GithubLight => CustomColors {
+                number: "#0550ae".to_string(),
+                string: "#0a3069".to_string(),
+                boolean: "#0550ae".to_string(),
+                keyword: "#cf222e".to_string(),
+                punctuation: "#24292f".to_string(),
+                key: "#116329".to_string(),
+                uri: "#0a3069".to_string(),
+                error: "#cf222e".to_string(),
+                warning: "#9a6700".to_string(),
+                success: "#116329".to_string(),
+                dim: "#6e7781".to_string(),
+                comment: "#6e7781".to_string(),
+            },
+
+            // === Cobalt2 ===
+            Theme::Cobalt2 => CustomColors {
+                number: "#ff628c".to_string(),
+                string: "#a5ff90".to_string(),
+                boolean: "#ff628c".to_string(),
+                keyword: "#ff9d00".to_string(),
+                punctuation: "#ffffff".to_string(),
+                key: "#9effff".to_string(),
+                uri: "#ffc600".to_string(),
+                error: "#ff628c".to_string(),
+                warning: "#ffc600".to_string(),
+                success: "#a5ff90".to_string(),
+                dim: "#0088ff".to_string(),
+                comment: "#0088ff".to_string(),
+            },
+
+            // === Horizon ===
+            Theme::Horizon => CustomColors {
+                number: "#f09383".to_string(),
+                string: "#fab795".to_string(),
+                boolean: "#f09383".to_string(),
+                keyword: "#ee64ae".to_string(),
+                punctuation: "#e0e0e0".to_string(),
+                key: "#25b0bc".to_string(),
+                uri: "#fac29a".to_string(),
+                error: "#e95678".to_string(),
+                warning: "#fab795".to_string(),
+                success: "#29d398".to_string(),
+                dim: "#6c6f93".to_string(),
+                comment: "#6c6f93".to_string(),
+            },
+
+            // === Spacegray ===
+            Theme::Spacegray => CustomColors {
+                number: "#a78cfa".to_string(),
+                string: "#99ffc4".to_string(),
+                boolean: "#a78cfa".to_string(),
+                keyword: "#ff6e6e".to_string(),
+                punctuation: "#ffffff".to_string(),
+                key: "#6eb4ff".to_string(),
+                uri: "#ffffa5".to_string(),
+                error: "#ff6e6e".to_string(),
+                warning: "#ffffa5".to_string(),
+                success: "#99ffc4".to_string(),
+                dim: "#767b8c".to_string(),
+                comment: "#767b8c".to_string(),
+            },
+
+            // === Atom ===
+            Theme::Atom => CustomColors {
+                number: "#d19a66".to_string(),
+                string: "#98c379".to_string(),
+                boolean: "#d19a66".to_string(),
+                keyword: "#c678dd".to_string(),
+                punctuation: "#abb2bf".to_string(),
+                key: "#61afef".to_string(),
+                uri: "#e5c07b".to_string(),
+                error: "#e06c75".to_string(),
+                warning: "#e5c07b".to_string(),
+                success: "#98c379".to_string(),
+                dim: "#5c6370".to_string(),
+                comment: "#5c6370".to_string(),
+            },
+
+            // === Sublime Text (Mariana) ===
+            Theme::Sublime => CustomColors {
+                number: "#f9ae58".to_string(),
+                string: "#99c794".to_string(),
+                boolean: "#f9ae58".to_string(),
+                keyword: "#c695c6".to_string(),
+                punctuation: "#d8dee9".to_string(),
+                key: "#6699cc".to_string(),
+                uri: "#fac761".to_string(),
+                error: "#ec5f66".to_string(),
+                warning: "#fac761".to_string(),
+                success: "#99c794".to_string(),
+                dim: "#a6acb9".to_string(),
+                comment: "#a6acb9".to_string(),
+            },
+
+            // === VS Code Dark+ ===
+            Theme::VsCode => CustomColors {
+                number: "#b5cea8".to_string(),
+                string: "#ce9178".to_string(),
+                boolean: "#569cd6".to_string(),
+                keyword: "#c586c0".to_string(),
+                punctuation: "#d4d4d4".to_string(),
+                key: "#9cdcfe".to_string(),
+                uri: "#ce9178".to_string(),
+                error: "#f14c4c".to_string(),
+                warning: "#cca700".to_string(),
+                success: "#89d185".to_string(),
+                dim: "#6a9955".to_string(),
+                comment: "#6a9955".to_string(),
+            },
+
             Theme::Custom => CustomColors::default(),
         }
     }
@@ -802,9 +1435,36 @@ mod tests {
 
     #[test]
     fn test_theme_parsing() {
+        // Test basic themes
         assert_eq!(Theme::from_str("catppuccin"), Theme::Catppuccin);
         assert_eq!(Theme::from_str("DRACULA"), Theme::Dracula);
         assert_eq!(Theme::from_str("unknown"), Theme::Catppuccin);
+
+        // Test new themes with various formats
+        assert_eq!(Theme::from_str("tokyo-night"), Theme::TokyoNight);
+        assert_eq!(Theme::from_str("tokyo_night"), Theme::TokyoNight);
+        assert_eq!(Theme::from_str("tokyonight"), Theme::TokyoNight);
+        assert_eq!(Theme::from_str("one-dark"), Theme::OneDark);
+        assert_eq!(Theme::from_str("onedark"), Theme::OneDark);
+        assert_eq!(Theme::from_str("rose-pine"), Theme::RosePine);
+        assert_eq!(Theme::from_str("rosepine"), Theme::RosePine);
+        assert_eq!(Theme::from_str("kanagawa"), Theme::Kanagawa);
+        assert_eq!(Theme::from_str("material-ocean"), Theme::MaterialOcean);
+        assert_eq!(Theme::from_str("synthwave84"), Theme::Synthwave84);
+        assert_eq!(Theme::from_str("everforest"), Theme::Everforest);
+        assert_eq!(Theme::from_str("gruvbox-light"), Theme::GruvboxLight);
+        assert_eq!(Theme::from_str("catppuccin-latte"), Theme::CatppuccinLatte);
+        assert_eq!(Theme::from_str("github"), Theme::Github);
+        assert_eq!(Theme::from_str("vscode"), Theme::VsCode);
+        assert_eq!(Theme::from_str("cobalt2"), Theme::Cobalt2);
+        assert_eq!(Theme::from_str("nightfox"), Theme::Nightfox);
+
+        // Test theme list
+        let themes = Theme::list();
+        assert!(themes.len() >= 38);
+        assert!(themes.contains(&"catppuccin"));
+        assert!(themes.contains(&"tokyo-night"));
+        assert!(themes.contains(&"rose-pine"));
     }
 
     #[test]
