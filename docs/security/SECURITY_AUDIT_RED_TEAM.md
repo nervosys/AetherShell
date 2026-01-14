@@ -1379,7 +1379,7 @@ Milestones:
 ### Contact
 
 For questions about this audit report:
-- **Security Team**: security@nervosys.com
+- **Security Team**: security@nervosys.ai
 - **Bug Reports**: https://github.com/nervosys/AetherShell/security
 - **Responsible Disclosure**: See SECURITY.md
 

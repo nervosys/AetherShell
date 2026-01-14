@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <strong>The world's first multi-agent shell with typed functional pipelines and multi-modal AI.</strong><br>
+  <strong>The world's first agentic shell with typed functional pipelines and multi-modal AI.</strong><br>
   <em>Built in Rust for safety and performance, featuring revolutionary AI protocols found nowhere else.</em>
 </p>
 

@@ -16,7 +16,7 @@ We release patches for security vulnerabilities in the following versions:
 
 If you discover a security vulnerability in AetherShell, please report it via:
 
-**Email**: security@nervosys.com  
+**Email**: security@nervosys.ai  
 **Subject**: [SECURITY] AetherShell Vulnerability Report
 
 ### Information to Include
@@ -141,8 +141,8 @@ These are monitored weekly and will be updated when parent crates provide altern
 
 ## Security Contacts
 
-- **Security Team**: security@nervosys.com
-- **General Contact**: contact@nervosys.com
+- **Security Team**: security@nervosys.ai
+- **General Contact**: contact@nervosys.ai
 - **GitHub**: https://github.com/nervosys/AetherShell/security/advisories
 
 ## PGP Key

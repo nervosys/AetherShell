@@ -314,7 +314,7 @@ If independent FIPS 140-2 or FIPS 140-3 validation is required:
 ✅ **FIPS 140-3**: Complies with ISO/IEC 19790:2012 requirements  
 ✅ **FIPS 140-3**: Enhanced documentation and testing standards met  
 
-For questions about FIPS compliance, contact: security@nervosys.com
+For questions about FIPS compliance, contact: security@nervosys.ai
 
 ## References
 

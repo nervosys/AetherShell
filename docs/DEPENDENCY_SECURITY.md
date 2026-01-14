@@ -178,7 +178,7 @@ git commit --no-verify
 
 ### For AetherShell Vulnerabilities
 
-**Email**: security@nervosys.com  
+**Email**: security@nervosys.ai  
 **PGP Key**: (See SECURITY.md)
 
 **Do NOT** open public issues for security vulnerabilities.
