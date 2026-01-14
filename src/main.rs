@@ -320,10 +320,10 @@ fn run_file(path: &str, bash_mode: bool) -> Result<()> {
 }
 
 fn run_code(code: &str) -> Result<()> {
-    let stmts = parser::parse_program(code)?;
     let mut env = Env::default();
-    let val = eval::eval_program(&stmts, &mut env)?;
-    // Print the last value (shell style you might suppress; we show for now)
-    println!("{:?}", val);
+    let exit_code = aether_shell::repl::run_one(&mut env, code)?;
+    if exit_code != 0 {
+        std::process::exit(exit_code);
+    }
     Ok(())
 }

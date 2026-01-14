@@ -1,4 +1,5 @@
 use anyhow::Result;
+use crossterm::style::Stylize;
 use std::io::{self, Write};
 
 use crate::{
@@ -13,12 +14,16 @@ pub fn run(env: &mut Env) -> Result<()> {
     let stdin = io::stdin();
     let mut stdout = io::stdout();
 
-    writeln!(stdout, "Æther REPL — type 'exit', 'quit', or Ctrl-D to exit")?;
+    writeln!(
+        stdout,
+        "{}",
+        "Æther REPL — type 'exit', 'quit', or Ctrl-D to exit".dark_grey()
+    )?;
     stdout.flush()?;
 
     loop {
-        // Prompt
-        write!(stdout, "æ> ")?;
+        // Prompt: æ❯ with colors matching screenshot
+        write!(stdout, "{}{} ", "æ".cyan(), "❯".dark_grey())?;
         stdout.flush()?;
 
         // Read one line
@@ -45,7 +50,7 @@ pub fn run(env: &mut Env) -> Result<()> {
                 }
             }
             Err(e) => {
-                writeln!(stdout, "eval error: {e}")?;
+                writeln!(stdout, "{} {e}", "error:".red().bold())?;
             }
         }
     }
@@ -62,7 +67,7 @@ pub fn run_one(env: &mut Env, code: &str) -> Result<i32> {
             Ok(0)
         }
         Err(e) => {
-            eprintln!("eval error: {e}");
+            eprintln!("{} {e}", "error:".red().bold());
             Ok(1)
         }
     }
@@ -76,15 +81,78 @@ pub fn eval_line(env: &mut Env, code: &str) -> Result<Value> {
 /// REPL rendering:
 /// - Null => print nothing
 /// - Str  => print raw (no quotes), so ANSI works
-/// - else => compact pretty-print
+/// - else => compact colorized pretty-print
 fn render_for_repl(v: &Value) -> Option<String> {
     match v {
         Value::Null => None,
         Value::Str(s) => Some(s.clone()),
-        _ => Some(pp(v)),
+        _ => Some(pp_colored(v)),
     }
 }
 
+/// Colorized pretty-print matching the Catppuccin-style screenshot theme
+fn pp_colored(v: &Value) -> String {
+    match v {
+        Value::Null => "null".dark_grey().to_string(),
+        Value::Bool(b) => b.to_string().magenta().to_string(),
+        Value::Int(n) => n.to_string().green().to_string(),
+        Value::Float(x) => x.to_string().green().to_string(),
+        Value::Str(s) => format!("\"{}\"", s).green().to_string(),
+        Value::Uri(u) => u.clone().yellow().to_string(),
+        Value::Array(items) => {
+            let mut s = String::new();
+            s.push_str(&"[".blue().to_string());
+            for (i, it) in items.iter().enumerate() {
+                if i > 0 {
+                    s.push_str(", ");
+                }
+                s.push_str(&pp_item_colored(it));
+            }
+            s.push_str(&"]".blue().to_string());
+            s
+        }
+        Value::Record(map) => {
+            let mut s = String::new();
+            s.push_str(&"{".blue().to_string());
+            let mut first = true;
+            for (k, v) in map {
+                if !first {
+                    s.push_str(", ");
+                }
+                first = false;
+                s.push_str(&k.clone().cyan().to_string());
+                s.push_str(": ");
+                s.push_str(&pp_item_colored(v));
+            }
+            s.push_str(&"}".blue().to_string());
+            s
+        }
+        Value::Table(t) => format!("<Table rows={}>", t.rows.len())
+            .dark_grey()
+            .to_string(),
+        Value::Lambda(_) => "<lambda>".dark_grey().to_string(),
+    }
+}
+
+fn pp_item_colored(v: &Value) -> String {
+    match v {
+        Value::Null => "null".dark_grey().to_string(),
+        Value::Bool(b) => b.to_string().magenta().to_string(),
+        Value::Int(n) => n.to_string().green().to_string(),
+        Value::Float(x) => x.to_string().green().to_string(),
+        Value::Str(s) => format!("\"{}\"", s).green().to_string(),
+        Value::Uri(u) => u.clone().yellow().to_string(),
+        Value::Array(a) => format!("[…{}]", a.len()).blue().to_string(),
+        Value::Record(_) => "{…}".dark_grey().to_string(),
+        Value::Table(t) => format!("<Table rows={}>", t.rows.len())
+            .dark_grey()
+            .to_string(),
+        Value::Lambda(_) => "<lambda>".dark_grey().to_string(),
+    }
+}
+
+// Non-colored versions for compatibility
+#[allow(dead_code)]
 fn pp(v: &Value) -> String {
     match v {
         Value::Null => "null".into(),
@@ -126,6 +194,7 @@ fn pp(v: &Value) -> String {
     }
 }
 
+#[allow(dead_code)]
 fn pp_item(v: &Value) -> String {
     match v {
         Value::Null => "null".into(),
