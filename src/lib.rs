@@ -3,6 +3,7 @@ pub mod ai;
 pub mod ai_api;
 pub mod ast;
 pub mod builtins;
+pub mod config; // XDG-compliant configuration system
 pub mod env;
 pub mod eval;
 pub mod evolution;

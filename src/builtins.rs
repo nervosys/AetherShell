@@ -6,6 +6,7 @@ use std::fs;
 use walkdir::WalkDir;
 
 use crate::{
+    config::{get_config, reload_config, ShellConfig},
     env::Env,
     eval::eval_expr,
     evolution::{CrossoverStrategy, EvolutionConfig, FitnessResult, Population, SelectionStrategy},
@@ -227,6 +228,14 @@ lazy_static::lazy_static! {
         map.insert("mean", 135); // alias for avg
         map.insert("product", 136);
 
+        // Configuration functions (137-142)
+        map.insert("config", 137);
+        map.insert("config_get", 138);
+        map.insert("config_set", 139);
+        map.insert("config_path", 140);
+        map.insert("config_init", 141);
+        map.insert("config_reload", 142);
+
         map
     };
 }
@@ -387,6 +396,13 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_unique(args, input),
     |args, input, _| bi_avg(args, input),
     |args, input, _| bi_product(args, input),
+    // 137-142: Configuration functions
+    |args, input, _| bi_config(args, input),
+    |args, input, _| bi_config_get(args, input),
+    |args, input, _| bi_config_set(args, input),
+    |_, _, _| bi_config_path(),
+    |_, _, _| bi_config_init(),
+    |_, _, _| bi_config_reload(),
 ];
 
 fn fast_builtin_lookup(
@@ -1141,6 +1157,293 @@ fn bi_product(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             }
         }
         _ => Err(anyhow!("product: requires an Array, got {:?}", arr)),
+    }
+}
+
+// --------------- Configuration builtins ---------------
+
+/// Get the entire configuration as a Record
+fn bi_config(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let config = get_config();
+    let mut map = BTreeMap::new();
+
+    // Shell settings
+    let mut shell = BTreeMap::new();
+    shell.insert(
+        "show_banner".to_string(),
+        Value::Bool(config.shell.show_banner),
+    );
+    shell.insert("show_tips".to_string(), Value::Bool(config.shell.show_tips));
+    shell.insert("vi_mode".to_string(), Value::Bool(config.shell.vi_mode));
+    shell.insert("auto_cd".to_string(), Value::Bool(config.shell.auto_cd));
+    shell.insert(
+        "glob_expansion".to_string(),
+        Value::Bool(config.shell.glob_expansion),
+    );
+    shell.insert(
+        "command_correction".to_string(),
+        Value::Bool(config.shell.command_correction),
+    );
+    shell.insert(
+        "bell_style".to_string(),
+        Value::Str(config.shell.bell_style.clone()),
+    );
+    map.insert("shell".to_string(), Value::Record(shell));
+
+    // Color settings
+    let mut colors = BTreeMap::new();
+    colors.insert("enabled".to_string(), Value::Bool(config.colors.enabled));
+    colors.insert("theme".to_string(), Value::Str(config.colors.theme.clone()));
+    colors.insert("force".to_string(), Value::Bool(config.colors.force));
+    colors.insert(
+        "true_color".to_string(),
+        Value::Bool(config.colors.true_color),
+    );
+    map.insert("colors".to_string(), Value::Record(colors));
+
+    // Prompt settings
+    let mut prompt = BTreeMap::new();
+    prompt.insert(
+        "format".to_string(),
+        Value::Str(config.prompt.format.clone()),
+    );
+    prompt.insert("show_git".to_string(), Value::Bool(config.prompt.show_git));
+    prompt.insert(
+        "show_time".to_string(),
+        Value::Bool(config.prompt.show_time),
+    );
+    prompt.insert(
+        "time_threshold_ms".to_string(),
+        Value::Int(config.prompt.time_threshold_ms as i64),
+    );
+    map.insert("prompt".to_string(), Value::Record(prompt));
+
+    // AI settings
+    let mut ai = BTreeMap::new();
+    ai.insert(
+        "default_provider".to_string(),
+        Value::Str(config.ai.default_provider.clone()),
+    );
+    ai.insert(
+        "default_model".to_string(),
+        Value::Str(config.ai.default_model.clone()),
+    );
+    ai.insert(
+        "suggestions".to_string(),
+        Value::Bool(config.ai.suggestions),
+    );
+    ai.insert(
+        "max_tokens".to_string(),
+        Value::Int(config.ai.max_tokens as i64),
+    );
+    ai.insert(
+        "temperature".to_string(),
+        Value::Float(config.ai.temperature as f64),
+    );
+    ai.insert("streaming".to_string(), Value::Bool(config.ai.streaming));
+    ai.insert(
+        "max_agent_steps".to_string(),
+        Value::Int(config.ai.max_agent_steps as i64),
+    );
+    map.insert("ai".to_string(), Value::Record(ai));
+
+    // History settings
+    let mut history = BTreeMap::new();
+    history.insert("enabled".to_string(), Value::Bool(config.history.enabled));
+    history.insert(
+        "max_size".to_string(),
+        Value::Int(config.history.max_size as i64),
+    );
+    history.insert(
+        "ignore_duplicates".to_string(),
+        Value::Bool(config.history.ignore_duplicates),
+    );
+    history.insert(
+        "ignore_space".to_string(),
+        Value::Bool(config.history.ignore_space),
+    );
+    history.insert("share".to_string(), Value::Bool(config.history.share));
+    history.insert(
+        "timestamps".to_string(),
+        Value::Bool(config.history.timestamps),
+    );
+    map.insert("history".to_string(), Value::Record(history));
+
+    Ok(Value::Record(map))
+}
+
+/// Get a specific config value by path (e.g., "colors.theme" or "ai.default_model")
+fn bi_config_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if args.is_empty() {
+        return Err(anyhow!(
+            "config_get: requires a path argument (e.g., \"colors.theme\")"
+        ));
+    }
+
+    let path = match &args[0] {
+        Value::Str(s) => s.clone(),
+        _ => return Err(anyhow!("config_get: path must be a string")),
+    };
+
+    let config = get_config();
+    let parts: Vec<&str> = path.split('.').collect();
+
+    match parts.as_slice() {
+        // Shell settings
+        ["shell", "show_banner"] => Ok(Value::Bool(config.shell.show_banner)),
+        ["shell", "show_tips"] => Ok(Value::Bool(config.shell.show_tips)),
+        ["shell", "vi_mode"] => Ok(Value::Bool(config.shell.vi_mode)),
+        ["shell", "auto_cd"] => Ok(Value::Bool(config.shell.auto_cd)),
+        ["shell", "glob_expansion"] => Ok(Value::Bool(config.shell.glob_expansion)),
+        ["shell", "command_correction"] => Ok(Value::Bool(config.shell.command_correction)),
+        ["shell", "bell_style"] => Ok(Value::Str(config.shell.bell_style.clone())),
+
+        // Color settings
+        ["colors", "enabled"] => Ok(Value::Bool(config.colors.enabled)),
+        ["colors", "theme"] => Ok(Value::Str(config.colors.theme.clone())),
+        ["colors", "force"] => Ok(Value::Bool(config.colors.force)),
+        ["colors", "true_color"] => Ok(Value::Bool(config.colors.true_color)),
+
+        // Prompt settings
+        ["prompt", "format"] => Ok(Value::Str(config.prompt.format.clone())),
+        ["prompt", "show_git"] => Ok(Value::Bool(config.prompt.show_git)),
+        ["prompt", "show_time"] => Ok(Value::Bool(config.prompt.show_time)),
+        ["prompt", "time_threshold_ms"] => Ok(Value::Int(config.prompt.time_threshold_ms as i64)),
+
+        // AI settings
+        ["ai", "default_provider"] => Ok(Value::Str(config.ai.default_provider.clone())),
+        ["ai", "default_model"] => Ok(Value::Str(config.ai.default_model.clone())),
+        ["ai", "suggestions"] => Ok(Value::Bool(config.ai.suggestions)),
+        ["ai", "max_tokens"] => Ok(Value::Int(config.ai.max_tokens as i64)),
+        ["ai", "temperature"] => Ok(Value::Float(config.ai.temperature as f64)),
+        ["ai", "streaming"] => Ok(Value::Bool(config.ai.streaming)),
+        ["ai", "max_agent_steps"] => Ok(Value::Int(config.ai.max_agent_steps as i64)),
+
+        // History settings
+        ["history", "enabled"] => Ok(Value::Bool(config.history.enabled)),
+        ["history", "max_size"] => Ok(Value::Int(config.history.max_size as i64)),
+        ["history", "ignore_duplicates"] => Ok(Value::Bool(config.history.ignore_duplicates)),
+        ["history", "ignore_space"] => Ok(Value::Bool(config.history.ignore_space)),
+        ["history", "share"] => Ok(Value::Bool(config.history.share)),
+        ["history", "timestamps"] => Ok(Value::Bool(config.history.timestamps)),
+
+        _ => Err(anyhow!("config_get: unknown config path: {}", path)),
+    }
+}
+
+/// Set a config value (saves to config file)
+/// Note: This modifies the config file but changes only take effect after reload
+fn bi_config_set(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if args.len() < 2 {
+        return Err(anyhow!("config_set: requires path and value arguments"));
+    }
+
+    let path = match &args[0] {
+        Value::Str(s) => s.clone(),
+        _ => return Err(anyhow!("config_set: path must be a string")),
+    };
+
+    // Load current config, modify it, and save
+    let mut config = ShellConfig::load()?;
+    let parts: Vec<&str> = path.split('.').collect();
+
+    match (parts.as_slice(), &args[1]) {
+        // Color settings (most commonly changed)
+        (["colors", "enabled"], Value::Bool(v)) => config.colors.enabled = *v,
+        (["colors", "theme"], Value::Str(v)) => config.colors.theme = v.clone(),
+        (["colors", "force"], Value::Bool(v)) => config.colors.force = *v,
+        (["colors", "true_color"], Value::Bool(v)) => config.colors.true_color = *v,
+
+        // Shell settings
+        (["shell", "show_banner"], Value::Bool(v)) => config.shell.show_banner = *v,
+        (["shell", "show_tips"], Value::Bool(v)) => config.shell.show_tips = *v,
+        (["shell", "vi_mode"], Value::Bool(v)) => config.shell.vi_mode = *v,
+        (["shell", "auto_cd"], Value::Bool(v)) => config.shell.auto_cd = *v,
+
+        // AI settings
+        (["ai", "default_model"], Value::Str(v)) => config.ai.default_model = v.clone(),
+        (["ai", "default_provider"], Value::Str(v)) => config.ai.default_provider = v.clone(),
+        (["ai", "max_tokens"], Value::Int(v)) => config.ai.max_tokens = *v as u32,
+        (["ai", "streaming"], Value::Bool(v)) => config.ai.streaming = *v,
+
+        // History settings
+        (["history", "enabled"], Value::Bool(v)) => config.history.enabled = *v,
+        (["history", "max_size"], Value::Int(v)) => config.history.max_size = *v as usize,
+
+        _ => {
+            return Err(anyhow!(
+                "config_set: cannot set path '{}' or invalid value type",
+                path
+            ))
+        }
+    }
+
+    config.save()?;
+    Ok(Value::Str(format!(
+        "Config saved: {} = {:?}",
+        path, args[1]
+    )))
+}
+
+/// Get config file paths
+fn bi_config_path() -> Result<Value> {
+    let mut map = BTreeMap::new();
+    map.insert(
+        "config_file".to_string(),
+        Value::Str(ShellConfig::config_file().to_string_lossy().to_string()),
+    );
+    map.insert(
+        "config_dir".to_string(),
+        Value::Str(ShellConfig::config_dir().to_string_lossy().to_string()),
+    );
+    map.insert(
+        "data_dir".to_string(),
+        Value::Str(ShellConfig::data_dir().to_string_lossy().to_string()),
+    );
+    map.insert(
+        "cache_dir".to_string(),
+        Value::Str(ShellConfig::cache_dir().to_string_lossy().to_string()),
+    );
+    map.insert(
+        "history_file".to_string(),
+        Value::Str(ShellConfig::history_file().to_string_lossy().to_string()),
+    );
+    map.insert(
+        "plugins_dir".to_string(),
+        Value::Str(ShellConfig::plugins_dir().to_string_lossy().to_string()),
+    );
+    map.insert(
+        "init_script".to_string(),
+        Value::Str(ShellConfig::init_script().to_string_lossy().to_string()),
+    );
+    Ok(Value::Record(map))
+}
+
+/// Initialize config directories and create default config file
+fn bi_config_init() -> Result<Value> {
+    ShellConfig::init_dirs()?;
+
+    let config_file = ShellConfig::config_dir().join("config.toml");
+    if !config_file.exists() {
+        let default_config = ShellConfig::generate_default_config();
+        fs::write(&config_file, default_config)?;
+        Ok(Value::Str(format!(
+            "Created config file: {}",
+            config_file.display()
+        )))
+    } else {
+        Ok(Value::Str(format!(
+            "Config file already exists: {}",
+            config_file.display()
+        )))
+    }
+}
+
+/// Reload configuration from disk
+fn bi_config_reload() -> Result<Value> {
+    match reload_config() {
+        Ok(_) => Ok(Value::Str("Configuration reloaded".to_string())),
+        Err(e) => Err(anyhow!("Failed to reload config: {}", e)),
     }
 }
 
