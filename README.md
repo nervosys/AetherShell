@@ -1,19 +1,44 @@
-# Æther Shell (æ) 🚀
+<p align="center">
+  <img src="assets/banner.svg" alt="Æther Shell" width="700">
+</p>
 
-*The world's first multi-agent shell with typed functional pipelines and multi-modal AI. Built in Rust for safety and performance, featuring revolutionary AI protocols found nowhere else.*
+<p align="center">
+  <a href="https://crates.io/crates/aether_shell"><img src="https://img.shields.io/crates/v/aether_shell.svg?style=flat-square&logo=rust&color=orange" alt="Crates.io"></a>
+  <a href="https://github.com/nervosys/AetherShell/actions"><img src="https://img.shields.io/github/actions/workflow/status/nervosys/AetherShell/rust.yml?style=flat-square&logo=github" alt="Build Status"></a>
+  <a href="https://github.com/nervosys/AetherShell/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg?style=flat-square" alt="License"></a>
+  <a href="https://github.com/nervosys/AetherShell/stargazers"><img src="https://img.shields.io/github/stars/nervosys/AetherShell?style=flat-square&color=yellow" alt="Stars"></a>
+</p>
 
-> **"What if your shell could coordinate teams of AI agents, negotiate consensus, and process images, audio, and video—all with type-safe functional pipelines?"**
+<p align="center">
+  <strong>The world's first multi-agent shell with typed functional pipelines and multi-modal AI.</strong><br>
+  <em>Built in Rust for safety and performance, featuring revolutionary AI protocols found nowhere else.</em>
+</p>
+
+<p align="center">
+  <a href="#-quick-start">Quick Start</a> •
+  <a href="#-features">Features</a> •
+  <a href="#-examples">Examples</a> •
+  <a href="docs/TUI_GUIDE.md">TUI Guide</a> •
+  <a href="#-documentation">Docs</a> •
+  <a href="#-contributing">Contributing</a>
+</p>
 
 ---
 
-## ⚡ Quick Start
+<p align="center">
+  <img src="assets/screenshot.svg" alt="AetherShell Terminal Demo" width="800">
+</p>
+
+---
+
+## 🚀 Quick Start
 
 ```bash
-# Install
+# Install from source
 git clone https://github.com/nervosys/AetherShell && cd AetherShell
 cargo install --path . --bin ae
 
-# Launch interactive TUI
+# Launch interactive TUI (recommended)
 ae --tui
 
 # Or classic REPL
@@ -21,1168 +46,334 @@ ae
 ```
 
 ```ae
-# Typed pipelines - not text streams!
-[1,2,3,4,5] | map(fn(x) => x * 2) | reduce(fn(a,b) => a + b, 0)
+# Typed pipelines — not text streams!
+[1, 2, 3, 4, 5] | map(fn(x) => x * 2) | sum()
 # => 30
 
-# AI query (set AETHER_AI=openai and OPENAI_API_KEY for real responses)
+# AI query
 ai("Explain quantum computing in simple terms")
 
 # AI with vision
 ai("Describe this image", {images: ["photo.jpg"]})
 
-# AI agent with tools
+# AI agent with tool access
 agent("Find all TODO comments in src/", ["ls", "cat", "grep"])
 
-# Neural network creation
-let brain = nn_create("agent", [4, 8, 2])
+# 130+ MCP tools
+mcp_tools() | len()  # => 130
 ```
 
-**Set your API key:** `export OPENAI_API_KEY="sk-..."` or `ae ai keys store openai sk-...`
-
-📖 **[Full Documentation](#-quick-start-guide)** | 🎮 **[TUI Guide](docs/TUI_GUIDE.md)** | 📚 **[Examples](examples/)**
+> **📝 Note:** Set `OPENAI_API_KEY` for AI features: `export OPENAI_API_KEY="sk-..."`
 
 ---
 
-## 🎯 **What Makes AetherShell Unique?**
+## ✨ Features
 
-AetherShell is the **ONLY shell in the world** that combines:
+<table>
+<tr>
+<td width="50%">
 
-### 🥇 **Exclusive Features**
+### 🤖 AI-Native Shell
+- **Multi-modal AI**: Images, audio, video analysis
+- **Autonomous agents** with tool access
+- **130+ MCP tools** across 27 categories
+- **Multi-provider**: OpenAI, Ollama, local models
 
-1. **AI Agents with Tool Access** 🤖
-   - Deploy AI agents that can use shell tools (ls, cat, grep, etc.)
-   - Goal-directed task execution with step limits
-   - Dry-run mode for previewing actions
-   - *Multi-agent swarm orchestration coming soon!*
+</td>
+<td width="50%">
 
-2. **AI Communication Protocols** 💬
-   - **MCP**: Model Context Protocol with 130+ tools across 27 categories
-   - **A2A**: Agent-to-Agent messaging framework
-   - **NANDA**: Negotiation And Dynamic Agents for consensus
-   - **AgenticBinary**: Binary protocol for information density
-   - **Syntax KB**: Knowledge base for protocol discovery
+### 💎 Typed Pipelines
+- **Hindley-Milner** type inference
+- **Structured data**: Records, Arrays, Tables
+- **First-class functions** and lambdas
+- **Pattern matching** expressions
 
-3. **Multi-Modal AI Native** 🎨
-   - Analyze images with `ai("prompt", {images: [...]})`
-   - Process audio with `ai("prompt", {audio: [...]})`
-   - Analyze video with `ai("prompt", {video: [...]})`
-   - Mix multiple media types in single queries
+</td>
+</tr>
+<tr>
+<td width="50%">
 
-4. **Typed Functional Pipelines** 💎
-   - Hindley-Milner type inference (like Haskell, OCaml)
-   - Structured data: Records, Arrays, Tables—not text streams
-   - First-class functions, pattern matching
-   - Type safety prevents shell scripting errors
+### 🧠 ML Primitives
+- **Neural networks** creation & evolution
+- **Reinforcement learning** (Q-Learning, DQN, etc.)
+- **Evolutionary algorithms** & NEAT
+- **Consensus networks** for distributed AI
 
-5. **🧠 Neural Networks & Evolutionary Learning**
-   - In-shell neural network creation and mutation
-   - Consensus networks for distributed decision making
-   - Evolutionary algorithms with population optimization
-   - NEAT topology evolution
+</td>
+<td width="50%">
 
-### ✨ **Revolutionary Features**
+### 🎨 Beautiful TUI
+- **Interactive terminal UI** with tabs
+- **Media viewer** for images/audio/video
+- **Agent dashboard** for swarm control
+- **Chat interface** with context
 
-### 🧠 **AI Integration**
-
-- **AI Queries**: Direct AI queries with `ai()` function
-- **Vision AI**: Analyze images and screenshots
-- **Audio Processing**: Transcribe speech and audio files
-- **Video Analysis**: Process video content with AI-powered insights
-- **Smart Agents**: Deploy specialized AI agents with tool access and reasoning
-- **Protocol Support**: MCP, A2A, and NANDA for advanced agent coordination
-- **🆕 Model Management**: OpenRouter-style API server with local model management and format conversion
-- **🆕 Neural Networks**: Create and evolve neural networks directly in the shell
-- **🆕 Evolutionary Learning**: Population-based optimization and coevolution
-
-### 🎨 **Beautiful Terminal UI (TUI)**
-
-- **Interactive Interface**: Modern, responsive terminal GUI with real-time updates
-- **Media Viewer**: Display images, play audio, and preview videos in terminal
-- **Chat Interface**: Conversational AI with context-aware responses
-- **Agent Dashboard**: Monitor and control your AI agent swarms
-- **Multimodal Sessions**: Seamlessly mix text, images, audio in conversations
-
-### 💪 **Advanced Programming Features**
-
-- **Typed Pipelines**: Pass structured records/tables, not just raw text
-- **Rust-Grade Safety**: Memory-safe runtime with zero-cost abstractions
-- **Strong Type System**: Hindley–Milner inference with algebraic data types
-- **Metaprogramming**: Hygienic macros and AST manipulation
-- **Async/Await**: Built-in structured concurrency and cancellation
-- **POSIX Compatibility**: Run existing tools seamlessly
-
-### 🔄 **Seamless Interoperability**
-
-- **Bash Compatibility**: Transpile and run existing `.sh` scripts
-- **Command Integration**: Auto-wrap unknown commands in safe shells
-- **Multi-Backend AI**: Support for OpenAI, Anthropic, and local providers via unified API
-- **OS Tools Database**: Cross-platform native command integration
-- **🆕 XDG Compliance**: Standards-compliant local storage and configuration management
+</td>
+</tr>
+</table>
 
 ---
 
-## � Project Structure
+## 🎯 What Makes AetherShell Unique?
 
-This project is now organized with a clean directory structure:
+AetherShell is the **only shell** combining these capabilities:
 
-- **📂 `src/`** - Core Rust source code
-- **📂 `docs/`** - Documentation, specs, and development notes  
-- **📂 `examples/`** - AetherShell example scripts
-- **📂 `demos/`** - Showcase demos and advanced examples
-- **📂 `test-scripts/`** - Manual test scripts (builtins & integration)
-- **📂 `tests/`** - Rust unit and integration tests
-- **📂 `web/`** - Web terminal components
-- **📂 `temp/`** - Temporary files (gitignored)
-
-See [PROJECT_STRUCTURE.md](./PROJECT_STRUCTURE.md) for detailed organization information.
+| Feature                             | AetherShell | Traditional Shells | Nushell |
+| ----------------------------------- | :---------: | :----------------: | :-----: |
+| AI Agents with Tools                |      ✅      |         ❌          |    ❌    |
+| Multi-modal AI (Vision/Audio/Video) |      ✅      |         ❌          |    ❌    |
+| MCP Protocol (130+ tools)           |      ✅      |         ❌          |    ❌    |
+| Neural Networks Built-in            |      ✅      |         ❌          |    ❌    |
+| Hindley-Milner Types                |      ✅      |         ❌          |    ✅    |
+| Typed Pipelines                     |      ✅      |         ❌          |    ✅    |
+| Agent-to-Agent Protocol (A2A)       |      ✅      |         ❌          |    ❌    |
+| Consensus Protocol (NANDA)          |      ✅      |         ❌          |    ❌    |
 
 ---
 
-## �🚀 Quick Start Guide
+## 📖 Examples
 
-### Installation
+### AI Agents with Tool Access
+
+```ae
+# Deploy an AI agent that can use shell tools
+agent("Analyze the project structure and find large files", ["ls", "cat", "wc"])
+
+# Agent with configuration
+agent({
+  goal: "Find security issues in the codebase",
+  tools: ["grep", "cat", "ls"],
+  max_steps: 10,
+  dry_run: true  # Preview actions first
+})
+```
+
+### Multi-Modal AI
+
+```ae
+# Analyze images
+ai("What's in this screenshot?", {images: ["screenshot.png"]})
+
+# Process audio
+ai("Transcribe and summarize this meeting", {audio: ["meeting.mp3"]})
+
+# Video analysis
+ai("Extract the key steps from this tutorial", {video: ["tutorial.mp4"]})
+```
+
+### Typed Functional Pipelines
+
+```ae
+# Structured data processing — not text parsing!
+ls("./src")
+  | where(fn(f) => f.ext == ".rs" && f.size > 1000)
+  | map(fn(f) => {name: f.name, kb: f.size / 1024})
+  | sort_by(fn(f) => f.kb, "desc")
+  | take(5)
+
+# Statistical operations
+[1, 2, 3, 4, 5] | sum()      # => 15
+[10, 20, 30] | avg()         # => 20.0
+[1, 2, 1, 3] | unique()      # => [1, 2, 3]
+{a: 1, b: 2} | values()      # => [1, 2]
+```
+
+### MCP Tools (Model Context Protocol)
+
+```ae
+# 130 tools across 27 categories
+let tools = mcp_tools()
+print(len(tools))  # => 130
+
+# Filter by category
+mcp_tools({category: "development"})     # git, cargo, npm, etc.
+mcp_tools({category: "machinelearning"}) # ollama, tensorboard, etc.
+mcp_tools({category: "kubernetes"})      # kubectl, helm, k9s, etc.
+
+# Execute tools via MCP
+mcp_call("git", {command: "status"})
+```
+
+### Neural Networks & Evolution
+
+```ae
+# Create a neural network
+let brain = nn_create("agent", [4, 8, 2])
+
+# Evolutionary optimization
+let pop = population(100, {genome_size: 10})
+let evolved = evolve(pop, fitness_fn, {generations: 50})
+
+# Reinforcement learning
+let agent = rl_agent("learner", 16, 4)
+```
+
+---
+
+## 🎮 TUI Interface
+
+Launch the beautiful terminal UI with `ae --tui`:
+
+| Tab        | Description                                |
+| ---------- | ------------------------------------------ |
+| **Chat**   | Conversational AI with multi-modal support |
+| **Agents** | Deploy and monitor AI agent swarms         |
+| **Media**  | View images, play audio, preview videos    |
+| **Help**   | Quick reference and documentation          |
+
+**Keyboard shortcuts:**
+- `Tab` — Switch tabs
+- `Enter` — Send message / activate
+- `Space` — Select media files
+- `q` — Quit
+- `Ctrl+C` — Force quit
+
+📖 **Full guide:** [docs/TUI_GUIDE.md](docs/TUI_GUIDE.md)
+
+---
+
+## 📦 Installation
+
+### From Source (Recommended)
 
 ```bash
 git clone https://github.com/nervosys/AetherShell
 cd AetherShell
+cargo install --path . --bin ae
+```
 
-# Install both binaries
-cargo install --path . --bins
+### From Crates.io
 
-# Or install individually
-cargo install --path . --bin ae       # Main Aether Shell
-cargo install --path . --bin aimodel  # AI Model Management CLI (deprecated, use 'ae ai' instead)
+```bash
+cargo install aether_shell
 ```
 
 ### VS Code Extension
 
-Get professional IDE support for AetherShell:
-
-- **Syntax highlighting** for `.ae` files
-- **Code snippets** for agents, swarms, MCP servers
-- **Run code** directly from editor (Ctrl+Shift+R)
-- **Auto-completion** for built-in functions
-- **Hover documentation** for AI features
-- **Integrated REPL and TUI**
-
-📖 **Quick Reference**: See [QUICK_REFERENCE.md](docs/QUICK_REFERENCE.md) for all syntax, patterns, and snippets!
-
-**Install:**
+Get syntax highlighting, snippets, and integrated REPL:
 
 ```bash
-cd vscode-extension
-npm install
-npm run compile
-# Press F5 to test, or package for distribution
-```
-
-See `vscode-extension/README.md` for details.
-
-### Launch Options
-
-**Classic REPL Mode:**
-
-```bash
-ae
-```
-
-**🎨 Interactive TUI Mode (Recommended):**
-
-```bash
-ae --tui
-```
-
-> **Note**: TUI requires a terminal with full ANSI support (Windows Terminal, native PowerShell, or modern terminal emulators). VS Code integrated terminal may have limited support. See [TUI Guide](docs/TUI_GUIDE.md) for details.
-
-**Run Scripts:**
-
-```bash
-ae script.ae          # Run Aether script
-ae --bash script.sh   # Run Bash script in compatibility mode
-```
-
-### REPL Commands
-
-- **exit** / **quit**: Exit the REPL
-- **Ctrl+D**: Exit the REPL (EOF)
-- **Ctrl+C**: Interrupt current operation
-
----
-
-## 🎯 Experience the Magic
-
-### 🤖 **AI Agents**
-
-**Create an AI agent with tool access:**
-
-```ae
-# Agent with goal and allowed tools
-# Set AETHER_AI=openai and OPENAI_API_KEY for real AI responses
-agent("Find all TODO comments in the codebase", ["ls", "cat", "grep"])
-
-# Agent with configuration record
-agent({
-  goal: "Analyze the project structure",
-  tools: ["ls", "cat"],
-  max_steps: 5,
-  dry_run: true  # Preview without executing
-})
-```
-
-**AI queries with multi-modal support:**
-
-```ae
-# Simple text query
-ai("Explain the difference between TCP and UDP")
-
-# Query with images
-ai("What's in this screenshot?", {images: ["screenshot.png"]})
-
-# Query with multiple images
-ai("Compare these diagrams", {images: ["diagram1.png", "diagram2.png"]})
-```
-
-> **🔮 Coming Soon: Multi-Agent Swarms**
->
-> The full swarm syntax for coordinating multiple agents with different models
-> is under active development. Current agent functionality uses single-agent mode.
-
-### 🔧 **MCP Tool Use (Model Context Protocol)**
-
-**Access 130+ tools via the built-in MCP server:**
-
-```ae
-# List all available MCP tools
-let tools = mcp_tools()
-print(len(tools))  # => 130
-
-# Search for specific tools
-let git_tools = mcp_tools({search: "git"})
-# => [{name: "git", description: "Distributed version control", ...}, ...]
-
-# Filter by category
-let dev_tools = mcp_tools({category: "development"})
-let ml_tools = mcp_tools({category: "machinelearning"})
-let k8s_tools = mcp_tools({category: "kubernetes"})
-
-# Execute tools via MCP protocol
-let result = mcp_call("git", {command: "status"})
-print(result.content)  # Git status output
-
-let files = mcp_call("curl", {url: "https://api.github.com"})
-print(files.is_error)  # false on success
-
-# Get MCP server information
-let server = mcp_server()
-print(server.tool_count)       # 130
-print(server.protocol_version) # "2024-11-05"
-
-# List available resources and prompts
-let resources = mcp_resources()  # tools, categories, system-info
-let prompts = mcp_prompts()      # find-tool, explain-tool
-```
-
-**Tool Categories (27 total):**
-- **Development**: git, cargo, npm, go, rustc, make, gradle, maven
-- **Containers**: docker, kubectl, helm, k9s, minikube, kind
-- **MachineLearning**: ollama, huggingface-cli, tensorboard, wandb, mlflow
-- **Cloud**: aws, az, gcloud, gsutil, terraform, packer
-- **Security**: openssl, gpg, ssh, vault, sops, age
-- **Data**: jq, yq, duckdb, sqlite3, pgcli, redis-cli
-- **Media**: ffmpeg, imagemagick, yt-dlp, pandoc, sox
-- **And more**: FileSystem, NetworkTools, Archives, Monitoring...
-
-### 🔧 **Local MCP Servers (Safe Tool Access)**
-
-**MCP tool discovery and execution:**
-
-```ae
-# Query and execute from 130+ built-in tools
-let tools := mcp_tools()
-print(len(tools))  # 130
-
-# Filter tools by category
-let dev_tools := mcp_tools({category: "development"})
-print(len(dev_tools))  # 23
-
-# Execute tools via MCP protocol
-let result := mcp_call("git", {command: "status"})
-print(result.is_error)  # false
-
-# Get server information
-let server := mcp_server()
-print(server.tool_count)  # 130
-```
-
-**Start custom MCP servers:**
-
-```ae
-# Start filesystem MCP server (safe, controlled access)
-fs_server := mcp_server_start({
-  name: "filesystem",
-  type: "builtin",
-  config: {
-    allowed_paths: ["./", "~/Projects"],
-    excluded_patterns: [".git/", "node_modules/"]
-  }
-})
-print(fs_server.endpoint)  # http://localhost:3xxx
-
-# Start multiple MCP servers
-git_server := mcp_server_start({name: "git", type: "builtin"})
-docker_server := mcp_server_start({name: "docker", type: "builtin"})
-
-# Agent with MCP tool access
-devops := agent_with_mcp(
-  "Check git status and list recent commits",
-  ["mcp:git_status", "mcp:git_log"],
-  git_server.endpoint
-)
-print(devops.result)
-```
-
-### 🎨 **Multi-Modal AI (Images, Audio, Video)**
-
-**Analyze images with AI:**
-
-```ae
-# Single image
-ai("What do you see in this image?", {images: ["screenshot.png"]})
-
-# Compare multiple images
-ai("Compare these photos and find similarities", {
-  images: ["photo1.jpg", "photo2.jpg", "photo3.jpg"]
-})
-
-# Batch process with typed pipelines and in() operator
-ls("./photos")
-  | where(fn(f) => f.ext | in([".jpg", ".png"]))
-  | map(fn(photo) => {
-      path: photo.path,
-      description: ai("Describe briefly", {images: [photo.path]})
-    })
-  | save_json("photo_catalog.json")
-```
-
-**Audio transcription and analysis:**
-
-```ae
-# Transcribe audio
-ai("Transcribe this audio", {audio: ["meeting.mp3"]})
-
-# Analyze sentiment
-ai("What is the speaker's tone and sentiment?", {
-  audio: ["interview.mp3"]
-})
-
-# Summarize podcast
-ai("Extract key takeaways from this podcast", {
-  audio: ["episode_42.mp3"]
-})
-```
-
-**Video content processing:**
-
-```ae
-# Summarize video
-ai("Summarize the key points from this video", {
-  video: ["presentation.mp4"]
-})
-
-# Extract tutorial steps
-ai("List the step-by-step instructions from this tutorial", {
-  video: ["coding_tutorial.mp4"]
-})
-```
-
-**Multi-modal combinations:**
-
-```ae
-# Analyze presentation with slides + audio
-ai("Create comprehensive summary of this presentation", {
-  images: ["slide1.png", "slide2.png", "slide3.png"],
-  audio: ["narration.mp3"]
-})
-
-# Meeting minutes from multiple sources
-ai("Generate meeting minutes with action items", {
-  audio: ["meeting_audio.mp3"],
-  images: ["whiteboard_photo.jpg"],
-  video: ["screen_share.mp4"]
-})
-```
-
-### 💎 **Typed Functional Pipelines**
-
-**Structured data, not text streams:**
-
-```ae
-# ls returns typed records with name, path, ext, is_dir, size, modified
-ls(".")
-  | where(fn(f) => f.size > 1000 && f.ext == ".rs")
-  | map(fn(f) => {
-      name: f.name,
-      size_kb: f.size / 1024,
-      age_days: (now() - f.modified) / 86400
-    })
-  | sort_by(fn(f) => f.size_kb, "desc")
-  | take(10)
-```
-
-**Type-safe with Hindley-Milner inference:**
-
-```ae
-# Types are inferred automatically
-numbers = [1, 2, 3, 4, 5]  # Array<Int>
-doubled = numbers | map(fn(x) => x * 2)  # Array<Int>
-sum = doubled | reduce(fn(a, b) => a + b, 0)  # Int
-
-# Complex types work seamlessly
-employees = [
-  {name: "Alice", age: 30, salary: 75000.0},
-  {name: "Bob", age: 25, salary: 65000.0}
-]  # Array<Record<name: String, age: Int, salary: Float>>
-
-high_earners = employees
-  | where(fn(e) => e.salary > 70000.0)  # Note: use 70000.0 for Float comparison
-  | map(fn(e) => {name: e.name, monthly: e.salary / 12.0})
-```
-
-**First-class functions:**
-
-```ae
-# Functions are values - pass lambdas to higher-order functions
-double = fn(x) => x * 2
-triple = fn(x) => x * 3
-square = fn(x) => x * x
-
-[1,2,3,4,5] | map(double)   # => [2,4,6,8,10]
-[1,2,3,4,5] | map(triple)   # => [3,6,9,12,15]
-[1,2,3,4,5] | map(square)   # => [1,4,9,16,25]
-
-# Chain operations
-[1,2,3,4,5] | map(fn(x) => x + 1) | map(fn(x) => x * x)  # => [4,9,16,25,36]
+cd editors/vscode
+npm install && npm run compile
+# Press F5 to test
 ```
 
 ---
 
-## 🔥 Powerful Real-World Examples
+## ⚙️ Configuration
 
-### 🤖 AI-Assisted Code Review
-
-```ae
-# Use an AI agent to review code for issues
-# Set AETHER_AI=openai and OPENAI_API_KEY for real AI responses
-code_content = read_text("src/main.rs")
-ai("Review this Rust code for potential bugs, security issues, and improvements:\n" + code_content)
-```
-
-### 📊 Intelligent Data Processing Pipeline
-
-```ae
-# Type-safe data transformation with AI insights
-# Process files and get AI analysis - now with ext field!
-files := ls("./src") | where(fn(f) => f.ext == ".rs")
-file_info := files | map(fn(f) => {name: f.name, size: f.size})
-print(file_info)
-
-# Get AI insights on project structure
-ai("Based on a Rust project with these files, suggest improvements: " + to_json(file_info))
-```
-
-### 🎨 Multi-Modal Content Analysis
-
-```ae
-# Analyze images with AI
-ai("What's shown in this image? List the main objects.", {
-  images: ["photo.jpg"]
-})
-
-# Compare multiple images
-ai("Compare these two screenshots and describe the differences", {
-  images: ["before.png", "after.png"]
-})
-
-# Analyze with audio context
-ai("Transcribe and summarize this audio recording", {
-  audio: ["meeting.mp3"]
-})
-```
-
-### 🔍 Smart File Organization with AI Vision
-
-```ae
-# Analyze and describe images in a directory
-ls("./images")
-  | where(fn(f) => f.ext == ".jpg" || f.ext == ".png")
-  | map(fn(photo) => {
-      path: photo.path,
-      name: photo.name,
-      description: ai("Briefly describe this image", {images: [photo.path]})
-    })
-  | save_json("photo_analysis.json")
-```
-
----
-
-## 🧠 Core Language Features
-
-### Basic Syntax
-
-**Comments:**
-
-```ae
-# Line comments use hash (shell style - preferred)
-# Comments are ignored during execution
-
-print("Hello") # Inline comments also work
-
-// C-style comments are also supported for compatibility
-```
-
-**Hello World:**
-
-```ae
-print("Hello, Aether!")
-```
-
-**Variables:**
-
-```ae
-# Simple = for type inference (recommended)
-name = "world"         # Type inferred as String
-count = 42             # Type inferred as Int
-items = [1, 2, 3]      # Type inferred as Array<Int>
-
-# Walrus operator := also supported (same as =)
-timestamp := now()     # Get current Unix timestamp
-result := sh(["git", "status"])  # Run shell command
-
-# Mutable variables
-mut counter = 0        # Mutable
-mut total = 100        # Also mutable
-
-# Alternative syntax (explicit)
-let name = "world"     # Explicit let keyword
-let mut counter = 0    # Traditional mutable
-```
-
-**Structured Pipelines:**
-
-```ae
-[1,2,3,4] | map(fn(x) => x*x) | reduce(fn(a,b) => a+b, 0)
-# → 30
-```
-
-**Pattern Matching:**
-
-```ae
-# Match on arrays and literals
-let nums = [1, 2, 3]
-match nums {
-  [] => print("empty"),
-  [x] => print("single"),
-  [x, y] => print("pair"),
-  _ => print("multiple elements")
-}
-
-# Match with Option types
-let val = Some(42)
-print(val)  # => {_tag: "Some", _value: 42}
-```
-
-**Typed HTTP:**
-
-```ae
-resp = http_get("https://api.github.com")
-print(resp.status)
-print(resp.body)
-```
-
----
-
-## 🤖 AI Model Management System
-
-### **New: OpenRouter-Style API Server**
-
-Aether Shell now includes a comprehensive AI model management system with an OpenRouter-compatible API server, XDG-compliant local storage, and advanced model format conversion capabilities.
-
-#### **🚀 Key Features**
-
-- **🔌 Multi-Provider Support**: Seamlessly integrate OpenAI, Anthropic, and local models through a unified API
-- **📁 XDG-Compliant Storage**: Local model storage following XDG Base Directory specification
-- **🔄 Format Conversion**: Convert between GGUF, SafeTensors, PyTorch, ONNX, and TensorFlow formats
-- **📥 Model Downloads**: Direct integration with Hugging Face Hub and custom model repositories
-- **🌐 HTTP API Server**: OpenAI-compatible REST API with Swagger documentation
-- **⚙️ CLI Management**: Comprehensive command-line interface for all operations
-
-#### **🛠️ AI Model CLI (`ae ai`)**
-
-**Start the API Server:**
+### Environment Variables
 
 ```bash
-# Start server with default settings
-ae ai serve
+# AI Provider (required for AI features)
+export OPENAI_API_KEY="sk-..."
 
-# Custom host and port with CORS enabled
-ae ai serve --host 0.0.0.0 --port 3000 --cors
-```
-
-**Model Management:**
-
-```bash
-# List all available models (local + remote providers)
-ae ai list
-
-# List models from specific provider
-ae ai list --provider openai
-
-# List only local models
-ae ai list --local
-
-# Download models locally
-ae ai download microsoft/DialoGPT-medium
-```
-
-**API Key Management:**
-
-```bash
-# Store API key securely in OS credential store
-ae ai keys store openai --key sk-your-key-here
-
-# Get API key (shows masked version)
-ae ai keys get openai
-
-# Delete API key
-ae ai keys delete openai
-
-# List all stored API key providers
-ae ai keys list
-```
-
-**Configuration:**
-
-```bash
-# Show current AI configuration
-ae ai config
-```
-
-> **Note:** The old `aimodel` command is deprecated but still available for backward compatibility. It will show a deprecation warning and suggest using `ae ai` instead.
->
-> **Advanced features** (coming soon): Model format conversion, storage management, provider configuration, and LLM backend management will be integrated into `ae ai` in future releases.
-
-**Supported LLM Backends:**
-
-- **🔥 vLLM**: High-performance inference with PagedAttention (`http://localhost:8000`)
-- **⚡ TensorRT-LLM**: NVIDIA GPU-optimized inference (`http://localhost:8001`)  
-- **🌊 SGLang**: High-throughput serving with RadixAttention (`http://localhost:30000`)
-- **🦙 llama.cpp**: CPU/GPU inference for GGUF models (`http://localhost:8080`)
-
-#### **🌐 HTTP API Endpoints**
-
-Once the server is running, you can access these OpenAI-compatible endpoints:
-
-```bash
-# List available models
-curl http://localhost:8080/v1/models
-
-# Chat completions with different providers
-# Using OpenAI
-curl -X POST http://localhost:8080/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer your-api-key" \
-  -d '{
-    "model": "gpt-3.5-turbo",
-    "provider": "openai",
-    "messages": [{"role": "user", "content": "Hello!"}]
-  }'
-
-# Using vLLM backend
-curl -X POST http://localhost:8080/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "microsoft/DialoGPT-medium",
-    "provider": "vllm",
-    "messages": [{"role": "user", "content": "Hello!"}]
-  }'
-
-# Using llama.cpp backend
-curl -X POST http://localhost:8080/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "llama-2-7b-chat",
-    "provider": "llama.cpp",
-    "messages": [{"role": "user", "content": "Hello!"}]
-  }'
-
-# Generate embeddings
-curl -X POST http://localhost:8080/v1/embeddings \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "text-embedding-ada-002",
-    "provider": "openai", 
-    "input": "Text to embed"
-  }'
-
-# Server health check
-curl http://localhost:8080/health
-
-# API documentation
-open http://localhost:8080/swagger-ui
-```
-
-#### **📁 Local Storage Structure**
-
-Models are stored following XDG Base Directory specification:
-
-```bash
-~/.local/share/ai-models/          # Linux/macOS
-%APPDATA%/ai-models/               # Windows
-├── models/
-│   ├── gguf/                     # GGUF format models
-│   ├── safetensors/              # SafeTensors format  
-│   ├── pytorch/                  # PyTorch models
-│   └── onnx/                     # ONNX models
-├── metadata/                     # Model metadata and index
-└── cache/                        # Temporary download cache
-
-~/.config/ai-models/               # Configuration directory
-├── config.toml                   # Main configuration
-├── providers.toml                # Provider settings
-└── aliases.json                  # Model aliases
-```
-
-#### **⚙️ LLM Backend Configuration**
-
-Configure your LLM backends in `~/.config/aether/providers.toml`:
-
-```toml
-[llm_backends]
-# vLLM configuration
-vllm_endpoint = "http://localhost:8000"
-vllm_auto_start = true
-vllm_gpu_memory_utilization = 0.9
-vllm_tensor_parallel_size = 1
-
-# TensorRT-LLM configuration  
-tensorrt_endpoint = "http://localhost:8001"
-tensorrt_auto_start = false
-tensorrt_max_batch_size = 8
-tensorrt_max_input_len = 2048
-tensorrt_max_output_len = 1024
-
-# SGLang configuration
-sglang_endpoint = "http://localhost:30000" 
-sglang_auto_start = true
-sglang_mem_fraction_static = 0.8
-sglang_tp_size = 1
-
-# llama.cpp configuration
-llamacpp_endpoint = "http://localhost:8080"
-llamacpp_auto_start = true
-llamacpp_context_size = 4096
-llamacpp_gpu_layers = -1  # Use all GPU layers available
-```
-
-#### **🔧 Integration with Aether Shell**
-
-The AI model system integrates seamlessly with Aether Shell's existing AI features:
-
-```ae
-# Use different LLM backends seamlessly
-# Set AETHER_AI environment variable to configure provider
-vllm_response = ai("Hello, how are you?")
-
-# Use MCP tools for model management
-let tools = mcp_tools()
-print(len(tools))  # 130 tools available
-
-# Model information via HTTP
-models = http_get("http://localhost:8080/v1/models")
-print(models.status)
-
-# Batch processing with pipelines
-backends = ["openai", "ollama", "compat"]
-results = backends | map(fn(backend) => {name: backend, available: true})
-```
-
----
-
-## 🎮 TUI Interface Guide
-
-### Navigation
-
-- **Tab**: Switch between Chat, Agents, Media, Help tabs
-- **Arrow Keys**: Navigate lists and selections
-- **Space**: Select/deselect media files
-- **Enter**: Send messages, activate agents
-- **Esc**: Exit to normal mode or quit application
-- **q**: Quit application (from normal mode)
-- **Ctrl+C**: Force quit application
-
-### Media Tab Features
-
-- **Image Viewer**: Display images directly in terminal using advanced algorithms
-- **Audio Player**: Play audio files with waveform visualization  
-- **Video Preview**: Extract frames and metadata from video files
-- **Format Support**: 20+ media formats including PNG, JPG, MP3, MP4, WEBM, GIF
-- **Batch Selection**: Select multiple files for multimodal AI analysis
-
-### Agent Management
-
-- **Create Agents**: Spawn AI agents with specific capabilities
-- **Monitor Status**: Real-time agent status and task progress
-- **Swarm Coordination**: Deploy coordinated teams of agents
-- **Task Assignment**: Distribute work across agent networks
-- **Strategy Selection**: Choose from Round-Robin, Load-Balanced, or Specialized coordination
-
-### Chat Interface
-
-- **Multimodal Messages**: Include text, images, audio, and video in conversations
-- **Context Awareness**: AI remembers conversation history and attached media
-- **Export Options**: Save conversations as Markdown or JSON
-- **Session Management**: Multiple chat sessions with persistent history
-- **Auto-Summarization**: Intelligent conversation summarization
-
----
-
-## 🛠️ Advanced Features
-
-### Bash Compatibility
-
-**Run old scripts seamlessly:**
-
-```bash
-ae --bash script.sh
-```
-
-**Or pipe Bash from stdin:**
-
-```bash
-echo 'echo hello | wc -l' | ae -b
-```
-
-**Transpiler magic - turns this:**
-
-```bash
-echo hello | wc -l
-```
-
-**into Aether (conceptual transpiler output):**
-
-```ae
-# Transpiled bash commands use echo() builtin and pipelines
-echo("hello")
-```
-
----
-
-## 🎨 AI & Media Configuration
-
-### Supported AI Backends
-
-AetherShell supports multiple AI inference backends for maximum flexibility:
-
-- **OpenAI** (`openai:gpt-4o-mini`) - Cloud API for GPT-4V vision, GPT-4 text, Whisper audio
-- **Ollama** (`ollama:llama3`) - Local server for LLaVA vision, Llama/Mistral text
-- **vLLM** (`vllm:meta-llama/Llama-3-8B`) - High-performance local inference with PagedAttention
-- **llama.cpp** (`llamacpp:model`) - Efficient CPU/GPU inference with GGUF models
-- **TGI** (`tgi:mixtral`) - HuggingFace Text Generation Inference
-- **OpenAI-Compatible** (`compat:mixtral`) - Any OpenAI-compatible API server
-
-**📖 See [docs/AI_BACKENDS.md](docs/AI_BACKENDS.md) for detailed backend configuration guide**
-
-### Media Format Support
-
-- **Images**: PNG, JPG, JPEG, WEBP, GIF, BMP, TIFF, ICO, SVG
-- **Audio**: MP3, WAV, FLAC, OGG, M4A, AAC, WMA  
-- **Video**: MP4, AVI, MOV, MKV, WEBM, FLV, WMV
-
-### Environment Setup
-
-```bash
-# For OpenAI integration
-export OPENAI_API_KEY="your-api-key"
-
-# For agent command permissions  
+# Agent permissions
 export AGENT_ALLOW_CMDS="ls,git,curl,python"
 
-# For custom AI backends
-export AI_BACKEND="ollama"  # or "openai" or "custom"
+# Alternative AI backend
+export AETHER_AI="ollama"  # or "openai"
 ```
 
----
-
-## 🚀 Example Workflows
-
-### 1. **Document Analysis Pipeline**
+### Secure Key Storage
 
 ```bash
-ae --tui
-# 1. Load PDFs, images, audio recordings in Media tab
-# 2. Select multiple files (Space key)
-# 3. Chat: "Analyze these documents and create a summary report"
-# 4. AI processes all media types and generates comprehensive analysis
-```
+# Store keys in OS credential manager (recommended)
+ae keys store openai sk-your-key-here
 
-### 2. **Content Creation Swarm**
-
-```ae
-# Deploy specialized agents for blog creation (requires AI config)
-# Set AETHER_AI=openai and OPENAI_API_KEY for real responses
-swarm({
-  goal: "create tech blog post",
-  tools: ["ls", "cat", "grep"],
-  max_steps: 10,
-  dry_run: true
-})
-```
-
-### 3. **Interactive Media Analysis**
-
-```ae
-# Batch process files with AI descriptions (conceptual - requires AI config)
-# Set AETHER_AI=openai and OPENAI_API_KEY for real AI responses
-files = ls("./photos") | where(fn(f) => !f.is_dir)
-print(len(files))
-
-# Process each file
-file_info = files | map(fn(f) => {name: f.name, path: f.path, size: f.size})
-print(file_info)
-```
-
-### 4. **Voice-Controlled Automation**
-
-```ae
-# Audio processing with AI (requires AETHER_AI config)
-# Example: transcribe audio and execute commands
-# audio_result = ai("transcribe this audio", {audio: ["recording.mp3"]})
-
-# Execute tools via tool_exec (198 tools available)
-result = tool_exec("git", ["status"])
-print(result.success)  # true
-print(result.stdout)   # Git status output
+# View stored keys (masked)
+ae keys list
 ```
 
 ---
 
-## 🧪 Developer Features
+## 📚 Documentation
 
-### Type System
-
-- **Hindley-Milner inference**: Automatic type deduction
-- **Algebraic data types**: `Option<T>`, `Result<T,E>`, custom enums
-- **Strong safety**: Compile-time error prevention
-- **Generic programming**: Parametric polymorphism
-
-### Metaprogramming
-
-- **Hygienic macros**: Safe code generation
-- **AST manipulation**: Runtime code transformation  
-- **Quoting/splicing**: Embed code as data
-
-### Concurrency
-
-- **Async/await**: Built-in structured concurrency
-- **Cancellation**: Graceful task termination
-- **Pipelines**: Parallel data processing
-
-### OS Tools Integration
-
-- **Cross-platform database**: 200+ native OS tools (Linux/Windows/macOS)
-- **27 categories**: Development, Containers, ML, Cloud, Security, Data, Media, etc.
-- **Safety levels**: Safe, Caution, Dangerous, Critical classification
-- **MCP protocol**: Standardized tool discovery and execution
-- **Platform filtering**: OS-specific tool availability
-
----
-
-## 📊 Performance & Testing
-
-### Benchmarks
-
-- **Memory safe**: Zero buffer overflows or memory leaks
-- **Fast execution**: Rust-powered performance
-- **Concurrent pipelines**: Multi-core utilization
-- **Efficient AI calls**: Batched multimodal requests
-
-### Test Coverage
-
-- **140+ tests**: Comprehensive test suite
-- **Unit tests**: 90 library tests for core functionality
-- **MCP tests**: 40 tests for tool use and protocol compliance
-- **Integration tests**: End-to-end workflow testing
-- **TUI tests**: Interactive interface validation
-- **AI tests**: Multimodal backend testing
-- **OS Tools tests**: 13 tests for cross-platform command database
-- **Neural/Evolution tests**: ML primitive validation
-
----
-
-## 📚 Documentation & Examples
+| Document                                             | Description               |
+| ---------------------------------------------------- | ------------------------- |
+| [Quick Reference](docs/QUICK_REFERENCE.md)           | One-page syntax guide     |
+| [TUI Guide](docs/TUI_GUIDE.md)                       | Terminal UI documentation |
+| [Type System](docs/TYPE_SYSTEM_GUIDE.md)             | Type inference details    |
+| [MCP Servers](docs/MCP_SERVERS_GUIDE.md)             | Tool integration guide    |
+| [AI Backends](docs/AI_BACKENDS.md)                   | Provider configuration    |
+| [Security](docs/security/SECURITY_AUDIT_RED_TEAM.md) | Security assessment       |
 
 ### Example Scripts
 
-- [`examples/00_hello.ae`](examples/00_hello.ae): Basic syntax introduction
-- [`examples/05_ai.ae`](examples/05_ai.ae): AI integration examples
-- [`examples/06_agent.ae`](examples/06_agent.ae): Agent deployment
-- [`examples/09_tui_multimodal.ae`](examples/09_tui_multimodal.ae): TUI multimodal guide
-- [`examples/10_tui_agent_swarm.ae`](examples/10_tui_agent_swarm.ae): TUI agent swarm workflows
-- [`examples/11_tui_showcase.ae`](examples/11_tui_showcase.ae): TUI showcase
-- [`examples/12_syntax_kb.ae`](examples/12_syntax_kb.ae): Syntax Knowledge Base and AgenticBinary protocol
-- [`examples/13_agent_coordination.ae`](examples/13_agent_coordination.ae): Real-world multi-agent task distribution
-
-### Learning Resources
-
-#### 📚 Documentation Guides
-
-- **[Quick Reference](docs/QUICK_REFERENCE.md)**: One-page guide to all syntax and patterns
-- **[Type System Guide](docs/TYPE_SYSTEM_GUIDE.md)**: Deep dive into `let` vs `=` and type inference
-- **[MCP Servers Guide](docs/MCP_SERVERS_GUIDE.md)**: Complete reference for infrastructure integration
-- **[AI Protocols Report](docs/AI_PROTOCOLS_FINAL_REPORT.md)**: A2A and NANDA implementation details
-- **[Syntax KB Guide](docs/SYNTAX_KB.md)**: AgenticBinary protocol and knowledge base reference
-- **[Syntax KB Quick Ref](docs/SYNTAX_KB_QUICK_REF.md)**: Quick reference for Syntax KB builtins
-- **[Competitive Analysis](docs/COMPETITIVE_ANALYSIS.md)**: How AetherShell compares to alternatives
-- **[Why AetherShell?](docs/WHY_AETHERSHELL.md)**: Philosophy and unique features
-
-#### 🧪 Test Examples
-
-- **Type system**: See `tests/typecheck.rs` for comprehensive examples
-- **Bash compatibility**: Check `tests/transpile_bash.rs` for transpilation rules
-- **AI integration**: Explore `tests/multimodal_ai.rs` for backend implementation
-- **TUI features**: Review `tests/tui_*.rs` for interface testing
-- **OS Tools**: Examine `tests/os_tools.rs` for cross-platform tool usage
+| File                                                  | Topic            |
+| ----------------------------------------------------- | ---------------- |
+| [00_hello.ae](examples/00_hello.ae)                   | Basic syntax     |
+| [05_ai.ae](examples/05_ai.ae)                         | AI integration   |
+| [06_agent.ae](examples/06_agent.ae)                   | Agent deployment |
+| [09_tui_multimodal.ae](examples/09_tui_multimodal.ae) | Multi-modal TUI  |
 
 ---
 
-## � Security
-
-AetherShell implements comprehensive security controls to protect your credentials, data, and system:
-
-### Secure API Key Management
-
-**OS Credential Store Integration** 🔐
-
-API keys are stored securely in your operating system's native credential manager:
-
-- **Windows**: Windows Credential Manager
-- **macOS**: Keychain
-- **Linux**: Secret Service API (libsecret)
+## 🧪 Testing
 
 ```bash
-# Store your API key securely
-ae keys store openai sk-your-key-here
+# Run all tests (90 library tests)
+cargo test --lib
 
-# View stored keys (masked for security)
-ae keys get openai
-# Output: sk-...key...1234
-
-# List all stored providers
-ae keys list
-
-# Migrate from environment variables
-ae keys migrate openai
+# Run specific test suites
+cargo test --test eval          # Evaluator tests
+cargo test --test mcp           # MCP protocol tests
+cargo test --test tui_          # TUI tests
 ```
 
-**Memory Protection** 🛡️
-
-API keys are protected in memory using:
-
-- `Secret<String>` wrapping prevents accidental exposure
-- Automatic zeroization on drop clears memory
-- No key exposure in debug output, logs, or error messages
-- Temporary auth headers are automatically zeroized after use
-
-**Best Practices:**
-
-```bash
-# ✅ DO: Use secure credential store
-ae keys store openai $OPENAI_API_KEY
-
-# ✅ DO: Remove from environment after migration
-unset OPENAI_API_KEY
-
-# ❌ DON'T: Keep keys in shell history or environment
-export OPENAI_API_KEY="sk-..."  # Insecure!
-```
-
-### Additional Security Features
-
-- **Path Traversal Prevention**: Symlink validation and path sanitization
-- **SSRF Protection**: Blocks access to internal IPs (AWS metadata, private networks)
-- **Resource Limits**: File size limits (100MB default), memory quotas
-- **TLS Hardening**: TLS 1.2+ enforcement with secure cipher suites
-- **Input Validation**: Comprehensive sanitization of user input and AI prompts
-- **Command Whitelisting**: Configurable allowlist for agent tool use
-
-### Security Documentation
-
-- **[Security Audit](docs/security/SECURITY_AUDIT_RED_TEAM.md)**: Comprehensive red team assessment
-- **[Security Fixes](docs/security/SECURITY_FIXES_IMPLEMENTED.md)**: Implemented mitigations and status
-- **[Memory Sanitization](docs/MEMORY_SANITIZATION_HIGH-002.md)**: API key protection details
-
-**Security Status**: 40% risk reduction achieved (6.8/10 → 4.1/10)
+**Test coverage:** 140+ tests covering core functionality, MCP protocol, TUI, AI backends, neural networks, and OS tools.
 
 ---
 
 ## 🛣️ Roadmap
 
-### Recently Completed ✅ (January 2026)
+### ✅ Completed (January 2026)
+- Neural network primitives & evolutionary algorithms
+- 130+ MCP tools with protocol compliance
+- Multi-modal AI (images, audio, video)
+- Reinforcement learning (Q-Learning, DQN, Actor-Critic)
+- Distributed agent swarms
+- VS Code extension
 
-- **✅ Neural Network Primitives**: In-shell neural network creation, forward pass, mutation, crossover
-- **✅ Consensus Networks**: Multi-agent distributed decision making with message passing
-- **✅ Evolutionary Algorithms**: Population-based optimization with configurable strategies
-- **✅ Coevolution**: Multi-population coevolution for protocol learning
-- **✅ NEAT Support**: Topology-evolving neuroevolution
-- **✅ AI Model Management**: OpenRouter-style API server with multi-provider support
-- **✅ Local Model Storage**: XDG-compliant storage with format conversion
-- **✅ Model Downloads**: Hugging Face integration and CLI management tools
-- **✅ Streaming AI responses**: Real-time token streaming via SSE in API server
-- **✅ Reinforcement Learning**: Q-Learning, SARSA, Policy Gradient, Actor-Critic, DQN
-- **✅ Distributed agents**: Network-connected agent swarms with latency/geo/cost optimization
-- **✅ IDE integration**: VS Code extension and LSP language server
-
-### Near-term (Q1 2026)
-
-- **Plugin system**: Extensible architecture for custom backends  
-- **Advanced media**: Video streaming and real-time audio processing
-- **Mobile TUI**: Touch-friendly interface adaptations
-- **WASM support**: Browser-based shell via WebAssembly
-
-### Long-term (2026+)
-
-- **Module system**: Package management and imports
-- **Advanced AI strategies**: Multi-modal reasoning and planning
-- **Cloud deployment**: Hosted agent swarms
+### 🔜 Coming Soon
+- Plugin system for custom backends
+- WASM support (browser-based shell)
+- Advanced video streaming
+- Package management & imports
 
 ---
 
 ## 🤝 Contributing
 
-We welcome contributions! Here's how to get started:
-
-1. **Fork the repository**
-2. **Check the test suite**: `cargo test --tests`
-3. **Add your feature** with corresponding tests
-4. **Ensure TUI compatibility** if UI changes are involved
-5. **Submit a pull request** with clear description
-
-### Development Setup
+We welcome contributions! See our development setup:
 
 ```bash
 git clone https://github.com/nervosys/AetherShell
 cd AetherShell
-cargo build --release
-cargo test --tests --all-features
+cargo build
+cargo test --lib
 ```
+
+1. Fork the repository
+2. Create a feature branch
+3. Add tests for new functionality
+4. Submit a pull request
 
 ---
 
 ## 📜 License
 
-This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
+Licensed under the [Apache License 2.0](LICENSE).
 
 ---
 
-**Ready to experience the future of shell interaction? Start with `ae --tui` and prepare to be amazed! 🚀**
+<p align="center">
+  <strong>Ready to experience the future of shell interaction?</strong><br><br>
+  <code>ae --tui</code>
+</p>
+
+<p align="center">
+  <a href="https://github.com/nervosys/AetherShell">⭐ Star us on GitHub</a> •
+  <a href="https://github.com/nervosys/AetherShell/issues">🐛 Report Issues</a> •
+  <a href="https://github.com/nervosys/AetherShell/discussions">💬 Discussions</a>
+</p>
