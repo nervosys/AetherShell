@@ -3,7 +3,7 @@
     "displayName": "AetherShell",
     "description": "Language support for AetherShell - a typed, functional shell with AI capabilities",
     "version": "0.1.0",
-    "publisher": "nervosys",
+    "publisher": "admercs",
     "license": "MIT",
     "engines": {
         "vscode": "^1.85.0"
@@ -37,11 +37,7 @@
                 "extensions": [
                     ".ae"
                 ],
-                "configuration": "./language-configuration.json",
-                "icon": {
-                    "light": "./icons/ae-light.png",
-                    "dark": "./icons/ae-dark.png"
-                }
+                "configuration": "./language-configuration.json"
             }
         ],
         "grammars": [
@@ -103,6 +99,10 @@
                 "language": "aethershell",
                 "path": "./snippets/aethershell.json"
             }
+        ],
+        "markdown.markdownItPlugins": true,
+        "markdown.previewStyles": [
+            "./styles/aethershell-preview.css"
         ]
     },
     "scripts": {
@@ -117,13 +117,14 @@
         "vscode-languageclient": "^9.0.1"
     },
     "devDependencies": {
+        "@types/markdown-it": "^14.1.2",
         "@types/node": "^20.10.0",
         "@types/vscode": "^1.85.0",
         "@typescript-eslint/eslint-plugin": "^6.13.0",
         "@typescript-eslint/parser": "^6.13.0",
+        "@vscode/vsce": "^2.22.0",
         "eslint": "^8.55.0",
-        "typescript": "^5.3.2",
-        "@vscode/vsce": "^2.22.0"
+        "typescript": "^5.3.2"
     },
     "repository": {
         "type": "git",

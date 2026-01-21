@@ -35,6 +35,23 @@
 
 ## 🚀 Quick Start
 
+### VS Code Extension (Syntax Highlighting)
+
+For syntax highlighting in `.ae` files and code blocks, install the AetherShell extension for VS Code:
+
+```bash
+code --install-extension admercs.aethershell
+# or build and install it locally
+cd ./editors/vscode
+npm install -g @vscode/vsce
+npx vsce package --allow-missing-repository
+code --install-extension ./editors/vscode/aethershell-0.1.0.vsix
+```
+
+Or search for "AetherShell" in the VS Code Extensions marketplace.
+
+### Installation
+
 ```bash
 # Install from source
 git clone https://github.com/nervosys/AetherShell && cd AetherShell

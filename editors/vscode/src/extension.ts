@@ -6,6 +6,7 @@ import {
     ServerOptions,
     TransportKind
 } from 'vscode-languageclient/node';
+import { activate as activateMarkdownPreview } from './markdownPreview';
 
 let client: LanguageClient | undefined;
 let outputChannel: vscode.OutputChannel;
@@ -19,24 +20,26 @@ export async function activate(context: vscode.ExtensionContext) {
 
     if (!lspEnabled) {
         outputChannel.appendLine('Language server is disabled via configuration');
-        return;
+    } else {
+        // Register commands
+        context.subscriptions.push(
+            vscode.commands.registerCommand('aethershell.restartServer', async () => {
+                await restartServer();
+            })
+        );
+
+        context.subscriptions.push(
+            vscode.commands.registerCommand('aethershell.showOutput', () => {
+                outputChannel.show();
+            })
+        );
+
+        // Start the language server
+        await startServer(context);
     }
 
-    // Register commands
-    context.subscriptions.push(
-        vscode.commands.registerCommand('aethershell.restartServer', async () => {
-            await restartServer();
-        })
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand('aethershell.showOutput', () => {
-            outputChannel.show();
-        })
-    );
-
-    // Start the language server
-    await startServer(context);
+    // Return the markdown preview plugin for VS Code to use
+    return activateMarkdownPreview();
 }
 
 async function startServer(context: vscode.ExtensionContext) {

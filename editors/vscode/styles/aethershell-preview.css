@@ -1,0 +1,127 @@
+/* AetherShell syntax highlighting styles for Markdown preview */
+.aethershell-code {
+    background-color: #1e1e2e;
+    border-radius: 6px;
+    padding: 12px;
+    overflow-x: auto;
+}
+
+.aethershell-code code {
+    font-family: 'Fira Code', 'Cascadia Code', 'JetBrains Mono', Consolas, 'Courier New', monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #cdd6f4;
+}
+
+/* Keywords: let, fn, match, if, else, true, false, null */
+.aethershell-code .hljs-keyword {
+    color: #cba6f7;
+    font-weight: 500;
+}
+
+/* Built-in functions */
+.aethershell-code .hljs-built_in {
+    color: #89b4fa;
+}
+
+/* Strings */
+.aethershell-code .hljs-string {
+    color: #a6e3a1;
+}
+
+/* String interpolation */
+.aethershell-code .hljs-subst {
+    color: #f9e2af;
+}
+
+/* Numbers */
+.aethershell-code .hljs-number {
+    color: #fab387;
+}
+
+/* Comments */
+.aethershell-code .hljs-comment {
+    color: #6c7086;
+    font-style: italic;
+}
+
+/* Operators: |, =>, +, -, etc. */
+.aethershell-code .hljs-operator {
+    color: #89dceb;
+}
+
+/* Light theme overrides */
+@media (prefers-color-scheme: light) {
+    .aethershell-code {
+        background-color: #eff1f5;
+    }
+
+    .aethershell-code code {
+        color: #4c4f69;
+    }
+
+    .aethershell-code .hljs-keyword {
+        color: #8839ef;
+    }
+
+    .aethershell-code .hljs-built_in {
+        color: #1e66f5;
+    }
+
+    .aethershell-code .hljs-string {
+        color: #40a02b;
+    }
+
+    .aethershell-code .hljs-subst {
+        color: #df8e1d;
+    }
+
+    .aethershell-code .hljs-number {
+        color: #fe640b;
+    }
+
+    .aethershell-code .hljs-comment {
+        color: #9ca0b0;
+    }
+
+    .aethershell-code .hljs-operator {
+        color: #04a5e5;
+    }
+}
+
+/* VS Code light theme detection */
+body.vscode-light .aethershell-code {
+    background-color: #eff1f5;
+}
+
+body.vscode-light .aethershell-code code {
+    color: #4c4f69;
+}
+
+body.vscode-light .aethershell-code .hljs-keyword {
+    color: #8839ef;
+}
+
+body.vscode-light .aethershell-code .hljs-built_in {
+    color: #1e66f5;
+}
+
+body.vscode-light .aethershell-code .hljs-string {
+    color: #40a02b;
+}
+
+body.vscode-light .aethershell-code .hljs-subst {
+    color: #df8e1d;
+}
+
+body.vscode-light .aethershell-code .hljs-number {
+    color: #fe640b;
+}
+
+body.vscode-light .aethershell-code .hljs-comment {
+    color: #9ca0b0;
+}
+
+body.vscode-light .aethershell-code .hljs-operator {
+    color: #04a5e5;
+}
