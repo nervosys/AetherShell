@@ -1,0 +1,192 @@
+# ============================================
+# BUILTINS COVERAGE TEST: Functional (19-29)
+# Tests: map, where, reduce, take, keys, len, type_of, first, last, any, all
+# ============================================
+
+print("=== TESTING FUNCTIONAL BUILTINS (19-29) ===\n")
+
+# --------------------------------------------
+# 19. map - Transform elements
+# --------------------------------------------
+print("19. Testing map()...")
+map_result = map([1, 2, 3], fn(x) => x * 2)
+match map_result {
+    [2, 4, 6] => print("  ✓ map([1,2,3], *2) = [2,4,6]"),
+    _ => print("  ✗ FAILED: map result")
+}
+
+# Pipeline syntax
+pipe_map = ([1, 2, 3] | map(fn(x) => x + 10))
+match first(pipe_map) {
+    11 => print("  ✓ pipeline map works"),
+    _ => print("  ✗ FAILED: pipeline map")
+}
+
+# --------------------------------------------
+# 20. where - Filter elements
+# --------------------------------------------
+print("\n20. Testing where()...")
+where_result = where([1, 2, 3, 4, 5], fn(x) => x > 3)
+match len(where_result) {
+    2 => print("  ✓ where([1-5], >3) has 2 elements"),
+    _ => print("  ✗ FAILED: where length")
+}
+
+where_none = where([1, 2, 3], fn(x) => x > 10)
+match len(where_none) {
+    0 => print("  ✓ where with no matches returns []"),
+    _ => print("  ✗ FAILED: where none")
+}
+
+# --------------------------------------------
+# 21. reduce - Fold elements
+# --------------------------------------------
+print("\n21. Testing reduce()...")
+sum_result = reduce([1, 2, 3, 4], fn(a, b) => a + b, 0)
+match sum_result {
+    10 => print("  ✓ reduce sum = 10"),
+    _ => print("  ✗ FAILED: reduce sum: ${sum_result}")
+}
+
+prod_result = reduce([1, 2, 3, 4], fn(a, b) => a * b, 1)
+match prod_result {
+    24 => print("  ✓ reduce product = 24"),
+    _ => print("  ✗ FAILED: reduce product: ${prod_result}")
+}
+
+# --------------------------------------------
+# 22. take - Take first N elements
+# --------------------------------------------
+print("\n22. Testing take()...")
+take_result = take([1, 2, 3, 4, 5], 3)
+match len(take_result) {
+    3 => print("  ✓ take([1-5], 3) has 3 elements"),
+    _ => print("  ✗ FAILED: take length")
+}
+
+take_more = take([1, 2], 5)
+match len(take_more) {
+    2 => print("  ✓ take handles count > length"),
+    _ => print("  ✗ FAILED: take overflow")
+}
+
+# --------------------------------------------
+# 23. keys - Get record keys
+# --------------------------------------------
+print("\n23. Testing keys()...")
+keys_result = keys({name: "Alice", age: 30, active: true})
+match len(keys_result) {
+    3 => print("  ✓ keys({3 fields}) has 3 keys"),
+    _ => print("  ✗ FAILED: keys length")
+}
+
+keys_empty = keys({})
+match len(keys_empty) {
+    0 => print("  ✓ keys({}) returns []"),
+    _ => print("  ✗ FAILED: keys empty")
+}
+
+# --------------------------------------------
+# 24. len - Get length
+# --------------------------------------------
+print("\n24. Testing len()...")
+len_arr = len([1, 2, 3, 4, 5])
+match len_arr {
+    5 => print("  ✓ len([1,2,3,4,5]) = 5"),
+    _ => print("  ✗ FAILED: len array")
+}
+
+len_str = len("hello")
+match len_str {
+    5 => print("  ✓ len('hello') = 5"),
+    _ => print("  ✗ FAILED: len string")
+}
+
+len_rec = len({a: 1, b: 2})
+match len_rec {
+    2 => print("  ✓ len({a,b}) = 2"),
+    _ => print("  ✗ FAILED: len record")
+}
+
+# --------------------------------------------
+# 25. type_of - Get type name
+# --------------------------------------------
+print("\n25. Testing type_of()...")
+match type_of(42) {
+    "Int" => print("  ✓ type_of(42) = 'Int'"),
+    _ => print("  ✗ FAILED: type_of int")
+}
+match type_of(3.14) {
+    "Float" => print("  ✓ type_of(3.14) = 'Float'"),
+    _ => print("  ✗ FAILED: type_of float")
+}
+match type_of("hello") {
+    "String" => print("  ✓ type_of('hello') = 'String'"),
+    _ => print("  ✗ FAILED: type_of string")
+}
+match type_of([1,2,3]) {
+    "Array" => print("  ✓ type_of([1,2,3]) = 'Array'"),
+    _ => print("  ✗ FAILED: type_of array")
+}
+match type_of({a: 1}) {
+    "Record" => print("  ✓ type_of({a:1}) = 'Record'"),
+    _ => print("  ✗ FAILED: type_of record")
+}
+match type_of(fn(x) => x) {
+    "Lambda" => print("  ✓ type_of(lambda) = 'Lambda'"),
+    _ => print("  ✗ FAILED: type_of lambda")
+}
+
+# --------------------------------------------
+# 26. first - Get first element
+# --------------------------------------------
+print("\n26. Testing first()...")
+first_result = first([1, 2, 3])
+match first_result {
+    1 => print("  ✓ first([1,2,3]) = 1"),
+    _ => print("  ✗ FAILED: first result")
+}
+
+# --------------------------------------------
+# 27. last - Get last element
+# --------------------------------------------
+print("\n27. Testing last()...")
+last_result = last([1, 2, 3])
+match last_result {
+    3 => print("  ✓ last([1,2,3]) = 3"),
+    _ => print("  ✗ FAILED: last result")
+}
+
+# --------------------------------------------
+# 28. any - Check if any match (pipeline only)
+# --------------------------------------------
+print("\n28. Testing any()...")
+any_true = ([1, 2, 3, 4, 5] | any(fn(x) => x > 4))
+match any_true {
+    true => print("  ✓ [1-5] | any(>4) = true"),
+    false => print("  ✗ FAILED: any true")
+}
+
+any_false = ([1, 2, 3] | any(fn(x) => x > 10))
+match any_false {
+    false => print("  ✓ [1,2,3] | any(>10) = false"),
+    true => print("  ✗ FAILED: any false")
+}
+
+# --------------------------------------------
+# 29. all - Check if all match (pipeline only)
+# --------------------------------------------
+print("\n29. Testing all()...")
+all_true = ([2, 4, 6, 8] | all(fn(x) => x > 0))
+match all_true {
+    true => print("  ✓ [2,4,6,8] | all(>0) = true"),
+    false => print("  ✗ FAILED: all true")
+}
+
+all_false = ([1, 2, 3, 4, 5] | all(fn(x) => x > 3))
+match all_false {
+    false => print("  ✓ [1-5] | all(>3) = false"),
+    true => print("  ✗ FAILED: all false")
+}
+
+print("\n=== FUNCTIONAL BUILTINS TESTS COMPLETE ===")

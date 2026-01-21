@@ -1,0 +1,146 @@
+# ============================================
+# BUILTINS COVERAGE TEST: Configuration (137-143)
+# Tests: config, config_get, config_set, config_path, config_init, config_reload, themes
+# ============================================
+
+print("=== TESTING CONFIG BUILTINS (137-143) ===\n")
+
+# --------------------------------------------
+# 137. config - Get full config
+# --------------------------------------------
+print("137. Testing config()...")
+config_result = config()
+match type_of(config_result) {
+    "Record" => print("  ✓ config() returns Record"),
+    _ => print("  ✗ FAILED: config type")
+}
+
+# Check config has expected fields
+config_keys = keys(config_result)
+match len(config_keys) > 0 {
+    true => print("  ✓ config has fields: ${config_keys}"),
+    false => print("  ✗ FAILED: config empty")
+}
+
+# --------------------------------------------
+# 138. config_get - Get config value
+# --------------------------------------------
+print("\n138. Testing config_get()...")
+theme_val = config_get("colors.theme")
+match type_of(theme_val) {
+    "Str" => print("  ✓ config_get('colors.theme') = '${theme_val}'"),
+    _ => print("  ⚠ config_get returned: ${theme_val}")
+}
+
+# Test nested path
+history_size = config_get("history.max_size")
+print("  ℹ history.max_size = ${history_size}")
+
+# --------------------------------------------
+# 139. config_set - Set config value
+# --------------------------------------------
+print("\n139. Testing config_set()...")
+# Save current theme
+original_theme = config_get("colors.theme")
+
+# Set new theme - returns String message on success
+set_result = config_set("colors.theme", "monokai")
+match type_of(set_result) {
+    "String" => print("  ✓ config_set returned: ${set_result}"),
+    _ => print("  ⚠ config_set returned: ${set_result}")
+}
+
+# Verify it changed
+new_theme = config_get("colors.theme")
+match new_theme {
+    "monokai" => print("  ✓ Theme changed to monokai"),
+    _ => print("  ⚠ Theme is: ${new_theme}")
+}
+
+# Restore original
+config_set("colors.theme", original_theme)
+print("  ℹ Restored theme to ${original_theme}")
+
+# --------------------------------------------
+# 140. config_path - Get config file path (returns Record with all paths)
+# --------------------------------------------
+print("\n140. Testing config_path()...")
+path_result = config_path()
+match type_of(path_result) {
+    "Record" => print("  ✓ config_path() returns Record"),
+    _ => print("  ✗ FAILED: config_path type")
+}
+
+# Access specific path fields
+config_file = path_result.config_file
+match type_of(config_file) {
+    "String" => print("  ✓ config_file = '${config_file}'"),
+    _ => print("  ⚠ config_file type: ${type_of(config_file)}")
+}
+
+# Verify path contains expected parts
+match contains(config_file, "aether") {
+    true => print("  ✓ Config path contains 'aether'"),
+    false => print("  ⚠ Path may not be XDG compliant")
+}
+
+# --------------------------------------------
+# 141. config_init - Initialize config
+# --------------------------------------------
+print("\n141. Testing config_init()...")
+# This creates the config file if it doesn't exist
+init_result = config_init()
+match type_of(init_result) {
+    "Bool" => print("  ✓ config_init() returns Bool"),
+    "String" => print("  ✓ config_init() returns String: ${init_result}"),
+    _ => print("  ⚠ config_init result: ${init_result}")
+}
+
+# --------------------------------------------
+# 142. config_reload - Reload config from disk
+# --------------------------------------------
+print("\n142. Testing config_reload()...")
+reload_result = config_reload()
+match type_of(reload_result) {
+    "Bool" => print("  ✓ config_reload() returns Bool"),
+    "Str" => print("  ✓ config_reload() returns Str: ${reload_result}"),
+    _ => print("  ⚠ config_reload result: ${reload_result}")
+}
+
+# --------------------------------------------
+# 143. themes - List available themes
+# --------------------------------------------
+print("\n143. Testing themes()...")
+themes_result = themes()
+match type_of(themes_result) {
+    "Array" => print("  ✓ themes() returns Array"),
+    _ => print("  ✗ FAILED: themes type")
+}
+
+theme_count = len(themes_result)
+match theme_count >= 38 {
+    true => print("  ✓ themes() has ${theme_count} themes (expected 38+)"),
+    false => print("  ⚠ themes() has only ${theme_count} themes")
+}
+
+# Print first few themes
+first_themes = take(themes_result, 5)
+print("  ℹ First 5 themes: ${first_themes}")
+
+# Check for expected themes
+match in("catppuccin", themes_result) {
+    true => print("  ✓ 'catppuccin' theme exists"),
+    false => print("  ✗ FAILED: catppuccin missing")
+}
+
+match in("monokai", themes_result) {
+    true => print("  ✓ 'monokai' theme exists"),
+    false => print("  ✗ FAILED: monokai missing")
+}
+
+match in("dracula", themes_result) {
+    true => print("  ✓ 'dracula' theme exists"),
+    false => print("  ✗ FAILED: dracula missing")
+}
+
+print("\n=== CONFIG BUILTINS TESTS COMPLETE ===")

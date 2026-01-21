@@ -1,0 +1,37 @@
+# Hello World Plugin
+# A simple demonstration of the AetherShell plugin system
+
+[plugin]
+id = "hello-plugin"
+name = "Hello World Plugin"
+version = "1.0.0"
+author = "AetherShell Team"
+description = "A simple hello world plugin demonstrating the plugin system"
+categories = ["Builtin"]
+min_aether_version = "0.1.0"
+dependencies = []
+
+# Plugin configuration (optional)
+[config]
+greeting = "Hello"
+punctuation = "!"
+
+# Custom builtin functions
+[builtins]
+# Simple greeting function
+hello = "fn(name) => 'Hello, ' + name + '!'"
+
+# Greeting with customizable prefix
+greet = "fn(prefix, name) => prefix + ', ' + name + '!'"
+
+# Formal greeting
+greet_formal = "fn(name) => 'Good day, ' + name + '. How may I assist you?'"
+
+# Farewell function
+goodbye = "fn(name) => 'Goodbye, ' + name + '! See you soon.'"
+
+# Excited greeting (uppercase)
+hello_excited = "fn(name) => upper('Hello, ' + name + '!')"
+
+# Whisper greeting (lowercase)
+hello_whisper = "fn(name) => lower('hello, ' + name + '...')"

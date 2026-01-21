@@ -1,0 +1,158 @@
+# ============================================
+# BUILTINS COVERAGE TEST: Math Operations (50-57)
+# Tests: abs, min, max, floor, ceil, round, sqrt, pow
+# ============================================
+
+print("=== TESTING MATH BUILTINS (50-57) ===\n")
+
+# --------------------------------------------
+# 50. abs - Absolute value
+# --------------------------------------------
+print("50. Testing abs()...")
+abs_neg = abs(-42)
+match abs_neg {
+    42 => print("  ✓ abs(-42) = 42"),
+    _ => print("  ✗ FAILED: abs negative")
+}
+
+abs_pos = abs(42)
+match abs_pos {
+    42 => print("  ✓ abs(42) = 42"),
+    _ => print("  ✗ FAILED: abs positive")
+}
+
+abs_float = abs(-3.14)
+match abs_float > 3.0 && abs_float < 3.2 {
+    true => print("  ✓ abs(-3.14) ≈ 3.14"),
+    false => print("  ✗ FAILED: abs float")
+}
+
+# --------------------------------------------
+# 51. min - Minimum value
+# --------------------------------------------
+print("\n51. Testing min()...")
+min_two = min(5, 3)
+match min_two {
+    3 => print("  ✓ min(5, 3) = 3"),
+    _ => print("  ✗ FAILED: min two values")
+}
+
+# min() only takes two args, use reduce for array min
+min_arr = [5, 2, 8, 1, 9] | reduce(fn(a, b) => min(a, b), 9999)
+match min_arr {
+    1 => print("  ✓ array min via reduce = 1"),
+    _ => print("  ✗ FAILED: min array")
+}
+
+# --------------------------------------------
+# 52. max - Maximum value
+# --------------------------------------------
+print("\n52. Testing max()...")
+max_two = max(5, 3)
+match max_two {
+    5 => print("  ✓ max(5, 3) = 5"),
+    _ => print("  ✗ FAILED: max two values")
+}
+
+# max() only takes two args, use reduce for array max
+max_arr = [5, 2, 8, 1, 9] | reduce(fn(a, b) => max(a, b), -9999)
+match max_arr {
+    9 => print("  ✓ array max via reduce = 9"),
+    _ => print("  ✗ FAILED: max array")
+}
+
+# --------------------------------------------
+# 53. floor - Round down
+# --------------------------------------------
+print("\n53. Testing floor()...")
+floor_pos = floor(3.7)
+match floor_pos {
+    3 => print("  ✓ floor(3.7) = 3"),
+    _ => print("  ✗ FAILED: floor positive: ${floor_pos}")
+}
+
+floor_neg = floor(-3.2)
+match floor_neg {
+    -4 => print("  ✓ floor(-3.2) = -4"),
+    _ => print("  ⚠ floor(-3.2) = ${floor_neg} (expected -4)")
+}
+
+# --------------------------------------------
+# 54. ceil - Round up
+# --------------------------------------------
+print("\n54. Testing ceil()...")
+ceil_pos = ceil(3.2)
+match ceil_pos {
+    4 => print("  ✓ ceil(3.2) = 4"),
+    _ => print("  ✗ FAILED: ceil positive: ${ceil_pos}")
+}
+
+ceil_neg = ceil(-3.7)
+match ceil_neg {
+    -3 => print("  ✓ ceil(-3.7) = -3"),
+    _ => print("  ⚠ ceil(-3.7) = ${ceil_neg} (expected -3)")
+}
+
+# --------------------------------------------
+# 55. round - Round to nearest
+# --------------------------------------------
+print("\n55. Testing round()...")
+round_down = round(3.4)
+match round_down {
+    3 => print("  ✓ round(3.4) = 3"),
+    _ => print("  ✗ FAILED: round down: ${round_down}")
+}
+
+round_up = round(3.6)
+match round_up {
+    4 => print("  ✓ round(3.6) = 4"),
+    _ => print("  ✗ FAILED: round up: ${round_up}")
+}
+
+round_half = round(3.5)
+match round_half {
+    4 => print("  ✓ round(3.5) = 4 (round half up)"),
+    3 => print("  ✓ round(3.5) = 3 (round half down)"),
+    _ => print("  ✗ FAILED: round half: ${round_half}")
+}
+
+# --------------------------------------------
+# 56. sqrt - Square root
+# --------------------------------------------
+print("\n56. Testing sqrt()...")
+sqrt_perfect = sqrt(16)
+# sqrt returns Float, compare with float comparison
+match sqrt_perfect == 4.0 {
+    true => print("  ✓ sqrt(16) = 4.0"),
+    false => print("  ✗ FAILED: sqrt 16: ${sqrt_perfect}")
+}
+
+sqrt_non = sqrt(2)
+match sqrt_non > 1.4 && sqrt_non < 1.5 {
+    true => print("  ✓ sqrt(2) ≈ 1.414"),
+    false => print("  ✗ FAILED: sqrt 2: ${sqrt_non}")
+}
+
+# --------------------------------------------
+# 57. pow - Power/exponentiation
+# --------------------------------------------
+print("\n57. Testing pow()...")
+pow_int = pow(2, 3)
+match pow_int {
+    8 => print("  ✓ pow(2, 3) = 8"),
+    _ => print("  ✗ FAILED: pow 2^3: ${pow_int}")
+}
+
+pow_square = pow(5, 2)
+match pow_square {
+    25 => print("  ✓ pow(5, 2) = 25"),
+    _ => print("  ✗ FAILED: pow 5^2: ${pow_square}")
+}
+
+pow_zero = pow(5, 0)
+match pow_zero {
+    1 => print("  ✓ pow(5, 0) = 1"),
+    _ => print("  ✗ FAILED: pow x^0: ${pow_zero}")
+}
+
+print("\n=== MATH BUILTINS TESTS COMPLETE ===")

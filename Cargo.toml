@@ -17,9 +17,31 @@ readme = "README.md"
 rust-version = "1.75"
 
 [features]
-default = []
-native = []
-web = []
+default = ["native"]
+native = [
+    "dep:walkdir",
+    "dep:which",
+    "dep:crossterm",
+    "dep:ratatui",
+    "dep:tui-input",
+    "dep:image",
+    "dep:viuer",
+    "dep:rodio",
+    "dep:keyring",
+    "dep:tokio",
+    "dep:axum",
+    "dep:tower",
+    "dep:tower-http",
+    "dep:utoipa",
+    "dep:utoipa-swagger-ui",
+    "dep:reqwest",
+]
+web = [
+    "dep:wasm-bindgen",
+    "dep:console_error_panic_hook",
+    "dep:js-sys",
+    "dep:web-sys",
+]
 
 [lib]
 name = "aether_shell"
@@ -38,49 +60,18 @@ anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 csv = "1.3"
-reqwest = { version = "0.12", features = [
-    "blocking",
-    "json",
-    "rustls-tls",
-    "stream",
-] }
 chrono = { version = "0.4", features = ["clock", "serde"] }
-walkdir = "2"
-which = "6"
-crossterm = "0.27"
 thiserror = "1.0"
-# TUI dependencies
-ratatui = "0.26"
-tui-input = "0.8"
-# Media processing
-image = { version = "0.24", features = ["jpeg", "png", "gif", "webp"] }
-viuer = "0.7"                                                           # Terminal image display
-rodio = { version = "0.17", features = ["mp3", "wav", "flac"] }         # Audio playback
-tokio = { version = "1.0", features = ["full"] }
-# Additional utility crates
 uuid = { version = "1.0", features = ["v4", "serde"] }
 base64 = "0.21"
 mime = "0.3"
-jsonschema = "0.17"                                    # For MCP schema validation
-# Security dependencies
 lazy_static = "1.4"
 secrecy = { version = "0.8", features = ["serde"] }
-keyring = "2.3"                                     # OS credential store integration
-zeroize = "1.7"                                     # Memory zeroing for secrets
-# Note: winapi will be added when Windows Job Object sandboxing is fully implemented
-# AI API dependencies
-axum = "0.7"
-tower = "0.4"
-tower-http = { version = "0.5", features = ["cors", "trace", "timeout"] }
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-utoipa = { version = "4.0", features = ["axum_extras"] }
-utoipa-swagger-ui = { version = "6.0", features = ["axum"] }
+zeroize = "1.7"
 toml = "0.8"
 clap = { version = "4.0", features = ["derive"] }
 futures = "0.3"
 futures-util = "0.3"
-tokio-stream = "0.1"
 async-stream = "0.3"
 rand = "0.8"
 sha2 = "0.10"
@@ -88,6 +79,56 @@ url = "2.5"
 urlencoding = "2.1"
 async-trait = "0.1"
 dirs = "5.0"
+
+# Native-only dependencies
+walkdir = { version = "2", optional = true }
+which = { version = "6", optional = true }
+crossterm = { version = "0.27", optional = true }
+ratatui = { version = "0.26", optional = true }
+tui-input = { version = "0.8", optional = true }
+image = { version = "0.24", features = [
+    "jpeg",
+    "png",
+    "gif",
+    "webp",
+], optional = true }
+viuer = { version = "0.7", optional = true }
+rodio = { version = "0.17", features = ["mp3", "wav", "flac"], optional = true }
+keyring = { version = "2.3", optional = true }
+tokio = { version = "1.0", features = ["full"], optional = true }
+axum = { version = "0.7", optional = true }
+tower = { version = "0.4", optional = true }
+tower-http = { version = "0.5", features = [
+    "cors",
+    "trace",
+    "timeout",
+], optional = true }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+utoipa = { version = "4.0", features = ["axum_extras"], optional = true }
+utoipa-swagger-ui = { version = "6.0", features = ["axum"], optional = true }
+tokio-stream = "0.1"
+jsonschema = "0.17"
+reqwest = { version = "0.12", features = [
+    "blocking",
+    "json",
+    "rustls-tls",
+    "stream",
+], optional = true }
+
+# WASM-only dependencies
+wasm-bindgen = { version = "0.2", optional = true }
+console_error_panic_hook = { version = "0.1", optional = true }
+js-sys = { version = "0.3", optional = true }
+web-sys = { version = "0.3", features = [
+    "console",
+    "Window",
+    "Document",
+    "HtmlElement",
+    "HtmlInputElement",
+    "HtmlTextAreaElement",
+    "KeyboardEvent",
+], optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
@@ -98,4 +139,16 @@ harness = false
 
 [[bench]]
 name = "builtin_performance"
+harness = false
+
+[[bench]]
+name = "parser_performance"
+harness = false
+
+[[bench]]
+name = "eval_performance"
+harness = false
+
+[[bench]]
+name = "pipeline_performance"
 harness = false

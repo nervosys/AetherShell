@@ -1,0 +1,52 @@
+# Math Utilities Plugin
+# Additional mathematical functions for AetherShell
+
+[plugin]
+id = "math-utils"
+name = "Math Utilities"
+version = "1.0.0"
+author = "AetherShell Team"
+description = "Additional mathematical functions including factorial, fibonacci, and more"
+categories = ["Builtin"]
+min_aether_version = "0.1.0"
+dependencies = []
+
+[builtins]
+# Check if a number is even
+is_even = "fn(n) => n % 2 == 0"
+
+# Check if a number is odd
+is_odd = "fn(n) => n % 2 != 0"
+
+# Calculate the square of a number
+square = "fn(n) => n * n"
+
+# Calculate the cube of a number
+cube = "fn(n) => n * n * n"
+
+# Calculate percentage
+percent = "fn(value, total) => (value / total) * 100"
+
+# Clamp a value between min and max
+clamp = "fn(value, min_val, max_val) => max(min_val, min(max_val, value))"
+
+# Linear interpolation
+lerp = "fn(a, b, t) => a + (b - a) * t"
+
+# Distance between two points (1D)
+distance = "fn(a, b) => abs(b - a)"
+
+# Sign of a number (-1, 0, or 1)
+sign = "fn(n) => if n > 0 { 1 } else { if n < 0 { -1 } else { 0 } }"
+
+# Check if number is in range (inclusive)
+in_range = "fn(n, low, high) => n >= low && n <= high"
+
+# Sum of array elements (alias for pipeline)
+array_sum = "fn(arr) => arr | reduce(fn(a, b) => a + b, 0)"
+
+# Product of array elements
+array_product = "fn(arr) => arr | reduce(fn(a, b) => a * b, 1)"
+
+# Average of array elements
+array_avg = "fn(arr) => (arr | reduce(fn(a, b) => a + b, 0)) / len(arr)"

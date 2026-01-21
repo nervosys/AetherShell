@@ -1,0 +1,152 @@
+# ============================================
+# BUILTINS COVERAGE TEST: String Operations (34-42)
+# Tests: split, join, trim, upper, lower, replace, contains, starts_with, ends_with
+# ============================================
+
+print("=== TESTING STRING BUILTINS (34-42) ===\n")
+
+# --------------------------------------------
+# 34. split - Split string into array
+# --------------------------------------------
+print("34. Testing split()...")
+split_result = split("a,b,c", ",")
+match len(split_result) {
+    3 => print("  ✓ split('a,b,c', ',') has 3 elements"),
+    _ => print("  ✗ FAILED: split length")
+}
+
+split_spaces = split("hello world foo", " ")
+match len(split_spaces) {
+    3 => print("  ✓ split by space works"),
+    _ => print("  ✗ FAILED: split by space")
+}
+
+# --------------------------------------------
+# 35. join - Join array into string
+# --------------------------------------------
+print("\n35. Testing join()...")
+join_result = join(["a", "b", "c"], "-")
+match join_result {
+    "a-b-c" => print("  ✓ join(['a','b','c'], '-') = 'a-b-c'"),
+    _ => print("  ✗ FAILED: join result: ${join_result}")
+}
+
+join_empty = join([], ",")
+match join_empty {
+    "" => print("  ✓ join([]) returns empty string"),
+    _ => print("  ✗ FAILED: join empty")
+}
+
+# --------------------------------------------
+# 36. trim - Remove whitespace
+# --------------------------------------------
+print("\n36. Testing trim()...")
+trim_result = trim("  hello  ")
+match trim_result {
+    "hello" => print("  ✓ trim('  hello  ') = 'hello'"),
+    _ => print("  ✗ FAILED: trim result: ${trim_result}")
+}
+
+trim_tabs = trim("\thello\n")
+match trim_tabs {
+    "hello" => print("  ✓ trim with tabs/newlines works"),
+    _ => print("  ✗ FAILED: trim tabs")
+}
+
+# --------------------------------------------
+# 37. upper - Convert to uppercase
+# --------------------------------------------
+print("\n37. Testing upper()...")
+upper_result = upper("hello")
+match upper_result {
+    "HELLO" => print("  ✓ upper('hello') = 'HELLO'"),
+    _ => print("  ✗ FAILED: upper result: ${upper_result}")
+}
+
+upper_mixed = upper("Hello World 123")
+match upper_mixed {
+    "HELLO WORLD 123" => print("  ✓ upper preserves numbers"),
+    _ => print("  ✗ FAILED: upper mixed")
+}
+
+# --------------------------------------------
+# 38. lower - Convert to lowercase
+# --------------------------------------------
+print("\n38. Testing lower()...")
+lower_result = lower("HELLO")
+match lower_result {
+    "hello" => print("  ✓ lower('HELLO') = 'hello'"),
+    _ => print("  ✗ FAILED: lower result: ${lower_result}")
+}
+
+lower_mixed = lower("Hello World 123")
+match lower_mixed {
+    "hello world 123" => print("  ✓ lower preserves numbers"),
+    _ => print("  ✗ FAILED: lower mixed")
+}
+
+# --------------------------------------------
+# 39. replace - Replace substring
+# --------------------------------------------
+print("\n39. Testing replace()...")
+replace_result = replace("hello world", "world", "universe")
+match replace_result {
+    "hello universe" => print("  ✓ replace works"),
+    _ => print("  ✗ FAILED: replace result: ${replace_result}")
+}
+
+replace_multi = replace("aaa", "a", "b")
+match replace_multi {
+    "bbb" => print("  ✓ replace handles multiple occurrences"),
+    _ => print("  ✗ FAILED: replace multi: ${replace_multi}")
+}
+
+# --------------------------------------------
+# 40. contains - Check substring
+# --------------------------------------------
+print("\n40. Testing contains()...")
+contains_true = contains("hello world", "world")
+match contains_true {
+    true => print("  ✓ contains('hello world', 'world') = true"),
+    false => print("  ✗ FAILED: contains true case")
+}
+
+contains_false = contains("hello world", "foo")
+match contains_false {
+    false => print("  ✓ contains('hello world', 'foo') = false"),
+    true => print("  ✗ FAILED: contains false case")
+}
+
+# --------------------------------------------
+# 41. starts_with - Check prefix
+# --------------------------------------------
+print("\n41. Testing starts_with()...")
+starts_true = starts_with("hello world", "hello")
+match starts_true {
+    true => print("  ✓ starts_with('hello world', 'hello') = true"),
+    false => print("  ✗ FAILED: starts_with true")
+}
+
+starts_false = starts_with("hello world", "world")
+match starts_false {
+    false => print("  ✓ starts_with('hello world', 'world') = false"),
+    true => print("  ✗ FAILED: starts_with false")
+}
+
+# --------------------------------------------
+# 42. ends_with - Check suffix
+# --------------------------------------------
+print("\n42. Testing ends_with()...")
+ends_true = ends_with("hello world", "world")
+match ends_true {
+    true => print("  ✓ ends_with('hello world', 'world') = true"),
+    false => print("  ✗ FAILED: ends_with true")
+}
+
+ends_false = ends_with("hello world", "hello")
+match ends_false {
+    false => print("  ✓ ends_with('hello world', 'hello') = false"),
+    true => print("  ✗ FAILED: ends_with false")
+}
+
+print("\n=== STRING BUILTINS TESTS COMPLETE ===")
