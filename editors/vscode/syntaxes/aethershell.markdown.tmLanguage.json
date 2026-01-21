@@ -10,53 +10,26 @@
     ],
     "repository": {
         "aethershell-fenced-code-block": {
-            "begin": "(^|\\G)(\\s*)(`)(`{2,})?(?i:(ae|aether|aethershell))(\\s*)$",
-            "end": "(^|\\G)(\\2|\\s{0,3})(\\3\\4)\\s*$",
+            "begin": "(^|\\G)(\\s*)(`{3,})\\s*(?i:(ae|aether|aethershell))\\s*$",
+            "end": "(^|\\G)(\\2)(\\3)\\s*$",
             "beginCaptures": {
                 "3": {
                     "name": "punctuation.definition.markdown"
                 },
                 "4": {
-                    "name": "punctuation.definition.markdown"
-                },
-                "5": {
                     "name": "fenced_code.block.language.markdown"
                 }
             },
             "endCaptures": {
                 "3": {
                     "name": "punctuation.definition.markdown"
-                },
-                "4": {
-                    "name": "punctuation.definition.markdown"
                 }
             },
             "name": "markup.fenced_code.block.markdown",
+            "contentName": "meta.embedded.block.aethershell",
             "patterns": [
                 {
-                    "begin": "(^|\\G)(\\s*)(.*)",
-                    "while": "(^|\\G)(?!\\s*([`]{3,})\\s*$)",
-                    "contentName": "meta.embedded.block.aethershell",
-                    "patterns": [
-                        {
-                            "include": "#aethershell-comments"
-                        },
-                        {
-                            "include": "source.aethershell"
-                        }
-                    ]
-                }
-            ]
-        },
-        "aethershell-comments": {
-            "patterns": [
-                {
-                    "name": "comment.line.number-sign.aethershell",
-                    "match": "#.*$"
-                },
-                {
-                    "name": "comment.line.double-slash.aethershell",
-                    "match": "//.*$"
+                    "include": "source.aethershell"
                 }
             ]
         }
