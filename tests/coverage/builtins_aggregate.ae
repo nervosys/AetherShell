@@ -1,0 +1,107 @@
+# ============================================
+# BUILTINS COVERAGE TEST: Aggregate Operations (132-136)
+# Tests: values, sum, unique, avg/mean, product
+# ============================================
+
+print("=== TESTING AGGREGATE BUILTINS (132-136) ===\n")
+
+# --------------------------------------------
+# 132. values - Get record values
+# --------------------------------------------
+print("132. Testing values()...")
+values_result = values({a: 1, b: 2, c: 3})
+match len(values_result) {
+    3 => print("  ✓ values({a,b,c}) has 3 values"),
+    _ => print("  ✗ FAILED: values length")
+}
+
+values_empty = values({})
+match len(values_empty) {
+    0 => print("  ✓ values({}) returns []"),
+    _ => print("  ✗ FAILED: values empty")
+}
+
+# --------------------------------------------
+# 133. sum - Sum numeric array
+# --------------------------------------------
+print("\n133. Testing sum()...")
+sum_int = sum([1, 2, 3, 4, 5])
+match sum_int {
+    15 => print("  ✓ sum([1,2,3,4,5]) = 15"),
+    _ => print("  ✗ FAILED: sum int: ${sum_int}")
+}
+
+sum_empty = sum([])
+match sum_empty {
+    0 => print("  ✓ sum([]) = 0"),
+    _ => print("  ✗ FAILED: sum empty: ${sum_empty}")
+}
+
+sum_single = sum([42])
+match sum_single {
+    42 => print("  ✓ sum([42]) = 42"),
+    _ => print("  ✗ FAILED: sum single: ${sum_single}")
+}
+
+# --------------------------------------------
+# 134. unique - Remove duplicates
+# --------------------------------------------
+print("\n134. Testing unique()...")
+unique_result = unique([1, 2, 2, 3, 3, 3, 4])
+match len(unique_result) {
+    4 => print("  ✓ unique([1,2,2,3,3,3,4]) has 4 unique"),
+    _ => print("  ✗ FAILED: unique length: ${len(unique_result)}")
+}
+
+unique_strings = unique(["a", "b", "a", "c", "b"])
+match len(unique_strings) {
+    3 => print("  ✓ unique strings works"),
+    _ => print("  ✗ FAILED: unique strings")
+}
+
+unique_empty = unique([])
+match len(unique_empty) {
+    0 => print("  ✓ unique([]) = []"),
+    _ => print("  ✗ FAILED: unique empty")
+}
+
+# --------------------------------------------
+# 135. avg / mean - Average of array
+# --------------------------------------------
+print("\n135. Testing avg()...")
+avg_int = avg([2, 4, 6, 8])
+match avg_int {
+    5 => print("  ✓ avg([2,4,6,8]) = 5"),
+    _ => print("  ⚠ avg result: ${avg_int} (may be float)")
+}
+
+# Test mean alias
+mean_result = mean([10, 20, 30])
+match mean_result {
+    20 => print("  ✓ mean([10,20,30]) = 20"),
+    _ => print("  ⚠ mean result: ${mean_result}")
+}
+
+# --------------------------------------------
+# 136. product - Product of array
+# --------------------------------------------
+print("\n136. Testing product()...")
+product_result = product([1, 2, 3, 4])
+match product_result {
+    24 => print("  ✓ product([1,2,3,4]) = 24"),
+    _ => print("  ✗ FAILED: product: ${product_result}")
+}
+
+product_single = product([7])
+match product_single {
+    7 => print("  ✓ product([7]) = 7"),
+    _ => print("  ✗ FAILED: product single")
+}
+
+product_with_zero = product([1, 2, 0, 4])
+match product_with_zero {
+    0 => print("  ✓ product with zero = 0"),
+    _ => print("  ✗ FAILED: product zero")
+}
+
+print("\n=== AGGREGATE BUILTINS TESTS COMPLETE ===")

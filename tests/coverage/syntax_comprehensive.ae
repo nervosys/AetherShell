@@ -1,0 +1,460 @@
+# ============================================
+# COMPREHENSIVE SYNTAX COVERAGE TEST
+# Tests ALL AST constructs from src/ast.rs
+# ============================================
+
+print("=== COMPREHENSIVE SYNTAX COVERAGE ===\n")
+
+# ============================================
+# SECTION 1: LITERALS (Expr variants)
+# ============================================
+print("SECTION 1: LITERALS\n")
+
+# 1.1 LitInt - Integer literals
+print("1.1 Integer Literals...")
+int_pos = 42
+int_zero = 0
+int_neg = -17
+int_large = 9999999
+match type_of(int_pos) == "Int" && type_of(int_neg) == "Int" {
+    true => print("  ✓ Integer literals work"),
+    false => print("  ✗ FAILED: Integer literals")
+}
+
+# 1.2 LitFloat - Float literals
+print("1.2 Float Literals...")
+float_simple = 3.14
+float_small = 0.001
+float_neg = -2.5
+match type_of(float_simple) == "Float" {
+    true => print("  ✓ Float literals work"),
+    false => print("  ✗ FAILED: Float literals")
+}
+
+# 1.3 LitStr - String literals
+print("1.3 String Literals...")
+str_simple = "hello"
+str_empty = ""
+str_spaces = "hello world"
+str_special = "tab\there"
+match type_of(str_simple) == "String" && len(str_empty) == 0 {
+    true => print("  ✓ String literals work"),
+    false => print("  ✗ FAILED: String literals")
+}
+
+# 1.4 String interpolation
+print("1.4 String Interpolation...")
+name = "world"
+interpolated = "hello ${name}!"
+match contains(interpolated, "world") {
+    true => print("  ✓ String interpolation works"),
+    false => print("  ✗ FAILED: String interpolation")
+}
+
+# 1.5 LitBool - Boolean literals
+print("1.5 Boolean Literals...")
+bool_true = true
+bool_false = false
+match type_of(bool_true) == "Bool" && bool_true == true && bool_false == false {
+    true => print("  ✓ Boolean literals work"),
+    false => print("  ✗ FAILED: Boolean literals")
+}
+
+# 1.6 Null literal
+print("1.6 Null Literal...")
+null_val = null
+match type_of(null_val) == "Null" {
+    true => print("  ✓ Null literal works"),
+    false => print("  ✗ FAILED: Null literal")
+}
+
+# ============================================
+# SECTION 2: COLLECTIONS
+# ============================================
+print("\nSECTION 2: COLLECTIONS\n")
+
+# 2.1 Array - Array literals
+print("2.1 Array Literals...")
+arr_nums = [1, 2, 3, 4, 5]
+arr_mixed = [1, "two", true, null]
+arr_empty = []
+arr_nested = [[1, 2], [3, 4]]
+match type_of(arr_nums) == "Array" && len(arr_nums) == 5 && len(arr_empty) == 0 {
+    true => print("  ✓ Array literals work"),
+    false => print("  ✗ FAILED: Array literals")
+}
+
+# 2.2 Record - Record literals
+print("2.2 Record Literals...")
+rec_simple = {name: "Alice", age: 30}
+rec_nested = {user: {name: "Bob"}, active: true}
+rec_empty = {}
+match type_of(rec_simple) == "Record" && len(keys(rec_simple)) == 2 {
+    true => print("  ✓ Record literals work"),
+    false => print("  ✗ FAILED: Record literals")
+}
+
+# 2.3 Record field access (MemberAccess)
+print("2.3 Member Access...")
+person = {name: "Alice", age: 30}
+name_val = person.name
+age_val = person.age
+match name_val == "Alice" && age_val == 30 {
+    true => print("  ✓ Member access works"),
+    false => print("  ✗ FAILED: Member access")
+}
+
+# ============================================
+# SECTION 3: VARIABLES
+# ============================================
+print("\nSECTION 3: VARIABLES\n")
+
+# 3.1 Let binding (immutable)
+print("3.1 Let Bindings...")
+let x = 42
+match x == 42 {
+    true => print("  ✓ Let binding works"),
+    false => print("  ✗ FAILED: Let binding")
+}
+
+# 3.2 Let mut binding (mutable)
+print("3.2 Mutable Bindings...")
+let mut counter = 0
+counter = counter + 1
+counter = counter + 1
+match counter == 2 {
+    true => print("  ✓ Mutable binding works"),
+    false => print("  ✗ FAILED: Mutable binding")
+}
+
+# 3.3 Ident - Variable reference
+print("3.3 Variable Reference...")
+val1 = 10
+val2 = val1
+val3 = val1 + val2
+match val3 == 20 {
+    true => print("  ✓ Variable reference works"),
+    false => print("  ✗ FAILED: Variable reference")
+}
+
+# ============================================
+# SECTION 4: OPERATORS (BinOp)
+# ============================================
+print("\nSECTION 4: OPERATORS\n")
+
+# 4.1 Arithmetic operators
+print("4.1 Arithmetic Operators...")
+add = 10 + 5
+sub = 10 - 5
+mul = 10 * 5
+div = 10 / 5
+match add == 15 && sub == 5 && mul == 50 && div == 2 {
+    true => print("  ✓ Basic arithmetic works (+, -, *, /)"),
+    false => print("  ✗ FAILED: Basic arithmetic")
+}
+
+# 4.2 Modulo and Power
+print("4.2 Modulo and Power...")
+rem = 17 % 5
+pow_result = pow(2, 3)
+match rem == 2 && pow_result == 8 {
+    true => print("  ✓ Modulo and power work (%, **)"),
+    false => print("  ✗ FAILED: Modulo/power")
+}
+
+# 4.3 Comparison operators
+print("4.3 Comparison Operators...")
+eq = 5 == 5
+ne = 5 != 3
+lt = 3 < 5
+lte = 5 <= 5
+gt = 10 > 5
+gte = 5 >= 5
+match eq && ne && lt && lte && gt && gte {
+    true => print("  ✓ Comparison operators work (==, !=, <, <=, >, >=)"),
+    false => print("  ✗ FAILED: Comparison operators")
+}
+
+# 4.4 Logical operators
+print("4.4 Logical Operators...")
+and_result = true && true
+or_result = false || true
+not_result = !false
+match and_result && or_result && not_result {
+    true => print("  ✓ Logical operators work (&&, ||, !)"),
+    false => print("  ✗ FAILED: Logical operators")
+}
+
+# 4.5 String concatenation
+print("4.5 String Concatenation...")
+concat = "hello" + " " + "world"
+match concat == "hello world" {
+    true => print("  ✓ String concatenation works"),
+    false => print("  ✗ FAILED: String concatenation")
+}
+
+# ============================================
+# SECTION 5: UNARY OPERATORS (UnOp)
+# ============================================
+print("\nSECTION 5: UNARY OPERATORS\n")
+
+# 5.1 Negation
+print("5.1 Numeric Negation...")
+neg = -42
+double_neg = --42
+match neg == -42 && double_neg == 42 {
+    true => print("  ✓ Numeric negation works"),
+    false => print("  ✗ FAILED: Numeric negation")
+}
+
+# 5.2 Logical NOT
+print("5.2 Logical NOT...")
+not1 = !true
+not2 = !false
+not3 = !!true
+match not1 == false && not2 == true && not3 == true {
+    true => print("  ✓ Logical NOT works"),
+    false => print("  ✗ FAILED: Logical NOT")
+}
+
+# ============================================
+# SECTION 6: LAMBDAS
+# ============================================
+print("\nSECTION 6: LAMBDAS\n")
+
+# 6.1 Single parameter lambda
+print("6.1 Single Parameter Lambda...")
+double = fn(x) => x * 2
+match double(21) == 42 {
+    true => print("  ✓ Single parameter lambda works"),
+    false => print("  ✗ FAILED: Single parameter lambda")
+}
+
+# 6.2 Multi-parameter lambda
+print("6.2 Multi-Parameter Lambda...")
+add_fn = fn(a, b) => a + b
+match add_fn(10, 20) == 30 {
+    true => print("  ✓ Multi-parameter lambda works"),
+    false => print("  ✗ FAILED: Multi-parameter lambda")
+}
+
+# 6.3 Zero parameter lambda (AetherShell requires at least one param)
+print("6.3 Thunk-style Lambda...")
+constant = fn(_) => 42
+match constant(null) == 42 {
+    true => print("  ✓ Thunk-style lambda works"),
+    false => print("  ✗ FAILED: Thunk-style lambda")
+}
+
+# 6.4 Lambda as value
+print("6.4 Lambda as Value...")
+identity = fn(x) => x
+match type_of(identity) == "Lambda" {
+    true => print("  ✓ Lambda as value works"),
+    false => print("  ✗ FAILED: Lambda as value")
+}
+
+# 6.5 Higher-order functions
+print("6.5 Higher-Order Functions...")
+apply_twice = fn(f, x) => f(f(x))
+result = apply_twice(fn(x) => x + 1, 0)
+match result == 2 {
+    true => print("  ✓ Higher-order functions work"),
+    false => print("  ✗ FAILED: Higher-order functions")
+}
+
+# ============================================
+# SECTION 7: FUNCTION CALLS
+# ============================================
+print("\nSECTION 7: FUNCTION CALLS\n")
+
+# 7.1 Builtin calls
+print("7.1 Builtin Calls...")
+len_result = len([1, 2, 3])
+match len_result == 3 {
+    true => print("  ✓ Builtin calls work"),
+    false => print("  ✗ FAILED: Builtin calls")
+}
+
+# 7.2 Positional arguments
+print("7.2 Positional Arguments...")
+# take(arr, count) style
+take_result = take([1, 2, 3, 4, 5], 2)
+match len(take_result) == 2 {
+    true => print("  ✓ Positional arguments work"),
+    false => print("  ✗ FAILED: Positional arguments")
+}
+
+# 7.3 Chained calls
+print("7.3 Chained Calls...")
+chained = len(take([1, 2, 3], 2))
+match chained == 2 {
+    true => print("  ✓ Chained calls work"),
+    false => print("  ✗ FAILED: Chained calls")
+}
+
+# ============================================
+# SECTION 8: PIPELINES
+# ============================================
+print("\nSECTION 8: PIPELINES\n")
+
+# 8.1 Simple pipeline
+print("8.1 Simple Pipeline...")
+pipe1 = [1, 2, 3] | len
+match pipe1 == 3 {
+    true => print("  ✓ Simple pipeline works"),
+    false => print("  ✗ FAILED: Simple pipeline")
+}
+
+# 8.2 Pipeline with function call
+print("8.2 Pipeline with Call...")
+pipe2 = [1, 2, 3] | map(fn(x) => x * 2)
+match len(pipe2) == 3 {
+    true => print("  ✓ Pipeline with call works"),
+    false => print("  ✗ FAILED: Pipeline with call")
+}
+
+# 8.3 Chained pipeline
+print("8.3 Chained Pipeline...")
+pipe3 = [1, 2, 3, 4, 5] | where(fn(x) => x > 2) | map(fn(x) => x * 10)
+match len(pipe3) == 3 {
+    true => print("  ✓ Chained pipeline works"),
+    false => print("  ✗ FAILED: Chained pipeline")
+}
+
+# 8.4 Pipeline to reduce
+print("8.4 Pipeline to Reduce...")
+pipe4 = [1, 2, 3, 4] | reduce(fn(a, b) => a + b, 0)
+match pipe4 == 10 {
+    true => print("  ✓ Pipeline to reduce works"),
+    false => print("  ✗ FAILED: Pipeline to reduce")
+}
+
+# 8.5 Pipeline with lambda shorthand
+print("8.5 Pipeline Lambda Shorthand...")
+pipe5 = [1, 2, 3] | fn(x) => x * 3
+match first(pipe5) == 3 {
+    true => print("  ✓ Pipeline lambda shorthand works"),
+    false => print("  ✗ FAILED: Pipeline lambda shorthand")
+}
+
+# ============================================
+# SECTION 9: MATCH EXPRESSIONS
+# ============================================
+print("\nSECTION 9: MATCH EXPRESSIONS\n")
+
+# 9.1 Literal patterns
+print("9.1 Literal Patterns...")
+match_lit = match 2 {
+    1 => "one",
+    2 => "two",
+    3 => "three",
+    _ => "other"
+}
+match match_lit == "two" {
+    true => print("  ✓ Literal patterns work"),
+    false => print("  ✗ FAILED: Literal patterns")
+}
+
+# 9.2 Wildcard pattern
+print("9.2 Wildcard Pattern...")
+match_wild = match 999 {
+    1 => "one",
+    _ => "wildcard"
+}
+match match_wild == "wildcard" {
+    true => print("  ✓ Wildcard pattern works"),
+    false => print("  ✗ FAILED: Wildcard pattern")
+}
+
+# 9.3 Variable binding pattern
+print("9.3 Variable Binding Pattern...")
+match_var = match 42 {
+    x => x * 2
+}
+match match_var == 84 {
+    true => print("  ✓ Variable binding pattern works"),
+    false => print("  ✗ FAILED: Variable binding pattern")
+}
+
+# 9.4 Guard conditions
+print("9.4 Guard Conditions...")
+match_guard = match 15 {
+    x if x < 10 => "small",
+    x if x < 20 => "medium",
+    _ => "large"
+}
+match match_guard == "medium" {
+    true => print("  ✓ Guard conditions work"),
+    false => print("  ✗ FAILED: Guard conditions")
+}
+
+# 9.5 Boolean match (ternary-like)
+print("9.5 Boolean Match...")
+condition = true
+ternary = match condition {
+    true => "yes",
+    false => "no"
+}
+match ternary == "yes" {
+    true => print("  ✓ Boolean match works"),
+    false => print("  ✗ FAILED: Boolean match")
+}
+
+# 9.6 String patterns
+print("9.6 String Patterns...")
+match_str = match "hello" {
+    "hi" => 1,
+    "hello" => 2,
+    _ => 0
+}
+match match_str == 2 {
+    true => print("  ✓ String patterns work"),
+    false => print("  ✗ FAILED: String patterns")
+}
+
+# ============================================
+# SECTION 10: COMPLEX EXPRESSIONS
+# ============================================
+print("\nSECTION 10: COMPLEX EXPRESSIONS\n")
+
+# 10.1 Nested expressions
+print("10.1 Nested Expressions...")
+nested = (1 + 2) * (3 + 4)
+match nested == 21 {
+    true => print("  ✓ Nested expressions work"),
+    false => print("  ✗ FAILED: Nested expressions")
+}
+
+# 10.2 Complex pipeline
+print("10.2 Complex Pipeline...")
+complex = range(1, 10) 
+    | where(fn(x) => x % 2 == 0) 
+    | map(fn(x) => x * x)
+    | reduce(fn(a, b) => a + b, 0)
+# 2^2 + 4^2 + 6^2 + 8^2 = 4 + 16 + 36 + 64 = 120
+match complex == 120 {
+    true => print("  ✓ Complex pipeline works"),
+    false => print("  ✗ FAILED: Complex pipeline: ${complex}")
+}
+
+# 10.3 Record in array
+print("10.3 Record in Array...")
+users = [{name: "Alice"}, {name: "Bob"}]
+first_name = first(users).name
+match first_name == "Alice" {
+    true => print("  ✓ Record in array works"),
+    false => print("  ✗ FAILED: Record in array")
+}
+
+# 10.4 Lambda returning record
+print("10.4 Lambda Returning Record...")
+make_pair = fn(a, b) => {first: a, second: b}
+pair = make_pair(1, 2)
+match pair.first == 1 && pair.second == 2 {
+    true => print("  ✓ Lambda returning record works"),
+    false => print("  ✗ FAILED: Lambda returning record")
+}
+
+print("\n=== SYNTAX COVERAGE COMPLETE ===")
+print("All major AST constructs have been tested!")

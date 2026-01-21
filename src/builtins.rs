@@ -237,6 +237,16 @@ lazy_static::lazy_static! {
         map.insert("config_reload", 142);
         map.insert("themes", 143);
 
+        // Plugin functions (144-150)
+        map.insert("plugins", 144);
+        map.insert("plugin_list", 144); // alias
+        map.insert("plugin_info", 145);
+        map.insert("plugin_enable", 146);
+        map.insert("plugin_disable", 147);
+        map.insert("plugin_load", 148);
+        map.insert("plugin_unload", 149);
+        map.insert("plugin_categories", 150);
+
         map
     };
 }
@@ -405,6 +415,14 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |_, _, _| bi_config_init(),
     |_, _, _| bi_config_reload(),
     |_, _, _| bi_themes(),
+    // 144-150: Plugin functions
+    |args, input, _| bi_plugins(args, input),
+    |args, input, _| bi_plugin_info(args, input),
+    |args, input, _| bi_plugin_enable(args, input),
+    |args, input, _| bi_plugin_disable(args, input),
+    |args, input, _| bi_plugin_load(args, input),
+    |args, input, _| bi_plugin_unload(args, input),
+    |_, _, _| bi_plugin_categories(),
 ];
 
 fn fast_builtin_lookup(
@@ -1457,6 +1475,98 @@ fn bi_themes() -> Result<Value> {
         .map(|s| Value::Str(s.to_string()))
         .collect();
     Ok(Value::Array(themes))
+}
+
+// ===================== Plugin Builtins =====================
+
+/// List all registered plugins
+fn bi_plugins(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(crate::plugins::bi_plugins_list())
+}
+
+/// Get detailed information about a plugin
+fn bi_plugin_info(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let plugin_id = if let Some(Value::Str(id)) = input {
+        id
+    } else if !args.is_empty() {
+        match &args[0] {
+            Value::Str(id) => id.clone(),
+            _ => return Err(anyhow!("plugin_info: requires plugin ID string")),
+        }
+    } else {
+        return Err(anyhow!("plugin_info: requires plugin ID"));
+    };
+
+    Ok(crate::plugins::bi_plugin_info(&plugin_id))
+}
+
+/// Enable a plugin by ID
+fn bi_plugin_enable(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let plugin_id = if let Some(Value::Str(id)) = input {
+        id
+    } else if !args.is_empty() {
+        match &args[0] {
+            Value::Str(id) => id.clone(),
+            _ => return Err(anyhow!("plugin_enable: requires plugin ID string")),
+        }
+    } else {
+        return Err(anyhow!("plugin_enable: requires plugin ID"));
+    };
+
+    crate::plugins::bi_plugin_enable(&plugin_id)
+}
+
+/// Disable a plugin by ID
+fn bi_plugin_disable(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let plugin_id = if let Some(Value::Str(id)) = input {
+        id
+    } else if !args.is_empty() {
+        match &args[0] {
+            Value::Str(id) => id.clone(),
+            _ => return Err(anyhow!("plugin_disable: requires plugin ID string")),
+        }
+    } else {
+        return Err(anyhow!("plugin_disable: requires plugin ID"));
+    };
+
+    crate::plugins::bi_plugin_disable(&plugin_id)
+}
+
+/// Load a plugin from a manifest file path
+fn bi_plugin_load(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let path = if let Some(Value::Str(p)) = input {
+        p
+    } else if !args.is_empty() {
+        match &args[0] {
+            Value::Str(p) => p.clone(),
+            _ => return Err(anyhow!("plugin_load: requires path string")),
+        }
+    } else {
+        return Err(anyhow!("plugin_load: requires manifest path"));
+    };
+
+    crate::plugins::load_plugin_from_manifest(&path)
+}
+
+/// Unload a plugin by ID
+fn bi_plugin_unload(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let plugin_id = if let Some(Value::Str(id)) = input {
+        id
+    } else if !args.is_empty() {
+        match &args[0] {
+            Value::Str(id) => id.clone(),
+            _ => return Err(anyhow!("plugin_unload: requires plugin ID string")),
+        }
+    } else {
+        return Err(anyhow!("plugin_unload: requires plugin ID"));
+    };
+
+    crate::plugins::unload_plugin(&plugin_id)
+}
+
+/// List all plugin categories
+fn bi_plugin_categories() -> Result<Value> {
+    Ok(crate::plugins::bi_plugin_categories())
 }
 
 fn bi_len(args: Vec<Value>, input: Option<Value>) -> Result<Value> {

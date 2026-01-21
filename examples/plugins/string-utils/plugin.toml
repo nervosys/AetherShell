@@ -1,0 +1,58 @@
+# String Utilities Plugin
+# Additional string manipulation functions for AetherShell
+
+[plugin]
+id = "string-utils"
+name = "String Utilities"
+version = "1.0.0"
+author = "AetherShell Team"
+description = "Additional string manipulation functions for common transformations"
+categories = ["Builtin"]
+min_aether_version = "0.1.0"
+dependencies = []
+
+[builtins]
+# Convert to title case (capitalize first letter of each word)
+title_case = "fn(s) => s | split(' ') | map(fn(w) => if len(w) > 0 { upper(slice(w, 0, 1)) + lower(slice(w, 1)) } else { w }) | join(' ')"
+
+# Convert to snake_case
+snake_case = "fn(s) => s | lower | replace(' ', '_') | replace('-', '_')"
+
+# Convert to kebab-case
+kebab_case = "fn(s) => s | lower | replace(' ', '-') | replace('_', '-')"
+
+# Capitalize first letter only
+capitalize = "fn(s) => if len(s) > 0 { upper(slice(s, 0, 1)) + slice(s, 1) } else { s }"
+
+# Reverse a string
+str_reverse = "fn(s) => s | split('') | reverse | join('')"
+
+# Check if string is empty or whitespace
+is_blank = "fn(s) => len(trim(s)) == 0"
+
+# Check if string is not empty
+is_not_blank = "fn(s) => len(trim(s)) > 0"
+
+# Pad left with character
+pad_left = "fn(s, width, char) => if len(s) >= width { s } else { (range(1, width - len(s) + 1) | map(fn(_) => char) | join('')) + s }"
+
+# Pad right with character  
+pad_right = "fn(s, width, char) => if len(s) >= width { s } else { s + (range(1, width - len(s) + 1) | map(fn(_) => char) | join('')) }"
+
+# Center string with padding
+center = "fn(s, width, char) => if len(s) >= width { s } else { pad_left(pad_right(s, len(s) + (width - len(s)) / 2, char), width, char) }"
+
+# Truncate string with ellipsis
+truncate = "fn(s, max_len) => if len(s) <= max_len { s } else { slice(s, 0, max_len - 3) + '...' }"
+
+# Wrap text to width
+word_count = "fn(s) => s | split(' ') | where(fn(w) => len(trim(w)) > 0) | len"
+
+# Check if string contains only digits
+is_numeric = "fn(s) => len(s) > 0 && (s | split('') | all(fn(c) => contains('0123456789', c)))"
+
+# Check if string contains only letters
+is_alpha = "fn(s) => len(s) > 0 && (s | split('') | all(fn(c) => contains('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ', c)))"
+
+# Remove all whitespace
+compact = "fn(s) => s | replace(' ', '') | replace('\\t', '') | replace('\\n', '')"

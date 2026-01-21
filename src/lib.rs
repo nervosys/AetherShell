@@ -1,26 +1,53 @@
-pub mod agent;
-pub mod ai;
-pub mod ai_api;
 pub mod ast;
-pub mod builtins;
-pub mod config; // XDG-compliant configuration system
 pub mod env;
-pub mod eval;
-pub mod evolution;
-pub mod mcp; // Model Context Protocol server/client for AI tool access
-pub mod neural;
-pub mod os_tools;
 pub mod parser;
-pub mod plugins;
-pub mod repl;
-pub mod rl;
-pub mod rlm; // Recursive Language Models for hierarchical agent spawning
-pub mod secure_config;
-pub mod security;
-pub mod shell_features;
-pub mod syntax_kb;
-pub mod transpile;
-pub mod tui;
-pub mod typecheck;
 pub mod types;
 pub mod value;
+
+// Core modules available in both native and WASM builds
+pub mod shell_features;
+pub mod typecheck;
+
+// Native-only modules (including eval which depends on builtins)
+#[cfg(feature = "native")]
+pub mod agent;
+#[cfg(feature = "native")]
+pub mod ai;
+#[cfg(feature = "native")]
+pub mod ai_api;
+#[cfg(feature = "native")]
+pub mod builtins;
+#[cfg(feature = "native")]
+pub mod config;
+#[cfg(feature = "native")]
+pub mod eval;
+#[cfg(feature = "native")]
+pub mod evolution;
+#[cfg(feature = "native")]
+pub mod mcp;
+#[cfg(feature = "native")]
+pub mod neural;
+#[cfg(feature = "native")]
+pub mod os_tools;
+#[cfg(feature = "native")]
+pub mod plugins;
+#[cfg(feature = "native")]
+pub mod repl;
+#[cfg(feature = "native")]
+pub mod rl;
+#[cfg(feature = "native")]
+pub mod rlm;
+#[cfg(feature = "native")]
+pub mod secure_config;
+#[cfg(feature = "native")]
+pub mod security;
+#[cfg(feature = "native")]
+pub mod syntax_kb;
+#[cfg(feature = "native")]
+pub mod transpile;
+#[cfg(feature = "native")]
+pub mod tui;
+
+// WASM module
+#[cfg(feature = "web")]
+pub mod wasm;

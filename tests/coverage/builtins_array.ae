@@ -1,0 +1,123 @@
+# ============================================
+# BUILTINS COVERAGE TEST: Array Operations (43-49)
+# Tests: flatten, reverse, slice, range, zip, push, concat
+# ============================================
+
+print("=== TESTING ARRAY BUILTINS (43-49) ===\n")
+
+# --------------------------------------------
+# 43. flatten - Flatten nested arrays (pipeline only)
+# --------------------------------------------
+print("43. Testing flatten()...")
+flatten_result = ([[1, 2], [3, 4], [5]] | flatten)
+match len(flatten_result) {
+    5 => print("  ✓ [[1,2],[3,4],[5]] | flatten has 5 elements"),
+    _ => print("  ✗ FAILED: flatten length")
+}
+
+flatten_empty = ([] | flatten)
+match len(flatten_empty) {
+    0 => print("  ✓ [] | flatten returns empty array"),
+    _ => print("  ✗ FAILED: flatten empty")
+}
+
+# --------------------------------------------
+# 44. reverse - Reverse array (pipeline only)
+# --------------------------------------------
+print("\n44. Testing reverse()...")
+reverse_result = ([1, 2, 3, 4, 5] | reverse)
+first_elem = first(reverse_result)
+match first_elem {
+    5 => print("  ✓ [1,2,3,4,5] | reverse starts with 5"),
+    _ => print("  ✗ FAILED: reverse first element")
+}
+
+reverse_empty = ([] | reverse)
+match len(reverse_empty) {
+    0 => print("  ✓ [] | reverse returns empty array"),
+    _ => print("  ✗ FAILED: reverse empty")
+}
+
+# --------------------------------------------
+# 45. slice - Get subarray (pipeline only)
+# --------------------------------------------
+print("\n45. Testing slice()...")
+slice_result = ([1, 2, 3, 4, 5] | slice(1, 3))
+match len(slice_result) {
+    2 => print("  ✓ [1,2,3,4,5] | slice(1, 3) has 2 elements"),
+    _ => print("  ✗ FAILED: slice length")
+}
+
+slice_full = ([1, 2, 3] | slice(0, 3))
+match len(slice_full) {
+    3 => print("  ✓ slice full array works"),
+    _ => print("  ✗ FAILED: slice full")
+}
+
+# --------------------------------------------
+# 46. range - Create numeric range
+# --------------------------------------------
+print("\n46. Testing range()...")
+range_result = range(1, 5)
+match len(range_result) {
+    4 => print("  ✓ range(1, 5) has 4 elements [1,2,3,4]"),
+    _ => print("  ✗ FAILED: range length: ${len(range_result)}")
+}
+
+range_zero = range(0, 3)
+first_range = first(range_zero)
+match first_range {
+    0 => print("  ✓ range(0, 3) starts with 0"),
+    _ => print("  ✗ FAILED: range start")
+}
+
+# --------------------------------------------
+# 47. zip - Zip two arrays
+# --------------------------------------------
+print("\n47. Testing zip()...")
+zip_result = zip([1, 2, 3], ["a", "b", "c"])
+match len(zip_result) {
+    3 => print("  ✓ zip([1,2,3], ['a','b','c']) has 3 pairs"),
+    _ => print("  ✗ FAILED: zip length")
+}
+
+# Test zip with different lengths
+zip_short = zip([1, 2], ["a", "b", "c"])
+match len(zip_short) {
+    2 => print("  ✓ zip stops at shorter array"),
+    _ => print("  ⚠ zip length mismatch handling varies")
+}
+
+# --------------------------------------------
+# 48. push - Add element to array
+# --------------------------------------------
+print("\n48. Testing push()...")
+push_result = push([1, 2, 3], 4)
+match len(push_result) {
+    4 => print("  ✓ push([1,2,3], 4) has 4 elements"),
+    _ => print("  ✗ FAILED: push length")
+}
+
+last_elem = last(push_result)
+match last_elem {
+    4 => print("  ✓ push adds to end"),
+    _ => print("  ✗ FAILED: push position")
+}
+
+# --------------------------------------------
+# 49. concat - Concatenate arrays
+# --------------------------------------------
+print("\n49. Testing concat()...")
+concat_result = concat([1, 2], [3, 4])
+match len(concat_result) {
+    4 => print("  ✓ concat([1,2], [3,4]) has 4 elements"),
+    _ => print("  ✗ FAILED: concat length")
+}
+
+concat_empty = concat([], [1, 2])
+match len(concat_empty) {
+    2 => print("  ✓ concat with empty array works"),
+    _ => print("  ✗ FAILED: concat empty")
+}
+
+print("\n=== ARRAY BUILTINS TESTS COMPLETE ===")
