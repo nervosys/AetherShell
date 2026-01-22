@@ -141,7 +141,7 @@ This document tracks the development progress of AetherShell, the world's first 
 ### Q1 2026
 
 #### Error Recovery & Improved Diagnostics (Next)
-- [ ] Line numbers in error messages
+- [x] Line numbers in error messages (parser and lexer)
 - [ ] Suggested fixes for common errors
 - [ ] Better parser error recovery
 
@@ -150,6 +150,12 @@ This document tracks the development progress of AetherShell, the world's first 
 ## ✅ Recently Completed
 
 ### January 2026
+
+#### Error Diagnostics (Partial)
+- [x] Line and column tracking in lexer
+- [x] All parser errors now include line/column information
+- [x] Lexer errors include location information
+- [x] 6 error diagnostic tests
 
 #### Conditional Compilation (Completed)
 - [x] `#[cfg(platform)]` - Platform checks (windows, linux, macos, unix)

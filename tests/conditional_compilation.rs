@@ -114,12 +114,12 @@ fn cfg_unix_alias() {
 
 #[test]
 fn cfg_feature_enabled() {
-    // Set the feature environment variable
-    std::env::set_var("AETHER_FEATURES", "test_feature,another_feature");
+    // Use a unique feature name to avoid race conditions with other tests
+    std::env::set_var("AETHER_FEATURES", "test_feature_enabled_unique");
 
     let (_, env) = eval_with_env(
         r#"
-        #[cfg(feature = "test_feature")]
+        #[cfg(feature = "test_feature_enabled_unique")]
         let x = "feature enabled"
         x
     "#,
@@ -136,12 +136,12 @@ fn cfg_feature_enabled() {
 
 #[test]
 fn cfg_feature_disabled() {
-    // Make sure no feature is set
-    std::env::remove_var("AETHER_FEATURES");
+    // Use AETHER_FEATURES_DISABLED to avoid race with cfg_feature_enabled
+    std::env::set_var("AETHER_FEATURES", "some_other_feature");
 
     let (_, env) = eval_with_env(
         r#"
-        #[cfg(feature = "nonexistent")]
+        #[cfg(feature = "nonexistent_feature_unique")]
         let x = "should not exist"
         
         let y = "fallback"

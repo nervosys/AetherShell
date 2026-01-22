@@ -1,0 +1,87 @@
+// Tests for error messages with line numbers
+
+use aether_shell::parser::parse_program;
+
+#[test]
+fn error_includes_line_number() {
+    // Test that a syntax error includes line number
+    let result = parse_program(
+        r#"
+        let x = 1
+        let y = @
+    "#,
+    );
+
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("line"), "Error should include 'line': {}", err);
+    assert!(
+        err.contains("column"),
+        "Error should include 'column': {}",
+        err
+    );
+}
+
+#[test]
+fn error_line_number_multiline() {
+    // Error on line 3
+    let result = parse_program(
+        r#"let a = 1
+let b = 2
+let c = @"#,
+    );
+
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    // The @ is on line 3
+    assert!(err.contains("line 3"), "Error should be on line 3: {}", err);
+}
+
+#[test]
+fn error_unexpected_token_includes_location() {
+    let result = parse_program("let x = ");
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("line"), "Error should include line: {}", err);
+    assert!(
+        err.contains("column"),
+        "Error should include column: {}",
+        err
+    );
+}
+
+#[test]
+fn error_pub_with_import() {
+    let result = parse_program("pub import \"foo\"");
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("pub"), "Error should mention pub: {}", err);
+    assert!(
+        err.contains("import"),
+        "Error should mention import: {}",
+        err
+    );
+    assert!(err.contains("line"), "Error should include line: {}", err);
+}
+
+#[test]
+fn error_expected_closing_bracket() {
+    let result = parse_program("[1, 2, 3");
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("line"), "Error should include line: {}", err);
+}
+
+#[test]
+fn error_invalid_cfg_attribute() {
+    let result = parse_program(
+        r#"
+        #[invalid(attr)]
+        let x = 1
+    "#,
+    );
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("cfg"), "Error should mention cfg: {}", err);
+    assert!(err.contains("line"), "Error should include line: {}", err);
+}
