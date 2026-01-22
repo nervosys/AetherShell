@@ -22,7 +22,7 @@ This document tracks the development progress of AetherShell, the world's first 
 | Test Coverage    | ✅ Complete | 100% pass rate         |
 | Documentation    | ✅ Complete | Comprehensive          |
 | Publishing       | ✅ Complete | crates.io v0.1.2       |
-| WASM Support     | 🔄 Next     | Planning               |
+| WASM Support     | ✅ Complete | Browser REPL ready     |
 
 ---
 
@@ -140,13 +140,27 @@ This document tracks the development progress of AetherShell, the world's first 
 
 ### Q1 2026
 
-#### WASM Support (Next)
+#### VS Code Extension
+- [ ] Markdown preview improvements
+- [ ] Symbol provider for outline view
+- [ ] Code folding provider
+- [ ] Hover documentation
+
+---
+
+## ✅ Recently Completed
+
+### January 2026
+
+#### WASM Support (Completed)
 - [x] Feature flags for platform-specific code (native/web)
 - [x] Core modules (ast, env, parser, value, types) shared across builds
 - [x] Native-only modules gated with `#[cfg(feature = "native")]`
-- [ ] wasm-bindgen bindings (wasm.rs skeleton created)
-- [ ] Browser-based REPL
-- [ ] Web playground
+- [x] wasm-bindgen bindings with full evaluator
+- [x] Browser-based REPL (web/index.html)
+- [x] 40+ builtins ported to WASM (map, where, reduce, etc.)
+- [x] Pattern matching support in WASM
+- [x] Pipeline evaluation in WASM
 
 ---
 
