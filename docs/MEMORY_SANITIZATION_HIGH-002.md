@@ -233,7 +233,7 @@ unset OPENAI_API_KEY
 
 **Step 4: Test AI functionality**
 ```bash
-ae --tui
+ae tui
 # AI features should work using stored key
 ```
 

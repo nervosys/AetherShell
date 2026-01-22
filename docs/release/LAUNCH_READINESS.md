@@ -148,7 +148,7 @@ cargo build --release
 AETHER_AI=openai OPENAI_API_KEY=your_key ./ae
 
 # Or use TUI mode
-./ae --tui
+./ae tui
 ```
 
 ### Configuration Options

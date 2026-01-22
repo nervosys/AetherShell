@@ -450,7 +450,7 @@ swarm_status --distributed
 **Terminal UI with media display**
 
 ```bash
-ae --tui
+ae tui
 ```
 
 Features:

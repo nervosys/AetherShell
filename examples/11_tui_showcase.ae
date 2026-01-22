@@ -141,7 +141,7 @@ print("   └──────────┴───────────�
 # Section 8: Live Demo Instructions
 print("8. Try It Yourself!\n")
 print("   To see these features in action:")
-print("   1. Launch TUI mode:  ae --tui")
+print("   1. Launch TUI mode:  ae tui")
 print("   2. Start chatting in Chat mode")
 print("   3. Watch statistics update in real-time (right sidebar)")
 print("   4. Press Ctrl+E to export your conversation")

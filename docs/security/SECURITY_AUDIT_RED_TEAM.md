@@ -62,7 +62,7 @@ An attacker sends malformed JSON through AI API → JSON parsing fails → `.unw
 **Proof of Concept**:
 ```bash
 # Trigger panic via malformed input
-ae --tui <<< '{"type": "malformed", "data": "\u{FFFF}"}'
+ae tui <<< '{"type": "malformed", "data": "\u{FFFF}"}'
 ```
 
 **Recommendation**:

@@ -101,7 +101,7 @@ ae keys list
 ae keys get openai
 
 # Test AI functionality
-ae --tui
+ae tui
 # Try an AI command to ensure it works
 ```
 
@@ -491,7 +491,7 @@ ae keys store anthropic "$CI_ANTHROPIC_KEY"
 ae keys list
 
 # Run application
-ae --tui
+ae tui
 ```
 
 ### Backup and Restore
@@ -574,7 +574,7 @@ ae keys store openai NEW_KEY
 - [ ] List current API keys in environment (`env | grep API_KEY`)
 - [ ] Run migration command (`ae keys migrate`)
 - [ ] Verify keys stored (`ae keys list`)
-- [ ] Test AI functionality (`ae --tui`)
+- [ ] Test AI functionality (`ae tui`)
 - [ ] Remove environment variables from shell config
 - [ ] Reload shell configuration
 - [ ] Verify environment clean (`env | grep API_KEY` should be empty)

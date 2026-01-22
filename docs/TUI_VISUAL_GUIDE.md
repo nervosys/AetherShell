@@ -1,6 +1,6 @@
 # AetherShell TUI Visual Guide
 
-**Launch TUI Mode**: `ae --tui`
+**Launch TUI Mode**: `ae tui`
 
 ## 🎨 TUI Interface Overview
 
@@ -410,19 +410,19 @@ The TUI uses semantic colors:
 
 ```bash
 # Basic TUI
-ae --tui
+ae tui
 
 # TUI with specific script
-ae --tui demos/tui_chat_demo.ae
+ae tui demos/tui_chat_demo.ae
 
 # TUI with agent swarm
-ae --tui demos/tui_agent_swarm_demo.ae
+ae tui demos/tui_agent_swarm_demo.ae
 
 # TUI with MCP servers
-ae --tui demos/tui_mcp_demo.ae
+ae tui demos/tui_mcp_demo.ae
 
 # TUI with multimodal
-ae --tui demos/tui_multimodal_demo.ae
+ae tui demos/tui_multimodal_demo.ae
 ```
 
 ---
@@ -439,4 +439,4 @@ ae --tui demos/tui_multimodal_demo.ae
 
 ---
 
-**Ready to explore?** Try: `ae --tui demos/tui_chat_demo.ae` 🚀
+**Ready to explore?** Try: `ae tui demos/tui_chat_demo.ae` 🚀

@@ -58,7 +58,7 @@ git clone https://github.com/nervosys/AetherShell && cd AetherShell
 cargo install --path . --bin ae
 
 # Launch interactive TUI (recommended)
-ae --tui
+ae tui
 
 # Or classic REPL
 ae
@@ -582,7 +582,7 @@ response.topics | map(fn(t) => upper(t)) | join(", ")
 
 ## 🎮 TUI Interface
 
-Launch the beautiful terminal UI with `ae --tui`:
+Launch the beautiful terminal UI with `ae tui`:
 
 | Tab        | Description                                |
 | ---------- | ------------------------------------------ |
@@ -782,7 +782,7 @@ Licensed under the [Apache License 2.0](LICENSE).
 
 <p align="center">
   <strong>Ready to experience the future of shell interaction?</strong><br><br>
-  <code>ae --tui</code>
+  <code>ae tui</code>
 </p>
 
 <p align="center">

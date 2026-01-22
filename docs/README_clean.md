@@ -57,7 +57,7 @@ ae
 
 **🎨 Interactive TUI Mode (Recommended):**
 ```bash
-ae --tui
+ae tui
 ```
 
 **Run Scripts:**
@@ -74,7 +74,7 @@ ae --bash script.sh   # Run Bash script in compatibility mode
 
 **Analyze images with AI:**
 ```bash
-ae --tui  # Launch TUI, then:
+ae tui  # Launch TUI, then:
 # 1. Switch to Media tab (Tab key)
 # 2. Select your image files (Space to select)
 # 3. Switch to Chat tab
@@ -284,7 +284,7 @@ export AI_BACKEND="ollama"  # or "openai" or "custom"
 
 ### 1. **Document Analysis Pipeline**
 ```bash
-ae --tui
+ae tui
 # 1. Load PDFs, images, audio recordings in Media tab
 # 2. Select multiple files (Space key)
 # 3. Chat: "Analyze these documents and create a summary report"
@@ -432,4 +432,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-**Ready to experience the future of shell interaction? Start with `ae --tui` and prepare to be amazed! 🚀**
+**Ready to experience the future of shell interaction? Start with `ae tui` and prepare to be amazed! 🚀**

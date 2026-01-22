@@ -1,5 +1,5 @@
 /* AetherShell TUI MCP Server Demo
-   Launch with: ae --tui
+   Launch with: ae tui
    
    This demo showcases Model Context Protocol (MCP) server integration:
    - MCP server discovery
@@ -75,6 +75,6 @@ db_server.query {
    - Interactive tool testing
 */
 
-print "TUI MCP Server Demo Ready! Launch with: ae --tui"
+print "TUI MCP Server Demo Ready! Launch with: ae tui"
 print "Note: Start MCP servers before running this demo"
 print "See MCP_SERVERS_GUIDE.md for server setup instructions"

@@ -326,7 +326,7 @@ export AGENT_ALLOW_CMDS=ls,git,cat,head,tail
 ### TUI Mode:
 ```bash
 # Launch with TUI for interactive demos
-ae --tui
+ae tui
 
 # Then load an example:
 # :load examples/09_tui_multimodal.ae

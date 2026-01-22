@@ -291,7 +291,7 @@ Currently has placeholder for Ctrl+C (copy result). Future implementation would:
 - **Data quality**: Result indices validity, case-insensitivity
 
 ### Manual Testing Checklist
-- [ ] Launch TUI: `ae --tui`
+- [ ] Launch TUI: `ae tui`
 - [ ] Add messages via Chat mode
 - [ ] Press Ctrl+F to enter Search mode
 - [ ] Type query and verify results

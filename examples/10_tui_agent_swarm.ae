@@ -1,5 +1,5 @@
 /* AetherShell TUI Agent Swarm Demo
-   Launch with: ae --tui
+   Launch with: ae tui
    
    This demo showcases multi-agent coordination in the TUI:
    - Agent creation and management
@@ -59,4 +59,4 @@ agents_run_sync [
   {goal: "Step 3: Review design", model: "anthropic:claude-3-5-sonnet-20241022", max_steps: 3}
 ] | print
 
-print "TUI Agent Swarm Demo Ready! Launch with: ae --tui"
+print "TUI Agent Swarm Demo Ready! Launch with: ae tui"
