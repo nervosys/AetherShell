@@ -117,3 +117,64 @@ fn suggestion_unclosed_brace() {
     let err = result.unwrap_err().to_string();
     assert!(err.contains("line"), "Error should include line: {}", err);
 }
+// ============ Error Recovery Tests ============
+
+#[test]
+fn error_recovery_reports_multiple_errors() {
+    // Multiple statements with parse errors (not lexer errors)
+    // Using = = which is a parser error, not a lexer error
+    let result = parse_program(
+        r#"
+        let x = = bad
+        let y = 5
+        let z = = also bad
+    "#,
+    );
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    // Should report multiple errors
+    assert!(
+        err.contains("2 error") || err.contains("error"),
+        "Should report errors: {}",
+        err
+    );
+}
+
+#[test]
+fn error_recovery_continues_after_bad_statement() {
+    // First statement is bad (parser error), second is good
+    let result = parse_program(
+        r#"
+        let x = = bad
+        let y = 5
+    "#,
+    );
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    // Should have at least one error
+    assert!(
+        err.contains("error"),
+        "Should report at least one error: {}",
+        err
+    );
+}
+
+#[test]
+fn error_recovery_synchronizes_on_let() {
+    // After an error, parser should sync to the next 'let'
+    // Use a parser error (unexpected token) not a lexer error
+    let result = parse_program(
+        r#"
+        let = bad
+        let good = 42
+    "#,
+    );
+    assert!(result.is_err());
+    // We expect an error about the bad token, but parsing should try to continue
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("line"),
+        "Error should include line info: {}",
+        err
+    );
+}

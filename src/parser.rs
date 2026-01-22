@@ -72,7 +72,46 @@ pub struct Parser {
     allow_word_call: bool,
 }
 
+/// Parse a program, returning statements and any errors encountered.
+/// Uses error recovery to report multiple errors when possible.
 pub fn parse_program(src: &str) -> Result<Vec<Stmt>> {
+    let toks = lex(src)?;
+    let mut p = Parser {
+        toks,
+        i: 0,
+        allow_word_call: false,
+    };
+
+    let mut stmts = Vec::new();
+    let mut errors = Vec::new();
+
+    while !p.check(Tok::Eof) {
+        match p.parse_stmt() {
+            Ok(s) => stmts.push(s),
+            Err(e) => {
+                errors.push(e);
+                // Try to recover by synchronizing to a safe point
+                p.synchronize();
+            }
+        }
+    }
+
+    // If we had errors, return them combined
+    if !errors.is_empty() {
+        let error_messages: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
+        return Err(anyhow!(
+            "found {} error(s):\n  {}",
+            errors.len(),
+            error_messages.join("\n  ")
+        ));
+    }
+
+    Ok(stmts)
+}
+
+/// Parse a program without error recovery (stops at first error).
+/// Useful for cases where partial parsing is not desired.
+pub fn parse_program_strict(src: &str) -> Result<Vec<Stmt>> {
     let toks = lex(src)?;
     let mut p = Parser {
         toks,
@@ -1544,10 +1583,20 @@ impl Parser {
         }
     }
     fn peek(&self) -> &Spanned {
-        &self.toks[self.i]
+        // Safety: always return last token (Eof) if index is out of bounds
+        if self.i >= self.toks.len() {
+            self.toks.last().expect("token list should never be empty")
+        } else {
+            &self.toks[self.i]
+        }
     }
     fn prev(&self) -> &Spanned {
-        &self.toks[self.i - 1]
+        // Safety: return first token if i is 0
+        if self.i == 0 {
+            &self.toks[0]
+        } else {
+            &self.toks[self.i - 1]
+        }
     }
 
     /// Generate error message with possible suggestion
@@ -1664,5 +1713,51 @@ impl Parser {
         }
 
         None
+    }
+
+    /// Synchronize the parser state after encountering an error.
+    /// This allows the parser to continue and report multiple errors.
+    /// We skip tokens until we find a safe synchronization point.
+    fn synchronize(&mut self) {
+        // Advance past the current problematic token (if not at end)
+        if self.i < self.toks.len().saturating_sub(1) {
+            self.i += 1;
+        }
+
+        while !self.check(Tok::Eof) {
+            // If the previous token indicates statement end, we're synchronized
+            if self.i > 0 {
+                let prev = &self.toks[self.i - 1];
+                // After these tokens, a new statement likely begins
+                if matches!(prev.kind, Tok::RBrace | Tok::RBracket | Tok::RParen) {
+                    return;
+                }
+            }
+
+            // These tokens often start new statements
+            match self.peek().kind {
+                Tok::Let
+                | Tok::Fn
+                | Tok::If
+                | Tok::Match
+                | Tok::Import
+                | Tok::Export
+                | Tok::Pub => {
+                    return;
+                }
+                // Attributes start new cfg-guarded statements
+                Tok::Attribute => {
+                    return;
+                }
+                _ => {}
+            }
+
+            // Don't advance past the last real token (Eof is always last)
+            if self.i < self.toks.len().saturating_sub(1) {
+                self.i += 1;
+            } else {
+                break;
+            }
+        }
     }
 }
