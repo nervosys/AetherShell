@@ -1,0 +1,7 @@
+# terraform.tfvars.example
+# Copy this to terraform.tfvars and fill in your values
+
+aws_region     = "us-east-1"
+environment    = "production"
+domain_name    = "packages.nervosys.ai"
+hosted_zone_id = "ZXXXXXXXXXXXXX"  # Your Route 53 hosted zone ID for nervosys.ai
