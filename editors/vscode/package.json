@@ -2,7 +2,7 @@
     "name": "aethershell",
     "displayName": "AetherShell",
     "description": "Language support for AetherShell - a typed, functional shell with AI capabilities",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "publisher": "admercs",
     "license": "MIT",
     "engines": {
@@ -25,6 +25,11 @@
         "onLanguage:aethershell"
     ],
     "main": "./out/extension.js",
+    "capabilities": {
+        "documentSymbolProvider": "true",
+        "foldingRangeProvider": "true",
+        "hoverProvider": "true"
+    },
     "contributes": {
         "languages": [
             {

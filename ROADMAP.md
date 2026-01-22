@@ -140,17 +140,24 @@ This document tracks the development progress of AetherShell, the world's first 
 
 ### Q1 2026
 
-#### VS Code Extension
-- [ ] Markdown preview improvements
-- [ ] Symbol provider for outline view
-- [ ] Code folding provider
-- [ ] Hover documentation
+#### Package Management (Next)
+- [ ] `import` statement
+- [ ] Package registry
+- [ ] Dependency resolution
+- [ ] Version management
 
 ---
 
 ## ✅ Recently Completed
 
 ### January 2026
+
+#### VS Code Extension v0.2.0 (Completed)
+- [x] Document Symbol Provider (outline view)
+- [x] Folding Range Provider (code folding)
+- [x] Hover Provider with 70+ builtin docs
+- [x] Markdown preview syntax highlighting
+- [x] Published as admercs.aethershell v0.2.0
 
 #### WASM Support (Completed)
 - [x] Feature flags for platform-specific code (native/web)
