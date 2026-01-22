@@ -10,6 +10,24 @@ pub enum Stmt {
         is_mut: bool,
     },
     Expr(Expr),
+    /// Import statement: `import "path"` or `import { a, b } from "path"`
+    Import {
+        /// Items to import (empty means import all as module)
+        items: Vec<ImportItem>,
+        /// Module path or package name
+        source: String,
+        /// Optional alias for the module: `import "path" as name`
+        alias: Option<String>,
+    },
+}
+
+/// An item in an import statement
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ImportItem {
+    /// Original name in the module
+    pub name: String,
+    /// Optional alias: `import { foo as bar }`
+    pub alias: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

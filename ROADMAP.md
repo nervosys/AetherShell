@@ -140,17 +140,30 @@ This document tracks the development progress of AetherShell, the world's first 
 
 ### Q1 2026
 
-#### Package Management (Next)
-- [ ] `import` statement
-- [ ] Package registry
-- [ ] Dependency resolution
-- [ ] Version management
+#### Module System (Next)
+- [ ] Module visibility modifiers (pub, private)
+- [ ] Module re-exports
+- [ ] Standard library organization
 
 ---
 
 ## ✅ Recently Completed
 
 ### January 2026
+
+#### Package Management (Completed)
+- [x] `import` statement with multiple syntax forms:
+  - `import "path/to/module.ae"` - Import all exports
+  - `import "path" as name` - Import as namespaced record
+  - `import { a, b } from "path"` - Selective imports
+  - `import { a as x } from "path"` - Aliased imports
+  - `import "pkg:name@version"` - Package registry imports
+- [x] Package manifest (aether.toml) support
+- [x] Module cache with cycle detection
+- [x] Package registry client (packages.nervosys.ai)
+- [x] Import path resolution (relative, absolute, search paths)
+- [x] Semver version management
+- [x] Package builtins: pkg_list(), pkg_info(), pkg_cache_dir(), pkg_init()
 
 #### VS Code Extension v0.2.0 (Completed)
 - [x] Document Symbol Provider (outline view)
@@ -175,14 +188,12 @@ This document tracks the development progress of AetherShell, the world's first 
 
 ### Q2 2026
 
-#### Package Management
-- [ ] `import` statement
-- [ ] Package registry
-- [ ] Dependency resolution
-- [ ] Version management
+#### Module System
+- [ ] Module visibility modifiers (pub, private)
+- [ ] Module re-exports
+- [ ] Conditional compilation
 
 #### Advanced Scripting
-- [ ] Module system
 - [ ] Async/await syntax
 - [ ] Error handling improvements
 - [ ] Debugging tools

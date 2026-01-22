@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 
-use crate::ast::{BinOp, Expr, Stmt, UnOp};
+use crate::ast::{BinOp, Expr, ImportItem, Stmt, UnOp};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Tok {
@@ -40,6 +40,9 @@ enum Tok {
     Null,
     Match,
     If,
+    Import,
+    From,
+    As,
     Ident,
     String,
     Int,
@@ -334,6 +337,9 @@ fn lex(src: &str) -> Result<Vec<Spanned>> {
                     "null" => Tok::Null,
                     "match" => Tok::Match,
                     "if" => Tok::If,
+                    "import" => Tok::Import,
+                    "from" => Tok::From,
+                    "as" => Tok::As,
                     _ => Tok::Ident,
                 };
                 out.push(Spanned { kind: kw, text: s });
@@ -432,6 +438,9 @@ impl Parser {
                 value,
                 is_mut,
             })
+        } else if self.match_tok(Tok::Import) {
+            // Parse import statement
+            self.parse_import()
         } else {
             // Top-level statement: allow word-call sugar (e.g. `print "hi"").
             let prev = self.allow_word_call;
@@ -440,6 +449,56 @@ impl Parser {
             self.allow_word_call = prev;
             Ok(Stmt::Expr(e))
         }
+    }
+
+    /// Parse import statement
+    /// Syntax:
+    ///   import "path"
+    ///   import "path" as alias
+    ///   import { a, b } from "path"
+    ///   import { a as x, b } from "path"
+    fn parse_import(&mut self) -> Result<Stmt> {
+        let mut items = Vec::new();
+        let mut alias = None;
+
+        // Check for destructuring import: import { ... } from "path"
+        if self.match_tok(Tok::LBrace) {
+            // Parse import items
+            loop {
+                if self.check(Tok::RBrace) {
+                    break;
+                }
+                let name = self.need_ident("expected import name")?;
+                let item_alias = if self.match_tok(Tok::As) {
+                    Some(self.need_ident("expected alias after 'as'")?)
+                } else {
+                    None
+                };
+                items.push(ImportItem {
+                    name,
+                    alias: item_alias,
+                });
+                if !self.match_tok(Tok::Comma) {
+                    break;
+                }
+            }
+            self.need(Tok::RBrace, "expected '}' after import list")?;
+            self.need(Tok::From, "expected 'from' after import list")?;
+        }
+
+        // Parse source path (string)
+        let source = self.need_string("expected module path string")?;
+
+        // Check for alias: import "path" as name
+        if items.is_empty() && self.match_tok(Tok::As) {
+            alias = Some(self.need_ident("expected alias after 'as'")?);
+        }
+
+        Ok(Stmt::Import {
+            items,
+            source,
+            alias,
+        })
     }
 
     fn parse_expr(&mut self) -> Result<Expr> {
@@ -1058,6 +1117,13 @@ impl Parser {
     }
     fn need_ident(&mut self, msg: &'static str) -> Result<String> {
         if self.match_tok(Tok::Ident) || self.match_tok(Tok::String) {
+            Ok(self.prev().text.clone())
+        } else {
+            Err(anyhow!(msg))
+        }
+    }
+    fn need_string(&mut self, msg: &'static str) -> Result<String> {
+        if self.match_tok(Tok::String) {
             Ok(self.prev().text.clone())
         } else {
             Err(anyhow!(msg))
