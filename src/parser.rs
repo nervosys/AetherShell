@@ -57,6 +57,8 @@ enum Tok {
 struct Spanned {
     kind: Tok,
     text: String, // literal/ident text where relevant
+    line: usize,  // 1-based line number
+    col: usize,   // 1-based column number
 }
 
 pub struct Parser {
@@ -87,204 +89,373 @@ pub fn parse_program(src: &str) -> Result<Vec<Stmt>> {
 
 // ============ Lexer ============
 
-fn push_tok(out: &mut Vec<Spanned>, kind: Tok, text: &str) {
-    out.push(Spanned {
-        kind,
-        text: text.to_string(),
-    });
-}
-
 fn lex(src: &str) -> Result<Vec<Spanned>> {
-    use std::iter::Peekable;
-    use std::str::Chars;
-
     let mut out = Vec::<Spanned>::new();
-    let mut it = src.chars().peekable();
+    let chars: Vec<char> = src.chars().collect();
+    let mut pos = 0;
+    let mut line = 1usize;
+    let mut col = 1usize;
 
-    // helper: read number (optionally with a leading '-' already consumed)
-    fn read_number(it: &mut Peekable<Chars<'_>>, mut acc: String) -> (Tok, String) {
+    // Helper to create and push a token
+    macro_rules! tok {
+        ($kind:expr, $text:expr) => {{
+            out.push(Spanned {
+                kind: $kind,
+                text: $text.to_string(),
+                line,
+                col,
+            });
+        }};
+    }
+
+    // Helper: advance position and update line/col
+    fn advance(chars: &[char], pos: &mut usize, line: &mut usize, col: &mut usize) -> Option<char> {
+        if *pos < chars.len() {
+            let c = chars[*pos];
+            *pos += 1;
+            if c == '\n' {
+                *line += 1;
+                *col = 1;
+            } else {
+                *col += 1;
+            }
+            Some(c)
+        } else {
+            None
+        }
+    }
+
+    // Helper: peek at current char
+    fn peek(chars: &[char], pos: usize) -> Option<char> {
+        if pos < chars.len() {
+            Some(chars[pos])
+        } else {
+            None
+        }
+    }
+
+    // Helper: peek at next char
+    fn peek_next(chars: &[char], pos: usize) -> Option<char> {
+        if pos + 1 < chars.len() {
+            Some(chars[pos + 1])
+        } else {
+            None
+        }
+    }
+
+    // Helper: read number (optionally with a leading '-' already consumed)
+    fn read_number(
+        chars: &[char],
+        pos: &mut usize,
+        line: &mut usize,
+        col: &mut usize,
+        mut acc: String,
+    ) -> (Tok, String) {
         // digits before decimal
-        while let Some(&ch) = it.peek() {
+        while let Some(ch) = peek(chars, *pos) {
             if ch.is_ascii_digit() {
                 acc.push(ch);
-                it.next();
+                advance(chars, pos, line, col);
             } else {
                 break;
             }
         }
         // optional fraction
-        if let Some(&'.') = it.peek() {
-            acc.push('.');
-            it.next();
-            while let Some(&ch) = it.peek() {
-                if ch.is_ascii_digit() {
-                    acc.push(ch);
-                    it.next();
-                } else {
-                    break;
+        if peek(chars, *pos) == Some('.') {
+            // Check it's not followed by another dot (like range operator ..)
+            if peek_next(chars, *pos) != Some('.') {
+                acc.push('.');
+                advance(chars, pos, line, col);
+                while let Some(ch) = peek(chars, *pos) {
+                    if ch.is_ascii_digit() {
+                        acc.push(ch);
+                        advance(chars, pos, line, col);
+                    } else {
+                        break;
+                    }
                 }
+                return (Tok::Float, acc);
             }
-            return (Tok::Float, acc);
         }
         (Tok::Int, acc)
     }
 
-    while let Some(&c) = it.peek() {
+    while let Some(c) = peek(&chars, pos) {
+        let start_line = line;
+        let start_col = col;
+
         match c {
             ' ' | '\t' | '\r' | '\n' => {
-                it.next();
+                advance(&chars, &mut pos, &mut line, &mut col);
             }
             '(' => {
-                it.next();
-                push_tok(&mut out, Tok::LParen, "(");
+                advance(&chars, &mut pos, &mut line, &mut col);
+                tok!(Tok::LParen, "(");
             }
             ')' => {
-                it.next();
-                push_tok(&mut out, Tok::RParen, ")");
+                advance(&chars, &mut pos, &mut line, &mut col);
+                tok!(Tok::RParen, ")");
             }
             '[' => {
-                it.next();
-                push_tok(&mut out, Tok::LBracket, "[");
+                advance(&chars, &mut pos, &mut line, &mut col);
+                tok!(Tok::LBracket, "[");
             }
             ']' => {
-                it.next();
-                push_tok(&mut out, Tok::RBracket, "]");
+                advance(&chars, &mut pos, &mut line, &mut col);
+                tok!(Tok::RBracket, "]");
             }
             '{' => {
-                it.next();
-                push_tok(&mut out, Tok::LBrace, "{");
+                advance(&chars, &mut pos, &mut line, &mut col);
+                tok!(Tok::LBrace, "{");
             }
             '}' => {
-                it.next();
-                push_tok(&mut out, Tok::RBrace, "}");
+                advance(&chars, &mut pos, &mut line, &mut col);
+                tok!(Tok::RBrace, "}");
             }
             ',' => {
-                it.next();
-                push_tok(&mut out, Tok::Comma, ",");
+                advance(&chars, &mut pos, &mut line, &mut col);
+                tok!(Tok::Comma, ",");
             }
             ':' => {
-                it.next();
-                if it.peek() == Some(&'=') {
-                    it.next();
-                    push_tok(&mut out, Tok::ColonEqual, ":=");
+                advance(&chars, &mut pos, &mut line, &mut col);
+                if peek(&chars, pos) == Some('=') {
+                    advance(&chars, &mut pos, &mut line, &mut col);
+                    out.push(Spanned {
+                        kind: Tok::ColonEqual,
+                        text: ":=".to_string(),
+                        line: start_line,
+                        col: start_col,
+                    });
                 } else {
-                    push_tok(&mut out, Tok::Colon, ":");
+                    out.push(Spanned {
+                        kind: Tok::Colon,
+                        text: ":".to_string(),
+                        line: start_line,
+                        col: start_col,
+                    });
                 }
             }
             '.' => {
-                it.next();
-                push_tok(&mut out, Tok::Dot, ".");
+                advance(&chars, &mut pos, &mut line, &mut col);
+                out.push(Spanned {
+                    kind: Tok::Dot,
+                    text: ".".to_string(),
+                    line: start_line,
+                    col: start_col,
+                });
             }
             '|' => {
-                it.next();
-                if it.peek() == Some(&'|') {
-                    it.next();
-                    push_tok(&mut out, Tok::OrOr, "||");
+                advance(&chars, &mut pos, &mut line, &mut col);
+                if peek(&chars, pos) == Some('|') {
+                    advance(&chars, &mut pos, &mut line, &mut col);
+                    out.push(Spanned {
+                        kind: Tok::OrOr,
+                        text: "||".to_string(),
+                        line: start_line,
+                        col: start_col,
+                    });
                 } else {
-                    push_tok(&mut out, Tok::Pipe, "|");
+                    out.push(Spanned {
+                        kind: Tok::Pipe,
+                        text: "|".to_string(),
+                        line: start_line,
+                        col: start_col,
+                    });
                 }
             }
             '=' => {
-                it.next();
-                if it.peek() == Some(&'>') {
-                    it.next();
-                    push_tok(&mut out, Tok::FatArrow, "=>");
-                } else if it.peek() == Some(&'=') {
-                    it.next();
-                    push_tok(&mut out, Tok::EqEq, "==");
+                advance(&chars, &mut pos, &mut line, &mut col);
+                if peek(&chars, pos) == Some('>') {
+                    advance(&chars, &mut pos, &mut line, &mut col);
+                    out.push(Spanned {
+                        kind: Tok::FatArrow,
+                        text: "=>".to_string(),
+                        line: start_line,
+                        col: start_col,
+                    });
+                } else if peek(&chars, pos) == Some('=') {
+                    advance(&chars, &mut pos, &mut line, &mut col);
+                    out.push(Spanned {
+                        kind: Tok::EqEq,
+                        text: "==".to_string(),
+                        line: start_line,
+                        col: start_col,
+                    });
                 } else {
-                    push_tok(&mut out, Tok::Equal, "=");
+                    out.push(Spanned {
+                        kind: Tok::Equal,
+                        text: "=".to_string(),
+                        line: start_line,
+                        col: start_col,
+                    });
                 }
             }
             '!' => {
-                it.next();
-                if it.peek() == Some(&'=') {
-                    it.next();
-                    push_tok(&mut out, Tok::Ne, "!=");
+                advance(&chars, &mut pos, &mut line, &mut col);
+                if peek(&chars, pos) == Some('=') {
+                    advance(&chars, &mut pos, &mut line, &mut col);
+                    out.push(Spanned {
+                        kind: Tok::Ne,
+                        text: "!=".to_string(),
+                        line: start_line,
+                        col: start_col,
+                    });
                 } else {
-                    push_tok(&mut out, Tok::Bang, "!");
+                    out.push(Spanned {
+                        kind: Tok::Bang,
+                        text: "!".to_string(),
+                        line: start_line,
+                        col: start_col,
+                    });
                 }
             }
             '<' => {
-                it.next();
-                if it.peek() == Some(&'=') {
-                    it.next();
-                    push_tok(&mut out, Tok::Lte, "<=");
+                advance(&chars, &mut pos, &mut line, &mut col);
+                if peek(&chars, pos) == Some('=') {
+                    advance(&chars, &mut pos, &mut line, &mut col);
+                    out.push(Spanned {
+                        kind: Tok::Lte,
+                        text: "<=".to_string(),
+                        line: start_line,
+                        col: start_col,
+                    });
                 } else {
-                    push_tok(&mut out, Tok::Lt, "<");
+                    out.push(Spanned {
+                        kind: Tok::Lt,
+                        text: "<".to_string(),
+                        line: start_line,
+                        col: start_col,
+                    });
                 }
             }
             '>' => {
-                it.next();
-                if it.peek() == Some(&'=') {
-                    it.next();
-                    push_tok(&mut out, Tok::Gte, ">=");
+                advance(&chars, &mut pos, &mut line, &mut col);
+                if peek(&chars, pos) == Some('=') {
+                    advance(&chars, &mut pos, &mut line, &mut col);
+                    out.push(Spanned {
+                        kind: Tok::Gte,
+                        text: ">=".to_string(),
+                        line: start_line,
+                        col: start_col,
+                    });
                 } else {
-                    push_tok(&mut out, Tok::Gt, ">");
+                    out.push(Spanned {
+                        kind: Tok::Gt,
+                        text: ">".to_string(),
+                        line: start_line,
+                        col: start_col,
+                    });
                 }
             }
             '&' => {
-                it.next();
-                if it.peek() == Some(&'&') {
-                    it.next();
-                    push_tok(&mut out, Tok::AndAnd, "&&");
+                advance(&chars, &mut pos, &mut line, &mut col);
+                if peek(&chars, pos) == Some('&') {
+                    advance(&chars, &mut pos, &mut line, &mut col);
+                    out.push(Spanned {
+                        kind: Tok::AndAnd,
+                        text: "&&".to_string(),
+                        line: start_line,
+                        col: start_col,
+                    });
                 } else {
-                    return Err(anyhow!("unknown character: &"));
+                    return Err(anyhow!(
+                        "unknown character '&' at line {}, column {}",
+                        start_line,
+                        start_col
+                    ));
                 }
             }
             '+' => {
-                it.next();
-                push_tok(&mut out, Tok::Plus, "+");
+                advance(&chars, &mut pos, &mut line, &mut col);
+                out.push(Spanned {
+                    kind: Tok::Plus,
+                    text: "+".to_string(),
+                    line: start_line,
+                    col: start_col,
+                });
             }
             '-' => {
-                it.next();
+                advance(&chars, &mut pos, &mut line, &mut col);
                 // negative number if followed by digit
-                if let Some(&d) = it.peek() {
+                if let Some(d) = peek(&chars, pos) {
                     if d.is_ascii_digit() {
-                        let (kind, text) = read_number(&mut it, "-".to_string());
-                        out.push(Spanned { kind, text });
+                        let (kind, text) =
+                            read_number(&chars, &mut pos, &mut line, &mut col, "-".to_string());
+                        out.push(Spanned {
+                            kind,
+                            text,
+                            line: start_line,
+                            col: start_col,
+                        });
                         continue;
                     }
                 }
-                push_tok(&mut out, Tok::Minus, "-");
+                out.push(Spanned {
+                    kind: Tok::Minus,
+                    text: "-".to_string(),
+                    line: start_line,
+                    col: start_col,
+                });
             }
             '*' => {
-                it.next();
-                push_tok(&mut out, Tok::Star, "*");
+                advance(&chars, &mut pos, &mut line, &mut col);
+                out.push(Spanned {
+                    kind: Tok::Star,
+                    text: "*".to_string(),
+                    line: start_line,
+                    col: start_col,
+                });
             }
             '^' => {
-                it.next();
-                push_tok(&mut out, Tok::Caret, "^");
+                advance(&chars, &mut pos, &mut line, &mut col);
+                out.push(Spanned {
+                    kind: Tok::Caret,
+                    text: "^".to_string(),
+                    line: start_line,
+                    col: start_col,
+                });
             }
             '/' => {
-                it.next();
+                advance(&chars, &mut pos, &mut line, &mut col);
                 // Check for line comment //
-                if it.peek() == Some(&'/') {
-                    it.next(); // consume second /
-                               // Skip until end of line
-                    while let Some(&ch) = it.peek() {
+                if peek(&chars, pos) == Some('/') {
+                    advance(&chars, &mut pos, &mut line, &mut col); // consume second /
+                                                                    // Skip until end of line
+                    while let Some(ch) = peek(&chars, pos) {
                         if ch == '\n' {
                             break;
                         }
-                        it.next();
+                        advance(&chars, &mut pos, &mut line, &mut col);
                     }
                     continue; // Don't push a token, just skip the comment
                 }
-                push_tok(&mut out, Tok::Slash, "/");
+                out.push(Spanned {
+                    kind: Tok::Slash,
+                    text: "/".to_string(),
+                    line: start_line,
+                    col: start_col,
+                });
             }
             '%' => {
-                it.next();
-                push_tok(&mut out, Tok::Percent, "%");
+                advance(&chars, &mut pos, &mut line, &mut col);
+                out.push(Spanned {
+                    kind: Tok::Percent,
+                    text: "%".to_string(),
+                    line: start_line,
+                    col: start_col,
+                });
             }
             '"' => {
-                it.next();
+                advance(&chars, &mut pos, &mut line, &mut col);
                 let mut s = String::new();
-                while let Some(ch) = it.next() {
+                while let Some(ch) = peek(&chars, pos) {
+                    advance(&chars, &mut pos, &mut line, &mut col);
                     if ch == '"' {
                         break;
                     }
                     if ch == '\\' {
-                        if let Some(esc) = it.next() {
+                        if let Some(esc) = peek(&chars, pos) {
+                            advance(&chars, &mut pos, &mut line, &mut col);
                             s.push(match esc {
                                 'n' => '\n',
                                 'r' => '\r',
@@ -301,12 +472,15 @@ fn lex(src: &str) -> Result<Vec<Spanned>> {
                 out.push(Spanned {
                     kind: Tok::String,
                     text: s,
+                    line: start_line,
+                    col: start_col,
                 });
             }
             '\'' => {
-                it.next();
+                advance(&chars, &mut pos, &mut line, &mut col);
                 let mut s = String::new();
-                while let Some(ch) = it.next() {
+                while let Some(ch) = peek(&chars, pos) {
+                    advance(&chars, &mut pos, &mut line, &mut col);
                     if ch == '\'' {
                         break;
                     }
@@ -315,18 +489,26 @@ fn lex(src: &str) -> Result<Vec<Spanned>> {
                 out.push(Spanned {
                     kind: Tok::String,
                     text: s,
+                    line: start_line,
+                    col: start_col,
                 });
             }
             d if d.is_ascii_digit() => {
-                let (kind, text) = read_number(&mut it, String::new());
-                out.push(Spanned { kind, text });
+                let (kind, text) =
+                    read_number(&chars, &mut pos, &mut line, &mut col, String::new());
+                out.push(Spanned {
+                    kind,
+                    text,
+                    line: start_line,
+                    col: start_col,
+                });
             }
             c if is_ident_start(c) => {
                 let mut s = String::new();
-                while let Some(&ch) = it.peek() {
+                while let Some(ch) = peek(&chars, pos) {
                     if is_ident_part(ch) {
                         s.push(ch);
-                        it.next();
+                        advance(&chars, &mut pos, &mut line, &mut col);
                     } else {
                         break;
                     }
@@ -347,21 +529,27 @@ fn lex(src: &str) -> Result<Vec<Spanned>> {
                     "as" => Tok::As,
                     _ => Tok::Ident,
                 };
-                out.push(Spanned { kind: kw, text: s });
+                out.push(Spanned {
+                    kind: kw,
+                    text: s,
+                    line: start_line,
+                    col: start_col,
+                });
             }
             ';' => {
                 // treat semicolon as statement separator; ignore it
-                it.next();
+                advance(&chars, &mut pos, &mut line, &mut col);
             }
             '#' => {
-                it.next(); // consume #
-                           // Check if this is an attribute #[...]
-                if it.peek() == Some(&'[') {
-                    it.next(); // consume [
-                               // Read the attribute content until ]
+                advance(&chars, &mut pos, &mut line, &mut col); // consume #
+                                                                // Check if this is an attribute #[...]
+                if peek(&chars, pos) == Some('[') {
+                    advance(&chars, &mut pos, &mut line, &mut col); // consume [
+                                                                    // Read the attribute content until ]
                     let mut attr = String::new();
                     let mut depth = 1;
-                    while let Some(ch) = it.next() {
+                    while let Some(ch) = peek(&chars, pos) {
+                        advance(&chars, &mut pos, &mut line, &mut col);
                         if ch == '[' {
                             depth += 1;
                             attr.push(ch);
@@ -379,21 +567,28 @@ fn lex(src: &str) -> Result<Vec<Spanned>> {
                     out.push(Spanned {
                         kind: Tok::Attribute,
                         text: attr,
+                        line: start_line,
+                        col: start_col,
                     });
                     continue;
                 }
                 // Otherwise it's a shell-style line comment
                 // Skip until end of line
-                while let Some(&ch) = it.peek() {
+                while let Some(ch) = peek(&chars, pos) {
                     if ch == '\n' {
                         break;
                     }
-                    it.next();
+                    advance(&chars, &mut pos, &mut line, &mut col);
                 }
                 continue; // Don't push a token, just skip the comment
             }
             other => {
-                return Err(anyhow!("unknown character: {}", other));
+                return Err(anyhow!(
+                    "unknown character '{}' at line {}, column {}",
+                    other,
+                    start_line,
+                    start_col
+                ));
             }
         }
     }
@@ -401,6 +596,8 @@ fn lex(src: &str) -> Result<Vec<Spanned>> {
     out.push(Spanned {
         kind: Tok::Eof,
         text: String::new(),
+        line,
+        col,
     });
     Ok(out)
 }
@@ -500,21 +697,21 @@ impl Parser {
         } else if self.match_tok(Tok::Import) {
             // Parse import statement
             if visibility == Visibility::Pub {
-                return Err(anyhow!("'pub' cannot be used with import statements"));
+                return Err(self.error_at_prev("'pub' cannot be used with import statements"));
             }
             self.parse_import()
         } else if self.match_tok(Tok::Export) {
             // Parse export statement
             if visibility == Visibility::Pub {
-                return Err(anyhow!("'pub' cannot be used with export statements"));
+                return Err(self.error_at_prev("'pub' cannot be used with export statements"));
             }
             self.parse_export()
         } else {
             // Top-level statement: allow word-call sugar (e.g. `print "hi"").
             if visibility == Visibility::Pub {
-                return Err(anyhow!(
-                    "'pub' can only be used with let/assignment statements"
-                ));
+                return Err(
+                    self.error_at_prev("'pub' can only be used with let/assignment statements")
+                );
             }
             let prev = self.allow_word_call;
             self.allow_word_call = true;
@@ -622,10 +819,10 @@ impl Parser {
 
         // Must start with "cfg("
         if !attr.starts_with("cfg(") || !attr.ends_with(')') {
-            return Err(anyhow!(
-                "invalid cfg attribute: expected cfg(...), got {}",
+            return Err(self.error_at_prev(&format!(
+                "invalid cfg attribute: expected cfg(...), got '{}'",
                 attr
-            ));
+            )));
         }
 
         // Extract the inner content
@@ -666,7 +863,7 @@ impl Parser {
                 let value = value.trim_matches('"').trim_matches('\'');
                 return Ok(CfgCondition::Feature(value.to_string()));
             }
-            return Err(anyhow!("invalid feature cfg: expected feature = \"name\""));
+            return Err(self.error_at_prev("invalid feature cfg: expected feature = \"name\""));
         }
 
         // Otherwise it's a platform name
@@ -1113,7 +1310,7 @@ impl Parser {
             let name = self.prev().text.clone();
             return Ok(Expr::Ident(name));
         }
-        Err(anyhow!("unexpected token {:?}", self.peek().kind))
+        Err(self.error_at_current(&format!("unexpected token {:?}", self.peek().kind)))
     }
 
     fn parse_lambda(&mut self) -> Result<Expr> {
@@ -1284,10 +1481,10 @@ impl Parser {
             return Ok(Pattern::Ident(name));
         }
 
-        Err(anyhow!(
+        Err(self.error_at_current(&format!(
             "unexpected token in pattern: {:?}",
             self.peek().kind
-        ))
+        )))
     }
 
     // ---- small helpers ----
@@ -1312,25 +1509,38 @@ impl Parser {
             false
         }
     }
+
+    /// Create an error message with line/column information at current token
+    fn error_at_current(&self, msg: &str) -> anyhow::Error {
+        let tok = self.peek();
+        anyhow!("{} at line {}, column {}", msg, tok.line, tok.col)
+    }
+
+    /// Create an error message with line/column information at previous token
+    fn error_at_prev(&self, msg: &str) -> anyhow::Error {
+        let tok = self.prev();
+        anyhow!("{} at line {}, column {}", msg, tok.line, tok.col)
+    }
+
     fn need(&mut self, k: Tok, msg: &'static str) -> Result<()> {
         if self.match_tok(k) {
             Ok(())
         } else {
-            Err(anyhow!(msg))
+            Err(self.error_at_current(msg))
         }
     }
     fn need_ident(&mut self, msg: &'static str) -> Result<String> {
         if self.match_tok(Tok::Ident) || self.match_tok(Tok::String) {
             Ok(self.prev().text.clone())
         } else {
-            Err(anyhow!(msg))
+            Err(self.error_at_current(msg))
         }
     }
     fn need_string(&mut self, msg: &'static str) -> Result<String> {
         if self.match_tok(Tok::String) {
             Ok(self.prev().text.clone())
         } else {
-            Err(anyhow!(msg))
+            Err(self.error_at_current(msg))
         }
     }
     fn peek(&self) -> &Spanned {
