@@ -5,3 +5,6 @@ aws_region     = "us-east-1"
 environment    = "production"
 domain_name    = "packages.nervosys.ai"
 hosted_zone_id = "ZXXXXXXXXXXXXX"  # Your Route 53 hosted zone ID for nervosys.ai
+# Registries to enable (comma-separated in Lambda env, list here)
+# Add more registries as needed
+allowed_registries = ["aethershell", "autonomi", "machina"]

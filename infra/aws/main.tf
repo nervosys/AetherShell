@@ -1,5 +1,10 @@
-# AetherShell Package Registry Infrastructure
+# Nervosys Multi-Program Package Registry Infrastructure
 # packages.nervosys.ai
+#
+# Supports multiple registries at:
+#   - packages.nervosys.ai/aethershell/api/v1/...
+#   - packages.nervosys.ai/autonomi/api/v1/...
+#   - packages.nervosys.ai/{registry}/api/v1/...
 
 terraform {
   required_version = ">= 1.0"
@@ -13,7 +18,7 @@ terraform {
 
   backend "s3" {
     bucket         = "nervosys-terraform-state"
-    key            = "aethershell/packages/terraform.tfstate"
+    key            = "nervosys/packages/terraform.tfstate"
     region         = "us-east-1"
     encrypt        = true
     dynamodb_table = "terraform-locks"
@@ -25,7 +30,7 @@ provider "aws" {
 
   default_tags {
     tags = {
-      Project     = "AetherShell"
+      Project     = "NervosysPackages"
       Environment = var.environment
       ManagedBy   = "Terraform"
     }
@@ -65,12 +70,18 @@ variable "hosted_zone_id" {
   type        = string
 }
 
+variable "allowed_registries" {
+  description = "List of allowed registry names (programs)"
+  type        = list(string)
+  default     = ["aethershell", "autonomi", "machina"]
+}
+
 # -----------------------------------------------------------------------------
 # S3 Bucket for Package Storage
 # -----------------------------------------------------------------------------
 
 resource "aws_s3_bucket" "packages" {
-  bucket = "aethershell-packages-${var.environment}"
+  bucket = "nervosys-packages-${var.environment}"
 }
 
 resource "aws_s3_bucket_versioning" "packages" {
@@ -116,18 +127,23 @@ resource "aws_s3_bucket_cors_configuration" "packages" {
 # -----------------------------------------------------------------------------
 
 resource "aws_dynamodb_table" "packages" {
-  name         = "aethershell-packages-${var.environment}"
+  name         = "nervosys-packages-${var.environment}"
   billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "name"
-  range_key    = "version"
+  hash_key     = "pk"           # registry#name
+  range_key    = "sk"           # version
 
   attribute {
-    name = "name"
+    name = "pk"
     type = "S"
   }
 
   attribute {
-    name = "version"
+    name = "sk"
+    type = "S"
+  }
+
+  attribute {
+    name = "registry"
     type = "S"
   }
 
@@ -136,9 +152,10 @@ resource "aws_dynamodb_table" "packages" {
     type = "S"
   }
 
+  # GSI to list packages by registry
   global_secondary_index {
-    name            = "created_at_index"
-    hash_key        = "name"
+    name            = "registry_index"
+    hash_key        = "registry"
     range_key       = "created_at"
     projection_type = "ALL"
   }
@@ -148,19 +165,19 @@ resource "aws_dynamodb_table" "packages" {
   }
 
   tags = {
-    Name = "AetherShell Package Registry"
+    Name = "Nervosys Multi-Program Package Registry"
   }
 }
 
 # Package download counts
 resource "aws_dynamodb_table" "download_stats" {
-  name         = "aethershell-downloads-${var.environment}"
+  name         = "nervosys-downloads-${var.environment}"
   billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "package_version"
+  hash_key     = "package_key"   # registry#name#version
   range_key    = "date"
 
   attribute {
-    name = "package_version"
+    name = "package_key"
     type = "S"
   }
 
@@ -181,7 +198,7 @@ resource "aws_dynamodb_table" "download_stats" {
 
 # IAM Role for Lambda
 resource "aws_iam_role" "lambda" {
-  name = "aethershell-packages-lambda-${var.environment}"
+  name = "nervosys-packages-lambda-${var.environment}"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -196,7 +213,7 @@ resource "aws_iam_role" "lambda" {
 }
 
 resource "aws_iam_role_policy" "lambda" {
-  name = "aethershell-packages-lambda-policy"
+  name = "nervosys-packages-lambda-policy"
   role = aws_iam_role.lambda.id
 
   policy = jsonencode({
@@ -247,7 +264,7 @@ resource "aws_iam_role_policy" "lambda" {
 # Lambda function for API
 resource "aws_lambda_function" "api" {
   filename         = "${path.module}/lambda/api.zip"
-  function_name    = "aethershell-packages-api-${var.environment}"
+  function_name    = "nervosys-packages-api-${var.environment}"
   role             = aws_iam_role.lambda.arn
   handler          = "bootstrap"
   runtime          = "provided.al2023"
@@ -257,11 +274,12 @@ resource "aws_lambda_function" "api" {
 
   environment {
     variables = {
-      RUST_LOG         = "info"
-      PACKAGES_BUCKET  = aws_s3_bucket.packages.bucket
-      PACKAGES_TABLE   = aws_dynamodb_table.packages.name
-      DOWNLOADS_TABLE  = aws_dynamodb_table.download_stats.name
-      ENVIRONMENT      = var.environment
+      RUST_LOG            = "info"
+      PACKAGES_BUCKET     = aws_s3_bucket.packages.bucket
+      PACKAGES_TABLE      = aws_dynamodb_table.packages.name
+      DOWNLOADS_TABLE     = aws_dynamodb_table.download_stats.name
+      ENVIRONMENT         = var.environment
+      ALLOWED_REGISTRIES  = join(",", var.allowed_registries)
     }
   }
 
@@ -286,9 +304,9 @@ resource "aws_lambda_function_url" "api" {
 # -----------------------------------------------------------------------------
 
 resource "aws_apigatewayv2_api" "packages" {
-  name          = "aethershell-packages-${var.environment}"
+  name          = "nervosys-packages-${var.environment}"
   protocol_type = "HTTP"
-  description   = "AetherShell Package Registry API"
+  description   = "Nervosys Multi-Program Package Registry API"
 
   cors_configuration {
     allow_origins = ["*"]
@@ -319,7 +337,7 @@ resource "aws_apigatewayv2_stage" "packages" {
 }
 
 resource "aws_cloudwatch_log_group" "api_gateway" {
-  name              = "/aws/apigateway/aethershell-packages-${var.environment}"
+  name              = "/aws/apigateway/nervosys-packages-${var.environment}"
   retention_in_days = 30
 }
 
@@ -383,8 +401,8 @@ resource "aws_acm_certificate_validation" "packages" {
 
 # CloudFront Origin Access Control for S3
 resource "aws_cloudfront_origin_access_control" "packages" {
-  name                              = "aethershell-packages-oac"
-  description                       = "OAC for AetherShell packages S3 bucket"
+  name                              = "nervosys-packages-oac"
+  description                       = "OAC for Nervosys packages S3 bucket"
   origin_access_control_origin_type = "s3"
   signing_behavior                  = "always"
   signing_protocol                  = "sigv4"
@@ -393,7 +411,7 @@ resource "aws_cloudfront_origin_access_control" "packages" {
 resource "aws_cloudfront_distribution" "packages" {
   enabled             = true
   is_ipv6_enabled     = true
-  comment             = "AetherShell Package Registry"
+  comment             = "Nervosys Multi-Program Package Registry"
   default_root_object = ""
   aliases             = [var.domain_name]
   price_class         = "PriceClass_100"
