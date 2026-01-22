@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 
-use crate::ast::{BinOp, ExportItem, Expr, ImportItem, Stmt, UnOp, Visibility};
+use crate::ast::{BinOp, CfgCondition, ExportItem, Expr, ImportItem, Stmt, UnOp, Visibility};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Tok {
@@ -49,6 +49,7 @@ enum Tok {
     String,
     Int,
     Float,
+    Attribute, // #[...] attribute
     Eof,
 }
 
@@ -353,9 +354,36 @@ fn lex(src: &str) -> Result<Vec<Spanned>> {
                 it.next();
             }
             '#' => {
-                // Shell-style line comment
                 it.next(); // consume #
-                           // Skip until end of line
+                           // Check if this is an attribute #[...]
+                if it.peek() == Some(&'[') {
+                    it.next(); // consume [
+                               // Read the attribute content until ]
+                    let mut attr = String::new();
+                    let mut depth = 1;
+                    while let Some(ch) = it.next() {
+                        if ch == '[' {
+                            depth += 1;
+                            attr.push(ch);
+                        } else if ch == ']' {
+                            depth -= 1;
+                            if depth == 0 {
+                                break;
+                            }
+                            attr.push(ch);
+                        } else {
+                            attr.push(ch);
+                        }
+                    }
+                    // Push special attribute token
+                    out.push(Spanned {
+                        kind: Tok::Attribute,
+                        text: attr,
+                    });
+                    continue;
+                }
+                // Otherwise it's a shell-style line comment
+                // Skip until end of line
                 while let Some(&ch) = it.peek() {
                     if ch == '\n' {
                         break;
@@ -388,6 +416,23 @@ fn is_ident_part(c: char) -> bool {
 
 impl Parser {
     fn parse_stmt(&mut self) -> Result<Stmt> {
+        // Check for #[cfg(...)] attribute
+        if self.check(Tok::Attribute) {
+            let attr_text = self.peek().text.clone();
+            self.i += 1; // consume the attribute token
+
+            // Parse the cfg condition from the attribute text
+            let condition = self.parse_cfg_condition(&attr_text)?;
+
+            // Parse the following statement
+            let body = self.parse_stmt()?;
+
+            return Ok(Stmt::Cfg {
+                condition,
+                body: Box::new(body),
+            });
+        }
+
         // Check for `pub` visibility modifier
         let visibility = if self.match_tok(Tok::Pub) {
             Visibility::Pub
@@ -569,6 +614,95 @@ impl Parser {
         };
 
         Ok(Stmt::Export { items, from_source })
+    }
+
+    /// Parse a cfg condition from attribute text like "cfg(windows)" or "cfg(feature = \"name\")"
+    fn parse_cfg_condition(&self, attr: &str) -> Result<CfgCondition> {
+        let attr = attr.trim();
+
+        // Must start with "cfg("
+        if !attr.starts_with("cfg(") || !attr.ends_with(')') {
+            return Err(anyhow!(
+                "invalid cfg attribute: expected cfg(...), got {}",
+                attr
+            ));
+        }
+
+        // Extract the inner content
+        let inner = &attr[4..attr.len() - 1];
+        self.parse_cfg_inner(inner.trim())
+    }
+
+    fn parse_cfg_inner(&self, content: &str) -> Result<CfgCondition> {
+        let content = content.trim();
+
+        // Check for not(...)
+        if content.starts_with("not(") && content.ends_with(')') {
+            let inner = &content[4..content.len() - 1];
+            let cond = self.parse_cfg_inner(inner.trim())?;
+            return Ok(CfgCondition::Not(Box::new(cond)));
+        }
+
+        // Check for all(...)
+        if content.starts_with("all(") && content.ends_with(')') {
+            let inner = &content[4..content.len() - 1];
+            let conditions = self.parse_cfg_list(inner)?;
+            return Ok(CfgCondition::All(conditions));
+        }
+
+        // Check for any(...)
+        if content.starts_with("any(") && content.ends_with(')') {
+            let inner = &content[4..content.len() - 1];
+            let conditions = self.parse_cfg_list(inner)?;
+            return Ok(CfgCondition::Any(conditions));
+        }
+
+        // Check for feature = "name"
+        if content.starts_with("feature") {
+            let rest = content["feature".len()..].trim();
+            if rest.starts_with('=') {
+                let value = rest[1..].trim();
+                // Remove quotes
+                let value = value.trim_matches('"').trim_matches('\'');
+                return Ok(CfgCondition::Feature(value.to_string()));
+            }
+            return Err(anyhow!("invalid feature cfg: expected feature = \"name\""));
+        }
+
+        // Otherwise it's a platform name
+        Ok(CfgCondition::Platform(content.to_string()))
+    }
+
+    fn parse_cfg_list(&self, content: &str) -> Result<Vec<CfgCondition>> {
+        let mut conditions = Vec::new();
+        let mut depth = 0;
+        let mut current = String::new();
+
+        for ch in content.chars() {
+            match ch {
+                '(' => {
+                    depth += 1;
+                    current.push(ch);
+                }
+                ')' => {
+                    depth -= 1;
+                    current.push(ch);
+                }
+                ',' if depth == 0 => {
+                    if !current.trim().is_empty() {
+                        conditions.push(self.parse_cfg_inner(current.trim())?);
+                    }
+                    current.clear();
+                }
+                _ => current.push(ch),
+            }
+        }
+
+        if !current.trim().is_empty() {
+            conditions.push(self.parse_cfg_inner(current.trim())?);
+        }
+
+        Ok(conditions)
     }
 
     fn parse_expr(&mut self) -> Result<Expr> {

@@ -1,9 +1,47 @@
-use crate::ast::{BinOp, Expr, Stmt, UnOp, Visibility};
+use crate::ast::{BinOp, CfgCondition, Expr, Stmt, UnOp, Visibility};
 use crate::builtins;
 use crate::env::Env;
 use crate::value::{Lambda, Value};
 use anyhow::{anyhow, Result};
 use std::collections::BTreeMap;
+
+/// Evaluate a cfg condition at runtime
+fn eval_cfg_condition(condition: &CfgCondition) -> Result<bool> {
+    match condition {
+        CfgCondition::Platform(platform) => {
+            let current_os = std::env::consts::OS;
+            Ok(match platform.as_str() {
+                "windows" => current_os == "windows",
+                "linux" => current_os == "linux",
+                "macos" => current_os == "macos",
+                "unix" => current_os != "windows",
+                other => current_os == other,
+            })
+        }
+        CfgCondition::Feature(feature) => {
+            // Check environment variable AETHER_FEATURES for enabled features
+            let features = std::env::var("AETHER_FEATURES").unwrap_or_default();
+            Ok(features.split(',').any(|f| f.trim() == feature))
+        }
+        CfgCondition::Not(inner) => Ok(!eval_cfg_condition(inner)?),
+        CfgCondition::All(conditions) => {
+            for cond in conditions {
+                if !eval_cfg_condition(cond)? {
+                    return Ok(false);
+                }
+            }
+            Ok(true)
+        }
+        CfgCondition::Any(conditions) => {
+            for cond in conditions {
+                if eval_cfg_condition(cond)? {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        }
+    }
+}
 
 pub fn eval_program(stmts: &[Stmt], env: &mut Env) -> Result<Value> {
     let mut last = Value::Null;
@@ -108,6 +146,14 @@ pub fn eval_stmt(stmt: &Stmt, env: &mut Env) -> Result<Value> {
             {
                 let _ = (items, from_source);
                 Err(anyhow!("export statements are not supported in this build"))
+            }
+        }
+        Stmt::Cfg { condition, body } => {
+            // Evaluate the cfg condition at runtime
+            if eval_cfg_condition(condition)? {
+                eval_stmt(body, env)
+            } else {
+                Ok(Value::Null)
             }
         }
     }

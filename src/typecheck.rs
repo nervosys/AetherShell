@@ -79,6 +79,10 @@ pub fn type_of_stmt(stmt: &Stmt, env: &mut TypeEnv) -> Result<(), TypeError> {
             // Export statements don't add new types, they just mark existing items for export
             Ok(())
         }
+        Stmt::Cfg { body, .. } => {
+            // Type check the body statement - the condition is evaluated at runtime
+            type_of_stmt(body, env)
+        }
     }
 }
 
@@ -570,6 +574,24 @@ pub fn infer_last_type(src: &str) -> anyhow::Result<Type> {
             Stmt::Import { .. } | Stmt::Export { .. } => {
                 // Import/Export statements don't affect the type of the last expression
                 // Keep last_ty unchanged
+            }
+            Stmt::Cfg { body, .. } => {
+                // Type check the cfg body recursively
+                match body.as_ref() {
+                    Stmt::Let { name, value, .. } => {
+                        let t = type_of_expr(value, &mut env)
+                            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                        env.insert(name.clone(), t.clone());
+                        last_ty = t;
+                    }
+                    Stmt::Expr(e) => {
+                        last_ty = type_of_expr(e, &mut env)
+                            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                    }
+                    _ => {
+                        // Recursively handle other statement types
+                    }
+                }
             }
         }
     }

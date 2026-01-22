@@ -1,6 +1,6 @@
 # AetherShell Roadmap
 
-> **Last Updated:** January 22, 2026
+> **Last Updated:** January 23, 2026
 
 This document tracks the development progress of AetherShell, the world's first agentic shell with typed functional pipelines and multi-modal AI.
 
@@ -140,15 +140,25 @@ This document tracks the development progress of AetherShell, the world's first 
 
 ### Q1 2026
 
-#### Conditional Compilation (Next)
-- [ ] Platform-specific module loading
-- [ ] Feature flags for optional functionality
+#### Error Recovery & Improved Diagnostics (Next)
+- [ ] Line numbers in error messages
+- [ ] Suggested fixes for common errors
+- [ ] Better parser error recovery
 
 ---
 
 ## ✅ Recently Completed
 
 ### January 2026
+
+#### Conditional Compilation (Completed)
+- [x] `#[cfg(platform)]` - Platform checks (windows, linux, macos, unix)
+- [x] `#[cfg(feature = "name")]` - Feature flags (via AETHER_FEATURES env var)
+- [x] `#[cfg(not(...))]` - Negation combinator
+- [x] `#[cfg(all(...))]` - All conditions must match
+- [x] `#[cfg(any(...))]` - Any condition can match
+- [x] Nested condition support
+- [x] 9 comprehensive tests
 
 #### Standard Library (Completed)
 - [x] Standard library directory (`lib/`)
@@ -217,14 +227,10 @@ This document tracks the development progress of AetherShell, the world's first 
 
 ### Q2 2026
 
-#### Standard Library Organization
-- [ ] Organize builtins into logical modules
-- [ ] Create prelude with common imports
-- [ ] Document module structure
-
 #### Conditional Compilation
 - [ ] Platform-specific module loading
 - [ ] Feature flags for optional functionality
+- [ ] `#[cfg(platform)]` style conditionals
 
 #### Advanced Scripting
 - [ ] Async/await syntax
