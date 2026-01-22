@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::value::Value;
@@ -7,12 +7,17 @@ use crate::value::Value;
 ///
 /// - Stores variables (including the pipeline slot `__pipe_input__`)
 /// - Tracks mutability: variables are immutable by default
+/// - Tracks visibility: variables are private by default, `pub` makes them exportable
 /// - Optionally tracks a current working directory (cwd)
 #[derive(Debug, Default, Clone)]
 pub struct Env {
     vars: BTreeMap<String, Value>,
     /// Track which variables are mutable (created with `let mut`)
     mutable_vars: BTreeMap<String, bool>,
+    /// Track which variables are public (can be imported by other modules)
+    public_vars: HashSet<String>,
+    /// Explicitly exported names (from `export { ... }` statements)
+    exported_names: HashSet<String>,
     cwd: Option<PathBuf>,
     pipe_input: Option<Value>,
 }
@@ -23,6 +28,8 @@ impl Env {
         Self {
             vars: BTreeMap::new(),
             mutable_vars: BTreeMap::new(),
+            public_vars: HashSet::new(),
+            exported_names: HashSet::new(),
             cwd: None,
             pipe_input: None,
         }
@@ -113,6 +120,42 @@ impl Env {
     /// Check if a variable is mutable
     pub fn is_mutable(&self, name: &str) -> bool {
         self.mutable_vars.get(name).copied().unwrap_or(false)
+    }
+
+    /// Check if a variable is public (can be imported)
+    pub fn is_public(&self, name: &str) -> bool {
+        self.public_vars.contains(name)
+    }
+
+    /// Check if a variable is exported (either pub or explicitly exported)
+    pub fn is_exported(&self, name: &str) -> bool {
+        self.public_vars.contains(name) || self.exported_names.contains(name)
+    }
+
+    /// Mark a variable as public
+    pub fn set_public(&mut self, name: &str) {
+        self.public_vars.insert(name.to_string());
+    }
+
+    /// Add an explicit export
+    pub fn add_export(&mut self, name: &str) {
+        self.exported_names.insert(name.to_string());
+    }
+
+    /// Get all exported variable names (pub vars + explicit exports)
+    pub fn exports(&self) -> impl Iterator<Item = &String> {
+        self.public_vars.iter().chain(self.exported_names.iter())
+    }
+
+    /// Get exported variables as a map (for import "path" as mod)
+    pub fn exported_vars(&self) -> BTreeMap<String, Value> {
+        let mut exports = BTreeMap::new();
+        for name in self.exports() {
+            if let Some(value) = self.vars.get(name) {
+                exports.insert(name.clone(), value.clone());
+            }
+        }
+        exports
     }
 
     /// Delete a variable if present.

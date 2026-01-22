@@ -1,6 +1,16 @@
 // Minimal AST to satisfy eval.rs (and leave room for a parser later)
 use serde::{Deserialize, Serialize};
 
+/// Visibility modifier for declarations
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Default)]
+pub enum Visibility {
+    /// Public - can be imported by other modules
+    Pub,
+    /// Private (default) - only accessible within the module
+    #[default]
+    Private,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum Stmt {
     Let {
@@ -8,6 +18,9 @@ pub enum Stmt {
         value: Expr,
         /// `let mut` support
         is_mut: bool,
+        /// Visibility: `pub let x = ...` makes x importable
+        #[serde(default)]
+        visibility: Visibility,
     },
     Expr(Expr),
     /// Import statement: `import "path"` or `import { a, b } from "path"`
@@ -19,6 +32,14 @@ pub enum Stmt {
         /// Optional alias for the module: `import "path" as name`
         alias: Option<String>,
     },
+    /// Export statement: `export { a, b }` or `export { a as x }`
+    /// Re-exports: `export { a, b } from "path"`
+    Export {
+        /// Items to export
+        items: Vec<ExportItem>,
+        /// Optional source for re-exports
+        from_source: Option<String>,
+    },
 }
 
 /// An item in an import statement
@@ -27,6 +48,15 @@ pub struct ImportItem {
     /// Original name in the module
     pub name: String,
     /// Optional alias: `import { foo as bar }`
+    pub alias: Option<String>,
+}
+
+/// An item in an export statement
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ExportItem {
+    /// Name to export (local name or re-exported name)
+    pub name: String,
+    /// Optional alias: `export { foo as bar }`
     pub alias: Option<String>,
 }
 

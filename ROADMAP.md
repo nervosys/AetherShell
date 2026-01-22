@@ -140,16 +140,29 @@ This document tracks the development progress of AetherShell, the world's first 
 
 ### Q1 2026
 
-#### Module System (Next)
-- [ ] Module visibility modifiers (pub, private)
-- [ ] Module re-exports
-- [ ] Standard library organization
+#### Standard Library Organization (Next)
+- [ ] Organize builtins into logical modules
+- [ ] Create prelude with common imports
+- [ ] Document module structure
 
 ---
 
 ## ✅ Recently Completed
 
 ### January 2026
+
+#### Module Visibility System (Completed)
+- [x] Module visibility modifiers (pub, private)
+  - `pub let x = value` - Public variable/function
+  - `pub x = value` - Public shorthand syntax
+  - `let x = value` - Private by default
+- [x] Module re-exports
+  - `export { a, b }` - Export existing items
+  - `export { a as x }` - Export with alias
+  - `export { a, b } from "path"` - Re-export from module
+- [x] Environment visibility tracking (is_exported, exported_vars)
+- [x] Import respects visibility (only exported items importable)
+- [x] Module visibility tests (10 tests, 100% pass)
 
 #### Package Management (Completed)
 - [x] `import` statement with multiple syntax forms:
@@ -188,10 +201,14 @@ This document tracks the development progress of AetherShell, the world's first 
 
 ### Q2 2026
 
-#### Module System
-- [ ] Module visibility modifiers (pub, private)
-- [ ] Module re-exports
-- [ ] Conditional compilation
+#### Standard Library Organization
+- [ ] Organize builtins into logical modules
+- [ ] Create prelude with common imports
+- [ ] Document module structure
+
+#### Conditional Compilation
+- [ ] Platform-specific module loading
+- [ ] Feature flags for optional functionality
 
 #### Advanced Scripting
 - [ ] Async/await syntax

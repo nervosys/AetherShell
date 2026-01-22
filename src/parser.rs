@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 
-use crate::ast::{BinOp, Expr, ImportItem, Stmt, UnOp};
+use crate::ast::{BinOp, ExportItem, Expr, ImportItem, Stmt, UnOp, Visibility};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Tok {
@@ -35,6 +35,8 @@ enum Tok {
     Fn,
     Let,
     Mut,
+    Pub,
+    Export,
     True,
     False,
     Null,
@@ -332,6 +334,8 @@ fn lex(src: &str) -> Result<Vec<Spanned>> {
                     "fn" => Tok::Fn,
                     "let" => Tok::Let,
                     "mut" => Tok::Mut,
+                    "pub" => Tok::Pub,
+                    "export" => Tok::Export,
                     "true" => Tok::True,
                     "false" => Tok::False,
                     "null" => Tok::Null,
@@ -384,6 +388,13 @@ fn is_ident_part(c: char) -> bool {
 
 impl Parser {
     fn parse_stmt(&mut self) -> Result<Stmt> {
+        // Check for `pub` visibility modifier
+        let visibility = if self.match_tok(Tok::Pub) {
+            Visibility::Pub
+        } else {
+            Visibility::Private
+        };
+
         // Check for `mut name = value` (mutable without let)
         if self.check(Tok::Mut) && self.peek_ahead(1) == Some(Tok::Ident) {
             let peek2 = self.peek_ahead(2);
@@ -399,6 +410,7 @@ impl Parser {
                     name,
                     value,
                     is_mut: true,
+                    visibility,
                 });
             }
         }
@@ -417,6 +429,7 @@ impl Parser {
                     name,
                     value,
                     is_mut: false,
+                    visibility,
                 });
             }
         }
@@ -437,12 +450,27 @@ impl Parser {
                 name,
                 value,
                 is_mut,
+                visibility,
             })
         } else if self.match_tok(Tok::Import) {
             // Parse import statement
+            if visibility == Visibility::Pub {
+                return Err(anyhow!("'pub' cannot be used with import statements"));
+            }
             self.parse_import()
+        } else if self.match_tok(Tok::Export) {
+            // Parse export statement
+            if visibility == Visibility::Pub {
+                return Err(anyhow!("'pub' cannot be used with export statements"));
+            }
+            self.parse_export()
         } else {
             // Top-level statement: allow word-call sugar (e.g. `print "hi"").
+            if visibility == Visibility::Pub {
+                return Err(anyhow!(
+                    "'pub' can only be used with let/assignment statements"
+                ));
+            }
             let prev = self.allow_word_call;
             self.allow_word_call = true;
             let e = self.parse_expr()?;
@@ -499,6 +527,48 @@ impl Parser {
             source,
             alias,
         })
+    }
+
+    /// Parse export statement
+    /// Syntax:
+    ///   export { a, b }
+    ///   export { a as x, b }
+    ///   export { a, b } from "path"  (re-export)
+    fn parse_export(&mut self) -> Result<Stmt> {
+        self.need(Tok::LBrace, "expected '{' after export")?;
+
+        let mut items = Vec::new();
+
+        // Parse export items
+        loop {
+            if self.check(Tok::RBrace) {
+                break;
+            }
+            let name = self.need_ident("expected export name")?;
+            let item_alias = if self.match_tok(Tok::As) {
+                Some(self.need_ident("expected alias after 'as'")?)
+            } else {
+                None
+            };
+            items.push(ExportItem {
+                name,
+                alias: item_alias,
+            });
+            if !self.match_tok(Tok::Comma) {
+                break;
+            }
+        }
+
+        self.need(Tok::RBrace, "expected '}' after export list")?;
+
+        // Check for re-export: export { ... } from "path"
+        let from_source = if self.match_tok(Tok::From) {
+            Some(self.need_string("expected module path string after 'from'")?)
+        } else {
+            None
+        };
+
+        Ok(Stmt::Export { items, from_source })
     }
 
     fn parse_expr(&mut self) -> Result<Expr> {
