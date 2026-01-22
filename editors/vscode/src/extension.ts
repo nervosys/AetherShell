@@ -7,6 +7,7 @@ import {
     TransportKind
 } from 'vscode-languageclient/node';
 import { activate as activateMarkdownPreview } from './markdownPreview';
+import { registerProviders } from './providers';
 
 let client: LanguageClient | undefined;
 let outputChannel: vscode.OutputChannel;
@@ -14,6 +15,10 @@ let outputChannel: vscode.OutputChannel;
 export async function activate(context: vscode.ExtensionContext) {
     outputChannel = vscode.window.createOutputChannel('AetherShell');
     outputChannel.appendLine('AetherShell extension activating...');
+
+    // Register language providers (symbols, folding, hover)
+    registerProviders(context);
+    outputChannel.appendLine('Language providers registered');
 
     const config = vscode.workspace.getConfiguration('aethershell');
     const lspEnabled = config.get<boolean>('lsp.enabled', true);

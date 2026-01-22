@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -201,12 +202,30 @@
         }
 
         /* Syntax highlighting classes */
-        .keyword { color: #cba6f7; }
-        .builtin { color: #89b4fa; }
-        .string { color: #a6e3a1; }
-        .number { color: #fab387; }
-        .comment { color: #6c7086; font-style: italic; }
-        .operator { color: #89dceb; }
+        .keyword {
+            color: #cba6f7;
+        }
+
+        .builtin {
+            color: #89b4fa;
+        }
+
+        .string {
+            color: #a6e3a1;
+        }
+
+        .number {
+            color: #fab387;
+        }
+
+        .comment {
+            color: #6c7086;
+            font-style: italic;
+        }
+
+        .operator {
+            color: #89dceb;
+        }
 
         /* Examples sidebar */
         .examples {
@@ -259,7 +278,9 @@
         }
 
         @keyframes spin {
-            to { transform: rotate(360deg); }
+            to {
+                transform: rotate(360deg);
+            }
         }
 
         /* Keyboard hint */
@@ -278,6 +299,7 @@
         }
     </style>
 </head>
+
 <body>
     <header>
         <div class="logo">
@@ -345,11 +367,11 @@
                 const wasmModule = await import('./pkg/aether_shell.js');
                 await wasmModule.default();
                 aethershell = new wasmModule.AetherWasm();
-                
+
                 document.getElementById('loading').style.display = 'none';
                 document.getElementById('version').textContent = `v${aethershell.version()}`;
                 document.getElementById('output').innerHTML = `<div class="output-info">AetherShell v${aethershell.version()} loaded. ${aethershell.builtins().length} builtins available.</div>`;
-                
+
                 // Update variable count
                 updateVarCount();
             } catch (e) {
@@ -415,14 +437,14 @@
             if (!code) return;
 
             const output = document.getElementById('output');
-            
+
             // Remove initial loading/info message if present
             const loading = document.getElementById('loading');
             if (loading) loading.remove();
 
             try {
                 const result = aethershell.eval_display(code);
-                
+
                 const entry = document.createElement('div');
                 entry.className = 'output-entry';
                 entry.innerHTML = `
@@ -430,7 +452,7 @@
                     <div class="output-result">${escapeHtml(result)}</div>
                 `;
                 output.appendChild(entry);
-                
+
             } catch (e) {
                 const entry = document.createElement('div');
                 entry.className = 'output-entry';
@@ -486,4 +508,5 @@
         document.getElementById('editor').value = EXAMPLES["Hello World"];
     </script>
 </body>
+
 </html>
