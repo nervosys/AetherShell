@@ -1,5 +1,5 @@
 /* AetherShell TUI Multimodal Demo
-   Launch with: ae --tui
+   Launch with: ae tui
    
    This demo showcases multimodal AI capabilities:
    - Image analysis
@@ -47,5 +47,5 @@ ai "openai:gpt-4o" {
    - Progress indicators for large files
 */
 
-print "TUI Multimodal Demo Ready! Launch with: ae --tui"
+print "TUI Multimodal Demo Ready! Launch with: ae tui"
 print "Note: Replace sample media paths with your actual files"

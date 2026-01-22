@@ -1,5 +1,5 @@
 /* AetherShell TUI A2A Protocol Demo
-   Launch with: ae --tui
+   Launch with: ae tui
    
    This demo showcases Agent-to-Agent (A2A) messaging protocol:
    - Message bus creation
@@ -63,5 +63,5 @@ a2a_send_message bus {
    - Network topology view
 */
 
-print "TUI A2A Protocol Demo Ready! Launch with: ae --tui"
+print "TUI A2A Protocol Demo Ready! Launch with: ae tui"
 print "Watch messages flow between agents in real-time!"

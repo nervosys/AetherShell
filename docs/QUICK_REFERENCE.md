@@ -432,7 +432,7 @@ ae script.ae
 ae
 
 # TUI mode (interactive terminal UI)
-ae --tui
+ae tui
 
 # Check syntax
 ae --check script.ae

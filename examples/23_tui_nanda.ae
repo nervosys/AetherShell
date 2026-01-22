@@ -1,5 +1,5 @@
 /* AetherShell TUI NANDA Protocol Demo
-   Launch with: ae --tui
+   Launch with: ae tui
    
    This demo showcases NANDA (Negotiation And Distributed Agreement):
    - Consensus-based decision making
@@ -82,5 +82,5 @@ nanda_vote coordinator neg3 "agent1" {
    - Consensus threshold visualization
 */
 
-print "TUI NANDA Protocol Demo Ready! Launch with: ae --tui"
+print "TUI NANDA Protocol Demo Ready! Launch with: ae tui"
 print "Watch consensus emerge through democratic agent voting!"

@@ -48,7 +48,7 @@ The binaries will be in `target/release/`:
 ae
 
 # Terminal UI (requires Windows Terminal or modern terminal)
-ae --tui
+ae tui
 
 # Run example scripts
 ae examples/00_hello.ae
@@ -197,7 +197,7 @@ See [LICENSE](LICENSE) for full details.
 
 ```bash
 cargo build --release
-./target/release/ae --tui
+./target/release/ae tui
 ```
 
 Welcome to the future of shell computing! 🚀

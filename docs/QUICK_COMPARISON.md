@@ -239,7 +239,7 @@ Easy ─────────────────────────
 **Week 1**: Install and run demos
 ```bash
 cargo install --path . --bin ae
-ae --tui  # Explore the interface
+ae tui  # Explore the interface
 ae demos/showcase.ae
 ```
 

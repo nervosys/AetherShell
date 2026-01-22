@@ -55,7 +55,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Utilities**: `print()`, `range()`, `take()`, `first()`
 
 ### Added - Terminal UI
-- **Interactive TUI**: Modern terminal interface (`ae --tui`)
+- **Interactive TUI**: Modern terminal interface (`ae tui`)
 - **Media Viewer**: Display images, audio, video in terminal
 - **Chat Interface**: Conversational AI with multimodal support
 - **Agent Dashboard**: Monitor and control agent swarms

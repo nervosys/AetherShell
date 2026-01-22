@@ -14,10 +14,6 @@ struct Cli {
     #[command(subcommand)]
     subcommand: Option<Commands>,
 
-    /// Start terminal GUI (TUI) mode
-    #[arg(long)]
-    tui: bool,
-
     /// Bash compatibility mode
     #[arg(long, short = 'b')]
     bash: bool,
@@ -32,6 +28,9 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Start terminal GUI (TUI) mode
+    Tui,
+
     /// AI model management (list, download, serve API, etc.)
     #[command(alias = "model")]
     Ai {
@@ -106,9 +105,17 @@ enum KeysAction {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // Handle AI subcommands (spawn async runtime only for these)
-    if let Some(Commands::Ai { command }) = cli.subcommand {
-        return tokio::runtime::Runtime::new()?.block_on(handle_ai_command(command));
+    // Handle subcommands
+    if let Some(cmd) = cli.subcommand {
+        return match cmd {
+            Commands::Tui => {
+                aether_shell::tui::run()?;
+                Ok(())
+            }
+            Commands::Ai { command } => {
+                tokio::runtime::Runtime::new()?.block_on(handle_ai_command(command))
+            }
+        };
     }
 
     // Handle bash mode with stdin
@@ -129,16 +136,10 @@ fn main() -> Result<()> {
         return run_code(&code);
     }
 
-    // Handle file execution or REPL/TUI
+    // Handle file execution or REPL
     match cli.file {
         Some(file) => run_file(&file, cli.bash)?,
-        None => {
-            if cli.tui {
-                aether_shell::tui::run()?;
-            } else {
-                repl()?;
-            }
-        }
+        None => repl()?,
     }
 
     Ok(())

@@ -26,7 +26,7 @@ The AetherShell TUI provides a rich terminal-based interface for interacting wit
 
 ```bash
 # Quick test - if this works, TUI should work:
-ae --tui
+ae tui
 
 # If you see rendering issues, try:
 # 1. Use Windows Terminal or native PowerShell
@@ -55,7 +55,7 @@ ae --tui
 
 ```bash
 # Launch the TUI
-ae --tui
+ae tui
 
 # Navigate between modes
 Tab / Shift+Tab    # Cycle through modes
@@ -239,7 +239,7 @@ export AETHER_MODEL_URI="openai:gpt-4o"
 ```bash
 # Enable debug logging
 export RUST_LOG=debug
-ae --tui
+ae tui
 ```
 
 ## Future Enhancements

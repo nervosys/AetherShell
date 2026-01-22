@@ -1,5 +1,5 @@
 /* AetherShell TUI Chat Demo
-   Launch with: ae --tui
+   Launch with: ae tui
    
    This demo showcases the interactive chat interface with AI models
 */
@@ -26,4 +26,4 @@ ai "anthropic:claude-3-5-sonnet-20241022" "Explain monads in simple terms"
    - Copy/paste support
 */
 
-print "TUI Chat Demo Ready! Launch with: ae --tui"
+print "TUI Chat Demo Ready! Launch with: ae tui"
