@@ -140,10 +140,7 @@ This document tracks the development progress of AetherShell, the world's first 
 
 ### Q1 2026
 
-#### Error Recovery & Improved Diagnostics
-- [x] Line numbers in error messages (parser and lexer)
-- [x] Suggested fixes for common errors (unclosed delimiters, keyword typos)
-- [ ] Better parser error recovery
+*No items currently in progress*
 
 ---
 
@@ -151,7 +148,7 @@ This document tracks the development progress of AetherShell, the world's first 
 
 ### January 2026
 
-#### Error Diagnostics (Completed)
+#### Error Recovery & Diagnostics (Completed)
 - [x] Line and column tracking in lexer
 - [x] All parser errors now include line/column information
 - [x] Lexer errors include location information
@@ -159,7 +156,11 @@ This document tracks the development progress of AetherShell, the world's first 
   - Unclosed delimiter detection (suggests matching bracket/paren/brace)
   - Keyword typo suggestions (lte→let, fun→fn, ture→true, etc.)
   - Two-identifier-in-a-row detection (missing operator)
-- [x] 9 error diagnostic tests
+- [x] Parser error recovery with `synchronize()` method
+- [x] Multiple errors reported in single parse (continues after errors)
+- [x] `parse_program_strict()` for cases where single-error-stop is needed
+- [x] Safe bounds checking in `peek()` and `prev()`
+- [x] 12 error diagnostic tests
 
 #### Conditional Compilation (Completed)
 - [x] `#[cfg(platform)]` - Platform checks (windows, linux, macos, unix)
@@ -237,15 +238,14 @@ This document tracks the development progress of AetherShell, the world's first 
 
 ### Q2 2026
 
-#### Conditional Compilation
-- [ ] Platform-specific module loading
-- [ ] Feature flags for optional functionality
-- [ ] `#[cfg(platform)]` style conditionals
-
 #### Advanced Scripting
 - [ ] Async/await syntax
 - [ ] Error handling improvements
 - [ ] Debugging tools
+
+#### Platform-Specific Features
+- [ ] Platform-specific module loading
+- [ ] Feature flags for optional functionality
 
 ### Q3 2026
 
