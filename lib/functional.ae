@@ -1,0 +1,50 @@
+# AetherShell Functional Programming Utilities
+# Higher-order functions and functional patterns
+
+# ===== Currying and Partial Application =====
+
+# Curry a binary function
+# curry(fn(a, b) => a + b)(1)(2) == 3
+pub let curry = fn(f) => fn(a) => fn(b) => f(a, b)
+
+# Uncurry a curried function
+# uncurry(fn(a) => fn(b) => a + b)(1, 2) == 3
+pub let uncurry = fn(f) => fn(a, b) => f(a)(b)
+
+# Apply first argument (partial application)
+pub let partial = fn(f, x) => fn(y) => f(x, y)
+
+# Apply second argument (partial application from right)
+pub let partial_right = fn(f, y) => fn(x) => f(x, y)
+
+# ===== Function Combinators =====
+
+# Apply function twice
+pub let twice = fn(f) => fn(x) => f(f(x))
+
+# ===== Predicate Combinators =====
+
+# Negate a predicate
+pub let complement = fn(pred) => fn(x) => !pred(x)
+
+# Both predicates must be true
+pub let and_p = fn(p1, p2) => fn(x) => p1(x) && p2(x)
+
+# Either predicate must be true
+pub let or_p = fn(p1, p2) => fn(x) => p1(x) || p2(x)
+
+# ===== Collection Utilities =====
+
+# Find first element matching predicate
+pub let find = fn(arr, pred) => first(arr | where(pred))
+
+# Drop first n elements
+pub let drop = fn(arr, n) => arr | slice(n, len(arr))
+
+# Export all public items
+export {
+    curry, uncurry, partial, partial_right,
+    twice,
+    complement, and_p, or_p,
+    find, drop
+}

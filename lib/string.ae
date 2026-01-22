@@ -1,0 +1,69 @@
+# AetherShell String Utilities
+# String manipulation and transformation functions
+
+# ===== Splitting and Joining =====
+
+# Split string into words (by whitespace)
+pub let words = fn(s) => split(trim(s), " ") | where(fn(w) => len(w) > 0)
+
+# Join words into string with spaces
+pub let unwords = fn(arr) => join(arr, " ")
+
+# Split string into lines
+pub let lines = fn(s) => split(s, "\n")
+
+# Join lines into string
+pub let unlines = fn(arr) => join(arr, "\n")
+
+# ===== Case Transformation =====
+
+# Capitalize first letter, lowercase rest
+pub let capitalize = fn(s) => match len(s) {
+    0 => "",
+    _ => upper(s | slice(0, 1)) + lower(s | slice(1, len(s)))
+}
+
+# Title case: capitalize each word
+pub let title_case = fn(s) => words(s) | map(capitalize) | join(" ")
+
+# Convert to snake_case
+pub let snake_case = fn(s) => words(lower(s)) | join("_")
+
+# Convert to kebab-case
+pub let kebab_case = fn(s) => words(lower(s)) | join("-")
+
+# Convert to SCREAMING_SNAKE_CASE
+pub let screaming_snake = fn(s) => upper(snake_case(s))
+
+# ===== Checking =====
+
+# Check if string is blank (empty or only whitespace)
+pub let is_blank = fn(s) => len(trim(s)) == 0
+
+# Check if string is not blank
+pub let is_not_blank = fn(s) => !is_blank(s)
+
+# Check if string is all uppercase
+pub let is_upper = fn(s) => s == upper(s)
+
+# Check if string is all lowercase
+pub let is_lower = fn(s) => s == lower(s)
+
+# ===== Utility =====
+
+# Repeat string n times
+pub let repeat = fn(s, n) => range(0, n) | map(fn(_) => s) | join("")
+
+# Reverse a string
+pub let reverse_str = fn(s) => s | split("") | reverse | join("")
+
+# Count occurrences of substring
+pub let count_substr = fn(s, sub) => len(split(s, sub)) - 1
+
+# Export all public items
+export {
+    words, unwords, lines, unlines,
+    capitalize, title_case, snake_case, kebab_case, screaming_snake,
+    is_blank, is_not_blank, is_upper, is_lower,
+    repeat, reverse_str, count_substr
+}

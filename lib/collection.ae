@@ -1,0 +1,35 @@
+# AetherShell Collection Utilities
+# Advanced collection manipulation functions
+
+# ===== Partitioning =====
+
+# Partition array into two arrays based on predicate
+# Returns { pass: [...], fail: [...] }
+pub let partition = fn(arr, pred) => { pass: arr | where(pred), fail: arr | where(fn(x) => !pred(x)) }
+
+# ===== Set Operations =====
+
+# Union of two arrays (unique elements from both)
+pub let union = fn(arr1, arr2) => unique(concat(arr1, arr2))
+
+# Intersection: filter arr1 to elements also in arr2
+# Note: uses simple O(n*m) approach
+pub let intersect = fn(arr1, arr2) => arr1 | where(fn(x) => arr2 | any(fn(y) => y == x)) | unique
+
+# Difference: elements in arr1 but not in arr2
+pub let difference = fn(arr1, arr2) => arr1 | where(fn(x) => !(arr2 | any(fn(y) => y == x))) | unique
+
+# Check if arr1 is subset of arr2
+pub let is_subset = fn(arr1, arr2) => arr1 | all(fn(x) => arr2 | any(fn(y) => y == x))
+
+# ===== Sorting Utilities =====
+
+# Reverse sort
+pub let sort_desc = fn(arr) => arr | sort | reverse
+
+# Export all public items
+export {
+    partition,
+    union, intersect, difference, is_subset,
+    sort_desc
+}

@@ -1,0 +1,59 @@
+# AetherShell Prelude
+# Commonly used functions - auto-imported in REPL
+
+# ===== Identity Functions =====
+
+# Identity function - returns its argument unchanged
+pub let id = fn(x) => x
+
+# ===== Function Composition =====
+
+# Compose two functions: (f . g)(x) = f(g(x))
+# Right-to-left composition
+pub let compose = fn(f, g) => fn(x) => f(g(x))
+
+# Pipe two functions: (f |> g)(x) = g(f(x))
+# Left-to-right composition
+pub let pipe_fn = fn(f, g) => fn(x) => g(f(x))
+
+# Flip the arguments of a binary function
+pub let flip = fn(f) => fn(a, b) => f(b, a)
+
+# ===== Boolean Utilities =====
+
+# Logical not
+pub let not = fn(x) => !x
+
+# Logical and (both must be true)
+pub let both = fn(a, b) => a && b
+
+# Logical or (either can be true)
+pub let either = fn(a, b) => a || b
+
+# ===== Option Utilities =====
+
+# Check if a value is Some (not Null)
+pub let is_some = fn(x) => x != null
+
+# Check if a value is None (Null)
+pub let is_none = fn(x) => x == null
+
+# Get value or default
+pub let get_or = fn(x, default) => match x {
+    null => default,
+    _ => x
+}
+
+# ===== Comparison Utilities =====
+
+# Clamp value to range [lo, hi] using array sort trick
+# sorted([lo, x, hi])[1] = x clamped to [lo, hi]
+pub let clamp = fn(x, lo, hi) => [lo, x, hi] | sort() | take(2) | last()
+
+# Export all public items
+export { 
+    id, compose, pipe_fn, flip,
+    not, both, either,
+    is_some, is_none, get_or,
+    clamp
+}

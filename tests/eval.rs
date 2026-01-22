@@ -55,3 +55,31 @@ fn user_lambda_shadowing_builtin_is_ok() {
     let out = eval_code(code);
     assert!(matches!(out, Value::Int(5)));
 }
+
+#[test]
+fn lambda_three_args() {
+    // Test 3-argument lambda calls (feature added for stdlib support)
+    let code = r#"let lerp = fn(a, b, t) => a + (b - a) * t; lerp(0, 10, 0.5)"#;
+    let out = eval_code(code);
+    match out {
+        Value::Int(5) => {}
+        Value::Float(f) if (f - 5.0).abs() < 1e-9 => {}
+        other => panic!("expected 5, got {other:?}"),
+    }
+}
+
+#[test]
+fn lambda_four_args() {
+    // Test 4-argument lambda calls
+    let code = r#"let f = fn(a, b, c, d) => a * b + c * d; f(2, 3, 4, 5)"#;
+    let out = eval_code(code);
+    assert!(matches!(out, Value::Int(26)));
+}
+
+#[test]
+fn lambda_five_args() {
+    // Test 5-argument lambda calls
+    let code = r#"let f = fn(a, b, c, d, e) => a + b + c + d + e; f(1, 2, 3, 4, 5)"#;
+    let out = eval_code(code);
+    assert!(matches!(out, Value::Int(15)));
+}
