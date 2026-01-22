@@ -184,6 +184,10 @@ fn eval_stmt_wasm(stmt: &Stmt, env: &mut Env) -> Result<Value, String> {
             env.set(name.clone(), val.clone());
             Ok(val)
         }
+        Stmt::Import { .. } => {
+            // Imports are not supported in WASM mode (no filesystem access)
+            Err("import statements are not supported in WASM mode".to_string())
+        }
     }
 }
 

@@ -28,6 +28,32 @@ pub fn eval_stmt(stmt: &Stmt, env: &mut Env) -> Result<Value> {
             Ok(v)
         }
         Stmt::Expr(e) => eval_expr(e, env),
+        Stmt::Import { items, source, alias } => {
+            // Import statements are handled by the ImportResolver
+            // This is a fallback for when imports are evaluated directly
+            #[cfg(feature = "native")]
+            {
+                use crate::packages::ImportResolver;
+                
+                let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+                let mut resolver = ImportResolver::new(cwd);
+                
+                resolver.process_import(
+                    items,
+                    source,
+                    alias,
+                    env,
+                    |stmts, module_env| eval_program(stmts, module_env),
+                )?;
+                
+                Ok(Value::Null)
+            }
+            #[cfg(not(feature = "native"))]
+            {
+                let _ = (items, source, alias);
+                Err(anyhow!("import statements are not supported in this build"))
+            }
+        }
     }
 }
 

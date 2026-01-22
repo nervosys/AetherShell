@@ -30,6 +30,8 @@ pub mod neural;
 #[cfg(feature = "native")]
 pub mod os_tools;
 #[cfg(feature = "native")]
+pub mod packages;
+#[cfg(feature = "native")]
 pub mod plugins;
 #[cfg(feature = "native")]
 pub mod repl;
