@@ -1533,14 +1533,14 @@ impl Parser {
         if self.match_tok(Tok::Ident) || self.match_tok(Tok::String) {
             Ok(self.prev().text.clone())
         } else {
-            Err(self.error_at_current(msg))
+            Err(self.error_with_suggestion(msg))
         }
     }
     fn need_string(&mut self, msg: &'static str) -> Result<String> {
         if self.match_tok(Tok::String) {
             Ok(self.prev().text.clone())
         } else {
-            Err(self.error_at_current(msg))
+            Err(self.error_with_suggestion(msg))
         }
     }
     fn peek(&self) -> &Spanned {
@@ -1548,5 +1548,121 @@ impl Parser {
     }
     fn prev(&self) -> &Spanned {
         &self.toks[self.i - 1]
+    }
+
+    /// Generate error message with possible suggestion
+    fn error_with_suggestion(&self, base_msg: &str) -> anyhow::Error {
+        let tok = self.peek();
+        let mut msg = format!("{} at line {}, column {}", base_msg, tok.line, tok.col);
+
+        // Add suggestion based on context
+        if let Some(suggestion) = self.get_suggestion() {
+            msg.push_str(&format!("\n  suggestion: {}", suggestion));
+        }
+
+        anyhow!(msg)
+    }
+
+    /// Get a suggestion based on the current parser state and token
+    fn get_suggestion(&self) -> Option<String> {
+        let tok = self.peek();
+
+        // Check for common typos in keywords
+        if tok.kind == Tok::Ident {
+            let text = tok.text.to_lowercase();
+
+            // Suggest 'let' for common typos
+            if matches!(text.as_str(), "lte" | "elt" | "lt" | "le" | "lets" | "lett") {
+                return Some(format!("did you mean 'let'? Found '{}'", tok.text));
+            }
+
+            // Suggest 'fn' for common typos
+            if matches!(text.as_str(), "fun" | "func" | "function" | "fnn") {
+                return Some(format!("did you mean 'fn'? Found '{}'", tok.text));
+            }
+
+            // Suggest 'match' for common typos
+            if matches!(
+                text.as_str(),
+                "metch" | "mtch" | "swtich" | "switch" | "case"
+            ) {
+                return Some(format!("did you mean 'match'? Found '{}'", tok.text));
+            }
+
+            // Suggest 'import' for common typos
+            if matches!(text.as_str(), "include" | "require" | "imprt" | "imoprt") {
+                return Some(format!("did you mean 'import'? Found '{}'", tok.text));
+            }
+
+            // Suggest 'export' for common typos
+            if matches!(text.as_str(), "exprt" | "exprot" | "exports") {
+                return Some(format!("did you mean 'export'? Found '{}'", tok.text));
+            }
+
+            // Suggest 'true'/'false' for common typos
+            if matches!(text.as_str(), "ture" | "treu" | "tre") {
+                return Some(format!("did you mean 'true'? Found '{}'", tok.text));
+            }
+            if matches!(text.as_str(), "flase" | "fasle" | "fals") {
+                return Some(format!("did you mean 'false'? Found '{}'", tok.text));
+            }
+
+            // Suggest 'null' for common typos
+            if matches!(text.as_str(), "nil" | "none" | "nul" | "nill" | "undefined") {
+                return Some(format!("did you mean 'null'? Found '{}'", tok.text));
+            }
+
+            // Suggest 'pub' for common typos
+            if matches!(text.as_str(), "public" | "pbu") {
+                return Some(format!("did you mean 'pub'? Found '{}'", tok.text));
+            }
+
+            // Suggest 'mut' for common typos
+            if matches!(text.as_str(), "mutable" | "var" | "mtu") {
+                return Some(format!("did you mean 'mut'? Found '{}'", tok.text));
+            }
+        }
+
+        // Check for missing operators
+        if tok.kind == Tok::Ident {
+            // Previous was also ident - might be missing operator
+            if self.i > 0 && self.toks[self.i - 1].kind == Tok::Ident {
+                return Some(
+                    "two identifiers in a row - did you forget an operator like '=' or '|'?"
+                        .to_string(),
+                );
+            }
+        }
+
+        // Suggest closing bracket
+        if tok.kind == Tok::Eof {
+            // Check for unclosed delimiters
+            let opens: Vec<_> = self
+                .toks
+                .iter()
+                .filter(|t| matches!(t.kind, Tok::LParen | Tok::LBracket | Tok::LBrace))
+                .collect();
+            let closes: Vec<_> = self
+                .toks
+                .iter()
+                .filter(|t| matches!(t.kind, Tok::RParen | Tok::RBracket | Tok::RBrace))
+                .collect();
+
+            if opens.len() > closes.len() {
+                let last_open = opens.last().unwrap();
+                let expected = match last_open.kind {
+                    Tok::LParen => ")",
+                    Tok::LBracket => "]",
+                    Tok::LBrace => "}",
+                    _ => "closing bracket",
+                };
+                return Some(format!(
+                    "unclosed delimiter - expected '{}' to match '{}' at line {}",
+                    expected, last_open.text, last_open.line
+                ));
+            }
+        }
+
+        None
     }
 }

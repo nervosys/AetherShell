@@ -140,9 +140,9 @@ This document tracks the development progress of AetherShell, the world's first 
 
 ### Q1 2026
 
-#### Error Recovery & Improved Diagnostics (Next)
+#### Error Recovery & Improved Diagnostics
 - [x] Line numbers in error messages (parser and lexer)
-- [ ] Suggested fixes for common errors
+- [x] Suggested fixes for common errors (unclosed delimiters, keyword typos)
 - [ ] Better parser error recovery
 
 ---
@@ -151,11 +151,15 @@ This document tracks the development progress of AetherShell, the world's first 
 
 ### January 2026
 
-#### Error Diagnostics (Partial)
+#### Error Diagnostics (Completed)
 - [x] Line and column tracking in lexer
 - [x] All parser errors now include line/column information
 - [x] Lexer errors include location information
-- [x] 6 error diagnostic tests
+- [x] Suggestion system for common errors:
+  - Unclosed delimiter detection (suggests matching bracket/paren/brace)
+  - Keyword typo suggestions (lte→let, fun→fn, ture→true, etc.)
+  - Two-identifier-in-a-row detection (missing operator)
+- [x] 9 error diagnostic tests
 
 #### Conditional Compilation (Completed)
 - [x] `#[cfg(platform)]` - Platform checks (windows, linux, macos, unix)

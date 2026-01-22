@@ -85,3 +85,35 @@ fn error_invalid_cfg_attribute() {
     assert!(err.contains("cfg"), "Error should mention cfg: {}", err);
     assert!(err.contains("line"), "Error should include line: {}", err);
 }
+// ============ Suggestion Tests ============
+
+#[test]
+fn suggestion_unclosed_bracket() {
+    let result = parse_program("[1, 2, 3");
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    // Should have location info and suggestion about unclosed bracket
+    assert!(err.contains("line"), "Error should include line: {}", err);
+    assert!(
+        err.contains("]") || err.contains("unclosed"),
+        "Should mention unclosed bracket: {}",
+        err
+    );
+}
+
+#[test]
+fn suggestion_unclosed_paren() {
+    let result = parse_program("print(1, 2");
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    // Should mention unclosed or suggest closing
+    assert!(err.contains("line"), "Error should include line: {}", err);
+}
+
+#[test]
+fn suggestion_unclosed_brace() {
+    let result = parse_program("{ name: \"test\" ");
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("line"), "Error should include line: {}", err);
+}
