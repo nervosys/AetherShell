@@ -148,7 +148,7 @@ impl Default for PackageRegistry {
             .unwrap_or_else(|| PathBuf::from("."))
             .join("aethershell")
             .join("packages");
-        
+
         Self {
             url: "https://packages.nervosys.ai".to_string(),
             cache_dir,
@@ -191,7 +191,7 @@ impl PackageRegistry {
     /// Find the latest version in a package directory
     fn find_latest_version(&self, pkg_dir: &Path) -> Result<Option<String>> {
         let mut versions: Vec<semver::Version> = Vec::new();
-        
+
         for entry in fs::read_dir(pkg_dir)? {
             let entry = entry?;
             if entry.file_type()?.is_dir() {
@@ -320,7 +320,11 @@ impl ImportResolver {
     }
 
     /// Load and evaluate a module, returning its environment
-    pub fn load_module(&mut self, source: &str, eval_fn: impl Fn(&[Stmt], &mut Env) -> Result<Value>) -> Result<Env> {
+    pub fn load_module(
+        &mut self,
+        source: &str,
+        eval_fn: impl Fn(&[Stmt], &mut Env) -> Result<Value>,
+    ) -> Result<Env> {
         let path = self.resolve_path(source)?;
 
         // Check cache
@@ -337,7 +341,7 @@ impl ImportResolver {
         // Read and parse
         let content = fs::read_to_string(&path)
             .with_context(|| format!("failed to read module: {}", path.display()))?;
-        
+
         let stmts = parse_program(&content)
             .with_context(|| format!("failed to parse module: {}", path.display()))?;
 
@@ -353,6 +357,9 @@ impl ImportResolver {
     }
 
     /// Process an import statement
+    ///
+    /// Only public (exported) items from the module are importable.
+    /// Private items cannot be accessed from outside the module.
     pub fn process_import(
         &mut self,
         items: &[ImportItem],
@@ -366,27 +373,34 @@ impl ImportResolver {
         if items.is_empty() {
             // Import entire module
             if let Some(alias_name) = alias {
-                // import "path" as name -> Create a record with all exports
-                let exports: BTreeMap<String, Value> = module_env
-                    .vars()
-                    .iter()
-                    .map(|(name, value)| (name.clone(), value.clone()))
-                    .collect();
+                // import "path" as name -> Create a record with exported items only
+                let exports = module_env.exported_vars();
                 target_env.set_var_unchecked(alias_name.clone(), Value::Record(exports));
             } else {
-                // import "path" -> Import all names into current scope
-                for (name, value) in module_env.vars() {
-                    target_env.set_var_unchecked(name.clone(), value.clone());
+                // import "path" -> Import all exported names into current scope
+                let exports = module_env.exported_vars();
+                for (name, value) in exports {
+                    target_env.set_var_unchecked(name, value);
                 }
             }
         } else {
-            // Import specific items
+            // Import specific items - must be exported
             for item in items {
+                // Check if the item exists in the module
                 let value = module_env
                     .get_var(&item.name)
                     .cloned()
                     .ok_or_else(|| anyhow!("'{}' not found in module '{}'", item.name, source))?;
-                
+
+                // Check if the item is exported (public)
+                if !module_env.is_exported(&item.name) {
+                    return Err(anyhow!(
+                        "'{}' is private in module '{}'. Only `pub` items can be imported.",
+                        item.name,
+                        source
+                    ));
+                }
+
                 let target_name = item.alias.as_ref().unwrap_or(&item.name);
                 target_env.set_var_unchecked(target_name.clone(), value);
             }
@@ -419,7 +433,7 @@ pub mod builtins {
     pub fn pkg_list() -> Result<Value> {
         let registry = PackageRegistry::default();
         let packages = registry.list_installed()?;
-        
+
         let mut result = Vec::new();
         for (name, versions) in packages {
             let mut pkg_info = BTreeMap::new();
@@ -430,7 +444,7 @@ pub mod builtins {
             );
             result.push(Value::Record(pkg_info));
         }
-        
+
         Ok(Value::Array(result))
     }
 
@@ -438,7 +452,7 @@ pub mod builtins {
     pub fn pkg_info(name: &str) -> Result<Value> {
         let registry = PackageRegistry::default();
         let pkg_dir = registry.cache_dir.join(name);
-        
+
         if !pkg_dir.exists() {
             return Err(anyhow!("package '{}' not installed", name));
         }
@@ -449,14 +463,24 @@ pub mod builtins {
             if manifest_path.exists() {
                 let content = fs::read_to_string(&manifest_path)?;
                 let manifest: PackageManifest = toml::from_str(&content)?;
-                
+
                 let mut info = BTreeMap::new();
                 info.insert("name".to_string(), Value::Str(manifest.package.name));
                 info.insert("version".to_string(), Value::Str(manifest.package.version));
-                info.insert("description".to_string(), Value::Str(manifest.package.description));
+                info.insert(
+                    "description".to_string(),
+                    Value::Str(manifest.package.description),
+                );
                 info.insert(
                     "authors".to_string(),
-                    Value::Array(manifest.package.authors.into_iter().map(Value::Str).collect()),
+                    Value::Array(
+                        manifest
+                            .package
+                            .authors
+                            .into_iter()
+                            .map(Value::Str)
+                            .collect(),
+                    ),
                 );
                 if let Some(license) = manifest.package.license {
                     info.insert("license".to_string(), Value::Str(license));
@@ -464,7 +488,7 @@ pub mod builtins {
                 if let Some(repo) = manifest.package.repository {
                     info.insert("repository".to_string(), Value::Str(repo));
                 }
-                
+
                 return Ok(Value::Record(info));
             }
         }
@@ -498,11 +522,16 @@ pub mod builtins {
 
         // Create main.ae if it doesn't exist
         if !Path::new("main.ae").exists() {
-            fs::write("main.ae", "# AetherShell package: {}\n\nprint(\"Hello from {}!\")\n"
-                .replace("{}", name))?;
+            fs::write(
+                "main.ae",
+                "# AetherShell package: {}\n\nprint(\"Hello from {}!\")\n".replace("{}", name),
+            )?;
         }
 
-        Ok(Value::Str(format!("Created package '{}' with aether.toml", name)))
+        Ok(Value::Str(format!(
+            "Created package '{}' with aether.toml",
+            name
+        )))
     }
 }
 
@@ -541,7 +570,7 @@ mod tests {
     fn test_module_cache_cycle_detection() {
         let mut cache = ModuleCache::new();
         let path = PathBuf::from("/test/module.ae");
-        
+
         cache.start_loading(path.clone());
         assert!(cache.check_cycle(&path).is_err());
         cache.finish_loading();

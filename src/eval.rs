@@ -1,4 +1,4 @@
-use crate::ast::{BinOp, Expr, Stmt, UnOp};
+use crate::ast::{BinOp, Expr, Stmt, UnOp, Visibility};
 use crate::builtins;
 use crate::env::Env;
 use crate::value::{Lambda, Value};
@@ -21,10 +21,17 @@ pub fn eval_stmt(stmt: &Stmt, env: &mut Env) -> Result<Value> {
             name,
             value,
             is_mut,
+            visibility,
         } => {
             let v = eval_expr(value, env)?;
             env.declare_var(name, v.clone(), *is_mut)
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
+            
+            // Mark as public if visibility is Pub
+            if *visibility == Visibility::Pub {
+                env.set_public(name);
+            }
+            
             Ok(v)
         }
         Stmt::Expr(e) => eval_expr(e, env),
@@ -52,6 +59,56 @@ pub fn eval_stmt(stmt: &Stmt, env: &mut Env) -> Result<Value> {
             {
                 let _ = (items, source, alias);
                 Err(anyhow!("import statements are not supported in this build"))
+            }
+        }
+        Stmt::Export { items, from_source } => {
+            #[cfg(feature = "native")]
+            {
+                if let Some(source) = from_source {
+                    // Re-export from another module
+                    use crate::packages::ImportResolver;
+                    
+                    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+                    let mut resolver = ImportResolver::new(cwd);
+                    
+                    // Load the source module
+                    let module_env = resolver.load_module(source, |stmts, module_env| {
+                        eval_program(stmts, module_env)
+                    })?;
+                    
+                    // Import and re-export specified items
+                    for item in items {
+                        let value = module_env
+                            .get_var(&item.name)
+                            .cloned()
+                            .ok_or_else(|| anyhow!("'{}' not found in module '{}'", item.name, source))?;
+                        
+                        let export_name = item.alias.as_ref().unwrap_or(&item.name);
+                        env.set_var_unchecked(export_name.clone(), value);
+                        env.add_export(export_name);
+                    }
+                } else {
+                    // Export local items
+                    for item in items {
+                        if env.get_var(&item.name).is_none() {
+                            return Err(anyhow!("cannot export '{}': not defined", item.name));
+                        }
+                        
+                        let export_name = item.alias.as_ref().unwrap_or(&item.name);
+                        if let Some(alias) = &item.alias {
+                            // Create alias for the exported value
+                            let value = env.get_var(&item.name).cloned().unwrap();
+                            env.set_var_unchecked(alias.clone(), value);
+                        }
+                        env.add_export(export_name);
+                    }
+                }
+                Ok(Value::Null)
+            }
+            #[cfg(not(feature = "native"))]
+            {
+                let _ = (items, from_source);
+                Err(anyhow!("export statements are not supported in this build"))
             }
         }
     }
