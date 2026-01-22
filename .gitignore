@@ -3,6 +3,9 @@ target/
 *.exe
 *.pdb
 
+# Infrastructure (private repo)
+infra/
+
 # Environment and secrets
 .env
 
