@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AetherShell Playground</title>
+    <style>
+        :root {
+            --bg-dark: #1e1e2e;
+            --bg-surface: #313244;
+            --text: #cdd6f4;
+            --text-muted: #a6adc8;
+            --accent: #cba6f7;
+            --success: #a6e3a1;
+            --error: #f38ba8;
+            --warning: #f9e2af;
+            --border: #45475a;
+            --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: var(--font-mono);
+            background: var(--bg-dark);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        header {
+            background: var(--bg-surface);
+            padding: 1rem 2rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .logo-icon {
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, var(--accent), #89b4fa);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 1.2rem;
+        }
+
+        .logo h1 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        .version {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-left: 0.5rem;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 0.75rem;
+        }
+
+        button {
+            font-family: var(--font-mono);
+            padding: 0.5rem 1rem;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--bg-surface);
+            color: var(--text);
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 0.85rem;
+        }
+
+        button:hover {
+            background: var(--border);
+            border-color: var(--accent);
+        }
+
+        button.primary {
+            background: var(--accent);
+            color: var(--bg-dark);
+            border-color: var(--accent);
+            font-weight: 600;
+        }
+
+        button.primary:hover {
+            opacity: 0.9;
+        }
+
+        main {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            padding: 1rem;
+            max-height: calc(100vh - 60px);
+        }
+
+        .panel {
+            background: var(--bg-surface);
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .panel-header {
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .panel-title {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .panel-content {
+            flex: 1;
+            overflow: auto;
+            position: relative;
+        }
+
+        #editor {
+            width: 100%;
+            height: 100%;
+            padding: 1rem;
+            background: transparent;
+            border: none;
+            color: var(--text);
+            font-family: var(--font-mono);
+            font-size: 0.9rem;
+            line-height: 1.6;
+            resize: none;
+            outline: none;
+        }
+
+        #output {
+            padding: 1rem;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            font-size: 0.9rem;
+            line-height: 1.6;
+        }
+
+        .output-entry {
+            margin-bottom: 1rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .output-entry:last-child {
+            border-bottom: none;
+        }
+
+        .output-input {
+            color: var(--accent);
+            margin-bottom: 0.5rem;
+        }
+
+        .output-input::before {
+            content: '❯ ';
+            color: var(--success);
+        }
+
+        .output-result {
+            color: var(--text);
+        }
+
+        .output-error {
+            color: var(--error);
+        }
+
+        .output-info {
+            color: var(--text-muted);
+            font-style: italic;
+        }
+
+        /* Syntax highlighting classes */
+        .keyword { color: #cba6f7; }
+        .builtin { color: #89b4fa; }
+        .string { color: #a6e3a1; }
+        .number { color: #fab387; }
+        .comment { color: #6c7086; font-style: italic; }
+        .operator { color: #89dceb; }
+
+        /* Examples sidebar */
+        .examples {
+            padding: 0.5rem;
+        }
+
+        .example-btn {
+            display: block;
+            width: 100%;
+            text-align: left;
+            padding: 0.5rem 0.75rem;
+            margin-bottom: 0.25rem;
+            font-size: 0.8rem;
+            border: none;
+            background: transparent;
+            color: var(--text-muted);
+            border-radius: 4px;
+        }
+
+        .example-btn:hover {
+            background: var(--border);
+            color: var(--text);
+        }
+
+        /* Responsive */
+        @media (max-width: 900px) {
+            main {
+                grid-template-columns: 1fr;
+                grid-template-rows: 1fr 1fr;
+            }
+        }
+
+        /* Loading state */
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: var(--text-muted);
+        }
+
+        .spinner {
+            width: 24px;
+            height: 24px;
+            border: 2px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-right: 0.5rem;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Keyboard hint */
+        .keyboard-hint {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        kbd {
+            background: var(--bg-dark);
+            padding: 0.15rem 0.4rem;
+            border-radius: 4px;
+            border: 1px solid var(--border);
+            font-family: var(--font-mono);
+            font-size: 0.7rem;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="logo">
+            <div class="logo-icon">Æ</div>
+            <h1>AetherShell Playground</h1>
+            <span class="version" id="version">Loading...</span>
+        </div>
+        <div class="header-actions">
+            <button onclick="clearOutput()">Clear Output</button>
+            <button onclick="resetEnv()">Reset Environment</button>
+            <button class="primary" onclick="runCode()">▶ Run</button>
+        </div>
+    </header>
+
+    <main>
+        <div class="panel">
+            <div class="panel-header">
+                <span class="panel-title">Code</span>
+                <span class="keyboard-hint"><kbd>Ctrl</kbd>+<kbd>Enter</kbd> to run</span>
+            </div>
+            <div class="panel-content">
+                <textarea id="editor" spellcheck="false" placeholder="// Enter AetherShell code here...
+// Example: [1, 2, 3] | map(fn(x) => x * 2)"></textarea>
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header">
+                <span class="panel-title">Output</span>
+                <span class="panel-title" id="var-count" style="font-weight: normal;">0 variables</span>
+            </div>
+            <div class="panel-content">
+                <div id="output">
+                    <div class="loading" id="loading">
+                        <div class="spinner"></div>
+                        <span>Loading AetherShell WASM...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Example snippets -->
+    <script>
+        const EXAMPLES = {
+            "Hello World": 'print("Hello, AetherShell!")',
+            "Pipelines": '[1, 2, 3, 4, 5] | map(fn(x) => x * x) | where(fn(x) => x > 5)',
+            "Reduce": '[1, 2, 3, 4, 5] | reduce(fn(a, b) => a + b, 0)',
+            "Records": 'let person = { name: "Alice", age: 30 }\nperson.name',
+            "Match Expression": 'let x = 2\nmatch x {\n  1 => "one",\n  2 => "two",\n  _ => "other"\n}',
+            "String Operations": '"hello world" | split(" ") | map(fn(s) => upper(s)) | join("-")',
+            "Math Functions": '[1.5, 2.7, 3.2] | map(fn(x) => round(x)) | sum',
+            "Functional": 'let double = fn(x) => x * 2\nlet add = fn(a, b) => a + b\n[1, 2, 3] | map(double) | reduce(add, 0)',
+            "Array Operations": 'let arr = range(1, 10)\narr | where(fn(x) => x % 2 == 0) | reverse',
+            "Nested Data": 'let data = [\n  { name: "A", value: 10 },\n  { name: "B", value: 20 }\n]\ndata | map(fn(r) => r.value) | avg',
+        };
+
+        // AetherShell WASM instance
+        let aethershell = null;
+
+        // Initialize WASM
+        async function initWasm() {
+            try {
+                // Try to load the WASM module
+                const wasmModule = await import('./pkg/aether_shell.js');
+                await wasmModule.default();
+                aethershell = new wasmModule.AetherWasm();
+                
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('version').textContent = `v${aethershell.version()}`;
+                document.getElementById('output').innerHTML = `<div class="output-info">AetherShell v${aethershell.version()} loaded. ${aethershell.builtins().length} builtins available.</div>`;
+                
+                // Update variable count
+                updateVarCount();
+            } catch (e) {
+                document.getElementById('loading').innerHTML = `
+                    <div style="text-align: center; color: var(--warning);">
+                        <p>⚠️ WASM module not found</p>
+                        <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.5rem;">
+                            Build with: <code>wasm-pack build --target web --features web</code>
+                        </p>
+                        <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem;">
+                            Using simulation mode for preview
+                        </p>
+                    </div>
+                `;
+                // Enable simulation mode for preview
+                aethershell = createSimulator();
+                document.getElementById('version').textContent = 'v0.1.2 (sim)';
+            }
+        }
+
+        // Simulation mode when WASM not available
+        function createSimulator() {
+            const vars = new Map();
+            return {
+                version: () => '0.1.2',
+                builtins: () => ['print', 'map', 'where', 'reduce', 'sum', 'avg', 'len', 'split', 'join', 'upper', 'lower', 'range'],
+                variables: () => Array.from(vars.keys()),
+                reset: () => vars.clear(),
+                eval_display: (code) => {
+                    // Simple simulation for demo
+                    if (code.includes('let ')) {
+                        const match = code.match(/let\s+(\w+)\s*=/);
+                        if (match) vars.set(match[1], '<value>');
+                        return '<assigned>';
+                    }
+                    if (code.match(/\[[\d,\s]+\]/)) {
+                        const nums = code.match(/\d+/g)?.map(Number) || [];
+                        if (code.includes('sum')) return nums.reduce((a, b) => a + b, 0).toString();
+                        if (code.includes('map')) return `[${nums.map(x => x * 2).join(', ')}]`;
+                        return `[${nums.join(', ')}]`;
+                    }
+                    if (code.includes('print(')) {
+                        const str = code.match(/"([^"]+)"/)?.[1] || code;
+                        return str;
+                    }
+                    return `// Simulation mode: ${code}`;
+                }
+            };
+        }
+
+        function updateVarCount() {
+            if (aethershell) {
+                const vars = aethershell.variables();
+                document.getElementById('var-count').textContent = `${vars.length} variable${vars.length !== 1 ? 's' : ''}`;
+            }
+        }
+
+        function runCode() {
+            if (!aethershell) return;
+
+            const editor = document.getElementById('editor');
+            const code = editor.value.trim();
+            if (!code) return;
+
+            const output = document.getElementById('output');
+            
+            // Remove initial loading/info message if present
+            const loading = document.getElementById('loading');
+            if (loading) loading.remove();
+
+            try {
+                const result = aethershell.eval_display(code);
+                
+                const entry = document.createElement('div');
+                entry.className = 'output-entry';
+                entry.innerHTML = `
+                    <div class="output-input">${escapeHtml(code.split('\n')[0])}${code.includes('\n') ? '...' : ''}</div>
+                    <div class="output-result">${escapeHtml(result)}</div>
+                `;
+                output.appendChild(entry);
+                
+            } catch (e) {
+                const entry = document.createElement('div');
+                entry.className = 'output-entry';
+                entry.innerHTML = `
+                    <div class="output-input">${escapeHtml(code.split('\n')[0])}${code.includes('\n') ? '...' : ''}</div>
+                    <div class="output-error">Error: ${escapeHtml(e.toString())}</div>
+                `;
+                output.appendChild(entry);
+            }
+
+            // Scroll to bottom
+            output.scrollTop = output.scrollHeight;
+            updateVarCount();
+        }
+
+        function clearOutput() {
+            document.getElementById('output').innerHTML = '';
+        }
+
+        function resetEnv() {
+            if (aethershell) {
+                aethershell.reset();
+                clearOutput();
+                document.getElementById('output').innerHTML = '<div class="output-info">Environment reset.</div>';
+                updateVarCount();
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function loadExample(name) {
+            if (EXAMPLES[name]) {
+                document.getElementById('editor').value = EXAMPLES[name];
+            }
+        }
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                e.preventDefault();
+                runCode();
+            }
+        });
+
+        // Initialize
+        initWasm();
+
+        // Pre-populate with hello world
+        document.getElementById('editor').value = EXAMPLES["Hello World"];
+    </script>
+</body>
+</html>
