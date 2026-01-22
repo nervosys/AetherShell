@@ -1,6 +1,6 @@
 # AetherShell Roadmap
 
-> **Last Updated:** January 21, 2026
+> **Last Updated:** January 22, 2026
 
 This document tracks the development progress of AetherShell, the world's first agentic shell with typed functional pipelines and multi-modal AI.
 
@@ -140,16 +140,32 @@ This document tracks the development progress of AetherShell, the world's first 
 
 ### Q1 2026
 
-#### Standard Library Organization (Next)
-- [ ] Organize builtins into logical modules
-- [ ] Create prelude with common imports
-- [ ] Document module structure
+#### Conditional Compilation (Next)
+- [ ] Platform-specific module loading
+- [ ] Feature flags for optional functionality
 
 ---
 
 ## ✅ Recently Completed
 
 ### January 2026
+
+#### Standard Library (Completed)
+- [x] Standard library directory (`lib/`)
+- [x] **prelude.ae** - Core utilities (id, not, is_some, is_none, get_or, clamp)
+- [x] **math.ae** - Math constants and functions (PI, E, is_even, factorial, gcd, lcm, lerp, square)
+- [x] **string.ae** - String utilities (words, unwords, capitalize, title_case, snake_case, kebab_case, repeat, reverse_str)
+- [x] **collection.ae** - Set operations (union, intersect, difference, is_subset, partition, sort_desc)
+- [x] **functional.ae** - FP utilities (curry, uncurry, partial, complement, find, drop)
+- [x] **io.ae** - File utilities (read_json, read_lines, file_ext, file_name, path_join)
+- [x] Standard library tests (lib/test_stdlib.ae)
+- [x] Comprehensive documentation (lib/README.md)
+
+#### N-ary Lambda Support (Completed)
+- [x] Fixed evaluator to support lambdas with 3+ parameters
+- [x] Added `call_lambda_n` generic function for arbitrary arity
+- [x] Updated `call_value` dispatch for 3, 4, 5+ arg lambdas
+- [x] Added tests for n-ary lambdas (lambda_three_args, lambda_four_args, lambda_five_args)
 
 #### Module Visibility System (Completed)
 - [x] Module visibility modifiers (pub, private)

@@ -26,33 +26,33 @@ pub fn eval_stmt(stmt: &Stmt, env: &mut Env) -> Result<Value> {
             let v = eval_expr(value, env)?;
             env.declare_var(name, v.clone(), *is_mut)
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
-            
+
             // Mark as public if visibility is Pub
             if *visibility == Visibility::Pub {
                 env.set_public(name);
             }
-            
+
             Ok(v)
         }
         Stmt::Expr(e) => eval_expr(e, env),
-        Stmt::Import { items, source, alias } => {
+        Stmt::Import {
+            items,
+            source,
+            alias,
+        } => {
             // Import statements are handled by the ImportResolver
             // This is a fallback for when imports are evaluated directly
             #[cfg(feature = "native")]
             {
                 use crate::packages::ImportResolver;
-                
+
                 let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
                 let mut resolver = ImportResolver::new(cwd);
-                
-                resolver.process_import(
-                    items,
-                    source,
-                    alias,
-                    env,
-                    |stmts, module_env| eval_program(stmts, module_env),
-                )?;
-                
+
+                resolver.process_import(items, source, alias, env, |stmts, module_env| {
+                    eval_program(stmts, module_env)
+                })?;
+
                 Ok(Value::Null)
             }
             #[cfg(not(feature = "native"))]
@@ -67,22 +67,21 @@ pub fn eval_stmt(stmt: &Stmt, env: &mut Env) -> Result<Value> {
                 if let Some(source) = from_source {
                     // Re-export from another module
                     use crate::packages::ImportResolver;
-                    
-                    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+
+                    let cwd =
+                        std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
                     let mut resolver = ImportResolver::new(cwd);
-                    
+
                     // Load the source module
-                    let module_env = resolver.load_module(source, |stmts, module_env| {
-                        eval_program(stmts, module_env)
-                    })?;
-                    
+                    let module_env = resolver
+                        .load_module(source, |stmts, module_env| eval_program(stmts, module_env))?;
+
                     // Import and re-export specified items
                     for item in items {
-                        let value = module_env
-                            .get_var(&item.name)
-                            .cloned()
-                            .ok_or_else(|| anyhow!("'{}' not found in module '{}'", item.name, source))?;
-                        
+                        let value = module_env.get_var(&item.name).cloned().ok_or_else(|| {
+                            anyhow!("'{}' not found in module '{}'", item.name, source)
+                        })?;
+
                         let export_name = item.alias.as_ref().unwrap_or(&item.name);
                         env.set_var_unchecked(export_name.clone(), value);
                         env.add_export(export_name);
@@ -93,7 +92,7 @@ pub fn eval_stmt(stmt: &Stmt, env: &mut Env) -> Result<Value> {
                         if env.get_var(&item.name).is_none() {
                             return Err(anyhow!("cannot export '{}': not defined", item.name));
                         }
-                        
+
                         let export_name = item.alias.as_ref().unwrap_or(&item.name);
                         if let Some(alias) = &item.alias {
                             // Create alias for the exported value
@@ -450,6 +449,8 @@ fn call_value_with_pipe(
                         .ok_or_else(|| anyhow!("Expected argument for lambda call"))?;
                     call_lambda1(&l, arg, 0, env)
                 }
+                // N-arg (3+): if we have exact arity match, call with all args
+                (_, n, m) if n >= 3 && n == m => call_lambda_n(&l, args, env),
                 _ => Err(anyhow!("lambda arity mismatch or missing input")),
             }
         }
@@ -522,6 +523,47 @@ fn call_lambda1(l: &Lambda, x: Value, i: usize, env: &mut Env) -> Result<Value> 
         env.set_var_unchecked(&p, v);
     } else {
         env.del_var(&p);
+    }
+
+    // Restore pipe input
+    match saved_pipe {
+        Some(v) => env.set_input(Some(v)),
+        None => env.set_input(None),
+    }
+
+    out
+}
+
+/// Call a lambda with N arguments (generic version for 3+ args)
+fn call_lambda_n(l: &Lambda, args: Vec<Value>, env: &mut Env) -> Result<Value> {
+    if args.len() != l.params.len() {
+        return Err(anyhow!(
+            "lambda expects {} arguments, got {}",
+            l.params.len(),
+            args.len()
+        ));
+    }
+
+    // Save and clear pipe input to prevent leakage
+    let saved_pipe = env.input().cloned();
+    env.set_input(None);
+
+    // Save old bindings and set new ones
+    let mut old_bindings: Vec<(String, Option<Value>)> = Vec::with_capacity(l.params.len());
+    for (param, arg) in l.params.iter().zip(args.into_iter()) {
+        old_bindings.push((param.clone(), env.get_var(param).cloned()));
+        env.set_var_unchecked(param, arg);
+    }
+
+    let out = eval_expr(&l.body, env);
+
+    // Restore all bindings
+    for (param, old_val) in old_bindings.into_iter().rev() {
+        if let Some(v) = old_val {
+            env.set_var_unchecked(&param, v);
+        } else {
+            env.del_var(&param);
+        }
     }
 
     // Restore pipe input

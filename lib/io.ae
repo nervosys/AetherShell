@@ -1,0 +1,48 @@
+# AetherShell I/O Utilities
+# File operations and data serialization
+
+# ===== JSON File Operations =====
+
+# Read JSON from file and parse
+pub let read_json = fn(path) => json_parse(cat(path))
+
+# ===== Text File Operations =====
+
+# Read file as array of lines
+pub let read_lines = fn(path) => split(cat(path), "\n")
+
+# Read file and trim whitespace
+pub let read_trimmed = fn(path) => trim(cat(path))
+
+# ===== File Path Utilities =====
+
+# Get file extension
+pub let file_ext = fn(path) => last(split(path, "."))
+
+# Get filename from path (works with both / and \)
+pub let file_name = fn(path) => last(split(replace(path, "\\", "/"), "/"))
+
+# Get directory from path
+pub let file_dir = fn(path) => join(slice(split(replace(path, "\\", "/"), "/"), 0, len(split(replace(path, "\\", "/"), "/")) - 1), "/")
+
+# Join path components
+pub let path_join = fn(parts) => join(parts, "/")
+
+# ===== Data Serialization =====
+
+# Convert to pretty-printed JSON
+pub let to_json_pretty = fn(data) => json_stringify(data)
+
+# Parse YAML content
+pub let parse_yaml = fn(content) => from_yaml(content)
+
+# Parse CSV content with header
+pub let parse_csv = fn(content) => from_csv(content)
+
+# Export all public items
+export {
+    read_json,
+    read_lines, read_trimmed,
+    file_ext, file_name, file_dir, path_join,
+    to_json_pretty, parse_yaml, parse_csv
+}

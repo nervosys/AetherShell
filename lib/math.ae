@@ -1,0 +1,102 @@
+# AetherShell Mathematical Utilities
+# Math functions and constants
+
+# ===== Constants =====
+
+# Mathematical constant π (pi)
+pub let PI = 3.141592653589793
+
+# Mathematical constant e (Euler's number)
+pub let E = 2.718281828459045
+
+# Golden ratio φ
+pub let PHI = 1.618033988749895
+
+# Tau (2π)
+pub let TAU = 6.283185307179586
+
+# ===== Number Properties =====
+
+# Check if number is even
+pub let is_even = fn(n) => n % 2 == 0
+
+# Check if number is odd
+pub let is_odd = fn(n) => n % 2 != 0
+
+# Check if number is positive
+pub let is_positive = fn(n) => n > 0
+
+# Check if number is negative
+pub let is_negative = fn(n) => n < 0
+
+# Check if number is zero
+pub let is_zero = fn(n) => n == 0
+
+# Sign of a number: -1, 0, or 1
+pub let sign = fn(n) => match n {
+    _ if n < 0 => -1,
+    _ if n > 0 => 1,
+    _ => 0
+}
+
+# ===== Arithmetic Utilities =====
+
+# Linear interpolation between two values
+# lerp(0, 10, 0.5) == 5
+pub let lerp = fn(a, b, t) => a + (b - a) * t
+
+# Inverse lerp: find t such that lerp(a, b, t) == x
+pub let inv_lerp = fn(a, b, x) => (x - a) / (b - a)
+
+# Square a number
+pub let square = fn(n) => n * n
+
+# Cube a number
+pub let cube = fn(n) => n * n * n
+
+# ===== Integer Arithmetic =====
+
+# Greatest common divisor (Euclidean algorithm)
+pub let gcd = fn(a, b) => match b {
+    0 => abs(a),
+    _ => gcd(b, a % b)
+}
+
+# Least common multiple
+pub let lcm = fn(a, b) => abs(a * b) / gcd(a, b)
+
+# Factorial
+pub let factorial = fn(n) => match n {
+    _ if n <= 1 => 1,
+    _ => n * factorial(n - 1)
+}
+
+# Fibonacci
+pub let fib = fn(n) => match n {
+    0 => 0,
+    1 => 1,
+    _ => fib(n - 1) + fib(n - 2)
+}
+
+# ===== Trigonometry Helpers =====
+
+# Degrees to radians
+pub let deg_to_rad = fn(deg) => deg * PI / 180.0
+
+# Radians to degrees
+pub let rad_to_deg = fn(rad) => rad * 180.0 / PI
+
+# ===== Statistics =====
+
+# Mean (average)
+pub let mean = fn(arr) => sum(arr) / len(arr)
+
+# Export all public items
+export {
+    PI, E, PHI, TAU,
+    is_even, is_odd, is_positive, is_negative, is_zero, sign,
+    lerp, inv_lerp, square, cube,
+    gcd, lcm, factorial, fib,
+    deg_to_rad, rad_to_deg,
+    mean
+}

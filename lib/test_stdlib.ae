@@ -1,0 +1,92 @@
+# Standard Library Tests
+# Run this file to verify all standard library functions work
+
+import "lib/prelude.ae"
+import "lib/math.ae"
+import "lib/string.ae"
+import "lib/collection.ae"
+
+# ===== Prelude Tests =====
+# Note: Higher-order functions that return lambdas (compose, flip, pipe_fn)
+# don't work well with imports due to closure limitations.
+# They work fine when defined in the same file.
+print("Testing prelude...")
+print("id(42):")
+print(id(42))
+print("not(false):")
+print(not(false))
+print("is_some(42):")
+print(is_some(42))
+print("is_none(null):")
+print(is_none(null))
+print("get_or(null, 99):")
+print(get_or(null, 99))
+print("clamp(15, 0, 10):")
+print(clamp(15, 0, 10))
+
+# ===== Math Tests =====
+print("")
+print("Testing math...")
+print("PI:")
+print(PI)
+print("is_even(4):")
+print(is_even(4))
+print("is_odd(3):")
+print(is_odd(3))
+print("sign(-5):")
+print(sign(-5))
+print("factorial(5):")
+print(factorial(5))
+print("gcd(12, 8):")
+print(gcd(12, 8))
+print("lcm(4, 6):")
+print(lcm(4, 6))
+print("lerp(0, 10, 0.5):")
+print(lerp(0, 10, 0.5))
+print("square(4):")
+print(square(4))
+
+# ===== String Tests =====
+print("")
+print("Testing string...")
+print("words('hello world'):")
+print(words("hello world"))
+print("unwords(['a','b','c']):")
+print(unwords(["a", "b", "c"]))
+print("capitalize('hello'):")
+print(capitalize("hello"))
+print("title_case('hello world'):")
+print(title_case("hello world"))
+print("snake_case('Hello World'):")
+print(snake_case("Hello World"))
+print("kebab_case('Hello World'):")
+print(kebab_case("Hello World"))
+print("is_blank('  '):")
+print(is_blank("  "))
+print("repeat('ab', 3):")
+print(repeat("ab", 3))
+print("reverse_str('hello'):")
+print(reverse_str("hello"))
+
+# ===== Collection Tests =====
+print("")
+print("Testing collection...")
+print("union([1,2], [2,3]):")
+print(union([1, 2], [2, 3]))
+print("intersect([1,2,3], [2,3,4]):")
+print(intersect([1, 2, 3], [2, 3, 4]))
+print("difference([1,2,3], [2,3]):")
+print(difference([1, 2, 3], [2, 3]))
+print("is_subset([1,2], [1,2,3]):")
+print(is_subset([1, 2], [1, 2, 3]))
+print("sort_desc([1,3,2]):")
+print(sort_desc([1, 3, 2]))
+let p = partition([1, 2, 3, 4], fn(x) => x > 2)
+print("partition([1,2,3,4], >2).pass:")
+print(p.pass)
+print("partition([1,2,3,4], >2).fail:")
+print(p.fail)
+
+print("")
+let _ = print("=== All standard library tests completed! ===")
+null
