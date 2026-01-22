@@ -11,6 +11,21 @@ pub enum Visibility {
     Private,
 }
 
+/// Condition for conditional compilation
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum CfgCondition {
+    /// Platform check: cfg(windows), cfg(linux), cfg(macos)
+    Platform(String),
+    /// Feature check: cfg(feature = "name")
+    Feature(String),
+    /// Negation: cfg(not(condition))
+    Not(Box<CfgCondition>),
+    /// All conditions: cfg(all(a, b))
+    All(Vec<CfgCondition>),
+    /// Any condition: cfg(any(a, b))
+    Any(Vec<CfgCondition>),
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum Stmt {
     Let {
@@ -39,6 +54,13 @@ pub enum Stmt {
         items: Vec<ExportItem>,
         /// Optional source for re-exports
         from_source: Option<String>,
+    },
+    /// Conditional compilation: #[cfg(condition)] statement
+    Cfg {
+        /// The condition to check
+        condition: CfgCondition,
+        /// The statement to conditionally include
+        body: Box<Stmt>,
     },
 }
 

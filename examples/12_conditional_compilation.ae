@@ -1,0 +1,52 @@
+// Conditional Compilation Example
+// ================================
+// AetherShell supports Rust-like #[cfg(...)] attributes for platform-specific code
+
+// Platform-specific greetings
+#[cfg(windows)]
+let greeting = "Hello from Windows!"
+
+#[cfg(linux)]
+let greeting = "Hello from Linux!"
+
+#[cfg(macos)]
+let greeting = "Hello from macOS!"
+
+print(greeting)
+
+// Using negation
+#[cfg(not(windows))]
+let shell_advice = "Use `ls` to list files"
+
+#[cfg(windows)]
+let shell_advice = "Use `dir` or `ls` to list files"
+
+print(shell_advice)
+
+// Feature flags (set AETHER_FEATURES environment variable)
+// Example: AETHER_FEATURES=experimental,debug
+#[cfg(feature = "experimental")]
+let experimental_mode = "Experimental features enabled!"
+
+// Combinators: all() and any()
+#[cfg(any(windows, linux, macos))]
+let is_desktop = true
+
+#[cfg(all(unix, not(macos)))]
+let is_linux_specifically = true
+
+// Complex nested conditions
+#[cfg(any(all(windows, not(linux)), all(linux, not(windows))))]
+let exclusive_platform = "Running on Windows XOR Linux"
+
+// Platform-specific paths
+#[cfg(windows)]
+let config_dir = "${HOME}\\AppData\\Roaming\\aether"
+
+#[cfg(unix)]
+let config_dir = "${HOME}/.config/aether"
+
+print("Config directory: " + config_dir)
+
+// This shows how to write cross-platform shell scripts
+// The #[cfg(...)] attribute skips the statement entirely if condition is false
