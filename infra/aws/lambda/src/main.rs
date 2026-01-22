@@ -1,18 +1,24 @@
-//! AetherShell Package Registry API
+//! Nervosys Multi-Program Package Registry API
 //!
-//! Lambda function handling the package registry API endpoints.
+//! Lambda function handling the package registry API endpoints for multiple programs.
+//!
+//! URL Pattern: packages.nervosys.ai/{registry}/api/v1/...
+//! Examples:
+//!   - packages.nervosys.ai/aethershell/api/v1/packages
+//!   - packages.nervosys.ai/autonomi/api/v1/packages
+//!   - packages.nervosys.ai/machina/api/v1/packages
 
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use aws_lambda_events::encodings::Body;
 use aws_sdk_dynamodb::types::AttributeValue;
 use aws_sdk_dynamodb::Client as DynamoClient;
-use aws_sdk_s3::Client as S3Client;
 use aws_sdk_s3::presigning::PresigningConfig;
+use aws_sdk_s3::Client as S3Client;
 use chrono::{DateTime, Utc};
 use lambda_runtime::{service_fn, Error, LambdaEvent};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::time::Duration;
 use tracing::{error, info};
@@ -23,6 +29,7 @@ use tracing::{error, info};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PackageInfo {
+    pub registry: String,
     pub name: String,
     pub version: String,
     pub description: String,
@@ -61,6 +68,7 @@ pub struct PackageListItem {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PackageDetail {
+    pub registry: String,
     pub name: String,
     pub description: String,
     #[serde(default)]
@@ -95,23 +103,16 @@ pub struct PublishRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct SearchQuery {
-    #[serde(default)]
-    pub q: String,
-    #[serde(default = "default_limit")]
-    pub limit: usize,
-    #[serde(default)]
-    pub offset: usize,
-}
-
-fn default_limit() -> usize {
-    20
-}
-
-#[derive(Debug, Serialize, Deserialize)]
 pub struct SearchResult {
     pub packages: Vec<PackageListItem>,
     pub total: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RegistryInfo {
+    pub name: String,
+    pub package_count: u64,
+    pub total_downloads: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -130,20 +131,29 @@ struct AppState {
     bucket: String,
     packages_table: String,
     downloads_table: String,
+    allowed_registries: HashSet<String>,
 }
 
 async fn function_handler(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
 ) -> Result<ApiGatewayV2httpResponse, Error> {
     let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+    
+    let allowed_registries: HashSet<String> = env::var("ALLOWED_REGISTRIES")
+        .unwrap_or_else(|_| "aethershell,autonomi,machina".to_string())
+        .split(',')
+        .map(|s| s.trim().to_lowercase())
+        .collect();
+    
     let state = AppState {
         s3: S3Client::new(&config),
         dynamo: DynamoClient::new(&config),
-        bucket: env::var("PACKAGES_BUCKET").unwrap_or_else(|_| "aethershell-packages".to_string()),
+        bucket: env::var("PACKAGES_BUCKET").unwrap_or_else(|_| "nervosys-packages".to_string()),
         packages_table: env::var("PACKAGES_TABLE")
-            .unwrap_or_else(|_| "aethershell-packages".to_string()),
+            .unwrap_or_else(|_| "nervosys-packages".to_string()),
         downloads_table: env::var("DOWNLOADS_TABLE")
-            .unwrap_or_else(|_| "aethershell-downloads".to_string()),
+            .unwrap_or_else(|_| "nervosys-downloads".to_string()),
+        allowed_registries,
     };
 
     let request = event.payload;
@@ -157,27 +167,90 @@ async fn function_handler(
 
     info!(path = %path, method = %method, "Handling request");
 
-    let response = match (method, path) {
-        // Health check
-        ("GET", "/") | ("GET", "/health") => json_response(200, &serde_json::json!({
-            "status": "ok",
-            "service": "aethershell-packages",
-            "version": env!("CARGO_PKG_VERSION")
-        })),
+    let response = route_request(&state, method, path, &request).await;
+    Ok(response)
+}
+
+async fn route_request(
+    state: &AppState,
+    method: &str,
+    path: &str,
+    request: &ApiGatewayV2httpRequest,
+) -> ApiGatewayV2httpResponse {
+    // Health check and root endpoints
+    match (method, path) {
+        ("GET", "/") | ("GET", "/health") => {
+            return json_response(
+                200,
+                &serde_json::json!({
+                    "status": "ok",
+                    "service": "nervosys-packages",
+                    "version": env!("CARGO_PKG_VERSION"),
+                    "registries": state.allowed_registries.iter().collect::<Vec<_>>()
+                }),
+            );
+        }
+        ("GET", "/registries") => {
+            return list_registries(state).await;
+        }
+        _ => {}
+    }
+
+    // Parse registry from path: /{registry}/api/v1/...
+    let parts: Vec<&str> = path.trim_start_matches('/').splitn(2, '/').collect();
+    if parts.is_empty() {
+        return not_found();
+    }
+
+    let registry = parts[0].to_lowercase();
+    let sub_path = if parts.len() > 1 {
+        format!("/{}", parts[1])
+    } else {
+        "/".to_string()
+    };
+
+    // Validate registry
+    if !state.allowed_registries.contains(&registry) {
+        return error_response(
+            404,
+            "unknown_registry",
+            &format!(
+                "Unknown registry '{}'. Available: {:?}",
+                registry,
+                state.allowed_registries
+            ),
+        );
+    }
+
+    // Route to registry-specific handlers
+    match (method, sub_path.as_str()) {
+        // Registry info
+        ("GET", "/") | ("GET", "/api/v1") => {
+            registry_info(state, &registry).await
+        }
 
         // List packages
-        ("GET", "/api/v1/packages") => list_packages(&state, &request).await,
+        ("GET", "/api/v1/packages") => {
+            list_packages(state, &registry, request).await
+        }
 
         // Search packages
-        ("GET", "/api/v1/search") => search_packages(&state, &request).await,
+        ("GET", "/api/v1/search") => {
+            search_packages(state, &registry, request).await
+        }
 
         // Get package info
         ("GET", p) if p.starts_with("/api/v1/packages/") => {
-            let parts: Vec<&str> = p.trim_start_matches("/api/v1/packages/").split('/').collect();
-            match parts.as_slice() {
-                [name] => get_package(&state, name).await,
-                [name, version] => get_package_version(&state, name, version).await,
-                [name, version, "download"] => download_package(&state, name, version).await,
+            let pkg_parts: Vec<&str> = p
+                .trim_start_matches("/api/v1/packages/")
+                .split('/')
+                .collect();
+            match pkg_parts.as_slice() {
+                [name] if !name.is_empty() => get_package(state, &registry, name).await,
+                [name, version] => get_package_version(state, &registry, name, version).await,
+                [name, version, "download"] => {
+                    download_package(state, &registry, name, version).await
+                }
                 _ => not_found(),
             }
         }
@@ -185,30 +258,75 @@ async fn function_handler(
         // Publish package
         ("POST", "/api/v1/packages") => {
             let body = request.body.as_deref().unwrap_or("");
-            publish_package(&state, body, &request).await
+            publish_package(state, &registry, body, request).await
         }
 
         // Yank version
         ("DELETE", p) if p.starts_with("/api/v1/packages/") => {
-            let parts: Vec<&str> = p.trim_start_matches("/api/v1/packages/").split('/').collect();
-            match parts.as_slice() {
-                [name, version] => yank_package(&state, name, version, &request).await,
+            let pkg_parts: Vec<&str> = p
+                .trim_start_matches("/api/v1/packages/")
+                .split('/')
+                .collect();
+            match pkg_parts.as_slice() {
+                [name, version] => yank_package(state, &registry, name, version, request).await,
                 _ => not_found(),
             }
         }
 
         _ => not_found(),
-    };
-
-    Ok(response)
+    }
 }
 
 // -----------------------------------------------------------------------------
 // API Handlers
 // -----------------------------------------------------------------------------
 
+async fn list_registries(state: &AppState) -> ApiGatewayV2httpResponse {
+    let registries: Vec<RegistryInfo> = state
+        .allowed_registries
+        .iter()
+        .map(|name| RegistryInfo {
+            name: name.clone(),
+            package_count: 0, // Would query DynamoDB for actual count
+            total_downloads: 0,
+        })
+        .collect();
+
+    json_response(200, &registries)
+}
+
+async fn registry_info(state: &AppState, registry: &str) -> ApiGatewayV2httpResponse {
+    // Count packages in this registry
+    let result = state
+        .dynamo
+        .query()
+        .table_name(&state.packages_table)
+        .index_name("registry_index")
+        .key_condition_expression("registry = :reg")
+        .expression_attribute_values(":reg", AttributeValue::S(registry.to_string()))
+        .select(aws_sdk_dynamodb::types::Select::Count)
+        .send()
+        .await;
+
+    let count = result.map(|r| r.count()).unwrap_or(0);
+
+    json_response(
+        200,
+        &serde_json::json!({
+            "registry": registry,
+            "package_count": count,
+            "api_version": "v1",
+            "endpoints": {
+                "packages": format!("/{}/api/v1/packages", registry),
+                "search": format!("/{}/api/v1/search", registry)
+            }
+        }),
+    )
+}
+
 async fn list_packages(
     state: &AppState,
+    registry: &str,
     request: &ApiGatewayV2httpRequest,
 ) -> ApiGatewayV2httpResponse {
     let limit = request
@@ -219,9 +337,13 @@ async fn list_packages(
 
     let result = state
         .dynamo
-        .scan()
+        .query()
         .table_name(&state.packages_table)
+        .index_name("registry_index")
+        .key_condition_expression("registry = :reg")
+        .expression_attribute_values(":reg", AttributeValue::S(registry.to_string()))
         .limit(limit)
+        .scan_index_forward(false) // Most recent first
         .send()
         .await;
 
@@ -273,6 +395,7 @@ async fn list_packages(
 
 async fn search_packages(
     state: &AppState,
+    registry: &str,
     request: &ApiGatewayV2httpRequest,
 ) -> ApiGatewayV2httpResponse {
     let query = request
@@ -285,13 +408,16 @@ async fn search_packages(
         .and_then(|s| s.parse().ok())
         .unwrap_or(20);
 
-    // Simple scan with filter (would use OpenSearch for production)
+    // Query with filter (would use OpenSearch for production)
     let result = state
         .dynamo
-        .scan()
+        .query()
         .table_name(&state.packages_table)
+        .index_name("registry_index")
+        .key_condition_expression("registry = :reg")
         .filter_expression("contains(#name, :query) OR contains(description, :query)")
         .expression_attribute_names("#name", "name")
+        .expression_attribute_values(":reg", AttributeValue::S(registry.to_string()))
         .expression_attribute_values(":query", AttributeValue::S(query.to_lowercase()))
         .limit(limit as i32)
         .send()
@@ -327,14 +453,15 @@ async fn search_packages(
     }
 }
 
-async fn get_package(state: &AppState, name: &str) -> ApiGatewayV2httpResponse {
+async fn get_package(state: &AppState, registry: &str, name: &str) -> ApiGatewayV2httpResponse {
+    let pk = format!("{}#{}", registry, name);
+
     let result = state
         .dynamo
         .query()
         .table_name(&state.packages_table)
-        .key_condition_expression("#name = :name")
-        .expression_attribute_names("#name", "name")
-        .expression_attribute_values(":name", AttributeValue::S(name.to_string()))
+        .key_condition_expression("pk = :pk")
+        .expression_attribute_values(":pk", AttributeValue::S(pk))
         .scan_index_forward(false)
         .send()
         .await;
@@ -359,6 +486,7 @@ async fn get_package(state: &AppState, name: &str) -> ApiGatewayV2httpResponse {
                 .collect();
 
             let detail = PackageDetail {
+                registry: registry.to_string(),
                 name: attr_string(first, "name"),
                 description: attr_string(first, "description"),
                 authors: attr_string_list(first, "authors"),
@@ -382,7 +510,7 @@ async fn get_package(state: &AppState, name: &str) -> ApiGatewayV2httpResponse {
             json_response(200, &detail)
         }
         Err(e) => {
-            error!("Failed to get package {}: {}", name, e);
+            error!("Failed to get package {}/{}: {}", registry, name, e);
             error_response(500, "internal_error", "Failed to get package")
         }
     }
@@ -390,15 +518,18 @@ async fn get_package(state: &AppState, name: &str) -> ApiGatewayV2httpResponse {
 
 async fn get_package_version(
     state: &AppState,
+    registry: &str,
     name: &str,
     version: &str,
 ) -> ApiGatewayV2httpResponse {
+    let pk = format!("{}#{}", registry, name);
+
     let result = state
         .dynamo
         .get_item()
         .table_name(&state.packages_table)
-        .key("name", AttributeValue::S(name.to_string()))
-        .key("version", AttributeValue::S(version.to_string()))
+        .key("pk", AttributeValue::S(pk))
+        .key("sk", AttributeValue::S(version.to_string()))
         .send()
         .await;
 
@@ -406,6 +537,7 @@ async fn get_package_version(
         Ok(output) => match output.item {
             Some(item) => {
                 let info = PackageInfo {
+                    registry: registry.to_string(),
                     name: attr_string(&item, "name"),
                     version: attr_string(&item, "version"),
                     description: attr_string(&item, "description"),
@@ -423,7 +555,10 @@ async fn get_package_version(
             None => not_found(),
         },
         Err(e) => {
-            error!("Failed to get package {}@{}: {}", name, version, e);
+            error!(
+                "Failed to get package {}/{}@{}: {}",
+                registry, name, version, e
+            );
             error_response(500, "internal_error", "Failed to get package version")
         }
     }
@@ -431,10 +566,15 @@ async fn get_package_version(
 
 async fn download_package(
     state: &AppState,
+    registry: &str,
     name: &str,
     version: &str,
 ) -> ApiGatewayV2httpResponse {
-    let key = format!("packages/{}/{}/{}.tar.gz", name, version, name);
+    // S3 key: {registry}/packages/{name}/{version}/{name}.tar.gz
+    let key = format!(
+        "{}/packages/{}/{}/{}.tar.gz",
+        registry, name, version, name
+    );
 
     // Generate presigned URL
     let presign_config = PresigningConfig::builder()
@@ -452,13 +592,15 @@ async fn download_package(
 
     match presigned {
         Ok(presigned_request) => {
+            let pk = format!("{}#{}", registry, name);
+
             // Increment download count
             let _ = state
                 .dynamo
                 .update_item()
                 .table_name(&state.packages_table)
-                .key("name", AttributeValue::S(name.to_string()))
-                .key("version", AttributeValue::S(version.to_string()))
+                .key("pk", AttributeValue::S(pk))
+                .key("sk", AttributeValue::S(version.to_string()))
                 .update_expression("SET downloads = downloads + :inc")
                 .expression_attribute_values(":inc", AttributeValue::N("1".to_string()))
                 .send()
@@ -466,24 +608,23 @@ async fn download_package(
 
             // Record download stat
             let today = Utc::now().format("%Y-%m-%d").to_string();
+            let package_key = format!("{}#{}@{}", registry, name, version);
+
             let _ = state
                 .dynamo
                 .update_item()
                 .table_name(&state.downloads_table)
-                .key(
-                    "package_version",
-                    AttributeValue::S(format!("{}@{}", name, version)),
-                )
+                .key("package_key", AttributeValue::S(package_key))
                 .key("date", AttributeValue::S(today))
-                .update_expression("SET download_count = if_not_exists(download_count, :zero) + :inc, #ttl = :ttl")
+                .update_expression(
+                    "SET download_count = if_not_exists(download_count, :zero) + :inc, #ttl = :ttl",
+                )
                 .expression_attribute_names("#ttl", "ttl")
                 .expression_attribute_values(":inc", AttributeValue::N("1".to_string()))
                 .expression_attribute_values(":zero", AttributeValue::N("0".to_string()))
                 .expression_attribute_values(
                     ":ttl",
-                    AttributeValue::N(
-                        (Utc::now().timestamp() + 90 * 24 * 60 * 60).to_string(),
-                    ),
+                    AttributeValue::N((Utc::now().timestamp() + 90 * 24 * 60 * 60).to_string()),
                 )
                 .send()
                 .await;
@@ -504,6 +645,7 @@ async fn download_package(
 
 async fn publish_package(
     state: &AppState,
+    registry: &str,
     body: &str,
     request: &ApiGatewayV2httpRequest,
 ) -> ApiGatewayV2httpResponse {
@@ -535,13 +677,15 @@ async fn publish_package(
         return error_response(400, "invalid_version", "Invalid semver version");
     }
 
+    let pk = format!("{}#{}", registry, publish_req.name);
+
     // Check if version already exists
     let existing = state
         .dynamo
         .get_item()
         .table_name(&state.packages_table)
-        .key("name", AttributeValue::S(publish_req.name.clone()))
-        .key("version", AttributeValue::S(publish_req.version.clone()))
+        .key("pk", AttributeValue::S(pk.clone()))
+        .key("sk", AttributeValue::S(publish_req.version.clone()))
         .send()
         .await;
 
@@ -554,7 +698,10 @@ async fn publish_package(
     }
 
     // Decode and validate package data
-    let data = match base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &publish_req.data) {
+    let data = match base64::Engine::decode(
+        &base64::engine::general_purpose::STANDARD,
+        &publish_req.data,
+    ) {
         Ok(d) => d,
         Err(_) => return error_response(400, "invalid_data", "Invalid base64 data"),
     };
@@ -562,10 +709,10 @@ async fn publish_package(
     // Calculate checksum
     let checksum = format!("{:x}", Sha256::digest(&data));
 
-    // Upload to S3
+    // Upload to S3: {registry}/packages/{name}/{version}/{name}.tar.gz
     let key = format!(
-        "packages/{}/{}/{}.tar.gz",
-        publish_req.name, publish_req.version, publish_req.name
+        "{}/packages/{}/{}/{}.tar.gz",
+        registry, publish_req.name, publish_req.version, publish_req.name
     );
 
     let upload_result = state
@@ -589,6 +736,9 @@ async fn publish_package(
         .dynamo
         .put_item()
         .table_name(&state.packages_table)
+        .item("pk", AttributeValue::S(pk))
+        .item("sk", AttributeValue::S(publish_req.version.clone()))
+        .item("registry", AttributeValue::S(registry.to_string()))
         .item("name", AttributeValue::S(publish_req.name.clone()))
         .item("version", AttributeValue::S(publish_req.version.clone()))
         .item("description", AttributeValue::S(publish_req.description))
@@ -637,12 +787,13 @@ async fn publish_package(
     match put_result {
         Ok(_) => {
             info!(
-                "Published package {}@{}",
-                publish_req.name, publish_req.version
+                "Published package {}/{}@{}",
+                registry, publish_req.name, publish_req.version
             );
             json_response(
                 201,
                 &serde_json::json!({
+                    "registry": registry,
                     "name": publish_req.name,
                     "version": publish_req.version,
                     "checksum": checksum,
@@ -659,6 +810,7 @@ async fn publish_package(
 
 async fn yank_package(
     state: &AppState,
+    registry: &str,
     name: &str,
     version: &str,
     request: &ApiGatewayV2httpRequest,
@@ -673,26 +825,27 @@ async fn yank_package(
         return error_response(401, "unauthorized", "Authorization required");
     }
 
+    let pk = format!("{}#{}", registry, name);
+
     let result = state
         .dynamo
         .update_item()
         .table_name(&state.packages_table)
-        .key("name", AttributeValue::S(name.to_string()))
-        .key("version", AttributeValue::S(version.to_string()))
+        .key("pk", AttributeValue::S(pk.clone()))
+        .key("sk", AttributeValue::S(version.to_string()))
         .update_expression("SET yanked = :yanked")
         .expression_attribute_values(":yanked", AttributeValue::Bool(true))
-        .condition_expression("attribute_exists(#name)")
-        .expression_attribute_names("#name", "name")
+        .condition_expression("attribute_exists(pk)")
         .send()
         .await;
 
     match result {
         Ok(_) => {
-            info!("Yanked package {}@{}", name, version);
+            info!("Yanked package {}/{}@{}", registry, name, version);
             json_response(200, &serde_json::json!({"status": "yanked"}))
         }
         Err(e) => {
-            error!("Failed to yank {}@{}: {}", name, version, e);
+            error!("Failed to yank {}/{}@{}: {}", registry, name, version, e);
             error_response(500, "internal_error", "Failed to yank package")
         }
     }
@@ -738,7 +891,11 @@ fn is_valid_package_name(name: &str) -> bool {
         && name
             .chars()
             .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
-        && name.chars().next().map(|c| c.is_alphabetic()).unwrap_or(false)
+        && name
+            .chars()
+            .next()
+            .map(|c| c.is_alphabetic())
+            .unwrap_or(false)
 }
 
 fn attr_string(item: &HashMap<String, AttributeValue>, key: &str) -> String {

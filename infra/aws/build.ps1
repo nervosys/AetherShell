@@ -24,10 +24,12 @@ if ($cargoLambda) {
     try {
         cargo lambda build --release --arm64 --output-format zip
         Copy-Item "target/lambda/aethershell-packages-api/bootstrap.zip" "$BuildDir/api.zip"
-    } finally {
+    }
+    finally {
         Pop-Location
     }
-} else {
+}
+else {
     Write-Host "ERROR: cargo-lambda is not installed." -ForegroundColor Red
     Write-Host ""
     Write-Host "Install cargo-lambda:"
@@ -56,7 +58,8 @@ if ($Deploy) {
         }
         
         Remove-Item tfplan -ErrorAction SilentlyContinue
-    } finally {
+    }
+    finally {
         Pop-Location
     }
 }
