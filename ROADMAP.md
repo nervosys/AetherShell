@@ -287,11 +287,6 @@ This document tracks the development progress of AetherShell, the world's first 
 
 ## 📅 Planned Features
 
-### Q2 2026
-
-#### Platform-Specific Features
-- [ ] Feature flags for optional functionality
-
 ### Q3 2026
 
 #### IDE Integration
@@ -352,18 +347,14 @@ This document tracks the development progress of AetherShell, the world's first 
 ## 🐛 Known Issues
 
 ### Parser Quirks
-1. Pipeline assignments need parentheses when followed by another assignment:
-   ```ae
-   x = ([1,2,3] | reverse)  # Needs parentheses
-   y = first(x)
-   ```
+1. Some builtins are pipeline-only: `flatten`, `reverse`, `slice`, `any`, `all`
 
-2. Some builtins are pipeline-only: `flatten`, `reverse`, `slice`, `any`, `all`
-
-3. Zero-parameter lambdas not supported (use `fn(_) => expr`)
+2. Zero-parameter lambdas not supported (use `fn(_) => expr`)
 
 ### To Fix
-- [ ] Parser: Allow pipeline assignments without parentheses
+- [x] Parser: Allow pipeline assignments without parentheses ✅
+- [x] Parser: Proper semicolon statement separation ✅
+- [x] Parser: Newline-aware word-call parsing ✅
 - [ ] Parser: Support zero-parameter lambdas
 - [ ] Builtins: Consistent call syntax (pipeline vs function)
 
@@ -372,14 +363,14 @@ This document tracks the development progress of AetherShell, the world's first 
 ## 📈 Metrics
 
 ### Test Coverage
-- **Rust Tests:** 52 passing
+- **Rust Tests:** 145+ passing
 - **AetherShell Tests:** 8 files, all passing
 - **Pass Rate:** 100%
 
 ### Codebase
 - **Language:** Rust
 - **Lines of Code:** ~15,000+
-- **Builtins:** 143+
+- **Builtins:** 169+
 - **Themes:** 38
 
 ### Community
