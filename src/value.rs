@@ -186,6 +186,34 @@ impl Value {
         }
     }
 
+    /// Convert a Value to a display string (without quotes for Str values)
+    pub fn to_display_string(&self) -> String {
+        match self {
+            Value::Str(s) => s.clone(),
+            Value::Uri(u) => u.clone(),
+            Value::Int(n) => n.to_string(),
+            Value::Float(f) => f.to_string(),
+            Value::Bool(b) => b.to_string(),
+            Value::Null => "null".to_string(),
+            Value::Array(arr) => {
+                let items: Vec<String> = arr.iter().map(|v| v.to_display_string()).collect();
+                format!("[{}]", items.join(", "))
+            }
+            Value::Record(rec) => {
+                let items: Vec<String> = rec
+                    .iter()
+                    .map(|(k, v)| format!("{}: {}", k, v.to_display_string()))
+                    .collect();
+                format!("{{{}}}", items.join(", "))
+            }
+            Value::Table(t) => format!("<Table rows={}>", t.rows.len()),
+            Value::Lambda(_) => "<lambda>".to_string(),
+            Value::AsyncLambda(_) => "<async lambda>".to_string(),
+            Value::Future(_) => "<future>".to_string(),
+            Value::Error(msg) => format!("Error: {}", msg),
+        }
+    }
+
     // ----------- JSON interop -----------
 
     pub fn from_json(v: &serde_json::Value) -> Self {

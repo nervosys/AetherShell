@@ -295,11 +295,11 @@ This document tracks the development progress of AetherShell, the world's first 
 - [ ] IntelliSense support
 - [ ] Inline documentation
 
-#### Distributed Computing
-- [ ] Remote agent execution
-- [ ] Cluster management
-- [ ] Job scheduling
-- [ ] Result aggregation
+#### Distributed Computing ✅
+- [x] Remote agent execution (remote_exec, exec_remote)
+- [x] Cluster management (cluster_create, cluster_add_node, cluster_remove_node, cluster_status, cluster_nodes)
+- [x] Job scheduling (job_submit, job_status, job_cancel, job_list)
+- [x] Result aggregation (aggregate_results with sum/count/concat/first/last strategies)
 
 ### Q4 2026
 
@@ -309,11 +309,11 @@ This document tracks the development progress of AetherShell, the world's first 
 - [ ] SSO integration
 - [ ] Compliance reporting
 
-#### Advanced AI
+#### Advanced AI ✅
 - [ ] Custom model fine-tuning
-- [ ] RAG (Retrieval-Augmented Generation)
-- [ ] Knowledge graphs
-- [ ] Semantic caching
+- [x] RAG (Retrieval-Augmented Generation) - rag_index, rag_search, rag_query, rag_clear
+- [x] Knowledge graphs - kg_add, kg_relate, kg_query, kg_entities, kg_relations
+- [x] Semantic caching - semantic_cache, semantic_cache_get, semantic_cache_clear
 
 ---
 

@@ -2,6 +2,8 @@
 
 The standard library provides commonly used functions and utilities organized into logical modules.
 
+--
+
 ## Modules
 
 | Module       | Description                                          |

@@ -1,0 +1,90 @@
+# Example 18: Distributed Computing
+# Demonstrates cluster management, job scheduling, and result aggregation
+
+print("=== Distributed Computing Demo ===")
+print("")
+
+# Create a compute cluster
+print("Creating cluster...")
+let cluster = cluster_create("demo-cluster")
+print("Cluster: " + cluster.name)
+print("")
+
+# Add compute nodes
+print("Adding compute nodes...")
+let node1 = cluster_add_node("node-1", "192.168.1.10:8080")
+let node2 = cluster_add_node("node-2", "192.168.1.11:8080", ["gpu", "compute"])
+let node3 = add_node("node-3", "192.168.1.12:8080", ["compute", "storage"])
+
+print("Node 1: " + node1.id + " at " + node1.address)
+print("Node 2: " + node2.id + " (capabilities: gpu, compute)")
+print("Node 3: " + node3.id + " (capabilities: compute, storage)")
+print("")
+
+# Check cluster status
+print("Cluster status:")
+let status = cluster_status()
+print("  Total nodes: " + status.total_nodes)
+print("  Online nodes: " + status.online_nodes)
+print("  Average load: " + status.average_load)
+print("")
+
+# List all nodes
+print("All nodes:")
+let all_nodes = cluster_nodes()
+all_nodes | each(fn(n) => print("  - " + n.id + ": " + n.status))
+print("")
+
+# Submit some jobs
+print("Submitting jobs...")
+let job1 = job_submit("data-processing", "process_data batch1")
+let job2 = submit("ml-training", "train_model dataset.csv", 10)
+let job3 = job_submit("report-gen", "generate_report")
+
+print("Job 1: " + job1.job_id + " (" + job1.status + ")")
+print("Job 2: " + job2.job_id + " (priority: 10)")
+print("Job 3: " + job3.job_id)
+print("")
+
+# Check job status
+print("Job statuses:")
+job_list() | each(fn(j) => print("  " + j.name + ": " + j.status))
+print("")
+
+# Remote execution
+print("Remote execution:")
+let exec_result = remote_exec("node-1", "ls -la /data")
+print("  Node: " + exec_result.node_id)
+print("  Status: " + exec_result.status)
+print("")
+
+# Result aggregation
+print("Result aggregation examples:")
+let numbers = [10, 20, 30, 40, 50]
+print("  Data: " + numbers)
+print("  Sum: " + aggregate(numbers, "sum"))
+print("  Count: " + aggregate(numbers, "count"))
+print("  First: " + aggregate(numbers, "first"))
+print("  Last: " + aggregate(numbers, "last"))
+print("")
+
+# Cleanup - cancel a job
+print("Cancelling job: " + job3.job_id)
+let cancelled = job_cancel(job3.job_id)
+print("  Cancelled: " + cancelled)
+print("")
+
+# Remove a node
+print("Removing node-3...")
+let removed = cluster_remove_node("node-3")
+print("  Removed: " + removed)
+print("")
+
+# Final status
+print("Final cluster status:")
+let final_status = cluster_status()
+print("  Nodes: " + final_status.total_nodes)
+print("  Jobs: " + final_status.total_jobs)
+print("")
+
+print("=== Distributed Computing Demo Complete ===")

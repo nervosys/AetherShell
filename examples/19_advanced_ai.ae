@@ -1,0 +1,124 @@
+# Example 19: Advanced AI Features
+# Demonstrates RAG, Knowledge Graphs, and Semantic Caching
+
+print("=== Advanced AI Demo ===")
+print("")
+
+# ===================== RAG (Retrieval-Augmented Generation) =====================
+print("--- RAG (Retrieval-Augmented Generation) ---")
+print("")
+
+# Clear any existing index
+rag_clear()
+
+# Index some documents
+print("Indexing documents...")
+let doc1 = rag_index("AetherShell is a next-generation shell written in Rust. It combines typed programming with multimodal AI capabilities.", "intro.txt")
+let doc2 = rag_index("The shell supports pipelines where data flows as structured Value types including Int, Float, String, Array, Record, and Lambda.", "pipelines.txt")
+let doc3 = index_docs("AI integration includes support for OpenAI, Ollama, and other LLM providers through model URIs like openai:gpt-4o-mini.", "ai.txt")
+
+print("Indexed document: " + doc1.doc_id + " from " + doc1.source)
+print("Indexed document: " + doc2.doc_id + " from " + doc2.source)
+print("Indexed document: " + doc3.doc_id + " from " + doc3.source)
+print("Total documents: " + doc3.total_docs)
+print("")
+
+# Search documents
+print("Searching for 'Rust programming'...")
+let search_results = rag_search("Rust programming", 2)
+search_results | each(fn(r) => print("  [" + r.score + "] " + r.source))
+print("")
+
+# RAG query (retrieves context for LLM)
+print("RAG query: 'What is AetherShell?'")
+let rag_result = rag_query("What is AetherShell?", 2)
+print("  Context length: " + len(rag_result.context))
+print("  Sources found: " + rag_result.doc_count)
+print("")
+
+# ===================== Knowledge Graphs =====================
+print("--- Knowledge Graphs ---")
+print("")
+
+# Add entities
+print("Adding entities...")
+let rust = kg_add("Language", "Rust")
+let python = add_entity("Language", "Python")
+let aether = kg_add("Project", "AetherShell")
+let tokio = kg_add("Library", "Tokio")
+
+print("Added: " + rust.name + " (type: " + rust.type + ", id: " + rust.entity_id + ")")
+print("Added: " + python.name + " (type: " + python.type + ")")
+print("Added: " + aether.name + " (type: " + aether.type + ")")
+print("Added: " + tokio.name + " (type: " + tokio.type + ")")
+print("")
+
+# Add relations
+print("Adding relations...")
+let rel1 = kg_relate(aether.entity_id, rust.entity_id, "written_in")
+let rel2 = add_relation(aether.entity_id, tokio.entity_id, "uses")
+
+print("Relation: AetherShell --[" + rel1.relation_type + "]--> Rust")
+print("Relation: AetherShell --[" + rel2.relation_type + "]--> Tokio")
+print("")
+
+# Query knowledge graph
+print("Querying for 'Rust':")
+let kg_results = kg_query("Rust")
+kg_results | each(fn(r) => print("  Found: " + r.type + " - " + r.name))
+print("")
+
+# List all entities
+print("All entities:")
+kg_entities() | each(fn(e) => print("  " + e.type + ": " + e.name))
+print("")
+
+# List all relations
+print("All relations:")
+kg_relations() | each(fn(r) => print("  " + r.source + " --[" + r.type + "]--> " + r.target))
+print("")
+
+# ===================== Semantic Caching =====================
+print("--- Semantic Caching ---")
+print("")
+
+# Clear cache
+semantic_cache_clear()
+
+# Cache some responses
+print("Caching AI responses...")
+let cache1 = semantic_cache("What is machine learning?", "Machine learning is a subset of AI that enables systems to learn from data.")
+let cache2 = cache_ai("Explain neural networks", "Neural networks are computing systems inspired by biological neural networks.")
+
+print("Cached response 1 (entries: " + cache1.total_entries + ")")
+print("Cached response 2 (entries: " + cache2.total_entries + ")")
+print("")
+
+# Try to retrieve from cache
+print("Retrieving from cache...")
+let hit1 = semantic_cache_get("What is machine learning?")
+let hit2 = cache_get("Tell me about neural networks")  # Similar but not exact
+
+print("Query: 'What is machine learning?'")
+print("  Cache hit: " + hit1.hit)
+if hit1.hit {
+    print("  Response: " + hit1.response)
+}
+print("")
+
+print("Query: 'Tell me about neural networks' (semantic match)")
+print("  Cache hit: " + hit2.hit)
+print("")
+
+# Check for cache miss
+let miss = semantic_cache_get("Completely unrelated query about cooking")
+print("Query: 'Completely unrelated query about cooking'")
+print("  Cache hit: " + miss.hit)
+print("")
+
+# Clear cache and check count
+let cleared = semantic_cache_clear()
+print("Cleared " + cleared + " cache entries")
+print("")
+
+print("=== Advanced AI Demo Complete ===")
