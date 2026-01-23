@@ -533,6 +533,8 @@ fn call_value_with_pipe(
     match f {
         Value::Lambda(l) => {
             match (pin, l.params.len(), args.len()) {
+                // Zero-arg lambda: no params, no input required, no explicit args
+                (_, 0, 0) => call_lambda0(&l, env),
                 // Map: pin is array, lambda 1-ary, and no explicit args
                 (Some(Value::Array(arr)), 1, 0) => {
                     let mut out = Vec::with_capacity(arr.len());
@@ -614,6 +616,23 @@ fn is_truthy(v: &Value) -> bool {
         Value::Future(_) => true,
         Value::Error(_) => false, // Errors are falsy
     }
+}
+
+/// Call a zero-parameter lambda
+fn call_lambda0(l: &Lambda, env: &mut Env) -> Result<Value> {
+    // Save and clear pipe input to prevent leakage
+    let saved_pipe = env.input().cloned();
+    env.set_input(None);
+
+    let out = eval_expr(&l.body, env);
+
+    // Restore pipe input
+    match saved_pipe {
+        Some(v) => env.set_input(Some(v)),
+        None => env.set_input(None),
+    }
+
+    out
 }
 
 fn call_lambda1(l: &Lambda, x: Value, i: usize, env: &mut Env) -> Result<Value> {
