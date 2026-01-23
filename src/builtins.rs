@@ -259,6 +259,15 @@ lazy_static::lazy_static! {
         map.insert("assert_type", 155); // alias
         map.insert("inspect", 156);
 
+        // Platform detection functions (157-163)
+        map.insert("platform", 157);
+        map.insert("is_windows", 158);
+        map.insert("is_linux", 159);
+        map.insert("is_macos", 160);
+        map.insert("is_unix", 161);
+        map.insert("is_bsd", 162);
+        map.insert("platform_module", 163);
+
         map
     };
 }
@@ -443,6 +452,14 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_trace(args, input),
     |args, input, _| bi_type_assert(args, input),
     |args, input, _| bi_inspect(args, input),
+    // 157-163: Platform detection functions
+    |_, _, _| bi_platform(),
+    |_, _, _| bi_is_windows(),
+    |_, _, _| bi_is_linux(),
+    |_, _, _| bi_is_macos(),
+    |_, _, _| bi_is_unix(),
+    |_, _, _| bi_is_bsd(),
+    |args, input, _| bi_platform_module(args, input),
 ];
 
 fn fast_builtin_lookup(
@@ -1980,6 +1997,135 @@ fn bi_inspect(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
 
     Ok(Value::Record(info))
+}
+
+// --------------- Platform Detection Functions ---------------
+
+/// platform() - Get the current platform name
+/// Returns: String - One of "windows", "linux", "macos", "bsd", "ios", "android"
+///
+/// Example:
+///   platform()  # Returns "windows" on Windows
+fn bi_platform() -> Result<Value> {
+    use crate::os_tools::OperatingSystem;
+    let os = OperatingSystem::current();
+    let platform_name = match os {
+        OperatingSystem::Windows => "windows",
+        OperatingSystem::Linux => "linux",
+        OperatingSystem::MacOS => "macos",
+        OperatingSystem::BSD => "bsd",
+        OperatingSystem::iOS => "ios",
+        OperatingSystem::Android => "android",
+    };
+    Ok(Value::Str(platform_name.to_string()))
+}
+
+/// is_windows() - Check if running on Windows
+/// Returns: Bool
+///
+/// Example:
+///   if is_windows() then "Windows!" else "Not Windows"
+fn bi_is_windows() -> Result<Value> {
+    Ok(Value::Bool(cfg!(target_os = "windows")))
+}
+
+/// is_linux() - Check if running on Linux (excluding Android)
+/// Returns: Bool
+///
+/// Example:
+///   if is_linux() then "Linux!" else "Not Linux"
+fn bi_is_linux() -> Result<Value> {
+    #[cfg(target_os = "linux")]
+    {
+        // Exclude Android
+        let is_android = std::path::Path::new("/system/build.prop").exists();
+        Ok(Value::Bool(!is_android))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Ok(Value::Bool(false))
+    }
+}
+
+/// is_macos() - Check if running on macOS
+/// Returns: Bool
+///
+/// Example:
+///   if is_macos() then "macOS!" else "Not macOS"
+fn bi_is_macos() -> Result<Value> {
+    Ok(Value::Bool(cfg!(target_os = "macos")))
+}
+
+/// is_unix() - Check if running on a Unix-like system (Linux, macOS, BSD, etc.)
+/// Returns: Bool - true for Linux, macOS, BSD, Android, iOS (Unix-like systems)
+///
+/// Example:
+///   if is_unix() then "/" else "\\"  # Path separator
+fn bi_is_unix() -> Result<Value> {
+    Ok(Value::Bool(cfg!(unix)))
+}
+
+/// is_bsd() - Check if running on BSD (FreeBSD, OpenBSD, NetBSD)
+/// Returns: Bool
+///
+/// Example:
+///   if is_bsd() then "BSD!" else "Not BSD"
+fn bi_is_bsd() -> Result<Value> {
+    let is_bsd = cfg!(target_os = "freebsd")
+        || cfg!(target_os = "openbsd")
+        || cfg!(target_os = "netbsd")
+        || cfg!(target_os = "dragonfly");
+    Ok(Value::Bool(is_bsd))
+}
+
+/// platform_module(base_path) - Get platform-specific module path
+/// Args:
+///   - base_path: String - Base module path without extension
+/// Returns: String - Platform-specific module path
+///
+/// Given base_path "mymodule", returns:
+///   - "mymodule_windows.ae" on Windows
+///   - "mymodule_linux.ae" on Linux
+///   - "mymodule_macos.ae" on macOS
+///   - etc.
+///
+/// Example:
+///   import platform_module("utils")  # Imports utils_windows.ae on Windows
+fn bi_platform_module(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let base_path = if let Some(input_val) = input {
+        match input_val {
+            Value::Str(s) => s,
+            _ => return Err(anyhow!("platform_module: base_path must be a string")),
+        }
+    } else if !args.is_empty() {
+        match &args[0] {
+            Value::Str(s) => s.clone(),
+            _ => return Err(anyhow!("platform_module: base_path must be a string")),
+        }
+    } else {
+        return Err(anyhow!("platform_module: requires base_path argument"));
+    };
+
+    use crate::os_tools::OperatingSystem;
+    let os = OperatingSystem::current();
+    let platform_suffix = match os {
+        OperatingSystem::Windows => "windows",
+        OperatingSystem::Linux => "linux",
+        OperatingSystem::MacOS => "macos",
+        OperatingSystem::BSD => "bsd",
+        OperatingSystem::iOS => "ios",
+        OperatingSystem::Android => "android",
+    };
+
+    // Strip .ae extension if present
+    let base = if base_path.ends_with(".ae") {
+        &base_path[..base_path.len() - 3]
+    } else {
+        &base_path
+    };
+
+    let module_path = format!("{}_{}.ae", base, platform_suffix);
+    Ok(Value::Str(module_path))
 }
 
 // --------------- AI / Agents wrappers (optional) ---------------
