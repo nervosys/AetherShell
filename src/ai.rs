@@ -1281,6 +1281,7 @@ pub fn display_value(v: &Value) -> String {
         Value::Lambda(_) => "<lambda>".into(),
         Value::AsyncLambda(_) => "<async lambda>".into(),
         Value::Future(_) => "<future>".into(),
+        Value::Error(msg) => format!("Error: {}", msg),
     }
 }
 

@@ -104,6 +104,8 @@ pub enum Value {
     AsyncLambda(AsyncLambda),
     /// A future value that can be awaited
     Future(Future),
+    /// An error value for try/catch handling
+    Error(String),
 }
 
 impl Value {
@@ -121,6 +123,7 @@ impl Value {
             Value::Lambda(_) => "Lambda",
             Value::AsyncLambda(_) => "AsyncLambda",
             Value::Future(_) => "Future",
+            Value::Error(_) => "Error",
         }
     }
 
@@ -242,6 +245,7 @@ impl Value {
             Value::Lambda(_) => json!("<lambda>"),
             Value::AsyncLambda(_) => json!("<async lambda>"),
             Value::Future(_) => json!("<future>"),
+            Value::Error(msg) => json!({"error": msg}),
         }
     }
 }
@@ -316,6 +320,7 @@ pub mod pretty {
             Value::Lambda(_) => write!(w, "{}", (theme.dim)("<lambda>")),
             Value::AsyncLambda(_) => write!(w, "{}", (theme.dim)("<async lambda>")),
             Value::Future(_) => write!(w, "{}", (theme.dim)("<future>")),
+            Value::Error(msg) => write!(w, "Error: {}", msg),
         }
     }
 
@@ -375,6 +380,7 @@ pub mod pretty {
             Value::Lambda(_) => "<lambda>".into(),
             Value::AsyncLambda(_) => "<async lambda>".into(),
             Value::Future(_) => "<future>".into(),
+            Value::Error(msg) => format!("Error: {}", truncate(msg, 30)),
         }
     }
 

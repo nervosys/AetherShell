@@ -113,6 +113,16 @@ pub enum Expr {
     /// Await expression: await expr
     Await(Box<Expr>),
 
+    /// Try expression: try { expr } catch { handler }
+    TryCatch {
+        try_expr: Box<Expr>,
+        catch_var: Option<String>, // Optional error binding: catch e { ... }
+        catch_expr: Box<Expr>,
+    },
+
+    /// Throw expression: throw "error message" or throw expr
+    Throw(Box<Expr>),
+
     // call
     Call {
         callee: Box<Expr>,

@@ -624,6 +624,7 @@ fn value_to_json(value: &Value) -> serde_json::Value {
         Value::Lambda(_) => serde_json::Value::String("<lambda>".to_string()),
         Value::AsyncLambda(_) => serde_json::Value::String("<async lambda>".to_string()),
         Value::Future(_) => serde_json::Value::String("<future>".to_string()),
+        Value::Error(msg) => serde_json::json!({"error": msg}),
     }
 }
 
@@ -681,6 +682,7 @@ fn value_to_toml(value: &Value) -> toml::Value {
         Value::Lambda(_) => toml::Value::String("<lambda>".to_string()),
         Value::AsyncLambda(_) => toml::Value::String("<async lambda>".to_string()),
         Value::Future(_) => toml::Value::String("<future>".to_string()),
+        Value::Error(msg) => toml::Value::String(format!("Error: {}", msg)),
     }
 }
 

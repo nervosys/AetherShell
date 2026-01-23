@@ -47,6 +47,9 @@ enum Tok {
     As,
     Async, // async keyword
     Await, // await keyword
+    Try,   // try keyword
+    Catch, // catch keyword
+    Throw, // throw keyword
     Ident,
     String,
     Int,
@@ -570,6 +573,9 @@ fn lex(src: &str) -> Result<Vec<Spanned>> {
                     "as" => Tok::As,
                     "async" => Tok::Async,
                     "await" => Tok::Await,
+                    "try" => Tok::Try,
+                    "catch" => Tok::Catch,
+                    "throw" => Tok::Throw,
                     _ => Tok::Ident,
                 };
                 out.push(Spanned {
@@ -1217,6 +1223,10 @@ impl Parser {
             // await expr - await the result of an async expression
             let e = self.parse_unary()?;
             Ok(Expr::Await(Box::new(e)))
+        } else if self.match_tok(Tok::Throw) {
+            // throw expr - raise an error
+            let e = self.parse_unary()?;
+            Ok(Expr::Throw(Box::new(e)))
         } else {
             self.parse_postfix()
         }
@@ -1344,6 +1354,9 @@ impl Parser {
         if self.match_tok(Tok::Match) {
             return self.parse_match();
         }
+        if self.match_tok(Tok::Try) {
+            return self.parse_try_catch();
+        }
         if self.match_tok(Tok::Fn) {
             return self.parse_lambda_after_fn(false);
         }
@@ -1446,6 +1459,38 @@ impl Parser {
 
         self.need(Tok::RBrace, "expected '}' after match arms")?;
         Ok(Expr::Match { scrutinee, arms })
+    }
+
+    /// Parse try/catch expression:
+    /// try { expr } catch { handler }
+    /// try { expr } catch e { handler }  (with error binding)
+    fn parse_try_catch(&mut self) -> Result<Expr> {
+        // 'try' already consumed
+        self.need(Tok::LBrace, "expected '{' after 'try'")?;
+        let try_expr = self.parse_expr()?;
+        self.need(Tok::RBrace, "expected '}' after try expression")?;
+
+        self.need(Tok::Catch, "expected 'catch' after try block")?;
+
+        // Optional error binding: catch e { ... }
+        // Check if next token is Ident and token after that is LBrace
+        let catch_var = if self.check(Tok::Ident) && self.peek_ahead(1) == Some(Tok::LBrace) {
+            let name = self.peek().text.clone();
+            self.i += 1;
+            Some(name)
+        } else {
+            None
+        };
+
+        self.need(Tok::LBrace, "expected '{' after 'catch'")?;
+        let catch_expr = self.parse_expr()?;
+        self.need(Tok::RBrace, "expected '}' after catch expression")?;
+
+        Ok(Expr::TryCatch {
+            try_expr: Box::new(try_expr),
+            catch_var,
+            catch_expr: Box::new(catch_expr),
+        })
     }
 
     fn parse_match_arm(&mut self) -> Result<crate::ast::MatchArm> {

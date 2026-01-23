@@ -247,6 +247,9 @@ lazy_static::lazy_static! {
         map.insert("plugin_unload", 149);
         map.insert("plugin_categories", 150);
 
+        // Error handling functions (151)
+        map.insert("is_error", 151);
+
         map
     };
 }
@@ -423,6 +426,8 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_plugin_load(args, input),
     |args, input, _| bi_plugin_unload(args, input),
     |_, _, _| bi_plugin_categories(),
+    // 151: Error handling functions
+    |args, input, _| bi_is_error(args, input),
 ];
 
 fn fast_builtin_lookup(
@@ -1615,9 +1620,32 @@ fn bi_type_of(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         Value::Lambda(_) => "Lambda",
         Value::AsyncLambda(_) => "AsyncLambda",
         Value::Future(_) => "Future",
+        Value::Error(_) => "Error",
     };
 
     Ok(Value::Str(type_str.to_string()))
+}
+
+/// is_error(value) - Check if a value is an Error
+/// Args:
+///   - value: Any value to check
+/// Returns: Bool - true if the value is an Error, false otherwise
+///
+/// Example:
+///   let e = throw "something went wrong"
+///   is_error(e)  # Returns true
+///   is_error(42) # Returns false
+fn bi_is_error(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let val = if let Some(input_val) = input {
+        input_val
+    } else if !args.is_empty() {
+        args[0].clone()
+    } else {
+        return Err(anyhow!("is_error: requires input or argument"));
+    };
+
+    let is_err = matches!(val, Value::Error(_));
+    Ok(Value::Bool(is_err))
 }
 
 // --------------- AI / Agents wrappers (optional) ---------------
@@ -2384,6 +2412,7 @@ fn format_value_one_line(v: &Value) -> String {
         Value::Lambda(_) => "<lambda>".into(),
         Value::AsyncLambda(_) => "<async lambda>".into(),
         Value::Future(_) => "<future>".into(),
+        Value::Error(msg) => format!("Error: {}", msg),
     }
 }
 
@@ -2402,6 +2431,7 @@ fn value_to_string(value: &Value) -> String {
         Value::AsyncLambda(_) => "<async lambda>".into(),
         Value::Future(_) => "<future>".into(),
         Value::Null => "<null>".into(),
+        Value::Error(msg) => format!("Error: {}", msg),
     }
 }
 
@@ -4653,6 +4683,7 @@ fn is_truthy(val: &Value) -> bool {
         Value::Future(_) => true,              // Futures are truthy
         Value::Uri(_) => true,                 // URIs are truthy if they exist
         Value::Table(t) => !t.rows.is_empty(), // Tables are truthy if they have data
+        Value::Error(_) => false,              // Errors are falsy
     }
 }
 

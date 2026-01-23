@@ -312,6 +312,25 @@ pub fn type_of_expr(expr: &Expr, env: &mut TypeEnv) -> Result<Type, TypeError> {
             let _inner_type = type_of_expr(inner, env)?;
             Ok(Type::Any)
         }
+
+        // --- try/catch ---
+        Expr::TryCatch {
+            try_expr,
+            catch_var: _,
+            catch_expr,
+        } => {
+            // Both branches should be typed, result is union (Any for simplicity)
+            let _try_type = type_of_expr(try_expr, env)?;
+            let _catch_type = type_of_expr(catch_expr, env)?;
+            Ok(Type::Any)
+        }
+
+        // --- throw ---
+        Expr::Throw(inner) => {
+            // Throw returns an Error type, which we model as Any
+            let _inner_type = type_of_expr(inner, env)?;
+            Ok(Type::Any)
+        }
     }
 }
 
