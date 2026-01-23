@@ -55,6 +55,7 @@ enum Tok {
     Int,
     Float,
     Attribute, // #[...] attribute
+    Semicolon, // ; statement separator
     Eof,
 }
 
@@ -91,6 +92,11 @@ pub fn parse_program(src: &str) -> Result<Vec<Stmt>> {
     let mut errors = Vec::new();
 
     while !p.check(Tok::Eof) {
+        // Skip any semicolons between statements
+        while p.match_tok(Tok::Semicolon) {}
+        if p.check(Tok::Eof) {
+            break;
+        }
         match p.parse_stmt() {
             Ok(s) => stmts.push(s),
             Err(e) => {
@@ -586,8 +592,14 @@ fn lex(src: &str) -> Result<Vec<Spanned>> {
                 });
             }
             ';' => {
-                // treat semicolon as statement separator; ignore it
+                // Emit semicolon token as statement separator
                 advance(&chars, &mut pos, &mut line, &mut col);
+                out.push(Spanned {
+                    kind: Tok::Semicolon,
+                    text: ";".to_string(),
+                    line: start_line,
+                    col: start_col,
+                });
             }
             '#' => {
                 advance(&chars, &mut pos, &mut line, &mut col); // consume #
@@ -977,6 +989,8 @@ impl Parser {
             return self.parse_async_lambda();
         }
         let primary = self.parse_atom_expr()?;
+        // Remember the line where the primary expression ended (for word-call line tracking)
+        let primary_line = self.prev().line;
         if let Expr::Ident(_) = primary {
             let callee = primary;
             // If the next token is a parenthesis, parse a normal call with
@@ -1003,8 +1017,9 @@ impl Parser {
             }
 
             // Otherwise support word-call style: space-separated atoms and lambdas
+            // Only continue if tokens are on the same line (newlines act as statement separators)
             let mut args: Vec<Expr> = Vec::new();
-            while self.check_any(&[
+            while self.peek().line == primary_line && self.check_any(&[
                 Tok::Fn,
                 Tok::Async,
                 Tok::String,
@@ -1028,7 +1043,13 @@ impl Parser {
                     args.push(lam);
                     continue;
                 }
-                if self.check_any(&[Tok::Pipe, Tok::RBrace, Tok::RParen, Tok::Eof]) {
+                if self.check_any(&[
+                    Tok::Pipe,
+                    Tok::RBrace,
+                    Tok::RParen,
+                    Tok::Semicolon,
+                    Tok::Eof,
+                ]) {
                     break;
                 }
                 let a = self.parse_atom_expr()?;
