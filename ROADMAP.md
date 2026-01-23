@@ -355,7 +355,7 @@ This document tracks the development progress of AetherShell, the world's first 
 - [x] Parser: Allow pipeline assignments without parentheses ✅
 - [x] Parser: Proper semicolon statement separation ✅
 - [x] Parser: Newline-aware word-call parsing ✅
-- [ ] Parser: Support zero-parameter lambdas
+- [x] Parser: Support zero-parameter lambdas ✅
 - [ ] Builtins: Consistent call syntax (pipeline vs function)
 
 ---
