@@ -162,6 +162,16 @@ This document tracks the development progress of AetherShell, the world's first 
 - [x] Safe bounds checking in `peek()` and `prev()`
 - [x] 12 error diagnostic tests
 
+#### Async/Await Syntax (Completed)
+- [x] `async fn(params) => expr` - Async lambda definition
+- [x] `await expr` - Await expression for futures
+- [x] `Value::AsyncLambda` and `Value::Future` runtime types
+- [x] Calling async lambda returns Future (lazy evaluation)
+- [x] Await executes Future and returns result
+- [x] type_of() support for async types
+- [x] Pipeline integration for async lambdas
+- [x] 13 comprehensive tests
+
 #### Conditional Compilation (Completed)
 - [x] `#[cfg(platform)]` - Platform checks (windows, linux, macos, unix)
 - [x] `#[cfg(feature = "name")]` - Feature flags (via AETHER_FEATURES env var)
@@ -239,7 +249,6 @@ This document tracks the development progress of AetherShell, the world's first 
 ### Q2 2026
 
 #### Advanced Scripting
-- [ ] Async/await syntax
 - [ ] Error handling improvements
 - [ ] Debugging tools
 
