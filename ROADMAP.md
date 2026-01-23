@@ -12,7 +12,7 @@ This document tracks the development progress of AetherShell, the world's first 
 | ---------------- | ---------- | ---------------------- |
 | Core Language    | ✅ Complete | 100%                   |
 | Type System      | ✅ Complete | 100%                   |
-| Builtins Library | ✅ Complete | 157+ functions         |
+| Builtins Library | ✅ Complete | 164+ functions         |
 | AI Integration   | ✅ Complete | Multi-provider         |
 | TUI Interface    | ✅ Complete | Full featured          |
 | Theme System     | ✅ Complete | 38 themes              |
@@ -192,6 +192,16 @@ This document tracks the development progress of AetherShell, the world's first 
 - [x] `inspect(value)` - Detailed value inspection returning Record
 - [x] 41 comprehensive tests
 
+#### Platform Detection (Completed)
+- [x] `platform()` - Get current platform name (windows, linux, macos, bsd, ios, android)
+- [x] `is_windows()` - Check if running on Windows
+- [x] `is_linux()` - Check if running on Linux (excludes Android)
+- [x] `is_macos()` - Check if running on macOS
+- [x] `is_unix()` - Check if running on Unix-like system
+- [x] `is_bsd()` - Check if running on BSD
+- [x] `platform_module(base_path)` - Generate platform-specific module path
+- [x] 21 comprehensive tests
+
 #### Conditional Compilation (Completed)
 - [x] `#[cfg(platform)]` - Platform checks (windows, linux, macos, unix)
 - [x] `#[cfg(feature = "name")]` - Feature flags (via AETHER_FEATURES env var)
@@ -269,7 +279,6 @@ This document tracks the development progress of AetherShell, the world's first 
 ### Q2 2026
 
 #### Platform-Specific Features
-- [ ] Platform-specific module loading
 - [ ] Feature flags for optional functionality
 
 ### Q3 2026

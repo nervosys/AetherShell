@@ -1,0 +1,122 @@
+# Example 15: Platform Detection
+# AetherShell provides built-in functions for platform detection and cross-platform scripting
+
+# ==========================================
+# platform() - Get current platform name
+# ==========================================
+
+# Returns: "windows", "linux", "macos", "bsd", "ios", or "android"
+let current_platform = platform()
+print("Current platform: " + current_platform)
+
+# ==========================================
+# Platform check functions
+# ==========================================
+
+# Each returns a Bool
+print("is_windows: " + type_of(is_windows()))
+print("is_linux: " + type_of(is_linux()))
+print("is_macos: " + type_of(is_macos()))
+print("is_unix: " + type_of(is_unix()))
+print("is_bsd: " + type_of(is_bsd()))
+
+# ==========================================
+# Conditional logic based on platform
+# ==========================================
+
+# Use match for platform-specific logic
+let win = is_windows()
+let path_sep = match win { true => "\\", _ => "/" }
+print("Path separator: " + path_sep)
+
+# Get home directory path based on platform
+let home_env = match platform() {
+    "windows" => "USERPROFILE",
+    _ => "HOME"
+}
+print("Home env var: " + home_env)
+
+# ==========================================
+# platform_module() - Platform-specific imports
+# ==========================================
+
+# Generates platform-specific module paths
+# Given "utils", returns "utils_windows.ae" on Windows, etc.
+
+let mod_path = platform_module("lib/utils")
+print("Platform module path: " + mod_path)
+
+# Can be used with import for platform-specific modules:
+# import platform_module("database")  
+# This imports database_windows.ae on Windows, database_linux.ae on Linux, etc.
+
+# Piped usage
+let another_path = "network" | platform_module
+print("Network module path: " + another_path)
+
+# ==========================================
+# Practical Examples
+# ==========================================
+
+# Cross-platform command selection
+let list_cmd = match is_windows() {
+    true => "dir",
+    _ => "ls -la"
+}
+print("List command: " + list_cmd)
+
+# Platform-aware file paths
+let temp_dir = match platform() {
+    "windows" => "C:\\Temp",
+    "macos" => "/private/tmp",
+    _ => "/tmp"
+}
+print("Temp directory: " + temp_dir)
+
+# Platform info record
+let platform_info = {
+    name: platform(),
+    is_windows: is_windows(),
+    is_unix: is_unix(),
+    is_bsd: is_bsd()
+}
+print(platform_info)
+
+# ==========================================
+# Using with cfg() for compile-time checks
+# ==========================================
+
+# cfg() provides compile-time platform checks
+# Platform checks at runtime vs compile time:
+# - is_windows()           : Runtime check (Bool)
+# - #[cfg(windows)]        : Compile-time check (skips code)
+
+# Example: Platform-specific function definitions
+#[cfg(windows)]
+let platform_name = "Windows Platform"
+
+#[cfg(linux)]
+let platform_name = "Linux Platform"
+
+#[cfg(macos)]
+let platform_name = "macOS Platform"
+
+#[cfg(unix)]
+let unix_note = "Running on Unix-like system"
+
+# ==========================================
+# Module organization pattern
+# ==========================================
+
+# Recommended file structure for cross-platform code:
+#
+# lib/
+#   mymodule.ae              # Common interface
+#   mymodule_windows.ae      # Windows implementation
+#   mymodule_linux.ae        # Linux implementation
+#   mymodule_macos.ae        # macOS implementation
+#
+# In your main code:
+#   import platform_module("lib/mymodule")
+
+print("Platform detection example complete!")
