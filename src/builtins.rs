@@ -5271,25 +5271,45 @@ fn bi_last(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 /// Example:
 ///   [1,2,3] | any(fn(x) => x > 2)     # Returns true
 ///   [false, true, false] | any()      # Returns true
+///   any([1,2,3], fn(x) => x > 2)      # Also works as function call
 fn bi_any(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Value> {
-    let input_val = input.unwrap_or(Value::Array(vec![]));
-    let arr = expect_array("any", &input_val)?;
+    // Determine input array and predicate
+    // If input is provided via pipe, first arg is predicate (optional)
+    // If input is first arg (array), second arg is predicate (optional)
+    let (arr, predicate): (Vec<Value>, Option<Value>) = if let Some(inp) = input {
+        let arr = expect_array("any", &inp)?.to_vec();
+        let pred = args.first().cloned();
+        (arr, pred)
+    } else if !args.is_empty() {
+        if let Value::Array(a) = &args[0] {
+            // First arg is array
+            let pred = args.get(1).cloned();
+            (a.clone(), pred)
+        } else if matches!(&args[0], Value::Lambda(_)) {
+            // First arg is lambda with empty array (edge case)
+            return Err(anyhow!("any requires an array as input"));
+        } else {
+            return Err(anyhow!("any expects array, got {:?}", args[0]));
+        }
+    } else {
+        return Err(anyhow!("any requires an array input"));
+    };
 
-    if args.is_empty() {
-        // No predicate - check for any truthy values
+    if let Some(pred_val) = predicate {
+        // Use predicate function
+        let predicate = need_lambda(&pred_val, "any")?;
+
         for val in arr {
-            if is_truthy(val) {
+            let result = call_lambda(predicate, &[val.clone()], env)?;
+            if is_truthy(&result) {
                 return Ok(Value::Bool(true));
             }
         }
         Ok(Value::Bool(false))
     } else {
-        // Use predicate function
-        let predicate = need_lambda(&args[0], "any")?;
-
+        // No predicate - check for any truthy values
         for val in arr {
-            let result = call_lambda(predicate, &[val.clone()], env)?;
-            if is_truthy(&result) {
+            if is_truthy(&val) {
                 return Ok(Value::Bool(true));
             }
         }
@@ -5305,25 +5325,45 @@ fn bi_any(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Value
 /// Example:
 ///   [1,2,3] | all(fn(x) => x > 0)     # Returns true
 ///   [true, true, false] | all()       # Returns false
+///   all([1,2,3], fn(x) => x > 0)      # Also works as function call
 fn bi_all(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Value> {
-    let input_val = input.unwrap_or(Value::Array(vec![]));
-    let arr = expect_array("all", &input_val)?;
+    // Determine input array and predicate
+    // If input is provided via pipe, first arg is predicate (optional)
+    // If input is first arg (array), second arg is predicate (optional)
+    let (arr, predicate): (Vec<Value>, Option<Value>) = if let Some(inp) = input {
+        let arr = expect_array("all", &inp)?.to_vec();
+        let pred = args.first().cloned();
+        (arr, pred)
+    } else if !args.is_empty() {
+        if let Value::Array(a) = &args[0] {
+            // First arg is array
+            let pred = args.get(1).cloned();
+            (a.clone(), pred)
+        } else if matches!(&args[0], Value::Lambda(_)) {
+            // First arg is lambda with empty array (edge case)
+            return Err(anyhow!("all requires an array as input"));
+        } else {
+            return Err(anyhow!("all expects array, got {:?}", args[0]));
+        }
+    } else {
+        return Err(anyhow!("all requires an array input"));
+    };
 
-    if args.is_empty() {
-        // No predicate - check if all values are truthy
+    if let Some(pred_val) = predicate {
+        // Use predicate function
+        let predicate = need_lambda(&pred_val, "all")?;
+
         for val in arr {
-            if !is_truthy(val) {
+            let result = call_lambda(predicate, &[val.clone()], env)?;
+            if !is_truthy(&result) {
                 return Ok(Value::Bool(false));
             }
         }
         Ok(Value::Bool(true))
     } else {
-        // Use predicate function
-        let predicate = need_lambda(&args[0], "all")?;
-
+        // No predicate - check if all values are truthy
         for val in arr {
-            let result = call_lambda(predicate, &[val.clone()], env)?;
-            if !is_truthy(&result) {
+            if !is_truthy(&val) {
                 return Ok(Value::Bool(false));
             }
         }
@@ -5605,8 +5645,11 @@ fn bi_ends_with(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 ///
 /// Example:
 ///   [[1,2],[3,4],[5]] | flatten()     # Returns [1,2,3,4,5]
-fn bi_flatten(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let input_val = input.ok_or_else(|| anyhow!("flatten requires input array"))?;
+///   flatten([[1,2],[3,4]])            # Also works as function call
+fn bi_flatten(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let input_val = input
+        .or_else(|| args.first().cloned())
+        .ok_or_else(|| anyhow!("flatten requires input array"))?;
     let arr = expect_array("flatten", &input_val)?;
 
     let mut result = Vec::new();
@@ -5648,38 +5691,55 @@ fn bi_reverse(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 ///
 /// Example:
 ///   [1,2,3,4,5] | slice(1, 3)     # Returns [2,3]
+///   slice([1,2,3,4,5], 1, 3)      # Also works as function call
 fn bi_slice(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let input_val = input.ok_or_else(|| anyhow!("slice requires input"))?;
-
-    if args.is_empty() {
-        return Err(anyhow!("slice requires at least start index"));
-    }
-
-    let start = expect_int("slice", &args[0])? as usize;
+    // Determine input and index arguments
+    // If input is provided via pipe, args are (start, end?)
+    // If input is first arg, args are (array, start, end?)
+    let (input_val, start_idx, end_arg) = if let Some(inp) = input {
+        // Piped input: args are start, end?
+        if args.is_empty() {
+            return Err(anyhow!("slice requires at least start index"));
+        }
+        let start = expect_int("slice", &args[0])? as usize;
+        let end = args.get(1);
+        (inp, start, end)
+    } else {
+        // Function call: first arg is array, then start, end?
+        if args.len() < 2 {
+            return Err(anyhow!(
+                "slice(array, start, end?) requires at least array and start"
+            ));
+        }
+        let arr = args[0].clone();
+        let start = expect_int("slice", &args[1])? as usize;
+        let end = args.get(2);
+        (arr, start, end)
+    };
 
     match input_val {
         Value::Array(arr) => {
-            let end = if args.len() > 1 {
-                expect_int("slice", &args[1])? as usize
+            let end = if let Some(e) = end_arg {
+                expect_int("slice", e)? as usize
             } else {
                 arr.len()
             };
 
             let end = end.min(arr.len());
-            let start = start.min(end);
+            let start = start_idx.min(end);
 
             Ok(Value::Array(arr[start..end].to_vec()))
         }
         Value::Str(s) => {
             let chars: Vec<char> = s.chars().collect();
-            let end = if args.len() > 1 {
-                expect_int("slice", &args[1])? as usize
+            let end = if let Some(e) = end_arg {
+                expect_int("slice", e)? as usize
             } else {
                 chars.len()
             };
 
             let end = end.min(chars.len());
-            let start = start.min(end);
+            let start = start_idx.min(end);
 
             Ok(Value::Str(chars[start..end].iter().collect()))
         }

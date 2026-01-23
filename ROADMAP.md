@@ -347,23 +347,21 @@ This document tracks the development progress of AetherShell, the world's first 
 ## 🐛 Known Issues
 
 ### Parser Quirks
-1. Some builtins are pipeline-only: `flatten`, `reverse`, `slice`, `any`, `all`
-
-2. Zero-parameter lambdas not supported (use `fn(_) => expr`)
+All major parser quirks have been resolved.
 
 ### To Fix
 - [x] Parser: Allow pipeline assignments without parentheses ✅
 - [x] Parser: Proper semicolon statement separation ✅
 - [x] Parser: Newline-aware word-call parsing ✅
 - [x] Parser: Support zero-parameter lambdas ✅
-- [ ] Builtins: Consistent call syntax (pipeline vs function)
+- [x] Builtins: Consistent call syntax (pipeline vs function) ✅
 
 ---
 
 ## 📈 Metrics
 
 ### Test Coverage
-- **Rust Tests:** 145+ passing
+- **Rust Tests:** 180+ passing
 - **AetherShell Tests:** 8 files, all passing
 - **Pass Rate:** 100%
 
