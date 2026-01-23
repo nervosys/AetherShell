@@ -224,6 +224,47 @@ pub fn eval_expr(expr: &Expr, env: &mut Env) -> Result<Value> {
             }
         }
 
+        // ---------- try/catch ----------
+        Expr::TryCatch {
+            try_expr,
+            catch_var,
+            catch_expr,
+        } => {
+            // Try to evaluate the try expression
+            match eval_expr(try_expr, env) {
+                Ok(Value::Error(msg)) => {
+                    // An error value was returned (from throw)
+                    if let Some(var_name) = catch_var {
+                        let _ = env.set_var(var_name.clone(), Value::Str(msg));
+                    }
+                    // Evaluate catch expression; if it also throws, that's the result
+                    eval_expr(catch_expr, env)
+                }
+                Ok(val) => {
+                    // Success - return the value
+                    Ok(val)
+                }
+                Err(e) => {
+                    // Runtime error - catch it
+                    if let Some(var_name) = catch_var {
+                        let _ = env.set_var(var_name.clone(), Value::Str(e.to_string()));
+                    }
+                    // Evaluate catch expression; if it also throws, that's the result
+                    eval_expr(catch_expr, env)
+                }
+            }
+        }
+
+        // ---------- throw ----------
+        Expr::Throw(inner) => {
+            let val = eval_expr(inner, env)?;
+            let msg = match val {
+                Value::Str(s) => s,
+                other => format!("{:?}", other),
+            };
+            Ok(Value::Error(msg))
+        }
+
         // ---------- call ----------
         Expr::Call {
             callee,
@@ -571,6 +612,7 @@ fn is_truthy(v: &Value) -> bool {
         Value::Lambda(_) => true,
         Value::AsyncLambda(_) => true,
         Value::Future(_) => true,
+        Value::Error(_) => false, // Errors are falsy
     }
 }
 

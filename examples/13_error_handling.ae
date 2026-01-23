@@ -1,0 +1,82 @@
+// Example 13: Error Handling with Try/Catch/Throw
+// AetherShell supports try/catch/throw for error handling
+
+// ==================== Basic Throw ====================
+// throw creates an Error value
+let error_val = throw "something went wrong"
+print("Error value: " + type_of(error_val))
+
+// ==================== Basic Try/Catch ====================
+// try/catch catches both Error values and runtime errors
+let result = try {
+    10 / 2
+} catch {
+    0
+}
+print("Division result: " + str(result))
+
+// ==================== Catching Thrown Errors ====================
+let caught = try {
+    throw "deliberate error"
+} catch {
+    "error was caught"
+}
+print("Caught result: " + caught)
+
+// ==================== Error Binding ====================
+// Use catch e { ... } to bind the error message to a variable
+let with_binding = try {
+    throw "error message here"
+} catch err {
+    "Error was: " + err
+}
+print(with_binding)
+
+// ==================== Safe Division Example ====================
+let safe_divide = fn(a, b) => try { a / b } catch { null }
+
+print("10 / 2 = " + str(safe_divide(10, 2)))
+print("10 / 0 = " + str(safe_divide(10, 0)))
+
+// ==================== Nested Try/Catch ====================
+// Use different variable names for nested catches
+let nested_result = try {
+    try {
+        throw "inner error"
+    } catch inner_err {
+        throw ("wrapped: " + inner_err)
+    }
+} catch outer_err {
+    "Final catch: " + outer_err
+}
+print(nested_result)
+
+// ==================== is_error Function ====================
+// Check if a value is an Error
+let err = throw "test"
+let not_err = 42
+
+print("is_error(err): " + str(is_error(err)))
+print("is_error(42): " + str(is_error(not_err)))
+
+// Pipeline with is_error
+print("throw 'x' | is_error: " + str(throw "x" | is_error))
+
+// ==================== Error in Collections ====================
+// Errors can be stored in arrays and records
+let arr_with_error = [1, throw "error in array", 3]
+print("Array with error: type of arr[1] = " + type_of(arr_with_error))
+
+let rec_with_error = { a: 1, b: throw "error in record", c: 3 }
+print("Record with error: type of rec.b = " + type_of(rec_with_error.b))
+
+// ==================== Conditional Error Handling ====================
+let maybe_error = throw "conditional"
+
+let handled = match maybe_error {
+    _ if is_error(maybe_error) => "was an error"
+    _ => "was not an error"
+}
+print("Conditional handling: " + handled)
+
+print("\nError handling example complete!")

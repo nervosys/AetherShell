@@ -172,6 +172,16 @@ This document tracks the development progress of AetherShell, the world's first 
 - [x] Pipeline integration for async lambdas
 - [x] 13 comprehensive tests
 
+#### Error Handling (Completed)
+- [x] `try { expr } catch { handler }` - Try/catch expression
+- [x] `try { expr } catch e { handler }` - Catch with error binding
+- [x] `throw expr` - Throw expression for raising errors
+- [x] `Value::Error` type for error values
+- [x] `is_error(value)` builtin to check for errors
+- [x] Nested try/catch support
+- [x] Error propagation through catch blocks
+- [x] 16 comprehensive tests
+
 #### Conditional Compilation (Completed)
 - [x] `#[cfg(platform)]` - Platform checks (windows, linux, macos, unix)
 - [x] `#[cfg(feature = "name")]` - Feature flags (via AETHER_FEATURES env var)
@@ -249,7 +259,6 @@ This document tracks the development progress of AetherShell, the world's first 
 ### Q2 2026
 
 #### Advanced Scripting
-- [ ] Error handling improvements
 - [ ] Debugging tools
 
 #### Platform-Specific Features
