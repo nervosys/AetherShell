@@ -277,6 +277,54 @@ lazy_static::lazy_static! {
         map.insert("feature_disable", 167);
         map.insert("feature_set", 168);
 
+        // Distributed Computing functions (169-180)
+        map.insert("cluster_create", 169);
+        map.insert("cluster", 169); // alias
+        map.insert("cluster_add_node", 170);
+        map.insert("add_node", 170); // alias
+        map.insert("cluster_remove_node", 171);
+        map.insert("remove_node", 171); // alias
+        map.insert("cluster_status", 172);
+        map.insert("cluster_nodes", 173);
+        map.insert("nodes", 173); // alias
+        map.insert("job_submit", 174);
+        map.insert("submit", 174); // alias
+        map.insert("job_status", 175);
+        map.insert("job_cancel", 176);
+        map.insert("job_results", 177);
+        map.insert("results", 177); // alias
+        map.insert("job_list", 178);
+        map.insert("jobs", 178); // alias
+        map.insert("remote_exec", 179);
+        map.insert("exec_remote", 179); // alias
+        map.insert("aggregate_results", 180);
+        map.insert("aggregate", 180); // alias
+
+        // Advanced AI functions (181-192)
+        map.insert("rag_index", 181);
+        map.insert("index_docs", 181); // alias
+        map.insert("rag_search", 182);
+        map.insert("search_docs", 182); // alias
+        map.insert("rag_query", 183);
+        map.insert("rag", 183); // alias
+        map.insert("rag_clear", 184);
+        map.insert("kg_add", 185);
+        map.insert("add_entity", 185); // alias
+        map.insert("kg_relate", 186);
+        map.insert("add_relation", 186); // alias
+        map.insert("kg_query", 187);
+        map.insert("query_kg", 187); // alias
+        map.insert("kg_entities", 188);
+        map.insert("entities", 188); // alias
+        map.insert("kg_relations", 189);
+        map.insert("relations", 189); // alias
+        map.insert("semantic_cache", 190);
+        map.insert("cache_ai", 190); // alias
+        map.insert("semantic_cache_get", 191);
+        map.insert("cache_get", 191); // alias
+        map.insert("semantic_cache_clear", 192);
+        map.insert("cache_clear_ai", 192); // alias
+
         map
     };
 
@@ -295,6 +343,464 @@ lazy_static::lazy_static! {
         }
         std::sync::RwLock::new(features)
     };
+
+    // ===================== Distributed Computing Storage =====================
+
+    /// Cluster node representation for distributed computing
+    static ref CLUSTER_NODES: std::sync::RwLock<HashMap<String, ClusterNode>> = {
+        std::sync::RwLock::new(HashMap::new())
+    };
+
+    /// Distributed jobs registry
+    static ref DISTRIBUTED_JOBS: std::sync::RwLock<HashMap<String, DistributedJob>> = {
+        std::sync::RwLock::new(HashMap::new())
+    };
+
+    /// Job results storage
+    static ref JOB_RESULTS: std::sync::RwLock<HashMap<String, Vec<Value>>> = {
+        std::sync::RwLock::new(HashMap::new())
+    };
+
+    // ===================== Advanced AI Storage =====================
+
+    /// RAG document index - stores document chunks with embeddings
+    static ref RAG_INDEX: std::sync::RwLock<RagIndex> = {
+        std::sync::RwLock::new(RagIndex::new())
+    };
+
+    /// Knowledge graph storage
+    static ref KNOWLEDGE_GRAPH: std::sync::RwLock<KnowledgeGraph> = {
+        std::sync::RwLock::new(KnowledgeGraph::new())
+    };
+
+    /// Semantic cache for AI responses
+    static ref SEMANTIC_CACHE: std::sync::RwLock<SemanticCache> = {
+        std::sync::RwLock::new(SemanticCache::new())
+    };
+}
+
+// ===================== Distributed Computing Types =====================
+
+/// Cluster node representation
+#[derive(Debug, Clone)]
+struct ClusterNode {
+    id: String,
+    address: String,
+    capabilities: Vec<String>,
+    status: NodeStatus,
+    load: f32,
+    last_heartbeat: std::time::Instant,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum NodeStatus {
+    Online,
+    Offline,
+    Busy,
+    Draining,
+}
+
+impl NodeStatus {
+    fn as_str(&self) -> &'static str {
+        match self {
+            NodeStatus::Online => "online",
+            NodeStatus::Offline => "offline",
+            NodeStatus::Busy => "busy",
+            NodeStatus::Draining => "draining",
+        }
+    }
+}
+
+/// Distributed job representation
+#[derive(Debug, Clone)]
+struct DistributedJob {
+    id: String,
+    name: String,
+    task: String,
+    node_id: Option<String>,
+    status: JobStatus,
+    priority: i32,
+    created_at: std::time::Instant,
+    started_at: Option<std::time::Instant>,
+    completed_at: Option<std::time::Instant>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum JobStatus {
+    Pending,
+    Running,
+    Completed,
+    Failed(String),
+    Cancelled,
+}
+
+impl JobStatus {
+    fn as_str(&self) -> &str {
+        match self {
+            JobStatus::Pending => "pending",
+            JobStatus::Running => "running",
+            JobStatus::Completed => "completed",
+            JobStatus::Failed(_) => "failed",
+            JobStatus::Cancelled => "cancelled",
+        }
+    }
+}
+
+// ===================== RAG Types =====================
+
+/// RAG document chunk with simple embedding
+#[derive(Debug, Clone)]
+struct RagChunk {
+    id: String,
+    content: String,
+    source: String,
+    embedding: Vec<f32>,
+    metadata: HashMap<String, String>,
+}
+
+/// RAG index for retrieval-augmented generation
+#[derive(Debug)]
+struct RagIndex {
+    chunks: Vec<RagChunk>,
+    dimension: usize,
+}
+
+impl RagIndex {
+    fn new() -> Self {
+        Self {
+            chunks: Vec::new(),
+            dimension: 384, // Default embedding dimension
+        }
+    }
+
+    /// Simple word-frequency based embedding (for demo purposes)
+    /// In production, use a proper embedding model
+    fn simple_embed(&self, text: &str) -> Vec<f32> {
+        let words: Vec<&str> = text.split_whitespace().collect();
+        let mut embedding = vec![0.0f32; self.dimension];
+
+        for (i, word) in words.iter().enumerate() {
+            let hash = word
+                .bytes()
+                .fold(0u32, |acc, b| acc.wrapping_add(b as u32).wrapping_mul(31));
+            let idx = (hash as usize) % self.dimension;
+            embedding[idx] += 1.0 / (i + 1) as f32;
+        }
+
+        // Normalize
+        let norm: f32 = embedding.iter().map(|x| x * x).sum::<f32>().sqrt();
+        if norm > 0.0 {
+            for x in &mut embedding {
+                *x /= norm;
+            }
+        }
+        embedding
+    }
+
+    /// Cosine similarity between two embeddings
+    fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
+        if a.len() != b.len() {
+            return 0.0;
+        }
+        let dot: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
+        let norm_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
+        let norm_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
+        if norm_a > 0.0 && norm_b > 0.0 {
+            dot / (norm_a * norm_b)
+        } else {
+            0.0
+        }
+    }
+
+    fn add_document(
+        &mut self,
+        content: &str,
+        source: &str,
+        metadata: HashMap<String, String>,
+    ) -> String {
+        let id = format!("doc_{}", self.chunks.len());
+        let embedding = self.simple_embed(content);
+        self.chunks.push(RagChunk {
+            id: id.clone(),
+            content: content.to_string(),
+            source: source.to_string(),
+            embedding,
+            metadata,
+        });
+        id
+    }
+
+    fn search(&self, query: &str, top_k: usize) -> Vec<(&RagChunk, f32)> {
+        let query_embedding = self.simple_embed(query);
+        let mut results: Vec<(&RagChunk, f32)> = self
+            .chunks
+            .iter()
+            .map(|chunk| {
+                let score = Self::cosine_similarity(&query_embedding, &chunk.embedding);
+                (chunk, score)
+            })
+            .collect();
+
+        results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        results.into_iter().take(top_k).collect()
+    }
+
+    fn clear(&mut self) {
+        self.chunks.clear();
+    }
+}
+
+// ===================== Knowledge Graph Types =====================
+
+/// Entity in the knowledge graph
+#[derive(Debug, Clone)]
+struct KgEntity {
+    id: String,
+    entity_type: String,
+    name: String,
+    properties: HashMap<String, String>,
+}
+
+/// Relation between entities
+#[derive(Debug, Clone)]
+struct KgRelation {
+    id: String,
+    source_id: String,
+    target_id: String,
+    relation_type: String,
+    properties: HashMap<String, String>,
+}
+
+/// Knowledge graph storage
+#[derive(Debug)]
+struct KnowledgeGraph {
+    entities: HashMap<String, KgEntity>,
+    relations: Vec<KgRelation>,
+    next_entity_id: usize,
+    next_relation_id: usize,
+}
+
+impl KnowledgeGraph {
+    fn new() -> Self {
+        Self {
+            entities: HashMap::new(),
+            relations: Vec::new(),
+            next_entity_id: 0,
+            next_relation_id: 0,
+        }
+    }
+
+    fn add_entity(
+        &mut self,
+        entity_type: &str,
+        name: &str,
+        properties: HashMap<String, String>,
+    ) -> String {
+        let id = format!("e_{}", self.next_entity_id);
+        self.next_entity_id += 1;
+        self.entities.insert(
+            id.clone(),
+            KgEntity {
+                id: id.clone(),
+                entity_type: entity_type.to_string(),
+                name: name.to_string(),
+                properties,
+            },
+        );
+        id
+    }
+
+    fn add_relation(
+        &mut self,
+        source_id: &str,
+        target_id: &str,
+        relation_type: &str,
+        properties: HashMap<String, String>,
+    ) -> Result<String> {
+        if !self.entities.contains_key(source_id) {
+            return Err(anyhow!("Source entity '{}' not found", source_id));
+        }
+        if !self.entities.contains_key(target_id) {
+            return Err(anyhow!("Target entity '{}' not found", target_id));
+        }
+
+        let id = format!("r_{}", self.next_relation_id);
+        self.next_relation_id += 1;
+        self.relations.push(KgRelation {
+            id: id.clone(),
+            source_id: source_id.to_string(),
+            target_id: target_id.to_string(),
+            relation_type: relation_type.to_string(),
+            properties,
+        });
+        Ok(id)
+    }
+
+    fn query(&self, pattern: &str) -> Vec<Value> {
+        let mut results = Vec::new();
+        let pattern_lower = pattern.to_lowercase();
+
+        // Search entities
+        for entity in self.entities.values() {
+            if entity.name.to_lowercase().contains(&pattern_lower)
+                || entity.entity_type.to_lowercase().contains(&pattern_lower)
+            {
+                let mut record = BTreeMap::new();
+                record.insert("id".to_string(), Value::Str(entity.id.clone()));
+                record.insert("type".to_string(), Value::Str("entity".to_string()));
+                record.insert(
+                    "entity_type".to_string(),
+                    Value::Str(entity.entity_type.clone()),
+                );
+                record.insert("name".to_string(), Value::Str(entity.name.clone()));
+                results.push(Value::Record(record));
+            }
+        }
+
+        // Search relations
+        for relation in &self.relations {
+            if relation
+                .relation_type
+                .to_lowercase()
+                .contains(&pattern_lower)
+            {
+                let mut record = BTreeMap::new();
+                record.insert("id".to_string(), Value::Str(relation.id.clone()));
+                record.insert("type".to_string(), Value::Str("relation".to_string()));
+                record.insert(
+                    "relation_type".to_string(),
+                    Value::Str(relation.relation_type.clone()),
+                );
+                record.insert("source".to_string(), Value::Str(relation.source_id.clone()));
+                record.insert("target".to_string(), Value::Str(relation.target_id.clone()));
+                results.push(Value::Record(record));
+            }
+        }
+
+        results
+    }
+}
+
+// ===================== Semantic Cache Types =====================
+
+/// Cached AI response with embedding
+#[derive(Debug, Clone)]
+struct CachedResponse {
+    query: String,
+    response: String,
+    embedding: Vec<f32>,
+    created_at: std::time::Instant,
+    hit_count: usize,
+}
+
+/// Semantic cache for AI responses
+#[derive(Debug)]
+struct SemanticCache {
+    entries: Vec<CachedResponse>,
+    max_entries: usize,
+    similarity_threshold: f32,
+    ttl_seconds: u64,
+}
+
+impl SemanticCache {
+    fn new() -> Self {
+        Self {
+            entries: Vec::new(),
+            max_entries: 1000,
+            similarity_threshold: 0.85,
+            ttl_seconds: 3600, // 1 hour default TTL
+        }
+    }
+
+    /// Simple embedding for cache lookups
+    fn simple_embed(&self, text: &str) -> Vec<f32> {
+        let dimension = 128;
+        let words: Vec<&str> = text.split_whitespace().collect();
+        let mut embedding = vec![0.0f32; dimension];
+
+        for (i, word) in words.iter().enumerate() {
+            let hash = word
+                .bytes()
+                .fold(0u32, |acc, b| acc.wrapping_add(b as u32).wrapping_mul(31));
+            let idx = (hash as usize) % dimension;
+            embedding[idx] += 1.0 / (i + 1) as f32;
+        }
+
+        let norm: f32 = embedding.iter().map(|x| x * x).sum::<f32>().sqrt();
+        if norm > 0.0 {
+            for x in &mut embedding {
+                *x /= norm;
+            }
+        }
+        embedding
+    }
+
+    fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
+        if a.len() != b.len() {
+            return 0.0;
+        }
+        let dot: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
+        let norm_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
+        let norm_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
+        if norm_a > 0.0 && norm_b > 0.0 {
+            dot / (norm_a * norm_b)
+        } else {
+            0.0
+        }
+    }
+
+    fn get(&mut self, query: &str) -> Option<String> {
+        let query_embedding = self.simple_embed(query);
+        let now = std::time::Instant::now();
+
+        // Clean up expired entries
+        self.entries
+            .retain(|e| now.duration_since(e.created_at).as_secs() < self.ttl_seconds);
+
+        // Find best match
+        let mut best_match: Option<(usize, f32)> = None;
+        for (i, entry) in self.entries.iter().enumerate() {
+            let similarity = Self::cosine_similarity(&query_embedding, &entry.embedding);
+            if similarity >= self.similarity_threshold {
+                if best_match.is_none() || similarity > best_match.unwrap().1 {
+                    best_match = Some((i, similarity));
+                }
+            }
+        }
+
+        if let Some((idx, _)) = best_match {
+            self.entries[idx].hit_count += 1;
+            return Some(self.entries[idx].response.clone());
+        }
+
+        None
+    }
+
+    fn put(&mut self, query: &str, response: &str) {
+        let embedding = self.simple_embed(query);
+
+        // Evict oldest entries if at capacity
+        while self.entries.len() >= self.max_entries {
+            self.entries.remove(0);
+        }
+
+        self.entries.push(CachedResponse {
+            query: query.to_string(),
+            response: response.to_string(),
+            embedding,
+            created_at: std::time::Instant::now(),
+            hit_count: 0,
+        });
+    }
+
+    fn clear(&mut self) {
+        self.entries.clear();
+    }
+
+    fn stats(&self) -> (usize, usize) {
+        let total_hits: usize = self.entries.iter().map(|e| e.hit_count).sum();
+        (self.entries.len(), total_hits)
+    }
 }
 
 // Fast dispatch table for builtin functions
@@ -491,6 +997,32 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_feature_enable(args, input),
     |args, input, _| bi_feature_disable(args, input),
     |args, input, _| bi_feature_set(args, input),
+    // 169-180: Distributed Computing functions
+    |args, input, _| bi_cluster_create(args, input),
+    |args, input, _| bi_cluster_add_node(args, input),
+    |args, input, _| bi_cluster_remove_node(args, input),
+    |args, input, _| bi_cluster_status(args, input),
+    |args, input, _| bi_cluster_nodes(args, input),
+    |args, input, _| bi_job_submit(args, input),
+    |args, input, _| bi_job_status(args, input),
+    |args, input, _| bi_job_cancel(args, input),
+    |args, input, _| bi_job_results(args, input),
+    |args, input, _| bi_job_list(args, input),
+    |args, input, _| bi_remote_exec(args, input),
+    |args, input, _| bi_aggregate_results(args, input),
+    // 181-192: Advanced AI functions
+    |args, input, _| bi_rag_index(args, input),
+    |args, input, _| bi_rag_search(args, input),
+    |args, input, _| bi_rag_query(args, input),
+    |args, input, _| bi_rag_clear(args, input),
+    |args, input, _| bi_kg_add(args, input),
+    |args, input, _| bi_kg_relate(args, input),
+    |args, input, _| bi_kg_query(args, input),
+    |args, input, _| bi_kg_entities(args, input),
+    |args, input, _| bi_kg_relations(args, input),
+    |args, input, _| bi_semantic_cache(args, input),
+    |args, input, _| bi_semantic_cache_get(args, input),
+    |args, input, _| bi_semantic_cache_clear(args, input),
 ];
 
 fn fast_builtin_lookup(
@@ -2309,6 +2841,774 @@ fn bi_feature_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         features.remove(&name);
     }
     Ok(Value::Bool(true))
+}
+
+// ===================== Distributed Computing Builtins =====================
+
+/// cluster_create(name) - Create a new compute cluster
+/// Args:
+///   - name: String - Cluster name (optional, defaults to "default")
+/// Returns: Record with cluster info
+fn bi_cluster_create(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let name = input
+        .or_else(|| args.first().cloned())
+        .map(|v| match v {
+            Value::Str(s) => s,
+            _ => "default".to_string(),
+        })
+        .unwrap_or_else(|| "default".to_string());
+
+    let mut record = BTreeMap::new();
+    record.insert("name".to_string(), Value::Str(name.clone()));
+    record.insert("status".to_string(), Value::Str("created".to_string()));
+    record.insert("node_count".to_string(), Value::Int(0));
+    record.insert(
+        "created_at".to_string(),
+        Value::Str(chrono::Utc::now().to_rfc3339()),
+    );
+
+    Ok(Value::Record(record))
+}
+
+/// cluster_add_node(id, address, capabilities?) - Add a node to the cluster
+/// Args:
+///   - id: String - Node identifier
+///   - address: String - Node address (e.g., "192.168.1.10:8080")
+///   - capabilities: Array - Optional list of capabilities
+/// Returns: Record with node info
+fn bi_cluster_add_node(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let (id, address) = if let Some(Value::Record(rec)) = input.clone() {
+        // Record input: {id: "...", address: "..."}
+        let id = rec
+            .get("id")
+            .map(|v| v.to_display_string())
+            .ok_or_else(|| anyhow!("cluster_add_node: missing 'id' in record"))?;
+        let address = rec
+            .get("address")
+            .map(|v| v.to_display_string())
+            .ok_or_else(|| anyhow!("cluster_add_node: missing 'address' in record"))?;
+        (id, address)
+    } else if args.len() >= 2 {
+        let id = args[0].to_display_string();
+        let address = args[1].to_display_string();
+        (id, address)
+    } else {
+        return Err(anyhow!(
+            "cluster_add_node: requires id and address arguments"
+        ));
+    };
+
+    let capabilities = if args.len() >= 3 {
+        match &args[2] {
+            Value::Array(arr) => arr.iter().map(|v| v.to_display_string()).collect(),
+            _ => vec![],
+        }
+    } else {
+        vec!["compute".to_string(), "storage".to_string()]
+    };
+
+    let node = ClusterNode {
+        id: id.clone(),
+        address: address.clone(),
+        capabilities: capabilities.clone(),
+        status: NodeStatus::Online,
+        load: 0.0,
+        last_heartbeat: std::time::Instant::now(),
+    };
+
+    let mut nodes = CLUSTER_NODES
+        .write()
+        .map_err(|e| anyhow!("cluster_add_node: lock error: {}", e))?;
+    nodes.insert(id.clone(), node);
+
+    let mut record = BTreeMap::new();
+    record.insert("id".to_string(), Value::Str(id));
+    record.insert("address".to_string(), Value::Str(address));
+    record.insert(
+        "capabilities".to_string(),
+        Value::Array(capabilities.into_iter().map(Value::Str).collect()),
+    );
+    record.insert("status".to_string(), Value::Str("online".to_string()));
+
+    Ok(Value::Record(record))
+}
+
+/// cluster_remove_node(id) - Remove a node from the cluster
+fn bi_cluster_remove_node(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let id = input
+        .or_else(|| args.first().cloned())
+        .map(|v| v.to_display_string())
+        .ok_or_else(|| anyhow!("cluster_remove_node: requires node id"))?;
+
+    let mut nodes = CLUSTER_NODES
+        .write()
+        .map_err(|e| anyhow!("cluster_remove_node: lock error: {}", e))?;
+
+    let removed = nodes.remove(&id).is_some();
+    Ok(Value::Bool(removed))
+}
+
+/// cluster_status() - Get cluster status
+fn bi_cluster_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let _ = args;
+    let nodes = CLUSTER_NODES
+        .read()
+        .map_err(|e| anyhow!("cluster_status: lock error: {}", e))?;
+
+    let jobs = DISTRIBUTED_JOBS
+        .read()
+        .map_err(|e| anyhow!("cluster_status: lock error: {}", e))?;
+
+    let online_count = nodes
+        .values()
+        .filter(|n| n.status == NodeStatus::Online)
+        .count();
+    let busy_count = nodes
+        .values()
+        .filter(|n| n.status == NodeStatus::Busy)
+        .count();
+    let pending_jobs = jobs
+        .values()
+        .filter(|j| j.status == JobStatus::Pending)
+        .count();
+    let running_jobs = jobs
+        .values()
+        .filter(|j| j.status == JobStatus::Running)
+        .count();
+    let avg_load: f32 = if nodes.is_empty() {
+        0.0
+    } else {
+        nodes.values().map(|n| n.load).sum::<f32>() / nodes.len() as f32
+    };
+
+    let mut record = BTreeMap::new();
+    record.insert("total_nodes".to_string(), Value::Int(nodes.len() as i64));
+    record.insert("online_nodes".to_string(), Value::Int(online_count as i64));
+    record.insert("busy_nodes".to_string(), Value::Int(busy_count as i64));
+    record.insert("total_jobs".to_string(), Value::Int(jobs.len() as i64));
+    record.insert("pending_jobs".to_string(), Value::Int(pending_jobs as i64));
+    record.insert("running_jobs".to_string(), Value::Int(running_jobs as i64));
+    record.insert("average_load".to_string(), Value::Float(avg_load as f64));
+
+    Ok(Value::Record(record))
+}
+
+/// cluster_nodes() - List all nodes in the cluster
+fn bi_cluster_nodes(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let _ = args;
+    let nodes = CLUSTER_NODES
+        .read()
+        .map_err(|e| anyhow!("cluster_nodes: lock error: {}", e))?;
+
+    let node_list: Vec<Value> = nodes
+        .values()
+        .map(|node| {
+            let mut record = BTreeMap::new();
+            record.insert("id".to_string(), Value::Str(node.id.clone()));
+            record.insert("address".to_string(), Value::Str(node.address.clone()));
+            record.insert(
+                "status".to_string(),
+                Value::Str(node.status.as_str().to_string()),
+            );
+            record.insert("load".to_string(), Value::Float(node.load as f64));
+            record.insert(
+                "capabilities".to_string(),
+                Value::Array(
+                    node.capabilities
+                        .iter()
+                        .map(|c| Value::Str(c.clone()))
+                        .collect(),
+                ),
+            );
+            Value::Record(record)
+        })
+        .collect();
+
+    Ok(Value::Array(node_list))
+}
+
+/// job_submit(name, task, priority?) - Submit a job to the cluster
+fn bi_job_submit(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let (name, task) = if let Some(Value::Record(rec)) = input.clone() {
+        let name = rec
+            .get("name")
+            .map(|v| v.to_display_string())
+            .ok_or_else(|| anyhow!("job_submit: missing 'name'"))?;
+        let task = rec
+            .get("task")
+            .map(|v| v.to_display_string())
+            .ok_or_else(|| anyhow!("job_submit: missing 'task'"))?;
+        (name, task)
+    } else if args.len() >= 2 {
+        (args[0].to_display_string(), args[1].to_display_string())
+    } else {
+        return Err(anyhow!("job_submit: requires name and task"));
+    };
+
+    let priority = args
+        .get(2)
+        .map(|v| match v {
+            Value::Int(i) => *i as i32,
+            _ => 0,
+        })
+        .unwrap_or(0);
+
+    let job_id = format!(
+        "job_{}",
+        uuid::Uuid::new_v4().to_string().split('-').next().unwrap()
+    );
+
+    let job = DistributedJob {
+        id: job_id.clone(),
+        name,
+        task,
+        node_id: None,
+        status: JobStatus::Pending,
+        priority,
+        created_at: std::time::Instant::now(),
+        started_at: None,
+        completed_at: None,
+    };
+
+    let mut jobs = DISTRIBUTED_JOBS
+        .write()
+        .map_err(|e| anyhow!("job_submit: lock error: {}", e))?;
+    jobs.insert(job_id.clone(), job);
+
+    let mut record = BTreeMap::new();
+    record.insert("job_id".to_string(), Value::Str(job_id));
+    record.insert("status".to_string(), Value::Str("pending".to_string()));
+
+    Ok(Value::Record(record))
+}
+
+/// job_status(job_id) - Get the status of a job
+fn bi_job_status(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let job_id = input
+        .or_else(|| args.first().cloned())
+        .map(|v| v.to_display_string())
+        .ok_or_else(|| anyhow!("job_status: requires job_id"))?;
+
+    let jobs = DISTRIBUTED_JOBS
+        .read()
+        .map_err(|e| anyhow!("job_status: lock error: {}", e))?;
+
+    let job = jobs
+        .get(&job_id)
+        .ok_or_else(|| anyhow!("job_status: job '{}' not found", job_id))?;
+
+    let mut record = BTreeMap::new();
+    record.insert("job_id".to_string(), Value::Str(job.id.clone()));
+    record.insert("name".to_string(), Value::Str(job.name.clone()));
+    record.insert(
+        "status".to_string(),
+        Value::Str(job.status.as_str().to_string()),
+    );
+    record.insert("priority".to_string(), Value::Int(job.priority as i64));
+    if let Some(node_id) = &job.node_id {
+        record.insert("node_id".to_string(), Value::Str(node_id.clone()));
+    }
+
+    Ok(Value::Record(record))
+}
+
+/// job_cancel(job_id) - Cancel a pending or running job
+fn bi_job_cancel(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let job_id = input
+        .or_else(|| args.first().cloned())
+        .map(|v| v.to_display_string())
+        .ok_or_else(|| anyhow!("job_cancel: requires job_id"))?;
+
+    let mut jobs = DISTRIBUTED_JOBS
+        .write()
+        .map_err(|e| anyhow!("job_cancel: lock error: {}", e))?;
+
+    if let Some(job) = jobs.get_mut(&job_id) {
+        match job.status {
+            JobStatus::Pending | JobStatus::Running => {
+                job.status = JobStatus::Cancelled;
+                Ok(Value::Bool(true))
+            }
+            _ => Ok(Value::Bool(false)),
+        }
+    } else {
+        Err(anyhow!("job_cancel: job '{}' not found", job_id))
+    }
+}
+
+/// job_results(job_id) - Get the results of a completed job
+fn bi_job_results(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let job_id = input
+        .or_else(|| args.first().cloned())
+        .map(|v| v.to_display_string())
+        .ok_or_else(|| anyhow!("job_results: requires job_id"))?;
+
+    let results = JOB_RESULTS
+        .read()
+        .map_err(|e| anyhow!("job_results: lock error: {}", e))?;
+
+    if let Some(result_values) = results.get(&job_id) {
+        Ok(Value::Array(result_values.clone()))
+    } else {
+        Ok(Value::Array(vec![]))
+    }
+}
+
+/// job_list() - List all jobs
+fn bi_job_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let _ = args;
+    let jobs = DISTRIBUTED_JOBS
+        .read()
+        .map_err(|e| anyhow!("job_list: lock error: {}", e))?;
+
+    let job_list: Vec<Value> = jobs
+        .values()
+        .map(|job| {
+            let mut record = BTreeMap::new();
+            record.insert("job_id".to_string(), Value::Str(job.id.clone()));
+            record.insert("name".to_string(), Value::Str(job.name.clone()));
+            record.insert(
+                "status".to_string(),
+                Value::Str(job.status.as_str().to_string()),
+            );
+            record.insert("priority".to_string(), Value::Int(job.priority as i64));
+            Value::Record(record)
+        })
+        .collect();
+
+    Ok(Value::Array(job_list))
+}
+
+/// remote_exec(node_id, command) - Execute a command on a remote node
+fn bi_remote_exec(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let (node_id, command) = if let Some(Value::Record(rec)) = input {
+        let node_id = rec
+            .get("node_id")
+            .map(|v| v.to_display_string())
+            .ok_or_else(|| anyhow!("remote_exec: missing 'node_id'"))?;
+        let command = rec
+            .get("command")
+            .map(|v| v.to_display_string())
+            .ok_or_else(|| anyhow!("remote_exec: missing 'command'"))?;
+        (node_id, command)
+    } else if args.len() >= 2 {
+        (args[0].to_display_string(), args[1].to_display_string())
+    } else {
+        return Err(anyhow!("remote_exec: requires node_id and command"));
+    };
+
+    let nodes = CLUSTER_NODES
+        .read()
+        .map_err(|e| anyhow!("remote_exec: lock error: {}", e))?;
+
+    if !nodes.contains_key(&node_id) {
+        return Err(anyhow!("remote_exec: node '{}' not found", node_id));
+    }
+
+    // Simulate remote execution (in real impl would use SSH/RPC)
+    let mut record = BTreeMap::new();
+    record.insert("node_id".to_string(), Value::Str(node_id));
+    record.insert("command".to_string(), Value::Str(command));
+    record.insert("status".to_string(), Value::Str("executed".to_string()));
+    record.insert(
+        "output".to_string(),
+        Value::Str("Remote execution simulated".to_string()),
+    );
+
+    Ok(Value::Record(record))
+}
+
+/// aggregate_results(results, strategy?) - Aggregate results from distributed computation
+fn bi_aggregate_results(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let results = input
+        .or_else(|| args.first().cloned())
+        .ok_or_else(|| anyhow!("aggregate_results: requires results array"))?;
+
+    let results = match results {
+        Value::Array(arr) => arr,
+        _ => return Err(anyhow!("aggregate_results: results must be an array")),
+    };
+
+    let strategy = args
+        .get(1)
+        .map(|v| v.to_display_string())
+        .unwrap_or_else(|| "concat".to_string());
+
+    match strategy.as_str() {
+        "concat" => Ok(Value::Array(results)),
+        "sum" => {
+            let sum: f64 = results
+                .iter()
+                .filter_map(|v| match v {
+                    Value::Int(i) => Some(*i as f64),
+                    Value::Float(f) => Some(*f),
+                    _ => None,
+                })
+                .sum();
+            Ok(Value::Float(sum))
+        }
+        "count" => Ok(Value::Int(results.len() as i64)),
+        "first" => Ok(results.first().cloned().unwrap_or(Value::Null)),
+        "last" => Ok(results.last().cloned().unwrap_or(Value::Null)),
+        _ => Err(anyhow!(
+            "aggregate_results: unknown strategy '{}'",
+            strategy
+        )),
+    }
+}
+
+// ===================== Advanced AI Builtins =====================
+
+/// rag_index(content, source?, metadata?) - Index a document for RAG
+fn bi_rag_index(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let content = input
+        .or_else(|| args.first().cloned())
+        .map(|v| v.to_display_string())
+        .ok_or_else(|| anyhow!("rag_index: requires content"))?;
+
+    let source = args
+        .get(1)
+        .map(|v| v.to_display_string())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    let metadata: HashMap<String, String> = if let Some(Value::Record(rec)) = args.get(2) {
+        rec.iter()
+            .map(|(k, v)| (k.clone(), v.to_display_string()))
+            .collect()
+    } else {
+        HashMap::new()
+    };
+
+    let mut index = RAG_INDEX
+        .write()
+        .map_err(|e| anyhow!("rag_index: lock error: {}", e))?;
+
+    let doc_id = index.add_document(&content, &source, metadata);
+
+    let mut record = BTreeMap::new();
+    record.insert("doc_id".to_string(), Value::Str(doc_id));
+    record.insert("source".to_string(), Value::Str(source));
+    record.insert("chunk_count".to_string(), Value::Int(1));
+    record.insert(
+        "total_docs".to_string(),
+        Value::Int(index.chunks.len() as i64),
+    );
+
+    Ok(Value::Record(record))
+}
+
+/// rag_search(query, top_k?) - Search indexed documents
+fn bi_rag_search(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let query = input
+        .or_else(|| args.first().cloned())
+        .map(|v| v.to_display_string())
+        .ok_or_else(|| anyhow!("rag_search: requires query"))?;
+
+    let top_k = args
+        .get(1)
+        .map(|v| match v {
+            Value::Int(i) => *i as usize,
+            _ => 5,
+        })
+        .unwrap_or(5);
+
+    let index = RAG_INDEX
+        .read()
+        .map_err(|e| anyhow!("rag_search: lock error: {}", e))?;
+
+    let results = index.search(&query, top_k);
+
+    let result_values: Vec<Value> = results
+        .iter()
+        .map(|(chunk, score)| {
+            let mut record = BTreeMap::new();
+            record.insert("doc_id".to_string(), Value::Str(chunk.id.clone()));
+            record.insert("content".to_string(), Value::Str(chunk.content.clone()));
+            record.insert("source".to_string(), Value::Str(chunk.source.clone()));
+            record.insert("score".to_string(), Value::Float(*score as f64));
+            Value::Record(record)
+        })
+        .collect();
+
+    Ok(Value::Array(result_values))
+}
+
+/// rag_query(query, top_k?) - Search and generate a response using RAG
+fn bi_rag_query(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let query = input
+        .or_else(|| args.first().cloned())
+        .map(|v| v.to_display_string())
+        .ok_or_else(|| anyhow!("rag_query: requires query"))?;
+
+    let top_k = args
+        .get(1)
+        .map(|v| match v {
+            Value::Int(i) => *i as usize,
+            _ => 3,
+        })
+        .unwrap_or(3);
+
+    let index = RAG_INDEX
+        .read()
+        .map_err(|e| anyhow!("rag_query: lock error: {}", e))?;
+
+    let results = index.search(&query, top_k);
+
+    // Build context from retrieved documents
+    let context: String = results
+        .iter()
+        .map(|(chunk, _)| chunk.content.as_str())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+
+    let mut record = BTreeMap::new();
+    record.insert("query".to_string(), Value::Str(query));
+    record.insert("context".to_string(), Value::Str(context));
+    record.insert(
+        "sources".to_string(),
+        Value::Array(
+            results
+                .iter()
+                .map(|(chunk, _)| Value::Str(chunk.source.clone()))
+                .collect(),
+        ),
+    );
+    record.insert("doc_count".to_string(), Value::Int(results.len() as i64));
+
+    Ok(Value::Record(record))
+}
+
+/// rag_clear() - Clear the RAG index
+fn bi_rag_clear(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let _ = args;
+    let mut index = RAG_INDEX
+        .write()
+        .map_err(|e| anyhow!("rag_clear: lock error: {}", e))?;
+
+    let count = index.chunks.len();
+    index.clear();
+
+    Ok(Value::Int(count as i64))
+}
+
+/// kg_add(type, name, properties?) - Add an entity to the knowledge graph
+fn bi_kg_add(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let (entity_type, name) = if let Some(Value::Record(rec)) = input {
+        let entity_type = rec
+            .get("type")
+            .map(|v| v.to_display_string())
+            .ok_or_else(|| anyhow!("kg_add: missing 'type'"))?;
+        let name = rec
+            .get("name")
+            .map(|v| v.to_display_string())
+            .ok_or_else(|| anyhow!("kg_add: missing 'name'"))?;
+        (entity_type, name)
+    } else if args.len() >= 2 {
+        (args[0].to_display_string(), args[1].to_display_string())
+    } else {
+        return Err(anyhow!("kg_add: requires type and name"));
+    };
+
+    let properties: HashMap<String, String> = if let Some(Value::Record(rec)) = args.get(2) {
+        rec.iter()
+            .map(|(k, v)| (k.clone(), v.to_display_string()))
+            .collect()
+    } else {
+        HashMap::new()
+    };
+
+    let mut kg = KNOWLEDGE_GRAPH
+        .write()
+        .map_err(|e| anyhow!("kg_add: lock error: {}", e))?;
+
+    let entity_id = kg.add_entity(&entity_type, &name, properties);
+
+    let mut record = BTreeMap::new();
+    record.insert("entity_id".to_string(), Value::Str(entity_id));
+    record.insert("type".to_string(), Value::Str(entity_type));
+    record.insert("name".to_string(), Value::Str(name));
+
+    Ok(Value::Record(record))
+}
+
+/// kg_relate(source_id, target_id, relation_type, properties?) - Add a relation
+fn bi_kg_relate(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let (source_id, target_id, relation_type) = if let Some(Value::Record(rec)) = input {
+        let source = rec
+            .get("source")
+            .map(|v| v.to_display_string())
+            .ok_or_else(|| anyhow!("kg_relate: missing 'source'"))?;
+        let target = rec
+            .get("target")
+            .map(|v| v.to_display_string())
+            .ok_or_else(|| anyhow!("kg_relate: missing 'target'"))?;
+        let rel_type = rec
+            .get("relation")
+            .map(|v| v.to_display_string())
+            .ok_or_else(|| anyhow!("kg_relate: missing 'relation'"))?;
+        (source, target, rel_type)
+    } else if args.len() >= 3 {
+        (
+            args[0].to_display_string(),
+            args[1].to_display_string(),
+            args[2].to_display_string(),
+        )
+    } else {
+        return Err(anyhow!(
+            "kg_relate: requires source_id, target_id, and relation_type"
+        ));
+    };
+
+    let properties: HashMap<String, String> = if let Some(Value::Record(rec)) = args.get(3) {
+        rec.iter()
+            .map(|(k, v)| (k.clone(), v.to_display_string()))
+            .collect()
+    } else {
+        HashMap::new()
+    };
+
+    let mut kg = KNOWLEDGE_GRAPH
+        .write()
+        .map_err(|e| anyhow!("kg_relate: lock error: {}", e))?;
+
+    let relation_id = kg.add_relation(&source_id, &target_id, &relation_type, properties)?;
+
+    let mut record = BTreeMap::new();
+    record.insert("relation_id".to_string(), Value::Str(relation_id));
+    record.insert("source".to_string(), Value::Str(source_id));
+    record.insert("target".to_string(), Value::Str(target_id));
+    record.insert("relation_type".to_string(), Value::Str(relation_type));
+
+    Ok(Value::Record(record))
+}
+
+/// kg_query(pattern) - Query the knowledge graph
+fn bi_kg_query(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let pattern = input
+        .or_else(|| args.first().cloned())
+        .map(|v| v.to_display_string())
+        .ok_or_else(|| anyhow!("kg_query: requires pattern"))?;
+
+    let kg = KNOWLEDGE_GRAPH
+        .read()
+        .map_err(|e| anyhow!("kg_query: lock error: {}", e))?;
+
+    let results = kg.query(&pattern);
+    Ok(Value::Array(results))
+}
+
+/// kg_entities() - List all entities in the knowledge graph
+fn bi_kg_entities(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let _ = args;
+    let kg = KNOWLEDGE_GRAPH
+        .read()
+        .map_err(|e| anyhow!("kg_entities: lock error: {}", e))?;
+
+    let entities: Vec<Value> = kg
+        .entities
+        .values()
+        .map(|entity| {
+            let mut record = BTreeMap::new();
+            record.insert("id".to_string(), Value::Str(entity.id.clone()));
+            record.insert("type".to_string(), Value::Str(entity.entity_type.clone()));
+            record.insert("name".to_string(), Value::Str(entity.name.clone()));
+            Value::Record(record)
+        })
+        .collect();
+
+    Ok(Value::Array(entities))
+}
+
+/// kg_relations() - List all relations in the knowledge graph
+fn bi_kg_relations(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let _ = args;
+    let kg = KNOWLEDGE_GRAPH
+        .read()
+        .map_err(|e| anyhow!("kg_relations: lock error: {}", e))?;
+
+    let relations: Vec<Value> = kg
+        .relations
+        .iter()
+        .map(|rel| {
+            let mut record = BTreeMap::new();
+            record.insert("id".to_string(), Value::Str(rel.id.clone()));
+            record.insert("source".to_string(), Value::Str(rel.source_id.clone()));
+            record.insert("target".to_string(), Value::Str(rel.target_id.clone()));
+            record.insert("type".to_string(), Value::Str(rel.relation_type.clone()));
+            Value::Record(record)
+        })
+        .collect();
+
+    Ok(Value::Array(relations))
+}
+
+/// semantic_cache(query, response) - Store a response in the semantic cache
+fn bi_semantic_cache(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let (query, response) = if let Some(Value::Record(rec)) = input {
+        let query = rec
+            .get("query")
+            .map(|v| v.to_display_string())
+            .ok_or_else(|| anyhow!("semantic_cache: missing 'query'"))?;
+        let response = rec
+            .get("response")
+            .map(|v| v.to_display_string())
+            .ok_or_else(|| anyhow!("semantic_cache: missing 'response'"))?;
+        (query, response)
+    } else if args.len() >= 2 {
+        (args[0].to_display_string(), args[1].to_display_string())
+    } else {
+        return Err(anyhow!("semantic_cache: requires query and response"));
+    };
+
+    let mut cache = SEMANTIC_CACHE
+        .write()
+        .map_err(|e| anyhow!("semantic_cache: lock error: {}", e))?;
+
+    cache.put(&query, &response);
+
+    let (entries, hits) = cache.stats();
+    let mut record = BTreeMap::new();
+    record.insert("cached".to_string(), Value::Bool(true));
+    record.insert("total_entries".to_string(), Value::Int(entries as i64));
+    record.insert("total_hits".to_string(), Value::Int(hits as i64));
+
+    Ok(Value::Record(record))
+}
+
+/// semantic_cache_get(query) - Try to get a cached response
+fn bi_semantic_cache_get(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let query = input
+        .or_else(|| args.first().cloned())
+        .map(|v| v.to_display_string())
+        .ok_or_else(|| anyhow!("semantic_cache_get: requires query"))?;
+
+    let mut cache = SEMANTIC_CACHE
+        .write()
+        .map_err(|e| anyhow!("semantic_cache_get: lock error: {}", e))?;
+
+    if let Some(response) = cache.get(&query) {
+        let mut record = BTreeMap::new();
+        record.insert("hit".to_string(), Value::Bool(true));
+        record.insert("response".to_string(), Value::Str(response));
+        Ok(Value::Record(record))
+    } else {
+        let mut record = BTreeMap::new();
+        record.insert("hit".to_string(), Value::Bool(false));
+        Ok(Value::Record(record))
+    }
+}
+
+/// semantic_cache_clear() - Clear the semantic cache
+fn bi_semantic_cache_clear(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let _ = args;
+    let mut cache = SEMANTIC_CACHE
+        .write()
+        .map_err(|e| anyhow!("semantic_cache_clear: lock error: {}", e))?;
+
+    let (count, _) = cache.stats();
+    cache.clear();
+
+    Ok(Value::Int(count as i64))
 }
 
 // --------------- AI / Agents wrappers (optional) ---------------

@@ -22,7 +22,10 @@ fn test_flatten_pipeline() {
     match result {
         Value::Array(arr) => {
             assert_eq!(arr.len(), 4);
-            assert_eq!(arr, vec![Value::Int(1), Value::Int(2), Value::Int(3), Value::Int(4)]);
+            assert_eq!(
+                arr,
+                vec![Value::Int(1), Value::Int(2), Value::Int(3), Value::Int(4)]
+            );
         }
         _ => panic!("Expected Array"),
     }
@@ -34,7 +37,10 @@ fn test_flatten_function_call() {
     match result {
         Value::Array(arr) => {
             assert_eq!(arr.len(), 4);
-            assert_eq!(arr, vec![Value::Int(1), Value::Int(2), Value::Int(3), Value::Int(4)]);
+            assert_eq!(
+                arr,
+                vec![Value::Int(1), Value::Int(2), Value::Int(3), Value::Int(4)]
+            );
         }
         _ => panic!("Expected Array"),
     }

@@ -1019,20 +1019,22 @@ impl Parser {
             // Otherwise support word-call style: space-separated atoms and lambdas
             // Only continue if tokens are on the same line (newlines act as statement separators)
             let mut args: Vec<Expr> = Vec::new();
-            while self.peek().line == primary_line && self.check_any(&[
-                Tok::Fn,
-                Tok::Async,
-                Tok::String,
-                Tok::Int,
-                Tok::Float,
-                Tok::LBrace,
-                Tok::LBracket,
-                Tok::Ident,
-                Tok::LParen,
-                Tok::True,
-                Tok::False,
-                Tok::Null,
-            ]) {
+            while self.peek().line == primary_line
+                && self.check_any(&[
+                    Tok::Fn,
+                    Tok::Async,
+                    Tok::String,
+                    Tok::Int,
+                    Tok::Float,
+                    Tok::LBrace,
+                    Tok::LBracket,
+                    Tok::Ident,
+                    Tok::LParen,
+                    Tok::True,
+                    Tok::False,
+                    Tok::Null,
+                ])
+            {
                 if self.check(Tok::Fn) {
                     let lam = self.parse_lambda()?;
                     args.push(lam);
