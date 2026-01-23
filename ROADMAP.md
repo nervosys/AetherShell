@@ -12,7 +12,7 @@ This document tracks the development progress of AetherShell, the world's first 
 | ---------------- | ---------- | ---------------------- |
 | Core Language    | ✅ Complete | 100%                   |
 | Type System      | ✅ Complete | 100%                   |
-| Builtins Library | ✅ Complete | 151+ functions         |
+| Builtins Library | ✅ Complete | 157+ functions         |
 | AI Integration   | ✅ Complete | Multi-provider         |
 | TUI Interface    | ✅ Complete | Full featured          |
 | Theme System     | ✅ Complete | 38 themes              |
@@ -182,6 +182,16 @@ This document tracks the development progress of AetherShell, the world's first 
 - [x] Error propagation through catch blocks
 - [x] 16 comprehensive tests
 
+#### Debugging Tools (Completed)
+- [x] `debug(value)` - Print value with type and return it for chaining
+- [x] `dbg(value)` - Alias for debug
+- [x] `trace(label, value)` - Labeled debugging for pipeline traces
+- [x] `assert(condition, msg?)` - Runtime assertions with optional message
+- [x] `type_assert(value, type)` - Assert value has expected type
+- [x] `assert_type(value, type)` - Alias for type_assert
+- [x] `inspect(value)` - Detailed value inspection returning Record
+- [x] 41 comprehensive tests
+
 #### Conditional Compilation (Completed)
 - [x] `#[cfg(platform)]` - Platform checks (windows, linux, macos, unix)
 - [x] `#[cfg(feature = "name")]` - Feature flags (via AETHER_FEATURES env var)
@@ -257,9 +267,6 @@ This document tracks the development progress of AetherShell, the world's first 
 ## 📅 Planned Features
 
 ### Q2 2026
-
-#### Advanced Scripting
-- [ ] Debugging tools
 
 #### Platform-Specific Features
 - [ ] Platform-specific module loading

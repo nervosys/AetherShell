@@ -1,0 +1,139 @@
+# Example 14: Debugging Tools
+# AetherShell provides powerful debugging tools for development
+
+# ==========================================
+# debug() - Print value with type and return it
+# ==========================================
+
+# Debug prints to stderr and returns the value unchanged
+let x = debug(42)
+# Output: [DEBUG] Int: 42
+
+# Perfect for pipeline debugging
+let result = [1, 2, 3, 4] | debug | map(fn(n) => n * 2) | debug
+# Shows input and output of transformation
+
+# dbg() is a convenient alias
+dbg("hello world")
+
+# ==========================================
+# trace() - Labeled debugging for pipelines
+# ==========================================
+
+# Add labels to trace points
+trace("input", [1, 2, 3])
+# Output: [TRACE input] Array: [1, 2, 3]
+
+# Excellent for complex pipelines
+let numbers = [1, 2, 3, 4, 5]
+let doubled = (numbers | trace("before") | map(fn(x) => x * 2) | trace("after"))
+# Shows values at each trace point
+
+# ==========================================
+# assert() - Runtime assertions
+# ==========================================
+
+# Simple assertion (returns true or Error)
+assert(true)
+
+# Assertion with custom message
+let count = 5
+assert(count > 0, "count must be positive")
+
+# Works with truthy values
+assert("non-empty string")  # Passes
+assert([1, 2, 3])           # Passes (non-empty array)
+
+# Falsy values fail the assertion
+# assert(false)        # Returns Error("assertion failed")
+# assert(null)         # Returns Error("assertion failed")
+# assert("")           # Returns Error("assertion failed")
+# assert([])           # Returns Error("assertion failed")
+
+# Use with try/catch for recoverable assertions
+let result = try { assert(false, "expected failure") } catch e { "caught: " + e }
+print(result)
+
+# ==========================================
+# type_assert() - Type checking at runtime
+# ==========================================
+
+# Verify a value has expected type
+type_assert(42, "Int")
+type_assert("hello", "String")
+type_assert([1, 2], "Array")
+
+# Type names are case-insensitive
+type_assert(3.14, "float")
+
+# Returns the value if types match (for chaining)
+let validated = type_assert([1, 2, 3], "Array") | len
+print(validated)  # 3
+
+# Returns Error on type mismatch
+let wrong = type_assert("hello", "Int")
+print(is_error(wrong))  # true
+
+# assert_type is an alias
+assert_type({name: "test"}, "Record")
+
+# ==========================================
+# inspect() - Detailed value inspection
+# ==========================================
+
+# Get comprehensive info about any value
+print(inspect(42))
+# Returns: {type: "Int", value: 42, is_negative: false, is_zero: false}
+
+print(inspect("hello"))
+# Returns: {type: "String", value: "hello", length: 5, is_empty: false, char_count: 5}
+
+print(inspect([1, 2, 3]))
+# Returns: {type: "Array", length: 3, is_empty: false, first: 1, last: 3, element_types: ["Int"], elements: [1,2,3]}
+
+print(inspect({name: "Alice", age: 30}))
+# Returns: {type: "Record", length: 2, keys: ["age", "name"], ...}
+
+# Inspect a lambda
+print(inspect(fn(x, y) => x + y))
+# Returns: {type: "Lambda", param_count: 2, params: ["x", "y"], body: "..."}
+
+# Inspect an error
+let err = throw "something went wrong"
+print(inspect(err))
+# Returns: {type: "Error", message: "something went wrong", is_error: true}
+
+# ==========================================
+# Practical Examples
+# ==========================================
+
+# Defensive function with type checking
+let safe_divide = fn(a, b) => 
+    let ta = type_assert(a, "Int")
+    let tb = type_assert(b, "Int")
+    if is_error(ta) then ta
+    else if is_error(tb) then tb
+    else if b == 0 then throw "division by zero"
+    else a / b
+
+# Test the function
+print(safe_divide(10, 2))   # 5.0
+print(safe_divide(10, 0))   # Error: division by zero
+
+# Debug a complex pipeline
+let data = [{name: "Alice", score: 85}, {name: "Bob", score: 92}, {name: "Carol", score: 78}]
+
+let top_scorers = (data 
+    | trace("input")
+    | where(fn(r) => r.score > 80) 
+    | trace("filtered")
+    | map(fn(r) => r.name)
+    | trace("names"))
+
+print(top_scorers)  # ["Alice", "Bob"]
+
+# Pre-condition checking
+let process_data = fn(items) => 
+    assert(len(items) > 0, "items cannot be empty")
+
+print("Debugging tools example complete!")
