@@ -1,0 +1,130 @@
+#!/usr/bin/env ae
+# Example 16: Runtime Feature Flags
+# Feature flags for conditional functionality and runtime configuration
+
+# ============================================================================
+# Basic Feature Flag Operations
+# ============================================================================
+
+print("=== Feature Flags ===")
+
+# Check initial features (may include env-loaded features)
+print("Initial features: " + str(features()))
+
+# Enable some features
+feature_enable("experimental")
+feature_enable("debug_mode")
+feature_enable("ai_assistant")
+
+print("After enabling features: " + str(features()))
+
+# ============================================================================
+# Checking Features
+# ============================================================================
+
+print("\n=== Feature Checking ===")
+
+# Check if features are enabled
+print("experimental enabled: " + str(feature_enabled("experimental")))
+print("debug_mode enabled: " + str(has_feature("debug_mode")))
+print("nonexistent enabled: " + str(feature_enabled("nonexistent")))
+
+# ============================================================================
+# Conditional Behavior
+# ============================================================================
+
+print("\n=== Conditional Behavior ===")
+
+# Use feature flags for conditional logic
+let debug = feature_enabled("debug_mode")
+match debug {
+    true => print("[DEBUG] Debug mode is active"),
+    _ => print("Running in normal mode")
+}
+
+# Feature-gated functionality
+let ai_enabled = feature_enabled("ai_assistant")
+match ai_enabled {
+    true => print("AI assistant features are available"),
+    _ => print("AI features disabled")
+}
+
+# ============================================================================
+# Feature Toggle
+# ============================================================================
+
+print("\n=== Feature Toggle ===")
+
+# Enable then disable a feature
+feature_enable("temporary")
+print("temporary before disable: " + str(feature_enabled("temporary")))
+
+feature_disable("temporary")
+print("temporary after disable: " + str(feature_enabled("temporary")))
+
+# ============================================================================
+# Feature Set with Boolean
+# ============================================================================
+
+print("\n=== Feature Set ===")
+
+# Set feature to specific state
+feature_set("verbose", true)
+print("verbose after set(true): " + str(feature_enabled("verbose")))
+
+feature_set("verbose", false)
+print("verbose after set(false): " + str(feature_enabled("verbose")))
+
+# Piped syntax
+"piped_feature" | feature_set(true)
+print("piped_feature enabled: " + str("piped_feature" | feature_enabled))
+
+# ============================================================================
+# Feature-based Configuration
+# ============================================================================
+
+print("\n=== Feature Configuration Record ===")
+
+# Create a config record based on features
+let config = {
+    experimental: feature_enabled("experimental"),
+    debug: feature_enabled("debug_mode"),
+    ai: feature_enabled("ai_assistant"),
+    beta: feature_enabled("beta")
+}
+print(config)
+
+# ============================================================================
+# Feature Checking with Arrays
+# ============================================================================
+
+print("\n=== Batch Feature Checking ===")
+
+# Check multiple features at once
+let required = ["experimental", "debug_mode"]
+let all_enabled = required | map(fn(f) => feature_enabled(f)) | all(fn(x) => x)
+print("All required features enabled: " + str(all_enabled))
+
+# Find which features from a list are enabled
+let check_list = ["experimental", "beta", "ai_assistant", "nonexistent"]
+let enabled_ones = check_list | filter(fn(f) => feature_enabled(f))
+print("Enabled from list: " + str(enabled_ones))
+
+# ============================================================================
+# Environment Variable Integration
+# ============================================================================
+
+print("\n=== Environment Integration ===")
+print("Features can be pre-loaded via AETHER_FEATURES env var")
+print("Example: AETHER_FEATURES=ai,debug,experimental ae script.ae")
+print("Current features: " + str(feature_list()))
+
+# ============================================================================
+# Cleanup
+# ============================================================================
+
+print("\n=== Cleanup ===")
+feature_disable("experimental")
+feature_disable("debug_mode")
+feature_disable("ai_assistant")
+print("Final features: " + str(features()))

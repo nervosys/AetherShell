@@ -12,7 +12,7 @@ This document tracks the development progress of AetherShell, the world's first 
 | ---------------- | ---------- | ---------------------- |
 | Core Language    | ✅ Complete | 100%                   |
 | Type System      | ✅ Complete | 100%                   |
-| Builtins Library | ✅ Complete | 164+ functions         |
+| Builtins Library | ✅ Complete | 169+ functions         |
 | AI Integration   | ✅ Complete | Multi-provider         |
 | TUI Interface    | ✅ Complete | Full featured          |
 | Theme System     | ✅ Complete | 38 themes              |
@@ -200,6 +200,17 @@ This document tracks the development progress of AetherShell, the world's first 
 - [x] `is_unix()` - Check if running on Unix-like system
 - [x] `is_bsd()` - Check if running on BSD
 - [x] `platform_module(base_path)` - Generate platform-specific module path
+- [x] 21 comprehensive tests
+
+#### Runtime Feature Flags (Completed)
+- [x] `features()` - List all enabled feature flags
+- [x] `feature_list()` - Alias for features()
+- [x] `feature_enabled(name)` - Check if feature is enabled
+- [x] `has_feature(name)` - Alias for feature_enabled()
+- [x] `feature_enable(name)` - Enable a feature flag at runtime
+- [x] `feature_disable(name)` - Disable a feature flag
+- [x] `feature_set(name, bool)` - Set feature to specific state
+- [x] AETHER_FEATURES env var support for pre-loading features
 - [x] 21 comprehensive tests
 
 #### Conditional Compilation (Completed)

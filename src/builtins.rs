@@ -268,7 +268,32 @@ lazy_static::lazy_static! {
         map.insert("is_bsd", 162);
         map.insert("platform_module", 163);
 
+        // Feature flag functions (164-168)
+        map.insert("features", 164);
+        map.insert("feature_list", 164); // alias
+        map.insert("feature_enabled", 165);
+        map.insert("has_feature", 165); // alias
+        map.insert("feature_enable", 166);
+        map.insert("feature_disable", 167);
+        map.insert("feature_set", 168);
+
         map
+    };
+
+    /// Runtime feature flags registry
+    /// Features can be set via AETHER_FEATURES env var (comma-separated) or via feature_enable/disable
+    static ref FEATURE_FLAGS: std::sync::RwLock<std::collections::HashSet<String>> = {
+        let mut features = std::collections::HashSet::new();
+        // Load features from environment variable
+        if let Ok(env_features) = std::env::var("AETHER_FEATURES") {
+            for feature in env_features.split(',') {
+                let feature = feature.trim();
+                if !feature.is_empty() {
+                    features.insert(feature.to_string());
+                }
+            }
+        }
+        std::sync::RwLock::new(features)
     };
 }
 
@@ -460,6 +485,12 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |_, _, _| bi_is_unix(),
     |_, _, _| bi_is_bsd(),
     |args, input, _| bi_platform_module(args, input),
+    // 164-168: Feature flag functions
+    |_, _, _| bi_features(),
+    |args, input, _| bi_feature_enabled(args, input),
+    |args, input, _| bi_feature_enable(args, input),
+    |args, input, _| bi_feature_disable(args, input),
+    |args, input, _| bi_feature_set(args, input),
 ];
 
 fn fast_builtin_lookup(
@@ -2126,6 +2157,158 @@ fn bi_platform_module(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     let module_path = format!("{}_{}.ae", base, platform_suffix);
     Ok(Value::Str(module_path))
+}
+
+// --------------- Feature Flag Functions ---------------
+
+/// features() - List all enabled runtime features
+/// Returns: Array of String - Names of all enabled features
+///
+/// Example:
+///   features()  # Returns ["ai", "experimental"] if those are enabled
+fn bi_features() -> Result<Value> {
+    let features = FEATURE_FLAGS
+        .read()
+        .map_err(|e| anyhow!("features: lock error: {}", e))?;
+    let feature_list: Vec<Value> = features.iter().map(|f| Value::Str(f.clone())).collect();
+    Ok(Value::Array(feature_list))
+}
+
+/// feature_enabled(name) - Check if a runtime feature is enabled
+/// Args:
+///   - name: String - Feature name to check
+/// Returns: Bool - true if the feature is enabled
+///
+/// Example:
+///   feature_enabled("ai")        # Returns true if "ai" feature is enabled
+///   has_feature("experimental")  # Alias
+fn bi_feature_enabled(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let name = if let Some(input_val) = input {
+        match input_val {
+            Value::Str(s) => s,
+            _ => return Err(anyhow!("feature_enabled: feature name must be a string")),
+        }
+    } else if !args.is_empty() {
+        match &args[0] {
+            Value::Str(s) => s.clone(),
+            _ => return Err(anyhow!("feature_enabled: feature name must be a string")),
+        }
+    } else {
+        return Err(anyhow!("feature_enabled: requires feature name argument"));
+    };
+
+    let features = FEATURE_FLAGS
+        .read()
+        .map_err(|e| anyhow!("feature_enabled: lock error: {}", e))?;
+    Ok(Value::Bool(features.contains(&name)))
+}
+
+/// feature_enable(name) - Enable a runtime feature
+/// Args:
+///   - name: String - Feature name to enable
+/// Returns: Bool - true (always succeeds)
+///
+/// Example:
+///   feature_enable("experimental")
+fn bi_feature_enable(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let name = if let Some(input_val) = input {
+        match input_val {
+            Value::Str(s) => s,
+            _ => return Err(anyhow!("feature_enable: feature name must be a string")),
+        }
+    } else if !args.is_empty() {
+        match &args[0] {
+            Value::Str(s) => s.clone(),
+            _ => return Err(anyhow!("feature_enable: feature name must be a string")),
+        }
+    } else {
+        return Err(anyhow!("feature_enable: requires feature name argument"));
+    };
+
+    let mut features = FEATURE_FLAGS
+        .write()
+        .map_err(|e| anyhow!("feature_enable: lock error: {}", e))?;
+    features.insert(name);
+    Ok(Value::Bool(true))
+}
+
+/// feature_disable(name) - Disable a runtime feature
+/// Args:
+///   - name: String - Feature name to disable
+/// Returns: Bool - true if the feature was disabled, false if it wasn't enabled
+///
+/// Example:
+///   feature_disable("experimental")
+fn bi_feature_disable(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let name = if let Some(input_val) = input {
+        match input_val {
+            Value::Str(s) => s,
+            _ => return Err(anyhow!("feature_disable: feature name must be a string")),
+        }
+    } else if !args.is_empty() {
+        match &args[0] {
+            Value::Str(s) => s.clone(),
+            _ => return Err(anyhow!("feature_disable: feature name must be a string")),
+        }
+    } else {
+        return Err(anyhow!("feature_disable: requires feature name argument"));
+    };
+
+    let mut features = FEATURE_FLAGS
+        .write()
+        .map_err(|e| anyhow!("feature_disable: lock error: {}", e))?;
+    let removed = features.remove(&name);
+    Ok(Value::Bool(removed))
+}
+
+/// feature_set(name, enabled) - Set a runtime feature to enabled or disabled
+/// Args:
+///   - name: String - Feature name
+///   - enabled: Bool - true to enable, false to disable
+/// Returns: Bool - true (always succeeds)
+///
+/// Example:
+///   feature_set("ai", true)       # Enable "ai" feature
+///   feature_set("debug", false)   # Disable "debug" feature
+fn bi_feature_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let (name, enabled) = if let Some(input_val) = input {
+        // Piped: input is name, arg 0 is enabled
+        let name = match input_val {
+            Value::Str(s) => s,
+            _ => return Err(anyhow!("feature_set: feature name must be a string")),
+        };
+        let enabled = args
+            .get(0)
+            .ok_or_else(|| anyhow!("feature_set: requires enabled argument"))?;
+        let enabled = match enabled {
+            Value::Bool(b) => *b,
+            _ => return Err(anyhow!("feature_set: enabled must be a boolean")),
+        };
+        (name, enabled)
+    } else if args.len() >= 2 {
+        // Two args: name, enabled
+        let name = match &args[0] {
+            Value::Str(s) => s.clone(),
+            _ => return Err(anyhow!("feature_set: feature name must be a string")),
+        };
+        let enabled = match &args[1] {
+            Value::Bool(b) => *b,
+            _ => return Err(anyhow!("feature_set: enabled must be a boolean")),
+        };
+        (name, enabled)
+    } else {
+        return Err(anyhow!("feature_set: requires name and enabled arguments"));
+    };
+
+    let mut features = FEATURE_FLAGS
+        .write()
+        .map_err(|e| anyhow!("feature_set: lock error: {}", e))?;
+    if enabled {
+        features.insert(name);
+    } else {
+        features.remove(&name);
+    }
+    Ok(Value::Bool(true))
 }
 
 // --------------- AI / Agents wrappers (optional) ---------------
