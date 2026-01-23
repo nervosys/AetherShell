@@ -64,6 +64,22 @@ pub struct Lambda {
     pub body: Box<Expr>,
 }
 
+/// An async lambda closure (AST-captured).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AsyncLambda {
+    pub params: Vec<String>,
+    pub body: Box<Expr>,
+}
+
+/// A future value representing an async computation.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Future {
+    /// The async lambda to execute
+    pub lambda: AsyncLambda,
+    /// Captured arguments
+    pub args: Vec<Value>,
+}
+
 /// A simple table representation.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Table {
@@ -84,6 +100,10 @@ pub enum Value {
     Record(BTreeMap<String, Value>),
     Table(Table),
     Lambda(Lambda),
+    /// An async lambda (not yet called)
+    AsyncLambda(AsyncLambda),
+    /// A future value that can be awaited
+    Future(Future),
 }
 
 impl Value {
@@ -99,6 +119,8 @@ impl Value {
             Value::Record(_) => "Record",
             Value::Table(_) => "Table",
             Value::Lambda(_) => "Lambda",
+            Value::AsyncLambda(_) => "AsyncLambda",
+            Value::Future(_) => "Future",
         }
     }
 
@@ -218,6 +240,8 @@ impl Value {
                 serde_json::json!({ "schema": t.schema, "rows": rows })
             }
             Value::Lambda(_) => json!("<lambda>"),
+            Value::AsyncLambda(_) => json!("<async lambda>"),
+            Value::Future(_) => json!("<future>"),
         }
     }
 }
@@ -290,6 +314,8 @@ pub mod pretty {
             }
             Value::Table(t) => fmt_table(w, t, theme),
             Value::Lambda(_) => write!(w, "{}", (theme.dim)("<lambda>")),
+            Value::AsyncLambda(_) => write!(w, "{}", (theme.dim)("<async lambda>")),
+            Value::Future(_) => write!(w, "{}", (theme.dim)("<future>")),
         }
     }
 
@@ -347,6 +373,8 @@ pub mod pretty {
             Value::Record(_) => "{…}".into(),
             Value::Table(t) => format!("<Table rows={}>", t.rows.len()),
             Value::Lambda(_) => "<lambda>".into(),
+            Value::AsyncLambda(_) => "<async lambda>".into(),
+            Value::Future(_) => "<future>".into(),
         }
     }
 
@@ -369,7 +397,7 @@ pub mod pretty {
 
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use pretty::{Theme, fmt_value};
+        use pretty::{fmt_value, Theme};
         let theme = Theme::default();
         fmt_value(f, self, &theme)
     }

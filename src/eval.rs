@@ -1,7 +1,7 @@
 use crate::ast::{BinOp, CfgCondition, Expr, Stmt, UnOp, Visibility};
 use crate::builtins;
 use crate::env::Env;
-use crate::value::{Lambda, Value};
+use crate::value::{AsyncLambda, Future, Lambda, Value};
 use anyhow::{anyhow, Result};
 use std::collections::BTreeMap;
 
@@ -200,6 +200,30 @@ pub fn eval_expr(expr: &Expr, env: &mut Env) -> Result<Value> {
             body: body.clone(),
         })),
 
+        // ---------- async lambda ----------
+        Expr::AsyncLambda { params, body } => Ok(Value::AsyncLambda(AsyncLambda {
+            params: params.clone(),
+            body: body.clone(),
+        })),
+
+        // ---------- await ----------
+        Expr::Await(inner) => {
+            let val = eval_expr(inner, env)?;
+            match val {
+                Value::Future(future) => {
+                    // Execute the async lambda with its captured arguments
+                    // Create a new environment for the lambda execution
+                    let mut inner_env = Env::new();
+                    for (param, arg) in future.lambda.params.iter().zip(future.args.iter()) {
+                        let _ = inner_env.set_var(param.clone(), arg.clone());
+                    }
+                    eval_expr(&future.lambda.body, &mut inner_env)
+                }
+                // If it's not a future, just return the value (auto-await semantics)
+                other => Ok(other),
+            }
+        }
+
         // ---------- call ----------
         Expr::Call {
             callee,
@@ -218,10 +242,12 @@ pub fn eval_expr(expr: &Expr, env: &mut Env) -> Result<Value> {
             // 1) If callee is a plain identifier, prefer builtin (unless a var is bound)
             if let Expr::Ident(name) = &**callee {
                 if let Some(v) = env.get_var(name).cloned() {
-                    // If the bound var is a Lambda, call it. Otherwise fall back
+                    // If the bound var is a Lambda or AsyncLambda, call it. Otherwise fall back
                     // to builtin behavior (e.g. when shadowing with a non-function).
                     match v {
-                        Value::Lambda(_) => return call_value_with_pipe(v, pin, vals, env),
+                        Value::Lambda(_) | Value::AsyncLambda(_) => {
+                            return call_value_with_pipe(v, pin, vals, env)
+                        }
                         _ => {
                             return builtins::call_with_input(name, vals, pin, env);
                         }
@@ -247,7 +273,7 @@ pub fn eval_expr(expr: &Expr, env: &mut Env) -> Result<Value> {
             if let Expr::Ident(name) = &**right {
                 if let Some(v) = env.get_var(name).cloned() {
                     match v {
-                        Value::Lambda(_) => {
+                        Value::Lambda(_) | Value::AsyncLambda(_) => {
                             // pass as explicit arg so the user lambda receives the whole array
                             return call_value_with_pipe(v, None, vec![left_val], env);
                         }
@@ -500,6 +526,22 @@ fn call_value_with_pipe(
                 _ => Err(anyhow!("lambda arity mismatch or missing input")),
             }
         }
+        // Async lambda: create a Future instead of executing immediately
+        Value::AsyncLambda(al) => {
+            // Prepend pipe input if present
+            let all_args = if let Some(p) = pin {
+                let mut all = Vec::with_capacity(1 + args.len());
+                all.push(p);
+                all.extend(args);
+                all
+            } else {
+                args
+            };
+            Ok(Value::Future(Future {
+                lambda: al,
+                args: all_args,
+            }))
+        }
         Value::Str(name) | Value::Uri(name) => {
             if let Some(p) = pin {
                 let mut all = Vec::with_capacity(1 + args.len());
@@ -527,6 +569,8 @@ fn is_truthy(v: &Value) -> bool {
         Value::Record(m) => !m.is_empty(),
         Value::Table(t) => !t.rows.is_empty(),
         Value::Lambda(_) => true,
+        Value::AsyncLambda(_) => true,
+        Value::Future(_) => true,
     }
 }
 

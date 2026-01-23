@@ -1613,6 +1613,8 @@ fn bi_type_of(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         Value::Record(_) => "Record",
         Value::Table(_) => "Table",
         Value::Lambda(_) => "Lambda",
+        Value::AsyncLambda(_) => "AsyncLambda",
+        Value::Future(_) => "Future",
     };
 
     Ok(Value::Str(type_str.to_string()))
@@ -2380,6 +2382,8 @@ fn format_value_one_line(v: &Value) -> String {
         Value::Record(_) => "{…}".into(),
         Value::Table(t) => format!("<Table rows={}>", t.rows.len()),
         Value::Lambda(_) => "<lambda>".into(),
+        Value::AsyncLambda(_) => "<async lambda>".into(),
+        Value::Future(_) => "<future>".into(),
     }
 }
 
@@ -2395,6 +2399,8 @@ fn value_to_string(value: &Value) -> String {
         Value::Record(_) => "{…}".into(),
         Value::Table(t) => format!("<Table rows={}>", t.rows.len()),
         Value::Lambda(_) => "<lambda>".into(),
+        Value::AsyncLambda(_) => "<async lambda>".into(),
+        Value::Future(_) => "<future>".into(),
         Value::Null => "<null>".into(),
     }
 }
@@ -4643,6 +4649,8 @@ fn is_truthy(val: &Value) -> bool {
         Value::Record(r) => !r.is_empty(),
         Value::Null => false,
         Value::Lambda(_) => true,              // Functions are truthy
+        Value::AsyncLambda(_) => true,         // Async lambdas are truthy
+        Value::Future(_) => true,              // Futures are truthy
         Value::Uri(_) => true,                 // URIs are truthy if they exist
         Value::Table(t) => !t.rows.is_empty(), // Tables are truthy if they have data
     }

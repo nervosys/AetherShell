@@ -198,6 +198,8 @@ fn pp_colored(v: &Value) -> String {
         }
         Value::Table(t) => colorize(&format!("<Table rows={}>", t.rows.len()), &colors.dim),
         Value::Lambda(_) => colorize("<lambda>", &colors.dim),
+        Value::AsyncLambda(_) => colorize("<async lambda>", &colors.dim),
+        Value::Future(_) => colorize("<future>", &colors.dim),
     }
 }
 
@@ -214,6 +216,8 @@ fn pp_item_colored(v: &Value) -> String {
         Value::Record(_) => colorize("{…}", &colors.dim),
         Value::Table(t) => colorize(&format!("<Table rows={}>", t.rows.len()), &colors.dim),
         Value::Lambda(_) => colorize("<lambda>", &colors.dim),
+        Value::AsyncLambda(_) => colorize("<async lambda>", &colors.dim),
+        Value::Future(_) => colorize("<future>", &colors.dim),
     }
 }
 
@@ -256,6 +260,8 @@ fn pp(v: &Value) -> String {
         }
         Value::Table(t) => format!("<Table rows={}>", t.rows.len()),
         Value::Lambda(_) => "<lambda>".into(),
+        Value::AsyncLambda(_) => "<async lambda>".into(),
+        Value::Future(_) => "<future>".into(),
     }
 }
 
@@ -272,5 +278,7 @@ fn pp_item(v: &Value) -> String {
         Value::Record(_) => "{…}".into(),
         Value::Table(t) => format!("<Table rows={}>", t.rows.len()),
         Value::Lambda(_) => "<lambda>".into(),
+        Value::AsyncLambda(_) => "<async lambda>".into(),
+        Value::Future(_) => "<future>".into(),
     }
 }

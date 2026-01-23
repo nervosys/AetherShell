@@ -291,6 +291,27 @@ pub fn type_of_expr(expr: &Expr, env: &mut TypeEnv) -> Result<Type, TypeError> {
 
             Ok(arm_type.unwrap_or(Type::Any))
         }
+
+        // --- async lambda ---
+        Expr::AsyncLambda { params, body } => {
+            // Parameters default to `Any` in the checker.
+            let mut local = env.clone();
+            let param_types = vec![Type::Any; params.len()];
+            for p in params {
+                local.insert(p.clone(), Type::Any);
+            }
+            let ret = type_of_expr(body, &mut local)?;
+            // AsyncLambda returns a Future type (which we model as Any for now)
+            Ok(Type::Lambda(param_types, Box::new(Type::Any)))
+        }
+
+        // --- await ---
+        Expr::Await(inner) => {
+            // Await unwraps a Future, but since we model futures as Any,
+            // the result is also Any
+            let _inner_type = type_of_expr(inner, env)?;
+            Ok(Type::Any)
+        }
     }
 }
 
