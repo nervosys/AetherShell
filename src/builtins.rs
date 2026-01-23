@@ -250,6 +250,15 @@ lazy_static::lazy_static! {
         // Error handling functions (151)
         map.insert("is_error", 151);
 
+        // Debugging tools (152-156)
+        map.insert("debug", 152);
+        map.insert("dbg", 152); // alias
+        map.insert("assert", 153);
+        map.insert("trace", 154);
+        map.insert("type_assert", 155);
+        map.insert("assert_type", 155); // alias
+        map.insert("inspect", 156);
+
         map
     };
 }
@@ -428,6 +437,12 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |_, _, _| bi_plugin_categories(),
     // 151: Error handling functions
     |args, input, _| bi_is_error(args, input),
+    // 152-156: Debugging tools
+    |args, input, _| bi_debug(args, input),
+    |args, input, _| bi_assert(args, input),
+    |args, input, _| bi_trace(args, input),
+    |args, input, _| bi_type_assert(args, input),
+    |args, input, _| bi_inspect(args, input),
 ];
 
 fn fast_builtin_lookup(
@@ -1646,6 +1661,325 @@ fn bi_is_error(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     let is_err = matches!(val, Value::Error(_));
     Ok(Value::Bool(is_err))
+}
+
+// --------------- Debugging Tools ---------------
+
+/// debug(value) - Print value with its type and return the value for chaining
+/// Args:
+///   - value: Any value to debug
+/// Returns: The same value (allows chaining in pipelines)
+///
+/// Example:
+///   let x = debug(42)           # Prints: [DEBUG] Int: 42
+///   [1,2,3] | debug | map(...)  # Debug intermediate pipeline values
+fn bi_debug(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let val = if let Some(input_val) = input {
+        input_val
+    } else if !args.is_empty() {
+        args[0].clone()
+    } else {
+        return Err(anyhow!("debug: requires input or argument"));
+    };
+
+    let type_str = val.type_name();
+    let pretty =
+        crate::value::pretty::display_inline(&val, &crate::value::pretty::Theme::default());
+    eprintln!("[DEBUG] {}: {}", type_str, pretty);
+
+    // Return the value unchanged for pipeline chaining
+    Ok(val)
+}
+
+/// assert(condition, message?) - Assert that a condition is true
+/// Args:
+///   - condition: Boolean condition to check
+///   - message: Optional error message (defaults to "assertion failed")
+/// Returns: true if assertion passes
+/// Throws: Error with message if condition is false
+///
+/// Example:
+///   assert(x > 0, "x must be positive")
+///   assert(len(arr) > 0)  # Uses default message
+fn bi_assert(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let (cond, msg) = if let Some(input_val) = input {
+        // Piped: input is condition, arg 0 is message
+        let message = args
+            .get(0)
+            .and_then(|v| match v {
+                Value::Str(s) => Some(s.clone()),
+                _ => None,
+            })
+            .unwrap_or_else(|| "assertion failed".to_string());
+        (input_val, message)
+    } else if !args.is_empty() {
+        // Args: arg 0 is condition, arg 1 is message
+        let message = args
+            .get(1)
+            .and_then(|v| match v {
+                Value::Str(s) => Some(s.clone()),
+                _ => None,
+            })
+            .unwrap_or_else(|| "assertion failed".to_string());
+        (args[0].clone(), message)
+    } else {
+        return Err(anyhow!("assert: requires condition argument"));
+    };
+
+    // Check if condition is truthy
+    let is_truthy = match &cond {
+        Value::Bool(b) => *b,
+        Value::Null => false,
+        Value::Error(_) => false,
+        Value::Int(n) => *n != 0,
+        Value::Float(f) => *f != 0.0,
+        Value::Str(s) => !s.is_empty(),
+        Value::Array(arr) => !arr.is_empty(),
+        Value::Record(rec) => !rec.is_empty(),
+        _ => true,
+    };
+
+    if is_truthy {
+        Ok(Value::Bool(true))
+    } else {
+        Ok(Value::Error(msg))
+    }
+}
+
+/// trace(label, value) - Print a labeled value for tracing and return the value
+/// Args:
+///   - label: String label to identify the trace point
+///   - value: Value to trace (can also be piped)
+/// Returns: The value unchanged (allows chaining)
+///
+/// Example:
+///   let result = trace("input", x) | map(fn(n) => n * 2) | trace("output")
+///   trace("step1", calculate())
+fn bi_trace(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let (label, val) = if let Some(input_val) = input {
+        // Piped: input is value, arg 0 is label
+        let label = args
+            .get(0)
+            .and_then(|v| match v {
+                Value::Str(s) => Some(s.clone()),
+                _ => None,
+            })
+            .unwrap_or_else(|| "trace".to_string());
+        (label, input_val)
+    } else if args.len() >= 2 {
+        // Two args: label, value
+        let label = match &args[0] {
+            Value::Str(s) => s.clone(),
+            other => format!("{:?}", other),
+        };
+        (label, args[1].clone())
+    } else if args.len() == 1 {
+        // One arg: use default label
+        ("trace".to_string(), args[0].clone())
+    } else {
+        return Err(anyhow!("trace: requires at least a value argument"));
+    };
+
+    let type_str = val.type_name();
+    let pretty =
+        crate::value::pretty::display_inline(&val, &crate::value::pretty::Theme::default());
+    eprintln!("[TRACE {}] {}: {}", label, type_str, pretty);
+
+    // Return the value unchanged for pipeline chaining
+    Ok(val)
+}
+
+/// type_assert(value, expected_type) - Assert that a value has the expected type
+/// Args:
+///   - value: Any value to check
+///   - expected_type: String name of expected type ("Int", "String", "Array", etc.)
+/// Returns: The value if type matches
+/// Throws: Error if type doesn't match
+///
+/// Example:
+///   type_assert(x, "Int")           # Passes if x is an Int
+///   data | type_assert("Array")     # Piped: asserts data is Array
+fn bi_type_assert(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let (val, expected) = if let Some(input_val) = input {
+        // Piped: input is value, arg 0 is expected type
+        let expected = args
+            .get(0)
+            .ok_or_else(|| anyhow!("type_assert: requires expected type argument"))?;
+        let expected_str = match expected {
+            Value::Str(s) => s.clone(),
+            _ => return Err(anyhow!("type_assert: expected type must be a string")),
+        };
+        (input_val, expected_str)
+    } else if args.len() >= 2 {
+        // Two args: value, expected_type
+        let expected_str = match &args[1] {
+            Value::Str(s) => s.clone(),
+            _ => return Err(anyhow!("type_assert: expected type must be a string")),
+        };
+        (args[0].clone(), expected_str)
+    } else {
+        return Err(anyhow!(
+            "type_assert: requires value and expected type arguments"
+        ));
+    };
+
+    let actual_type = val.type_name();
+
+    // Normalize type names for comparison (case-insensitive)
+    let expected_normalized = expected.to_lowercase();
+    let actual_normalized = actual_type.to_lowercase();
+
+    if expected_normalized == actual_normalized {
+        Ok(val)
+    } else {
+        Ok(Value::Error(format!(
+            "type assertion failed: expected {}, got {}",
+            expected, actual_type
+        )))
+    }
+}
+
+/// inspect(value) - Get detailed inspection of a value's structure
+/// Args:
+///   - value: Any value to inspect
+/// Returns: Record with detailed information about the value
+///
+/// Example:
+///   inspect([1,2,3])  # Returns {type: "Array", length: 3, items: [...]}
+///   inspect({a: 1})   # Returns {type: "Record", keys: ["a"], values: [...]}
+fn bi_inspect(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let val = if let Some(input_val) = input {
+        input_val
+    } else if !args.is_empty() {
+        args[0].clone()
+    } else {
+        return Err(anyhow!("inspect: requires input or argument"));
+    };
+
+    let mut info = BTreeMap::<String, Value>::new();
+    info.insert("type".to_string(), Value::Str(val.type_name().to_string()));
+
+    match &val {
+        Value::Null => {
+            info.insert("value".to_string(), Value::Null);
+        }
+        Value::Bool(b) => {
+            info.insert("value".to_string(), Value::Bool(*b));
+        }
+        Value::Int(n) => {
+            info.insert("value".to_string(), Value::Int(*n));
+            info.insert("is_negative".to_string(), Value::Bool(*n < 0));
+            info.insert("is_zero".to_string(), Value::Bool(*n == 0));
+        }
+        Value::Float(f) => {
+            info.insert("value".to_string(), Value::Float(*f));
+            info.insert("is_nan".to_string(), Value::Bool(f.is_nan()));
+            info.insert("is_infinite".to_string(), Value::Bool(f.is_infinite()));
+            info.insert("is_negative".to_string(), Value::Bool(*f < 0.0));
+        }
+        Value::Str(s) => {
+            info.insert("value".to_string(), Value::Str(s.clone()));
+            info.insert("length".to_string(), Value::Int(s.len() as i64));
+            info.insert("is_empty".to_string(), Value::Bool(s.is_empty()));
+            info.insert(
+                "char_count".to_string(),
+                Value::Int(s.chars().count() as i64),
+            );
+        }
+        Value::Uri(u) => {
+            info.insert("value".to_string(), Value::Str(u.clone()));
+            info.insert("length".to_string(), Value::Int(u.len() as i64));
+        }
+        Value::Array(arr) => {
+            info.insert("length".to_string(), Value::Int(arr.len() as i64));
+            info.insert("is_empty".to_string(), Value::Bool(arr.is_empty()));
+            if !arr.is_empty() {
+                info.insert("first".to_string(), arr[0].clone());
+                info.insert("last".to_string(), arr[arr.len() - 1].clone());
+                // Collect unique types in the array using a Vec with dedup
+                let mut type_strs: Vec<String> =
+                    arr.iter().map(|v| v.type_name().to_string()).collect();
+                type_strs.sort();
+                type_strs.dedup();
+                let types: Vec<Value> = type_strs.into_iter().map(Value::Str).collect();
+                info.insert("element_types".to_string(), Value::Array(types));
+            }
+            info.insert("elements".to_string(), Value::Array(arr.clone()));
+        }
+        Value::Record(rec) => {
+            info.insert("length".to_string(), Value::Int(rec.len() as i64));
+            info.insert("is_empty".to_string(), Value::Bool(rec.is_empty()));
+            info.insert(
+                "keys".to_string(),
+                Value::Array(rec.keys().map(|k| Value::Str(k.clone())).collect()),
+            );
+            info.insert(
+                "values".to_string(),
+                Value::Array(rec.values().cloned().collect()),
+            );
+            info.insert("entries".to_string(), Value::Record(rec.clone()));
+        }
+        Value::Table(table) => {
+            info.insert("row_count".to_string(), Value::Int(table.rows.len() as i64));
+            info.insert("is_empty".to_string(), Value::Bool(table.rows.is_empty()));
+            info.insert(
+                "columns".to_string(),
+                Value::Array(table.schema.iter().map(|k| Value::Str(k.clone())).collect()),
+            );
+            info.insert(
+                "column_count".to_string(),
+                Value::Int(table.schema.len() as i64),
+            );
+        }
+        Value::Lambda(lambda) => {
+            info.insert(
+                "param_count".to_string(),
+                Value::Int(lambda.params.len() as i64),
+            );
+            info.insert(
+                "params".to_string(),
+                Value::Array(
+                    lambda
+                        .params
+                        .iter()
+                        .map(|p| Value::Str(p.clone()))
+                        .collect(),
+                ),
+            );
+            info.insert("body".to_string(), Value::Str(format!("{:?}", lambda.body)));
+        }
+        Value::AsyncLambda(lambda) => {
+            info.insert(
+                "param_count".to_string(),
+                Value::Int(lambda.params.len() as i64),
+            );
+            info.insert(
+                "params".to_string(),
+                Value::Array(
+                    lambda
+                        .params
+                        .iter()
+                        .map(|p| Value::Str(p.clone()))
+                        .collect(),
+                ),
+            );
+            info.insert("body".to_string(), Value::Str(format!("{:?}", lambda.body)));
+            info.insert("is_async".to_string(), Value::Bool(true));
+        }
+        Value::Future(_) => {
+            info.insert("pending".to_string(), Value::Bool(true));
+            info.insert(
+                "description".to_string(),
+                Value::Str("Unevaluated future - use await to execute".to_string()),
+            );
+        }
+        Value::Error(msg) => {
+            info.insert("message".to_string(), Value::Str(msg.clone()));
+            info.insert("is_error".to_string(), Value::Bool(true));
+        }
+    }
+
+    Ok(Value::Record(info))
 }
 
 // --------------- AI / Agents wrappers (optional) ---------------
