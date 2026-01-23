@@ -45,6 +45,8 @@ enum Tok {
     Import,
     From,
     As,
+    Async, // async keyword
+    Await, // await keyword
     Ident,
     String,
     Int,
@@ -566,6 +568,8 @@ fn lex(src: &str) -> Result<Vec<Spanned>> {
                     "import" => Tok::Import,
                     "from" => Tok::From,
                     "as" => Tok::As,
+                    "async" => Tok::Async,
+                    "await" => Tok::Await,
                     _ => Tok::Ident,
                 };
                 out.push(Spanned {
@@ -963,6 +967,9 @@ impl Parser {
         if self.check(Tok::Fn) {
             return self.parse_lambda();
         }
+        if self.check(Tok::Async) {
+            return self.parse_async_lambda();
+        }
         let primary = self.parse_atom_expr()?;
         if let Expr::Ident(_) = primary {
             let callee = primary;
@@ -993,6 +1000,7 @@ impl Parser {
             let mut args: Vec<Expr> = Vec::new();
             while self.check_any(&[
                 Tok::Fn,
+                Tok::Async,
                 Tok::String,
                 Tok::Int,
                 Tok::Float,
@@ -1006,6 +1014,11 @@ impl Parser {
             ]) {
                 if self.check(Tok::Fn) {
                     let lam = self.parse_lambda()?;
+                    args.push(lam);
+                    continue;
+                }
+                if self.check(Tok::Async) {
+                    let lam = self.parse_async_lambda()?;
                     args.push(lam);
                     continue;
                 }
@@ -1200,6 +1213,10 @@ impl Parser {
                 op: UnOp::Neg,
                 expr: Box::new(e),
             })
+        } else if self.match_tok(Tok::Await) {
+            // await expr - await the result of an async expression
+            let e = self.parse_unary()?;
+            Ok(Expr::Await(Box::new(e)))
         } else {
             self.parse_postfix()
         }
@@ -1246,6 +1263,7 @@ impl Parser {
                 let mut args: Vec<Expr> = Vec::new();
                 while self.check_any(&[
                     Tok::Fn,
+                    Tok::Async,
                     Tok::String,
                     Tok::Int,
                     Tok::Float,
@@ -1259,6 +1277,11 @@ impl Parser {
                 ]) {
                     if self.check(Tok::Fn) {
                         let lam = self.parse_lambda()?;
+                        args.push(lam);
+                        continue;
+                    }
+                    if self.check(Tok::Async) {
+                        let lam = self.parse_async_lambda()?;
                         args.push(lam);
                         continue;
                     }
@@ -1322,7 +1345,11 @@ impl Parser {
             return self.parse_match();
         }
         if self.match_tok(Tok::Fn) {
-            return self.parse_lambda_after_fn();
+            return self.parse_lambda_after_fn(false);
+        }
+        if self.match_tok(Tok::Async) {
+            self.need(Tok::Fn, "expected 'fn' after 'async'")?;
+            return self.parse_lambda_after_fn(true);
         }
         if self.match_tok(Tok::String) {
             let s = self.prev().text.clone();
@@ -1354,10 +1381,17 @@ impl Parser {
 
     fn parse_lambda(&mut self) -> Result<Expr> {
         self.need(Tok::Fn, "expected 'fn'")?;
-        self.parse_lambda_after_fn()
+        self.parse_lambda_after_fn(false)
     }
 
-    fn parse_lambda_after_fn(&mut self) -> Result<Expr> {
+    /// Parse an async lambda: async fn(x) => expr
+    fn parse_async_lambda(&mut self) -> Result<Expr> {
+        self.need(Tok::Async, "expected 'async'")?;
+        self.need(Tok::Fn, "expected 'fn' after 'async'")?;
+        self.parse_lambda_after_fn(true)
+    }
+
+    fn parse_lambda_after_fn(&mut self, is_async: bool) -> Result<Expr> {
         self.need(Tok::LParen, "expected '(' after fn")?;
         let mut params = Vec::new();
         if !self.check(Tok::RParen) {
@@ -1379,10 +1413,17 @@ impl Parser {
         self.allow_word_call = false;
         let body = self.parse_pipe()?; // Changed from parse_logic_or() to parse_pipe()
         self.allow_word_call = prev_allow;
-        Ok(Expr::Lambda {
-            params,
-            body: Box::new(body),
-        })
+        if is_async {
+            Ok(Expr::AsyncLambda {
+                params,
+                body: Box::new(body),
+            })
+        } else {
+            Ok(Expr::Lambda {
+                params,
+                body: Box::new(body),
+            })
+        }
     }
 
     fn parse_match(&mut self) -> Result<Expr> {
@@ -1738,6 +1779,7 @@ impl Parser {
             match self.peek().kind {
                 Tok::Let
                 | Tok::Fn
+                | Tok::Async
                 | Tok::If
                 | Tok::Match
                 | Tok::Import

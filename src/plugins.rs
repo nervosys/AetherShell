@@ -622,6 +622,8 @@ fn value_to_json(value: &Value) -> serde_json::Value {
             serde_json::Value::Array(rows)
         }
         Value::Lambda(_) => serde_json::Value::String("<lambda>".to_string()),
+        Value::AsyncLambda(_) => serde_json::Value::String("<async lambda>".to_string()),
+        Value::Future(_) => serde_json::Value::String("<future>".to_string()),
     }
 }
 
@@ -677,6 +679,8 @@ fn value_to_toml(value: &Value) -> toml::Value {
             toml::Value::Array(tables)
         }
         Value::Lambda(_) => toml::Value::String("<lambda>".to_string()),
+        Value::AsyncLambda(_) => toml::Value::String("<async lambda>".to_string()),
+        Value::Future(_) => toml::Value::String("<future>".to_string()),
     }
 }
 

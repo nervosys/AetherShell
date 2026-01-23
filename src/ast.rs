@@ -104,6 +104,15 @@ pub enum Expr {
         body: Box<Expr>,
     },
 
+    /// Async lambda: async fn(x) => expr
+    AsyncLambda {
+        params: Vec<String>,
+        body: Box<Expr>,
+    },
+
+    /// Await expression: await expr
+    Await(Box<Expr>),
+
     // call
     Call {
         callee: Box<Expr>,
