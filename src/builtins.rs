@@ -439,7 +439,7 @@ lazy_static::lazy_static! {
         std::sync::RwLock::new(HashMap::new())
     };
 
-    /// User to roles mapping  
+    /// User to roles mapping
     static ref USER_ROLES: std::sync::RwLock<HashMap<String, Vec<String>>> = {
         std::sync::RwLock::new(HashMap::new())
     };
@@ -11080,7 +11080,6 @@ fn values_equal(a: &Value, b: &Value) -> bool {
     }
 }
 
-
 // ===================== Enterprise Feature Implementations =====================
 
 /// role_create(name, permissions, description?) - Create a new RBAC role
@@ -11089,30 +11088,37 @@ fn bi_role_create(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         .or_else(|| args.first().cloned())
         .map(|v| v.to_display_string())
         .ok_or_else(|| anyhow!("role_create: missing 'name'"))?;
-    
-    let permissions = args.get(1)
+
+    let permissions = args
+        .get(1)
         .and_then(|v| match v {
-            Value::Array(arr) => Some(arr.iter()
-                .filter_map(|p| {
-                    if let Value::Record(rec) = p {
-                        let resource = rec.get("resource").map(|v| v.to_display_string())?;
-                        let actions = rec.get("actions")
-                            .and_then(|v| match v {
-                                Value::Array(a) => Some(a.iter().map(|v| v.to_display_string()).collect()),
-                                _ => None,
-                            })
-                            .unwrap_or_default();
-                        Some(Permission { resource, actions })
-                    } else {
-                        None
-                    }
-                })
-                .collect::<Vec<_>>()),
+            Value::Array(arr) => Some(
+                arr.iter()
+                    .filter_map(|p| {
+                        if let Value::Record(rec) = p {
+                            let resource = rec.get("resource").map(|v| v.to_display_string())?;
+                            let actions = rec
+                                .get("actions")
+                                .and_then(|v| match v {
+                                    Value::Array(a) => {
+                                        Some(a.iter().map(|v| v.to_display_string()).collect())
+                                    }
+                                    _ => None,
+                                })
+                                .unwrap_or_default();
+                            Some(Permission { resource, actions })
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>(),
+            ),
             _ => None,
         })
         .unwrap_or_default();
 
-    let description = args.get(2)
+    let description = args
+        .get(2)
         .map(|v| v.to_display_string())
         .unwrap_or_default();
 
@@ -11141,7 +11147,10 @@ fn bi_role_delete(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let existed = RBAC_ROLES.write().unwrap().remove(&name).is_some();
 
     let mut result = BTreeMap::new();
-    result.insert("status".to_string(), Value::Str(if existed { "deleted" } else { "not_found" }.to_string()));
+    result.insert(
+        "status".to_string(),
+        Value::Str(if existed { "deleted" } else { "not_found" }.to_string()),
+    );
     result.insert("role".to_string(), Value::Str(name));
     Ok(Value::Record(result))
 }
@@ -11158,7 +11167,9 @@ fn bi_role_grant(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         return Err(anyhow!("role_grant: role '{}' does not exist", role));
     }
 
-    USER_ROLES.write().unwrap()
+    USER_ROLES
+        .write()
+        .unwrap()
         .entry(user.clone())
         .or_default()
         .push(role.clone());
@@ -11188,7 +11199,10 @@ fn bi_role_revoke(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     };
 
     let mut result = BTreeMap::new();
-    result.insert("status".to_string(), Value::Str(if revoked { "revoked" } else { "not_found" }.to_string()));
+    result.insert(
+        "status".to_string(),
+        Value::Str(if revoked { "revoked" } else { "not_found" }.to_string()),
+    );
     result.insert("user".to_string(), Value::Str(user));
     result.insert("role".to_string(), Value::Str(role));
     Ok(Value::Record(result))
@@ -11201,7 +11215,9 @@ fn bi_user_roles(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         .map(|v| v.to_display_string())
         .ok_or_else(|| anyhow!("user_roles: missing 'user'"))?;
 
-    let roles = USER_ROLES.read().unwrap()
+    let roles = USER_ROLES
+        .read()
+        .unwrap()
         .get(&user)
         .cloned()
         .unwrap_or_default();
@@ -11212,7 +11228,9 @@ fn bi_user_roles(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 /// check_permission(user, resource, action) - Check if user has permission
 fn bi_check_permission(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.len() < 3 {
-        return Err(anyhow!("check_permission: requires user, resource, and action arguments"));
+        return Err(anyhow!(
+            "check_permission: requires user, resource, and action arguments"
+        ));
     }
     let user = args[0].to_display_string();
     let resource = args[1].to_display_string();
@@ -11226,8 +11244,9 @@ fn bi_check_permission(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     let has_permission = user_role_names.iter().any(|role_name| {
         if let Some(role) = roles_guard.get(role_name) {
             role.permissions.iter().any(|p| {
-                (p.resource == "*" || p.resource == resource) &&
-                (p.actions.contains(&"*".to_string()) || p.actions.iter().any(|a| a == &action))
+                (p.resource == "*" || p.resource == resource)
+                    && (p.actions.contains(&"*".to_string())
+                        || p.actions.iter().any(|a| a == &action))
             })
         } else {
             false
@@ -11240,14 +11259,23 @@ fn bi_check_permission(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 /// roles_list() - List all defined roles
 fn bi_roles_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let roles = RBAC_ROLES.read().unwrap();
-    
-    let result: Vec<Value> = roles.values().map(|role| {
-        let mut rec = BTreeMap::new();
-        rec.insert("name".to_string(), Value::Str(role.name.clone()));
-        rec.insert("description".to_string(), Value::Str(role.description.clone()));
-        rec.insert("permissions".to_string(), Value::Int(role.permissions.len() as i64));
-        Value::Record(rec)
-    }).collect();
+
+    let result: Vec<Value> = roles
+        .values()
+        .map(|role| {
+            let mut rec = BTreeMap::new();
+            rec.insert("name".to_string(), Value::Str(role.name.clone()));
+            rec.insert(
+                "description".to_string(),
+                Value::Str(role.description.clone()),
+            );
+            rec.insert(
+                "permissions".to_string(),
+                Value::Int(role.permissions.len() as i64),
+            );
+            Value::Record(rec)
+        })
+        .collect();
 
     Ok(Value::Array(result))
 }
@@ -11258,8 +11286,14 @@ fn bi_audit_log(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     let action = args[0].to_display_string();
     let resource = args[1].to_display_string();
-    let details = args.get(2).map(|v| v.to_display_string()).unwrap_or_default();
-    let severity_str = args.get(3).map(|v| v.to_display_string()).unwrap_or_else(|| "info".to_string());
+    let details = args
+        .get(2)
+        .map(|v| v.to_display_string())
+        .unwrap_or_default();
+    let severity_str = args
+        .get(3)
+        .map(|v| v.to_display_string())
+        .unwrap_or_else(|| "info".to_string());
 
     let severity = match severity_str.to_lowercase().as_str() {
         "warning" => AuditSeverity::Warning,
@@ -11267,10 +11301,13 @@ fn bi_audit_log(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         _ => AuditSeverity::Info,
     };
 
-    let id = format!("audit_{}", std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos());
+    let id = format!(
+        "audit_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    );
 
     let entry = AuditEntry {
         id: id.clone(),
@@ -11302,14 +11339,17 @@ fn bi_audit_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     });
 
     let log = AUDIT_LOG.read().unwrap();
-    
-    let entries: Vec<Value> = log.iter()
+
+    let entries: Vec<Value> = log
+        .iter()
         .filter(|e| {
             if let Some(ref f) = filter {
-                let action_match = f.get("action")
+                let action_match = f
+                    .get("action")
                     .map(|v| e.action.contains(&v.to_display_string()))
                     .unwrap_or(true);
-                let resource_match = f.get("resource")
+                let resource_match = f
+                    .get("resource")
                     .map(|v| e.resource.contains(&v.to_display_string()))
                     .unwrap_or(true);
                 action_match && resource_match
@@ -11323,7 +11363,10 @@ fn bi_audit_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             rec.insert("user".to_string(), Value::Str(e.user.clone()));
             rec.insert("action".to_string(), Value::Str(e.action.clone()));
             rec.insert("resource".to_string(), Value::Str(e.resource.clone()));
-            rec.insert("severity".to_string(), Value::Str(e.severity.as_str().to_string()));
+            rec.insert(
+                "severity".to_string(),
+                Value::Str(e.severity.as_str().to_string()),
+            );
             rec.insert("success".to_string(), Value::Bool(e.success));
             Value::Record(rec)
         })
@@ -11334,21 +11377,30 @@ fn bi_audit_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 /// audit_export(format?) - Export audit log
 fn bi_audit_export(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let format = args.first().map(|v| v.to_display_string()).unwrap_or_else(|| "json".to_string());
+    let format = args
+        .first()
+        .map(|v| v.to_display_string())
+        .unwrap_or_else(|| "json".to_string());
 
     let log = AUDIT_LOG.read().unwrap();
-    
-    let entries: Vec<Value> = log.iter().map(|e| {
-        let mut rec = BTreeMap::new();
-        rec.insert("id".to_string(), Value::Str(e.id.clone()));
-        rec.insert("user".to_string(), Value::Str(e.user.clone()));
-        rec.insert("action".to_string(), Value::Str(e.action.clone()));
-        rec.insert("resource".to_string(), Value::Str(e.resource.clone()));
-        rec.insert("details".to_string(), Value::Str(e.details.clone()));
-        rec.insert("severity".to_string(), Value::Str(e.severity.as_str().to_string()));
-        rec.insert("success".to_string(), Value::Bool(e.success));
-        Value::Record(rec)
-    }).collect();
+
+    let entries: Vec<Value> = log
+        .iter()
+        .map(|e| {
+            let mut rec = BTreeMap::new();
+            rec.insert("id".to_string(), Value::Str(e.id.clone()));
+            rec.insert("user".to_string(), Value::Str(e.user.clone()));
+            rec.insert("action".to_string(), Value::Str(e.action.clone()));
+            rec.insert("resource".to_string(), Value::Str(e.resource.clone()));
+            rec.insert("details".to_string(), Value::Str(e.details.clone()));
+            rec.insert(
+                "severity".to_string(),
+                Value::Str(e.severity.as_str().to_string()),
+            );
+            rec.insert("success".to_string(), Value::Bool(e.success));
+            Value::Record(rec)
+        })
+        .collect();
 
     let mut result = BTreeMap::new();
     result.insert("format".to_string(), Value::Str(format));
@@ -11360,12 +11412,12 @@ fn bi_audit_export(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 /// audit_stats() - Get audit log statistics
 fn bi_audit_stats(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let log = AUDIT_LOG.read().unwrap();
-    
+
     let total = log.len();
     let mut info_count = 0;
     let mut warning_count = 0;
     let mut critical_count = 0;
-    
+
     for entry in log.iter() {
         match entry.severity {
             AuditSeverity::Info => info_count += 1,
@@ -11384,14 +11436,20 @@ fn bi_audit_stats(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 /// sso_init(provider, client_id, issuer_url) - Initialize SSO configuration
 fn bi_sso_init(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.len() < 3 {
-        return Err(anyhow!("sso_init: requires provider, client_id, and issuer_url arguments"));
+        return Err(anyhow!(
+            "sso_init: requires provider, client_id, and issuer_url arguments"
+        ));
     }
     let provider_str = args[0].to_display_string();
     let client_id = args[1].to_display_string();
     let issuer_url = args[2].to_display_string();
 
-    let provider = SsoProvider::from_str(&provider_str)
-        .ok_or_else(|| anyhow!("sso_init: invalid provider '{}' (use oauth2, saml, or oidc)", provider_str))?;
+    let provider = SsoProvider::from_str(&provider_str).ok_or_else(|| {
+        anyhow!(
+            "sso_init: invalid provider '{}' (use oauth2, saml, or oidc)",
+            provider_str
+        )
+    })?;
 
     let config = SsoConfig {
         provider,
@@ -11420,10 +11478,13 @@ fn bi_sso_auth(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         return Err(anyhow!("sso_auth: SSO not initialized"));
     }
 
-    let token = format!("sso_token_{}", std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos());
+    let token = format!(
+        "sso_token_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    );
     let user_id = format!("user_{}", callback.len());
 
     let session = SsoSession {
@@ -11436,7 +11497,10 @@ fn bi_sso_auth(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     SSO_SESSIONS.write().unwrap().insert(token.clone(), session);
 
     let mut result = BTreeMap::new();
-    result.insert("status".to_string(), Value::Str("authenticated".to_string()));
+    result.insert(
+        "status".to_string(),
+        Value::Str("authenticated".to_string()),
+    );
     result.insert("token".to_string(), Value::Str(token));
     result.insert("user_id".to_string(), Value::Str(user_id));
     Ok(Value::Record(result))
@@ -11480,7 +11544,10 @@ fn bi_sso_logout(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let removed = SSO_SESSIONS.write().unwrap().remove(&token).is_some();
 
     let mut result = BTreeMap::new();
-    result.insert("status".to_string(), Value::Str(if removed { "logged_out" } else { "not_found" }.to_string()));
+    result.insert(
+        "status".to_string(),
+        Value::Str(if removed { "logged_out" } else { "not_found" }.to_string()),
+    );
     Ok(Value::Record(result))
 }
 
@@ -11492,9 +11559,15 @@ fn bi_sso_status(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut result = BTreeMap::new();
     if let Some(ref c) = *config {
         result.insert("configured".to_string(), Value::Bool(true));
-        result.insert("provider".to_string(), Value::Str(c.provider.as_str().to_string()));
+        result.insert(
+            "provider".to_string(),
+            Value::Str(c.provider.as_str().to_string()),
+        );
         result.insert("enabled".to_string(), Value::Bool(c.enabled));
-        result.insert("active_sessions".to_string(), Value::Int(sessions.len() as i64));
+        result.insert(
+            "active_sessions".to_string(),
+            Value::Int(sessions.len() as i64),
+        );
     } else {
         result.insert("configured".to_string(), Value::Bool(false));
     }
@@ -11506,11 +11579,18 @@ fn bi_compliance_check(args: Vec<Value>, input: Option<Value>) -> Result<Value> 
         .or_else(|| args.first().cloned())
         .map(|v| v.to_display_string())
         .ok_or_else(|| anyhow!("compliance_check: missing 'standard'"))?;
-    
-    let standard = ComplianceStandard::from_str(&standard_str)
-        .ok_or_else(|| anyhow!("compliance_check: invalid standard '{}' (use GDPR, HIPAA, SOC2, or PCI)", standard_str))?;
 
-    let scope = args.get(1).map(|v| v.to_display_string()).unwrap_or_else(|| "all".to_string());
+    let standard = ComplianceStandard::from_str(&standard_str).ok_or_else(|| {
+        anyhow!(
+            "compliance_check: invalid standard '{}' (use GDPR, HIPAA, SOC2, or PCI)",
+            standard_str
+        )
+    })?;
+
+    let scope = args
+        .get(1)
+        .map(|v| v.to_display_string())
+        .unwrap_or_else(|| "all".to_string());
 
     let checks = vec![
         ("data_encryption", true),
@@ -11519,15 +11599,29 @@ fn bi_compliance_check(args: Vec<Value>, input: Option<Value>) -> Result<Value> 
         ("session_management", SSO_CONFIG.read().unwrap().is_some()),
     ];
 
-    let passed: Vec<Value> = checks.iter().filter(|(_, v)| *v).map(|(k, _)| Value::Str(k.to_string())).collect();
-    let failed: Vec<Value> = checks.iter().filter(|(_, v)| !*v).map(|(k, _)| Value::Str(k.to_string())).collect();
+    let passed: Vec<Value> = checks
+        .iter()
+        .filter(|(_, v)| *v)
+        .map(|(k, _)| Value::Str(k.to_string()))
+        .collect();
+    let failed: Vec<Value> = checks
+        .iter()
+        .filter(|(_, v)| !*v)
+        .map(|(k, _)| Value::Str(k.to_string()))
+        .collect();
 
     let mut result = BTreeMap::new();
-    result.insert("standard".to_string(), Value::Str(standard.as_str().to_string()));
+    result.insert(
+        "standard".to_string(),
+        Value::Str(standard.as_str().to_string()),
+    );
     result.insert("scope".to_string(), Value::Str(scope));
     result.insert("passed".to_string(), Value::Array(passed));
     result.insert("failed".to_string(), Value::Array(failed));
-    result.insert("compliant".to_string(), Value::Bool(checks.iter().all(|(_, v)| *v)));
+    result.insert(
+        "compliant".to_string(),
+        Value::Bool(checks.iter().all(|(_, v)| *v)),
+    );
     Ok(Value::Record(result))
 }
 
@@ -11537,7 +11631,7 @@ fn bi_compliance_report(args: Vec<Value>, input: Option<Value>) -> Result<Value>
         .or_else(|| args.first().cloned())
         .map(|v| v.to_display_string())
         .ok_or_else(|| anyhow!("compliance_report: missing 'standard'"))?;
-    
+
     let standard = ComplianceStandard::from_str(&standard_str)
         .ok_or_else(|| anyhow!("compliance_report: invalid standard '{}'", standard_str))?;
 
@@ -11546,8 +11640,14 @@ fn bi_compliance_report(args: Vec<Value>, input: Option<Value>) -> Result<Value>
     let sso_enabled = SSO_CONFIG.read().unwrap().is_some();
 
     let mut result = BTreeMap::new();
-    result.insert("standard".to_string(), Value::Str(standard.as_str().to_string()));
-    result.insert("generated_at".to_string(), Value::Str(chrono::Utc::now().to_rfc3339()));
+    result.insert(
+        "standard".to_string(),
+        Value::Str(standard.as_str().to_string()),
+    );
+    result.insert(
+        "generated_at".to_string(),
+        Value::Str(chrono::Utc::now().to_rfc3339()),
+    );
     result.insert("audit_entries".to_string(), Value::Int(audit_count as i64));
     result.insert("roles_defined".to_string(), Value::Int(role_count as i64));
     result.insert("sso_enabled".to_string(), Value::Bool(sso_enabled));
@@ -11556,27 +11656,35 @@ fn bi_compliance_report(args: Vec<Value>, input: Option<Value>) -> Result<Value>
 /// finetune_start(model, dataset, config?) - Start a fine-tuning job
 fn bi_finetune_start(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.len() < 2 {
-        return Err(anyhow!("finetune_start: requires model and dataset arguments"));
+        return Err(anyhow!(
+            "finetune_start: requires model and dataset arguments"
+        ));
     }
     let model = args[0].to_display_string();
     let dataset = args[1].to_display_string();
-    
-    let config: HashMap<String, String> = args.get(2)
+
+    let config: HashMap<String, String> = args
+        .get(2)
         .and_then(|v| {
             if let Value::Record(rec) = v {
-                Some(rec.iter()
-                    .map(|(k, v)| (k.clone(), v.to_display_string()))
-                    .collect())
+                Some(
+                    rec.iter()
+                        .map(|(k, v)| (k.clone(), v.to_display_string()))
+                        .collect(),
+                )
             } else {
                 None
             }
         })
         .unwrap_or_default();
 
-    let id = format!("ft_{}", std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_millis());
+    let id = format!(
+        "ft_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
 
     let job = FinetuneJob {
         id: id.clone(),
@@ -11605,29 +11713,39 @@ fn bi_finetune_status(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         .ok_or_else(|| anyhow!("finetune_status: missing 'job_id'"))?;
 
     let jobs = FINETUNE_JOBS.read().unwrap();
-    let job = jobs.get(&job_id)
+    let job = jobs
+        .get(&job_id)
         .ok_or_else(|| anyhow!("finetune_status: job '{}' not found", job_id))?;
 
     let mut result = BTreeMap::new();
     result.insert("job_id".to_string(), Value::Str(job.id.clone()));
     result.insert("model".to_string(), Value::Str(job.model.clone()));
     result.insert("dataset".to_string(), Value::Str(job.dataset.clone()));
-    result.insert("status".to_string(), Value::Str(job.status.as_str().to_string()));
+    result.insert(
+        "status".to_string(),
+        Value::Str(job.status.as_str().to_string()),
+    );
     Ok(Value::Record(result))
 }
 
 /// finetune_list() - List all fine-tuning jobs
 fn bi_finetune_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let jobs = FINETUNE_JOBS.read().unwrap();
-    
-    let result: Vec<Value> = jobs.values().map(|job| {
-        let mut rec = BTreeMap::new();
-        rec.insert("job_id".to_string(), Value::Str(job.id.clone()));
-        rec.insert("model".to_string(), Value::Str(job.model.clone()));
-        rec.insert("dataset".to_string(), Value::Str(job.dataset.clone()));
-        rec.insert("status".to_string(), Value::Str(job.status.as_str().to_string()));
-        Value::Record(rec)
-    }).collect();
+
+    let result: Vec<Value> = jobs
+        .values()
+        .map(|job| {
+            let mut rec = BTreeMap::new();
+            rec.insert("job_id".to_string(), Value::Str(job.id.clone()));
+            rec.insert("model".to_string(), Value::Str(job.model.clone()));
+            rec.insert("dataset".to_string(), Value::Str(job.dataset.clone()));
+            rec.insert(
+                "status".to_string(),
+                Value::Str(job.status.as_str().to_string()),
+            );
+            Value::Record(rec)
+        })
+        .collect();
 
     Ok(Value::Array(result))
 }
@@ -11640,7 +11758,7 @@ fn bi_finetune_cancel(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         .ok_or_else(|| anyhow!("finetune_cancel: missing 'job_id'"))?;
 
     let mut jobs = FINETUNE_JOBS.write().unwrap();
-    
+
     if let Some(job) = jobs.get_mut(&job_id) {
         match job.status {
             FinetuneStatus::Pending | FinetuneStatus::Training => {
@@ -11650,7 +11768,11 @@ fn bi_finetune_cancel(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                 result.insert("job_id".to_string(), Value::Str(job_id));
                 Ok(Value::Record(result))
             }
-            _ => Err(anyhow!("finetune_cancel: job '{}' cannot be cancelled (status: {})", job_id, job.status.as_str()))
+            _ => Err(anyhow!(
+                "finetune_cancel: job '{}' cannot be cancelled (status: {})",
+                job_id,
+                job.status.as_str()
+            )),
         }
     } else {
         Err(anyhow!("finetune_cancel: job '{}' not found", job_id))
