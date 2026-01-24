@@ -162,12 +162,14 @@ AetherShell is the **only shell** combining these capabilities:
 | Typed Pipelines                     |      ✅      |         ❌          |    ✅    |
 | Agent-to-Agent Protocol (A2A)       |      ✅      |         ❌          |    ❌    |
 | Consensus Protocol (NANDA)          |      ✅      |         ❌          |    ❌    |
+| Enterprise (RBAC, Audit, SSO)       |      ✅      |         ❌          |    ❌    |
+| Language Server Protocol (LSP)      |      ✅      |         ❌          |    ✅    |
 
 ---
 
 ## 📐 Language Features at a Glance
 
-AetherShell is a **typed functional language** with 143+ built-in functions across these categories:
+AetherShell is a **typed functional language** with 215+ built-in functions across these categories:
 
 <table>
 <tr>
@@ -738,21 +740,26 @@ cargo test --lib
 See [ROADMAP.md](ROADMAP.md) for the complete development roadmap with detailed progress tracking.
 
 ### ✅ Completed (January 2026)
-- 143+ builtins with comprehensive test coverage
+- 215+ builtins with comprehensive test coverage
 - 38 built-in color themes with XDG-compliant config
 - Neural network primitives & evolutionary algorithms
 - 130+ MCP tools with protocol compliance
 - Multi-modal AI (images, audio, video)
 - Reinforcement learning (Q-Learning, DQN, Actor-Critic)
-- Distributed agent swarms
-- VS Code extension
-- 100% test pass rate (52 Rust tests + 8 .ae test files)
+- Distributed agent swarms & cluster management
+- Language Server Protocol (LSP) for IDE integration
+- VS Code extension v0.2.0 with IntelliSense
+- Enterprise features (RBAC, Audit, SSO, Compliance)
+- Fine-tuning API for custom model training
+- RAG & knowledge graphs
+- Plugin system with TOML manifests
+- WASM support (browser-based shell)
+- Package management & module imports
+- 100% test pass rate
 
 ### 🔜 Coming Soon
-- Plugin system for custom backends
-- WASM support (browser-based shell)
 - Advanced video streaming
-- Package management & imports
+- Mobile platform support
 
 ---
 
