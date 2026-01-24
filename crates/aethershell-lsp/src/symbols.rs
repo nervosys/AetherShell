@@ -20,6 +20,7 @@ pub fn get_document_symbols(store: &DocumentStore, uri: &Url) -> Vec<DocumentSym
                 name,
                 value,
                 is_mut,
+                ..
             } = stmt
             {
                 let kind = classify_value_kind(value);
