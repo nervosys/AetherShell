@@ -3,7 +3,7 @@ members = [".", "crates/aethershell-lsp"]
 
 [package]
 name = "aether_shell"
-version = "0.1.2"
+version = "0.2.0"
 edition = "2021"
 authors = ["Nervosys <contact@nervosys.ai>"]
 description = "The world's first multi-agent shell with typed functional pipelines and multi-modal AI"
