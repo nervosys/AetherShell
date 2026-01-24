@@ -35,20 +35,22 @@
 
 ## 🚀 Quick Start
 
-### VS Code Extension (Syntax Highlighting)
+### VS Code Extension (Syntax Highlighting + LSP)
 
-For syntax highlighting in `.ae` files and code blocks, install the AetherShell extension for VS Code:
+For full IDE support including syntax highlighting, IntelliSense, and error diagnostics:
 
 ```bash
+# Install the extension from marketplace
 code --install-extension admercs.aethershell
-# or build and install it locally
-cd ./editors/vscode
-npm install -g @vscode/vsce
-npx vsce package --allow-missing-repository
-code --install-extension ./editors/vscode/aethershell-0.1.0.vsix
+
+# Build the Language Server (for IntelliSense)
+cd AetherShell
+cargo build -p aethershell-lsp --release
+
+# The extension will auto-detect the LSP server
 ```
 
-Or search for "AetherShell" in the VS Code Extensions marketplace.
+**Features:** Syntax highlighting, autocompletion, hover docs, go-to-definition, error diagnostics.
 
 ### Installation
 
@@ -112,6 +114,8 @@ themes() | take(5)
 - **Autonomous agents** with tool access
 - **130+ MCP tools** across 27 categories
 - **Multi-provider**: OpenAI, Ollama, local models
+- **Fine-tuning API** for custom model training
+- **RAG & Knowledge Graphs** built-in
 
 </td>
 <td width="50%">
@@ -127,20 +131,24 @@ themes() | take(5)
 <tr>
 <td width="50%">
 
-### 🧠 ML Primitives
+### 🧠 ML & Enterprise
 - **Neural networks** creation & evolution
-- **Reinforcement learning** (Q-Learning, DQN, etc.)
-- **Evolutionary algorithms** & NEAT
-- **Consensus networks** for distributed AI
+- **Reinforcement learning** (Q-Learning, DQN)
+- **Enterprise RBAC** with role-based access
+- **Audit logging** & compliance reporting
+- **SSO integration** (SAML, OAuth, OIDC)
+- **Cluster management** for distributed AI
 
 </td>
 <td width="50%">
 
-### 🎨 Beautiful TUI
-- **Interactive terminal UI** with tabs
-- **Media viewer** for images/audio/video
-- **Agent dashboard** for swarm control
-- **Chat interface** with context
+### 🎨 Developer Experience
+- **Interactive TUI** with tabs & themes
+- **Language Server Protocol** (LSP)
+- **VS Code extension** with IntelliSense
+- **Plugin system** with TOML manifests
+- **WASM support** for browser REPL
+- **Package management** & imports
 
 </td>
 </tr>
@@ -209,20 +217,22 @@ AetherShell is a **typed functional language** with 215+ built-in functions acro
 </tr>
 </table>
 
-### Builtin Categories (143+ functions)
+### Builtin Categories (215+ functions)
 
-| Category        | Examples                                              | Count |
-| --------------- | ----------------------------------------------------- | ----- |
-| **Core**        | `help`, `print`, `echo`, `call`, `Some`, `None`       | 8     |
-| **Functional**  | `map`, `where`, `reduce`, `take`, `any`, `all`        | 11    |
-| **String**      | `split`, `join`, `trim`, `upper`, `lower`, `replace`  | 9     |
-| **Array**       | `flatten`, `reverse`, `slice`, `range`, `zip`, `push` | 7     |
-| **Math**        | `abs`, `min`, `max`, `sqrt`, `pow`, `floor`, `ceil`   | 8     |
-| **Aggregate**   | `sum`, `avg`, `product`, `unique`, `values`           | 5     |
-| **File System** | `ls`, `cat`, `pwd`, `cd`, `exists`, `mkdir`           | 11    |
-| **Config**      | `config`, `config_get`, `config_set`, `themes`        | 7     |
-| **AI**          | `ai`, `agent`, `swarm`, `ai_model`                    | 10+   |
-| **OS Tools**    | `env`, `which`, `os`, `arch`, `hostname`              | 15+   |
+| Category        | Examples                                                   | Count |
+| --------------- | ---------------------------------------------------------- | ----- |
+| **Core**        | `help`, `print`, `echo`, `debug`, `assert`, `trace`        | 15    |
+| **Functional**  | `map`, `where`, `reduce`, `take`, `any`, `all`             | 12    |
+| **String**      | `split`, `join`, `trim`, `upper`, `lower`, `replace`       | 10    |
+| **Array**       | `flatten`, `reverse`, `slice`, `range`, `zip`, `push`      | 8     |
+| **Math**        | `abs`, `min`, `max`, `sqrt`, `pow`, `floor`, `ceil`        | 8     |
+| **Aggregate**   | `sum`, `avg`, `product`, `unique`, `values`                | 5     |
+| **File System** | `ls`, `cat`, `pwd`, `cd`, `exists`, `mkdir`                | 11    |
+| **Config**      | `config`, `config_get`, `config_set`, `themes`             | 7     |
+| **AI**          | `ai`, `agent`, `swarm`, `rag_query`, `finetune_start`      | 20+   |
+| **Enterprise**  | `role_create`, `audit_log`, `sso_init`, `compliance_check` | 22    |
+| **Distributed** | `cluster_create`, `job_submit`, `aggregate_results`        | 15    |
+| **Platform**    | `platform`, `is_windows`, `is_linux`, `features`           | 12    |
 
 ---
 
@@ -565,6 +575,71 @@ mcp_call("kubectl", {command: "get pods -o json"})
       restarts: pod.status.containerStatuses[0].restartCount
     })
   | where(fn(p) => p.restarts > 0)
+```
+
+### Enterprise: RBAC & Compliance
+
+```ae
+# Create roles with permissions
+role_create("data_analyst", [
+    {resource: "reports", actions: ["read", "export"]},
+    {resource: "dashboards", actions: ["read", "create"]}
+], "Data analytics team role")
+
+# Grant roles to users
+role_grant("user_123", "data_analyst")
+
+# Check permissions before operations
+if check_permission("user_123", "reports", "export") {
+    audit_log("report_export", {user: "user_123", report: "Q4_sales"})
+    # ... export the report
+}
+
+# Compliance reporting
+compliance_check("GDPR")
+compliance_report("SOC2", "json")
+```
+
+### AI: Fine-tuning & RAG
+
+```ae
+# Start model fine-tuning
+finetune_start("gpt-4o-mini", "training_data.jsonl", {
+    epochs: 3,
+    learning_rate: 0.0001
+})
+
+# Check fine-tuning status
+finetune_status("ft-abc123")
+
+# Build knowledge base with RAG
+rag_index("project_docs", ["README.md", "docs/*.md"])
+rag_query("project_docs", "How do I configure themes?")
+
+# Knowledge graphs
+kg_add("AetherShell", "language", "Rust")
+kg_relate("AetherShell", "has_feature", "typed_pipelines")
+kg_query({entity: "AetherShell"})
+```
+
+### Distributed Computing
+
+```ae
+# Create a compute cluster
+cluster_create("ml_cluster", {max_nodes: 10})
+
+# Add worker nodes
+cluster_add_node("ml_cluster", "worker_1", {capabilities: ["gpu", "ml"]})
+cluster_add_node("ml_cluster", "worker_2", {capabilities: ["gpu", "ml"]})
+
+# Submit distributed jobs
+job_submit("ml_cluster", "train_model", {
+    model: "neural_net",
+    data: "training_set.csv"
+})
+
+# Monitor cluster status
+cluster_status("ml_cluster")
 ```
 
 ### Interactive Data Exploration
