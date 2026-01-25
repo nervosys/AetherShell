@@ -70,33 +70,34 @@ ae script.ae
 ```
 
 ```ae
-# Typed pipelines — not text streams!
-[1, 2, 3, 4, 5] | map(fn(x) => x * 2) | sum()
-# => 30
+# Typed pipelines — structured data, not text streams
+[1, 2, 3, 4, 5] | map(fn(x) => x * 2) | sum()   # => 30
 
-# Pattern matching
-match type_of(42) {
-    "Int" => "It's an integer!",
-    _ => "Something else"
+# Type inference — no 'let' required
+name = "AetherShell"                            # String
+count = 42                                       # Int
+scores = [95, 87, 92, 88]                        # Array<Int>
+user = {name: "Alice", age: 30}                 # Record
+
+# Pattern matching with type guards
+match type_of(count) {
+    "Int" => "It's an integer: ${count}",
+    "String" => "It's a string",
+    _ => "Unknown type"
 }
 
-# String manipulation
+# Functional string processing
 "hello,world" | split(",") | map(fn(s) => upper(s)) | join(" ")
 # => "HELLO WORLD"
 
-# AI query
-ai("Explain quantum computing in simple terms")
+# AI-powered analysis
+ai("Explain this error message", {context: cat("error.log")})
 
-# AI with vision
-ai("Describe this image", {images: ["photo.jpg"]})
+# Vision AI for screenshots and diagrams
+ai("What UI issues do you see?", {images: ["screenshot.png"]})
 
-# AI agent with tool access
-agent("Find all TODO comments in src/", ["ls", "cat", "grep"])
-
-# 38 built-in themes
-config_set("colors.theme", "dracula")
-themes() | take(5)
-# => ["catppuccin", "catppuccin-latte", "catppuccin-frappe", ...]
+# Autonomous agent with tool access
+agent("Refactor all deprecated API calls in src/", ["ls", "cat", "grep", "git"])
 ```
 
 > **📝 Note:** Set `OPENAI_API_KEY` for AI features: `export OPENAI_API_KEY="sk-..."`
@@ -173,6 +174,49 @@ AetherShell is the **only shell** combining these capabilities:
 | Enterprise (RBAC, Audit, SSO)       |      ✅      |         ❌          |    ❌    |
 | Language Server Protocol (LSP)      |      ✅      |         ❌          |    ✅    |
 
+### Bash vs AetherShell: A Quick Comparison
+
+**Find large Rust files and show their sizes:**
+
+```bash
+# Bash: Text parsing, fragile, hard to read
+find ./src -name "*.rs" -size +1k -exec ls -lh {} \; | awk '{print $9, $5}' | sort -k2 -h | tail -5
+```
+
+```ae
+# AetherShell: Typed, composable, readable
+ls("./src")
+  | where(fn(f) => f.ext == ".rs" && f.size > 1024)
+  | map(fn(f) => {name: f.name, size: f.size})
+  | sort_by(fn(f) => f.size, "desc")
+  | take(5)
+```
+
+**Analyze JSON API response:**
+
+```bash
+# Bash: Requires jq, string manipulation
+curl -s https://api.github.com/repos/nervosys/AetherShell | jq '.stargazers_count, .forks_count'
+```
+
+```ae
+# AetherShell: Native JSON, type-safe field access  
+repo = http_get("https://api.github.com/repos/nervosys/AetherShell")
+print("Stars: ${repo.stargazers_count}, Forks: ${repo.forks_count}")
+```
+
+**Ask AI to explain an error:**
+
+```bash
+# Bash: Not possible without external scripts
+```
+
+```ae
+# AetherShell: Built-in AI with context
+error_log = cat("error.log") | where(fn(l) => contains(l, "FATAL")) | first()
+ai("Explain this error and suggest a fix:", {context: error_log})
+```
+
 ---
 
 ## 📐 Language Features at a Glance
@@ -219,109 +263,162 @@ AetherShell is a **typed functional language** with 215+ built-in functions acro
 
 ### Builtin Categories (215+ functions)
 
-| Category        | Examples                                                   | Count |
-| --------------- | ---------------------------------------------------------- | ----- |
-| **Core**        | `help`, `print`, `echo`, `debug`, `assert`, `trace`        | 15    |
-| **Functional**  | `map`, `where`, `reduce`, `take`, `any`, `all`             | 12    |
-| **String**      | `split`, `join`, `trim`, `upper`, `lower`, `replace`       | 10    |
-| **Array**       | `flatten`, `reverse`, `slice`, `range`, `zip`, `push`      | 8     |
-| **Math**        | `abs`, `min`, `max`, `sqrt`, `pow`, `floor`, `ceil`        | 8     |
-| **Aggregate**   | `sum`, `avg`, `product`, `unique`, `values`                | 5     |
-| **File System** | `ls`, `cat`, `pwd`, `cd`, `exists`, `mkdir`                | 11    |
-| **Config**      | `config`, `config_get`, `config_set`, `themes`             | 7     |
-| **AI**          | `ai`, `agent`, `swarm`, `rag_query`, `finetune_start`      | 20+   |
-| **Enterprise**  | `role_create`, `audit_log`, `sso_init`, `compliance_check` | 22    |
-| **Distributed** | `cluster_create`, `job_submit`, `aggregate_results`        | 15    |
-| **Platform**    | `platform`, `is_windows`, `is_linux`, `features`           | 12    |
+| Category         | Examples                                                    | Count |
+| ---------------- | ----------------------------------------------------------- | ----- |
+| **Core**         | `help`, `print`, `echo`, `type_of`, `len`                   | 15    |
+| **Functional**   | `map`, `where`, `reduce`, `take`, `any`, `all`, `first`     | 12    |
+| **String**       | `split`, `join`, `trim`, `upper`, `lower`, `replace`        | 10    |
+| **Array**        | `flatten`, `reverse`, `slice`, `range`, `zip`, `push`       | 8     |
+| **Math**         | `abs`, `min`, `max`, `sqrt`, `pow`, `floor`, `ceil`         | 8     |
+| **Aggregate**    | `sum`, `avg`, `product`, `unique`, `values`, `keys`         | 6     |
+| **File System**  | `ls`, `cat`, `pwd`, `cd`, `exists`, `mkdir`, `rm`           | 11    |
+| **Config**       | `config`, `config_get`, `config_set`, `themes`              | 7     |
+| **Debugging**    | `debug`, `dbg`, `trace`, `assert`, `type_assert`, `inspect` | 7     |
+| **Async**        | `async`, `await`, futures support                           | 3     |
+| **Errors**       | `try`/`catch`, `throw`, `is_error`                          | 4     |
+| **AI**           | `ai`, `agent`, `swarm`, `rag_query`, `finetune_start`       | 20+   |
+| **Enterprise**   | `role_create`, `audit_log`, `sso_init`, `compliance_check`  | 22    |
+| **Distributed**  | `cluster_create`, `job_submit`, `aggregate_results`         | 15    |
+| **Platform**     | `platform`, `is_windows`, `is_linux`, `features`            | 12    |
+| **MCP Protocol** | `mcp_tools`, `mcp_call`, 130+ tool integrations             | 130+  |
 
 ---
 
 ## 📖 Examples
 
-### Core Syntax — Typed Functional Programming
+### Core Syntax — Type Inference Without `let`
+
+AetherShell uses **Hindley-Milner type inference** — types are inferred automatically, no `let` keyword needed:
 
 ```ae
-# Literals and Types
-let age = 42                    # Int
-let pi = 3.14159                # Float
-let name = "AetherShell"        # String
-let active = true               # Bool
-let empty = null                # Null
+# Type inference — the compiler knows these types
+age = 42                        # Int
+pi = 3.14159                    # Float  
+name = "AetherShell"            # String
+active = true                   # Bool
+empty = null                    # Null
 
-# String interpolation
-let greeting = "Hello, ${name}! You're ${age} years old."
+# String interpolation with inferred types
+greeting = "Hello, ${name}! You're ${age} years old."
 
-# Arrays — ordered collections
-let nums = [1, 2, 3, 4, 5]
-let mixed = [1, "hello", true, 3.14]
+# Arrays — homogeneous collections are type-safe
+nums = [1, 2, 3, 4, 5]          # Array<Int>
+names = ["Alice", "Bob"]        # Array<String>
+matrix = [[1, 2], [3, 4]]       # Array<Array<Int>>
 
-# Records — structured data
-let user = {name: "Alice", age: 30, admin: true}
+# Records — structured data with field access
+user = {name: "Alice", age: 30, admin: true}
 print(user.name)               # => "Alice"
+print(type_of(user))           # => "Record"
 
-# Lambdas — first-class functions
-let double = fn(x) => x * 2
-let add = fn(a, b) => a + b
+# Lambdas — first-class functions with type inference
+double = fn(x) => x * 2        # fn(Int) -> Int
+add = fn(a, b) => a + b        # fn(Int, Int) -> Int
+greet = fn(s) => "Hi, ${s}!"   # fn(String) -> String
+
 print(double(21))              # => 42
-print(add(10, 20))             # => 30
+print(greet("World"))          # => "Hi, World!"
 ```
 
-### Functional Pipelines — Structured Data Processing
+### Strong Types — Compile-Time Safety
 
 ```ae
-# Transform arrays with map
-[1, 2, 3] | map(fn(x) => x * x)        # => [1, 4, 9]
+# Type assertions for runtime validation
+type_assert(42, "Int")          # Passes
+type_assert("hello", "String")  # Passes
+type_assert([1,2,3], "Array")   # Passes
 
-# Filter with where
-[1, 2, 3, 4, 5] | where(fn(x) => x > 2) # => [3, 4, 5]
+# Type inspection
+type_of(42)                    # => "Int"
+type_of(3.14)                  # => "Float"
+type_of("hello")               # => "String"
+type_of([1, 2, 3])             # => "Array"
+type_of({a: 1})                # => "Record"
+type_of(fn(x) => x)            # => "Lambda"
 
-# Aggregate with reduce
-[1, 2, 3, 4] | reduce(fn(a, b) => a + b, 0)  # => 10
+# Pattern matching on types
+process = fn(val) => match type_of(val) {
+    "Int" => val * 2,
+    "String" => upper(val),
+    "Array" => len(val),
+    _ => null
+}
 
-# Chain operations for complex transformations
-[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-  | where(fn(x) => x % 2 == 0)         # Keep evens
-  | map(fn(x) => x ** 2)               # Square them
-  | reduce(fn(a, b) => a + b, 0)       # Sum: 220
-
-# Array manipulation
-([1, 2, 3, 4, 5] | reverse)            # => [5, 4, 3, 2, 1]
-([[1, 2], [3, 4]] | flatten)           # => [1, 2, 3, 4]
-([1, 2, 3, 4, 5] | slice(1, 4))        # => [2, 3, 4]
-
-# Check conditions
-[1, 2, 3, 4, 5] | any(fn(x) => x > 4)  # => true
-[2, 4, 6, 8] | all(fn(x) => x % 2 == 0) # => true
+process(21)                    # => 42
+process("hello")               # => "HELLO"
+process([1,2,3,4,5])           # => 5
 ```
 
-### Pattern Matching — Powerful Control Flow
+### Functional Pipelines — Structured Data, Not Text
+
+Unlike traditional shells that pipe text, AetherShell pipes **typed values**:
 
 ```ae
-# Match on values
-let grade = fn(score) => match score {
+# Transform: map applies a function to each element
+numbers = [1, 2, 3, 4, 5]
+squared = numbers | map(fn(x) => x * x)    # => [1, 4, 9, 16, 25]
+
+# Filter: where keeps elements matching a predicate
+evens = numbers | where(fn(x) => x % 2 == 0)  # => [2, 4]
+
+# Aggregate: reduce combines elements into one value
+total = numbers | reduce(fn(acc, x) => acc + x, 0)  # => 15
+
+# Chain operations — each step preserves types
+result = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+  | where(fn(x) => x % 2 == 0)     # [2, 4, 6, 8, 10] - evens only
+  | map(fn(x) => x ** 2)           # [4, 16, 36, 64, 100] - squared
+  | reduce(fn(a, b) => a + b, 0)   # 220 - sum
+
+# Array manipulation with type safety
+reversed = [1, 2, 3, 4, 5] | reverse       # => [5, 4, 3, 2, 1]
+flat = [[1, 2], [3, 4]] | flatten          # => [1, 2, 3, 4]
+sliced = [1, 2, 3, 4, 5] | slice(1, 4)     # => [2, 3, 4]
+
+# Predicate checks return Bool
+has_large = [1, 2, 3, 4, 5] | any(fn(x) => x > 4)   # => true
+all_even = [2, 4, 6, 8] | all(fn(x) => x % 2 == 0)  # => true
+```
+
+### Pattern Matching — Exhaustive Type-Safe Control Flow
+
+```ae
+# Match on values with range patterns
+grade = fn(score) => match score {
     100 => "Perfect!",
     90..99 => "A",
-    80..89 => "B",
+    80..89 => "B", 
     70..79 => "C",
     _ => "Keep trying"
 }
-print(grade(95))               # => "A"
+grade(95)                      # => "A"
+grade(100)                     # => "Perfect!"
 
-# Match with guards
-let classify = fn(n) => match n {
+# Match with guards for complex conditions
+classify = fn(n) => match n {
     x if x < 0 => "negative",
     0 => "zero",
     x if x > 0 => "positive"
 }
+classify(-5)                   # => "negative"
+classify(0)                    # => "zero"
+classify(42)                   # => "positive"
 
-# Match on types
-let describe = fn(val) => match type_of(val) {
-    "Int" => "An integer",
-    "String" => "A string",
-    "Array" => "An array with ${len(val)} elements",
-    "Record" => "A record with keys: ${keys(val)}",
-    _ => "Something else"
+# Type-based dispatch — powerful polymorphism
+describe = fn(val) => match type_of(val) {
+    "Int" => "Integer: ${val}",
+    "Float" => "Decimal: ${val}",
+    "String" => "Text (${len(val)} chars): ${val}",
+    "Array" => "Collection of ${len(val)} items",
+    "Record" => "Object with keys: ${keys(val)}",
+    "Lambda" => "Function",
+    _ => "Unknown type"
 }
+
+describe(42)                   # => "Integer: 42"
+describe("hello")              # => "Text (5 chars): hello"
+describe([1, 2, 3])            # => "Collection of 3 items"
+describe({x: 1, y: 2})         # => "Object with keys: [x, y]"
 ```
 
 ### String Operations — Built-in Text Processing
@@ -364,6 +461,79 @@ product([2, 3, 4])             # => 24
 unique([1, 2, 2, 3, 3, 3])     # => [1, 2, 3]
 ```
 
+### Error Handling — Try/Catch/Throw
+
+```ae
+# Safe operations with try/catch
+result = try {
+    risky_operation()
+} catch {
+    "default_value"
+}
+
+# Catch with error binding
+result = try {
+    parse_config("invalid.toml")
+} catch e {
+    print("Error: ${e}")
+    default_config()
+}
+
+# Throw custom errors
+validate = fn(x) => {
+    if x < 0 {
+        throw "Value must be non-negative"
+    }
+    x
+}
+
+# Check for errors
+is_error(try { throw "oops" } catch e { e })  # => true
+```
+
+### Async/Await — Concurrent Operations
+
+```ae
+# Define async functions
+fetch_data = async fn(url) => http_get(url)
+
+# Await results
+data = await fetch_data("https://api.example.com/data")
+
+# Parallel operations with futures
+urls = ["https://api1.com", "https://api2.com", "https://api3.com"]
+futures = urls | map(fn(u) => async fn() => http_get(u))
+results = futures | map(fn(f) => await f())
+```
+
+### Debugging — Development Tools
+
+```ae
+# Debug prints value with type and returns it (for chaining)
+[1, 2, 3] | debug() | map(fn(x) => x * 2)
+# Prints: [Debug] Array: [1, 2, 3]
+# Returns: [2, 4, 6]
+
+# Trace with labels for pipeline debugging
+[1, 2, 3, 4, 5]
+  | trace("input")
+  | where(fn(x) => x > 2) | trace("filtered")
+  | map(fn(x) => x * 2) | trace("doubled")
+# Prints each stage with labels
+
+# Assertions for testing
+assert(1 + 1 == 2)
+assert(len("hello") == 5, "Length should be 5")
+
+# Type assertions
+type_assert(42, "Int")
+type_assert([1, 2, 3], "Array")
+
+# Deep inspection
+inspect([1, 2, 3])
+# => {type: "Array", len: 3, values: [1, 2, 3]}
+```
+
 ### File System — Structured Output
 
 ```ae
@@ -386,38 +556,52 @@ pwd()                          # => "/home/user/project"
 ### Configuration System — XDG-Compliant
 
 ```ae
-# Get all config
+# Get full configuration as Record
 config()
 
-# Get specific values
+# Get specific values with dot notation
 config_get("colors.theme")           # => "tokyo-night"
 config_get("history.max_size")       # => 10000
 
-# Set values
+# Set values persistently
 config_set("colors.theme", "dracula")
+config_set("editor.tab_size", 4)
 
-# Get all paths (XDG-compliant)
-let paths = config_path()
+# Get all paths (XDG Base Directory compliant)
+paths = config_path()
 print(paths.config_file)       # ~/.config/aether/config.toml
+print(paths.data_dir)          # ~/.local/share/aether
 
 # List all 38 built-in themes
-themes()
-# => ["catppuccin", "dracula", "github-dark", "monokai", 
-#     "nord", "one-dark", "solarized", "tokyo-night", ...]
+themes() | take(8)
+# => ["catppuccin", "dracula", "github-dark", "gruvbox",
+#     "monokai", "nord", "one-dark", "tokyo-night"]
 ```
 
 ### AI Agents with Tool Access
 
 ```ae
-# Deploy an AI agent that can use shell tools
-agent("Analyze the project structure and find large files", ["ls", "cat", "wc"])
+# Simple agent with goal and tools
+agent("Find all files larger than 1MB in src/", ["ls", "du"])
 
-# Agent with configuration
+# Agent with full configuration
 agent({
-  goal: "Find security issues in the codebase",
-  tools: ["grep", "cat", "ls"],
-  max_steps: 10,
-  dry_run: true  # Preview actions first
+  goal: "Identify and fix code style violations",
+  tools: ["ls", "cat", "grep", "git"],
+  max_steps: 20,
+  dry_run: true,       # Preview actions before executing
+  model: "openai:gpt-4o"
+})
+
+# Multi-agent swarm for complex tasks
+swarm({
+  coordinator: "Orchestrate a full security audit",
+  agents: [
+    {role: "scanner", goal: "Find vulnerable dependencies"},
+    {role: "reviewer", goal: "Check for SQL injection"},
+    {role: "reporter", goal: "Generate findings report"}
+  ],
+  tools: ["ls", "cat", "grep", "cargo"]
 })
 ```
 
@@ -437,17 +621,18 @@ ai("Extract the key steps from this tutorial", {video: ["tutorial.mp4"]})
 ### Typed Functional Pipelines
 
 ```ae
-# Structured data processing — not text parsing!
-ls("./src")
+# File system operations return typed Records, not text
+large_rust_files = ls("./src")
   | where(fn(f) => f.ext == ".rs" && f.size > 1000)
   | map(fn(f) => {name: f.name, kb: f.size / 1024})
   | sort_by(fn(f) => f.kb, "desc")
   | take(5)
 
-# Statistical operations
-[1, 2, 3, 4, 5] | sum()      # => 15
-[10, 20, 30] | avg()         # => 20.0
-[1, 2, 1, 3] | unique()      # => [1, 2, 3]
+# Statistical operations with proper types
+scores = [85, 92, 78, 95, 88]
+scores | sum()               # => 438 (Int)
+scores | avg()               # => 87.6 (Float)
+[1, 2, 1, 3, 2] | unique()   # => [1, 2, 3] (Array<Int>)
 {a: 1, b: 2} | values()      # => [1, 2]
 ```
 
@@ -455,30 +640,31 @@ ls("./src")
 
 ```ae
 # 130 tools across 27 categories
-let tools = mcp_tools()
-print(len(tools))  # => 130
+all_tools = mcp_tools()
+print(len(all_tools))        # => 130
 
 # Filter by category
 mcp_tools({category: "development"})     # git, cargo, npm, etc.
 mcp_tools({category: "machinelearning"}) # ollama, tensorboard, etc.
 mcp_tools({category: "kubernetes"})      # kubectl, helm, k9s, etc.
 
-# Execute tools via MCP
+# Execute tools via MCP protocol
 mcp_call("git", {command: "status"})
+mcp_call("cargo", {command: "build --release"})
 ```
 
 ### Neural Networks & Evolution
 
 ```ae
-# Create a neural network
-let brain = nn_create("agent", [4, 8, 2])
+# Create a neural network with layer sizes
+brain = nn_create("agent", [4, 8, 2])  # 4 inputs, 8 hidden, 2 outputs
 
 # Evolutionary optimization
-let pop = population(100, {genome_size: 10})
-let evolved = evolve(pop, fitness_fn, {generations: 50})
+pop = population(100, {genome_size: 10})
+evolved = evolve(pop, fitness_fn, {generations: 50})
 
 # Reinforcement learning
-let agent = rl_agent("learner", 16, 4)
+learner = rl_agent("learner", 16, 4)
 ```
 
 ---
@@ -488,28 +674,53 @@ let agent = rl_agent("learner", 16, 4)
 ### DevOps: Log Analysis Pipeline
 
 ```ae
-# Analyze logs with structured pipelines
-cat("/var/log/app.log")
+# Parse and analyze application logs
+error_logs = cat("/var/log/app.log")
   | split("\n")
   | where(fn(line) => contains(line, "ERROR"))
   | map(fn(line) => {
       timestamp: line | slice(0, 19),
-      message: line | slice(20, len(line))
+      level: "ERROR",
+      message: line | slice(27, len(line))
     })
   | take(10)
+
+# Count errors by hour
+error_counts = error_logs
+  | map(fn(e) => e.timestamp | slice(0, 13))  # Extract hour
+  | unique()
+  | map(fn(hour) => {
+      hour: hour,
+      count: error_logs | where(fn(e) => starts_with(e.timestamp, hour)) | len()
+    })
 ```
 
 ### Data Science: CSV Processing
 
 ```ae
-# Process CSV data functionally
-let data = cat("sales.csv") | split("\n") | map(fn(row) => split(row, ","))
-let headers = first(data)
-let rows = data | slice(1, len(data))
+# Process CSV data with type-safe pipelines
+raw_data = cat("sales.csv") | split("\n")
+headers = raw_data | first()
+rows = raw_data | slice(1, len(raw_data)) | map(fn(row) => split(row, ","))
 
-# Calculate statistics
-let totals = rows | map(fn(r) => r[2]) | map(fn(x) => x + 0) | sum()
-print("Total sales: ${totals}")
+# Parse into typed Records
+sales = rows | map(fn(r) => {
+    date: r[0],
+    product: r[1],
+    quantity: r[2] + 0,    # Convert to Int
+    price: r[3] + 0.0      # Convert to Float
+})
+
+# Statistical analysis
+total_revenue = sales | map(fn(s) => s.quantity * s.price) | sum()
+avg_order = sales | map(fn(s) => s.quantity) | avg()
+top_products = sales
+  | map(fn(s) => s.product)
+  | unique()
+  | take(5)
+
+print("Total Revenue: $${total_revenue}")
+print("Average Order Size: ${avg_order} units")
 ```
 
 ### Security: Automated Code Audit
@@ -546,22 +757,33 @@ ls("/home")
 ### AI-Assisted Development
 
 ```ae
-# Generate documentation with AI
-let code = cat("src/main.rs")
-ai("Generate comprehensive documentation for this Rust code:", {context: code})
+# Generate documentation from code
+code = cat("src/main.rs")
+docs = ai("Generate comprehensive API documentation for this Rust code:", {
+    context: code,
+    model: "openai:gpt-4o"
+})
 
-# Code review assistant
+# Intelligent code review
 agent({
-  goal: "Review the recent changes and suggest improvements",
+  goal: "Review the recent git changes and suggest improvements for:
+         - Performance optimizations
+         - Security issues  
+         - Code style consistency",
   tools: ["git", "cat", "grep"],
   max_steps: 15
 })
 
-# Generate tests
-ai("Write unit tests for these functions:", {
-  context: cat("src/utils.rs"),
+# Generate tests with context awareness
+module_code = cat("src/utils.rs")
+test_code = ai("Write comprehensive unit tests covering edge cases:", {
+  context: module_code,
   model: "openai:gpt-4o"
 })
+
+# Explain complex code
+complex_fn = cat("src/parser.rs") | slice(100, 200)
+ai("Explain what this function does in simple terms:", {context: complex_fn})
 ```
 
 ### Infrastructure: Kubernetes Monitoring
@@ -645,14 +867,90 @@ cluster_status("ml_cluster")
 ### Interactive Data Exploration
 
 ```ae
-# Explore JSON APIs
-let response = http_get("https://api.github.com/repos/nervosys/AetherShell")
+# Explore JSON APIs with type-safe access
+response = http_get("https://api.github.com/repos/nervosys/AetherShell")
 print("Stars: ${response.stargazers_count}")
-print("Forks: ${response.forks_count}")
+print("Forks: ${response.forks_count}")  
 print("Language: ${response.language}")
 
-# Parse and transform
-response.topics | map(fn(t) => upper(t)) | join(", ")
+# Transform API data
+topics_upper = response.topics | map(fn(t) => upper(t)) | join(", ")
+
+# Build a dashboard from multiple endpoints
+repos = http_get("https://api.github.com/users/nervosys/repos")
+stats = repos | map(fn(r) => {
+    name: r.name,
+    stars: r.stargazers_count,
+    lang: r.language
+}) | where(fn(r) => r.stars > 0) | sort_by(fn(r) => r.stars, "desc")
+```
+
+### Git Workflow Automation
+
+```ae
+# Get recent commits with structured data
+commits = mcp_call("git", {command: "log --oneline -10"})
+  | split("\n")
+  | map(fn(line) => {
+      hash: line | slice(0, 7),
+      message: line | slice(8, len(line))
+    })
+
+# Find commits by pattern
+bug_fixes = commits | where(fn(c) => contains(lower(c.message), "fix"))
+
+# Analyze git blame for a file
+blame = mcp_call("git", {command: "blame src/main.rs"})
+authors = blame | split("\n") 
+  | map(fn(l) => l | split(" ") | first())
+  | unique()
+```
+
+### Build & Deploy Automation
+
+```ae
+# Platform-aware build script
+build_cmd = match platform() {
+    "windows" => "cargo build --release --target x86_64-pc-windows-msvc",
+    "linux" => "cargo build --release --target x86_64-unknown-linux-gnu",
+    "macos" => "cargo build --release --target aarch64-apple-darwin",
+    _ => "cargo build --release"
+}
+
+# Conditional feature flags
+features = features()
+build_with_ai = if has_feature("ai") { "--features ai" } else { "" }
+
+# Multi-platform detection
+if is_windows() {
+    print("Building for Windows...")
+} else if is_linux() {
+    print("Building for Linux...")
+} else if is_macos() {
+    print("Building for macOS...")
+}
+```
+
+### Monitoring & Alerting
+
+```ae
+# Check system health and alert
+health_check = fn() => {
+    cpu = mcp_call("system", {metric: "cpu_usage"})
+    memory = mcp_call("system", {metric: "memory_usage"})
+    disk = mcp_call("system", {metric: "disk_usage"})
+    
+    {cpu: cpu, memory: memory, disk: disk}
+}
+
+status = health_check()
+
+# Alert on high resource usage
+if status.cpu > 90 || status.memory > 85 {
+    ai("Generate an alert message for high resource usage:", {
+        context: "CPU: ${status.cpu}%, Memory: ${status.memory}%"
+    })
+}
 ```
 
 ---
