@@ -70,34 +70,36 @@ ae script.ae
 ```
 
 ```ae
+# Type INFERENCE — types are automatically inferred
+name = "AetherShell"                  # inferred as String
+count = 42                             # inferred as Int
+scores = [95, 87, 92, 88]              # inferred as Array<Int>
+
+# Type ANNOTATIONS — explicit when needed for clarity
+config: Record = {host: "localhost", port: 8080}
+handler: fn(Int) -> Int = fn(x) => x * 2
+
 # Typed pipelines — structured data, not text streams
-[1, 2, 3, 4, 5] | map(fn(x: Int) => x * 2) | sum()   # => 30
+[1, 2, 3, 4, 5] | map(fn(x) => x * 2) | sum()   # => 30
 
-# Explicit type annotations
-name: String = "AetherShell"
-count: Int = 42
-scores: Array<Int> = [95, 87, 92, 88]
-user: Record = {name: "Alice", age: 30}
-
-# Pattern matching with type guards
+# Pattern matching
 match type_of(count) {
-    "Int" => "It's an integer: ${count}",
-    "String" => "It's a string",
-    _ => "Unknown type"
+    "Int" => "Integer: ${count}",
+    "String" => "Text",
+    _ => "Unknown"
 }
 
-# Functional string processing
-"hello,world" | split(",") | map(fn(s: String) => upper(s)) | join(" ")
-# => "HELLO WORLD"
-
-# AI-powered analysis
-ai("Explain this error message", {context: cat("error.log")})
-
-# Vision AI for screenshots and diagrams
-ai("What UI issues do you see?", {images: ["screenshot.png"]})
+# AI query with vision
+ai("What's in this image?", {images: ["photo.jpg"]})
 
 # Autonomous agent with tool access
-agent("Refactor all deprecated API calls in src/", ["ls", "cat", "grep", "git"])
+agent("Find security issues in src/", ["ls", "cat", "grep"])
+
+# Agent-to-Agent (A2A) protocol for multi-agent collaboration
+a2a_send("analyzer", {task: "review code", files: ls("./src")})
+
+# NANDA consensus for distributed agent decisions
+nanda_propose("deployment", {version: "2.0", approve_threshold: 0.7})
 ```
 
 > **📝 Note:** Set `OPENAI_API_KEY` for AI features: `export OPENAI_API_KEY="sk-..."`
@@ -113,9 +115,11 @@ agent("Refactor all deprecated API calls in src/", ["ls", "cat", "grep", "git"])
 ### 🤖 AI-Native Shell
 - **Multi-modal AI**: Images, audio, video analysis
 - **Autonomous agents** with tool access
-- **130+ MCP tools** across 27 categories
+- **MCP Protocol**: 130+ tools across 27 categories
+- **A2A Protocol**: Agent-to-agent communication
+- **A2UI Protocol**: Agent-to-user interface
+- **NANDA**: Distributed consensus for agent networks
 - **Multi-provider**: OpenAI, Ollama, local models
-- **Fine-tuning API** for custom model training
 - **RAG & Knowledge Graphs** built-in
 
 </td>
@@ -166,11 +170,12 @@ AetherShell is the **only shell** combining these capabilities:
 | AI Agents with Tools                |      ✅      |         ❌          |    ❌    |
 | Multi-modal AI (Vision/Audio/Video) |      ✅      |         ❌          |    ❌    |
 | MCP Protocol (130+ tools)           |      ✅      |         ❌          |    ❌    |
+| A2A (Agent-to-Agent)                |      ✅      |         ❌          |    ❌    |
+| A2UI (Agent-to-User Interface)      |      ✅      |         ❌          |    ❌    |
+| NANDA Consensus Protocol            |      ✅      |         ❌          |    ❌    |
 | Neural Networks Built-in            |      ✅      |         ❌          |    ❌    |
 | Hindley-Milner Types                |      ✅      |         ❌          |    ✅    |
 | Typed Pipelines                     |      ✅      |         ❌          |    ✅    |
-| Agent-to-Agent Protocol (A2A)       |      ✅      |         ❌          |    ❌    |
-| Consensus Protocol (NANDA)          |      ✅      |         ❌          |    ❌    |
 | Enterprise (RBAC, Audit, SSO)       |      ✅      |         ❌          |    ❌    |
 | Language Server Protocol (LSP)      |      ✅      |         ❌          |    ✅    |
 
@@ -286,58 +291,56 @@ AetherShell is a **typed functional language** with 215+ built-in functions acro
 
 ## 📖 Examples
 
-### Core Syntax — Type Annotations & Inference
+### Core Syntax — Type Inference & Annotations
 
-AetherShell supports both **explicit type annotations** and **Hindley-Milner type inference**:
+AetherShell uses **Hindley-Milner type inference** with optional explicit annotations:
 
 ```ae
-# Explicit type annotations (recommended for clarity)
-age: Int = 42
-pi: Float = 3.14159
-name: String = "AetherShell"
-active: Bool = true
-empty: Null = null
+# TYPE INFERENCE — compiler infers types automatically
+age = 42                        # inferred: Int
+pi = 3.14159                    # inferred: Float
+name = "AetherShell"            # inferred: String
+active = true                   # inferred: Bool
 
-# Type inference — types are inferred when not specified
-greeting = "Hello, ${name}!"   # Inferred as String
-
-# Arrays with type annotations
-nums: Array<Int> = [1, 2, 3, 4, 5]
-names: Array<String> = ["Alice", "Bob"]
+# TYPE ANNOTATIONS — explicit when clarity is needed
+config: Record = {host: "localhost", port: 8080, debug: true}
+scores: Array<Int> = [95, 87, 92, 88]
 matrix: Array<Array<Int>> = [[1, 2], [3, 4]]
 
-# Records — structured data with typed fields
-user: Record = {name: "Alice", age: 30, admin: true}
-print(user.name)               # => "Alice"
-print(type_of(user))           # => "Record"
+# String interpolation (type inferred)
+greeting = "Hello, ${name}! You're ${age} years old."
 
-# Typed lambda functions
-double: fn(Int) -> Int = fn(x: Int) => x * 2
-add: fn(Int, Int) -> Int = fn(a: Int, b: Int) => a + b
-greet: fn(String) -> String = fn(s: String) => "Hi, ${s}!"
+# Records — structured data with field access
+user = {name: "Alice", age: 30, admin: true}  # inferred: Record
+print(user.name)               # => "Alice"
+
+# Lambdas — annotate for complex signatures
+double = fn(x) => x * 2                        # inferred: fn(Int) -> Int
+add: fn(Int, Int) -> Int = fn(a, b) => a + b   # explicit return type
+greet = fn(s) => "Hi, ${s}!"                   # inferred: fn(String) -> String
 
 print(double(21))              # => 42
-print(greet("World"))          # => "Hi, World!"
+print(add(10, 20))             # => 30
 ```
 
-### Strong Types — Compile-Time Safety
+### Strong Types — Runtime Safety
 
 ```ae
-# Type assertions for runtime validation
-type_assert(42, "Int")          # Passes
-type_assert("hello", "String")  # Passes
-type_assert([1,2,3], "Array")   # Passes
-
-# Type inspection
+# Type inspection (no annotation needed)
 type_of(42)                    # => "Int"
 type_of(3.14)                  # => "Float"
 type_of("hello")               # => "String"
 type_of([1, 2, 3])             # => "Array"
 type_of({a: 1})                # => "Record"
-type_of(fn(x: Int) => x)       # => "Lambda"
+type_of(fn(x) => x)            # => "Lambda"
 
-# Pattern matching on types with typed lambdas
-process: fn(Any) -> Any = fn(val: Any) => match type_of(val) {
+# Type assertions for validation
+type_assert(42, "Int")          # Passes
+type_assert("hello", "String")  # Passes
+type_assert([1,2,3], "Array")   # Passes
+
+# Pattern matching on types (inference works here too)
+process = fn(val) => match type_of(val) {
     "Int" => val * 2,
     "String" => upper(val),
     "Array" => len(val),
@@ -354,37 +357,37 @@ process([1,2,3,4,5])           # => 5
 Unlike traditional shells that pipe text, AetherShell pipes **typed values**:
 
 ```ae
-# Transform: map applies a typed function to each element
-numbers: Array<Int> = [1, 2, 3, 4, 5]
-squared: Array<Int> = numbers | map(fn(x: Int) => x * x)    # => [1, 4, 9, 16, 25]
+# Transform: map applies a function to each element
+numbers = [1, 2, 3, 4, 5]                          # inferred: Array<Int>
+squared = numbers | map(fn(x) => x * x)            # => [1, 4, 9, 16, 25]
 
 # Filter: where keeps elements matching a predicate
-evens: Array<Int> = numbers | where(fn(x: Int) => x % 2 == 0)  # => [2, 4]
+evens = numbers | where(fn(x) => x % 2 == 0)       # => [2, 4]
 
 # Aggregate: reduce combines elements into one value
-total: Int = numbers | reduce(fn(acc: Int, x: Int) => acc + x, 0)  # => 15
+total = numbers | reduce(fn(acc, x) => acc + x, 0) # => 15
 
-# Chain operations — each step preserves types
-result: Int = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-  | where(fn(x: Int) => x % 2 == 0)     # Array<Int>: [2, 4, 6, 8, 10]
-  | map(fn(x: Int) => x ** 2)           # Array<Int>: [4, 16, 36, 64, 100]
-  | reduce(fn(a: Int, b: Int) => a + b, 0)   # Int: 220
+# Chain operations — type flows through the pipeline
+result = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+  | where(fn(x) => x % 2 == 0)     # [2, 4, 6, 8, 10]
+  | map(fn(x) => x ** 2)           # [4, 16, 36, 64, 100]
+  | reduce(fn(a, b) => a + b, 0)   # 220
 
-# Array manipulation with type safety
-reversed: Array<Int> = [1, 2, 3, 4, 5] | reverse       # => [5, 4, 3, 2, 1]
-flat: Array<Int> = [[1, 2], [3, 4]] | flatten          # => [1, 2, 3, 4]
-sliced: Array<Int> = [1, 2, 3, 4, 5] | slice(1, 4)     # => [2, 3, 4]
+# Array manipulation (types inferred)
+reversed = [1, 2, 3, 4, 5] | reverse       # => [5, 4, 3, 2, 1]
+flat = [[1, 2], [3, 4]] | flatten          # => [1, 2, 3, 4]
+sliced = [1, 2, 3, 4, 5] | slice(1, 4)     # => [2, 3, 4]
 
-# Predicate checks return Bool
-has_large: Bool = [1, 2, 3, 4, 5] | any(fn(x: Int) => x > 4)   # => true
-all_even: Bool = [2, 4, 6, 8] | all(fn(x: Int) => x % 2 == 0)  # => true
+# Predicate checks
+has_large = [1, 2, 3, 4, 5] | any(fn(x) => x > 4)   # => true
+all_even = [2, 4, 6, 8] | all(fn(x) => x % 2 == 0)  # => true
 ```
 
 ### Pattern Matching — Exhaustive Type-Safe Control Flow
 
 ```ae
-# Match on values with range patterns
-grade: fn(Int) -> String = fn(score: Int) => match score {
+# Match on values with range patterns (inference works)
+grade = fn(score) => match score {
     100 => "Perfect!",
     90..99 => "A",
     80..89 => "B", 
@@ -395,23 +398,21 @@ grade(95)                      # => "A"
 grade(100)                     # => "Perfect!"
 
 # Match with guards for complex conditions
-classify: fn(Int) -> String = fn(n: Int) => match n {
+classify = fn(n) => match n {
     x if x < 0 => "negative",
     0 => "zero",
     x if x > 0 => "positive"
 }
 classify(-5)                   # => "negative"
-classify(0)                    # => "zero"
 classify(42)                   # => "positive"
 
-# Type-based dispatch — powerful polymorphism
-describe: fn(Any) -> String = fn(val: Any) => match type_of(val) {
+# Type-based dispatch — annotate for polymorphic functions
+describe: fn(Any) -> String = fn(val) => match type_of(val) {
     "Int" => "Integer: ${val}",
     "Float" => "Decimal: ${val}",
     "String" => "Text (${len(val)} chars): ${val}",
     "Array" => "Collection of ${len(val)} items",
     "Record" => "Object with keys: ${keys(val)}",
-    "Lambda" => "Function",
     _ => "Unknown type"
 }
 
@@ -494,63 +495,67 @@ is_error(try { throw "oops" } catch e { e })  # => true
 ### Async/Await — Concurrent Operations
 
 ```ae
-# Define async functions with type annotations
-fetch_data: async fn(String) -> Record = async fn(url: String) => http_get(url)
+# Define async functions (type inferred from return)
+fetch_data = async fn(url) => http_get(url)
 
 # Await results
-data: Record = await fetch_data("https://api.example.com/data")
+data = await fetch_data("https://api.example.com/data")
 
-# Parallel operations with futures
-urls: Array<String> = ["https://api1.com", "https://api2.com", "https://api3.com"]
-futures: Array<Future<Record>> = urls | map(fn(u: String) => async fn() => http_get(u))
-results: Array<Record> = futures | map(fn(f: Future<Record>) => await f())
+# Parallel operations with futures (types flow through)
+urls = ["https://api1.com", "https://api2.com", "https://api3.com"]
+futures = urls | map(fn(u) => async fn() => http_get(u))
+results = futures | map(fn(f) => await f())
+
+# When explicit types help readability:
+timeout: Duration = 30s
+response: Result<Record, Error> = await http_get_with_timeout(url, timeout)
 ```
 
 ### Debugging — Development Tools
 
 ```ae
 # Debug prints value with type and returns it (for chaining)
-[1, 2, 3] | debug() | map(fn(x: Int) => x * 2)
+[1, 2, 3] | debug() | map(fn(x) => x * 2)
 # Prints: [Debug] Array<Int>: [1, 2, 3]
 # Returns: [2, 4, 6]
 
 # Trace with labels for pipeline debugging
 [1, 2, 3, 4, 5]
   | trace("input")
-  | where(fn(x: Int) => x > 2) | trace("filtered")
-  | map(fn(x: Int) => x * 2) | trace("doubled")
+  | where(fn(x) => x > 2) | trace("filtered")
+  | map(fn(x) => x * 2) | trace("doubled")
 # Prints each stage with labels
 
 # Assertions for testing
 assert(1 + 1 == 2)
 assert(len("hello") == 5, "Length should be 5")
 
-# Type assertions
+# Type assertions (explicit check)
 type_assert(42, "Int")
 type_assert([1, 2, 3], "Array")
 
-# Deep inspection returns typed Record
-info: Record = inspect([1, 2, 3])
+# Deep inspection (inference works)
+info = inspect([1, 2, 3])
 # => {type: "Array", len: 3, values: [1, 2, 3]}
 ```
 
 ### File System — Structured Output
 
 ```ae
-# List files with structured data (each file is a typed Record)
-files: Array<Record> = ls("./src")
-  | where(fn(f: Record) => f.size > 1000)
-  | map(fn(f: Record) => {name: f.name, kb: f.size / 1024})
+# List files with structured data (inference handles types)
+files = ls("./src")
+  | where(fn(f) => f.size > 1000)
+  | map(fn(f) => {name: f.name, kb: f.size / 1024})
   | take(5)
 
 # Read and process files
-line_count: Int = cat("config.toml") | split("\n") | len()
+line_count = cat("config.toml") | split("\n") | len()
 
-# Check existence
-file_exists: Bool = exists("./src/main.rs")  # => true
+# Check existence (type inferred)
+file_exists = exists("./src/main.rs")  # => true
 
 # Get current directory
-cwd: String = pwd()            # => "/home/user/project"
+cwd = pwd()                    # => "/home/user/project"
 ```
 
 ### Configuration System — XDG-Compliant
@@ -559,21 +564,21 @@ cwd: String = pwd()            # => "/home/user/project"
 # Get full configuration as Record
 config()
 
-# Get specific values with dot notation
-theme: String = config_get("colors.theme")           # => "tokyo-night"
-max_history: Int = config_get("history.max_size")    # => 10000
+# Get specific values with dot notation (types inferred)
+theme = config_get("colors.theme")           # => "tokyo-night"
+max_history = config_get("history.max_size") # => 10000
 
 # Set values persistently
 config_set("colors.theme", "dracula")
 config_set("editor.tab_size", 4)
 
 # Get all paths (XDG Base Directory compliant)
-paths: Record = config_path()
+paths = config_path()
 print(paths.config_file)       # ~/.config/aether/config.toml
 print(paths.data_dir)          # ~/.local/share/aether
 
 # List all 38 built-in themes
-available_themes: Array<String> = themes() | take(8)
+available_themes = themes() | take(8)
 # => ["catppuccin", "dracula", "github-dark", "gruvbox",
 #     "monokai", "nord", "one-dark", "tokyo-night"]
 ```
@@ -622,26 +627,30 @@ ai("Extract the key steps from this tutorial", {video: ["tutorial.mp4"]})
 
 ```ae
 # File system operations return typed Records, not text
-large_rust_files: Array<Record> = ls("./src")
-  | where(fn(f: Record) => f.ext == ".rs" && f.size > 1000)
-  | map(fn(f: Record) => {name: f.name, kb: f.size / 1024})
-  | sort_by(fn(f: Record) => f.kb, "desc")
+large_rust_files = ls("./src")
+  | where(fn(f) => f.ext == ".rs" && f.size > 1000)
+  | map(fn(f) => {name: f.name, kb: f.size / 1024})
+  | sort_by(fn(f) => f.kb, "desc")
   | take(5)
 
-# Statistical operations with proper types
-scores: Array<Int> = [85, 92, 78, 95, 88]
-total: Int = scores | sum()          # => 438
-average: Float = scores | avg()      # => 87.6
-unique_ids: Array<Int> = [1, 2, 1, 3, 2] | unique()  # => [1, 2, 3]
-record_values: Array<Int> = {a: 1, b: 2} | values()  # => [1, 2]
+# Statistical operations (types flow through)
+scores = [85, 92, 78, 95, 88]
+total = scores | sum()                  # => 438
+average = scores | avg()                # => 87.6
+unique_ids = [1, 2, 1, 3, 2] | unique() # => [1, 2, 3]
+record_values = {a: 1, b: 2} | values() # => [1, 2]
 ```
 
-### MCP Tools (Model Context Protocol)
+### Agentic Protocols — MCP, A2A, A2UI, NANDA
+
+AetherShell provides first-class support for modern agent communication protocols:
+
+#### MCP (Model Context Protocol)
 
 ```ae
-# 130 tools across 27 categories
+# 130+ tools across 27 categories
 all_tools = mcp_tools()
-print(len(all_tools))        # => 130
+print(len(all_tools))                    # => 130
 
 # Filter by category
 mcp_tools({category: "development"})     # git, cargo, npm, etc.
@@ -651,20 +660,113 @@ mcp_tools({category: "kubernetes"})      # kubectl, helm, k9s, etc.
 # Execute tools via MCP protocol
 mcp_call("git", {command: "status"})
 mcp_call("cargo", {command: "build --release"})
+
+# Register custom MCP server
+mcp_register("my-tools", {
+    endpoint: "http://localhost:8080",
+    capabilities: ["code-review", "test-gen"]
+})
+```
+
+#### A2A (Agent-to-Agent Protocol)
+
+```ae
+# Direct agent communication
+a2a_send("analyzer", {
+    task: "Review this code for security issues",
+    payload: code_snippet,
+    priority: "high"
+})
+
+# Receive responses from other agents
+response = a2a_receive("analyzer", {timeout: 30s})
+
+# Broadcast to all agents in swarm
+a2a_broadcast({
+    type: "status_update",
+    status: "phase_1_complete",
+    results: analysis_results
+})
+
+# Subscribe to agent channels
+a2a_subscribe("security-alerts", fn(msg) => {
+    if msg.severity == "critical" {
+        alert_user(msg.details)
+    }
+})
+```
+
+#### A2UI (Agent-to-User Interface)
+
+```ae
+# Rich notifications
+a2ui_notify("Analysis Complete", {
+    body: "Found 3 security issues",
+    type: "warning",
+    actions: ["View", "Dismiss"]
+})
+
+# Interactive prompts
+choice = a2ui_prompt("Select deployment target:", {
+    options: ["staging", "production", "canary"],
+    default: "staging"
+})
+
+# Render structured data in TUI
+a2ui_render({
+    type: "table",
+    title: "Scan Results",
+    columns: ["File", "Issue", "Severity"],
+    rows: scan_results
+})
+
+# Progress indicators
+task_id = a2ui_progress("Processing files...", {total: 100})
+a2ui_progress_update(task_id, 50)  # 50% complete
+```
+
+#### NANDA (Networked Agent Negotiation & Decision Architecture)
+
+```ae
+# Multi-agent consensus for critical decisions
+proposal = nanda_propose({
+    action: "deploy_to_production",
+    rationale: "All tests pass, security scan clean",
+    required_votes: 3
+})
+
+# Agents vote on proposals
+nanda_vote(proposal.id, {
+    decision: "approve",
+    confidence: 0.95,
+    conditions: ["monitoring_enabled"]
+})
+
+# Wait for consensus
+result = nanda_consensus(proposal.id, {timeout: 60s})
+if result.approved {
+    deploy()
+}
+
+# Dispute resolution
+nanda_escalate(proposal.id, {
+    reason: "Conflicting requirements detected",
+    evidence: conflict_log
+})
 ```
 
 ### Neural Networks & Evolution
 
 ```ae
 # Create a neural network with layer sizes
-brain: NeuralNetwork = nn_create("agent", [4, 8, 2])  # 4 inputs, 8 hidden, 2 outputs
+brain = nn_create("agent", [4, 8, 2])  # 4 inputs, 8 hidden, 2 outputs
 
 # Evolutionary optimization
-pop: Population = population(100, {genome_size: 10})
-evolved: Population = evolve(pop, fitness_fn, {generations: 50})
+pop = population(100, {genome_size: 10})
+evolved = evolve(pop, fitness_fn, {generations: 50})
 
 # Reinforcement learning
-learner: Agent = rl_agent("learner", 16, 4)
+learner = rl_agent("learner", 16, 4)
 ```
 
 ---
@@ -675,10 +777,10 @@ learner: Agent = rl_agent("learner", 16, 4)
 
 ```ae
 # Parse and analyze application logs
-error_logs: Array<Record> = cat("/var/log/app.log")
+error_logs = cat("/var/log/app.log")
   | split("\n")
-  | where(fn(line: String) => contains(line, "ERROR"))
-  | map(fn(line: String) => {
+  | where(fn(line) => contains(line, "ERROR"))
+  | map(fn(line) => {
       timestamp: line | slice(0, 19),
       level: "ERROR",
       message: line | slice(27, len(line))
@@ -686,12 +788,12 @@ error_logs: Array<Record> = cat("/var/log/app.log")
   | take(10)
 
 # Count errors by hour
-error_counts: Array<Record> = error_logs
-  | map(fn(e: Record) => e.timestamp | slice(0, 13))  # Extract hour
+error_counts = error_logs
+  | map(fn(e) => e.timestamp | slice(0, 13))  # Extract hour
   | unique()
-  | map(fn(hour: String) => {
+  | map(fn(hour) => {
       hour: hour,
-      count: error_logs | where(fn(e: Record) => starts_with(e.timestamp, hour)) | len()
+      count: error_logs | where(fn(e) => starts_with(e.timestamp, hour)) | len()
     })
 ```
 
@@ -699,12 +801,12 @@ error_counts: Array<Record> = error_logs
 
 ```ae
 # Process CSV data with type-safe pipelines
-raw_data: Array<String> = cat("sales.csv") | split("\n")
-headers: String = raw_data | first()
-rows: Array<Array<String>> = raw_data | slice(1, len(raw_data)) | map(fn(row: String) => split(row, ","))
+raw_data = cat("sales.csv") | split("\n")
+headers = raw_data | first()
+rows = raw_data | slice(1, len(raw_data)) | map(fn(row) => split(row, ","))
 
-# Parse into typed Records
-sales: Array<Record> = rows | map(fn(r: Array<String>) => {
+# Parse into Records (type annotation for complex transformations)
+sales: Array<Record> = rows | map(fn(r) => {
     date: r[0],
     product: r[1],
     quantity: r[2] + 0,    # Convert to Int
@@ -712,10 +814,10 @@ sales: Array<Record> = rows | map(fn(r: Array<String>) => {
 })
 
 # Statistical analysis
-total_revenue: Float = sales | map(fn(s: Record) => s.quantity * s.price) | sum()
-avg_order: Float = sales | map(fn(s: Record) => s.quantity) | avg()
-top_products: Array<String> = sales
-  | map(fn(s: Record) => s.product)
+total_revenue = sales | map(fn(s) => s.quantity * s.price) | sum()
+avg_order = sales | map(fn(s) => s.quantity) | avg()
+top_products = sales
+  | map(fn(s) => s.product)
   | unique()
   | take(5)
 
@@ -743,7 +845,7 @@ ls("./src")
 ### System Administration: Disk Usage Report
 
 ```ae
-# Generate disk usage report
+# Generate disk usage report (types flow through pipeline)
 ls("/home")
   | map(fn(d) => {
       name: d.name,
@@ -758,8 +860,8 @@ ls("/home")
 
 ```ae
 # Generate documentation from code
-code: String = cat("src/main.rs")
-docs: String = ai("Generate comprehensive API documentation for this Rust code:", {
+code = cat("src/main.rs")
+docs = ai("Generate comprehensive API documentation for this Rust code:", {
     context: code,
     model: "openai:gpt-4o"
 })
@@ -775,35 +877,35 @@ agent({
 })
 
 # Generate tests with context awareness
-module_code: String = cat("src/utils.rs")
-test_code: String = ai("Write comprehensive unit tests covering edge cases:", {
+module_code = cat("src/utils.rs")
+test_code = ai("Write comprehensive unit tests covering edge cases:", {
   context: module_code,
   model: "openai:gpt-4o"
 })
 
 # Explain complex code
-complex_fn: String = cat("src/parser.rs") | slice(100, 200)
+complex_fn = cat("src/parser.rs") | slice(100, 200)
 ai("Explain what this function does in simple terms:", {context: complex_fn})
 ```
 
 ### Infrastructure: Kubernetes Monitoring
 
 ```ae
-# List pods with structured output
-pods: Array<Record> = mcp_call("kubectl", {command: "get pods -o json"})
-  | map(fn(pod: Record) => {
+# List pods with structured output (types flow through)
+pods = mcp_call("kubectl", {command: "get pods -o json"})
+  | map(fn(pod) => {
       name: pod.metadata.name,
       status: pod.status.phase,
       restarts: pod.status.containerStatuses[0].restartCount
     })
-  | where(fn(p: Record) => p.restarts > 0)
+  | where(fn(p) => p.restarts > 0)
 ```
 
 ### Enterprise: RBAC & Compliance
 
 ```ae
 # Create roles with typed permissions
-permissions: Array<Record> = [
+permissions = [
     {resource: "reports", actions: ["read", "export"]},
     {resource: "dashboards", actions: ["read", "create"]}
 ]
@@ -813,15 +915,15 @@ role_create("data_analyst", permissions, "Data analytics team role")
 role_grant("user_123", "data_analyst")
 
 # Check permissions before operations
-can_export: Bool = check_permission("user_123", "reports", "export")
+can_export = check_permission("user_123", "reports", "export")
 if can_export {
     audit_log("report_export", {user: "user_123", report: "Q4_sales"})
     # ... export the report
 }
 
 # Compliance reporting
-compliance_result: Record = compliance_check("GDPR")
-report: String = compliance_report("SOC2", "json")
+compliance_result = compliance_check("GDPR")
+report = compliance_report("SOC2", "json")
 ```
 
 ### AI: Fine-tuning & RAG
@@ -869,7 +971,7 @@ cluster_status("ml_cluster")
 ### Interactive Data Exploration
 
 ```ae
-# Explore JSON APIs with type-safe access
+# Explore JSON APIs (types inferred from response)
 response = http_get("https://api.github.com/repos/nervosys/AetherShell")
 print("Stars: ${response.stargazers_count}")
 print("Forks: ${response.forks_count}")  
@@ -879,32 +981,32 @@ print("Language: ${response.language}")
 topics_upper = response.topics | map(fn(t) => upper(t)) | join(", ")
 
 # Build a dashboard from multiple endpoints
-repos: Array<Record> = http_get("https://api.github.com/users/nervosys/repos")
-stats: Array<Record> = repos | map(fn(r: Record) => {
+repos = http_get("https://api.github.com/users/nervosys/repos")
+stats = repos | map(fn(r) => {
     name: r.name,
     stars: r.stargazers_count,
     lang: r.language
-}) | where(fn(r: Record) => r.stars > 0) | sort_by(fn(r: Record) => r.stars, "desc")
+}) | where(fn(r) => r.stars > 0) | sort_by(fn(r) => r.stars, "desc")
 ```
 
 ### Git Workflow Automation
 
 ```ae
 # Get recent commits with structured data
-commits: Array<Record> = mcp_call("git", {command: "log --oneline -10"})
+commits = mcp_call("git", {command: "log --oneline -10"})
   | split("\n")
-  | map(fn(line: String) => {
+  | map(fn(line) => {
       hash: line | slice(0, 7),
       message: line | slice(8, len(line))
     })
 
 # Find commits by pattern
-bug_fixes: Array<Record> = commits | where(fn(c: Record) => contains(lower(c.message), "fix"))
+bug_fixes = commits | where(fn(c) => contains(lower(c.message), "fix"))
 
 # Analyze git blame for a file
-blame: String = mcp_call("git", {command: "blame src/main.rs"})
-authors: Array<String> = blame | split("\n") 
-  | map(fn(l: String) => l | split(" ") | first())
+blame = mcp_call("git", {command: "blame src/main.rs"})
+authors = blame | split("\n") 
+  | map(fn(l) => l | split(" ") | first())
   | unique()
 ```
 
@@ -912,7 +1014,7 @@ authors: Array<String> = blame | split("\n")
 
 ```ae
 # Platform-aware build script
-build_cmd: String = match platform() {
+build_cmd = match platform() {
     "windows" => "cargo build --release --target x86_64-pc-windows-msvc",
     "linux" => "cargo build --release --target x86_64-unknown-linux-gnu",
     "macos" => "cargo build --release --target aarch64-apple-darwin",
@@ -920,8 +1022,8 @@ build_cmd: String = match platform() {
 }
 
 # Conditional feature flags
-enabled_features: Array<String> = features()
-build_with_ai: String = if has_feature("ai") { "--features ai" } else { "" }
+enabled_features = features()
+build_with_ai = if has_feature("ai") { "--features ai" } else { "" }
 
 # Multi-platform detection
 if is_windows() {
@@ -936,20 +1038,20 @@ if is_windows() {
 ### Monitoring & Alerting
 
 ```ae
-# Check system health and alert
+# Check system health and alert (annotate function for clarity)
 health_check: fn() -> Record = fn() => {
-    cpu: Float = mcp_call("system", {metric: "cpu_usage"})
-    memory: Float = mcp_call("system", {metric: "memory_usage"})
-    disk: Float = mcp_call("system", {metric: "disk_usage"})
+    cpu = mcp_call("system", {metric: "cpu_usage"})
+    memory = mcp_call("system", {metric: "memory_usage"})
+    disk = mcp_call("system", {metric: "disk_usage"})
     
     {cpu: cpu, memory: memory, disk: disk}
 }
 
-status: Record = health_check()
+status = health_check()
 
 # Alert on high resource usage
 if status.cpu > 90 || status.memory > 85 {
-    alert: String = ai("Generate an alert message for high resource usage:", {
+    alert = ai("Generate an alert message for high resource usage:", {
         context: "CPU: ${status.cpu}%, Memory: ${status.memory}%"
     })
     print(alert)
