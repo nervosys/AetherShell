@@ -610,6 +610,120 @@ swarm({
 })
 ```
 
+### Hierarchical Agent Swarms — Complex Task Decomposition
+
+```ae
+# Coordinator agent spawns specialized subagents for a large codebase refactor
+refactor_swarm = swarm_create({
+  name: "codebase_modernizer",
+  coordinator: {
+    goal: "Modernize legacy codebase to async/await patterns",
+    strategy: "divide_and_conquer",
+    model: "openai:gpt-4o"
+  }
+})
+
+# Coordinator analyzes scope and spawns specialized subagents dynamically
+swarm_spawn(refactor_swarm, {
+  role: "analyzer",
+  goal: "Map all sync functions that could be async",
+  tools: ["grep", "cat", "ast_parse"],
+  on_complete: fn(results) => {
+    # Spawn worker agents for each module discovered
+    results.modules | map(fn(mod) => {
+      swarm_spawn(refactor_swarm, {
+        role: "refactorer",
+        goal: "Convert ${mod.name} to async/await",
+        tools: ["cat", "edit", "git"],
+        context: mod,
+        parent: "analyzer"
+      })
+    })
+  }
+})
+
+# Monitor swarm progress in real-time
+swarm_status(refactor_swarm)
+# => {active: 5, completed: 12, pending: 3, failed: 0}
+
+# Stream progress updates
+swarm_watch(refactor_swarm, fn(event) => {
+  match event.type {
+    "spawn" => print("🚀 ${event.agent.role}: ${event.agent.goal}"),
+    "progress" => print("⏳ ${event.agent.role}: ${event.progress}%"),
+    "complete" => print("✅ ${event.agent.role} finished: ${event.summary}"),
+    "error" => print("❌ ${event.agent.role} failed: ${event.error}")
+  }
+})
+
+# Wait for full completion with timeout
+final_result = swarm_await(refactor_swarm, {timeout: 30m})
+print("Refactored ${final_result.files_changed} files across ${final_result.modules} modules")
+```
+
+### Long-Running Task Orchestration
+
+```ae
+# Complex ML pipeline with checkpoint/resume
+ml_pipeline = swarm_create({
+  name: "training_pipeline",
+  persistence: "checkpoint",     # Auto-save progress
+  resume_on_failure: true
+})
+
+# Phase 1: Data preparation (spawns subagents per data source)
+swarm_spawn(ml_pipeline, {
+  role: "data_coordinator",
+  goal: "Prepare training data from multiple sources",
+  on_start: fn() => {
+    data_sources = ["s3://bucket/raw", "postgres://db/features", "local://cache"]
+    data_sources | map(fn(src) => {
+      swarm_spawn(ml_pipeline, {
+        role: "data_worker",
+        goal: "Extract and clean data from ${src}",
+        tools: ["s3", "sql", "pandas"],
+        context: {source: src},
+        checkpoint_interval: 5m    # Save progress every 5 minutes
+      })
+    })
+  }
+})
+
+# Phase 2: Model training (auto-spawns after Phase 1)
+swarm_spawn(ml_pipeline, {
+  role: "trainer",
+  goal: "Train model on prepared data",
+  depends_on: ["data_coordinator"],  # Wait for all data workers
+  tools: ["pytorch", "tensorboard", "gpu"],
+  resources: {gpu: 4, memory: "64GB"},
+  max_runtime: 4h
+})
+
+# Phase 3: Evaluation & deployment
+swarm_spawn(ml_pipeline, {
+  role: "evaluator",
+  goal: "Validate model and deploy if metrics pass",
+  depends_on: ["trainer"],
+  tools: ["pytest", "mlflow", "k8s"],
+  on_complete: fn(metrics) => {
+    if metrics.accuracy > 0.95 {
+      swarm_spawn(ml_pipeline, {
+        role: "deployer",
+        goal: "Deploy model to production",
+        tools: ["docker", "k8s", "istio"]
+      })
+    }
+  }
+})
+
+# Start the pipeline
+swarm_start(ml_pipeline)
+
+# Check detailed status
+status = swarm_status(ml_pipeline, {detailed: true})
+status.agents | map(fn(a) => "${a.role}: ${a.status} (${a.progress}%)")
+```
+
 ### Multi-Modal AI
 
 ```ae
