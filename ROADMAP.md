@@ -1,6 +1,6 @@
 # AetherShell Roadmap
 
-> **Last Updated:** January 26, 2026
+> **Last Updated:** January 27, 2026
 
 This document tracks the development progress of AetherShell, the world's first agentic shell with typed functional pipelines and multi-modal AI.
 
@@ -25,6 +25,8 @@ This document tracks the development progress of AetherShell, the world's first 
 | WASM Support     | ✅ Complete | Browser REPL ready     |
 | Enterprise       | ✅ Complete | RBAC, Audit, SSO       |
 | LSP Server       | ✅ Complete | tower-lsp based        |
+| Distribution     | ✅ Complete | Homebrew, Docker, npm  |
+| CI/CD            | ✅ Complete | GitHub Actions         |
 
 ---
 
@@ -116,9 +118,19 @@ This document tracks the development progress of AetherShell, the world's first 
 
 #### Publishing
 - [x] Published to crates.io as `aethershell`
-- [x] Version 0.1.2
+- [x] Version 0.2.0
 - [x] Proper metadata and documentation
 - [x] GitHub Actions CI/CD
+
+#### Distribution Infrastructure (January 2026)
+- [x] GitHub Actions CI/CD (ci.yml, release.yml, docker.yml, website.yml)
+- [x] Homebrew formula (Formula/aethershell.rb)
+- [x] Docker image (Dockerfile with multi-stage build)
+- [x] Browser extension (Chrome/Firefox ready)
+- [x] npm package infrastructure (@nervosys/aethershell)
+- [x] Landing page (website/index.html)
+- [x] Release automation (scripts/release.ps1)
+- [x] Developer setup script (scripts/setup.ps1)
 
 #### Plugin System (January 2026)
 - [x] Plugin architecture design (PluginRegistry, traits)
@@ -355,16 +367,13 @@ This document tracks the development progress of AetherShell, the world's first 
 - Distributed computing builtins
 - Advanced AI (RAG, Knowledge Graphs, Semantic Caching)
 - All tests passing with CI stability
+- Published to crates.io as `aethershell`
 
 ### v0.3.0 (Planned)
-- WASM support
-- Package management
-- Module system
-- **Platform Integration** (see [docs/INTEGRATION_PLAN.md](docs/INTEGRATION_PLAN.md))
-  - OS integration (Windows, macOS, Linux)
-  - Browser extension (Chrome, Firefox)
-  - Python SDK with LangChain integration
-  - MCP server for AI app integration
+- Package management enhancements
+- Module system improvements
+- System AI assistant
+- JupyterLab extension
 
 ### v1.0.0 (Future)
 - Production-ready stability
@@ -378,30 +387,33 @@ This document tracks the development progress of AetherShell, the world's first 
 
 See [docs/INTEGRATION_PLAN.md](docs/INTEGRATION_PLAN.md) for the comprehensive integration roadmap.
 
-### Completed
+### Completed ✅
 - [x] WebAssembly foundation (web/src/lib.rs)
 - [x] Browser playground (web/index.html)
 - [x] A2UI protocol for agent-to-user communication
 - [x] MCP protocol implementation
+- [x] Enhanced WASM bindings with JSON serialization
+- [x] npm package (@nervosys/aethershell)
+- [x] Browser extension (Chrome/Firefox) - integrations/browser-extension/
+- [x] macOS Homebrew formula - Formula/aethershell.rb
+- [x] Docker image - Dockerfile
+- [x] GitHub Actions CI/CD - .github/workflows/
+- [x] Landing page - website/index.html
+- [x] VS Code extension - editors/vscode/
 
-### Q1 2026 (In Progress)
-- [ ] Enhanced WASM bindings with JSON serialization
-- [ ] npm package (@nervosys/aethershell)
+### Q2 2026
 - [ ] Python SDK with PyPI distribution
 - [ ] LangChain tool integration
 - [ ] MCP server mode
-
-### Q2 2026
-- [ ] Browser extension (Chrome/Firefox)
 - [ ] Windows Terminal integration
-- [ ] macOS Homebrew formula
 - [ ] Linux packages (.deb, .rpm)
 - [ ] VS Code Web extension
 
-### Q3-Q4 2026
+### Q2-Q4 2026
 - [ ] System AI assistant
 - [ ] JupyterLab extension
 - [ ] Cloud platform
+- [ ] Python SDK with LangChain integration
 
 ---
 
@@ -425,12 +437,19 @@ All major parser quirks have been resolved.
 - **Rust Tests:** 180+ passing
 - **AetherShell Tests:** 8 files, all passing
 - **Pass Rate:** 100%
+- **CI Status:** All workflows passing
 
 ### Codebase
 - **Language:** Rust
 - **Lines of Code:** ~15,000+
-- **Builtins:** 169+
+- **Builtins:** 215+
 - **Themes:** 38
+
+### Distribution
+- **crates.io:** [aethershell](https://crates.io/crates/aethershell)
+- **Homebrew:** `brew install nervosys/tap/aethershell`
+- **Docker:** `docker pull nervosys/aethershell`
+- **npm:** `npm install @nervosys/aethershell`
 
 ### Community
 - **GitHub Stars:** Growing
