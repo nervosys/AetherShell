@@ -30,6 +30,7 @@ use crate::secure_config::SecureApiConfig;
 
 // Sub-modules
 pub mod a2a;
+pub mod a2ui;
 pub mod nanda;
 
 // ===================== Multi-modal support =====================

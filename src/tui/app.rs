@@ -11,6 +11,7 @@ use super::media::MediaFile;
 use super::reasoning::{
     GoalSpecification, PlanningGoal, ReasoningCoordinator, ReasoningEngine, TaskPlanner,
 };
+use crate::ai::a2ui::{A2UIEvent, A2UIEventType, NotificationLevel, A2UI_CHANNEL};
 use crate::{ai, env::Env};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -67,6 +68,26 @@ pub enum AgentStatus {
     Error(String),
 }
 
+/// A2UI notification to display in TUI
+#[derive(Debug, Clone)]
+pub struct A2UINotification {
+    pub id: Uuid,
+    pub message: String,
+    pub level: NotificationLevel,
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+    pub duration_ms: Option<u64>,
+}
+
+/// Progress indicator state
+#[derive(Debug, Clone)]
+pub struct ProgressIndicator {
+    pub id: Uuid,
+    pub label: String,
+    pub current: u64,
+    pub total: u64,
+    pub message: Option<String>,
+}
+
 pub struct App {
     pub should_quit: bool,
     pub mode: AppMode,
@@ -103,6 +124,12 @@ pub struct App {
     pub distributed_swarm: Option<DistributedSwarm>,
     pub reasoning_coordinator: ReasoningCoordinator,
     pub active_planning_goal: Option<PlanningGoal>,
+
+    // A2UI State
+    pub notifications: Vec<A2UINotification>,
+    pub progress_indicators: std::collections::HashMap<Uuid, ProgressIndicator>,
+    pub status_bar_text: Option<String>,
+    pub pending_prompts: Vec<(Uuid, String, crate::ai::a2ui::PromptType)>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -193,6 +220,11 @@ impl App {
                 active_reasoning_sessions: std::collections::HashMap::new(),
             },
             active_planning_goal: None,
+            // A2UI state
+            notifications: Vec::new(),
+            progress_indicators: std::collections::HashMap::new(),
+            status_bar_text: None,
+            pending_prompts: Vec::new(),
         })
     }
 
@@ -843,6 +875,209 @@ impl App {
                 "Tab: Switch mode".to_string(),
             ],
         }
+    }
+
+    // ===================== A2UI Event Processing =====================
+
+    /// Process all pending A2UI events from the global channel
+    pub fn process_a2ui_events(&mut self) {
+        let events = match A2UI_CHANNEL.receive_all() {
+            Ok(e) => e,
+            Err(_) => return,
+        };
+
+        for event in events {
+            self.handle_a2ui_event(event);
+        }
+
+        // Remove expired notifications
+        self.cleanup_expired_notifications();
+    }
+
+    /// Handle a single A2UI event
+    fn handle_a2ui_event(&mut self, event: A2UIEvent) {
+        match event.event_type {
+            A2UIEventType::Notify { message, level, duration_ms } => {
+                self.notifications.push(A2UINotification {
+                    id: event.id,
+                    message,
+                    level,
+                    timestamp: event.timestamp,
+                    duration_ms,
+                });
+                // Keep only last 10 notifications
+                while self.notifications.len() > 10 {
+                    self.notifications.remove(0);
+                }
+            }
+
+            A2UIEventType::Toast { message, level, duration_ms } => {
+                self.notifications.push(A2UINotification {
+                    id: event.id,
+                    message,
+                    level,
+                    timestamp: event.timestamp,
+                    duration_ms: Some(duration_ms),
+                });
+            }
+
+            A2UIEventType::Progress { id, label, current, total, message } => {
+                self.progress_indicators.insert(id, ProgressIndicator {
+                    id,
+                    label,
+                    current,
+                    total,
+                    message,
+                });
+            }
+
+            A2UIEventType::ProgressComplete { id } => {
+                self.progress_indicators.remove(&id);
+            }
+
+            A2UIEventType::Status { text, section: _ } => {
+                self.status_bar_text = Some(text);
+            }
+
+            A2UIEventType::Clear { target: _ } => {
+                self.notifications.clear();
+                self.progress_indicators.clear();
+                self.status_bar_text = None;
+            }
+
+            A2UIEventType::Render { content, target: _, replace: _ } => {
+                // For now, render content as a system message
+                let text = match content {
+                    crate::ai::a2ui::RenderContent::Text(t) => t,
+                    crate::ai::a2ui::RenderContent::Markdown(m) => m,
+                    crate::ai::a2ui::RenderContent::Json(j) => {
+                        serde_json::to_string_pretty(&j).unwrap_or_default()
+                    }
+                    crate::ai::a2ui::RenderContent::Table { headers, rows } => {
+                        let mut s = headers.join(" | ") + "\n";
+                        s += &headers.iter().map(|_| "---").collect::<Vec<_>>().join(" | ");
+                        s += "\n";
+                        for row in rows {
+                            s += &row.join(" | ");
+                            s += "\n";
+                        }
+                        s
+                    }
+                    crate::ai::a2ui::RenderContent::Code { language, content } => {
+                        format!("```{}\n{}\n```", language, content)
+                    }
+                    crate::ai::a2ui::RenderContent::Image { alt, .. } => {
+                        format!("[Image: {}]", alt.unwrap_or_default())
+                    }
+                    crate::ai::a2ui::RenderContent::Thinking { steps, final_answer } => {
+                        let mut s = "🤔 Thinking:\n".to_string();
+                        for (i, step) in steps.iter().enumerate() {
+                            s += &format!("  {}. {}\n", i + 1, step);
+                        }
+                        if let Some(answer) = final_answer {
+                            s += &format!("\n💡 Answer: {}", answer);
+                        }
+                        s
+                    }
+                };
+                self.add_message(MessageRole::System, text);
+            }
+
+            A2UIEventType::Prompt { id, message, prompt_type } => {
+                self.pending_prompts.push((id, message, prompt_type));
+            }
+
+            A2UIEventType::AgentStarted { agent_id, task } => {
+                // Update agent status if it exists
+                for agent in &mut self.agents {
+                    if agent.name == agent_id || agent.id.to_string() == agent_id {
+                        agent.status = AgentStatus::Working;
+                        agent.current_task = task.clone();
+                        agent.last_activity = chrono::Utc::now();
+                        break;
+                    }
+                }
+            }
+
+            A2UIEventType::AgentCompleted { agent_id, result, success } => {
+                for agent in &mut self.agents {
+                    if agent.name == agent_id || agent.id.to_string() == agent_id {
+                        agent.status = if success {
+                            AgentStatus::Idle
+                        } else {
+                            AgentStatus::Error(result.clone().unwrap_or_default())
+                        };
+                        agent.current_task = None;
+                        agent.last_activity = chrono::Utc::now();
+                        break;
+                    }
+                }
+            }
+
+            A2UIEventType::AgentThinking { agent_id, thought, step } => {
+                // Add thinking step as a system message
+                self.add_message(
+                    MessageRole::System,
+                    format!("🤔 {}: Step {} - {}", agent_id, step, thought),
+                );
+            }
+
+            // Modal and other events - not yet implemented in TUI
+            A2UIEventType::Modal { .. } |
+            A2UIEventType::ModalClose { .. } |
+            A2UIEventType::Highlight { .. } |
+            A2UIEventType::Focus { .. } |
+            A2UIEventType::ScrollTo { .. } => {
+                // TODO: Implement modal and focus handling
+            }
+        }
+    }
+
+    /// Remove expired toast notifications
+    fn cleanup_expired_notifications(&mut self) {
+        let now = chrono::Utc::now();
+        self.notifications.retain(|n| {
+            if let Some(duration_ms) = n.duration_ms {
+                let elapsed = (now - n.timestamp).num_milliseconds() as u64;
+                elapsed < duration_ms
+            } else {
+                true // Keep notifications without duration
+            }
+        });
+    }
+
+    /// Get active notifications for display
+    pub fn get_active_notifications(&self) -> &[A2UINotification] {
+        &self.notifications
+    }
+
+    /// Get progress indicators for display
+    pub fn get_progress_indicators(&self) -> Vec<&ProgressIndicator> {
+        self.progress_indicators.values().collect()
+    }
+
+    /// Get status bar text
+    pub fn get_status_bar_text(&self) -> Option<&str> {
+        self.status_bar_text.as_deref()
+    }
+
+    /// Check if there are pending prompts
+    pub fn has_pending_prompts(&self) -> bool {
+        !self.pending_prompts.is_empty()
+    }
+
+    /// Get the next pending prompt
+    pub fn pop_pending_prompt(&mut self) -> Option<(Uuid, String, crate::ai::a2ui::PromptType)> {
+        if self.pending_prompts.is_empty() {
+            None
+        } else {
+            Some(self.pending_prompts.remove(0))
+        }
+    }
+
+    /// Submit a response to a prompt
+    pub fn submit_prompt_response(&self, prompt_id: Uuid, response: crate::ai::a2ui::PromptResponse) {
+        let _ = crate::ai::a2ui::submit_response(prompt_id, response);
     }
 }
 
