@@ -6,6 +6,9 @@ use std::fs;
 use walkdir::WalkDir;
 
 use crate::{
+    ai::a2ui::{
+        A2UIEvent, A2UIEventType, NotificationLevel, PromptResponse, RenderContent, A2UI_CHANNEL,
+    },
     config::{get_config, reload_config, ShellConfig},
     env::Env,
     eval::eval_expr,
@@ -378,6 +381,38 @@ lazy_static::lazy_static! {
         map.insert("list_finetunes", 213); // alias
         map.insert("finetune_cancel", 214);
         map.insert("cancel_finetune", 214); // alias
+
+        // 215-229: A2UI (Agent-to-User Interface) functions
+        map.insert("a2ui_notify", 215);
+        map.insert("notify_user", 215); // alias
+        map.insert("a2ui_prompt", 216);
+        map.insert("prompt_user", 216); // alias
+        map.insert("a2ui_confirm", 217);
+        map.insert("confirm_user", 217); // alias
+        map.insert("a2ui_select", 218);
+        map.insert("select_user", 218); // alias
+        map.insert("a2ui_progress", 219);
+        map.insert("progress_update", 219); // alias
+        map.insert("a2ui_progress_complete", 220);
+        map.insert("progress_done", 220); // alias
+        map.insert("a2ui_render", 221);
+        map.insert("render_content", 221); // alias
+        map.insert("a2ui_render_table", 222);
+        map.insert("render_table", 222); // alias
+        map.insert("a2ui_render_code", 223);
+        map.insert("render_code", 223); // alias
+        map.insert("a2ui_toast", 224);
+        map.insert("toast", 224); // alias
+        map.insert("a2ui_status", 225);
+        map.insert("status_bar", 225); // alias
+        map.insert("a2ui_clear", 226);
+        map.insert("ui_clear", 226); // alias
+        map.insert("a2ui_agent_started", 227);
+        map.insert("agent_started", 227); // alias
+        map.insert("a2ui_agent_completed", 228);
+        map.insert("agent_completed", 228); // alias
+        map.insert("a2ui_agent_thinking", 229);
+        map.insert("agent_thinking", 229); // alias
 
         map
     };
@@ -1292,6 +1327,22 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_finetune_status(args, input),
     |args, input, _| bi_finetune_list(args, input),
     |args, input, _| bi_finetune_cancel(args, input),
+    // 215-229: A2UI (Agent-to-User Interface) functions
+    |args, input, _| bi_a2ui_notify(args, input),
+    |args, input, _| bi_a2ui_prompt(args, input),
+    |args, input, _| bi_a2ui_confirm(args, input),
+    |args, input, _| bi_a2ui_select(args, input),
+    |args, input, _| bi_a2ui_progress(args, input),
+    |args, input, _| bi_a2ui_progress_complete(args, input),
+    |args, input, _| bi_a2ui_render(args, input),
+    |args, input, _| bi_a2ui_render_table(args, input),
+    |args, input, _| bi_a2ui_render_code(args, input),
+    |args, input, _| bi_a2ui_toast(args, input),
+    |args, input, _| bi_a2ui_status(args, input),
+    |args, input, _| bi_a2ui_clear(args, input),
+    |args, input, _| bi_a2ui_agent_started(args, input),
+    |args, input, _| bi_a2ui_agent_completed(args, input),
+    |args, input, _| bi_a2ui_agent_thinking(args, input),
 ];
 
 fn fast_builtin_lookup(
@@ -11777,4 +11828,391 @@ fn bi_finetune_cancel(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     } else {
         Err(anyhow!("finetune_cancel: job '{}' not found", job_id))
     }
+}
+
+// ===================== A2UI (Agent-to-User Interface) Builtins =====================
+
+/// a2ui_notify(message, {level: "info"|"success"|"warning"|"error"}) - Send notification to user
+fn bi_a2ui_notify(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let message = input
+        .or_else(|| args.first().cloned())
+        .map(|v| v.to_display_string())
+        .ok_or_else(|| anyhow!("a2ui_notify: missing message"))?;
+
+    let level = args
+        .get(1)
+        .and_then(|v| {
+            if let Value::Record(r) = v {
+                r.get("level").map(|l| l.to_display_string())
+            } else if let Value::Str(s) = v {
+                Some(s.clone())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| "info".to_string())
+        .parse::<NotificationLevel>()
+        .unwrap_or(NotificationLevel::Info);
+
+    A2UI_CHANNEL.notify_level("builtin", &message, level)?;
+
+    Ok(Value::Record({
+        let mut r = BTreeMap::new();
+        r.insert("sent".to_string(), Value::Bool(true));
+        r.insert("message".to_string(), Value::Str(message));
+        r
+    }))
+}
+
+/// a2ui_prompt(message, {placeholder: "..."}) - Request text input from user (blocking)
+fn bi_a2ui_prompt(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let message = input
+        .or_else(|| args.first().cloned())
+        .map(|v| v.to_display_string())
+        .ok_or_else(|| anyhow!("a2ui_prompt: missing message"))?;
+
+    match A2UI_CHANNEL.prompt_text("builtin", &message)? {
+        PromptResponse::Text(s) => Ok(Value::Str(s)),
+        PromptResponse::Cancelled => Ok(Value::Null),
+        _ => Err(anyhow!("Unexpected response type")),
+    }
+}
+
+/// a2ui_confirm(message) - Request yes/no confirmation from user (blocking)
+fn bi_a2ui_confirm(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let message = input
+        .or_else(|| args.first().cloned())
+        .map(|v| v.to_display_string())
+        .ok_or_else(|| anyhow!("a2ui_confirm: missing message"))?;
+
+    let result = A2UI_CHANNEL.prompt_confirm("builtin", &message)?;
+    Ok(Value::Bool(result))
+}
+
+/// a2ui_select(message, options) - Request selection from user (blocking)
+fn bi_a2ui_select(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let message = input
+        .or_else(|| args.first().cloned())
+        .map(|v| v.to_display_string())
+        .ok_or_else(|| anyhow!("a2ui_select: missing message"))?;
+
+    let options: Vec<String> = args
+        .get(1)
+        .and_then(|v| {
+            if let Value::Array(arr) = v {
+                Some(arr.iter().map(|x| x.to_display_string()).collect())
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| anyhow!("a2ui_select: missing options array"))?;
+
+    match A2UI_CHANNEL.prompt_select("builtin", &message, options.clone())? {
+        PromptResponse::Select(idx) => {
+            if idx < options.len() {
+                Ok(Value::Str(options[idx].clone()))
+            } else {
+                Ok(Value::Null)
+            }
+        }
+        PromptResponse::Cancelled => Ok(Value::Null),
+        _ => Err(anyhow!("Unexpected response type")),
+    }
+}
+
+/// a2ui_progress(label, current, total) - Update a progress indicator
+fn bi_a2ui_progress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let label = args
+        .first()
+        .map(|v| v.to_display_string())
+        .ok_or_else(|| anyhow!("a2ui_progress: missing label"))?;
+
+    let current = args
+        .get(1)
+        .and_then(|v| match v {
+            Value::Int(n) => Some(*n as u64),
+            Value::Float(f) => Some(*f as u64),
+            _ => None,
+        })
+        .ok_or_else(|| anyhow!("a2ui_progress: missing current value"))?;
+
+    let total = args
+        .get(2)
+        .and_then(|v| match v {
+            Value::Int(n) => Some(*n as u64),
+            Value::Float(f) => Some(*f as u64),
+            _ => None,
+        })
+        .ok_or_else(|| anyhow!("a2ui_progress: missing total value"))?;
+
+    // Generate or use existing progress ID
+    let progress_id = args
+        .get(3)
+        .and_then(|v| {
+            if let Value::Str(s) = v {
+                uuid::Uuid::parse_str(s).ok()
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(uuid::Uuid::new_v4);
+
+    A2UI_CHANNEL.progress("builtin", progress_id, &label, current, total)?;
+
+    Ok(Value::Record({
+        let mut r = BTreeMap::new();
+        r.insert(
+            "progress_id".to_string(),
+            Value::Str(progress_id.to_string()),
+        );
+        r.insert("current".to_string(), Value::Int(current as i64));
+        r.insert("total".to_string(), Value::Int(total as i64));
+        r
+    }))
+}
+
+/// a2ui_progress_complete(progress_id) - Complete a progress indicator
+fn bi_a2ui_progress_complete(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let id_str = input
+        .or_else(|| args.first().cloned())
+        .map(|v| v.to_display_string())
+        .ok_or_else(|| anyhow!("a2ui_progress_complete: missing progress_id"))?;
+
+    let progress_id = uuid::Uuid::parse_str(&id_str)
+        .map_err(|_| anyhow!("a2ui_progress_complete: invalid progress_id"))?;
+
+    A2UI_CHANNEL.progress_complete("builtin", progress_id)?;
+
+    Ok(Value::Bool(true))
+}
+
+/// a2ui_render(content) - Render content in the UI
+fn bi_a2ui_render(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let content = input
+        .or_else(|| args.first().cloned())
+        .ok_or_else(|| anyhow!("a2ui_render: missing content"))?;
+
+    let render_content = match &content {
+        Value::Str(s) => RenderContent::Text(s.clone()),
+        Value::Record(r) => {
+            // Check for specific render types
+            if let Some(Value::Str(md)) = r.get("markdown") {
+                RenderContent::Markdown(md.clone())
+            } else if let Some(Value::Str(json_str)) = r.get("json") {
+                RenderContent::Json(serde_json::from_str(json_str).unwrap_or_default())
+            } else {
+                RenderContent::Json(serde_json::to_value(&content).unwrap_or_default())
+            }
+        }
+        Value::Array(_) => RenderContent::Json(serde_json::to_value(&content).unwrap_or_default()),
+        _ => RenderContent::Text(content.to_display_string()),
+    };
+
+    A2UI_CHANNEL.render("builtin", render_content)?;
+
+    Ok(Value::Bool(true))
+}
+
+/// a2ui_render_table(headers, rows) - Render a table in the UI
+fn bi_a2ui_render_table(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let headers: Vec<String> = args
+        .first()
+        .and_then(|v| {
+            if let Value::Array(arr) = v {
+                Some(arr.iter().map(|x| x.to_display_string()).collect())
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| anyhow!("a2ui_render_table: missing headers array"))?;
+
+    let rows: Vec<Vec<String>> = args
+        .get(1)
+        .or(input.as_ref())
+        .and_then(|v| {
+            if let Value::Array(arr) = v {
+                Some(
+                    arr.iter()
+                        .filter_map(|row| {
+                            if let Value::Array(row_arr) = row {
+                                Some(row_arr.iter().map(|x| x.to_display_string()).collect())
+                            } else if let Value::Record(row_rec) = row {
+                                Some(
+                                    headers
+                                        .iter()
+                                        .map(|h| {
+                                            row_rec
+                                                .get(h)
+                                                .map(|v| v.to_display_string())
+                                                .unwrap_or_default()
+                                        })
+                                        .collect(),
+                                )
+                            } else {
+                                None
+                            }
+                        })
+                        .collect(),
+                )
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| anyhow!("a2ui_render_table: missing rows array"))?;
+
+    A2UI_CHANNEL.render("builtin", RenderContent::Table { headers, rows })?;
+
+    Ok(Value::Bool(true))
+}
+
+/// a2ui_render_code(language, code) - Render code with syntax highlighting
+fn bi_a2ui_render_code(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let language = args
+        .first()
+        .map(|v| v.to_display_string())
+        .ok_or_else(|| anyhow!("a2ui_render_code: missing language"))?;
+
+    let code = args
+        .get(1)
+        .or(input.as_ref())
+        .map(|v| v.to_display_string())
+        .ok_or_else(|| anyhow!("a2ui_render_code: missing code"))?;
+
+    A2UI_CHANNEL.render(
+        "builtin",
+        RenderContent::Code {
+            language,
+            content: code,
+        },
+    )?;
+
+    Ok(Value::Bool(true))
+}
+
+/// a2ui_toast(message, level, duration_ms) - Show a toast notification
+fn bi_a2ui_toast(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let message = input
+        .or_else(|| args.first().cloned())
+        .map(|v| v.to_display_string())
+        .ok_or_else(|| anyhow!("a2ui_toast: missing message"))?;
+
+    let level = args
+        .get(1)
+        .map(|v| v.to_display_string())
+        .unwrap_or_else(|| "info".to_string())
+        .parse::<NotificationLevel>()
+        .unwrap_or(NotificationLevel::Info);
+
+    let duration_ms = args
+        .get(2)
+        .and_then(|v| match v {
+            Value::Int(n) => Some(*n as u64),
+            Value::Float(f) => Some(*f as u64),
+            _ => None,
+        })
+        .unwrap_or(3000);
+
+    A2UI_CHANNEL.toast("builtin", &message, level, duration_ms)?;
+
+    Ok(Value::Bool(true))
+}
+
+/// a2ui_status(text) - Update the status bar
+fn bi_a2ui_status(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let text = input
+        .or_else(|| args.first().cloned())
+        .map(|v| v.to_display_string())
+        .ok_or_else(|| anyhow!("a2ui_status: missing text"))?;
+
+    A2UI_CHANNEL.status("builtin", &text)?;
+
+    Ok(Value::Bool(true))
+}
+
+/// a2ui_clear() - Clear the A2UI event channel
+fn bi_a2ui_clear(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    A2UI_CHANNEL.clear()?;
+    Ok(Value::Bool(true))
+}
+
+/// a2ui_agent_started(agent_id, task) - Notify that an agent started working
+fn bi_a2ui_agent_started(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let agent_id = input
+        .or_else(|| args.first().cloned())
+        .map(|v| v.to_display_string())
+        .ok_or_else(|| anyhow!("a2ui_agent_started: missing agent_id"))?;
+
+    let task = args.get(1).map(|v| v.to_display_string());
+
+    A2UI_CHANNEL.send(A2UIEvent::new(
+        "builtin",
+        A2UIEventType::AgentStarted { agent_id, task },
+    ))?;
+
+    Ok(Value::Bool(true))
+}
+
+/// a2ui_agent_completed(agent_id, success, result) - Notify that an agent completed
+fn bi_a2ui_agent_completed(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let agent_id = input
+        .or_else(|| args.first().cloned())
+        .map(|v| v.to_display_string())
+        .ok_or_else(|| anyhow!("a2ui_agent_completed: missing agent_id"))?;
+
+    let success = args
+        .get(1)
+        .and_then(|v| {
+            if let Value::Bool(b) = v {
+                Some(*b)
+            } else {
+                None
+            }
+        })
+        .unwrap_or(true);
+
+    let result = args.get(2).map(|v| v.to_display_string());
+
+    A2UI_CHANNEL.send(A2UIEvent::new(
+        "builtin",
+        A2UIEventType::AgentCompleted {
+            agent_id,
+            result,
+            success,
+        },
+    ))?;
+
+    Ok(Value::Bool(true))
+}
+
+/// a2ui_agent_thinking(agent_id, thought, step) - Show agent's reasoning process
+fn bi_a2ui_agent_thinking(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let agent_id = args
+        .first()
+        .map(|v| v.to_display_string())
+        .ok_or_else(|| anyhow!("a2ui_agent_thinking: missing agent_id"))?;
+
+    let thought = args
+        .get(1)
+        .or(input.as_ref())
+        .map(|v| v.to_display_string())
+        .ok_or_else(|| anyhow!("a2ui_agent_thinking: missing thought"))?;
+
+    let step = args
+        .get(2)
+        .and_then(|v| match v {
+            Value::Int(n) => Some(*n as usize),
+            _ => None,
+        })
+        .unwrap_or(0);
+
+    A2UI_CHANNEL.send(A2UIEvent::new(
+        "builtin",
+        A2UIEventType::AgentThinking {
+            agent_id,
+            thought,
+            step,
+        },
+    ))?;
+
+    Ok(Value::Bool(true))
 }
