@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AetherShell</title>
+    <style>
+        :root {
+            --bg: #1e1e2e;
+            --surface: #313244;
+            --text: #cdd6f4;
+            --text-muted: #a6adc8;
+            --accent: #cba6f7;
+            --success: #a6e3a1;
+            --error: #f38ba8;
+            --border: #45475a;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            width: 400px;
+            min-height: 300px;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+        }
+
+        header {
+            padding: 16px;
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo {
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, var(--accent), #89b4fa);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+        }
+
+        h1 {
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .version {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-left: auto;
+        }
+
+        main {
+            padding: 16px;
+        }
+
+        .input-group {
+            margin-bottom: 16px;
+        }
+
+        label {
+            display: block;
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+        }
+
+        textarea {
+            width: 100%;
+            min-height: 80px;
+            padding: 12px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            font-size: 13px;
+            resize: vertical;
+        }
+
+        textarea:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .actions {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        button {
+            flex: 1;
+            padding: 10px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: var(--bg);
+        }
+
+        .btn-primary:hover {
+            filter: brightness(1.1);
+        }
+
+        .btn-secondary {
+            background: var(--surface);
+            color: var(--text);
+            border: 1px solid var(--border);
+        }
+
+        .btn-secondary:hover {
+            background: var(--border);
+        }
+
+        .output {
+            background: var(--surface);
+            border-radius: 8px;
+            padding: 12px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+
+        .output.success {
+            border-left: 3px solid var(--success);
+        }
+
+        .output.error {
+            border-left: 3px solid var(--error);
+            color: var(--error);
+        }
+
+        .output pre {
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .shortcuts {
+            padding: 16px;
+            border-top: 1px solid var(--border);
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .shortcut {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 4px;
+        }
+
+        kbd {
+            background: var(--surface);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 11px;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="logo">Æ</div>
+        <h1>AetherShell</h1>
+        <span class="version" id="version">v0.2.0</span>
+    </header>
+
+    <main>
+        <div class="input-group">
+            <label for="code">AetherShell Code</label>
+            <textarea id="code" placeholder="[1, 2, 3] | map(fn(x) => x * 2)">[1, 2, 3] | map(fn(x) => x * 2)</textarea>
+        </div>
+
+        <div class="actions">
+            <button class="btn-primary" id="run">Run</button>
+            <button class="btn-secondary" id="clear">Clear</button>
+            <button class="btn-secondary" id="terminal">Terminal</button>
+        </div>
+
+        <div class="output" id="output">
+            <pre>Ready. Enter code and click Run.</pre>
+        </div>
+    </main>
+
+    <div class="shortcuts">
+        <div class="shortcut">
+            <span>Open Terminal</span>
+            <kbd>Ctrl+Shift+A</kbd>
+        </div>
+        <div class="shortcut">
+            <span>AI Assist</span>
+            <kbd>Ctrl+Shift+I</kbd>
+        </div>
+    </div>
+
+    <script src="popup.js"></script>
+</body>
+</html>
