@@ -1,6 +1,6 @@
 # AetherShell Roadmap
 
-> **Last Updated:** January 23, 2026
+> **Last Updated:** January 26, 2026
 
 This document tracks the development progress of AetherShell, the world's first agentic shell with typed functional pipelines and multi-modal AI.
 
@@ -342,17 +342,19 @@ This document tracks the development progress of AetherShell, the world's first 
 
 ## 🎯 Version Milestones
 
-### v0.1.x (Current)
+### v0.1.x (Previous)
 - Core language features
 - Basic AI integration
 - TUI interface
 - 215+ builtins
 
-### v0.2.0 (Planned)
+### v0.2.0 (Current) ✅
 - Plugin system
 - Performance improvements
 - Enhanced error messages
-- More builtins
+- Distributed computing builtins
+- Advanced AI (RAG, Knowledge Graphs, Semantic Caching)
+- All tests passing with CI stability
 
 ### v0.3.0 (Planned)
 - WASM support
