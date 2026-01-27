@@ -181,7 +181,7 @@ Built with amazing Rust crates:
 
 - **Issues**: [GitHub Issues](https://github.com/nervosys/AetherShell/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/nervosys/AetherShell/discussions)
-- **Documentation**: [docs/](https://github.com/nervosys/AetherShell/tree/main/docs)
+- **Documentation**: [docs/](https://github.com/nervosys/AetherShell/tree/master/docs)
 
 ---
 

@@ -2,7 +2,7 @@
 # Usage: .\scripts\release.ps1 -Version "0.2.0" [-DryRun]
 
 param(
-    [Parameter(Mandatory=$true)]
+    [Parameter(Mandatory = $true)]
     [string]$Version,
     
     [switch]$DryRun
