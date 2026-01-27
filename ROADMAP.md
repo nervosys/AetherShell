@@ -115,7 +115,7 @@ This document tracks the development progress of AetherShell, the world's first 
 - [x] Consensus networks for distributed AI
 
 #### Publishing
-- [x] Published to crates.io as `aether_shell`
+- [x] Published to crates.io as `aethershell`
 - [x] Version 0.1.2
 - [x] Proper metadata and documentation
 - [x] GitHub Actions CI/CD

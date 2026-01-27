@@ -77,7 +77,7 @@ cargo publish --dry-run --allow-dirty
 **Result**: ✅ **SUCCESS** - Ready for upload in 5m 50s
 
 **Package Details:**
-- Package name: `aether_shell`
+- Package name: `aethershell`
 - Version: `0.1.0`
 - Binaries: `ae`, `aimodel`
 - Size: TBD (within crates.io limits)

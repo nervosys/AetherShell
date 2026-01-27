@@ -1,6 +1,6 @@
-use aether_shell::builtins::call_with_input;
-use aether_shell::env::Env;
-use aether_shell::value::Value;
+use aethershell::builtins::call_with_input;
+use aethershell::env::Env;
+use aethershell::value::Value;
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use std::collections::BTreeMap;
 
@@ -55,12 +55,12 @@ fn benchmark_array_functions(c: &mut Criterion) {
         });
 
         // Create a simple lambda for any/all tests
-        let lambda_gt_500 = Value::Lambda(aether_shell::value::Lambda {
+        let lambda_gt_500 = Value::Lambda(aethershell::value::Lambda {
             params: vec!["x".to_string()],
-            body: Box::new(aether_shell::ast::Expr::Binary {
-                op: aether_shell::ast::BinOp::Gt,
-                left: Box::new(aether_shell::ast::Expr::Ident("x".to_string())),
-                right: Box::new(aether_shell::ast::Expr::LitInt(500)),
+            body: Box::new(aethershell::ast::Expr::Binary {
+                op: aethershell::ast::BinOp::Gt,
+                left: Box::new(aethershell::ast::Expr::Ident("x".to_string())),
+                right: Box::new(aethershell::ast::Expr::LitInt(500)),
             }),
         });
 

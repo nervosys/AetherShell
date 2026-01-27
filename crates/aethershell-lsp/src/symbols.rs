@@ -16,7 +16,7 @@ pub fn get_document_symbols(store: &DocumentStore, uri: &Url) -> Vec<DocumentSym
 
     if let Some(ref ast) = doc.ast {
         for stmt in ast {
-            if let aether_shell::ast::Stmt::Let {
+            if let aethershell::ast::Stmt::Let {
                 name,
                 value,
                 is_mut,
@@ -51,16 +51,16 @@ pub fn get_document_symbols(store: &DocumentStore, uri: &Url) -> Vec<DocumentSym
     symbols
 }
 
-fn classify_value_kind(expr: &aether_shell::ast::Expr) -> SymbolKind {
+fn classify_value_kind(expr: &aethershell::ast::Expr) -> SymbolKind {
     match expr {
-        aether_shell::ast::Expr::Lambda { .. } => SymbolKind::FUNCTION,
-        aether_shell::ast::Expr::Array(_) => SymbolKind::ARRAY,
-        aether_shell::ast::Expr::Record(_) => SymbolKind::STRUCT,
-        aether_shell::ast::Expr::LitStr(_) => SymbolKind::STRING,
-        aether_shell::ast::Expr::LitInt(_) | aether_shell::ast::Expr::LitFloat(_) => {
+        aethershell::ast::Expr::Lambda { .. } => SymbolKind::FUNCTION,
+        aethershell::ast::Expr::Array(_) => SymbolKind::ARRAY,
+        aethershell::ast::Expr::Record(_) => SymbolKind::STRUCT,
+        aethershell::ast::Expr::LitStr(_) => SymbolKind::STRING,
+        aethershell::ast::Expr::LitInt(_) | aethershell::ast::Expr::LitFloat(_) => {
             SymbolKind::NUMBER
         }
-        aether_shell::ast::Expr::LitBool(_) => SymbolKind::BOOLEAN,
+        aethershell::ast::Expr::LitBool(_) => SymbolKind::BOOLEAN,
         _ => SymbolKind::VARIABLE,
     }
 }

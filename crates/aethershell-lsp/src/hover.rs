@@ -90,7 +90,7 @@ pub fn get_hover(store: &DocumentStore, uri: &Url, position: Position) -> Option
     if let Some(doc) = store.get(uri) {
         if let Some(ref ast) = doc.ast {
             for stmt in ast {
-                if let aether_shell::ast::Stmt::Let { name, is_mut, .. } = stmt {
+                if let aethershell::ast::Stmt::Let { name, is_mut, .. } = stmt {
                     if name == &word {
                         let mutability = if *is_mut { "mutable" } else { "immutable" };
                         return Some(Hover {

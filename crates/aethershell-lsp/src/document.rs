@@ -4,8 +4,8 @@ use dashmap::DashMap;
 use ropey::Rope;
 use tower_lsp::lsp_types::*;
 
-use aether_shell::ast::Stmt;
-use aether_shell::parser::parse_program;
+use aethershell::ast::Stmt;
+use aethershell::parser::parse_program;
 
 /// Stores document state for all open files
 #[derive(Debug)]

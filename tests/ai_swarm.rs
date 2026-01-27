@@ -1,7 +1,7 @@
 //! Integration tests for AI, agents, and swarms.
-//! Adjust crate name if needed (aether_shell → your crate).
+//! Adjust crate name if needed (aethershell → your crate).
 
-use aether_shell::{ai::agents::run_sync, builtins, env::Env, value::Value};
+use aethershell::{ai::agents::run_sync, builtins, env::Env, value::Value};
 
 /// Check if AI provider is configured
 fn ai_available() -> bool {

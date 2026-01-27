@@ -2,7 +2,7 @@
 
 #[cfg(test)]
 mod tui_dashboard_tests {
-    use aether_shell::tui::app::{App, AppMode, MessageRole};
+    use aethershell::tui::app::{App, AppMode, MessageRole};
 
     #[test]
     fn test_export_to_markdown() {

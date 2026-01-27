@@ -2,7 +2,7 @@
 //!
 //! Verifies all 38 themes are properly defined and accessible
 
-use aether_shell::{env::Env, eval, parser, value::Value};
+use aethershell::{env::Env, eval, parser, value::Value};
 
 /// Test that themes() returns an array with expected count
 #[test]

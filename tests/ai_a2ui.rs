@@ -7,11 +7,11 @@
 //! - Prompt/response system
 //! - Builtin function integration
 
-use aether_shell::ai::a2ui::{
+use aethershell::ai::a2ui::{
     A2UIChannel, A2UIEvent, A2UIEventType, EventPriority, NotificationLevel, PromptResponse,
     PromptType, RenderContent, A2UI_CHANNEL,
 };
-use aether_shell::{builtins::call, env::Env, value::Value};
+use aethershell::{builtins::call, env::Env, value::Value};
 use std::collections::BTreeMap;
 use uuid::Uuid;
 
@@ -896,7 +896,7 @@ fn test_global_channel_thread_safety() {
     // Spawn multiple threads
     for i in 0..5 {
         handles.push(thread::spawn(move || {
-            aether_shell::ai::a2ui::notify("thread", &format!("Message {}", i)).unwrap();
+            aethershell::ai::a2ui::notify("thread", &format!("Message {}", i)).unwrap();
         }));
     }
 

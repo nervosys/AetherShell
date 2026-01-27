@@ -1,8 +1,8 @@
 //! Tests for module visibility modifiers (pub/private) and exports
 
-use aether_shell::{env::Env, eval, parser};
+use aethershell::{env::Env, eval, parser};
 
-fn eval_code(code: &str, env: &mut Env) -> aether_shell::value::Value {
+fn eval_code(code: &str, env: &mut Env) -> aethershell::value::Value {
     let stmts = parser::parse_program(code).unwrap();
     eval::eval_program(&stmts, env).unwrap()
 }

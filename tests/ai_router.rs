@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod ai_router {
-    use aether_shell::ai;
+    use aethershell::ai;
 
     #[test]
     fn router_stub_compiles_and_returns_text() {

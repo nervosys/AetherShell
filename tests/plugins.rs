@@ -1,7 +1,7 @@
 // tests/plugins.rs
 // Tests for the AetherShell plugin system builtins
 
-use aether_shell::{env::Env, eval, parser};
+use aethershell::{env::Env, eval, parser};
 
 /// Strip ANSI escape codes from a string
 fn strip_ansi(s: &str) -> String {

@@ -1,4 +1,4 @@
-use aether_shell::ai::{clear_mcp_cache, detect_mcp_servers, detect_mcp_servers_uncached};
+use aethershell::ai::{clear_mcp_cache, detect_mcp_servers, detect_mcp_servers_uncached};
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use std::time::Duration;
 

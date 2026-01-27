@@ -111,7 +111,7 @@ fn test_brackets() {
         ae
     );
 }
-use aether_shell::transpile::bash::transpile_bash_to_ae;
+use aethershell::transpile::bash::transpile_bash_to_ae;
 
 /// Remove all ASCII whitespace to make tests resilient to formatting.
 fn strip_ws(s: &str) -> String {

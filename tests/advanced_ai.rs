@@ -1,8 +1,8 @@
 //! Tests for advanced AI builtins (RAG, Knowledge Graphs, Semantic Caching)
 
-use aether_shell::builtins::call;
-use aether_shell::env::Env;
-use aether_shell::value::Value;
+use aethershell::builtins::call;
+use aethershell::env::Env;
+use aethershell::value::Value;
 use std::collections::BTreeMap;
 
 // ===================== RAG Tests =====================

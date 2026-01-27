@@ -1,5 +1,5 @@
-use aether_shell::typecheck;
-use aether_shell::types::Type;
+use aethershell::typecheck;
+use aethershell::types::Type;
 
 #[test]
 fn literals_basic() {

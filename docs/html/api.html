@@ -63,12 +63,12 @@
 
             <h3>Adding Dependency</h3>
             <pre><code>[dependencies]
-aether_shell = { path = "../AetherShell" }
+aethershell = { path = "../AetherShell" }
 # or when published:
-# aether_shell = "1.0.0"</code></pre>
+# aethershell = "1.0.0"</code></pre>
 
             <h3>Basic Usage</h3>
-            <pre><code>use aether_shell::{parser, eval, env::Env};
+            <pre><code>use aethershell::{parser, eval, env::Env};
 
 fn main() -> anyhow::Result&lt;()&gt; {
     // Parse AetherShell code
@@ -153,7 +153,7 @@ fn main() -> anyhow::Result&lt;()&gt; {
 }</code></pre>
 
             <h3>Creating Values</h3>
-            <pre><code>use aether_shell::value::Value;
+            <pre><code>use aethershell::value::Value;
 use std::collections::BTreeMap;
 
 // Primitive values
@@ -174,7 +174,7 @@ map.insert("age".to_string(), Value::Int(30));
 let record = Value::Record(map);</code></pre>
 
             <h3>Value Operations</h3>
-            <pre><code>use aether_shell::value::Value;
+            <pre><code>use aethershell::value::Value;
 
 // Pattern matching
 match value {
@@ -190,7 +190,7 @@ match value {
             <h2>Parser API</h2>
 
             <h3>Parsing Programs</h3>
-            <pre><code>use aether_shell::parser;
+            <pre><code>use aethershell::parser;
 
 // Parse full program
 let program = parser::parse_program(r#"
@@ -203,7 +203,7 @@ let program = parser::parse_program(r#"
 let expr = parser::parse_expr("1 + 2 * 3")?;</code></pre>
 
             <h3>AST Types</h3>
-            <pre><code>use aether_shell::ast::{Expr, Stmt, BinOp};
+            <pre><code>use aethershell::ast::{Expr, Stmt, BinOp};
 
 pub enum Expr {
     Literal(Value),
@@ -227,7 +227,7 @@ pub enum Stmt {
             <h2>Evaluator API</h2>
 
             <h3>Evaluating Code</h3>
-            <pre><code>use aether_shell::{parser, eval, env::Env};
+            <pre><code>use aethershell::{parser, eval, env::Env};
 
 fn evaluate_code(code: &str) -> anyhow::Result&lt;Value&gt; {
     let program = parser::parse_program(code)?;
@@ -240,7 +240,7 @@ let result = evaluate_code("[1,2,3] | len")?;
 assert_eq!(result, Value::Int(3));</code></pre>
 
             <h3>Environment Management</h3>
-            <pre><code>use aether_shell::env::Env;
+            <pre><code>use aethershell::env::Env;
 
 // Create environment
 let mut env = Env::new();
@@ -266,7 +266,7 @@ if let Some(value) = env.get("x") {
             <h2>Syntax Knowledge Base API</h2>
 
             <h3>Accessing Syntax KB</h3>
-            <pre><code>use aether_shell::syntax_kb::{get_kb, SyntaxEntry};
+            <pre><code>use aethershell::syntax_kb::{get_kb, SyntaxEntry};
 
 fn get_protocol() -> anyhow::Result&lt;()&gt; {
     let kb = get_kb()?;
@@ -288,7 +288,7 @@ fn get_protocol() -> anyhow::Result&lt;()&gt; {
 }</code></pre>
 
             <h3>Adding Entries</h3>
-            <pre><code>use aether_shell::syntax_kb::{get_kb, SyntaxEntry};
+            <pre><code>use aethershell::syntax_kb::{get_kb, SyntaxEntry};
 
 fn add_custom_syntax() -> anyhow::Result&lt;()&gt; {
     let kb = get_kb()?;
@@ -306,7 +306,7 @@ fn add_custom_syntax() -> anyhow::Result&lt;()&gt; {
 }</code></pre>
 
             <h3>AgenticBinary Encoding/Decoding</h3>
-            <pre><code>use aether_shell::syntax_kb::AgenticBinary;
+            <pre><code>use aethershell::syntax_kb::AgenticBinary;
 
 fn encode_decode() -> anyhow::Result&lt;()&gt; {
     // Encode message
@@ -460,7 +460,7 @@ ae
             <h2>Type Checking API</h2>
 
             <h3>Type Inference</h3>
-            <pre><code>use aether_shell::typecheck;
+            <pre><code>use aethershell::typecheck;
 
 fn check_types() -> anyhow::Result&lt;()&gt; {
     let program = parser::parse_program(r#"
@@ -672,7 +672,7 @@ cargo doc --open
 cargo doc --open --document-private-items</code></pre>
 
             <h3>API Documentation Location</h3>
-            <pre><code>target/doc/aether_shell/index.html</code></pre>
+            <pre><code>target/doc/aethershell/index.html</code></pre>
         </section>
 
         <div class="alert alert-success">

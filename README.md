@@ -5,7 +5,7 @@
 <h1 align="center">Æther Shell (ae)</h1>
 
 <p align="center">
-  <a href="https://crates.io/crates/aether_shell"><img src="https://img.shields.io/crates/v/aether_shell.svg?style=flat-square&logo=rust&color=orange" alt="Crates.io"></a>
+  <a href="https://crates.io/crates/aethershell"><img src="https://img.shields.io/crates/v/aethershell.svg?style=flat-square&logo=rust&color=orange" alt="Crates.io"></a>
   <a href="https://github.com/nervosys/AetherShell/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/nervosys/AetherShell/ci.yml?style=flat-square&logo=github&label=CI" alt="CI Status"></a>
   <a href="https://github.com/nervosys/AetherShell/actions"><img src="https://img.shields.io/github/actions/workflow/status/nervosys/AetherShell/security-audit.yml?style=flat-square&logo=github&label=security" alt="Security"></a>
   <a href="https://github.com/nervosys/AetherShell/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg?style=flat-square" alt="License"></a>
@@ -63,7 +63,7 @@ cargo install --path . --bin ae
 
 **From Cargo:**
 ```bash
-cargo install aether_shell
+cargo install aethershell
 ```
 
 **From Homebrew (macOS/Linux):**
@@ -1230,7 +1230,7 @@ cargo install --path . --bin ae
 ### From Crates.io
 
 ```bash
-cargo install aether_shell
+cargo install aethershell
 ```
 
 ### VS Code Extension

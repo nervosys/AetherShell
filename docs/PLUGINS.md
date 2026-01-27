@@ -239,8 +239,8 @@ hello_upper("World")  # => "HELLO, WORLD!"
 For native Rust plugins that implement the `FileHandlerPlugin` trait:
 
 ```rust
-use aether_shell::plugins::{FileHandlerPlugin, PluginMetadata, PluginCategory};
-use aether_shell::value::Value;
+use aethershell::plugins::{FileHandlerPlugin, PluginMetadata, PluginCategory};
+use aethershell::value::Value;
 use anyhow::Result;
 
 pub struct YamlFileHandler;

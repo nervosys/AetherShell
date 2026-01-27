@@ -72,7 +72,7 @@ Escape - Close terminal
 
 GitHub: https://github.com/nervosys/AetherShell
 Documentation: https://github.com/nervosys/AetherShell/docs
-Crates.io: https://crates.io/crates/aether_shell
+Crates.io: https://crates.io/crates/aethershell
 
 Built with ❤️ by Nervosys
 ```

@@ -1,4 +1,4 @@
-use aether_shell::ai_api::*;
+use aethershell::ai_api::*;
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
 use serde_json;
@@ -920,7 +920,7 @@ async fn run_provider(config: APIConfig, args: ProviderArgs) -> Result<()> {
                 "openai" => {
                     if std::env::var("OPENAI_API_KEY").is_ok() {
                         // Try to list models to verify API key works
-                        let client = aether_shell::security::create_secure_async_client()
+                        let client = aethershell::security::create_secure_async_client()
                             .unwrap_or_else(|_| reqwest::Client::new());
 
                         match client
@@ -948,7 +948,7 @@ async fn run_provider(config: APIConfig, args: ProviderArgs) -> Result<()> {
                 }
                 "anthropic" => {
                     if std::env::var("ANTHROPIC_API_KEY").is_ok() {
-                        let client = aether_shell::security::create_secure_async_client()
+                        let client = aethershell::security::create_secure_async_client()
                             .unwrap_or_else(|_| reqwest::Client::new());
 
                         // Anthropic doesn't have a simple models endpoint, so we just check the base URL
@@ -1175,7 +1175,7 @@ async fn run_backend(config: APIConfig, args: BackendArgs) -> Result<()> {
                         );
 
                         // Try health endpoint
-                        let client = aether_shell::security::create_secure_async_client()
+                        let client = aethershell::security::create_secure_async_client()
                             .unwrap_or_else(|_| reqwest::Client::new());
 
                         match client
@@ -1241,7 +1241,7 @@ async fn run_backend(config: APIConfig, args: BackendArgs) -> Result<()> {
             });
 
             // SECURITY FIX (LOW-002): Use secure HTTP client with timeouts
-            let client = aether_shell::security::create_secure_async_client()
+            let client = aethershell::security::create_secure_async_client()
                 .unwrap_or_else(|_| reqwest::Client::new());
 
             match client
@@ -1280,7 +1280,7 @@ async fn run_backend(config: APIConfig, args: BackendArgs) -> Result<()> {
             ];
 
             // SECURITY FIX (LOW-002): Use secure HTTP client with timeouts
-            let client = aether_shell::security::create_secure_async_client()
+            let client = aethershell::security::create_secure_async_client()
                 .unwrap_or_else(|_| reqwest::Client::new());
 
             for (name, endpoint) in endpoints {
@@ -1311,7 +1311,7 @@ async fn run_backend(config: APIConfig, args: BackendArgs) -> Result<()> {
 }
 
 async fn run_keys(args: KeysArgs) -> Result<()> {
-    use aether_shell::secure_config::SecureApiConfig;
+    use aethershell::secure_config::SecureApiConfig;
     use std::io::{self, Write};
 
     match args.action {
@@ -1409,7 +1409,7 @@ async fn run_keys(args: KeysArgs) -> Result<()> {
             ];
 
             for provider in providers {
-                use aether_shell::secure_config::SecureApiConfig;
+                use aethershell::secure_config::SecureApiConfig;
 
                 match SecureApiConfig::from_keyring(
                     provider,
@@ -1481,7 +1481,7 @@ async fn run_keys(args: KeysArgs) -> Result<()> {
         }
 
         KeysAction::Validate { provider } => {
-            use aether_shell::secure_config::SecureApiConfig;
+            use aethershell::secure_config::SecureApiConfig;
 
             let config = SecureApiConfig::from_keyring(
                 &provider,

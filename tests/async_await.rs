@@ -1,11 +1,11 @@
 // Tests for async/await syntax and semantics
 
-use aether_shell::env::Env;
-use aether_shell::eval::eval_program;
-use aether_shell::parser::parse_program;
+use aethershell::env::Env;
+use aethershell::eval::eval_program;
+use aethershell::parser::parse_program;
 
 /// Helper function to run a program and return the result
-fn run(src: &str) -> anyhow::Result<aether_shell::value::Value> {
+fn run(src: &str) -> anyhow::Result<aethershell::value::Value> {
     let stmts = parse_program(src)?;
     let mut env = Env::new();
     eval_program(&stmts, &mut env)
@@ -56,7 +56,7 @@ fn await_executes_future() {
     assert!(result.is_ok(), "Failed to await: {:?}", result);
     let val = result.unwrap();
     // The result should be 10 (5 * 2)
-    assert_eq!(val, aether_shell::value::Value::Int(10));
+    assert_eq!(val, aethershell::value::Value::Int(10));
 }
 
 #[test]
@@ -65,7 +65,7 @@ fn await_on_non_future_returns_value() {
     let result = run("await 42");
     assert!(result.is_ok());
     let val = result.unwrap();
-    assert_eq!(val, aether_shell::value::Value::Int(42));
+    assert_eq!(val, aethershell::value::Value::Int(42));
 }
 
 #[test]
@@ -77,7 +77,7 @@ fn async_lambda_multi_arg() {
     "#);
     assert!(result.is_ok(), "Failed: {:?}", result);
     let val = result.unwrap();
-    assert_eq!(val, aether_shell::value::Value::Int(7));
+    assert_eq!(val, aethershell::value::Value::Int(7));
 }
 
 #[test]
@@ -91,7 +91,7 @@ fn nested_await() {
     assert!(result.is_ok(), "Failed: {:?}", result);
     let val = result.unwrap();
     // triple(2) = 6, double(6) = 12
-    assert_eq!(val, aether_shell::value::Value::Int(12));
+    assert_eq!(val, aethershell::value::Value::Int(12));
 }
 
 #[test]
@@ -111,7 +111,7 @@ fn await_unary_precedence() {
     let result = run("await 1 + 2"); // should be (await 1) + 2 = 3
     assert!(result.is_ok());
     let val = result.unwrap();
-    assert_eq!(val, aether_shell::value::Value::Int(3));
+    assert_eq!(val, aethershell::value::Value::Int(3));
 }
 
 #[test]
@@ -124,7 +124,7 @@ fn async_lambda_with_string() {
     let val = result.unwrap();
     assert_eq!(
         val,
-        aether_shell::value::Value::Str("Hello, World".to_string())
+        aethershell::value::Value::Str("Hello, World".to_string())
     );
 }
 
@@ -139,7 +139,7 @@ fn type_of_async_lambda() {
     let val = result.unwrap();
     assert_eq!(
         val,
-        aether_shell::value::Value::Str("AsyncLambda".to_string())
+        aethershell::value::Value::Str("AsyncLambda".to_string())
     );
 }
 
@@ -153,5 +153,5 @@ fn type_of_future() {
     "#);
     assert!(result.is_ok(), "Failed: {:?}", result);
     let val = result.unwrap();
-    assert_eq!(val, aether_shell::value::Value::Str("Future".to_string()));
+    assert_eq!(val, aethershell::value::Value::Str("Future".to_string()));
 }

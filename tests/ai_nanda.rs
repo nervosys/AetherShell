@@ -1,7 +1,7 @@
 //! Comprehensive NANDA (Negotiation And Dynamic Agents) Tests
 //! Tests for proposals, voting, consensus, task allocation, and coordination
 
-use aether_shell::ai::nanda::{
+use aethershell::ai::nanda::{
     NandaCoordinator, NandaProposal, NandaTaskAllocator, NandaVote, NegotiationStatus, Task,
 };
 use serde_json::json;
@@ -332,7 +332,7 @@ fn test_add_remove_agent() {
 
 #[test]
 fn test_negotiation_vote_counting() {
-    use aether_shell::ai::nanda::NandaNegotiation;
+    use aethershell::ai::nanda::NandaNegotiation;
 
     let proposal = NandaProposal::TaskAllocation {
         task_id: Uuid::new_v4(),
@@ -361,7 +361,7 @@ fn test_negotiation_vote_counting() {
 
 #[test]
 fn test_negotiation_counter_proposals() {
-    use aether_shell::ai::nanda::NandaNegotiation;
+    use aethershell::ai::nanda::NandaNegotiation;
 
     let proposal = NandaProposal::TaskAllocation {
         task_id: Uuid::new_v4(),
@@ -392,7 +392,7 @@ fn test_negotiation_counter_proposals() {
 
 #[test]
 fn test_negotiation_expiration() {
-    use aether_shell::ai::nanda::NandaNegotiation;
+    use aethershell::ai::nanda::NandaNegotiation;
 
     let proposal = NandaProposal::TaskAllocation {
         task_id: Uuid::new_v4(),

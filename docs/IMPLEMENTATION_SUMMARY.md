@@ -156,7 +156,7 @@ These require interactive TUI mode or are Bash scripts:
 ✅ **Clean Build**: Zero errors, zero warnings
 ```
 cargo build --release
-   Compiling aether_shell v0.1.0
+   Compiling aethershell v0.1.0
     Finished release [optimized] target(s)
 ```
 

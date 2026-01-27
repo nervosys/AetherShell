@@ -5,7 +5,7 @@
 //! 2. Return expected types
 //! 3. Work correctly in expressions
 
-use aether_shell::{env::Env, eval, parser, value::Value};
+use aethershell::{env::Env, eval, parser, value::Value};
 
 /// Helper to evaluate AetherShell code and return the result
 fn eval_code(code: &str) -> Result<Value, String> {

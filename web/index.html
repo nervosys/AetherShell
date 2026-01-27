@@ -364,7 +364,7 @@
         async function initWasm() {
             try {
                 // Try to load the WASM module
-                const wasmModule = await import('./pkg/aether_shell.js');
+                const wasmModule = await import('./pkg/aethershell.js');
                 await wasmModule.default();
                 aethershell = new wasmModule.AetherWasm();
 

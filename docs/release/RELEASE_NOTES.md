@@ -36,7 +36,7 @@ The binaries will be in `target/release/`:
 
 ### Coming Soon
 - Pre-built binaries for Windows, macOS, Linux
-- Cargo install: `cargo install aether_shell`
+- Cargo install: `cargo install aethershell`
 - Package managers (Homebrew, Scoop, apt)
 
 ---

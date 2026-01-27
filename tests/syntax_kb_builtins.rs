@@ -2,7 +2,7 @@
 /// Tests the functionality of syntax_get, syntax_list, syntax_search, syntax_add,
 /// syntax_categories, ab_encode, and ab_decode
 
-use aether_shell::{env::Env, eval, parser, value::Value};
+use aethershell::{env::Env, eval, parser, value::Value};
 use anyhow::Result;
 
 /// Helper to evaluate and get string result

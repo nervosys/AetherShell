@@ -2,7 +2,7 @@
 
 #[cfg(test)]
 mod tui_media_tests {
-    use aether_shell::tui::media::{
+    use aethershell::tui::media::{
         AudioPlayer, MediaFile, MediaType, get_supported_formats, is_media_file,
     };
 

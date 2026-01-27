@@ -1,7 +1,7 @@
 // benches/parser_performance.rs
 // Benchmarks for the AetherShell parser
 
-use aether_shell::parser::parse_program;
+use aethershell::parser::parse_program;
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 
 fn benchmark_parser_simple(c: &mut Criterion) {
