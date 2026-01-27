@@ -76,7 +76,7 @@ name: String = "AetherShell"
 count: Int = 42
 ```
 
-See [Type System Guide](https://github.com/nervosys/AetherShell/blob/main/docs/TYPE_SYSTEM_GUIDE.md) for complete details.
+See [Type System Guide](https://github.com/nervosys/AetherShell/blob/master/docs/TYPE_SYSTEM_GUIDE.md) for complete details.
 ```
 
 ### 4. Quick Reference Guide Created

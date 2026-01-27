@@ -17,7 +17,7 @@
 - [x] **license** - "MIT"
 - [x] **repository** - https://github.com/nervosys/AetherShell
 - [x] **homepage** - https://github.com/nervosys/AetherShell
-- [x] **documentation** - https://github.com/nervosys/AetherShell/tree/main/docs
+- [x] **documentation** - https://github.com/nervosys/AetherShell/tree/master/docs
 - [x] **keywords** - shell, ai, multi-agent, functional, multimodal
 - [x] **categories** - command-line-utilities, development-tools
 - [x] **readme** - "README.md"

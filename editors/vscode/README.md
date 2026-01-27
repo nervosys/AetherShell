@@ -88,4 +88,4 @@ Contributions are welcome! Please visit the [AetherShell repository](https://git
 
 ## License
 
-Apache License 2.0 - see the [LICENSE](https://github.com/nervosys/AetherShell/blob/main/LICENSE) file.
+Apache License 2.0 - see the [LICENSE](https://github.com/nervosys/AetherShell/blob/master/LICENSE) file.
