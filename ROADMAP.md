@@ -24,7 +24,7 @@ This document tracks the development progress of AetherShell, the world's first 
 | Publishing       | ✅ Complete | crates.io v0.2.0       |
 | WASM Support     | ✅ Complete | Browser REPL ready     |
 | Enterprise       | ✅ Complete | RBAC, Audit, SSO       |
-| LSP Server       | ✅ Complete | tower-lsp based       |
+| LSP Server       | ✅ Complete | tower-lsp based        |
 
 ---
 
@@ -360,12 +360,48 @@ This document tracks the development progress of AetherShell, the world's first 
 - WASM support
 - Package management
 - Module system
+- **Platform Integration** (see [docs/INTEGRATION_PLAN.md](docs/INTEGRATION_PLAN.md))
+  - OS integration (Windows, macOS, Linux)
+  - Browser extension (Chrome, Firefox)
+  - Python SDK with LangChain integration
+  - MCP server for AI app integration
 
 ### v1.0.0 (Future)
 - Production-ready stability
 - Full documentation
 - Enterprise features ✅
 - Long-term support
+
+---
+
+## 🔌 Platform Integration
+
+See [docs/INTEGRATION_PLAN.md](docs/INTEGRATION_PLAN.md) for the comprehensive integration roadmap.
+
+### Completed
+- [x] WebAssembly foundation (web/src/lib.rs)
+- [x] Browser playground (web/index.html)
+- [x] A2UI protocol for agent-to-user communication
+- [x] MCP protocol implementation
+
+### Q1 2026 (In Progress)
+- [ ] Enhanced WASM bindings with JSON serialization
+- [ ] npm package (@nervosys/aethershell)
+- [ ] Python SDK with PyPI distribution
+- [ ] LangChain tool integration
+- [ ] MCP server mode
+
+### Q2 2026
+- [ ] Browser extension (Chrome/Firefox)
+- [ ] Windows Terminal integration
+- [ ] macOS Homebrew formula
+- [ ] Linux packages (.deb, .rpm)
+- [ ] VS Code Web extension
+
+### Q3-Q4 2026
+- [ ] System AI assistant
+- [ ] JupyterLab extension
+- [ ] Cloud platform
 
 ---
 

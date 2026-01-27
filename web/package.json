@@ -1,0 +1,60 @@
+{
+    "name": "@nervosys/aethershell",
+    "version": "0.2.0",
+    "description": "AetherShell - AI-powered typed shell for the browser",
+    "main": "aethershell.js",
+    "types": "aethershell.d.ts",
+    "type": "module",
+    "files": [
+        "aethershell.js",
+        "aethershell.d.ts",
+        "pkg/"
+    ],
+    "scripts": {
+        "build": "wasm-pack build --target web --out-dir pkg",
+        "build:bundler": "wasm-pack build --target bundler --out-dir pkg-bundler",
+        "build:node": "wasm-pack build --target nodejs --out-dir pkg-node",
+        "test": "wasm-pack test --headless --firefox",
+        "serve": "python -m http.server 8080",
+        "clean": "rm -rf pkg pkg-bundler pkg-node"
+    },
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/nervosys/AetherShell.git",
+        "directory": "web"
+    },
+    "keywords": [
+        "shell",
+        "ai",
+        "wasm",
+        "webassembly",
+        "terminal",
+        "pipeline",
+        "functional",
+        "typed",
+        "agent",
+        "llm"
+    ],
+    "author": "nervosys",
+    "license": "MIT",
+    "bugs": {
+        "url": "https://github.com/nervosys/AetherShell/issues"
+    },
+    "homepage": "https://github.com/nervosys/AetherShell#readme",
+    "devDependencies": {
+        "wasm-pack": "^0.12.0"
+    },
+    "engines": {
+        "node": ">=16.0.0"
+    },
+    "sideEffects": false,
+    "exports": {
+        ".": {
+            "import": "./aethershell.js",
+            "types": "./aethershell.d.ts"
+        },
+        "./wasm": {
+            "import": "./pkg/aether_wasm.js"
+        }
+    }
+}
