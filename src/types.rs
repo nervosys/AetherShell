@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 /// runtime-facing surfaces (e.g., schema hints for tables).
 ///
 /// Keep this file lightweight and dependency-free so tests can import
-/// `aether_shell::types::Type` without pulling in other modules.
+/// `aethershell::types::Type` without pulling in other modules.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
     /// Unknown or unconstrained type. Unifies with anything.

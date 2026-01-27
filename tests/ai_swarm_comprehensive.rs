@@ -1,7 +1,7 @@
 //! Comprehensive Multi-Agent Swarm Tests
 //! Tests for swarm coordination, blackboard communication, policies, and multi-agent workflows
 
-use aether_shell::{
+use aethershell::{
     ai::agents::{
         swarm::{AgentConfig, Policy, Swarm},
         ToolRegistry,

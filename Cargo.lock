@@ -29,7 +29,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "aether_shell"
+name = "aethershell"
 version = "0.2.0"
 dependencies = [
  "anyhow",
@@ -87,7 +87,7 @@ dependencies = [
 name = "aethershell-lsp"
 version = "0.1.0"
 dependencies = [
- "aether_shell",
+ "aethershell",
  "anyhow",
  "async-trait",
  "dashmap",

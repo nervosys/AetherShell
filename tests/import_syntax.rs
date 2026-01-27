@@ -1,7 +1,7 @@
 //! Tests for import statement parsing
 
-use aether_shell::ast::Stmt;
-use aether_shell::parser::parse_program;
+use aethershell::ast::Stmt;
+use aethershell::parser::parse_program;
 
 #[test]
 fn test_import_simple_path() {

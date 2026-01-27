@@ -17,7 +17,7 @@ pub fn goto_definition(
     let doc = store.get(uri)?;
     if let Some(ref ast) = doc.ast {
         for (stmt_idx, stmt) in ast.iter().enumerate() {
-            if let aether_shell::ast::Stmt::Let { name, .. } = stmt {
+            if let aethershell::ast::Stmt::Let { name, .. } = stmt {
                 if name == &word {
                     // Find the position of this declaration in source
                     let content = doc.content.to_string();

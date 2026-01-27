@@ -1,6 +1,6 @@
 //! AetherShell WebAssembly Module
 //!
-//! This module re-exports the WASM bindings from the main aether_shell crate.
+//! This module re-exports the WASM bindings from the main aethershell crate.
 //! The actual implementation is in src/wasm.rs with the `web` feature enabled.
 //!
 //! ## Usage (JavaScript)
@@ -19,4 +19,4 @@
 //! ```
 
 // Re-export everything from the main wasm module
-pub use aether_shell::wasm::*;
+pub use aethershell::wasm::*;

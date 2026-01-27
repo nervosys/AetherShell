@@ -344,7 +344,7 @@ test result: ok. 5 passed; 0 failed; 13 ignored
 
 ### Build Status
 ```
-Compiling aether_shell v0.1.0
+Compiling aethershell v0.1.0
 Finished `dev` profile in 20s
 ```
 - ✅ 0 errors

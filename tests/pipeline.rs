@@ -1,7 +1,7 @@
-use aether_shell::env::Env;
-use aether_shell::eval::eval_program;
-use aether_shell::parser::parse_program;
-use aether_shell::value::Value;
+use aethershell::env::Env;
+use aethershell::eval::eval_program;
+use aethershell::parser::parse_program;
+use aethershell::value::Value;
 
 #[test]
 fn test_map_reduce_print_pipelines() {

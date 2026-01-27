@@ -1,6 +1,6 @@
 //! Test immutability enforcement
 
-use aether_shell::{env::Env, eval, parser};
+use aethershell::{env::Env, eval, parser};
 
 #[test]
 fn test_immutable_by_default() {

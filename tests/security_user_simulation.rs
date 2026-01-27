@@ -3,7 +3,7 @@
 //! This test suite simulates both friendly and adversarial users to ensure
 //! AetherShell's security controls function correctly.
 
-use aether_shell::security::*;
+use aethershell::security::*;
 use std::time::Duration;
 
 // ===================== FRIENDLY USER SCENARIOS =====================

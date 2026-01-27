@@ -1,4 +1,4 @@
-use aether_shell::{env::Env, eval, parser, value::Value};
+use aethershell::{env::Env, eval, parser, value::Value};
 
 fn run(code: &str) -> Value {
     let mut env = Env::default();

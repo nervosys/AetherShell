@@ -6,8 +6,8 @@
 //! - Resources and prompts
 //! - Category and safety level filtering
 
-use aether_shell::mcp::{McpConfig, McpServer, McpToolCall};
-use aether_shell::os_tools::{OSToolsDatabase, SafetyLevel, ToolCategory};
+use aethershell::mcp::{McpConfig, McpServer, McpToolCall};
+use aethershell::os_tools::{OSToolsDatabase, SafetyLevel, ToolCategory};
 use std::collections::HashMap;
 
 // ============================================================================

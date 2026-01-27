@@ -1,9 +1,9 @@
 // Tests for conditional compilation (#[cfg(...)] attribute)
 
-use aether_shell::env::Env;
-use aether_shell::eval::eval_program;
-use aether_shell::parser::parse_program;
-use aether_shell::value::Value;
+use aethershell::env::Env;
+use aethershell::eval::eval_program;
+use aethershell::parser::parse_program;
+use aethershell::value::Value;
 
 fn eval_with_env(src: &str) -> (Value, Env) {
     let stmts = parse_program(src).expect("parse failed");

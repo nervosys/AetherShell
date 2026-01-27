@@ -3,7 +3,7 @@ members = [".", "crates/aethershell-lsp"]
 exclude = ["web", "integrations/python"]
 
 [package]
-name = "aether_shell"
+name = "aethershell"
 version = "0.2.0"
 edition = "2021"
 authors = ["Nervosys <contact@nervosys.ai>"]
@@ -46,7 +46,7 @@ web = [
 ]
 
 [lib]
-name = "aether_shell"
+name = "aethershell"
 path = "src/lib.rs"
 
 [[bin]]

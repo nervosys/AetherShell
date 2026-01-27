@@ -3,7 +3,7 @@ use std::env;
 use std::fs;
 use std::io::{self, Read};
 
-use aether_shell::{env::Env, eval, parser, transpile};
+use aethershell::{env::Env, eval, parser, transpile};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -109,7 +109,7 @@ fn main() -> Result<()> {
     if let Some(cmd) = cli.subcommand {
         return match cmd {
             Commands::Tui => {
-                aether_shell::tui::run()?;
+                aethershell::tui::run()?;
                 Ok(())
             }
             Commands::Ai { command } => {
@@ -146,7 +146,7 @@ fn main() -> Result<()> {
 }
 
 async fn handle_ai_command(command: AiCommands) -> Result<()> {
-    use aether_shell::ai_api::*;
+    use aethershell::ai_api::*;
 
     match command {
         AiCommands::Serve { host, port, cors } => {
@@ -226,7 +226,7 @@ async fn handle_ai_command(command: AiCommands) -> Result<()> {
 }
 
 async fn handle_keys_action(action: KeysAction) -> Result<()> {
-    use aether_shell::secure_config::SecureApiConfig;
+    use aethershell::secure_config::SecureApiConfig;
     use std::io::Write;
 
     match action {
@@ -322,7 +322,7 @@ fn run_file(path: &str, bash_mode: bool) -> Result<()> {
 
 fn run_code(code: &str) -> Result<()> {
     let mut env = Env::default();
-    let exit_code = aether_shell::repl::run_one(&mut env, code)?;
+    let exit_code = aethershell::repl::run_one(&mut env, code)?;
     if exit_code != 0 {
         std::process::exit(exit_code);
     }

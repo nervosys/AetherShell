@@ -2,8 +2,8 @@
 
 #[cfg(test)]
 mod tui_app_tests {
-    use aether_shell::tui::app::{AgentStatus, App, AppMode, InputMode, MessageRole};
-    use aether_shell::tui::media::{MediaFile, MediaType};
+    use aethershell::tui::app::{AgentStatus, App, AppMode, InputMode, MessageRole};
+    use aethershell::tui::media::{MediaFile, MediaType};
 
     #[test]
     fn test_app_initialization() {

@@ -1,7 +1,7 @@
 //! Comprehensive A2A (Agent-to-Agent) Communication Tests
 //! Tests for message bus, routing, agent communication, and protocols
 
-use aether_shell::ai::a2a::{A2AAgent, A2AMessage, A2AMessageBus, A2AMessageType};
+use aethershell::ai::a2a::{A2AAgent, A2AMessage, A2AMessageBus, A2AMessageType};
 use serde_json::json;
 use std::sync::Arc;
 

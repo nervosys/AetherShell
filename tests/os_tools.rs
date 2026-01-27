@@ -1,6 +1,6 @@
 //! Tests for OS tools database functionality
 
-use aether_shell::os_tools::*;
+use aethershell::os_tools::*;
 
 #[test]
 fn test_database_initialization() {

@@ -2,12 +2,12 @@
 
 #[cfg(test)]
 mod tui_chat_tests {
-    use aether_shell::tui::agents::MultiModalAgent;
-    use aether_shell::tui::app::{AgentInfo, AgentStatus, ChatMessage, MessageRole};
-    use aether_shell::tui::chat::{
+    use aethershell::tui::agents::MultiModalAgent;
+    use aethershell::tui::app::{AgentInfo, AgentStatus, ChatMessage, MessageRole};
+    use aethershell::tui::chat::{
         ChatManager, ChatSession, ChatSettings, Participant, ParticipantType,
     };
-    use aether_shell::tui::media::{MediaFile, MediaType};
+    use aethershell::tui::media::{MediaFile, MediaType};
     use chrono::Utc;
     use uuid::Uuid;
 

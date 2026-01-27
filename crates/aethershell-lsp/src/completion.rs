@@ -204,7 +204,7 @@ pub fn get_completions(
             if let Some(doc) = store.get(uri) {
                 if let Some(ref ast) = doc.ast {
                     for stmt in ast {
-                        if let aether_shell::ast::Stmt::Let { name, .. } = stmt {
+                        if let aethershell::ast::Stmt::Let { name, .. } = stmt {
                             completions.push(CompletionItem {
                                 label: name.clone(),
                                 kind: Some(CompletionItemKind::VARIABLE),

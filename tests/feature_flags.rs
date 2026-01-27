@@ -1,10 +1,10 @@
 // tests/feature_flags.rs
 //! Tests for runtime feature flags: features, feature_enabled, feature_enable, etc.
 
-use aether_shell::env::Env;
-use aether_shell::eval::eval_program;
-use aether_shell::parser::parse_program;
-use aether_shell::value::Value;
+use aethershell::env::Env;
+use aethershell::eval::eval_program;
+use aethershell::parser::parse_program;
+use aethershell::value::Value;
 
 fn run(code: &str) -> Value {
     let stmts = parse_program(code).expect("parse failed");

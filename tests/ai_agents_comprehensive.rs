@@ -4,7 +4,7 @@
 //! NOTE: These tests require either AETHER_AI=stub or an actual AI provider to be configured.
 //! When no AI provider is available, tests will skip gracefully.
 
-use aether_shell::{
+use aethershell::{
     ai::agents::{run_sync, run_sync_with_model, Agent, ToolRegistry},
     env::Env,
     value::Value,

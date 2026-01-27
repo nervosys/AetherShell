@@ -513,7 +513,7 @@ export OPENAI_MODEL="gpt-4o-mini"  # Default model
 **Optional - Path Security**:
 ```bash
 # Customize via code (not environment)
-use aether_shell::security::{configure_path_security, PathSecurityConfig};
+use aethershell::security::{configure_path_security, PathSecurityConfig};
 
 configure_path_security(PathSecurityConfig {
     allowed_base_dirs: vec![PathBuf::from("/home/user/projects")],

@@ -2,9 +2,9 @@
 
 use std::collections::HashMap;
 
-use aether_shell::ai::{MultiModalContent, MultiModalMessage};
-use aether_shell::tui::agents::Modality;
-use aether_shell::tui::reasoning::*;
+use aethershell::ai::{MultiModalContent, MultiModalMessage};
+use aethershell::tui::agents::Modality;
+use aethershell::tui::reasoning::*;
 
 #[test]
 fn test_reasoning_engine_creation() {

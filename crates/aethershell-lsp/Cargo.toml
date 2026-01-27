@@ -33,7 +33,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # AetherShell core (path dependency)
-aether_shell = { path = "../.." }
+aethershell = { path = "../.." }
 
 # Utilities
 dashmap = "5.5"

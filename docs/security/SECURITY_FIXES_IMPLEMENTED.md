@@ -1092,7 +1092,7 @@ export AGENT_ALLOW_CMDS=ls,cat,git,grep
 # (Configure via PathSecurityConfig in code)
 
 # 5. Enable structured logging
-export RUST_LOG=info,aether_shell=debug
+export RUST_LOG=info,aethershell=debug
 ```
 
 ### Docker Security

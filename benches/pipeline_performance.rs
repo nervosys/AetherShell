@@ -1,9 +1,9 @@
 // benches/pipeline_performance.rs
 // Benchmarks for AetherShell pipeline execution
 
-use aether_shell::env::Env;
-use aether_shell::eval::eval_program;
-use aether_shell::parser::parse_program;
+use aethershell::env::Env;
+use aethershell::eval::eval_program;
+use aethershell::parser::parse_program;
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 
 fn create_test_env() -> Env {

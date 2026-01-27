@@ -1,7 +1,7 @@
 //! Comprehensive MCP (Model Context Protocol) Tests
 //! Tests for MCP client, tool discovery, execution, and integration
 
-use aether_shell::ai::mcp::{MCP_VERSION, McpClient, McpToolSchema};
+use aethershell::ai::mcp::{MCP_VERSION, McpClient, McpToolSchema};
 
 // ========== Basic MCP Client Tests ==========
 
@@ -137,7 +137,7 @@ fn test_mcp_validate_input_without_cache() {
 
 #[test]
 fn test_mcp_resolver_creation() {
-    use aether_shell::ai::mcp::McpToolResolver;
+    use aethershell::ai::mcp::McpToolResolver;
 
     let _resolver = McpToolResolver::new("http://localhost:8080");
     // Should create successfully
@@ -146,8 +146,8 @@ fn test_mcp_resolver_creation() {
 
 #[test]
 fn test_mcp_resolver_list_tools() {
-    use aether_shell::ai::agents::ToolResolver;
-    use aether_shell::ai::mcp::McpToolResolver;
+    use aethershell::ai::agents::ToolResolver;
+    use aethershell::ai::mcp::McpToolResolver;
 
     let resolver = McpToolResolver::new("http://localhost:9999");
     let tools = resolver.list();
@@ -157,8 +157,8 @@ fn test_mcp_resolver_list_tools() {
 
 #[test]
 fn test_mcp_resolver_get_tool() {
-    use aether_shell::ai::agents::ToolResolver;
-    use aether_shell::ai::mcp::McpToolResolver;
+    use aethershell::ai::agents::ToolResolver;
+    use aethershell::ai::mcp::McpToolResolver;
 
     let resolver = McpToolResolver::new("http://localhost:8080");
     let tool = resolver.get("test_tool");
@@ -168,8 +168,8 @@ fn test_mcp_resolver_get_tool() {
 
 #[test]
 fn test_mcp_tool_name() {
-    use aether_shell::ai::agents::ToolResolver;
-    use aether_shell::ai::mcp::McpToolResolver;
+    use aethershell::ai::agents::ToolResolver;
+    use aethershell::ai::mcp::McpToolResolver;
 
     let resolver = McpToolResolver::new("http://localhost:8080");
     if let Some(tool) = resolver.get("example_tool") {
@@ -179,8 +179,8 @@ fn test_mcp_tool_name() {
 
 #[test]
 fn test_mcp_tool_description_default() {
-    use aether_shell::ai::agents::ToolResolver;
-    use aether_shell::ai::mcp::McpToolResolver;
+    use aethershell::ai::agents::ToolResolver;
+    use aethershell::ai::mcp::McpToolResolver;
 
     let resolver = McpToolResolver::new("http://localhost:8080");
     if let Some(tool) = resolver.get("test") {
@@ -192,9 +192,9 @@ fn test_mcp_tool_description_default() {
 
 #[test]
 fn test_mcp_tool_call_error_handling() {
-    use aether_shell::ai::agents::ToolResolver;
-    use aether_shell::ai::mcp::McpToolResolver;
-    use aether_shell::env::Env;
+    use aethershell::ai::agents::ToolResolver;
+    use aethershell::ai::mcp::McpToolResolver;
+    use aethershell::env::Env;
 
     let resolver = McpToolResolver::new("http://localhost:9999");
     if let Some(tool) = resolver.get("test") {
@@ -209,7 +209,7 @@ fn test_mcp_tool_call_error_handling() {
 
 #[test]
 fn test_mcp_integration_with_tool_registry() {
-    use aether_shell::ai::agents::ToolRegistry;
+    use aethershell::ai::agents::ToolRegistry;
 
     let registry = ToolRegistry::with_builtins_and_mcp("http://localhost:8080");
     let tools = registry.list();
@@ -221,7 +221,7 @@ fn test_mcp_integration_with_tool_registry() {
 
 #[test]
 fn test_mcp_tool_resolution_with_registry() {
-    use aether_shell::ai::agents::ToolRegistry;
+    use aethershell::ai::agents::ToolRegistry;
 
     let registry = ToolRegistry::with_builtins_and_mcp("http://localhost:8080");
     let resolved = registry.resolve_many(&["print", "mcp_tool"]);
@@ -372,8 +372,8 @@ fn test_mcp_long_endpoint() {
 
 #[test]
 fn test_mcp_tool_name_with_special_characters() {
-    use aether_shell::ai::agents::ToolResolver;
-    use aether_shell::ai::mcp::McpToolResolver;
+    use aethershell::ai::agents::ToolResolver;
+    use aethershell::ai::mcp::McpToolResolver;
 
     let resolver = McpToolResolver::new("http://localhost:8080");
     let special_names = vec!["tool-with-dash", "tool_with_underscore", "tool.with.dot"];
@@ -387,8 +387,8 @@ fn test_mcp_tool_name_with_special_characters() {
 
 #[test]
 fn test_mcp_unicode_tool_names() {
-    use aether_shell::ai::agents::ToolResolver;
-    use aether_shell::ai::mcp::McpToolResolver;
+    use aethershell::ai::agents::ToolResolver;
+    use aethershell::ai::mcp::McpToolResolver;
 
     let resolver = McpToolResolver::new("http://localhost:8080");
     let unicode_tool = resolver.get("测试工具");

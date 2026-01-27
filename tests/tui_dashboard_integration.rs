@@ -1,6 +1,6 @@
 // Integration test to verify dashboard UI components render correctly
 
-use aether_shell::tui::app::{App, AppMode, MessageRole};
+use aethershell::tui::app::{App, AppMode, MessageRole};
 
 #[test]
 fn test_dashboard_integration_with_app() {

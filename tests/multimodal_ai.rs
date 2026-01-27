@@ -2,7 +2,7 @@
 
 #[cfg(test)]
 mod multimodal_ai_tests {
-    use aether_shell::ai::{
+    use aethershell::ai::{
         complete_multimodal_sync, MultiModalContent, MultiModalLlmBackend, MultiModalMessage,
     };
 
