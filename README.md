@@ -6,7 +6,8 @@
 
 <p align="center">
   <a href="https://crates.io/crates/aether_shell"><img src="https://img.shields.io/crates/v/aether_shell.svg?style=flat-square&logo=rust&color=orange" alt="Crates.io"></a>
-  <a href="https://github.com/nervosys/AetherShell/actions"><img src="https://img.shields.io/github/actions/workflow/status/nervosys/AetherShell/security-audit.yml?style=flat-square&logo=github" alt="Build Status"></a>
+  <a href="https://github.com/nervosys/AetherShell/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/nervosys/AetherShell/ci.yml?style=flat-square&logo=github&label=CI" alt="CI Status"></a>
+  <a href="https://github.com/nervosys/AetherShell/actions"><img src="https://img.shields.io/github/actions/workflow/status/nervosys/AetherShell/security-audit.yml?style=flat-square&logo=github&label=security" alt="Security"></a>
   <a href="https://github.com/nervosys/AetherShell/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg?style=flat-square" alt="License"></a>
   <a href="https://github.com/nervosys/AetherShell/stargazers"><img src="https://img.shields.io/github/stars/nervosys/AetherShell?style=flat-square&color=yellow" alt="Stars"></a>
 </p>
@@ -54,11 +55,25 @@ cargo build -p aethershell-lsp --release
 
 ### Installation
 
+**From Source (recommended for latest features):**
 ```bash
-# Install from source
 git clone https://github.com/nervosys/AetherShell && cd AetherShell
 cargo install --path . --bin ae
+```
 
+**From Cargo:**
+```bash
+cargo install aether_shell
+```
+
+**From Homebrew (macOS/Linux):**
+```bash
+brew tap nervosys/tap
+brew install aethershell
+```
+
+**Usage:**
+```bash
 # Launch interactive TUI (recommended)
 ae tui
 
@@ -67,6 +82,12 @@ ae
 
 # Run a script file
 ae script.ae
+
+# Evaluate inline expression
+ae -c '1 + 2 * 3'
+
+# JSON output mode
+ae --json -c '[1, 2, 3] | map(fn(x) => x * 2)'
 ```
 
 ```ae

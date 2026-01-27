@@ -278,8 +278,9 @@ impl Value {
     }
 }
 
-// ----------- Pretty printing (crossterm) -----------
+// ----------- Pretty printing (crossterm) - native only -----------
 
+#[cfg(feature = "native")]
 pub mod pretty {
     use super::*;
     use crossterm::style::{StyledContent, Stylize};
@@ -427,12 +428,55 @@ pub mod pretty {
     }
 }
 
-// ----------- Minimal Display (non-colored fallback) -----------
+// ----------- Minimal Display -----------
 
+#[cfg(feature = "native")]
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use pretty::{fmt_value, Theme};
+        use crate::value::pretty::{fmt_value, Theme};
         let theme = Theme::default();
         fmt_value(f, self, &theme)
+    }
+}
+
+#[cfg(not(feature = "native"))]
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Value::Null => write!(f, "null"),
+            Value::Bool(b) => write!(f, "{}", b),
+            Value::Int(n) => write!(f, "{}", n),
+            Value::Float(x) => write!(f, "{}", x),
+            Value::Str(s) => write!(f, "\"{}\"", s),
+            Value::Uri(u) => write!(f, "{}", u),
+            Value::Array(a) => {
+                write!(f, "[")?;
+                for (i, el) in a.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", el)?;
+                }
+                write!(f, "]")
+            }
+            Value::Record(m) => {
+                write!(f, "{{")?;
+                let mut first = true;
+                for (k, v) in m {
+                    if !first {
+                        write!(f, ", ")?;
+                    } else {
+                        first = false;
+                    }
+                    write!(f, "{}: {}", k, v)?;
+                }
+                write!(f, "}}")
+            }
+            Value::Table(t) => write!(f, "<Table rows={} cols={}>", t.rows.len(), t.schema.len()),
+            Value::Lambda(_) => write!(f, "<lambda>"),
+            Value::AsyncLambda(_) => write!(f, "<async lambda>"),
+            Value::Future(_) => write!(f, "<future>"),
+            Value::Error(msg) => write!(f, "Error: {}", msg),
+        }
     }
 }

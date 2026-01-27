@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AetherShell - The AI-Powered Typed Shell</title>
+    <meta name="description"
+        content="The world's first multi-agent shell with typed functional pipelines and multi-modal AI. Built in Rust for safety and performance.">
+    <meta name="keywords" content="shell, terminal, AI, agent, Rust, functional programming, typed, pipelines">
+    <meta property="og:title" content="AetherShell - The AI-Powered Typed Shell">
+    <meta property="og:description" content="Multi-agent shell with typed pipelines and multi-modal AI capabilities.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://aethershell.io">
+    <link rel="canonical" href="https://aethershell.io">
+    <style>
+        :root {
+            --bg: #0a0a12;
+            --bg-secondary: #12121f;
+            --accent: #00d9ff;
+            --accent-secondary: #8b5cf6;
+            --text: #e0e0e0;
+            --text-muted: #888;
+            --success: #00ff9d;
+            --border: #2a2a4e;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
+        /* Navigation */
+        nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: rgba(10, 10, 18, 0.95);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--border);
+            z-index: 1000;
+            padding: 16px 0;
+        }
+
+        nav .container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        .logo span {
+            background: linear-gradient(135deg, var(--accent), var(--accent-secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 32px;
+            list-style: none;
+        }
+
+        .nav-links a {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 15px;
+            transition: color 0.2s;
+        }
+
+        .nav-links a:hover {
+            color: var(--accent);
+        }
+
+        .nav-cta {
+            background: linear-gradient(135deg, var(--accent), var(--accent-secondary));
+            color: var(--bg);
+            padding: 10px 24px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .nav-cta:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(0, 217, 255, 0.3);
+        }
+
+        /* Hero Section */
+        .hero {
+            padding: 160px 0 100px;
+            text-align: center;
+            background: linear-gradient(180deg, var(--bg) 0%, var(--bg-secondary) 100%);
+        }
+
+        .hero h1 {
+            font-size: 64px;
+            font-weight: 800;
+            margin-bottom: 24px;
+            background: linear-gradient(135deg, #fff 0%, var(--accent) 50%, var(--accent-secondary) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .hero .subtitle {
+            font-size: 24px;
+            color: var(--text-muted);
+            max-width: 700px;
+            margin: 0 auto 48px;
+        }
+
+        .hero-cta {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 16px 32px;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent), var(--accent-secondary));
+            color: var(--bg);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 30px rgba(0, 217, 255, 0.4);
+        }
+
+        .btn-secondary {
+            background: var(--bg-secondary);
+            color: var(--text);
+            border: 1px solid var(--border);
+        }
+
+        .btn-secondary:hover {
+            border-color: var(--accent);
+            background: rgba(0, 217, 255, 0.1);
+        }
+
+        /* Code Demo */
+        .code-demo {
+            margin-top: 64px;
+            background: var(--bg-secondary);
+            border-radius: 16px;
+            border: 1px solid var(--border);
+            overflow: hidden;
+            max-width: 800px;
+            margin-left: auto;
+            margin-right: auto;
+            text-align: left;
+        }
+
+        .code-header {
+            padding: 12px 16px;
+            background: rgba(0, 0, 0, 0.3);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .code-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+
+        .code-dot.red {
+            background: #ff5f56;
+        }
+
+        .code-dot.yellow {
+            background: #ffbd2e;
+        }
+
+        .code-dot.green {
+            background: #27c93f;
+        }
+
+        .code-content {
+            padding: 24px;
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            font-size: 14px;
+            line-height: 1.8;
+        }
+
+        .code-content .prompt {
+            color: var(--accent);
+        }
+
+        .code-content .comment {
+            color: #6a737d;
+        }
+
+        .code-content .string {
+            color: #a5d6ff;
+        }
+
+        .code-content .number {
+            color: #ffa657;
+        }
+
+        .code-content .keyword {
+            color: #ff7b72;
+        }
+
+        .code-content .function {
+            color: #d2a8ff;
+        }
+
+        .code-content .result {
+            color: var(--success);
+        }
+
+        /* Features Grid */
+        .features {
+            padding: 100px 0;
+        }
+
+        .section-title {
+            text-align: center;
+            font-size: 48px;
+            font-weight: 700;
+            margin-bottom: 16px;
+        }
+
+        .section-subtitle {
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 18px;
+            max-width: 600px;
+            margin: 0 auto 64px;
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 32px;
+        }
+
+        .feature-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 32px;
+            transition: transform 0.2s, border-color 0.2s;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-4px);
+            border-color: var(--accent);
+        }
+
+        .feature-icon {
+            font-size: 48px;
+            margin-bottom: 20px;
+        }
+
+        .feature-card h3 {
+            font-size: 24px;
+            margin-bottom: 12px;
+        }
+
+        .feature-card p {
+            color: var(--text-muted);
+        }
+
+        /* Install Section */
+        .install {
+            padding: 100px 0;
+            background: var(--bg-secondary);
+        }
+
+        .install-methods {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 24px;
+            margin-top: 48px;
+        }
+
+        .install-card {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+        }
+
+        .install-card h4 {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 16px;
+            font-size: 18px;
+        }
+
+        .install-card code {
+            display: block;
+            background: rgba(0, 217, 255, 0.1);
+            padding: 16px;
+            border-radius: 8px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 14px;
+            color: var(--accent);
+            overflow-x: auto;
+        }
+
+        /* Comparison Table */
+        .comparison {
+            padding: 100px 0;
+        }
+
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 48px;
+        }
+
+        .comparison-table th,
+        .comparison-table td {
+            padding: 16px 24px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .comparison-table th {
+            color: var(--text-muted);
+            font-weight: 500;
+            font-size: 14px;
+            text-transform: uppercase;
+        }
+
+        .comparison-table td:first-child {
+            font-weight: 600;
+        }
+
+        .comparison-table .check {
+            color: var(--success);
+            font-size: 20px;
+        }
+
+        .comparison-table .cross {
+            color: var(--text-muted);
+            font-size: 20px;
+        }
+
+        /* CTA Section */
+        .cta {
+            padding: 100px 0;
+            text-align: center;
+            background: linear-gradient(180deg, var(--bg) 0%, var(--bg-secondary) 100%);
+        }
+
+        .cta h2 {
+            font-size: 48px;
+            margin-bottom: 24px;
+        }
+
+        .cta p {
+            color: var(--text-muted);
+            font-size: 18px;
+            margin-bottom: 40px;
+        }
+
+        /* Footer */
+        footer {
+            padding: 48px 0;
+            border-top: 1px solid var(--border);
+        }
+
+        footer .container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 24px;
+        }
+
+        .footer-links {
+            display: flex;
+            gap: 32px;
+        }
+
+        .footer-links a {
+            color: var(--text-muted);
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+
+        .footer-links a:hover {
+            color: var(--accent);
+        }
+
+        .copyright {
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+
+        @media (max-width: 768px) {
+            .hero h1 {
+                font-size: 40px;
+            }
+
+            .nav-links {
+                display: none;
+            }
+
+            .features-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <nav>
+        <div class="container">
+            <a href="/" class="logo">⚡ <span>AetherShell</span></a>
+            <ul class="nav-links">
+                <li><a href="#features">Features</a></li>
+                <li><a href="#install">Install</a></li>
+                <li><a href="https://github.com/nervosys/AetherShell/blob/main/docs/TUI_GUIDE.md">Docs</a></li>
+                <li><a href="https://github.com/nervosys/AetherShell">GitHub</a></li>
+            </ul>
+            <a href="#install" class="nav-cta">Get Started</a>
+        </div>
+    </nav>
+
+    <section class="hero">
+        <div class="container">
+            <h1>The Intelligent Shell</h1>
+            <p class="subtitle">
+                The world's first multi-agent shell with typed functional pipelines and multi-modal AI.
+                Built in Rust for safety and performance.
+            </p>
+            <div class="hero-cta">
+                <a href="#install" class="btn btn-primary">Install AetherShell</a>
+                <a href="https://github.com/nervosys/AetherShell" class="btn btn-secondary">View on GitHub</a>
+            </div>
+
+            <div class="code-demo">
+                <div class="code-header">
+                    <span class="code-dot red"></span>
+                    <span class="code-dot yellow"></span>
+                    <span class="code-dot green"></span>
+                </div>
+                <div class="code-content">
+                    <span class="comment"># Typed pipelines — structured data, not text</span><br>
+                    <span class="prompt">ae></span> [<span class="number">1</span>, <span class="number">2</span>, <span
+                        class="number">3</span>, <span class="number">4</span>, <span class="number">5</span>] | <span
+                        class="function">map</span>(<span class="keyword">fn</span>(x) => x * <span
+                        class="number">2</span>) | <span class="function">sum</span>()<br>
+                    <span class="result">=> 30</span><br><br>
+
+                    <span class="comment"># AI agents with tool access</span><br>
+                    <span class="prompt">ae></span> <span class="function">agent</span>(<span class="string">"Find all
+                        TODO comments in src/"</span>, [<span class="string">"ls"</span>, <span
+                        class="string">"cat"</span>, <span class="string">"grep"</span>])<br>
+                    <span class="result">🤖 Agent analyzing project...</span><br><br>
+
+                    <span class="comment"># Multi-modal AI — images, audio, video</span><br>
+                    <span class="prompt">ae></span> <span class="function">ai</span>(<span class="string">"Describe this
+                        image"</span>, {images: [<span class="string">"photo.jpg"</span>]})<br>
+                    <span class="result">=> "A modern terminal interface showing..."</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="features" id="features">
+        <div class="container">
+            <h2 class="section-title">Why AetherShell?</h2>
+            <p class="section-subtitle">
+                Combine the power of typed functional programming with AI-native capabilities.
+            </p>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">🤖</div>
+                    <h3>AI-Native Shell</h3>
+                    <p>Multi-modal AI support for images, audio, and video. Autonomous agents with tool access. 130+ MCP
+                        tools across 27 categories.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">💎</div>
+                    <h3>Typed Pipelines</h3>
+                    <p>Hindley-Milner type inference. Structured data flow with Records, Arrays, and Tables. First-class
+                        functions and lambdas.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🧠</div>
+                    <h3>Agent Swarms</h3>
+                    <p>Deploy and coordinate multiple AI agents. A2A communication protocol. NANDA consensus for
+                        distributed decision making.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🌐</div>
+                    <h3>Run Everywhere</h3>
+                    <p>Native CLI for Linux, macOS, Windows. WebAssembly for browser. Python SDK for integration.
+                        Browser extension.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🎨</div>
+                    <h3>Beautiful TUI</h3>
+                    <p>Interactive terminal UI with tabs. Media viewer for images/audio/video. Agent dashboard for swarm
+                        control.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">⚡</div>
+                    <h3>Rust Performance</h3>
+                    <p>Built in Rust for safety and speed. Zero-cost abstractions. Memory safety without garbage
+                        collection.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="comparison">
+        <div class="container">
+            <h2 class="section-title">Feature Comparison</h2>
+            <p class="section-subtitle">See how AetherShell compares to other shells.</p>
+            <table class="comparison-table">
+                <thead>
+                    <tr>
+                        <th>Feature</th>
+                        <th>AetherShell</th>
+                        <th>Bash</th>
+                        <th>Nushell</th>
+                        <th>PowerShell</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>AI Agents with Tools</td>
+                        <td class="check">✓</td>
+                        <td class="cross">✗</td>
+                        <td class="cross">✗</td>
+                        <td class="cross">✗</td>
+                    </tr>
+                    <tr>
+                        <td>Multi-modal AI (Vision/Audio)</td>
+                        <td class="check">✓</td>
+                        <td class="cross">✗</td>
+                        <td class="cross">✗</td>
+                        <td class="cross">✗</td>
+                    </tr>
+                    <tr>
+                        <td>Type Inference</td>
+                        <td class="check">✓</td>
+                        <td class="cross">✗</td>
+                        <td class="check">✓</td>
+                        <td class="check">✓</td>
+                    </tr>
+                    <tr>
+                        <td>Typed Pipelines</td>
+                        <td class="check">✓</td>
+                        <td class="cross">✗</td>
+                        <td class="check">✓</td>
+                        <td class="check">✓</td>
+                    </tr>
+                    <tr>
+                        <td>WebAssembly Support</td>
+                        <td class="check">✓</td>
+                        <td class="cross">✗</td>
+                        <td class="cross">✗</td>
+                        <td class="cross">✗</td>
+                    </tr>
+                    <tr>
+                        <td>Browser Extension</td>
+                        <td class="check">✓</td>
+                        <td class="cross">✗</td>
+                        <td class="cross">✗</td>
+                        <td class="cross">✗</td>
+                    </tr>
+                    <tr>
+                        <td>MCP Protocol (130+ tools)</td>
+                        <td class="check">✓</td>
+                        <td class="cross">✗</td>
+                        <td class="cross">✗</td>
+                        <td class="cross">✗</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="install" id="install">
+        <div class="container">
+            <h2 class="section-title">Get Started in Seconds</h2>
+            <p class="section-subtitle">Choose your preferred installation method.</p>
+            <div class="install-methods">
+                <div class="install-card">
+                    <h4>📦 Cargo (Recommended)</h4>
+                    <code>cargo install aether_shell</code>
+                </div>
+                <div class="install-card">
+                    <h4>🍺 Homebrew (macOS/Linux)</h4>
+                    <code>brew tap nervosys/tap && brew install aethershell</code>
+                </div>
+                <div class="install-card">
+                    <h4>🐙 From Source</h4>
+                    <code>git clone https://github.com/nervosys/AetherShell<br>cd AetherShell && cargo install --path .</code>
+                </div>
+                <div class="install-card">
+                    <h4>🐍 Python SDK</h4>
+                    <code>pip install aethershell</code>
+                </div>
+                <div class="install-card">
+                    <h4>🌐 Browser Extension</h4>
+                    <code>Coming soon to Chrome Web Store</code>
+                </div>
+                <div class="install-card">
+                    <h4>🐳 Docker</h4>
+                    <code>docker run -it nervosys/aethershell</code>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="cta">
+        <div class="container">
+            <h2>Ready to Transform Your Shell?</h2>
+            <p>Join thousands of developers using AetherShell for AI-powered automation.</p>
+            <div class="hero-cta">
+                <a href="https://github.com/nervosys/AetherShell" class="btn btn-primary">⭐ Star on GitHub</a>
+                <a href="https://github.com/nervosys/AetherShell/discussions" class="btn btn-secondary">Join
+                    Community</a>
+            </div>
+        </div>
+    </section>
+
+    <footer>
+        <div class="container">
+            <div class="footer-links">
+                <a href="https://github.com/nervosys/AetherShell">GitHub</a>
+                <a href="https://crates.io/crates/aether_shell">Crates.io</a>
+                <a href="https://github.com/nervosys/AetherShell/blob/main/docs/TUI_GUIDE.md">Documentation</a>
+                <a href="https://github.com/nervosys/AetherShell/discussions">Discussions</a>
+            </div>
+            <p class="copyright">© 2026 Nervosys. Apache 2.0 License.</p>
+        </div>
+    </footer>
+</body>
+
+</html>

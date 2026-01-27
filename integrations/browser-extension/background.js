@@ -74,7 +74,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     }
 
     const selectedText = info.selectionText;
-    
+
     switch (info.menuItemId) {
         case 'aethershell-ai-explain':
             handleAIAction(tab.id, 'explain', selectedText);
@@ -139,7 +139,7 @@ async function handleEval(tabId, code) {
 // Handle keyboard commands
 chrome.commands.onCommand.addListener(async (command) => {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    
+
     switch (command) {
         case 'open-terminal':
             chrome.tabs.sendMessage(tab.id, { type: 'toggle-terminal' });

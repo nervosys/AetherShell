@@ -1,0 +1,117 @@
+name: CI
+
+on:
+    push:
+        branches: [main, master]
+    pull_request:
+        branches: [main, master]
+
+env:
+    CARGO_TERM_COLOR: always
+    RUST_BACKTRACE: 1
+
+jobs:
+    test:
+        name: Test (${{ matrix.os }})
+        runs-on: ${{ matrix.os }}
+        strategy:
+            fail-fast: false
+            matrix:
+                os: [ubuntu-latest, macos-latest, windows-latest]
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: dtolnay/rust-toolchain@stable
+
+            - uses: Swatinem/rust-cache@v2
+
+            - name: Run tests
+              run: cargo test --workspace --features native
+
+            - name: Run doc tests
+              run: cargo test --doc
+
+    lint:
+        name: Lint
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: dtolnay/rust-toolchain@stable
+              with:
+                  components: clippy, rustfmt
+
+            - uses: Swatinem/rust-cache@v2
+
+            - name: Check formatting
+              run: cargo fmt --all -- --check
+
+            - name: Clippy
+              run: cargo clippy --workspace --all-targets --features native -- -D warnings
+
+    wasm:
+        name: WASM Build
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: dtolnay/rust-toolchain@stable
+              with:
+                  targets: wasm32-unknown-unknown
+
+            - uses: Swatinem/rust-cache@v2
+
+            - name: Install wasm-pack
+              run: cargo install wasm-pack
+
+            - name: Build WASM
+              run: |
+                  cd web
+                  wasm-pack build --target web --dev
+
+            - name: Upload WASM artifact
+              uses: actions/upload-artifact@v4
+              with:
+                  name: wasm-pkg
+                  path: web/pkg/
+                  retention-days: 7
+
+    build:
+        name: Build (${{ matrix.target }})
+        runs-on: ${{ matrix.os }}
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - target: x86_64-unknown-linux-gnu
+                      os: ubuntu-latest
+                    - target: x86_64-apple-darwin
+                      os: macos-latest
+                    - target: aarch64-apple-darwin
+                      os: macos-latest
+                    - target: x86_64-pc-windows-msvc
+                      os: windows-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: dtolnay/rust-toolchain@stable
+              with:
+                  targets: ${{ matrix.target }}
+
+            - uses: Swatinem/rust-cache@v2
+              with:
+                  key: ${{ matrix.target }}
+
+            - name: Build
+              run: cargo build --release --target ${{ matrix.target }} --features native
+
+            - name: Upload binary
+              uses: actions/upload-artifact@v4
+              with:
+                  name: ae-${{ matrix.target }}
+                  path: |
+                      target/${{ matrix.target }}/release/ae
+                      target/${{ matrix.target }}/release/ae.exe
+                      target/${{ matrix.target }}/release/aimodel
+                      target/${{ matrix.target }}/release/aimodel.exe
+                  retention-days: 7

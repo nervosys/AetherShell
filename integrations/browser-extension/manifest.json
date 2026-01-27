@@ -1,71 +1,73 @@
 {
-  "manifest_version": 3,
-  "name": "AetherShell",
-  "version": "0.2.0",
-  "description": "AI-powered shell for the browser - execute AetherShell commands, process data, and run AI agents",
-  "icons": {
-    "16": "icons/icon-16.png",
-    "32": "icons/icon-32.png",
-    "48": "icons/icon-48.png",
-    "128": "icons/icon-128.png"
-  },
-  "permissions": [
-    "activeTab",
-    "storage",
-    "contextMenus",
-    "scripting"
-  ],
-  "host_permissions": [
-    "<all_urls>"
-  ],
-  "background": {
-    "service_worker": "background.js",
-    "type": "module"
-  },
-  "action": {
-    "default_popup": "popup/popup.html",
-    "default_icon": {
-      "16": "icons/icon-16.png",
-      "32": "icons/icon-32.png"
+    "manifest_version": 3,
+    "name": "AetherShell",
+    "version": "0.2.0",
+    "description": "AI-powered shell for the browser - execute AetherShell commands, process data, and run AI agents",
+    "icons": {
+        "16": "icons/icon16.svg",
+        "48": "icons/icon48.svg",
+        "128": "icons/icon128.svg"
     },
-    "default_title": "AetherShell"
-  },
-  "commands": {
-    "open-terminal": {
-      "suggested_key": {
-        "default": "Ctrl+Shift+A",
-        "mac": "Command+Shift+A"
-      },
-      "description": "Open AetherShell terminal overlay"
+    "permissions": [
+        "activeTab",
+        "storage",
+        "contextMenus",
+        "scripting"
+    ],
+    "host_permissions": [
+        "<all_urls>"
+    ],
+    "background": {
+        "service_worker": "background.js",
+        "type": "module"
     },
-    "ai-assist": {
-      "suggested_key": {
-        "default": "Ctrl+Shift+I",
-        "mac": "Command+Shift+I"
-      },
-      "description": "AI assist on selected text"
-    }
-  },
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": ["content/content.js"],
-      "css": ["content/content.css"],
-      "run_at": "document_idle"
-    }
-  ],
-  "web_accessible_resources": [
-    {
-      "resources": [
-        "wasm/aether_wasm_bg.wasm",
-        "terminal/terminal.html",
-        "terminal/terminal.css"
-      ],
-      "matches": ["<all_urls>"]
-    }
-  ],
-  "options_ui": {
-    "page": "options/options.html",
-    "open_in_tab": true
-  }
+    "action": {
+        "default_popup": "popup/popup.html",
+        "default_icon": {
+            "16": "icons/icon16.svg",
+            "48": "icons/icon48.svg"
+        },
+        "default_title": "AetherShell"
+    },
+    "commands": {
+        "open-terminal": {
+            "suggested_key": {
+                "default": "Ctrl+Shift+A",
+                "mac": "Command+Shift+A"
+            },
+            "description": "Open AetherShell terminal overlay"
+        },
+        "ai-assist": {
+            "suggested_key": {
+                "default": "Ctrl+Shift+I",
+                "mac": "Command+Shift+I"
+            },
+            "description": "AI assist on selected text"
+        }
+    },
+    "content_scripts": [
+        {
+            "matches": [
+                "<all_urls>"
+            ],
+            "js": [
+                "content/content.js"
+            ],
+            "css": [
+                "content/content.css"
+            ],
+            "run_at": "document_idle"
+        }
+    ],
+    "web_accessible_resources": [
+        {
+            "resources": [
+                "wasm/aether_wasm_bg.wasm",
+                "wasm/aether_wasm.js"
+            ],
+            "matches": [
+                "<all_urls>"
+            ]
+        }
+    ]
 }

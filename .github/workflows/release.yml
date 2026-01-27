@@ -1,0 +1,208 @@
+name: Release
+
+on:
+    push:
+        tags:
+            - "v*"
+    workflow_dispatch:
+        inputs:
+            version:
+                description: "Version to release (e.g., 0.2.0)"
+                required: true
+                type: string
+
+env:
+    CARGO_TERM_COLOR: always
+
+jobs:
+    create-release:
+        name: Create Release
+        runs-on: ubuntu-latest
+        outputs:
+            upload_url: ${{ steps.create_release.outputs.upload_url }}
+            version: ${{ steps.get_version.outputs.version }}
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Get version
+              id: get_version
+              run: |
+                  if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+                    echo "version=${{ inputs.version }}" >> $GITHUB_OUTPUT
+                  else
+                    echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Create Release
+              id: create_release
+              uses: softprops/action-gh-release@v1
+              with:
+                  tag_name: v${{ steps.get_version.outputs.version }}
+                  name: AetherShell v${{ steps.get_version.outputs.version }}
+                  draft: true
+                  prerelease: false
+                  generate_release_notes: true
+
+    build-binaries:
+        name: Build (${{ matrix.target }})
+        needs: create-release
+        runs-on: ${{ matrix.os }}
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - target: x86_64-unknown-linux-gnu
+                      os: ubuntu-latest
+                      archive: tar.gz
+                    - target: x86_64-unknown-linux-musl
+                      os: ubuntu-latest
+                      archive: tar.gz
+                    - target: aarch64-unknown-linux-gnu
+                      os: ubuntu-latest
+                      archive: tar.gz
+                    - target: x86_64-apple-darwin
+                      os: macos-latest
+                      archive: tar.gz
+                    - target: aarch64-apple-darwin
+                      os: macos-latest
+                      archive: tar.gz
+                    - target: x86_64-pc-windows-msvc
+                      os: windows-latest
+                      archive: zip
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: dtolnay/rust-toolchain@stable
+              with:
+                  targets: ${{ matrix.target }}
+
+            - uses: Swatinem/rust-cache@v2
+              with:
+                  key: release-${{ matrix.target }}
+
+            - name: Install cross-compilation tools (Linux ARM)
+              if: matrix.target == 'aarch64-unknown-linux-gnu'
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y gcc-aarch64-linux-gnu
+
+            - name: Install musl tools
+              if: matrix.target == 'x86_64-unknown-linux-musl'
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y musl-tools
+
+            - name: Build
+              run: cargo build --release --target ${{ matrix.target }} --features native
+
+            - name: Package (Unix)
+              if: matrix.os != 'windows-latest'
+              run: |
+                  cd target/${{ matrix.target }}/release
+                  tar czvf ../../../aethershell-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.tar.gz ae aimodel
+
+            - name: Package (Windows)
+              if: matrix.os == 'windows-latest'
+              run: |
+                  cd target/${{ matrix.target }}/release
+                  7z a ../../../aethershell-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.zip ae.exe aimodel.exe
+
+            - name: Upload Release Asset
+              uses: softprops/action-gh-release@v1
+              with:
+                  tag_name: v${{ needs.create-release.outputs.version }}
+                  files: aethershell-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.${{ matrix.archive }}
+
+    build-wasm:
+        name: Build WASM
+        needs: create-release
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: dtolnay/rust-toolchain@stable
+              with:
+                  targets: wasm32-unknown-unknown
+
+            - uses: Swatinem/rust-cache@v2
+
+            - name: Install wasm-pack
+              run: cargo install wasm-pack
+
+            - name: Build WASM
+              run: |
+                  cd web
+                  wasm-pack build --target web --release
+
+            - name: Package WASM
+              run: |
+                  cd web
+                  tar czvf ../aethershell-wasm-${{ needs.create-release.outputs.version }}.tar.gz pkg/
+
+            - name: Upload WASM Release Asset
+              uses: softprops/action-gh-release@v1
+              with:
+                  tag_name: v${{ needs.create-release.outputs.version }}
+                  files: aethershell-wasm-${{ needs.create-release.outputs.version }}.tar.gz
+
+    publish-crates:
+        name: Publish to crates.io
+        needs: [create-release, build-binaries]
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: dtolnay/rust-toolchain@stable
+
+            - name: Publish to crates.io
+              env:
+                  CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+              run: |
+                  cargo publish --features native
+              continue-on-error: true
+
+    publish-npm:
+        name: Publish WASM to npm
+        needs: [create-release, build-wasm]
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: dtolnay/rust-toolchain@stable
+              with:
+                  targets: wasm32-unknown-unknown
+
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: "20"
+                  registry-url: "https://registry.npmjs.org"
+
+            - name: Install wasm-pack
+              run: cargo install wasm-pack
+
+            - name: Build WASM
+              run: |
+                  cd web
+                  wasm-pack build --target web --release
+
+            - name: Publish to npm
+              env:
+                  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+              run: |
+                  cd web/pkg
+                  npm publish --access public
+              continue-on-error: true
+
+    update-homebrew:
+        name: Update Homebrew Formula
+        needs: [create-release, build-binaries]
+        runs-on: ubuntu-latest
+        steps:
+            - name: Trigger Homebrew tap update
+              run: |
+                  echo "Homebrew formula update would be triggered here"
+                  echo "Version: ${{ needs.create-release.outputs.version }}"
+                  # This would typically:
+                  # 1. Calculate SHA256 of the release tarball
+                  # 2. Update the formula in nervosys/homebrew-tap
+                  # 3. Create a PR or push directly
