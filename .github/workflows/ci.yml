@@ -25,6 +25,12 @@ jobs:
 
             - uses: Swatinem/rust-cache@v2
 
+            - name: Install Linux dependencies
+              if: matrix.os == 'ubuntu-latest'
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y libasound2-dev libssl-dev pkg-config
+
             - name: Run tests
               run: cargo test --workspace --features native
 
@@ -42,6 +48,11 @@ jobs:
                   components: clippy, rustfmt
 
             - uses: Swatinem/rust-cache@v2
+
+            - name: Install Linux dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y libasound2-dev libssl-dev pkg-config
 
             - name: Check formatting
               run: cargo fmt --all -- --check
@@ -101,6 +112,12 @@ jobs:
             - uses: Swatinem/rust-cache@v2
               with:
                   key: ${{ matrix.target }}
+
+            - name: Install Linux dependencies
+              if: matrix.os == 'ubuntu-latest'
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y libasound2-dev libssl-dev pkg-config
 
             - name: Build
               run: cargo build --release --target ${{ matrix.target }} --features native
