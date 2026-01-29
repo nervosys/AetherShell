@@ -849,16 +849,43 @@ ae mcp tools --category development
 
 #### Agent API Mode (AI Callable Interface)
 
-AetherShell provides a dedicated API for AI agents (ChatGPT, Claude, Gemini) to call directly without generating brittle multi-line code:
+AetherShell provides a dedicated API for AI agents to call directly without generating brittle multi-line code. **Supports 15+ AI platforms** with native function calling schemas.
+
+**Supported AI Platforms:**
+- **OpenAI/ChatGPT** - GPT-4o, GPT-4o-mini, o1, o3-mini
+- **Anthropic Claude** - Claude 3.5 Sonnet, Claude 3 Opus, Claude 3 Haiku
+- **Google Gemini** - Gemini 2.0 Flash, Gemini 1.5 Pro
+- **Meta Llama** - Llama 3.3, 3.2, 3.1 (8B to 405B)
+- **Mistral AI** - Mistral Large, Codestral, Pixtral
+- **Cohere** - Command R+, Command R
+- **xAI Grok** - Grok-2, Grok-3
+- **DeepSeek** - DeepSeek-V3, DeepSeek-R1
+- **AWS Bedrock** - All tool-capable models
+- **Azure OpenAI** - All deployed GPT models
+- **Alibaba Qwen** - Qwen 2.5, QwQ
+- **Local Models** - Ollama, vLLM, HuggingFace TGI
+- **Multi-Provider** - OpenRouter (routes to 30+ providers)
 
 ```bash
 # Start the Agent API server
 ae agent serve --cors
 
 # Generate schema for your AI platform
-ae agent schema --format openai > tools.json
-ae agent schema --format claude > tools.json
-ae agent schema --format gemini > tools.json
+ae agent schema -f openai > tools.json
+ae agent schema -f claude > tools.json
+ae agent schema -f gemini > tools.json
+ae agent schema -f llama > tools.json
+ae agent schema -f mistral > tools.json
+ae agent schema -f cohere > tools.json
+ae agent schema -f grok > tools.json
+ae agent schema -f deepseek > tools.json
+ae agent schema -f bedrock > tools.json
+ae agent schema -f azure > tools.json
+ae agent schema -f qwen > tools.json
+ae agent schema -f ollama > tools.json
+ae agent schema -f vllm > tools.json
+ae agent schema -f huggingface > tools.json
+ae agent schema -f openrouter > tools.json
 
 # Execute a JSON request
 ae agent execute '{"action":"call","builtin":"pwd","args":{}}'
@@ -900,13 +927,13 @@ files | where(fn(f) => f.size > 1000) | map(fn(f) => f.name)
 - `POST /api/v1/pipeline` - Execute a pipeline
 - `POST /api/v1/eval` - Evaluate raw AetherShell code
 - `GET /api/v1/schema` - Get compact language ontology
-- `GET /api/v1/schema/:format` - Get schema (openai/claude/gemini/json)
+- `GET /api/v1/schema/:format` - Get schema for AI platform
 - `GET /api/v1/builtins` - List all builtins
 - `GET /api/v1/builtins/:name` - Describe a specific builtin
 - `GET /api/v1/types` - Get type information
-- `GET /health` - Health check
+- `GET /health` - Health check with supported platforms list
 
-**Language Ontology:** The schema endpoint exposes AetherShell's complete type system, operators, syntax patterns, and all builtin functions in a format that AI agents can understand and use for intelligent code generation.
+**Language Ontology:** The schema endpoint exposes AetherShell's complete type system, operators, syntax patterns, and all builtin functions in platform-native formats that AI agents can understand and use for intelligent code generation.
 
 #### A2A (Agent-to-Agent Protocol)
 

@@ -100,12 +100,36 @@ pub enum SchemaFormat {
     /// JSON Schema format
     #[default]
     JsonSchema,
-    /// OpenAI function calling format
+    /// OpenAI function calling format (GPT-4, GPT-4o, o1, o3)
     OpenAI,
-    /// Anthropic Claude tool use format
+    /// Anthropic Claude tool use format (Claude 3.5 Sonnet, Claude 3 Opus)
     Claude,
-    /// Google Gemini function declaration format
+    /// Google Gemini function declaration format (Gemini 1.5, Gemini 2.0)
     Gemini,
+    /// Meta Llama format (Llama 3.1, 3.2, 3.3 via Ollama/vLLM/Together)
+    Llama,
+    /// Mistral AI function calling format (Mistral Large, Codestral)
+    Mistral,
+    /// Cohere Command format (Command R+, Command R)
+    Cohere,
+    /// xAI Grok format (Grok-2)
+    Grok,
+    /// DeepSeek format (DeepSeek-V3, DeepSeek-R1)
+    DeepSeek,
+    /// Amazon Bedrock format (Claude, Llama, Titan via Bedrock)
+    Bedrock,
+    /// Azure OpenAI format (Azure-hosted OpenAI models)
+    AzureOpenAI,
+    /// Alibaba Qwen format (Qwen 2.5)
+    Qwen,
+    /// Ollama local format (any model via Ollama)
+    Ollama,
+    /// vLLM format (high-performance inference)
+    VLLM,
+    /// HuggingFace TGI format (Text Generation Inference)
+    HuggingFace,
+    /// OpenRouter format (unified API for multiple providers)
+    OpenRouter,
     /// Compact ontology format
     Ontology,
 }
@@ -448,6 +472,18 @@ fn get_schema(format: &SchemaFormat) -> AgentResponse {
         SchemaFormat::OpenAI => build_openai_schema(&ontology),
         SchemaFormat::Claude => build_claude_schema(&ontology),
         SchemaFormat::Gemini => build_gemini_schema(&ontology),
+        SchemaFormat::Llama => build_llama_schema(&ontology),
+        SchemaFormat::Mistral => build_mistral_schema(&ontology),
+        SchemaFormat::Cohere => build_cohere_schema(&ontology),
+        SchemaFormat::Grok => build_grok_schema(&ontology),
+        SchemaFormat::DeepSeek => build_deepseek_schema(&ontology),
+        SchemaFormat::Bedrock => build_bedrock_schema(&ontology),
+        SchemaFormat::AzureOpenAI => build_azure_openai_schema(&ontology),
+        SchemaFormat::Qwen => build_qwen_schema(&ontology),
+        SchemaFormat::Ollama => build_ollama_schema(&ontology),
+        SchemaFormat::VLLM => build_vllm_schema(&ontology),
+        SchemaFormat::HuggingFace => build_huggingface_schema(&ontology),
+        SchemaFormat::OpenRouter => build_openrouter_schema(&ontology),
         SchemaFormat::Ontology => build_compact_ontology(&ontology),
     };
 
@@ -1634,6 +1670,389 @@ fn build_compact_ontology(ontology: &LanguageOntology) -> JsonValue {
     })
 }
 
+/// Build Meta Llama function calling schema
+fn build_llama_schema(ontology: &LanguageOntology) -> JsonValue {
+    // Llama 3.1+ uses a tool format similar to OpenAI but with slight differences
+    let tools: Vec<JsonValue> = ontology
+        .builtins
+        .iter()
+        .map(|b| {
+            json!({
+                "type": "function",
+                "function": {
+                    "name": format!("aethershell_{}", b.name),
+                    "description": b.description,
+                    "parameters": b.json_schema
+                }
+            })
+        })
+        .collect();
+
+    json!({
+        "format": "llama_function_calling",
+        "version": "3.1",
+        "compatible_models": ["llama-3.1-8b", "llama-3.1-70b", "llama-3.1-405b", "llama-3.2-1b", "llama-3.2-3b", "llama-3.2-11b", "llama-3.2-90b", "llama-3.3-70b"],
+        "tools": tools,
+        "system_prompt": "You are an assistant with access to AetherShell tools. Use them to help users with shell operations, data processing, and AI tasks.",
+        "instructions": "Call tools using JSON format. Tool names are prefixed with 'aethershell_'."
+    })
+}
+
+/// Build Mistral AI function calling schema  
+fn build_mistral_schema(ontology: &LanguageOntology) -> JsonValue {
+    // Mistral uses OpenAI-compatible tool format
+    let tools: Vec<JsonValue> = ontology
+        .builtins
+        .iter()
+        .map(|b| {
+            json!({
+                "type": "function",
+                "function": {
+                    "name": b.name,
+                    "description": b.description,
+                    "parameters": b.json_schema
+                }
+            })
+        })
+        .collect();
+
+    json!({
+        "format": "mistral_function_calling",
+        "version": "v1",
+        "compatible_models": ["mistral-large-latest", "mistral-large-2411", "mistral-medium", "mistral-small", "codestral-latest", "pixtral-12b", "pixtral-large"],
+        "tools": tools,
+        "tool_choice": "auto",
+        "instructions": "Use these tools to execute AetherShell operations. Results are returned as JSON."
+    })
+}
+
+/// Build Cohere Command R function calling schema
+fn build_cohere_schema(ontology: &LanguageOntology) -> JsonValue {
+    // Cohere uses a distinct tool format with parameter_definitions
+    let tools: Vec<JsonValue> = ontology
+        .builtins
+        .iter()
+        .map(|b| {
+            // Convert JSON schema to Cohere's parameter_definitions format
+            let params = b.json_schema.get("properties")
+                .and_then(|p| p.as_object())
+                .map(|props| {
+                    props.iter().map(|(name, schema)| {
+                        json!({
+                            "name": name,
+                            "description": schema.get("description").and_then(|d| d.as_str()).unwrap_or(""),
+                            "type": schema.get("type").and_then(|t| t.as_str()).unwrap_or("string"),
+                            "required": b.json_schema.get("required")
+                                .and_then(|r| r.as_array())
+                                .map(|arr| arr.iter().any(|v| v.as_str() == Some(name)))
+                                .unwrap_or(false)
+                        })
+                    }).collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+
+            json!({
+                "name": b.name,
+                "description": b.description,
+                "parameter_definitions": params
+            })
+        })
+        .collect();
+
+    json!({
+        "format": "cohere_tools",
+        "version": "v2",
+        "compatible_models": ["command-r-plus", "command-r", "command-r-plus-08-2024", "command-a-03-2025"],
+        "tools": tools,
+        "instructions": "Use these tools to execute AetherShell operations. Call tools by name with appropriate parameters."
+    })
+}
+
+/// Build xAI Grok function calling schema
+fn build_grok_schema(ontology: &LanguageOntology) -> JsonValue {
+    // Grok uses OpenAI-compatible format
+    let tools: Vec<JsonValue> = ontology
+        .builtins
+        .iter()
+        .map(|b| {
+            json!({
+                "type": "function",
+                "function": {
+                    "name": b.name,
+                    "description": b.description,
+                    "parameters": b.json_schema
+                }
+            })
+        })
+        .collect();
+
+    json!({
+        "format": "grok_function_calling",
+        "version": "v1",
+        "compatible_models": ["grok-2", "grok-2-mini", "grok-2-vision", "grok-3", "grok-3-mini"],
+        "tools": tools,
+        "instructions": "Use these tools to execute AetherShell operations. Results are returned as JSON."
+    })
+}
+
+/// Build DeepSeek function calling schema
+fn build_deepseek_schema(ontology: &LanguageOntology) -> JsonValue {
+    // DeepSeek uses OpenAI-compatible format with some enhancements
+    let tools: Vec<JsonValue> = ontology
+        .builtins
+        .iter()
+        .map(|b| {
+            json!({
+                "type": "function",
+                "function": {
+                    "name": b.name,
+                    "description": b.description,
+                    "parameters": b.json_schema
+                }
+            })
+        })
+        .collect();
+
+    json!({
+        "format": "deepseek_function_calling",
+        "version": "v3",
+        "compatible_models": ["deepseek-chat", "deepseek-coder", "deepseek-v3", "deepseek-r1", "deepseek-r1-distill"],
+        "tools": tools,
+        "reasoning_support": true,
+        "instructions": "Use these tools to execute AetherShell operations. For complex tasks, use chain-of-thought reasoning."
+    })
+}
+
+/// Build AWS Bedrock converse API schema
+fn build_bedrock_schema(ontology: &LanguageOntology) -> JsonValue {
+    // Bedrock Converse API tool format
+    let tool_config: Vec<JsonValue> = ontology
+        .builtins
+        .iter()
+        .map(|b| {
+            json!({
+                "toolSpec": {
+                    "name": b.name,
+                    "description": b.description,
+                    "inputSchema": {
+                        "json": b.json_schema
+                    }
+                }
+            })
+        })
+        .collect();
+
+    json!({
+        "format": "bedrock_converse",
+        "version": "v1",
+        "compatible_models": [
+            "anthropic.claude-3-5-sonnet-20241022-v2:0",
+            "anthropic.claude-3-sonnet-20240229-v1:0",
+            "anthropic.claude-3-haiku-20240307-v1:0",
+            "amazon.nova-pro-v1:0",
+            "amazon.nova-lite-v1:0",
+            "amazon.nova-micro-v1:0",
+            "meta.llama3-1-70b-instruct-v1:0",
+            "meta.llama3-1-405b-instruct-v1:0",
+            "mistral.mistral-large-2407-v1:0",
+            "cohere.command-r-plus-v1:0"
+        ],
+        "toolConfig": {
+            "tools": tool_config
+        },
+        "instructions": "Use toolUse blocks in your response to invoke AetherShell tools."
+    })
+}
+
+/// Build Azure OpenAI function calling schema
+fn build_azure_openai_schema(ontology: &LanguageOntology) -> JsonValue {
+    // Azure OpenAI uses same format as OpenAI
+    let tools: Vec<JsonValue> = ontology
+        .builtins
+        .iter()
+        .map(|b| {
+            json!({
+                "type": "function",
+                "function": {
+                    "name": b.name,
+                    "description": b.description,
+                    "parameters": b.json_schema
+                }
+            })
+        })
+        .collect();
+
+    json!({
+        "format": "azure_openai_function_calling",
+        "version": "2024-08-01-preview",
+        "compatible_deployments": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-35-turbo", "o1-preview", "o1-mini", "o3-mini"],
+        "tools": tools,
+        "api_version": "2024-08-01-preview",
+        "instructions": "Use these tools via Azure OpenAI API. Same format as OpenAI but with Azure endpoint."
+    })
+}
+
+/// Build Alibaba Qwen function calling schema
+fn build_qwen_schema(ontology: &LanguageOntology) -> JsonValue {
+    // Qwen uses OpenAI-compatible format
+    let tools: Vec<JsonValue> = ontology
+        .builtins
+        .iter()
+        .map(|b| {
+            json!({
+                "type": "function",
+                "function": {
+                    "name": b.name,
+                    "description": b.description,
+                    "parameters": b.json_schema
+                }
+            })
+        })
+        .collect();
+
+    json!({
+        "format": "qwen_function_calling",
+        "version": "v2.5",
+        "compatible_models": ["qwen-turbo", "qwen-plus", "qwen-max", "qwen2.5-72b-instruct", "qwen2.5-coder-32b-instruct", "qwq-32b-preview"],
+        "tools": tools,
+        "instructions": "Use these tools to execute AetherShell operations. Compatible with DashScope API."
+    })
+}
+
+/// Build Ollama local model schema
+fn build_ollama_schema(ontology: &LanguageOntology) -> JsonValue {
+    // Ollama tool format (similar to OpenAI)
+    let tools: Vec<JsonValue> = ontology
+        .builtins
+        .iter()
+        .map(|b| {
+            json!({
+                "type": "function",
+                "function": {
+                    "name": b.name,
+                    "description": b.description,
+                    "parameters": b.json_schema
+                }
+            })
+        })
+        .collect();
+
+    json!({
+        "format": "ollama_tools",
+        "version": "v0.3",
+        "compatible_models": [
+            "llama3.3:70b", "llama3.2:3b", "llama3.1:8b", "llama3.1:70b",
+            "qwen2.5:72b", "qwen2.5:32b", "qwen2.5-coder:32b",
+            "mistral:7b", "mixtral:8x7b", "codestral:22b",
+            "deepseek-r1:7b", "deepseek-r1:14b", "deepseek-r1:32b", "deepseek-r1:70b",
+            "phi4:14b", "gemma2:27b"
+        ],
+        "tools": tools,
+        "endpoint": "http://localhost:11434/api/chat",
+        "instructions": "Use these tools with Ollama's chat API. Requires tool-capable model."
+    })
+}
+
+/// Build vLLM OpenAI-compatible schema
+fn build_vllm_schema(ontology: &LanguageOntology) -> JsonValue {
+    // vLLM uses OpenAI-compatible format
+    let tools: Vec<JsonValue> = ontology
+        .builtins
+        .iter()
+        .map(|b| {
+            json!({
+                "type": "function",
+                "function": {
+                    "name": b.name,
+                    "description": b.description,
+                    "parameters": b.json_schema
+                }
+            })
+        })
+        .collect();
+
+    json!({
+        "format": "vllm_openai_compatible",
+        "version": "v1",
+        "compatible_models": ["Any tool-capable model served via vLLM"],
+        "tools": tools,
+        "endpoint": "/v1/chat/completions",
+        "tool_choice_modes": ["auto", "required", "none", {"type": "function", "function": {"name": "specific_tool"}}],
+        "instructions": "Use OpenAI-compatible format with vLLM server. Ensure model supports function calling."
+    })
+}
+
+/// Build HuggingFace Inference Endpoints schema
+fn build_huggingface_schema(ontology: &LanguageOntology) -> JsonValue {
+    // HuggingFace Text Generation Inference tool format
+    let tools: Vec<JsonValue> = ontology
+        .builtins
+        .iter()
+        .map(|b| {
+            json!({
+                "type": "function",
+                "function": {
+                    "name": b.name,
+                    "description": b.description,
+                    "parameters": b.json_schema
+                }
+            })
+        })
+        .collect();
+
+    json!({
+        "format": "huggingface_tgi",
+        "version": "v2",
+        "compatible_endpoints": ["inference-endpoints", "text-generation-inference", "transformers"],
+        "recommended_models": [
+            "meta-llama/Llama-3.3-70B-Instruct",
+            "meta-llama/Llama-3.1-70B-Instruct",
+            "mistralai/Mistral-Large-Instruct-2411",
+            "Qwen/Qwen2.5-72B-Instruct",
+            "deepseek-ai/DeepSeek-V3"
+        ],
+        "tools": tools,
+        "instructions": "Use with HuggingFace Inference Endpoints or local TGI deployment."
+    })
+}
+
+/// Build OpenRouter unified schema
+fn build_openrouter_schema(ontology: &LanguageOntology) -> JsonValue {
+    // OpenRouter uses OpenAI-compatible format and routes to multiple providers
+    let tools: Vec<JsonValue> = ontology
+        .builtins
+        .iter()
+        .map(|b| {
+            json!({
+                "type": "function",
+                "function": {
+                    "name": b.name,
+                    "description": b.description,
+                    "parameters": b.json_schema
+                }
+            })
+        })
+        .collect();
+
+    json!({
+        "format": "openrouter_unified",
+        "version": "v1",
+        "tool_capable_models": [
+            "openai/gpt-4o", "openai/gpt-4o-mini", "openai/o1", "openai/o3-mini",
+            "anthropic/claude-3.5-sonnet", "anthropic/claude-3-opus", "anthropic/claude-3-haiku",
+            "google/gemini-2.0-flash-exp", "google/gemini-pro-1.5",
+            "meta-llama/llama-3.3-70b-instruct", "meta-llama/llama-3.1-405b-instruct",
+            "mistralai/mistral-large", "mistralai/codestral-latest",
+            "deepseek/deepseek-chat", "deepseek/deepseek-r1",
+            "qwen/qwen-2.5-72b-instruct", "qwen/qwq-32b-preview",
+            "x-ai/grok-2", "cohere/command-r-plus"
+        ],
+        "tools": tools,
+        "api_base": "https://openrouter.ai/api/v1",
+        "instructions": "Use OpenAI-compatible format. OpenRouter will route to the specified model provider."
+    })
+}
+
 // ============================================================================
 // HTTP Server Integration
 // ============================================================================
@@ -1700,7 +2119,8 @@ pub mod server {
             format!("{}:{}", config.host, config.port).parse().unwrap();
 
         println!("🤖 AetherShell Agent API starting on http://{}", addr);
-        println!("   For AI agents: ChatGPT, Claude, Gemini supported");
+        println!("   Supports: OpenAI, Claude, Gemini, Llama, Mistral, Cohere, Grok, DeepSeek,");
+        println!("             Bedrock, Azure, Qwen, Ollama, vLLM, HuggingFace, OpenRouter");
         println!();
         println!("Endpoints:");
         println!("  POST /api/v1/execute          - Execute any request");
@@ -1708,7 +2128,7 @@ pub mod server {
         println!("  POST /api/v1/pipeline         - Execute a pipeline");
         println!("  POST /api/v1/eval             - Evaluate raw code");
         println!("  GET  /api/v1/schema           - Get language ontology");
-        println!("  GET  /api/v1/schema/:format   - Get schema (openai/claude/gemini)");
+        println!("  GET  /api/v1/schema/:format   - Get schema for AI provider");
         println!("  GET  /api/v1/builtins         - List all builtins");
         println!("  GET  /api/v1/builtins/:name   - Describe a builtin");
         println!("  GET  /api/v1/types            - Get type information");
@@ -1787,9 +2207,46 @@ pub mod server {
         axum::extract::Path(format): axum::extract::Path<String>,
     ) -> impl IntoResponse {
         let schema_format = match format.to_lowercase().as_str() {
-            "openai" => SchemaFormat::OpenAI,
+            // OpenAI family
+            "openai" | "gpt" | "chatgpt" => SchemaFormat::OpenAI,
+            "azure" | "azure_openai" | "azureopenai" => SchemaFormat::AzureOpenAI,
+
+            // Anthropic
             "claude" | "anthropic" => SchemaFormat::Claude,
+
+            // Google
             "gemini" | "google" => SchemaFormat::Gemini,
+
+            // Meta
+            "llama" | "meta" | "llama3" => SchemaFormat::Llama,
+
+            // Mistral
+            "mistral" | "codestral" | "pixtral" => SchemaFormat::Mistral,
+
+            // Cohere
+            "cohere" | "command" | "command-r" => SchemaFormat::Cohere,
+
+            // xAI
+            "grok" | "xai" => SchemaFormat::Grok,
+
+            // DeepSeek
+            "deepseek" | "deepseek-r1" => SchemaFormat::DeepSeek,
+
+            // AWS
+            "bedrock" | "aws" | "amazon" => SchemaFormat::Bedrock,
+
+            // Alibaba
+            "qwen" | "alibaba" | "dashscope" => SchemaFormat::Qwen,
+
+            // Local/Self-hosted
+            "ollama" => SchemaFormat::Ollama,
+            "vllm" => SchemaFormat::VLLM,
+
+            // Platforms
+            "huggingface" | "hf" | "tgi" => SchemaFormat::HuggingFace,
+            "openrouter" => SchemaFormat::OpenRouter,
+
+            // Standard formats
             "json" | "jsonschema" => SchemaFormat::JsonSchema,
             _ => SchemaFormat::Ontology,
         };
@@ -1830,7 +2287,26 @@ pub mod server {
             "status": "healthy",
             "service": "aethershell-agent-api",
             "version": env!("CARGO_PKG_VERSION"),
-            "supported_agents": ["openai", "claude", "gemini"]
+            "supported_agents": [
+                "openai", "azure_openai", "claude", "gemini",
+                "llama", "mistral", "cohere", "grok", "deepseek",
+                "bedrock", "qwen", "ollama", "vllm", "huggingface", "openrouter"
+            ],
+            "schema_formats": {
+                "openai_family": ["openai", "gpt", "chatgpt", "azure", "azure_openai"],
+                "anthropic": ["claude", "anthropic"],
+                "google": ["gemini", "google"],
+                "meta": ["llama", "meta", "llama3"],
+                "mistral": ["mistral", "codestral", "pixtral"],
+                "cohere": ["cohere", "command", "command-r"],
+                "xai": ["grok", "xai"],
+                "deepseek": ["deepseek", "deepseek-r1"],
+                "cloud": ["bedrock", "aws", "amazon"],
+                "alibaba": ["qwen", "alibaba", "dashscope"],
+                "local": ["ollama", "vllm"],
+                "platforms": ["huggingface", "hf", "tgi", "openrouter"],
+                "standard": ["json", "jsonschema", "ontology", "compact"]
+            }
         }))
     }
 }
@@ -1851,12 +2327,53 @@ pub fn process_json_request(json_str: &str) -> Result<String> {
 /// Generate schema in the specified format
 pub fn generate_schema(format: &str) -> Result<String> {
     let schema_format = match format.to_lowercase().as_str() {
-        "openai" => SchemaFormat::OpenAI,
+        // OpenAI family
+        "openai" | "gpt" | "chatgpt" => SchemaFormat::OpenAI,
+        "azure" | "azure_openai" | "azureopenai" => SchemaFormat::AzureOpenAI,
+        
+        // Anthropic
         "claude" | "anthropic" => SchemaFormat::Claude,
+        
+        // Google
         "gemini" | "google" => SchemaFormat::Gemini,
+        
+        // Meta
+        "llama" | "meta" | "llama3" => SchemaFormat::Llama,
+        
+        // Mistral
+        "mistral" | "codestral" | "pixtral" => SchemaFormat::Mistral,
+        
+        // Cohere
+        "cohere" | "command" | "command-r" => SchemaFormat::Cohere,
+        
+        // xAI
+        "grok" | "xai" => SchemaFormat::Grok,
+        
+        // DeepSeek
+        "deepseek" | "deepseek-r1" => SchemaFormat::DeepSeek,
+        
+        // AWS
+        "bedrock" | "aws" | "amazon" => SchemaFormat::Bedrock,
+        
+        // Alibaba
+        "qwen" | "alibaba" | "dashscope" => SchemaFormat::Qwen,
+        
+        // Local/Self-hosted
+        "ollama" => SchemaFormat::Ollama,
+        "vllm" => SchemaFormat::VLLM,
+        
+        // Platforms
+        "huggingface" | "hf" | "tgi" => SchemaFormat::HuggingFace,
+        "openrouter" => SchemaFormat::OpenRouter,
+        
+        // Standard formats
         "json" | "jsonschema" | "full" => SchemaFormat::JsonSchema,
         "compact" | "ontology" => SchemaFormat::Ontology,
-        _ => return Err(anyhow!("Unknown schema format: {}", format)),
+        
+        _ => return Err(anyhow!(
+            "Unknown schema format: '{}'. Supported: openai, claude, gemini, llama, mistral, cohere, grok, deepseek, bedrock, azure, qwen, ollama, vllm, huggingface, openrouter, json, ontology",
+            format
+        )),
     };
 
     let request = AgentRequest::Schema {
