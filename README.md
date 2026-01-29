@@ -854,26 +854,26 @@ AetherShell provides a dedicated API for AI agents to call directly without gene
 **Supported AI Platforms:**
 - **OpenAI/ChatGPT** - GPT-5, GPT-5-mini, GPT-4o, o3, o4-mini
 - **Anthropic Claude** - Claude 4.5 Opus/Sonnet/Haiku, Claude 3.5 Sonnet
-- **Google Gemini** - Gemini 2.5 Pro/Flash, Gemini 2.0 Flash
-- **Meta Llama** - Llama 4, Llama 3.3, 3.2, 3.1 (8B to 405B)
-- **Mistral AI** - Mistral Large 2501, Codestral, Pixtral
+- **Google Gemini** - Gemini 2.5 Pro/Flash, Gemini 2.0 Flash Thinking
+- **Meta Llama** - Llama 4 Maverick/Scout, Llama 3.3/3.2/3.1
+- **Mistral AI** - Mistral Large 2501, Codestral 2501, Ministral
 - **Cohere** - Command A, Command R+
-- **xAI Grok** - Grok-3, Grok-2
-- **DeepSeek** - DeepSeek-V3, DeepSeek-R1
+- **xAI Grok** - Grok-3, Grok-3 Mini/Fast
+- **DeepSeek** - DeepSeek-V3, DeepSeek-R1, Reasoner
 - **AWS Bedrock** - All tool-capable models (incl. Claude 4.5)
 - **Azure OpenAI** - All deployed models (incl. GPT-5)
-- **Alibaba Qwen** - Qwen 2.5, QwQ
-- **Moonshot Kimi** - Kimi, Moonshot v1 (128K context)
-- **01.AI Yi** - Yi-Large, Yi-Lightning, Yi-Vision
-- **Zhipu GLM** - GLM-4, GLM-4V, CodeGeex-4
-- **Reka AI** - Reka Core, Reka Flash (multimodal)
-- **AI21 Labs** - Jamba 1.5 (256K context)
-- **Perplexity** - Sonar, Sonar Pro (web search)
-- **Together AI** - Hosted open-source models
-- **Groq** - Ultra-fast LPU inference
-- **Fireworks AI** - Optimized model inference
+- **Alibaba Qwen** - Qwen 3 (235B-4B), QwQ, QVQ
+- **Moonshot Kimi** - Kimi K2, Moonshot V2 (128K context)
+- **01.AI Yi** - Yi Lightning, Yi Coder, Yi Vision V2
+- **Zhipu GLM** - GLM-5, GLM-4 AllTools, CodeGeex-4
+- **Reka AI** - Reka Core/Flash/Edge 2025, Reka Vibe
+- **AI21 Labs** - Jamba 2 Large/Mini (256K context)
+- **Perplexity** - Sonar Pro, Deep Research, R1-1776
+- **Together AI** - Llama 4, Qwen 3, Gemma 3
+- **Groq** - Llama 4 Scout, QwQ-32B (ultra-fast LPU)
+- **Fireworks AI** - Llama 4, Qwen 3, DeepSeek R1
 - **Local Models** - Ollama, vLLM, HuggingFace TGI
-- **Multi-Provider** - OpenRouter (routes to 30+ providers)
+- **Multi-Provider** - OpenRouter (routes to 50+ providers)
 
 ```bash
 # Start the Agent API server
