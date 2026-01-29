@@ -35,7 +35,6 @@ native = [
     "dep:tower-http",
     "dep:utoipa",
     "dep:utoipa-swagger-ui",
-    "dep:reqwest",
     "dep:jsonschema",
 ]
 web = [
@@ -83,7 +82,7 @@ async-trait = "0.1"
 dirs = "5.0"
 semver = "1.0"
 
-# Native-only dependencies
+# Native-only dependencies (terminal, TUI, system interaction)
 walkdir = { version = "2", optional = true }
 which = { version = "6", optional = true }
 crossterm = { version = "0.27", optional = true }
@@ -112,12 +111,19 @@ utoipa = { version = "4.0", features = ["axum_extras"], optional = true }
 utoipa-swagger-ui = { version = "6.0", features = ["axum"], optional = true }
 tokio-stream = "0.1"
 jsonschema = { version = "0.17", optional = true }
+
+# Unix-only dependencies (Linux, macOS, BSD)
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+# HTTP client - non-optional for non-wasm targets
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 reqwest = { version = "0.12", features = [
     "blocking",
     "json",
     "rustls-tls",
     "stream",
-], optional = true }
+] }
 
 # WASM-only dependencies
 wasm-bindgen = { version = "0.2", optional = true }
