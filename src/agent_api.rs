@@ -130,6 +130,24 @@ pub enum SchemaFormat {
     HuggingFace,
     /// OpenRouter format (unified API for multiple providers)
     OpenRouter,
+    /// Moonshot AI Kimi format (Kimi, Moonshot)
+    Kimi,
+    /// 01.AI Yi format (Yi-Large, Yi-Lightning)
+    Yi,
+    /// Zhipu AI GLM format (ChatGLM, GLM-4)
+    GLM,
+    /// Reka AI format (Reka Core, Reka Flash)
+    Reka,
+    /// AI21 Labs format (Jamba, Jurassic)
+    AI21,
+    /// Perplexity AI format (sonar models)
+    Perplexity,
+    /// Together AI format (hosted inference)
+    Together,
+    /// Groq format (fast inference - distinct from xAI Grok)
+    Groq,
+    /// Fireworks AI format (fast inference)
+    Fireworks,
     /// Compact ontology format
     Ontology,
 }
@@ -484,6 +502,15 @@ fn get_schema(format: &SchemaFormat) -> AgentResponse {
         SchemaFormat::VLLM => build_vllm_schema(&ontology),
         SchemaFormat::HuggingFace => build_huggingface_schema(&ontology),
         SchemaFormat::OpenRouter => build_openrouter_schema(&ontology),
+        SchemaFormat::Kimi => build_kimi_schema(&ontology),
+        SchemaFormat::Yi => build_yi_schema(&ontology),
+        SchemaFormat::GLM => build_glm_schema(&ontology),
+        SchemaFormat::Reka => build_reka_schema(&ontology),
+        SchemaFormat::AI21 => build_ai21_schema(&ontology),
+        SchemaFormat::Perplexity => build_perplexity_schema(&ontology),
+        SchemaFormat::Together => build_together_schema(&ontology),
+        SchemaFormat::Groq => build_groq_schema(&ontology),
+        SchemaFormat::Fireworks => build_fireworks_schema(&ontology),
         SchemaFormat::Ontology => build_compact_ontology(&ontology),
     };
 
@@ -2053,6 +2080,279 @@ fn build_openrouter_schema(ontology: &LanguageOntology) -> JsonValue {
     })
 }
 
+/// Build Moonshot AI Kimi function calling schema
+fn build_kimi_schema(ontology: &LanguageOntology) -> JsonValue {
+    // Kimi uses OpenAI-compatible format
+    let tools: Vec<JsonValue> = ontology
+        .builtins
+        .iter()
+        .map(|b| {
+            json!({
+                "type": "function",
+                "function": {
+                    "name": b.name,
+                    "description": b.description,
+                    "parameters": b.json_schema
+                }
+            })
+        })
+        .collect();
+
+    json!({
+        "format": "kimi_function_calling",
+        "version": "v1",
+        "compatible_models": ["moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k", "kimi-latest"],
+        "tools": tools,
+        "api_base": "https://api.moonshot.cn/v1",
+        "instructions": "Use OpenAI-compatible format with Moonshot API. Kimi excels at long-context tasks."
+    })
+}
+
+/// Build 01.AI Yi function calling schema
+fn build_yi_schema(ontology: &LanguageOntology) -> JsonValue {
+    // Yi uses OpenAI-compatible format
+    let tools: Vec<JsonValue> = ontology
+        .builtins
+        .iter()
+        .map(|b| {
+            json!({
+                "type": "function",
+                "function": {
+                    "name": b.name,
+                    "description": b.description,
+                    "parameters": b.json_schema
+                }
+            })
+        })
+        .collect();
+
+    json!({
+        "format": "yi_function_calling",
+        "version": "v1",
+        "compatible_models": ["yi-large", "yi-large-turbo", "yi-large-rag", "yi-lightning", "yi-medium", "yi-vision"],
+        "tools": tools,
+        "api_base": "https://api.01.ai/v1",
+        "instructions": "Use OpenAI-compatible format with 01.AI API. Yi models support function calling."
+    })
+}
+
+/// Build Zhipu AI GLM function calling schema
+fn build_glm_schema(ontology: &LanguageOntology) -> JsonValue {
+    // GLM/ChatGLM uses OpenAI-compatible format with some extensions
+    let tools: Vec<JsonValue> = ontology
+        .builtins
+        .iter()
+        .map(|b| {
+            json!({
+                "type": "function",
+                "function": {
+                    "name": b.name,
+                    "description": b.description,
+                    "parameters": b.json_schema
+                }
+            })
+        })
+        .collect();
+
+    json!({
+        "format": "glm_function_calling",
+        "version": "v4",
+        "compatible_models": ["glm-4", "glm-4-plus", "glm-4-air", "glm-4-airx", "glm-4-flash", "glm-4v", "glm-4v-plus", "codegeex-4"],
+        "tools": tools,
+        "api_base": "https://open.bigmodel.cn/api/paas/v4",
+        "instructions": "Use OpenAI-compatible format with Zhipu API. GLM-4 supports tools and code generation."
+    })
+}
+
+/// Build Reka AI function calling schema
+fn build_reka_schema(ontology: &LanguageOntology) -> JsonValue {
+    // Reka uses OpenAI-compatible format
+    let tools: Vec<JsonValue> = ontology
+        .builtins
+        .iter()
+        .map(|b| {
+            json!({
+                "type": "function",
+                "function": {
+                    "name": b.name,
+                    "description": b.description,
+                    "parameters": b.json_schema
+                }
+            })
+        })
+        .collect();
+
+    json!({
+        "format": "reka_function_calling",
+        "version": "v1",
+        "compatible_models": ["reka-core", "reka-flash", "reka-edge"],
+        "tools": tools,
+        "api_base": "https://api.reka.ai/v1",
+        "multimodal": true,
+        "instructions": "Use OpenAI-compatible format with Reka API. Reka models are natively multimodal."
+    })
+}
+
+/// Build AI21 Labs function calling schema
+fn build_ai21_schema(ontology: &LanguageOntology) -> JsonValue {
+    // AI21 uses OpenAI-compatible format for Jamba
+    let tools: Vec<JsonValue> = ontology
+        .builtins
+        .iter()
+        .map(|b| {
+            json!({
+                "type": "function",
+                "function": {
+                    "name": b.name,
+                    "description": b.description,
+                    "parameters": b.json_schema
+                }
+            })
+        })
+        .collect();
+
+    json!({
+        "format": "ai21_function_calling",
+        "version": "v1",
+        "compatible_models": ["jamba-1.5-large", "jamba-1.5-mini", "jamba-instruct"],
+        "tools": tools,
+        "api_base": "https://api.ai21.com/studio/v1",
+        "instructions": "Use OpenAI-compatible format with AI21 API. Jamba models have 256K context."
+    })
+}
+
+/// Build Perplexity AI function calling schema
+fn build_perplexity_schema(ontology: &LanguageOntology) -> JsonValue {
+    // Perplexity uses OpenAI-compatible format
+    let tools: Vec<JsonValue> = ontology
+        .builtins
+        .iter()
+        .map(|b| {
+            json!({
+                "type": "function",
+                "function": {
+                    "name": b.name,
+                    "description": b.description,
+                    "parameters": b.json_schema
+                }
+            })
+        })
+        .collect();
+
+    json!({
+        "format": "perplexity_function_calling",
+        "version": "v1",
+        "compatible_models": ["sonar", "sonar-pro", "sonar-reasoning", "sonar-reasoning-pro"],
+        "tools": tools,
+        "api_base": "https://api.perplexity.ai",
+        "online_search": true,
+        "instructions": "Use OpenAI-compatible format with Perplexity API. Sonar models have built-in web search."
+    })
+}
+
+/// Build Together AI function calling schema
+fn build_together_schema(ontology: &LanguageOntology) -> JsonValue {
+    // Together uses OpenAI-compatible format
+    let tools: Vec<JsonValue> = ontology
+        .builtins
+        .iter()
+        .map(|b| {
+            json!({
+                "type": "function",
+                "function": {
+                    "name": b.name,
+                    "description": b.description,
+                    "parameters": b.json_schema
+                }
+            })
+        })
+        .collect();
+
+    json!({
+        "format": "together_function_calling",
+        "version": "v1",
+        "tool_capable_models": [
+            "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+            "meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo",
+            "Qwen/Qwen2.5-72B-Instruct-Turbo",
+            "deepseek-ai/DeepSeek-R1",
+            "mistralai/Mixtral-8x22B-Instruct-v0.1",
+            "databricks/dbrx-instruct"
+        ],
+        "tools": tools,
+        "api_base": "https://api.together.xyz/v1",
+        "instructions": "Use OpenAI-compatible format with Together API. Supports many open-source models."
+    })
+}
+
+/// Build Groq function calling schema (distinct from xAI Grok)
+fn build_groq_schema(ontology: &LanguageOntology) -> JsonValue {
+    // Groq uses OpenAI-compatible format with fast inference
+    let tools: Vec<JsonValue> = ontology
+        .builtins
+        .iter()
+        .map(|b| {
+            json!({
+                "type": "function",
+                "function": {
+                    "name": b.name,
+                    "description": b.description,
+                    "parameters": b.json_schema
+                }
+            })
+        })
+        .collect();
+
+    json!({
+        "format": "groq_function_calling",
+        "version": "v1",
+        "compatible_models": [
+            "llama-3.3-70b-versatile", "llama-3.1-70b-versatile", "llama-3.1-8b-instant",
+            "mixtral-8x7b-32768", "gemma2-9b-it",
+            "deepseek-r1-distill-llama-70b"
+        ],
+        "tools": tools,
+        "api_base": "https://api.groq.com/openai/v1",
+        "ultra_low_latency": true,
+        "instructions": "Use OpenAI-compatible format with Groq API. Ultra-fast inference on LPU hardware."
+    })
+}
+
+/// Build Fireworks AI function calling schema
+fn build_fireworks_schema(ontology: &LanguageOntology) -> JsonValue {
+    // Fireworks uses OpenAI-compatible format
+    let tools: Vec<JsonValue> = ontology
+        .builtins
+        .iter()
+        .map(|b| {
+            json!({
+                "type": "function",
+                "function": {
+                    "name": b.name,
+                    "description": b.description,
+                    "parameters": b.json_schema
+                }
+            })
+        })
+        .collect();
+
+    json!({
+        "format": "fireworks_function_calling",
+        "version": "v1",
+        "tool_capable_models": [
+            "accounts/fireworks/models/llama-v3p3-70b-instruct",
+            "accounts/fireworks/models/llama-v3p1-405b-instruct",
+            "accounts/fireworks/models/qwen2p5-72b-instruct",
+            "accounts/fireworks/models/deepseek-r1",
+            "accounts/fireworks/models/mixtral-8x22b-instruct"
+        ],
+        "tools": tools,
+        "api_base": "https://api.fireworks.ai/inference/v1",
+        "fast_inference": true,
+        "instructions": "Use OpenAI-compatible format with Fireworks API. Optimized for fast model inference."
+    })
+}
+
 // ============================================================================
 // HTTP Server Integration
 // ============================================================================
@@ -2120,7 +2420,8 @@ pub mod server {
 
         println!("🤖 AetherShell Agent API starting on http://{}", addr);
         println!("   Supports: OpenAI, Claude, Gemini, Llama, Mistral, Cohere, Grok, DeepSeek,");
-        println!("             Bedrock, Azure, Qwen, Ollama, vLLM, HuggingFace, OpenRouter");
+        println!("             Bedrock, Azure, Qwen, Ollama, vLLM, HuggingFace, OpenRouter,");
+        println!("             Kimi, Yi, GLM, Reka, AI21, Perplexity, Together, Groq, Fireworks");
         println!();
         println!("Endpoints:");
         println!("  POST /api/v1/execute          - Execute any request");
@@ -2246,6 +2547,19 @@ pub mod server {
             "huggingface" | "hf" | "tgi" => SchemaFormat::HuggingFace,
             "openrouter" => SchemaFormat::OpenRouter,
 
+            // Chinese AI providers
+            "kimi" | "moonshot" => SchemaFormat::Kimi,
+            "yi" | "01ai" | "lingyiwanwu" => SchemaFormat::Yi,
+            "glm" | "chatglm" | "zhipu" => SchemaFormat::GLM,
+
+            // Additional SOTA providers
+            "reka" => SchemaFormat::Reka,
+            "ai21" | "jamba" | "jurassic" => SchemaFormat::AI21,
+            "perplexity" | "sonar" => SchemaFormat::Perplexity,
+            "together" | "together-ai" => SchemaFormat::Together,
+            "groq" => SchemaFormat::Groq,
+            "fireworks" | "fireworks-ai" => SchemaFormat::Fireworks,
+
             // Standard formats
             "json" | "jsonschema" => SchemaFormat::JsonSchema,
             _ => SchemaFormat::Ontology,
@@ -2290,7 +2604,8 @@ pub mod server {
             "supported_agents": [
                 "openai", "azure_openai", "claude", "gemini",
                 "llama", "mistral", "cohere", "grok", "deepseek",
-                "bedrock", "qwen", "ollama", "vllm", "huggingface", "openrouter"
+                "bedrock", "qwen", "ollama", "vllm", "huggingface", "openrouter",
+                "kimi", "yi", "glm", "reka", "ai21", "perplexity", "together", "groq", "fireworks"
             ],
             "schema_formats": {
                 "openai_family": ["openai", "gpt", "chatgpt", "azure", "azure_openai"],
@@ -2303,6 +2618,9 @@ pub mod server {
                 "deepseek": ["deepseek", "deepseek-r1"],
                 "cloud": ["bedrock", "aws", "amazon"],
                 "alibaba": ["qwen", "alibaba", "dashscope"],
+                "chinese_ai": ["kimi", "moonshot", "yi", "01ai", "glm", "chatglm", "zhipu"],
+                "inference_platforms": ["together", "together-ai", "groq", "fireworks", "fireworks-ai"],
+                "additional_sota": ["reka", "ai21", "jamba", "perplexity", "sonar"],
                 "local": ["ollama", "vllm"],
                 "platforms": ["huggingface", "hf", "tgi", "openrouter"],
                 "standard": ["json", "jsonschema", "ontology", "compact"]
@@ -2366,12 +2684,25 @@ pub fn generate_schema(format: &str) -> Result<String> {
         "huggingface" | "hf" | "tgi" => SchemaFormat::HuggingFace,
         "openrouter" => SchemaFormat::OpenRouter,
         
+        // Chinese AI providers
+        "kimi" | "moonshot" => SchemaFormat::Kimi,
+        "yi" | "01ai" | "lingyiwanwu" => SchemaFormat::Yi,
+        "glm" | "chatglm" | "zhipu" => SchemaFormat::GLM,
+        
+        // Additional SOTA providers
+        "reka" => SchemaFormat::Reka,
+        "ai21" | "jamba" | "jurassic" => SchemaFormat::AI21,
+        "perplexity" | "sonar" => SchemaFormat::Perplexity,
+        "together" | "together-ai" => SchemaFormat::Together,
+        "groq" => SchemaFormat::Groq,
+        "fireworks" | "fireworks-ai" => SchemaFormat::Fireworks,
+        
         // Standard formats
         "json" | "jsonschema" | "full" => SchemaFormat::JsonSchema,
         "compact" | "ontology" => SchemaFormat::Ontology,
         
         _ => return Err(anyhow!(
-            "Unknown schema format: '{}'. Supported: openai, claude, gemini, llama, mistral, cohere, grok, deepseek, bedrock, azure, qwen, ollama, vllm, huggingface, openrouter, json, ontology",
+            "Unknown schema format: '{}'. Supported: openai, claude, gemini, llama, mistral, cohere, grok, deepseek, bedrock, azure, qwen, ollama, vllm, huggingface, openrouter, kimi, yi, glm, reka, ai21, perplexity, together, groq, fireworks, json, ontology",
             format
         )),
     };
