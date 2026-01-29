@@ -90,9 +90,26 @@ ae -c '1 + 2 * 3'
 ae --json -c '[1, 2, 3] | map(fn(x) => x * 2)'
 ```
 
+### Browser Playground
+
+Try AetherShell directly in your browser with the WASM-powered playground:
+
+<p align="center">
+  <img src="assets/playground.png" alt="AetherShell Browser Playground" width="800">
+</p>
+
+```bash
+cd web
+wasm-pack build --target web --out-dir pkg
+npx serve .
+# Open http://localhost:3000
+```
+
+The playground provides a full interactive shell with syntax highlighting and all builtins available.
+
 ```ae
 # Type INFERENCE — types are automatically inferred
-name = "AetherShell"                  # inferred as String
+name = "AetherShell"                   # inferred as String
 count = 42                             # inferred as Int
 scores = [95, 87, 92, 88]              # inferred as Array<Int>
 
