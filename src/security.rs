@@ -998,6 +998,7 @@ pub fn create_https_only_client() -> Result<Client> {
 ///
 /// # Returns
 /// A configured `reqwest::Client` (async) with security best practices
+#[cfg(feature = "native")]
 pub fn create_secure_async_client() -> Result<reqwest::Client> {
     reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
@@ -1010,6 +1011,7 @@ pub fn create_secure_async_client() -> Result<reqwest::Client> {
 }
 
 /// Create an HTTPS-only async client with timeouts (rejects HTTP)
+#[cfg(feature = "native")]
 pub fn create_https_only_async_client() -> Result<reqwest::Client> {
     reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
