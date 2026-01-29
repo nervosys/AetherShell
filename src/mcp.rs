@@ -766,6 +766,222 @@ pub fn create_category_mcp_server(categories: Vec<ToolCategory>) -> McpServer {
 }
 
 // ============================================================================
+// MCP HTTP Server (for `ae mcp serve`)
+// ============================================================================
+
+#[cfg(feature = "native")]
+pub mod server {
+    use super::*;
+    use axum::{
+        extract::State,
+        http::StatusCode,
+        response::IntoResponse,
+        routing::{get, post},
+        Json, Router,
+    };
+    use std::net::SocketAddr;
+    use std::sync::Arc;
+    use tokio::sync::RwLock;
+    use tower_http::cors::{Any, CorsLayer};
+
+    /// MCP HTTP Server configuration
+    #[derive(Debug, Clone)]
+    pub struct McpServerConfig {
+        pub host: String,
+        pub port: u16,
+        pub enable_cors: bool,
+        pub safety_level: SafetyLevel,
+        pub allow_admin: bool,
+    }
+
+    impl Default for McpServerConfig {
+        fn default() -> Self {
+            Self {
+                host: "127.0.0.1".to_string(),
+                port: 3001,
+                enable_cors: true,
+                safety_level: SafetyLevel::Caution,
+                allow_admin: false,
+            }
+        }
+    }
+
+    /// Shared state for the HTTP server
+    struct AppState {
+        mcp: RwLock<McpServer>,
+    }
+
+    /// Start the MCP HTTP server
+    pub async fn start_mcp_server(config: McpServerConfig) -> Result<()> {
+        let mcp_config = McpConfig {
+            max_safety_level: config.safety_level.clone(),
+            allow_admin_tools: config.allow_admin,
+            allowed_categories: None,
+            blocked_tools: vec![],
+            execution_timeout: 30,
+        };
+
+        let mcp = McpServer::with_config(mcp_config);
+        let state = Arc::new(AppState {
+            mcp: RwLock::new(mcp),
+        });
+
+        let mut app = Router::new()
+            // MCP Protocol endpoints
+            .route("/mcp/v1/initialize", post(handle_initialize))
+            .route("/mcp/v1/tools", get(handle_list_tools))
+            .route("/mcp/v1/tools/:name/execute", post(handle_call_tool))
+            .route("/mcp/v1/resources", get(handle_list_resources))
+            .route("/mcp/v1/resources/:uri", get(handle_read_resource))
+            .route("/mcp/v1/prompts", get(handle_list_prompts))
+            .route("/mcp/v1/prompts/:name", post(handle_get_prompt))
+            // Health check
+            .route("/health", get(handle_health))
+            // Info endpoint
+            .route("/", get(handle_info))
+            .with_state(state);
+
+        if config.enable_cors {
+            app = app.layer(
+                CorsLayer::new()
+                    .allow_origin(Any)
+                    .allow_methods(Any)
+                    .allow_headers(Any),
+            );
+        }
+
+        let addr: SocketAddr = format!("{}:{}", config.host, config.port)
+            .parse()
+            .map_err(|e| anyhow!("Invalid address: {}", e))?;
+
+        println!("🚀 AetherShell MCP Server starting on http://{}", addr);
+        println!("   Protocol: MCP 2024-11-05");
+        println!("   Safety level: {:?}", config.safety_level);
+        println!();
+        println!("Endpoints:");
+        println!("  POST /mcp/v1/initialize     - Initialize MCP session");
+        println!("  GET  /mcp/v1/tools          - List available tools");
+        println!("  POST /mcp/v1/tools/:name    - Execute a tool");
+        println!("  GET  /mcp/v1/resources      - List resources");
+        println!("  GET  /mcp/v1/prompts        - List prompts");
+        println!("  GET  /health                - Health check");
+        println!();
+
+        let listener = tokio::net::TcpListener::bind(addr).await?;
+        axum::serve(listener, app).await?;
+
+        Ok(())
+    }
+
+    // Handler implementations
+
+    async fn handle_info() -> impl IntoResponse {
+        Json(json!({
+            "name": "aethershell-mcp",
+            "version": env!("CARGO_PKG_VERSION"),
+            "protocol": "MCP 2024-11-05",
+            "description": "AetherShell Model Context Protocol Server"
+        }))
+    }
+
+    async fn handle_health() -> impl IntoResponse {
+        Json(json!({
+            "status": "healthy",
+            "version": env!("CARGO_PKG_VERSION")
+        }))
+    }
+
+    async fn handle_initialize(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+        let mcp = state.mcp.read().await;
+        Json(mcp.initialize())
+    }
+
+    async fn handle_list_tools(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+        let mcp = state.mcp.read().await;
+        Json(json!({
+            "tools": mcp.list_tools()
+        }))
+    }
+
+    #[derive(Deserialize)]
+    struct ToolCallRequest {
+        arguments: HashMap<String, JsonValue>,
+    }
+
+    async fn handle_call_tool(
+        State(state): State<Arc<AppState>>,
+        axum::extract::Path(name): axum::extract::Path<String>,
+        Json(payload): Json<ToolCallRequest>,
+    ) -> impl IntoResponse {
+        let mcp = state.mcp.read().await;
+        let call = McpToolCall {
+            name,
+            arguments: payload.arguments,
+        };
+        let result = mcp.call_tool(call);
+
+        if result.is_error.unwrap_or(false) {
+            (StatusCode::BAD_REQUEST, Json(result))
+        } else {
+            (StatusCode::OK, Json(result))
+        }
+    }
+
+    async fn handle_list_resources(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+        let mcp = state.mcp.read().await;
+        Json(json!({
+            "resources": mcp.list_resources()
+        }))
+    }
+
+    async fn handle_read_resource(
+        State(state): State<Arc<AppState>>,
+        axum::extract::Path(uri): axum::extract::Path<String>,
+    ) -> impl IntoResponse {
+        let mcp = state.mcp.read().await;
+        // URL decode the URI
+        let decoded_uri = urlencoding::decode(&uri)
+            .map(|s| s.into_owned())
+            .unwrap_or(uri);
+
+        match mcp.read_resource(&decoded_uri) {
+            Ok(content) => (StatusCode::OK, Json(json!({ "content": content }))),
+            Err(e) => (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": e.to_string() })),
+            ),
+        }
+    }
+
+    async fn handle_list_prompts(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+        let mcp = state.mcp.read().await;
+        Json(json!({
+            "prompts": mcp.list_prompts()
+        }))
+    }
+
+    #[derive(Deserialize)]
+    struct PromptRequest {
+        arguments: HashMap<String, String>,
+    }
+
+    async fn handle_get_prompt(
+        State(state): State<Arc<AppState>>,
+        axum::extract::Path(name): axum::extract::Path<String>,
+        Json(payload): Json<PromptRequest>,
+    ) -> impl IntoResponse {
+        let mcp = state.mcp.read().await;
+        match mcp.get_prompt(&name, &payload.arguments) {
+            Ok(content) => (StatusCode::OK, Json(json!({ "messages": content }))),
+            Err(e) => (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": e.to_string() })),
+            ),
+        }
+    }
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 

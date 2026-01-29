@@ -820,6 +820,33 @@ mcp_register("my-tools", {
 })
 ```
 
+#### MCP Server Mode
+
+AetherShell can expose its tools as an MCP server for other AI agents to use:
+
+```bash
+# Start MCP server with default settings
+ae mcp serve
+
+# With CORS enabled for browser access
+ae mcp serve --cors
+
+# Configure host, port, and safety level
+ae mcp serve --host 0.0.0.0 --port 3001 --safety caution
+
+# List available MCP tools
+ae mcp tools
+ae mcp tools --category development
+```
+
+**Available endpoints:**
+- `POST /mcp/v1/initialize` - Initialize MCP session
+- `GET /mcp/v1/tools` - List available tools
+- `POST /mcp/v1/tools/:name/execute` - Execute a tool
+- `GET /mcp/v1/resources` - List resources
+- `GET /mcp/v1/prompts` - List prompts
+- `GET /health` - Health check
+
 #### A2A (Agent-to-Agent Protocol)
 
 ```ae
