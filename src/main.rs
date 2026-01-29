@@ -10,6 +10,7 @@ use clap::{Parser, Subcommand};
 #[command(name = "ae")]
 #[command(about = "Aether Shell - A typed functional shell with multi-modal AI")]
 #[command(version = env!("CARGO_PKG_VERSION"))]
+#[command(args_conflicts_with_subcommands = true)]
 struct Cli {
     #[command(subcommand)]
     subcommand: Option<Commands>,
@@ -23,6 +24,7 @@ struct Cli {
     command: Option<String>,
 
     /// Script file to execute
+    #[arg(value_name = "FILE")]
     file: Option<String>,
 }
 
@@ -36,6 +38,13 @@ enum Commands {
     Ai {
         #[command(subcommand)]
         command: AiCommands,
+    },
+
+    /// Start MCP (Model Context Protocol) server mode
+    #[command(visible_alias = "mcp-server")]
+    Mcp {
+        #[command(subcommand)]
+        command: McpCommands,
     },
 }
 
@@ -102,6 +111,34 @@ enum KeysAction {
     List,
 }
 
+#[derive(Subcommand)]
+enum McpCommands {
+    /// Start the MCP server
+    Serve {
+        /// Server host
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+        /// Server port
+        #[arg(long, default_value = "3001")]
+        port: u16,
+        /// Enable CORS for browser access
+        #[arg(long)]
+        cors: bool,
+        /// Safety level (safe, caution, dangerous, critical)
+        #[arg(long, default_value = "caution")]
+        safety: String,
+        /// Allow admin tools
+        #[arg(long)]
+        admin: bool,
+    },
+    /// List available MCP tools
+    Tools {
+        /// Filter by category
+        #[arg(long)]
+        category: Option<String>,
+    },
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
@@ -114,6 +151,9 @@ fn main() -> Result<()> {
             }
             Commands::Ai { command } => {
                 tokio::runtime::Runtime::new()?.block_on(handle_ai_command(command))
+            }
+            Commands::Mcp { command } => {
+                tokio::runtime::Runtime::new()?.block_on(handle_mcp_command(command))
             }
         };
     }
@@ -267,6 +307,67 @@ async fn handle_keys_action(action: KeysAction) -> Result<()> {
             println!("  - openai");
             println!("  - anthropic");
             println!("  - google");
+            Ok(())
+        }
+    }
+}
+
+async fn handle_mcp_command(command: McpCommands) -> Result<()> {
+    use aethershell::mcp::{server::*, McpServer};
+    use aethershell::os_tools::SafetyLevel;
+
+    match command {
+        McpCommands::Serve {
+            host,
+            port,
+            cors,
+            safety,
+            admin,
+        } => {
+            let safety_level = match safety.to_lowercase().as_str() {
+                "safe" => SafetyLevel::Safe,
+                "caution" => SafetyLevel::Caution,
+                "dangerous" => SafetyLevel::Dangerous,
+                "critical" => SafetyLevel::Critical,
+                _ => {
+                    eprintln!("Invalid safety level: {}. Using 'caution'", safety);
+                    SafetyLevel::Caution
+                }
+            };
+
+            let config = McpServerConfig {
+                host,
+                port,
+                enable_cors: cors,
+                safety_level,
+                allow_admin: admin,
+            };
+
+            start_mcp_server(config).await
+        }
+        McpCommands::Tools { category } => {
+            let server = McpServer::new();
+            let tools = server.list_tools();
+
+            let filtered_tools: Vec<_> = if let Some(cat) = category {
+                tools
+                    .into_iter()
+                    .filter(|t| t.name.contains(&cat) || t.description.contains(&cat))
+                    .collect()
+            } else {
+                tools
+            };
+
+            println!("{:<25} {}", "Tool Name", "Description");
+            println!("{}", "-".repeat(80));
+            for tool in filtered_tools {
+                let desc = if tool.description.len() > 50 {
+                    format!("{}...", &tool.description[..50])
+                } else {
+                    tool.description.clone()
+                };
+                println!("{:<25} {}", tool.name, desc);
+            }
             Ok(())
         }
     }

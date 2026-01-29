@@ -108,6 +108,10 @@ This document tracks the development progress of AetherShell, the world's first 
 - [x] `mcp_tools()` for tool discovery
 - [x] `mcp_call()` for tool execution
 - [x] Category-based filtering
+- [x] MCP HTTP server mode (`ae mcp serve`)
+- [x] Full MCP 2024-11-05 protocol support
+- [x] RESTful API with CORS support
+- [x] Safety level controls (safe, caution, dangerous, critical)
 
 #### Neural Networks & ML
 - [x] `nn_create()` for neural network creation
@@ -400,11 +404,11 @@ See [docs/INTEGRATION_PLAN.md](docs/INTEGRATION_PLAN.md) for the comprehensive i
 - [x] GitHub Actions CI/CD - .github/workflows/
 - [x] Landing page - website/index.html
 - [x] VS Code extension - editors/vscode/
+- [x] MCP HTTP server mode (`ae mcp serve`)
 
 ### Q2 2026
 - [ ] Python SDK with PyPI distribution
 - [ ] LangChain tool integration
-- [ ] MCP server mode
 - [ ] Windows Terminal integration
 - [ ] Linux packages (.deb, .rpm)
 - [ ] VS Code Web extension
