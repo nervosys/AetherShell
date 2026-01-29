@@ -1734,8 +1734,13 @@ fn build_llama_schema(ontology: &LanguageOntology) -> JsonValue {
 
     json!({
         "format": "llama_function_calling",
-        "version": "3.1",
-        "compatible_models": ["llama-3.1-8b", "llama-3.1-70b", "llama-3.1-405b", "llama-3.2-1b", "llama-3.2-3b", "llama-3.2-11b", "llama-3.2-90b", "llama-3.3-70b"],
+        "version": "4.0",
+        "compatible_models": [
+            "llama-4-maverick-17b", "llama-4-maverick-70b", "llama-4-maverick-405b",
+            "llama-4-scout-17b", "llama-4-scout-109b",
+            "llama-3.3-70b", "llama-3.2-90b-vision", "llama-3.2-11b-vision",
+            "llama-3.1-405b", "llama-3.1-70b", "llama-3.1-8b"
+        ],
         "tools": tools,
         "system_prompt": "You are an assistant with access to AetherShell tools. Use them to help users with shell operations, data processing, and AI tasks.",
         "instructions": "Call tools using JSON format. Tool names are prefixed with 'aethershell_'."
@@ -1762,8 +1767,14 @@ fn build_mistral_schema(ontology: &LanguageOntology) -> JsonValue {
 
     json!({
         "format": "mistral_function_calling",
-        "version": "v1",
-        "compatible_models": ["mistral-large-latest", "mistral-large-2411", "mistral-medium", "mistral-small", "codestral-latest", "pixtral-12b", "pixtral-large"],
+        "version": "v2",
+        "compatible_models": [
+            "mistral-large-2501", "mistral-large-latest",
+            "mistral-medium-2501", "mistral-small-2501",
+            "codestral-2501", "codestral-latest",
+            "pixtral-large-2501", "pixtral-12b",
+            "ministral-8b", "ministral-3b"
+        ],
         "tools": tools,
         "tool_choice": "auto",
         "instructions": "Use these tools to execute AetherShell operations. Results are returned as JSON."
@@ -1805,8 +1816,13 @@ fn build_cohere_schema(ontology: &LanguageOntology) -> JsonValue {
 
     json!({
         "format": "cohere_tools",
-        "version": "v2",
-        "compatible_models": ["command-r-plus", "command-r", "command-r-plus-08-2024", "command-a-03-2025"],
+        "version": "v3",
+        "compatible_models": [
+            "command-a", "command-a-03-2025",
+            "command-r-plus", "command-r-plus-08-2024",
+            "command-r", "command-r7b",
+            "command-nightly"
+        ],
         "tools": tools,
         "instructions": "Use these tools to execute AetherShell operations. Call tools by name with appropriate parameters."
     })
@@ -1832,8 +1848,12 @@ fn build_grok_schema(ontology: &LanguageOntology) -> JsonValue {
 
     json!({
         "format": "grok_function_calling",
-        "version": "v1",
-        "compatible_models": ["grok-2", "grok-2-mini", "grok-2-vision", "grok-3", "grok-3-mini"],
+        "version": "v2",
+        "compatible_models": [
+            "grok-3", "grok-3-mini", "grok-3-fast",
+            "grok-2", "grok-2-mini", "grok-2-vision",
+            "grok-2-1212"
+        ],
         "tools": tools,
         "instructions": "Use these tools to execute AetherShell operations. Results are returned as JSON."
     })
@@ -1859,8 +1879,14 @@ fn build_deepseek_schema(ontology: &LanguageOntology) -> JsonValue {
 
     json!({
         "format": "deepseek_function_calling",
-        "version": "v3",
-        "compatible_models": ["deepseek-chat", "deepseek-coder", "deepseek-v3", "deepseek-r1", "deepseek-r1-distill"],
+        "version": "v4",
+        "compatible_models": [
+            "deepseek-chat", "deepseek-reasoner",
+            "deepseek-v3", "deepseek-v3-0324",
+            "deepseek-r1", "deepseek-r1-0528",
+            "deepseek-r1-distill-llama-70b", "deepseek-r1-distill-qwen-32b",
+            "deepseek-coder-v2", "deepseek-coder-v2.5"
+        ],
         "tools": tools,
         "reasoning_support": true,
         "instructions": "Use these tools to execute AetherShell operations. For complex tasks, use chain-of-thought reasoning."
@@ -1962,8 +1988,13 @@ fn build_qwen_schema(ontology: &LanguageOntology) -> JsonValue {
 
     json!({
         "format": "qwen_function_calling",
-        "version": "v2.5",
-        "compatible_models": ["qwen-turbo", "qwen-plus", "qwen-max", "qwen2.5-72b-instruct", "qwen2.5-coder-32b-instruct", "qwq-32b-preview"],
+        "version": "v3",
+        "compatible_models": [
+            "qwen3-235b-a22b", "qwen3-32b", "qwen3-14b", "qwen3-8b", "qwen3-4b",
+            "qwen2.5-max", "qwen2.5-plus", "qwen2.5-turbo",
+            "qwen2.5-72b-instruct", "qwen2.5-coder-32b-instruct",
+            "qwq-32b", "qvq-72b-preview"
+        ],
         "tools": tools,
         "instructions": "Use these tools to execute AetherShell operations. Compatible with DashScope API."
     })
@@ -1989,13 +2020,14 @@ fn build_ollama_schema(ontology: &LanguageOntology) -> JsonValue {
 
     json!({
         "format": "ollama_tools",
-        "version": "v0.3",
+        "version": "v0.5",
         "compatible_models": [
+            "llama4:scout-17b", "llama4:maverick-17b",
             "llama3.3:70b", "llama3.2:3b", "llama3.1:8b", "llama3.1:70b",
-            "qwen2.5:72b", "qwen2.5:32b", "qwen2.5-coder:32b",
-            "mistral:7b", "mixtral:8x7b", "codestral:22b",
-            "deepseek-r1:7b", "deepseek-r1:14b", "deepseek-r1:32b", "deepseek-r1:70b",
-            "phi4:14b", "gemma2:27b"
+            "qwen3:32b", "qwen3:8b", "qwen2.5:72b", "qwen2.5-coder:32b",
+            "mistral-large:123b", "codestral:22b",
+            "deepseek-r1:70b", "deepseek-r1:32b", "deepseek-r1:14b", "deepseek-r1:7b",
+            "gemma3:27b", "phi4:14b", "command-a:111b"
         ],
         "tools": tools,
         "endpoint": "http://localhost:11434/api/chat",
@@ -2052,14 +2084,17 @@ fn build_huggingface_schema(ontology: &LanguageOntology) -> JsonValue {
 
     json!({
         "format": "huggingface_tgi",
-        "version": "v2",
+        "version": "v3",
         "compatible_endpoints": ["inference-endpoints", "text-generation-inference", "transformers"],
         "recommended_models": [
+            "meta-llama/Llama-4-Maverick-17B-128E-Instruct",
             "meta-llama/Llama-3.3-70B-Instruct",
-            "meta-llama/Llama-3.1-70B-Instruct",
-            "mistralai/Mistral-Large-Instruct-2411",
+            "Qwen/Qwen3-235B-A22B",
             "Qwen/Qwen2.5-72B-Instruct",
-            "deepseek-ai/DeepSeek-V3"
+            "mistralai/Mistral-Large-Instruct-2501",
+            "deepseek-ai/DeepSeek-V3",
+            "deepseek-ai/DeepSeek-R1",
+            "google/gemma-3-27b-it"
         ],
         "tools": tools,
         "instructions": "Use with HuggingFace Inference Endpoints or local TGI deployment."
@@ -2124,8 +2159,12 @@ fn build_kimi_schema(ontology: &LanguageOntology) -> JsonValue {
 
     json!({
         "format": "kimi_function_calling",
-        "version": "v1",
-        "compatible_models": ["moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k", "kimi-latest"],
+        "version": "v2",
+        "compatible_models": [
+            "kimi-latest", "kimi-k2",
+            "moonshot-v1-128k", "moonshot-v1-32k", "moonshot-v1-8k",
+            "moonshot-v2-128k"
+        ],
         "tools": tools,
         "api_base": "https://api.moonshot.cn/v1",
         "instructions": "Use OpenAI-compatible format with Moonshot API. Kimi excels at long-context tasks."
@@ -2152,8 +2191,13 @@ fn build_yi_schema(ontology: &LanguageOntology) -> JsonValue {
 
     json!({
         "format": "yi_function_calling",
-        "version": "v1",
-        "compatible_models": ["yi-large", "yi-large-turbo", "yi-large-rag", "yi-lightning", "yi-medium", "yi-vision"],
+        "version": "v2",
+        "compatible_models": [
+            "yi-large-fc", "yi-large-turbo", "yi-large-preview",
+            "yi-lightning", "yi-lightning-lite",
+            "yi-medium-200k", "yi-vision-v2",
+            "yi-coder-9b", "yi-coder-1.5b"
+        ],
         "tools": tools,
         "api_base": "https://api.01.ai/v1",
         "instructions": "Use OpenAI-compatible format with 01.AI API. Yi models support function calling."
@@ -2180,11 +2224,16 @@ fn build_glm_schema(ontology: &LanguageOntology) -> JsonValue {
 
     json!({
         "format": "glm_function_calling",
-        "version": "v4",
-        "compatible_models": ["glm-4", "glm-4-plus", "glm-4-air", "glm-4-airx", "glm-4-flash", "glm-4v", "glm-4v-plus", "codegeex-4"],
+        "version": "v5",
+        "compatible_models": [
+            "glm-5", "glm-5-plus", "glm-5-air",
+            "glm-4-alltools", "glm-4-plus", "glm-4-air", "glm-4-airx", "glm-4-flash",
+            "glm-4v-plus", "glm-4v-flash",
+            "codegeex-4", "cogvideo-x"
+        ],
         "tools": tools,
         "api_base": "https://open.bigmodel.cn/api/paas/v4",
-        "instructions": "Use OpenAI-compatible format with Zhipu API. GLM-4 supports tools and code generation."
+        "instructions": "Use OpenAI-compatible format with Zhipu API. GLM-5 supports advanced tools and code generation."
     })
 }
 
@@ -2208,8 +2257,13 @@ fn build_reka_schema(ontology: &LanguageOntology) -> JsonValue {
 
     json!({
         "format": "reka_function_calling",
-        "version": "v1",
-        "compatible_models": ["reka-core", "reka-flash", "reka-edge"],
+        "version": "v2",
+        "compatible_models": [
+            "reka-core-20250115", "reka-core",
+            "reka-flash-20250115", "reka-flash",
+            "reka-edge-20250115", "reka-edge",
+            "reka-vibe"
+        ],
         "tools": tools,
         "api_base": "https://api.reka.ai/v1",
         "multimodal": true,
@@ -2237,11 +2291,15 @@ fn build_ai21_schema(ontology: &LanguageOntology) -> JsonValue {
 
     json!({
         "format": "ai21_function_calling",
-        "version": "v1",
-        "compatible_models": ["jamba-1.5-large", "jamba-1.5-mini", "jamba-instruct"],
+        "version": "v2",
+        "compatible_models": [
+            "jamba-2-large", "jamba-2-mini",
+            "jamba-1.5-large", "jamba-1.5-mini",
+            "jamba-instruct"
+        ],
         "tools": tools,
         "api_base": "https://api.ai21.com/studio/v1",
-        "instructions": "Use OpenAI-compatible format with AI21 API. Jamba models have 256K context."
+        "instructions": "Use OpenAI-compatible format with AI21 API. Jamba 2 models have 256K context and hybrid architecture."
     })
 }
 
@@ -2265,8 +2323,13 @@ fn build_perplexity_schema(ontology: &LanguageOntology) -> JsonValue {
 
     json!({
         "format": "perplexity_function_calling",
-        "version": "v1",
-        "compatible_models": ["sonar", "sonar-pro", "sonar-reasoning", "sonar-reasoning-pro"],
+        "version": "v2",
+        "compatible_models": [
+            "sonar-pro", "sonar",
+            "sonar-reasoning-pro", "sonar-reasoning",
+            "sonar-deep-research",
+            "r1-1776"
+        ],
         "tools": tools,
         "api_base": "https://api.perplexity.ai",
         "online_search": true,
@@ -2294,14 +2357,17 @@ fn build_together_schema(ontology: &LanguageOntology) -> JsonValue {
 
     json!({
         "format": "together_function_calling",
-        "version": "v1",
+        "version": "v2",
         "tool_capable_models": [
+            "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
             "meta-llama/Llama-3.3-70B-Instruct-Turbo",
             "meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo",
+            "Qwen/Qwen3-235B-A22B-fp8-tput",
             "Qwen/Qwen2.5-72B-Instruct-Turbo",
             "deepseek-ai/DeepSeek-R1",
-            "mistralai/Mixtral-8x22B-Instruct-v0.1",
-            "databricks/dbrx-instruct"
+            "deepseek-ai/DeepSeek-V3",
+            "mistralai/Mistral-Large-2501-Instruct-FP8",
+            "google/gemma-3-27b-it"
         ],
         "tools": tools,
         "api_base": "https://api.together.xyz/v1",
@@ -2329,11 +2395,13 @@ fn build_groq_schema(ontology: &LanguageOntology) -> JsonValue {
 
     json!({
         "format": "groq_function_calling",
-        "version": "v1",
+        "version": "v2",
         "compatible_models": [
-            "llama-3.3-70b-versatile", "llama-3.1-70b-versatile", "llama-3.1-8b-instant",
-            "mixtral-8x7b-32768", "gemma2-9b-it",
-            "deepseek-r1-distill-llama-70b"
+            "llama-4-scout-17b-16e-instruct",
+            "llama-3.3-70b-versatile", "llama-3.3-70b-specdec",
+            "llama-3.1-70b-versatile", "llama-3.1-8b-instant",
+            "qwen-qwq-32b", "deepseek-r1-distill-llama-70b",
+            "mixtral-8x7b-32768", "gemma2-9b-it"
         ],
         "tools": tools,
         "api_base": "https://api.groq.com/openai/v1",
@@ -2362,13 +2430,16 @@ fn build_fireworks_schema(ontology: &LanguageOntology) -> JsonValue {
 
     json!({
         "format": "fireworks_function_calling",
-        "version": "v1",
+        "version": "v2",
         "tool_capable_models": [
+            "accounts/fireworks/models/llama4-maverick-instruct-basic",
             "accounts/fireworks/models/llama-v3p3-70b-instruct",
             "accounts/fireworks/models/llama-v3p1-405b-instruct",
+            "accounts/fireworks/models/qwen3-235b-a22b",
             "accounts/fireworks/models/qwen2p5-72b-instruct",
             "accounts/fireworks/models/deepseek-r1",
-            "accounts/fireworks/models/mixtral-8x22b-instruct"
+            "accounts/fireworks/models/deepseek-v3",
+            "accounts/fireworks/models/mistral-large-2501-instruct"
         ],
         "tools": tools,
         "api_base": "https://api.fireworks.ai/inference/v1",
