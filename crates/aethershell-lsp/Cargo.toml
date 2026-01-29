@@ -33,7 +33,9 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # AetherShell core (path dependency) - use native feature explicitly
-aethershell = { path = "../..", default-features = false, features = ["native"] }
+aethershell = { path = "../..", default-features = false, features = [
+    "native",
+] }
 
 # Utilities
 dashmap = "5.5"
