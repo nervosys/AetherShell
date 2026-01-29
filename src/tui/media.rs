@@ -3,11 +3,11 @@
 //! Supports images, videos, and audio files with terminal-friendly
 //! display and processing capabilities.
 
-use anyhow::{Result, anyhow};
-use base64::{Engine, engine::general_purpose};
+use anyhow::{anyhow, Result};
+use base64::{engine::general_purpose, Engine};
 use image::{DynamicImage, ImageFormat};
 use std::path::Path;
-use viuer::{Config as ViuerConfig, print_from_file};
+use viuer::{print_from_file, Config as ViuerConfig};
 
 #[derive(Debug, Clone)]
 pub struct MediaFile {

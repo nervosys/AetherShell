@@ -3,7 +3,7 @@
 //! with native AI integration
 
 use crate::{env::Env, value::Value};
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use std::collections::{HashMap, VecDeque};
 
 /// Fish-style command history and autosuggestions

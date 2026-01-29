@@ -164,19 +164,27 @@ fn benchmark_pipeline_array_ops(c: &mut Criterion) {
                 .join(", ")
         );
         let flatten_code = format!("{} | flatten()", nested);
-        group.bench_with_input(BenchmarkId::new("flatten", size), &flatten_code, |b, code| {
-            let mut env = create_test_env();
-            b.iter(|| parse_and_eval(black_box(code), &mut env))
-        });
+        group.bench_with_input(
+            BenchmarkId::new("flatten", size),
+            &flatten_code,
+            |b, code| {
+                let mut env = create_test_env();
+                b.iter(|| parse_and_eval(black_box(code), &mut env))
+            },
+        );
 
         // Reverse
         let reverse_code = format!("{} | reverse()", array);
-        group.bench_with_input(BenchmarkId::new("reverse", size), &reverse_code, |b, code| {
-            let mut env = create_test_env();
-            b.iter(|| parse_and_eval(black_box(code), &mut env))
-        });
+        group.bench_with_input(
+            BenchmarkId::new("reverse", size),
+            &reverse_code,
+            |b, code| {
+                let mut env = create_test_env();
+                b.iter(|| parse_and_eval(black_box(code), &mut env))
+            },
+        );
 
-        // Unique  
+        // Unique
         let with_dups = format!(
             "[{}]",
             (1..=size)
@@ -269,10 +277,14 @@ fn benchmark_pipeline_any_all(c: &mut Criterion) {
 
         // any - early exit (first element matches)
         let any_early = format!("{} | any(fn(x) => x == 1)", array);
-        group.bench_with_input(BenchmarkId::new("any_early", size), &any_early, |b, code| {
-            let mut env = create_test_env();
-            b.iter(|| parse_and_eval(black_box(code), &mut env))
-        });
+        group.bench_with_input(
+            BenchmarkId::new("any_early", size),
+            &any_early,
+            |b, code| {
+                let mut env = create_test_env();
+                b.iter(|| parse_and_eval(black_box(code), &mut env))
+            },
+        );
 
         // any - late exit (last element matches)
         let any_late = format!("{} | any(fn(x) => x == {})", array, size);
@@ -297,10 +309,14 @@ fn benchmark_pipeline_any_all(c: &mut Criterion) {
 
         // all - first fails
         let all_false_early = format!("{} | all(fn(x) => x > 1)", array);
-        group.bench_with_input(BenchmarkId::new("all_false_early", size), &all_false_early, |b, code| {
-            let mut env = create_test_env();
-            b.iter(|| parse_and_eval(black_box(code), &mut env))
-        });
+        group.bench_with_input(
+            BenchmarkId::new("all_false_early", size),
+            &all_false_early,
+            |b, code| {
+                let mut env = create_test_env();
+                b.iter(|| parse_and_eval(black_box(code), &mut env))
+            },
+        );
     }
 
     group.finish();

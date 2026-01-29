@@ -1,7 +1,7 @@
 //! Comprehensive MCP (Model Context Protocol) Tests
 //! Tests for MCP client, tool discovery, execution, and integration
 
-use aethershell::ai::mcp::{MCP_VERSION, McpClient, McpToolSchema};
+use aethershell::ai::mcp::{McpClient, McpToolSchema, MCP_VERSION};
 
 // ========== Basic MCP Client Tests ==========
 
