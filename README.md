@@ -849,7 +849,7 @@ ae mcp tools --category development
 
 #### Agent API Mode (AI Callable Interface)
 
-AetherShell provides a dedicated API for AI agents to call directly without generating brittle multi-line code. **Supports 15+ AI platforms** with native function calling schemas.
+AetherShell provides a dedicated API for AI agents to call directly without generating brittle multi-line code. **Supports 24+ AI platforms** with native function calling schemas.
 
 **Supported AI Platforms:**
 - **OpenAI/ChatGPT** - GPT-4o, GPT-4o-mini, o1, o3-mini
@@ -863,6 +863,15 @@ AetherShell provides a dedicated API for AI agents to call directly without gene
 - **AWS Bedrock** - All tool-capable models
 - **Azure OpenAI** - All deployed GPT models
 - **Alibaba Qwen** - Qwen 2.5, QwQ
+- **Moonshot Kimi** - Kimi, Moonshot v1 (128K context)
+- **01.AI Yi** - Yi-Large, Yi-Lightning, Yi-Vision
+- **Zhipu GLM** - GLM-4, GLM-4V, CodeGeex-4
+- **Reka AI** - Reka Core, Reka Flash (multimodal)
+- **AI21 Labs** - Jamba 1.5 (256K context)
+- **Perplexity** - Sonar, Sonar Pro (web search)
+- **Together AI** - Hosted open-source models
+- **Groq** - Ultra-fast LPU inference
+- **Fireworks AI** - Optimized model inference
 - **Local Models** - Ollama, vLLM, HuggingFace TGI
 - **Multi-Provider** - OpenRouter (routes to 30+ providers)
 
@@ -882,6 +891,15 @@ ae agent schema -f deepseek > tools.json
 ae agent schema -f bedrock > tools.json
 ae agent schema -f azure > tools.json
 ae agent schema -f qwen > tools.json
+ae agent schema -f kimi > tools.json        # Moonshot AI
+ae agent schema -f yi > tools.json          # 01.AI
+ae agent schema -f glm > tools.json         # Zhipu ChatGLM
+ae agent schema -f reka > tools.json        # Reka AI
+ae agent schema -f ai21 > tools.json        # AI21 Labs
+ae agent schema -f perplexity > tools.json  # Perplexity
+ae agent schema -f together > tools.json    # Together AI
+ae agent schema -f groq > tools.json        # Groq (fast inference)
+ae agent schema -f fireworks > tools.json   # Fireworks AI
 ae agent schema -f ollama > tools.json
 ae agent schema -f vllm > tools.json
 ae agent schema -f huggingface > tools.json
