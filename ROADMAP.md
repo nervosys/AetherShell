@@ -1,6 +1,6 @@
 # AetherShell Roadmap
 
-> **Last Updated:** January 27, 2026
+> **Last Updated:** January 28, 2026
 
 This document tracks the development progress of AetherShell, the world's first agentic shell with typed functional pipelines and multi-modal AI.
 
@@ -112,6 +112,22 @@ This document tracks the development progress of AetherShell, the world's first 
 - [x] Full MCP 2024-11-05 protocol support
 - [x] RESTful API with CORS support
 - [x] Safety level controls (safe, caution, dangerous, critical)
+
+#### Agent API (AI Callable Interface)
+- [x] Agent API HTTP server (`ae agent serve`)
+- [x] JSON-based execution API for AI agents
+- [x] Native OpenAI function calling schema format
+- [x] Native Anthropic Claude tool use schema format
+- [x] Native Google Gemini function declaration format
+- [x] Compact language ontology for context efficiency
+- [x] Single builtin call API (`/api/v1/call/:builtin`)
+- [x] Pipeline execution API (`/api/v1/pipeline`)
+- [x] Raw code evaluation API (`/api/v1/eval`)
+- [x] Language schema discovery (`/api/v1/schema`)
+- [x] Builtin discovery (`/api/v1/builtins`)
+- [x] Type information (`/api/v1/types`)
+- [x] Interactive mode (`ae agent interactive`)
+- [x] CLI JSON execution (`ae agent execute`)
 
 #### Neural Networks & ML
 - [x] `nn_create()` for neural network creation

@@ -12,6 +12,8 @@ pub mod typecheck;
 #[cfg(feature = "native")]
 pub mod agent;
 #[cfg(feature = "native")]
+pub mod agent_api;
+#[cfg(feature = "native")]
 pub mod ai;
 #[cfg(feature = "native")]
 pub mod ai_api;

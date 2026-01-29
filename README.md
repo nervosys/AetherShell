@@ -847,6 +847,67 @@ ae mcp tools --category development
 - `GET /mcp/v1/prompts` - List prompts
 - `GET /health` - Health check
 
+#### Agent API Mode (AI Callable Interface)
+
+AetherShell provides a dedicated API for AI agents (ChatGPT, Claude, Gemini) to call directly without generating brittle multi-line code:
+
+```bash
+# Start the Agent API server
+ae agent serve --cors
+
+# Generate schema for your AI platform
+ae agent schema --format openai > tools.json
+ae agent schema --format claude > tools.json
+ae agent schema --format gemini > tools.json
+
+# Execute a JSON request
+ae agent execute '{"action":"call","builtin":"pwd","args":{}}'
+
+# Interactive mode (read JSON from stdin, output JSON responses)
+ae agent interactive
+```
+
+**Instead of generating error-prone code like:**
+```ae
+let files = ls(".")
+files | where(fn(f) => f.size > 1000) | map(fn(f) => f.name)
+```
+
+**AI agents can use structured JSON:**
+```json
+{
+  "action": "call",
+  "builtin": "ls",
+  "args": { "path": "." }
+}
+```
+
+**Pipeline execution:**
+```json
+{
+  "action": "pipeline",
+  "input": [1, 2, 3, 4, 5],
+  "steps": [
+    {"builtin": "map", "args": {"field": "* 2"}},
+    {"builtin": "sum", "args": {}}
+  ]
+}
+```
+
+**Agent API Endpoints:**
+- `POST /api/v1/execute` - Execute any request (call, pipeline, eval)
+- `POST /api/v1/call/:builtin` - Call a single builtin
+- `POST /api/v1/pipeline` - Execute a pipeline
+- `POST /api/v1/eval` - Evaluate raw AetherShell code
+- `GET /api/v1/schema` - Get compact language ontology
+- `GET /api/v1/schema/:format` - Get schema (openai/claude/gemini/json)
+- `GET /api/v1/builtins` - List all builtins
+- `GET /api/v1/builtins/:name` - Describe a specific builtin
+- `GET /api/v1/types` - Get type information
+- `GET /health` - Health check
+
+**Language Ontology:** The schema endpoint exposes AetherShell's complete type system, operators, syntax patterns, and all builtin functions in a format that AI agents can understand and use for intelligent code generation.
+
 #### A2A (Agent-to-Agent Protocol)
 
 ```ae
