@@ -1613,7 +1613,13 @@ fn build_openai_schema(ontology: &LanguageOntology) -> JsonValue {
 
     json!({
         "format": "openai_function_calling",
-        "version": "2024-01",
+        "version": "2025-01",
+        "compatible_models": [
+            "gpt-5", "gpt-5-mini", "gpt-5-turbo",
+            "gpt-4o", "gpt-4o-mini", "gpt-4-turbo",
+            "o1", "o1-mini", "o1-preview",
+            "o3", "o3-mini", "o4-mini"
+        ],
         "tools": tools,
         "instructions": "Use these tools to execute AetherShell operations. Each tool corresponds to an AetherShell builtin function."
     })
@@ -1635,7 +1641,13 @@ fn build_claude_schema(ontology: &LanguageOntology) -> JsonValue {
 
     json!({
         "format": "anthropic_tool_use",
-        "version": "2024-01",
+        "version": "2025-01",
+        "compatible_models": [
+            "claude-4.5-opus", "claude-4.5-sonnet", "claude-4.5-haiku",
+            "claude-4-opus", "claude-4-sonnet", "claude-4-haiku",
+            "claude-3.5-sonnet-v2", "claude-3.5-haiku",
+            "claude-3-opus", "claude-3-sonnet", "claude-3-haiku"
+        ],
         "tools": tools,
         "instructions": "Use these tools to execute AetherShell operations. Results are returned as JSON."
     })
@@ -1657,7 +1669,12 @@ fn build_gemini_schema(ontology: &LanguageOntology) -> JsonValue {
 
     json!({
         "format": "gemini_function_calling",
-        "version": "v1",
+        "version": "v2",
+        "compatible_models": [
+            "gemini-2.5-pro", "gemini-2.5-flash",
+            "gemini-2.0-flash", "gemini-2.0-flash-thinking",
+            "gemini-1.5-pro", "gemini-1.5-flash"
+        ],
         "function_declarations": function_declarations,
         "instructions": "Use these functions to execute AetherShell operations."
     })
@@ -1871,18 +1888,20 @@ fn build_bedrock_schema(ontology: &LanguageOntology) -> JsonValue {
 
     json!({
         "format": "bedrock_converse",
-        "version": "v1",
+        "version": "v2",
         "compatible_models": [
+            "anthropic.claude-4-5-opus-20250115-v1:0",
+            "anthropic.claude-4-5-sonnet-20250115-v1:0",
+            "anthropic.claude-4-5-haiku-20250115-v1:0",
             "anthropic.claude-3-5-sonnet-20241022-v2:0",
-            "anthropic.claude-3-sonnet-20240229-v1:0",
-            "anthropic.claude-3-haiku-20240307-v1:0",
+            "anthropic.claude-3-5-haiku-20241022-v1:0",
+            "anthropic.claude-3-opus-20240229-v1:0",
             "amazon.nova-pro-v1:0",
             "amazon.nova-lite-v1:0",
             "amazon.nova-micro-v1:0",
-            "meta.llama3-1-70b-instruct-v1:0",
+            "meta.llama3-3-70b-instruct-v1:0",
             "meta.llama3-1-405b-instruct-v1:0",
-            "mistral.mistral-large-2407-v1:0",
-            "cohere.command-r-plus-v1:0"
+            "mistral.mistral-large-2411-v1:0"
         ],
         "toolConfig": {
             "tools": tool_config
@@ -1911,10 +1930,14 @@ fn build_azure_openai_schema(ontology: &LanguageOntology) -> JsonValue {
 
     json!({
         "format": "azure_openai_function_calling",
-        "version": "2024-08-01-preview",
-        "compatible_deployments": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-35-turbo", "o1-preview", "o1-mini", "o3-mini"],
+        "version": "2025-01-01-preview",
+        "compatible_deployments": [
+            "gpt-5", "gpt-5-mini", "gpt-5-turbo",
+            "gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-35-turbo",
+            "o1", "o1-preview", "o1-mini", "o3-mini", "o4-mini"
+        ],
         "tools": tools,
-        "api_version": "2024-08-01-preview",
+        "api_version": "2025-01-01-preview",
         "instructions": "Use these tools via Azure OpenAI API. Same format as OpenAI but with Azure endpoint."
     })
 }
@@ -2063,16 +2086,17 @@ fn build_openrouter_schema(ontology: &LanguageOntology) -> JsonValue {
 
     json!({
         "format": "openrouter_unified",
-        "version": "v1",
+        "version": "v2",
         "tool_capable_models": [
-            "openai/gpt-4o", "openai/gpt-4o-mini", "openai/o1", "openai/o3-mini",
-            "anthropic/claude-3.5-sonnet", "anthropic/claude-3-opus", "anthropic/claude-3-haiku",
-            "google/gemini-2.0-flash-exp", "google/gemini-pro-1.5",
-            "meta-llama/llama-3.3-70b-instruct", "meta-llama/llama-3.1-405b-instruct",
-            "mistralai/mistral-large", "mistralai/codestral-latest",
-            "deepseek/deepseek-chat", "deepseek/deepseek-r1",
+            "openai/gpt-5", "openai/gpt-5-mini", "openai/gpt-4o", "openai/gpt-4o-mini", "openai/o3", "openai/o4-mini",
+            "anthropic/claude-4.5-opus", "anthropic/claude-4.5-sonnet", "anthropic/claude-4.5-haiku",
+            "anthropic/claude-3.5-sonnet", "anthropic/claude-3-opus",
+            "google/gemini-2.5-pro", "google/gemini-2.0-flash",
+            "meta-llama/llama-4-maverick-70b", "meta-llama/llama-3.3-70b-instruct",
+            "mistralai/mistral-large-2501", "mistralai/codestral-latest",
+            "deepseek/deepseek-v3", "deepseek/deepseek-r1",
             "qwen/qwen-2.5-72b-instruct", "qwen/qwq-32b-preview",
-            "x-ai/grok-2", "cohere/command-r-plus"
+            "x-ai/grok-3", "cohere/command-a"
         ],
         "tools": tools,
         "api_base": "https://openrouter.ai/api/v1",

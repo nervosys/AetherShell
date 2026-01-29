@@ -852,16 +852,16 @@ ae mcp tools --category development
 AetherShell provides a dedicated API for AI agents to call directly without generating brittle multi-line code. **Supports 24+ AI platforms** with native function calling schemas.
 
 **Supported AI Platforms:**
-- **OpenAI/ChatGPT** - GPT-4o, GPT-4o-mini, o1, o3-mini
-- **Anthropic Claude** - Claude 3.5 Sonnet, Claude 3 Opus, Claude 3 Haiku
-- **Google Gemini** - Gemini 2.0 Flash, Gemini 1.5 Pro
-- **Meta Llama** - Llama 3.3, 3.2, 3.1 (8B to 405B)
-- **Mistral AI** - Mistral Large, Codestral, Pixtral
-- **Cohere** - Command R+, Command R
-- **xAI Grok** - Grok-2, Grok-3
+- **OpenAI/ChatGPT** - GPT-5, GPT-5-mini, GPT-4o, o3, o4-mini
+- **Anthropic Claude** - Claude 4.5 Opus/Sonnet/Haiku, Claude 3.5 Sonnet
+- **Google Gemini** - Gemini 2.5 Pro/Flash, Gemini 2.0 Flash
+- **Meta Llama** - Llama 4, Llama 3.3, 3.2, 3.1 (8B to 405B)
+- **Mistral AI** - Mistral Large 2501, Codestral, Pixtral
+- **Cohere** - Command A, Command R+
+- **xAI Grok** - Grok-3, Grok-2
 - **DeepSeek** - DeepSeek-V3, DeepSeek-R1
-- **AWS Bedrock** - All tool-capable models
-- **Azure OpenAI** - All deployed GPT models
+- **AWS Bedrock** - All tool-capable models (incl. Claude 4.5)
+- **Azure OpenAI** - All deployed models (incl. GPT-5)
 - **Alibaba Qwen** - Qwen 2.5, QwQ
 - **Moonshot Kimi** - Kimi, Moonshot v1 (128K context)
 - **01.AI Yi** - Yi-Large, Yi-Lightning, Yi-Vision
