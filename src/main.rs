@@ -168,7 +168,8 @@ enum AgentApiCommands {
     },
     /// Get the language schema for AI agents
     Schema {
-        /// Output format (openai, claude, gemini, json, compact)
+        /// Output format: openai, azure, claude, gemini, llama, mistral, cohere, grok,
+        /// deepseek, bedrock, qwen, ollama, vllm, huggingface, openrouter, json, compact
         #[arg(long, short = 'f', default_value = "compact")]
         format: String,
         /// Output to file
