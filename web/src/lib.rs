@@ -18,5 +18,10 @@
 //! console.log(shell.eval_display('x * 2')); // "84"
 //! ```
 
-// Re-export everything from the main wasm module
+// This crate is WASM-only. Re-export everything from the main wasm module.
+#[cfg(target_arch = "wasm32")]
 pub use aethershell::wasm::*;
+
+// Compile error message for non-WASM targets
+#[cfg(not(target_arch = "wasm32"))]
+compile_error!("aether_wasm crate is only supported on wasm32 target. Use: cargo build --target wasm32-unknown-unknown");

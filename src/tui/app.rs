@@ -897,7 +897,11 @@ impl App {
     /// Handle a single A2UI event
     fn handle_a2ui_event(&mut self, event: A2UIEvent) {
         match event.event_type {
-            A2UIEventType::Notify { message, level, duration_ms } => {
+            A2UIEventType::Notify {
+                message,
+                level,
+                duration_ms,
+            } => {
                 self.notifications.push(A2UINotification {
                     id: event.id,
                     message,
@@ -911,7 +915,11 @@ impl App {
                 }
             }
 
-            A2UIEventType::Toast { message, level, duration_ms } => {
+            A2UIEventType::Toast {
+                message,
+                level,
+                duration_ms,
+            } => {
                 self.notifications.push(A2UINotification {
                     id: event.id,
                     message,
@@ -921,14 +929,23 @@ impl App {
                 });
             }
 
-            A2UIEventType::Progress { id, label, current, total, message } => {
-                self.progress_indicators.insert(id, ProgressIndicator {
+            A2UIEventType::Progress {
+                id,
+                label,
+                current,
+                total,
+                message,
+            } => {
+                self.progress_indicators.insert(
                     id,
-                    label,
-                    current,
-                    total,
-                    message,
-                });
+                    ProgressIndicator {
+                        id,
+                        label,
+                        current,
+                        total,
+                        message,
+                    },
+                );
             }
 
             A2UIEventType::ProgressComplete { id } => {
@@ -945,7 +962,11 @@ impl App {
                 self.status_bar_text = None;
             }
 
-            A2UIEventType::Render { content, target: _, replace: _ } => {
+            A2UIEventType::Render {
+                content,
+                target: _,
+                replace: _,
+            } => {
                 // For now, render content as a system message
                 let text = match content {
                     crate::ai::a2ui::RenderContent::Text(t) => t,
@@ -955,7 +976,11 @@ impl App {
                     }
                     crate::ai::a2ui::RenderContent::Table { headers, rows } => {
                         let mut s = headers.join(" | ") + "\n";
-                        s += &headers.iter().map(|_| "---").collect::<Vec<_>>().join(" | ");
+                        s += &headers
+                            .iter()
+                            .map(|_| "---")
+                            .collect::<Vec<_>>()
+                            .join(" | ");
                         s += "\n";
                         for row in rows {
                             s += &row.join(" | ");
@@ -969,7 +994,10 @@ impl App {
                     crate::ai::a2ui::RenderContent::Image { alt, .. } => {
                         format!("[Image: {}]", alt.unwrap_or_default())
                     }
-                    crate::ai::a2ui::RenderContent::Thinking { steps, final_answer } => {
+                    crate::ai::a2ui::RenderContent::Thinking {
+                        steps,
+                        final_answer,
+                    } => {
                         let mut s = "🤔 Thinking:\n".to_string();
                         for (i, step) in steps.iter().enumerate() {
                             s += &format!("  {}. {}\n", i + 1, step);
@@ -983,7 +1011,11 @@ impl App {
                 self.add_message(MessageRole::System, text);
             }
 
-            A2UIEventType::Prompt { id, message, prompt_type } => {
+            A2UIEventType::Prompt {
+                id,
+                message,
+                prompt_type,
+            } => {
                 self.pending_prompts.push((id, message, prompt_type));
             }
 
@@ -999,7 +1031,11 @@ impl App {
                 }
             }
 
-            A2UIEventType::AgentCompleted { agent_id, result, success } => {
+            A2UIEventType::AgentCompleted {
+                agent_id,
+                result,
+                success,
+            } => {
                 for agent in &mut self.agents {
                     if agent.name == agent_id || agent.id.to_string() == agent_id {
                         agent.status = if success {
@@ -1014,7 +1050,11 @@ impl App {
                 }
             }
 
-            A2UIEventType::AgentThinking { agent_id, thought, step } => {
+            A2UIEventType::AgentThinking {
+                agent_id,
+                thought,
+                step,
+            } => {
                 // Add thinking step as a system message
                 self.add_message(
                     MessageRole::System,
@@ -1023,11 +1063,11 @@ impl App {
             }
 
             // Modal and other events - not yet implemented in TUI
-            A2UIEventType::Modal { .. } |
-            A2UIEventType::ModalClose { .. } |
-            A2UIEventType::Highlight { .. } |
-            A2UIEventType::Focus { .. } |
-            A2UIEventType::ScrollTo { .. } => {
+            A2UIEventType::Modal { .. }
+            | A2UIEventType::ModalClose { .. }
+            | A2UIEventType::Highlight { .. }
+            | A2UIEventType::Focus { .. }
+            | A2UIEventType::ScrollTo { .. } => {
                 // TODO: Implement modal and focus handling
             }
         }
@@ -1076,7 +1116,11 @@ impl App {
     }
 
     /// Submit a response to a prompt
-    pub fn submit_prompt_response(&self, prompt_id: Uuid, response: crate::ai::a2ui::PromptResponse) {
+    pub fn submit_prompt_response(
+        &self,
+        prompt_id: Uuid,
+        response: crate::ai::a2ui::PromptResponse,
+    ) {
         let _ = crate::ai::a2ui::submit_response(prompt_id, response);
     }
 }

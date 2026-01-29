@@ -96,7 +96,7 @@ impl QLearningAgent {
     /// Select action using epsilon-greedy policy
     pub fn select_action(&self, state: usize) -> usize {
         let mut rng = rand::thread_rng();
-        
+
         if rng.gen::<f64>() < self.epsilon {
             // Explore: random action
             rng.gen_range(0..self.action_size)
@@ -128,7 +128,7 @@ impl QLearningAgent {
         done: bool,
     ) {
         let current_q = self.get_q(state, action);
-        
+
         let max_next_q = if done {
             0.0
         } else {
@@ -136,14 +136,14 @@ impl QLearningAgent {
                 .map(|a| self.get_q(next_state, a))
                 .fold(f64::NEG_INFINITY, f64::max)
         };
-        
+
         let td_target = reward + self.discount * max_next_q;
         let td_error = td_target - current_q;
         let new_q = current_q + self.learning_rate * td_error;
-        
+
         self.set_q(state, action, new_q);
         self.steps += 1;
-        
+
         // Decay epsilon
         if self.epsilon > self.epsilon_min {
             self.epsilon *= self.epsilon_decay;
@@ -209,7 +209,7 @@ impl SarsaAgent {
     /// Select action using epsilon-greedy policy
     pub fn select_action(&self, state: usize) -> usize {
         let mut rng = rand::thread_rng();
-        
+
         if rng.gen::<f64>() < self.epsilon {
             rng.gen_range(0..self.action_size)
         } else {
@@ -240,17 +240,17 @@ impl SarsaAgent {
         done: bool,
     ) {
         let current_q = self.get_q(state, action);
-        
+
         let next_q = if done {
             0.0
         } else {
             self.get_q(next_state, next_action)
         };
-        
+
         let td_target = reward + self.discount * next_q;
         let td_error = td_target - current_q;
         let new_q = current_q + self.learning_rate * td_error;
-        
+
         self.set_q(state, action, new_q);
         self.steps += 1;
     }
@@ -291,16 +291,12 @@ impl PolicyGradientAgent {
         discount: f64,
     ) -> Self {
         let mut rng = rand::thread_rng();
-        
+
         // Initialize weights with small random values
         let weights: Vec<Vec<f64>> = (0..action_size)
-            .map(|_| {
-                (0..state_dim)
-                    .map(|_| rng.gen_range(-0.1..0.1))
-                    .collect()
-            })
+            .map(|_| (0..state_dim).map(|_| rng.gen_range(-0.1..0.1)).collect())
             .collect();
-        
+
         Self {
             name: name.to_string(),
             weights,
@@ -327,7 +323,7 @@ impl PolicyGradientAgent {
                     .sum::<f64>()
             })
             .collect();
-        
+
         softmax(&logits)
     }
 
@@ -349,14 +345,14 @@ impl PolicyGradientAgent {
         if self.episode_states.is_empty() {
             return;
         }
-        
+
         // Compute discounted returns
         let returns = compute_returns(&self.episode_rewards, self.discount);
-        
+
         // Normalize returns (baseline subtraction)
         let mean_return = returns.iter().sum::<f64>() / returns.len() as f64;
         let normalized_returns: Vec<f64> = returns.iter().map(|r| r - mean_return).collect();
-        
+
         // Update weights using policy gradient
         for (_t, ((state, action), g_t)) in self
             .episode_states
@@ -366,19 +362,19 @@ impl PolicyGradientAgent {
             .enumerate()
         {
             let probs = self.action_probabilities(state);
-            
+
             // Gradient of log policy
             for a in 0..self.action_size {
                 let indicator = if a == *action { 1.0 } else { 0.0 };
                 let grad_log_pi = indicator - probs[a];
-                
+
                 // Update weights: θ += α * G_t * ∇ log π(a|s)
                 for (i, si) in state.iter().enumerate() {
                     self.weights[a][i] += self.learning_rate * g_t * grad_log_pi * si;
                 }
             }
         }
-        
+
         // Clear episode history
         self.episode_states.clear();
         self.episode_actions.clear();
@@ -423,19 +419,13 @@ impl ActorCriticAgent {
         discount: f64,
     ) -> Self {
         let mut rng = rand::thread_rng();
-        
+
         let actor_weights: Vec<Vec<f64>> = (0..action_size)
-            .map(|_| {
-                (0..state_dim)
-                    .map(|_| rng.gen_range(-0.1..0.1))
-                    .collect()
-            })
+            .map(|_| (0..state_dim).map(|_| rng.gen_range(-0.1..0.1)).collect())
             .collect();
-        
-        let critic_weights: Vec<f64> = (0..state_dim)
-            .map(|_| rng.gen_range(-0.1..0.1))
-            .collect();
-        
+
+        let critic_weights: Vec<f64> = (0..state_dim).map(|_| rng.gen_range(-0.1..0.1)).collect();
+
         Self {
             name: name.to_string(),
             actor_weights,
@@ -470,7 +460,7 @@ impl ActorCriticAgent {
                     .sum::<f64>()
             })
             .collect();
-        
+
         softmax(&logits)
     }
 
@@ -493,23 +483,23 @@ impl ActorCriticAgent {
         let v_s = self.value(state);
         let v_next = if done { 0.0 } else { self.value(next_state) };
         let td_error = reward + self.discount * v_next - v_s;
-        
+
         // Update critic: w += α_c * δ * ∇V(s)
         for (i, si) in state.iter().enumerate() {
             self.critic_weights[i] += self.critic_lr * td_error * si;
         }
-        
+
         // Update actor: θ += α_a * δ * ∇ log π(a|s)
         let probs = self.action_probabilities(state);
         for a in 0..self.action_size {
             let indicator = if a == action { 1.0 } else { 0.0 };
             let grad_log_pi = indicator - probs[a];
-            
+
             for (i, si) in state.iter().enumerate() {
                 self.actor_weights[a][i] += self.actor_lr * td_error * grad_log_pi * si;
             }
         }
-        
+
         self.steps += 1;
     }
 }
@@ -561,11 +551,11 @@ impl ReplayBuffer {
     pub fn sample(&self, batch_size: usize) -> Vec<Experience> {
         let mut rng = rand::thread_rng();
         let len = self.buffer.len();
-        
+
         if len == 0 {
             return Vec::new();
         }
-        
+
         (0..batch_size.min(len))
             .map(|_| {
                 let idx = rng.gen_range(0..len);
@@ -633,21 +623,21 @@ impl DQNAgent {
         buffer_size: usize,
     ) -> Self {
         use crate::neural::{Activation, NeuralNetwork};
-        
+
         // Build layer sizes: [state_dim, ...hidden_sizes, action_size]
         let mut layer_sizes = vec![state_dim];
         layer_sizes.extend_from_slice(hidden_sizes);
         layer_sizes.push(action_size);
-        
+
         let network = NeuralNetwork::feedforward(
             &format!("{}_policy", name),
             &layer_sizes,
             Activation::ReLU,
             Activation::Linear, // Q-values can be any real number
         );
-        
+
         let target_network = network.clone();
-        
+
         Self {
             name: name.to_string(),
             network,
@@ -669,7 +659,7 @@ impl DQNAgent {
     /// Select action using epsilon-greedy policy
     pub fn select_action(&self, state: &[f64]) -> usize {
         let mut rng = rand::thread_rng();
-        
+
         if rng.gen::<f64>() < self.epsilon {
             rng.gen_range(0..self.action_size)
         } else {
@@ -705,19 +695,19 @@ impl DQNAgent {
             next_state,
             done,
         });
-        
+
         // Train if we have enough experiences
         if self.replay_buffer.len() >= self.batch_size {
             self.train();
         }
-        
+
         self.steps += 1;
-        
+
         // Update target network periodically
         if self.steps % self.target_update_freq == 0 {
             self.update_target_network();
         }
-        
+
         // Decay epsilon
         if self.epsilon > self.epsilon_min {
             self.epsilon *= self.epsilon_decay;
@@ -727,28 +717,28 @@ impl DQNAgent {
     /// Train on a batch of experiences
     fn train(&mut self) {
         let batch = self.replay_buffer.sample(self.batch_size);
-        
+
         for exp in batch {
             // Compute target Q-value
             let target_q_values = self.target_network.forward(&exp.next_state);
             let max_target_q = target_q_values
                 .iter()
                 .fold(f64::NEG_INFINITY, |a, &b| a.max(b));
-            
+
             let target = if exp.done {
                 exp.reward
             } else {
                 exp.reward + self.discount * max_target_q
             };
-            
+
             // Get current Q-values and update for the taken action
             let mut current_q = self.network.forward(&exp.state);
             let td_error = target - current_q[exp.action];
-            
+
             // Simple gradient descent update
             // In a full implementation, this would use proper backpropagation
             current_q[exp.action] += self.learning_rate * td_error;
-            
+
             // Update network weights (simplified - in practice use backprop)
             // This is a placeholder for demonstration
         }
@@ -811,13 +801,13 @@ impl MultiAgentRL {
                 )
             })
             .collect();
-        
+
         let shared_buffer = if config.shared_replay {
             Some(ReplayBuffer::new(100000))
         } else {
             None
         };
-        
+
         Self {
             config,
             agents,
@@ -855,7 +845,7 @@ impl MultiAgentRL {
                     done: dones[i],
                 });
             }
-            
+
             // Individual agent update
             agent.step(
                 states[i].clone(),
@@ -872,11 +862,11 @@ impl MultiAgentRL {
         if !self.config.parameter_sharing {
             return;
         }
-        
+
         // Find agent with highest average Q-value (simple heuristic)
         // In practice, you'd use a better metric
         let best_agent = &self.agents[0].clone();
-        
+
         for agent in &mut self.agents {
             agent.network = best_agent.network.clone();
         }
@@ -898,14 +888,14 @@ fn sample_from_distribution(probs: &[f64]) -> usize {
     let mut rng = rand::thread_rng();
     let sample: f64 = rng.gen();
     let mut cumsum = 0.0;
-    
+
     for (i, p) in probs.iter().enumerate() {
         cumsum += p;
         if sample < cumsum {
             return i;
         }
     }
-    
+
     probs.len() - 1
 }
 
@@ -913,12 +903,12 @@ fn sample_from_distribution(probs: &[f64]) -> usize {
 fn compute_returns(rewards: &[f64], discount: f64) -> Vec<f64> {
     let mut returns = vec![0.0; rewards.len()];
     let mut running_return = 0.0;
-    
+
     for t in (0..rewards.len()).rev() {
         running_return = rewards[t] + discount * running_return;
         returns[t] = running_return;
     }
-    
+
     returns
 }
 
@@ -961,18 +951,18 @@ impl GridWorld {
     pub fn step(&mut self, action: usize) -> (usize, f64, bool) {
         // Actions: 0=up, 1=down, 2=left, 3=right
         let (dx, dy): (i32, i32) = match action {
-            0 => (0, -1),  // up
-            1 => (0, 1),   // down
-            2 => (-1, 0),  // left
-            3 => (1, 0),   // right
+            0 => (0, -1), // up
+            1 => (0, 1),  // down
+            2 => (-1, 0), // left
+            3 => (1, 0),  // right
             _ => (0, 0),
         };
-        
+
         let new_x = (self.agent_pos.0 as i32 + dx).clamp(0, self.width as i32 - 1) as usize;
         let new_y = (self.agent_pos.1 as i32 + dy).clamp(0, self.height as i32 - 1) as usize;
-        
+
         self.agent_pos = (new_x, new_y);
-        
+
         let done = self.agent_pos == self.goal_pos;
         let reward = if done {
             1.0
@@ -981,7 +971,7 @@ impl GridWorld {
         } else {
             -0.01 // Small step penalty
         };
-        
+
         (self.state_to_idx(), reward, done)
     }
 
@@ -1010,10 +1000,10 @@ mod tests {
     #[test]
     fn test_q_learning_basic() {
         let mut agent = QLearningAgent::new("test", 10, 4, 0.1, 0.99, 0.1);
-        
+
         // Initial Q-values should be 0
         assert_eq!(agent.get_q(0, 0), 0.0);
-        
+
         // Update should change Q-value
         agent.update(0, 0, 1.0, 1, false);
         assert!(agent.get_q(0, 0) > 0.0);
@@ -1022,7 +1012,7 @@ mod tests {
     #[test]
     fn test_sarsa_basic() {
         let mut agent = SarsaAgent::new("test", 10, 4, 0.1, 0.99, 0.1);
-        
+
         agent.update(0, 0, 1.0, 1, 1, false);
         assert!(agent.get_q(0, 0) > 0.0);
     }
@@ -1030,11 +1020,11 @@ mod tests {
     #[test]
     fn test_policy_gradient_basic() {
         let mut agent = PolicyGradientAgent::new("test", 4, 2, 0.01, 0.99);
-        
+
         let state = vec![1.0, 0.0, 0.5, 0.5];
         let action = agent.select_action(&state);
         assert!(action < 2);
-        
+
         // Record and update
         agent.record_step(state, action, 1.0);
         agent.end_episode();
@@ -1044,22 +1034,22 @@ mod tests {
     #[test]
     fn test_actor_critic_basic() {
         let mut agent = ActorCriticAgent::new("test", 4, 2, 0.01, 0.01, 0.99);
-        
+
         let state = vec![1.0, 0.0, 0.5, 0.5];
         let next_state = vec![0.0, 1.0, 0.5, 0.5];
-        
+
         let action = agent.select_action(&state);
         agent.update(&state, action, 1.0, &next_state, false);
-        
+
         assert_eq!(agent.steps, 1);
     }
 
     #[test]
     fn test_replay_buffer() {
         let mut buffer = ReplayBuffer::new(100);
-        
+
         assert!(buffer.is_empty());
-        
+
         buffer.push(Experience {
             state: vec![1.0, 0.0],
             action: 0,
@@ -1067,9 +1057,9 @@ mod tests {
             next_state: vec![0.0, 1.0],
             done: false,
         });
-        
+
         assert_eq!(buffer.len(), 1);
-        
+
         let samples = buffer.sample(1);
         assert_eq!(samples.len(), 1);
     }
@@ -1077,13 +1067,13 @@ mod tests {
     #[test]
     fn test_gridworld() {
         let mut env = GridWorld::new(5, 5);
-        
+
         assert_eq!(env.state_size(), 25);
         assert_eq!(env.action_size(), 4);
-        
+
         let state = env.reset();
         assert_eq!(state, 0);
-        
+
         // Move right
         let (next_state, reward, done) = env.step(3);
         assert_eq!(next_state, 1);
@@ -1095,11 +1085,11 @@ mod tests {
     fn test_softmax() {
         let x = vec![1.0, 2.0, 3.0];
         let probs = softmax(&x);
-        
+
         // Sum should be 1
         let sum: f64 = probs.iter().sum();
         assert!((sum - 1.0).abs() < 1e-6);
-        
+
         // Probabilities should be ordered
         assert!(probs[0] < probs[1]);
         assert!(probs[1] < probs[2]);
@@ -1109,7 +1099,7 @@ mod tests {
     fn test_compute_returns() {
         let rewards = vec![1.0, 1.0, 1.0];
         let returns = compute_returns(&rewards, 0.9);
-        
+
         // G_2 = 1.0
         // G_1 = 1.0 + 0.9 * 1.0 = 1.9
         // G_0 = 1.0 + 0.9 * 1.9 = 2.71

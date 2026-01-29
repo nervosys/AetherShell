@@ -1,14 +1,14 @@
 use crate::ai_api::models::*;
 use anyhow::Result;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use chrono::{DateTime, Utc};
-use sha2::{Sha256, Digest};
 
 /// XDG Base Directory compliant storage for AI models
-/// 
+///
 /// Directory structure:
 /// ~/.local/share/ai-models/
 /// ├── models/                 # Model files
@@ -19,7 +19,7 @@ use sha2::{Sha256, Digest};
 /// ├── metadata/              # Model metadata files
 /// ├── cache/                 # Temporary files and downloads
 /// └── index.json             # Global model index
-/// 
+///
 /// ~/.config/ai-models/
 /// ├── config.toml            # Global configuration
 /// ├── providers.toml         # Provider configurations
@@ -145,10 +145,14 @@ impl ModelStorage {
                 created: metadata.downloaded_at.timestamp(),
                 owned_by: "local".to_string(),
                 provider: "local".to_string(),
-                context_length: metadata.parameters.get("context_length")
+                context_length: metadata
+                    .parameters
+                    .get("context_length")
                     .and_then(|v| v.as_u64())
                     .map(|v| v as u32),
-                max_output: metadata.parameters.get("max_output")
+                max_output: metadata
+                    .parameters
+                    .get("max_output")
                     .and_then(|v| v.as_u64())
                     .map(|v| v as u32),
                 per_request_limits: None,
@@ -166,9 +170,10 @@ impl ModelStorage {
     }
 
     /// Store a model file and metadata
-    pub async fn store_model(&mut self, 
-        model_data: &[u8], 
-        metadata: LocalModelMetadata
+    pub async fn store_model(
+        &mut self,
+        model_data: &[u8],
+        metadata: LocalModelMetadata,
     ) -> Result<()> {
         // Determine storage path based on format
         let format_dir = match metadata.format {
@@ -183,8 +188,9 @@ impl ModelStorage {
         fs::create_dir_all(&model_dir)?;
 
         // Generate filename from model ID
-        let filename = format!("{}.{}", 
-            metadata.id.replace('/', "_"), 
+        let filename = format!(
+            "{}.{}",
+            metadata.id.replace('/', "_"),
             self.get_file_extension(&metadata.format)
         );
         let file_path = model_dir.join(&filename);
@@ -200,8 +206,8 @@ impl ModelStorage {
         if calculated_hash != metadata.sha256 {
             fs::remove_file(&file_path)?;
             return Err(anyhow::anyhow!(
-                "Checksum mismatch: expected {}, got {}", 
-                metadata.sha256, 
+                "Checksum mismatch: expected {}, got {}",
+                metadata.sha256,
                 calculated_hash
             ));
         }
@@ -212,12 +218,17 @@ impl ModelStorage {
         updated_metadata.size_bytes = model_data.len() as u64;
 
         // Store metadata file
-        let metadata_path = self.data_dir.join("metadata").join(format!("{}.json", updated_metadata.id.replace('/', "_")));
+        let metadata_path = self
+            .data_dir
+            .join("metadata")
+            .join(format!("{}.json", updated_metadata.id.replace('/', "_")));
         let metadata_content = serde_json::to_string_pretty(&updated_metadata)?;
         fs::write(&metadata_path, metadata_content)?;
 
         // Update index
-        self.index.models.insert(updated_metadata.id.clone(), updated_metadata);
+        self.index
+            .models
+            .insert(updated_metadata.id.clone(), updated_metadata);
         self.index.last_updated = Utc::now();
         self.index.total_size = self.index.models.values().map(|m| m.size_bytes).sum();
         self.save_index()?;
@@ -234,7 +245,10 @@ impl ModelStorage {
             }
 
             // Remove metadata file
-            let metadata_path = self.data_dir.join("metadata").join(format!("{}.json", model_id.replace('/', "_")));
+            let metadata_path = self
+                .data_dir
+                .join("metadata")
+                .join(format!("{}.json", model_id.replace('/', "_")));
             if let Ok(_) = fs::remove_file(&metadata_path) {
                 // Metadata file removed successfully
             }
@@ -283,7 +297,7 @@ impl ModelStorage {
     pub fn get_storage_stats(&self) -> StorageStats {
         let model_count = self.index.models.len();
         let total_size = self.index.total_size;
-        
+
         let mut format_breakdown = HashMap::new();
         for metadata in self.index.models.values() {
             *format_breakdown.entry(metadata.format.clone()).or_insert(0) += 1;
@@ -309,7 +323,7 @@ impl ModelStorage {
             for entry in fs::read_dir(cache_dir)? {
                 let entry = entry?;
                 let metadata = entry.metadata()?;
-                
+
                 if let Ok(modified) = metadata.modified() {
                     let modified_time: DateTime<Utc> = modified.into();
                     if modified_time < cutoff_time {
@@ -339,7 +353,10 @@ impl ModelStorage {
 
     /// Resolve model ID from alias
     pub fn resolve_alias(&self, id_or_alias: &str) -> String {
-        self.index.aliases.get(id_or_alias).cloned()
+        self.index
+            .aliases
+            .get(id_or_alias)
+            .cloned()
             .unwrap_or_else(|| id_or_alias.to_string())
     }
 
@@ -361,7 +378,7 @@ impl ModelStorage {
 
     fn get_cache_size(&self) -> Result<u64> {
         let mut total_size = 0u64;
-        
+
         if self.cache_dir.exists() {
             for entry in fs::read_dir(&self.cache_dir)? {
                 let entry = entry?;
@@ -371,7 +388,7 @@ impl ModelStorage {
                 }
             }
         }
-        
+
         Ok(total_size)
     }
 }

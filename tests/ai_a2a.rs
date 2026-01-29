@@ -24,11 +24,10 @@ fn test_register_agent() {
     let bus = A2AMessageBus::new();
     bus.register_agent("agent1").unwrap();
     assert_eq!(bus.registered_agents().unwrap().len(), 1);
-    assert!(
-        bus.registered_agents()
-            .unwrap()
-            .contains(&"agent1".to_string())
-    );
+    assert!(bus
+        .registered_agents()
+        .unwrap()
+        .contains(&"agent1".to_string()));
 }
 
 #[test]
