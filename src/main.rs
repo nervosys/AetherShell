@@ -46,6 +46,13 @@ enum Commands {
         #[command(subcommand)]
         command: McpCommands,
     },
+
+    /// Agent API mode - AI-callable interface for ChatGPT, Claude, Gemini
+    #[command(visible_alias = "agent-api")]
+    Agent {
+        #[command(subcommand)]
+        command: AgentApiCommands,
+    },
 }
 
 #[derive(Subcommand)]
@@ -139,6 +146,49 @@ enum McpCommands {
     },
 }
 
+#[derive(Subcommand)]
+enum AgentApiCommands {
+    /// Start the Agent API HTTP server (for AI integrations)
+    Serve {
+        /// Server host
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+        /// Server port
+        #[arg(long, default_value = "3002")]
+        port: u16,
+        /// Enable CORS for browser/API access
+        #[arg(long)]
+        cors: bool,
+    },
+    /// Execute a JSON request (read from stdin or argument)
+    #[command(alias = "exec")]
+    Execute {
+        /// JSON request (reads from stdin if not provided)
+        request: Option<String>,
+    },
+    /// Get the language schema for AI agents
+    Schema {
+        /// Output format (openai, claude, gemini, json, compact)
+        #[arg(long, short = 'f', default_value = "compact")]
+        format: String,
+        /// Output to file
+        #[arg(long, short = 'o')]
+        output: Option<String>,
+    },
+    /// List all available builtins
+    #[command(alias = "ls")]
+    Builtins {
+        /// Filter by category
+        #[arg(long, short = 'c')]
+        category: Option<String>,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Interactive agent mode (process requests from stdin continuously)
+    Interactive,
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
@@ -155,6 +205,7 @@ fn main() -> Result<()> {
             Commands::Mcp { command } => {
                 tokio::runtime::Runtime::new()?.block_on(handle_mcp_command(command))
             }
+            Commands::Agent { command } => handle_agent_api_command(command),
         };
     }
 
@@ -367,6 +418,124 @@ async fn handle_mcp_command(command: McpCommands) -> Result<()> {
                     tool.description.clone()
                 };
                 println!("{:<25} {}", tool.name, desc);
+            }
+            Ok(())
+        }
+    }
+}
+
+fn handle_agent_api_command(command: AgentApiCommands) -> Result<()> {
+    use aethershell::agent_api::{self, AgentRequest, SchemaFormat};
+    use std::io::{BufRead, Write};
+
+    match command {
+        AgentApiCommands::Serve { host, port, cors } => {
+            #[cfg(feature = "native")]
+            {
+                let config = agent_api::server::AgentApiConfig {
+                    host,
+                    port,
+                    enable_cors: cors,
+                };
+
+                tokio::runtime::Runtime::new()?
+                    .block_on(agent_api::server::start_agent_api_server(config))
+            }
+
+            #[cfg(not(feature = "native"))]
+            {
+                Err(anyhow::anyhow!("Agent API server requires native feature"))
+            }
+        }
+        AgentApiCommands::Execute { request } => {
+            let json_str = if let Some(req) = request {
+                req
+            } else {
+                // Read from stdin
+                let mut buffer = String::new();
+                io::stdin().read_to_string(&mut buffer)?;
+                buffer
+            };
+
+            let output = agent_api::process_json_request(&json_str)?;
+            println!("{}", output);
+            Ok(())
+        }
+        AgentApiCommands::Schema { format, output } => {
+            let schema = agent_api::generate_schema(&format)?;
+
+            if let Some(path) = output {
+                fs::write(&path, &schema)?;
+                println!("✓ Schema written to {}", path);
+            } else {
+                println!("{}", schema);
+            }
+            Ok(())
+        }
+        AgentApiCommands::Builtins {
+            category,
+            json: json_output,
+        } => {
+            let request = AgentRequest::ListBuiltins { category };
+            let response = agent_api::process_request(&request);
+
+            if json_output {
+                println!("{}", serde_json::to_string_pretty(&response)?);
+            } else if response.success {
+                if let Some(result) = &response.result {
+                    if let Some(builtins) = result.get("builtins") {
+                        if let Some(arr) = builtins.as_array() {
+                            println!("{:<20} {:<12} {}", "Name", "Category", "Description");
+                            println!("{}", "-".repeat(80));
+                            for b in arr {
+                                let name = b.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                                let cat = b.get("category").and_then(|v| v.as_str()).unwrap_or("");
+                                let desc =
+                                    b.get("description").and_then(|v| v.as_str()).unwrap_or("");
+                                let desc_short = if desc.len() > 45 {
+                                    format!("{}...", &desc[..45])
+                                } else {
+                                    desc.to_string()
+                                };
+                                println!("{:<20} {:<12} {}", name, cat, desc_short);
+                            }
+                        }
+                    }
+                }
+            } else {
+                eprintln!("Error: {}", response.error.unwrap_or_default());
+            }
+            Ok(())
+        }
+        AgentApiCommands::Interactive => {
+            println!("🤖 AetherShell Agent API - Interactive Mode");
+            println!("Send JSON requests (one per line), receive JSON responses");
+            println!("Press Ctrl+D to exit\n");
+
+            let stdin = io::stdin();
+            let mut stdout = io::stdout();
+
+            for line in stdin.lock().lines() {
+                match line {
+                    Ok(json_str) if !json_str.trim().is_empty() => {
+                        match agent_api::process_json_request(&json_str) {
+                            Ok(output) => println!("{}", output),
+                            Err(e) => {
+                                let error = serde_json::json!({
+                                    "success": false,
+                                    "error": e.to_string()
+                                });
+                                println!("{}", serde_json::to_string(&error)?);
+                            }
+                        }
+                        stdout.flush()?;
+                    }
+                    Ok(_) => {} // Empty line, skip
+                    Err(e) => {
+                        eprintln!("Read error: {}", e);
+                        break;
+                    }
+                }
             }
             Ok(())
         }

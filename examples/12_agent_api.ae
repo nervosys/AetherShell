@@ -1,0 +1,113 @@
+# Example 12: Agent API - AI Callable Interface
+#
+# AetherShell provides a structured JSON API for AI agents (ChatGPT, Claude, Gemini)
+# to interact with the shell without generating brittle multi-line code.
+#
+# Start the Agent API server: ae agent serve --cors
+# Or run in interactive mode: ae agent interactive
+
+# ============================================================================
+# Traditional Shell Code (what AI agents usually generate - error prone!)
+# ============================================================================
+
+# Complex multi-line code that AI agents often get wrong:
+let files = ls(".")
+let large_files = files | where(fn(f) => f.size > 1000)
+let names = large_files | map(fn(f) => f.name)
+print(names)
+
+# Pipeline chains are powerful but syntax-sensitive:
+[1, 2, 3, 4, 5] 
+    | map(fn(x) => x * 2) 
+    | where(fn(x) => x > 5)
+    | sum()
+
+# ============================================================================
+# Agent API Alternative (what AI agents can use instead - reliable!)
+# ============================================================================
+
+# Instead of generating the above code, AI agents can send JSON requests:
+#
+# Single builtin call:
+# POST /api/v1/execute
+# {"action": "call", "builtin": "ls", "args": {"path": "."}}
+#
+# Pipeline execution:
+# POST /api/v1/pipeline
+# {
+#   "steps": [
+#     {"builtin": "ls", "args": {"path": "."}},
+#     {"builtin": "where", "predicate": "size > 1000"},
+#     {"builtin": "map", "select": "name"}
+#   ]
+# }
+
+# ============================================================================
+# Demonstrating the API response format
+# ============================================================================
+
+# When AI agents call the API, they get structured responses:
+# {
+#   "success": true,
+#   "result": [...],
+#   "result_type": "Array",
+#   "metadata": {"code_executed": "ls(\".\")"}
+# }
+
+# This makes it easy for agents to:
+# 1. Parse the result (it's always JSON)
+# 2. Know the type of the result
+# 3. See what code was actually executed
+# 4. Handle errors gracefully
+
+# ============================================================================
+# Using AetherShell as an AI Tool
+# ============================================================================
+
+# AetherShell can be registered as a tool with any AI agent:
+#
+# OpenAI Function Calling:
+#   ae agent schema --format openai > tools.json
+#
+# Claude Tool Use:
+#   ae agent schema --format claude > tools.json
+#
+# Gemini Function Declaration:
+#   ae agent schema --format gemini > tools.json
+#
+# Each format is native to the AI platform - no conversion needed!
+
+# ============================================================================
+# Language Ontology
+# ============================================================================
+
+# The compact ontology gives AI agents everything they need to understand AetherShell:
+#   ae agent schema --format compact
+
+# Output includes:
+# - All data types (Int, Float, String, Bool, Array, Record, Lambda, Table)
+# - All operators (|, +, -, *, /, ==, !=, >, <, &&, ||, .)
+# - Syntax patterns (let, fn, if/then/else, match, pipelines)
+# - All builtins with signatures and descriptions
+
+# This makes AetherShell fully discoverable by AI agents!
+
+# ============================================================================
+# Interactive Mode
+# ============================================================================
+
+# For real-time AI integration, use interactive mode:
+#   ae agent interactive
+#
+# This reads JSON requests from stdin and writes JSON responses to stdout.
+# Perfect for building AI agent integrations!
+#
+# Example session:
+# > {"action": "call", "builtin": "pwd", "args": {}}
+# {"success":true,"result":"/home/user","result_type":"String",...}
+# > {"action": "eval", "code": "1 + 2 * 3"}
+# {"success":true,"result":7,"result_type":"Int",...}
+
+print("Agent API example complete!")
+print("Start the server with: ae agent serve --cors")
+print("Or interactive mode: ae agent interactive")
