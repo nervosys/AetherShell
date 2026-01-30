@@ -11,11 +11,23 @@
 //! - Rate limiting
 //! - Audit logging
 //!
+//! ## AetherShell Integration
+//!
+//! This agent uses AetherShell's OS abstraction layer for cross-platform
+//! execution. Tool calls are routed through the ontology-based executor
+//! which provides:
+//! - Unified API across Windows, macOS, Linux, BSD, iOS, Android
+//! - Native Rust implementations where possible
+//! - Security validation via the ontology
+//! - Platform capability detection
+//!
 //! Security: CVSS 9.8 → 2.5 (CRIT-002 FIXED)
 
+use crate::providers::tools::{AETHER_TOOLS, ToolResult};
 use crate::security::{check_rate_limit, validate_ai_prompt, validate_command};
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::io::Read;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};

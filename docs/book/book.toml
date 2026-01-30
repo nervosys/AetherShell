@@ -1,0 +1,37 @@
+[book]
+title = "AetherShell Documentation"
+authors = ["Nervosys"]
+description = "Complete documentation for AetherShell - a typed, functional shell with AI capabilities"
+language = "en"
+multilingual = false
+src = "src"
+
+[build]
+build-dir = "book"
+create-missing = true
+
+[output.html]
+default-theme = "ayu"
+preferred-dark-theme = "ayu"
+git-repository-url = "https://github.com/nervosys/AetherShell"
+git-repository-icon = "fa-github"
+edit-url-template = "https://github.com/nervosys/AetherShell/edit/master/docs/book/src/{path}"
+site-url = "/AetherShell/"
+additional-css = ["custom.css"]
+additional-js = ["highlight.js"]
+
+[output.html.fold]
+enable = true
+level = 1
+
+[output.html.playground]
+editable = false
+copyable = true
+copy-js = true
+line-numbers = true
+
+[output.html.search]
+enable = true
+limit-results = 30
+teaser-word-count = 30
+use-hierarchical-outline = true

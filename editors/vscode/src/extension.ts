@@ -8,9 +8,13 @@ import {
 } from 'vscode-languageclient/node';
 import { activate as activateMarkdownPreview } from './markdownPreview';
 import { registerProviders } from './providers';
+import { registerRunnerCommands, AetherShellRunner } from './runner';
+import { AetherShellCodeActionProvider, registerCodeActionCommands } from './codeActions';
+import { registerAgentPanel } from './agentPanel';
 
 let client: LanguageClient | undefined;
 let outputChannel: vscode.OutputChannel;
+let runner: AetherShellRunner | undefined;
 
 export async function activate(context: vscode.ExtensionContext) {
     outputChannel = vscode.window.createOutputChannel('AetherShell');
@@ -19,6 +23,27 @@ export async function activate(context: vscode.ExtensionContext) {
     // Register language providers (symbols, folding, hover)
     registerProviders(context);
     outputChannel.appendLine('Language providers registered');
+
+    // Register code runner commands
+    runner = registerRunnerCommands(context, outputChannel);
+    outputChannel.appendLine('Code runner registered');
+
+    // Register code action provider
+    context.subscriptions.push(
+        vscode.languages.registerCodeActionsProvider(
+            { language: 'aethershell' },
+            new AetherShellCodeActionProvider(),
+            {
+                providedCodeActionKinds: AetherShellCodeActionProvider.providedCodeActionKinds
+            }
+        )
+    );
+    registerCodeActionCommands(context);
+    outputChannel.appendLine('Code actions registered');
+
+    // Register agent panel
+    registerAgentPanel(context);
+    outputChannel.appendLine('Agent panel registered');
 
     const config = vscode.workspace.getConfiguration('aethershell');
     const lspEnabled = config.get<boolean>('lsp.enabled', true);
@@ -164,6 +189,10 @@ async function restartServer() {
 }
 
 export async function deactivate(): Promise<void> {
+    if (runner) {
+        runner.dispose();
+        runner = undefined;
+    }
     if (client) {
         await client.stop();
         client = undefined;

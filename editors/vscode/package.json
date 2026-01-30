@@ -2,7 +2,7 @@
     "name": "aethershell",
     "displayName": "AetherShell",
     "description": "Language support for AetherShell - a typed, functional shell with AI capabilities",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "publisher": "admercs",
     "license": "MIT",
     "engines": {
@@ -12,14 +12,17 @@
         "Programming Languages",
         "Linters",
         "Formatters",
-        "Snippets"
+        "Snippets",
+        "Machine Learning"
     ],
     "keywords": [
         "shell",
         "aethershell",
         "functional",
         "ai",
-        "typed"
+        "typed",
+        "agents",
+        "llm"
     ],
     "activationEvents": [
         "onLanguage:aethershell"
@@ -28,7 +31,8 @@
     "capabilities": {
         "documentSymbolProvider": "true",
         "foldingRangeProvider": "true",
-        "hoverProvider": "true"
+        "hoverProvider": "true",
+        "codeActionProvider": "true"
     },
     "contributes": {
         "languages": [
@@ -42,7 +46,11 @@
                 "extensions": [
                     ".ae"
                 ],
-                "configuration": "./language-configuration.json"
+                "configuration": "./language-configuration.json",
+                "icon": {
+                    "light": "./icons/ae-light.svg",
+                    "dark": "./icons/ae-dark.svg"
+                }
             }
         ],
         "grammars": [
@@ -62,13 +70,23 @@
                 }
             }
         ],
+        "views": {
+            "explorer": [
+                {
+                    "type": "webview",
+                    "id": "aethershell.agentPanel",
+                    "name": "AI Agents",
+                    "when": "resourceLangId == aethershell || resourceExtname == .ae"
+                }
+            ]
+        },
         "configuration": {
             "title": "AetherShell",
             "properties": {
                 "aethershell.lsp.path": {
                     "type": "string",
                     "default": "",
-                    "description": "Path to the AetherShell language server binary. If empty, the extension will look for 'aethershell-lsp' in PATH."
+                    "description": "Path to the AetherShell language server binary."
                 },
                 "aethershell.lsp.enabled": {
                     "type": "boolean",
@@ -77,13 +95,30 @@
                 },
                 "aethershell.trace.server": {
                     "type": "string",
-                    "enum": [
-                        "off",
-                        "messages",
-                        "verbose"
-                    ],
+                    "enum": ["off", "messages", "verbose"],
                     "default": "off",
                     "description": "Traces the communication between VS Code and the language server."
+                },
+                "aethershell.executable.path": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Path to the AetherShell executable (ae). If empty, uses 'ae' from PATH."
+                },
+                "aethershell.ai.enabled": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Enable AI-powered features like code improvements."
+                },
+                "aethershell.ai.provider": {
+                    "type": "string",
+                    "enum": ["openai", "anthropic", "ollama", "auto"],
+                    "default": "auto",
+                    "description": "AI provider to use for AI-powered features."
+                },
+                "aethershell.runOnSave": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Automatically run the file when saved."
                 }
             }
         },
@@ -97,8 +132,95 @@
                 "command": "aethershell.showOutput",
                 "title": "Show Output Channel",
                 "category": "AetherShell"
+            },
+            {
+                "command": "aethershell.runFile",
+                "title": "Run File",
+                "category": "AetherShell",
+                "icon": "$(play)"
+            },
+            {
+                "command": "aethershell.runSelection",
+                "title": "Run Selection/Line",
+                "category": "AetherShell",
+                "icon": "$(debug-start)"
+            },
+            {
+                "command": "aethershell.startRepl",
+                "title": "Start REPL",
+                "category": "AetherShell",
+                "icon": "$(terminal)"
+            },
+            {
+                "command": "aethershell.startTui",
+                "title": "Start TUI Mode",
+                "category": "AetherShell",
+                "icon": "$(screen-full)"
+            },
+            {
+                "command": "aethershell.extractFunction",
+                "title": "Extract to Function",
+                "category": "AetherShell"
+            },
+            {
+                "command": "aethershell.wrapWithTryCatch",
+                "title": "Wrap with try-catch",
+                "category": "AetherShell"
+            },
+            {
+                "command": "aethershell.aiImprove",
+                "title": "AI: Improve Code",
+                "category": "AetherShell",
+                "icon": "$(sparkle)"
+            },
+            {
+                "command": "aethershell.aiDocument",
+                "title": "AI: Generate Documentation",
+                "category": "AetherShell",
+                "icon": "$(book)"
             }
         ],
+        "keybindings": [
+            {
+                "command": "aethershell.runFile",
+                "key": "ctrl+shift+r",
+                "mac": "cmd+shift+r",
+                "when": "editorLangId == aethershell"
+            },
+            {
+                "command": "aethershell.runSelection",
+                "key": "ctrl+enter",
+                "mac": "cmd+enter",
+                "when": "editorLangId == aethershell"
+            },
+            {
+                "command": "aethershell.startRepl",
+                "key": "ctrl+shift+t",
+                "mac": "cmd+shift+t",
+                "when": "editorLangId == aethershell"
+            }
+        ],
+        "menus": {
+            "editor/title": [
+                {
+                    "command": "aethershell.runFile",
+                    "when": "resourceLangId == aethershell",
+                    "group": "navigation"
+                }
+            ],
+            "editor/context": [
+                {
+                    "command": "aethershell.runSelection",
+                    "when": "editorLangId == aethershell",
+                    "group": "1_run"
+                },
+                {
+                    "command": "aethershell.aiImprove",
+                    "when": "editorLangId == aethershell && editorHasSelection",
+                    "group": "2_ai"
+                }
+            ]
+        },
         "snippets": [
             {
                 "language": "aethershell",
