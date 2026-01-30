@@ -82,6 +82,8 @@ getrandom = { version = "0.2", features = ["js"] }
 async-trait = "0.1"
 dirs = "5.0"
 semver = "1.0"
+libloading = "0.8"
+notify = "6.1"
 
 # Native-only dependencies (terminal, TUI, system interaction)
 walkdir = { version = "2", optional = true }
