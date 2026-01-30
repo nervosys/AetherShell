@@ -4,12 +4,22 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aethershell"
-version = "0.2.0"
-description = "AetherShell - AI-powered typed shell for Python"
+version = "0.3.0"
+description = "AetherShell - AI-powered typed shell with workflow orchestration and cloud deployment"
 readme = "README.md"
 license = { text = "Apache-2.0" }
 authors = [{ name = "nervosys", email = "contact@nervosys.ai" }]
-keywords = ["shell", "ai", "agent", "pipeline", "llm", "automation"]
+keywords = [
+    "shell",
+    "ai",
+    "agent",
+    "pipeline",
+    "llm",
+    "automation",
+    "workflow",
+    "serverless",
+    "cloud",
+]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -22,6 +32,7 @@ classifiers = [
     "Topic :: Software Development :: Interpreters",
     "Topic :: System :: Shells",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: System :: Distributed Computing",
 ]
 requires-python = ">=3.9"
 dependencies = ["typing-extensions>=4.0"]
@@ -34,8 +45,25 @@ dev = [
     "mypy>=1.0",
     "ruff>=0.1",
 ]
-langchain = ["langchain>=0.1"]
+langchain = ["langchain>=0.1", "pydantic>=2.0"]
 llamaindex = ["llama-index>=0.10"]
+cloud = [
+    "boto3>=1.28.0",            # AWS Lambda
+    "azure-functions>=1.15.0",  # Azure Functions
+    "functions-framework>=3.0", # GCP Functions
+    "fastapi>=0.100.0",         # Knative/K8s
+    "uvicorn>=0.23.0",
+]
+all = [
+    "langchain>=0.1",
+    "pydantic>=2.0",
+    "llama-index>=0.10",
+    "boto3>=1.28.0",
+    "azure-functions>=1.15.0",
+    "functions-framework>=3.0",
+    "fastapi>=0.100.0",
+    "uvicorn>=0.23.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/nervosys/AetherShell"
