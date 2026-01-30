@@ -2,6 +2,12 @@
 AetherShell Python SDK
 
 AI-powered typed shell with agent orchestration capabilities.
+
+Modules:
+    - workflows: Workflow patterns (MapReduce, Saga, Pipeline, Fan-Out)
+    - metrics: Observability (Prometheus metrics, tracing, health checks)
+    - distributed: Distributed agents (service registry, leader election, routing)
+    - langchain: LangChain integration tools
 """
 
 from __future__ import annotations
@@ -14,8 +20,9 @@ import subprocess
 import sys
 import os
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 __all__ = [
+    # Core
     "AetherRuntime",
     "Agent",
     "AgentConfig",
@@ -27,6 +34,11 @@ __all__ = [
     "NotificationLevel",
     "evaluate",
     "pipeline",
+    # Submodules
+    "workflows",
+    "metrics",
+    "distributed",
+    "langchain",
 ]
 
 
@@ -94,6 +106,7 @@ class Agent:
         tools: Optional[List[str]] = None,
         max_steps: int = 10,
         runtime: Optional[AetherRuntime] = None,
+        system_prompt: Optional[str] = None,
     ):
         self.name = name
         self.model = model
