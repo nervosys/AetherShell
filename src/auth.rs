@@ -481,7 +481,9 @@ impl RbacManager {
 
     pub fn assign_role(&self, user_id: &str, role_name: &str) -> Result<()> {
         let mut users = self.users.write().map_err(|_| anyhow!("Lock poisoned"))?;
-        let user = users.get_mut(user_id).ok_or_else(|| anyhow!("User not found"))?;
+        let user = users
+            .get_mut(user_id)
+            .ok_or_else(|| anyhow!("User not found"))?;
 
         if !user.roles.contains(&role_name.to_string()) {
             user.roles.push(role_name.to_string());
@@ -498,7 +500,9 @@ impl RbacManager {
 
     pub fn remove_role(&self, user_id: &str, role_name: &str) -> Result<()> {
         let mut users = self.users.write().map_err(|_| anyhow!("Lock poisoned"))?;
-        let user = users.get_mut(user_id).ok_or_else(|| anyhow!("User not found"))?;
+        let user = users
+            .get_mut(user_id)
+            .ok_or_else(|| anyhow!("User not found"))?;
 
         user.roles.retain(|r| r != role_name);
         user.updated_at = Utc::now();
@@ -809,9 +813,11 @@ impl AuthManager {
     }
 
     fn authenticate_api_key(&self, key: &str) -> AuthResult {
-        let api_key = self.api_keys.read().ok().and_then(|keys| {
-            keys.values().find(|k| k.verify(key)).cloned()
-        });
+        let api_key = self
+            .api_keys
+            .read()
+            .ok()
+            .and_then(|keys| keys.values().find(|k| k.verify(key)).cloned());
 
         let api_key = match api_key {
             Some(k) => k,
@@ -847,7 +853,10 @@ impl AuthManager {
 
     /// Create a new API key
     pub fn create_api_key(&self, user_id: &str, name: &str) -> Result<(ApiKey, String)> {
-        let user = self.rbac.get_user(user_id).ok_or_else(|| anyhow!("User not found"))?;
+        let user = self
+            .rbac
+            .get_user(user_id)
+            .ok_or_else(|| anyhow!("User not found"))?;
 
         let (api_key, raw_key) = ApiKey::new(name, &user.id);
 
@@ -1012,7 +1021,12 @@ impl AuthManager {
                 m.insert("name".to_string(), Value::Str(r.name.clone()));
                 m.insert(
                     "permissions".to_string(),
-                    Value::Array(r.permissions.iter().map(|p| Value::Str(p.clone())).collect()),
+                    Value::Array(
+                        r.permissions
+                            .iter()
+                            .map(|p| Value::Str(p.clone()))
+                            .collect(),
+                    ),
                 );
                 Value::Record(m)
             })
@@ -1025,7 +1039,10 @@ impl AuthManager {
             .read()
             .map(|s| s.values().filter(|sess| sess.is_valid()).count())
             .unwrap_or(0);
-        result.insert("active_sessions".to_string(), Value::Int(active_sessions as i64));
+        result.insert(
+            "active_sessions".to_string(),
+            Value::Int(active_sessions as i64),
+        );
 
         // API keys count
         let api_keys = self
@@ -1124,7 +1141,9 @@ mod tests {
 
     #[test]
     fn test_user_creation() {
-        let user = User::new("testuser").with_email("test@example.com").with_role("viewer");
+        let user = User::new("testuser")
+            .with_email("test@example.com")
+            .with_role("viewer");
 
         assert_eq!(user.username, "testuser");
         assert_eq!(user.email, Some("test@example.com".to_string()));
@@ -1154,7 +1173,9 @@ mod tests {
 
     #[test]
     fn test_auth_token() {
-        let token = AuthToken::new("user123", TokenType::Bearer, 60).with_scope("read").with_scope("write");
+        let token = AuthToken::new("user123", TokenType::Bearer, 60)
+            .with_scope("read")
+            .with_scope("write");
 
         assert!(token.is_valid());
         assert!(token.has_scope("read"));
@@ -1353,7 +1374,9 @@ mod tests {
         let (api_key, raw_key) = auth.create_api_key(&user.id, "revoke-test").unwrap();
 
         // Should work before revocation
-        let result = auth.authenticate(Credential::ApiKey { key: raw_key.clone() });
+        let result = auth.authenticate(Credential::ApiKey {
+            key: raw_key.clone(),
+        });
         assert!(result.success);
 
         // Revoke
