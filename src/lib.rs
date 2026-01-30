@@ -18,6 +18,8 @@ pub mod ai;
 #[cfg(feature = "native")]
 pub mod ai_api;
 #[cfg(feature = "native")]
+pub mod auth;
+#[cfg(feature = "native")]
 pub mod builtins;
 #[cfg(feature = "native")]
 pub mod config;
