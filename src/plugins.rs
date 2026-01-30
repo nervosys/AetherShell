@@ -1,18 +1,23 @@
 //! Plugin system for AetherShell extensibility
 //!
-//! This module provides a plugin architecture that allows:
+//! This module provides a comprehensive plugin architecture that allows:
 //! - Custom AI backends
-//! - Custom builtins
+//! - Custom builtins (native and script-based)
 //! - Custom file handlers
 //! - Custom transport protocols
+//! - Dynamic library loading (.dll/.so/.dylib)
+//! - Script-based plugins (.ae files)
+//! - Hot-reloading support
+//! - Plugin marketplace integration
 //!
 //! Plugins can be loaded dynamically at runtime or compiled statically.
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::time::{Instant, SystemTime};
 
 use crate::value::Value;
 
@@ -37,6 +42,15 @@ pub struct PluginMetadata {
     pub min_aether_version: String,
     /// Plugin dependencies (other plugin IDs)
     pub dependencies: Vec<String>,
+    /// Plugin homepage/repository URL
+    #[serde(default)]
+    pub homepage: Option<String>,
+    /// License identifier (SPDX)
+    #[serde(default)]
+    pub license: Option<String>,
+    /// Keywords for discovery
+    #[serde(default)]
+    pub keywords: Vec<String>,
 }
 
 /// Categories of plugin functionality
@@ -56,6 +70,21 @@ pub enum PluginCategory {
     TUIComponent,
     /// Other/custom category
     Custom(String),
+}
+
+/// Plugin source type
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum PluginSource {
+    /// Built into AetherShell
+    Builtin,
+    /// Loaded from a TOML manifest
+    Manifest(PathBuf),
+    /// Loaded from a dynamic library
+    DynamicLibrary(PathBuf),
+    /// Loaded from an AetherShell script
+    Script(PathBuf),
+    /// Installed from marketplace
+    Marketplace { registry: String, package: String },
 }
 
 // ===================== Plugin Traits =====================
@@ -99,6 +128,39 @@ pub trait BuiltinPlugin: Send + Sync {
 
     /// Get help text for a builtin
     fn help(&self, name: &str) -> Option<String>;
+
+    /// Get parameter signature for a builtin (optional)
+    fn signature(&self, _name: &str) -> Option<BuiltinSignature> {
+        None
+    }
+}
+
+/// Signature for a plugin builtin function
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuiltinSignature {
+    /// Function name
+    pub name: String,
+    /// Parameter definitions
+    pub params: Vec<BuiltinParam>,
+    /// Return type description
+    pub returns: String,
+    /// Whether it accepts pipeline input
+    pub accepts_input: bool,
+    /// Example usage
+    pub examples: Vec<String>,
+}
+
+/// Parameter definition for a builtin
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuiltinParam {
+    /// Parameter name
+    pub name: String,
+    /// Type description
+    pub type_desc: String,
+    /// Whether required
+    pub required: bool,
+    /// Default value (as string)
+    pub default: Option<String>,
 }
 
 /// Trait for file handler plugins
@@ -146,6 +208,306 @@ pub trait TransportConnection: Send + Sync {
     fn is_connected(&self) -> bool;
 }
 
+// ===================== Dynamic Library Plugin Interface =====================
+
+/// FFI-safe function signature for dynamic library plugins
+pub type PluginInitFn = unsafe extern "C" fn() -> *mut PluginVTable;
+
+/// FFI-safe function signature for cleanup
+pub type PluginDeinitFn = unsafe extern "C" fn(*mut PluginVTable);
+
+/// Virtual function table for dynamic plugins
+#[repr(C)]
+pub struct PluginVTable {
+    /// Get plugin metadata as JSON
+    pub get_metadata: extern "C" fn() -> *const std::ffi::c_char,
+    /// Get builtin names as JSON array
+    pub get_builtin_names: extern "C" fn() -> *const std::ffi::c_char,
+    /// Execute a builtin (name, args_json, input_json) -> result_json
+    pub execute_builtin: extern "C" fn(
+        *const std::ffi::c_char,
+        *const std::ffi::c_char,
+        *const std::ffi::c_char,
+    ) -> *const std::ffi::c_char,
+    /// Get help for a builtin
+    pub get_help: extern "C" fn(*const std::ffi::c_char) -> *const std::ffi::c_char,
+    /// Free a string allocated by the plugin
+    pub free_string: extern "C" fn(*const std::ffi::c_char),
+}
+
+/// A loaded dynamic library plugin
+pub struct DynamicPlugin {
+    metadata: PluginMetadata,
+    library: libloading::Library,
+    vtable: *mut PluginVTable,
+    path: PathBuf,
+    loaded_at: Instant,
+    last_modified: SystemTime,
+}
+
+// Safety: DynamicPlugin is Send+Sync because the vtable functions are thread-safe
+unsafe impl Send for DynamicPlugin {}
+unsafe impl Sync for DynamicPlugin {}
+
+impl DynamicPlugin {
+    /// Load a dynamic library plugin
+    pub fn load(path: &Path) -> Result<Self> {
+        // Get file modification time for hot-reload detection
+        let last_modified = std::fs::metadata(path)
+            .context("Failed to get plugin file metadata")?
+            .modified()
+            .unwrap_or(SystemTime::UNIX_EPOCH);
+
+        // Load the library
+        let library =
+            unsafe { libloading::Library::new(path).context("Failed to load dynamic library")? };
+
+        // Get the init function
+        let init_fn: libloading::Symbol<PluginInitFn> = unsafe {
+            library
+                .get(b"aether_plugin_init")
+                .context("Plugin missing aether_plugin_init function")?
+        };
+
+        // Initialize the plugin
+        let vtable = unsafe { init_fn() };
+        if vtable.is_null() {
+            return Err(anyhow::anyhow!("Plugin initialization returned null"));
+        }
+
+        // Get metadata
+        let metadata_json = unsafe {
+            let ptr = ((*vtable).get_metadata)();
+            if ptr.is_null() {
+                return Err(anyhow::anyhow!("Plugin returned null metadata"));
+            }
+            let s = std::ffi::CStr::from_ptr(ptr).to_string_lossy().into_owned();
+            ((*vtable).free_string)(ptr);
+            s
+        };
+
+        let metadata: PluginMetadata =
+            serde_json::from_str(&metadata_json).context("Failed to parse plugin metadata")?;
+
+        Ok(Self {
+            metadata,
+            library,
+            vtable,
+            path: path.to_path_buf(),
+            loaded_at: Instant::now(),
+            last_modified,
+        })
+    }
+
+    /// Check if the plugin file has been modified
+    pub fn needs_reload(&self) -> bool {
+        if let Ok(meta) = std::fs::metadata(&self.path) {
+            if let Ok(modified) = meta.modified() {
+                return modified > self.last_modified;
+            }
+        }
+        false
+    }
+
+    /// Get builtin names from the plugin
+    pub fn builtin_names(&self) -> Vec<String> {
+        unsafe {
+            let ptr = ((*self.vtable).get_builtin_names)();
+            if ptr.is_null() {
+                return vec![];
+            }
+            let s = std::ffi::CStr::from_ptr(ptr).to_string_lossy().into_owned();
+            ((*self.vtable).free_string)(ptr);
+            serde_json::from_str(&s).unwrap_or_default()
+        }
+    }
+
+    /// Execute a builtin
+    pub fn execute(&self, name: &str, args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+        let name_cstr = std::ffi::CString::new(name)?;
+        let args_json = serde_json::to_string(&args)?;
+        let args_cstr = std::ffi::CString::new(args_json)?;
+        let input_json = serde_json::to_string(&input)?;
+        let input_cstr = std::ffi::CString::new(input_json)?;
+
+        unsafe {
+            let result_ptr = ((*self.vtable).execute_builtin)(
+                name_cstr.as_ptr(),
+                args_cstr.as_ptr(),
+                input_cstr.as_ptr(),
+            );
+
+            if result_ptr.is_null() {
+                return Err(anyhow::anyhow!("Plugin returned null result"));
+            }
+
+            let result_str = std::ffi::CStr::from_ptr(result_ptr)
+                .to_string_lossy()
+                .into_owned();
+            ((*self.vtable).free_string)(result_ptr);
+
+            // Parse result - could be Value or error
+            if result_str.starts_with("{\"error\":") {
+                let err: serde_json::Value = serde_json::from_str(&result_str)?;
+                Err(anyhow::anyhow!(
+                    "{}",
+                    err["error"].as_str().unwrap_or("Unknown error")
+                ))
+            } else {
+                serde_json::from_str(&result_str).context("Failed to parse plugin result")
+            }
+        }
+    }
+
+    /// Get help for a builtin
+    pub fn help(&self, name: &str) -> Option<String> {
+        let name_cstr = std::ffi::CString::new(name).ok()?;
+        unsafe {
+            let ptr = ((*self.vtable).get_help)(name_cstr.as_ptr());
+            if ptr.is_null() {
+                return None;
+            }
+            let s = std::ffi::CStr::from_ptr(ptr).to_string_lossy().into_owned();
+            ((*self.vtable).free_string)(ptr);
+            if s.is_empty() {
+                None
+            } else {
+                Some(s)
+            }
+        }
+    }
+}
+
+impl Drop for DynamicPlugin {
+    fn drop(&mut self) {
+        // Try to call deinit if available
+        if let Ok(deinit_fn) =
+            unsafe { self.library.get::<PluginDeinitFn>(b"aether_plugin_deinit") }
+        {
+            unsafe {
+                deinit_fn(self.vtable);
+            }
+        }
+    }
+}
+
+// ===================== Script-based Plugin =====================
+
+/// A plugin defined in AetherShell script (.ae file)
+#[derive(Debug, Clone)]
+pub struct ScriptPlugin {
+    metadata: PluginMetadata,
+    path: PathBuf,
+    /// Map of builtin name -> lambda expression source
+    builtins: HashMap<String, String>,
+    /// Help text for builtins
+    help_text: HashMap<String, String>,
+    /// Last modification time
+    last_modified: SystemTime,
+}
+
+impl ScriptPlugin {
+    /// Load a script plugin from a .ae file
+    pub fn load(path: &Path) -> Result<Self> {
+        let content = std::fs::read_to_string(path).context("Failed to read script plugin")?;
+
+        // Parse the plugin header (special comment format)
+        let mut metadata = PluginMetadata {
+            id: path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown")
+                .to_string(),
+            name: "Script Plugin".to_string(),
+            version: "1.0.0".to_string(),
+            author: "Unknown".to_string(),
+            description: String::new(),
+            categories: vec![PluginCategory::Builtin],
+            min_aether_version: "0.1.0".to_string(),
+            dependencies: vec![],
+            homepage: None,
+            license: None,
+            keywords: vec![],
+        };
+
+        let mut builtins = HashMap::new();
+        let mut help_text = HashMap::new();
+
+        // Parse plugin metadata from comments
+        // Format: #! plugin.id = "my-plugin"
+        //         #! plugin.name = "My Plugin"
+        //         #! builtin.my_func = "fn(x) => x * 2"
+        //         #! help.my_func = "Doubles the input"
+        for line in content.lines() {
+            let line = line.trim();
+            if let Some(directive) = line.strip_prefix("#!") {
+                let directive = directive.trim();
+                if let Some((key, value)) = directive.split_once('=') {
+                    let key = key.trim();
+                    let value = value.trim().trim_matches('"');
+
+                    if let Some(field) = key.strip_prefix("plugin.") {
+                        match field {
+                            "id" => metadata.id = value.to_string(),
+                            "name" => metadata.name = value.to_string(),
+                            "version" => metadata.version = value.to_string(),
+                            "author" => metadata.author = value.to_string(),
+                            "description" => metadata.description = value.to_string(),
+                            "license" => metadata.license = Some(value.to_string()),
+                            "homepage" => metadata.homepage = Some(value.to_string()),
+                            _ => {}
+                        }
+                    } else if let Some(name) = key.strip_prefix("builtin.") {
+                        builtins.insert(name.to_string(), value.to_string());
+                    } else if let Some(name) = key.strip_prefix("help.") {
+                        help_text.insert(name.to_string(), value.to_string());
+                    }
+                }
+            }
+        }
+
+        // Also parse actual function definitions: let my_func = fn(x) => x * 2
+        for line in content.lines() {
+            let line = line.trim();
+            if line.starts_with("let ") && line.contains("= fn(") {
+                if let Some((name_part, body)) =
+                    line.strip_prefix("let ").and_then(|s| s.split_once('='))
+                {
+                    let name = name_part.trim();
+                    let body = body.trim();
+                    // Export functions that start with uppercase or have export marker
+                    if !name.starts_with('_') {
+                        builtins.insert(name.to_string(), body.to_string());
+                    }
+                }
+            }
+        }
+
+        let last_modified = std::fs::metadata(path)
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .unwrap_or(SystemTime::UNIX_EPOCH);
+
+        Ok(Self {
+            metadata,
+            path: path.to_path_buf(),
+            builtins,
+            help_text,
+            last_modified,
+        })
+    }
+
+    /// Check if the plugin needs reloading
+    pub fn needs_reload(&self) -> bool {
+        if let Ok(meta) = std::fs::metadata(&self.path) {
+            if let Ok(modified) = meta.modified() {
+                return modified > self.last_modified;
+            }
+        }
+        false
+    }
+}
+
 // ===================== Plugin Registry =====================
 
 /// Global plugin registry singleton
@@ -156,6 +518,26 @@ pub fn get_plugin_registry() -> &'static Mutex<PluginRegistry> {
     PLUGIN_REGISTRY.get_or_init(|| Mutex::new(PluginRegistry::new()))
 }
 
+/// Hot-reload watcher state
+static HOT_RELOAD_ENABLED: OnceLock<RwLock<bool>> = OnceLock::new();
+
+/// Enable or disable hot-reloading
+pub fn set_hot_reload(enabled: bool) {
+    let lock = HOT_RELOAD_ENABLED.get_or_init(|| RwLock::new(false));
+    if let Ok(mut guard) = lock.write() {
+        *guard = enabled;
+    }
+}
+
+/// Check if hot-reloading is enabled
+pub fn is_hot_reload_enabled() -> bool {
+    HOT_RELOAD_ENABLED
+        .get()
+        .and_then(|lock| lock.read().ok())
+        .map(|guard| *guard)
+        .unwrap_or(false)
+}
+
 /// Central registry for all plugins
 pub struct PluginRegistry {
     /// All registered plugins by ID
@@ -164,19 +546,64 @@ pub struct PluginRegistry {
     ai_backends: HashMap<String, Arc<dyn AIBackendPlugin>>,
     /// Builtin plugins indexed by function name
     builtins: HashMap<String, (String, Arc<dyn BuiltinPlugin>)>, // (plugin_id, plugin)
+    /// Dynamic library plugins
+    dynamic_plugins: HashMap<String, Arc<Mutex<DynamicPlugin>>>,
+    /// Script plugins
+    script_plugins: HashMap<String, Arc<RwLock<ScriptPlugin>>>,
     /// File handlers indexed by extension
     file_handlers: HashMap<String, Arc<dyn FileHandlerPlugin>>,
     /// Transport plugins indexed by scheme
     transports: HashMap<String, Arc<dyn TransportPlugin>>,
     /// Plugin load paths
     load_paths: Vec<PathBuf>,
+    /// Marketplace registries
+    marketplaces: Vec<MarketplaceRegistry>,
+    /// Plugin dependency graph
+    dependency_graph: HashMap<String, Vec<String>>,
 }
 
 /// Entry for a registered plugin
 struct PluginEntry {
     metadata: PluginMetadata,
+    source: PluginSource,
     enabled: bool,
     load_time: std::time::Instant,
+}
+
+/// Marketplace registry configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MarketplaceRegistry {
+    /// Registry name
+    pub name: String,
+    /// Registry URL
+    pub url: String,
+    /// Whether it's enabled
+    pub enabled: bool,
+}
+
+/// Plugin search result from marketplace
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MarketplacePlugin {
+    /// Plugin ID
+    pub id: String,
+    /// Plugin name
+    pub name: String,
+    /// Latest version
+    pub version: String,
+    /// Description
+    pub description: String,
+    /// Author
+    pub author: String,
+    /// Download count
+    pub downloads: u64,
+    /// Categories
+    pub categories: Vec<String>,
+    /// Keywords
+    pub keywords: Vec<String>,
+    /// Homepage
+    pub homepage: Option<String>,
+    /// Repository
+    pub repository: Option<String>,
 }
 
 impl PluginRegistry {
@@ -186,9 +613,17 @@ impl PluginRegistry {
             plugins: HashMap::new(),
             ai_backends: HashMap::new(),
             builtins: HashMap::new(),
+            dynamic_plugins: HashMap::new(),
+            script_plugins: HashMap::new(),
             file_handlers: HashMap::new(),
             transports: HashMap::new(),
             load_paths: Vec::new(),
+            marketplaces: vec![MarketplaceRegistry {
+                name: "AetherShell Official".to_string(),
+                url: "https://plugins.aethershell.io/api/v1".to_string(),
+                enabled: true,
+            }],
+            dependency_graph: HashMap::new(),
         };
 
         // Add default load paths
@@ -253,6 +688,7 @@ impl PluginRegistry {
             plugin_id.clone(),
             PluginEntry {
                 metadata: metadata.clone(),
+                source: PluginSource::Builtin,
                 enabled: true,
                 load_time: std::time::Instant::now(),
             },
@@ -274,6 +710,7 @@ impl PluginRegistry {
             plugin_id.clone(),
             PluginEntry {
                 metadata: metadata.clone(),
+                source: PluginSource::Builtin,
                 enabled: true,
                 load_time: std::time::Instant::now(),
             },
@@ -298,6 +735,7 @@ impl PluginRegistry {
             plugin_id,
             PluginEntry {
                 metadata: metadata.clone(),
+                source: PluginSource::Builtin,
                 enabled: true,
                 load_time: std::time::Instant::now(),
             },
@@ -322,6 +760,7 @@ impl PluginRegistry {
             plugin_id,
             PluginEntry {
                 metadata: metadata.clone(),
+                source: PluginSource::Builtin,
                 enabled: true,
                 load_time: std::time::Instant::now(),
             },
@@ -332,6 +771,410 @@ impl PluginRegistry {
 
         Ok(())
     }
+
+    // ===================== Dynamic Plugin Loading =====================
+
+    /// Load a dynamic library plugin
+    pub fn load_dynamic_plugin(&mut self, path: &Path) -> Result<String> {
+        let plugin = DynamicPlugin::load(path)?;
+        let plugin_id = plugin.metadata.id.clone();
+
+        // Check for duplicates
+        if self.plugins.contains_key(&plugin_id) {
+            return Err(anyhow::anyhow!("Plugin {} is already loaded", plugin_id));
+        }
+
+        // Register the plugin
+        self.plugins.insert(
+            plugin_id.clone(),
+            PluginEntry {
+                metadata: plugin.metadata.clone(),
+                source: PluginSource::DynamicLibrary(path.to_path_buf()),
+                enabled: true,
+                load_time: Instant::now(),
+            },
+        );
+
+        // Store the dynamic plugin
+        let plugin_arc = Arc::new(Mutex::new(plugin));
+
+        // Register builtins from the dynamic plugin
+        if let Ok(guard) = plugin_arc.lock() {
+            for name in guard.builtin_names() {
+                // Store reference to dynamic plugin for builtin calls
+                self.dynamic_plugins
+                    .insert(name.clone(), plugin_arc.clone());
+            }
+        }
+
+        self.dynamic_plugins.insert(plugin_id.clone(), plugin_arc);
+
+        Ok(plugin_id)
+    }
+
+    /// Load a script plugin
+    pub fn load_script_plugin(&mut self, path: &Path) -> Result<String> {
+        let plugin = ScriptPlugin::load(path)?;
+        let plugin_id = plugin.metadata.id.clone();
+
+        // Check for duplicates
+        if self.plugins.contains_key(&plugin_id) {
+            return Err(anyhow::anyhow!("Plugin {} is already loaded", plugin_id));
+        }
+
+        // Register the plugin
+        self.plugins.insert(
+            plugin_id.clone(),
+            PluginEntry {
+                metadata: plugin.metadata.clone(),
+                source: PluginSource::Script(path.to_path_buf()),
+                enabled: true,
+                load_time: Instant::now(),
+            },
+        );
+
+        // Store the script plugin
+        self.script_plugins
+            .insert(plugin_id.clone(), Arc::new(RwLock::new(plugin)));
+
+        Ok(plugin_id)
+    }
+
+    /// Load all plugins from configured paths
+    pub fn load_all_plugins(&mut self) -> Vec<Result<String>> {
+        let mut results = Vec::new();
+        let paths = self.load_paths.clone();
+
+        for base_path in paths {
+            if !base_path.exists() {
+                continue;
+            }
+
+            // Scan for plugins
+            if let Ok(entries) = std::fs::read_dir(&base_path) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+
+                    if path.is_file() {
+                        let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+
+                        match ext {
+                            // Dynamic libraries
+                            "dll" | "so" | "dylib" => {
+                                results.push(self.load_dynamic_plugin(&path));
+                            }
+                            // Script plugins
+                            "ae" => {
+                                results.push(self.load_script_plugin(&path));
+                            }
+                            // Manifest files
+                            "toml"
+                                if path
+                                    .file_name()
+                                    .map(|n| n.to_str().unwrap_or("").ends_with(".plugin.toml"))
+                                    .unwrap_or(false) =>
+                            {
+                                results.push(
+                                    load_plugin_from_manifest(path.to_str().unwrap_or("")).map(
+                                        |v| {
+                                            if let Value::Record(r) = v {
+                                                r.get("id")
+                                                    .and_then(|v| {
+                                                        if let Value::Str(s) = v {
+                                                            Some(s.clone())
+                                                        } else {
+                                                            None
+                                                        }
+                                                    })
+                                                    .unwrap_or_default()
+                                            } else {
+                                                String::new()
+                                            }
+                                        },
+                                    ),
+                                );
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+
+        results
+    }
+
+    /// Reload a specific plugin
+    pub fn reload_plugin(&mut self, plugin_id: &str) -> Result<()> {
+        let entry = self.plugins.get(plugin_id).context("Plugin not found")?;
+
+        match &entry.source {
+            PluginSource::DynamicLibrary(path) => {
+                let path = path.clone();
+                self.unload_plugin(plugin_id)?;
+                self.load_dynamic_plugin(&path)?;
+            }
+            PluginSource::Script(path) => {
+                let path = path.clone();
+                self.unload_plugin(plugin_id)?;
+                self.load_script_plugin(&path)?;
+            }
+            PluginSource::Manifest(path) => {
+                let path = path.clone();
+                self.unload_plugin(plugin_id)?;
+                load_plugin_from_manifest(path.to_str().unwrap_or(""))?;
+            }
+            PluginSource::Builtin => {
+                return Err(anyhow::anyhow!("Cannot reload built-in plugins"));
+            }
+            PluginSource::Marketplace { .. } => {
+                return Err(anyhow::anyhow!("Use marketplace update to reload"));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Unload a plugin
+    pub fn unload_plugin(&mut self, plugin_id: &str) -> Result<()> {
+        let entry = self.plugins.get(plugin_id).context("Plugin not found")?;
+
+        // Check if it's a builtin
+        if matches!(entry.source, PluginSource::Builtin) {
+            return Err(anyhow::anyhow!("Cannot unload built-in plugins"));
+        }
+
+        // Remove from various registries
+        self.plugins.remove(plugin_id);
+        self.builtins.retain(|_, (pid, _)| pid != plugin_id);
+        self.dynamic_plugins.remove(plugin_id);
+        self.script_plugins.remove(plugin_id);
+        self.ai_backends.remove(plugin_id);
+        self.file_handlers
+            .retain(|_, h| h.metadata().id != plugin_id);
+        self.transports.remove(plugin_id);
+        self.dependency_graph.remove(plugin_id);
+
+        Ok(())
+    }
+
+    /// Check all plugins for hot-reload
+    pub fn check_hot_reload(&mut self) -> Vec<String> {
+        let mut reloaded = Vec::new();
+
+        if !is_hot_reload_enabled() {
+            return reloaded;
+        }
+
+        // Collect plugins that need reloading first (to avoid borrow issues)
+        let mut to_reload = Vec::new();
+
+        // Check dynamic plugins
+        for (plugin_id, plugin) in &self.dynamic_plugins {
+            if let Ok(guard) = plugin.lock() {
+                if guard.needs_reload() {
+                    to_reload.push(plugin_id.clone());
+                }
+            }
+        }
+
+        // Check script plugins
+        for (plugin_id, plugin) in &self.script_plugins {
+            if let Ok(guard) = plugin.read() {
+                if guard.needs_reload() {
+                    to_reload.push(plugin_id.clone());
+                }
+            }
+        }
+
+        // Now reload them
+        for plugin_id in to_reload {
+            if self.reload_plugin(&plugin_id).is_ok() {
+                reloaded.push(plugin_id);
+            }
+        }
+
+        reloaded
+    }
+
+    /// Execute a plugin builtin
+    pub fn execute_plugin_builtin(
+        &self,
+        name: &str,
+        args: Vec<Value>,
+        input: Option<Value>,
+    ) -> Option<Result<Value>> {
+        // Check dynamic plugins first
+        if let Some(plugin) = self.dynamic_plugins.get(name) {
+            if let Ok(guard) = plugin.lock() {
+                return Some(guard.execute(name, args, input));
+            }
+        }
+
+        // Check script plugins
+        for (_, plugin) in &self.script_plugins {
+            if let Ok(guard) = plugin.read() {
+                if guard.builtins.contains_key(name) {
+                    // Return the lambda source to be evaluated by the caller
+                    let lambda_src = guard.builtins.get(name).cloned();
+                    if let Some(src) = lambda_src {
+                        return Some(Ok(Value::Str(format!("__plugin_lambda__:{}", src))));
+                    }
+                }
+            }
+        }
+
+        // Check trait-based builtin plugins
+        if let Some((_, plugin)) = self.builtins.get(name) {
+            return Some(plugin.execute(name, args, input));
+        }
+
+        None
+    }
+
+    /// Get help for a plugin builtin
+    pub fn get_plugin_builtin_help(&self, name: &str) -> Option<String> {
+        // Check dynamic plugins
+        for (_, plugin) in &self.dynamic_plugins {
+            if let Ok(guard) = plugin.lock() {
+                if let Some(help) = guard.help(name) {
+                    return Some(help);
+                }
+            }
+        }
+
+        // Check script plugins
+        for (_, plugin) in &self.script_plugins {
+            if let Ok(guard) = plugin.read() {
+                if let Some(help) = guard.help_text.get(name) {
+                    return Some(help.clone());
+                }
+            }
+        }
+
+        // Check trait-based plugins
+        if let Some((_, plugin)) = self.builtins.get(name) {
+            return plugin.help(name);
+        }
+
+        None
+    }
+
+    /// List all plugin builtins
+    pub fn list_plugin_builtins(&self) -> Vec<(String, String)> {
+        let mut result = Vec::new();
+
+        // From dynamic plugins
+        for (id, plugin) in &self.dynamic_plugins {
+            if let Ok(guard) = plugin.lock() {
+                for name in guard.builtin_names() {
+                    result.push((name, id.clone()));
+                }
+            }
+        }
+
+        // From script plugins
+        for (id, plugin) in &self.script_plugins {
+            if let Ok(guard) = plugin.read() {
+                for name in guard.builtins.keys() {
+                    result.push((name.clone(), id.clone()));
+                }
+            }
+        }
+
+        // From trait-based plugins
+        for (name, (id, _)) in &self.builtins {
+            result.push((name.clone(), id.clone()));
+        }
+
+        result
+    }
+
+    // ===================== Marketplace Features =====================
+
+    /// Search plugins in marketplace
+    #[cfg(feature = "native")]
+    pub fn search_marketplace(&self, query: &str) -> Result<Vec<MarketplacePlugin>> {
+        let mut results = Vec::new();
+
+        for marketplace in &self.marketplaces {
+            if !marketplace.enabled {
+                continue;
+            }
+
+            let url = format!(
+                "{}/search?q={}",
+                marketplace.url,
+                urlencoding::encode(query)
+            );
+
+            // Use blocking HTTP client
+            let response =
+                reqwest::blocking::get(&url).context("Failed to connect to marketplace")?;
+
+            if response.status().is_success() {
+                let plugins: Vec<MarketplacePlugin> = response
+                    .json()
+                    .context("Failed to parse marketplace response")?;
+                results.extend(plugins);
+            }
+        }
+
+        Ok(results)
+    }
+
+    /// Install a plugin from marketplace
+    #[cfg(feature = "native")]
+    pub fn install_from_marketplace(&mut self, plugin_id: &str) -> Result<String> {
+        for marketplace in &self.marketplaces {
+            if !marketplace.enabled {
+                continue;
+            }
+
+            let url = format!("{}/plugins/{}/download", marketplace.url, plugin_id);
+
+            let response = reqwest::blocking::get(&url);
+
+            if let Ok(resp) = response {
+                if resp.status().is_success() {
+                    // Get the plugin directory
+                    let plugin_dir = self
+                        .load_paths
+                        .first()
+                        .context("No plugin directory configured")?;
+
+                    std::fs::create_dir_all(plugin_dir)?;
+
+                    // Save the plugin
+                    let plugin_path = plugin_dir.join(format!("{}.plugin.toml", plugin_id));
+                    let content = resp.text()?;
+                    std::fs::write(&plugin_path, &content)?;
+
+                    // Load it
+                    return load_plugin_from_manifest(plugin_path.to_str().unwrap_or(""))
+                        .map(|_| plugin_id.to_string());
+                }
+            }
+        }
+
+        Err(anyhow::anyhow!("Plugin not found in any marketplace"))
+    }
+
+    /// Add a custom marketplace registry
+    pub fn add_marketplace(&mut self, name: String, url: String) {
+        self.marketplaces.push(MarketplaceRegistry {
+            name,
+            url,
+            enabled: true,
+        });
+    }
+
+    /// List configured marketplaces
+    pub fn list_marketplaces(&self) -> Vec<MarketplaceRegistry> {
+        self.marketplaces.clone()
+    }
+
+    // ===================== Existing Methods =====================
 
     /// Get an AI backend by name/scheme
     pub fn get_ai_backend(&self, name: &str) -> Option<Arc<dyn AIBackendPlugin>> {
@@ -422,6 +1265,9 @@ impl FileHandlerPlugin for JsonFileHandler {
             categories: vec![PluginCategory::FileHandler],
             min_aether_version: "0.1.0".to_string(),
             dependencies: vec![],
+            homepage: None,
+            license: Some("Apache-2.0".to_string()),
+            keywords: vec!["json".to_string(), "file".to_string()],
         })
     }
 
@@ -462,6 +1308,9 @@ impl FileHandlerPlugin for CsvFileHandler {
             categories: vec![PluginCategory::FileHandler],
             min_aether_version: "0.1.0".to_string(),
             dependencies: vec![],
+            homepage: None,
+            license: Some("Apache-2.0".to_string()),
+            keywords: vec!["csv".to_string(), "file".to_string(), "table".to_string()],
         })
     }
 
@@ -534,6 +1383,9 @@ impl FileHandlerPlugin for TomlFileHandler {
             categories: vec![PluginCategory::FileHandler],
             min_aether_version: "0.1.0".to_string(),
             dependencies: vec![],
+            homepage: None,
+            license: Some("Apache-2.0".to_string()),
+            keywords: vec!["toml".to_string(), "file".to_string(), "config".to_string()],
         })
     }
 
@@ -885,6 +1737,27 @@ pub fn load_plugin_from_manifest(path: &str) -> Result<Value> {
         })
         .unwrap_or_default();
 
+    let homepage = plugin_section
+        .get("homepage")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    let license = plugin_section
+        .get("license")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    let keywords = plugin_section
+        .get("keywords")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str())
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
     let metadata = PluginMetadata {
         id: id.to_string(),
         name: name.to_string(),
@@ -894,6 +1767,9 @@ pub fn load_plugin_from_manifest(path: &str) -> Result<Value> {
         categories: categories_arr,
         min_aether_version: min_version.to_string(),
         dependencies,
+        homepage,
+        license,
+        keywords,
     };
 
     // Register the plugin in the registry
@@ -908,6 +1784,7 @@ pub fn load_plugin_from_manifest(path: &str) -> Result<Value> {
         metadata.id.clone(),
         PluginEntry {
             metadata: metadata.clone(),
+            source: PluginSource::Manifest(manifest_path.to_path_buf()),
             enabled: true,
             load_time: std::time::Instant::now(),
         },
@@ -947,6 +1824,236 @@ pub fn unload_plugin(plugin_id: &str) -> Result<Value> {
     } else {
         Err(anyhow::anyhow!("Plugin not found: {}", plugin_id))
     }
+}
+
+// ===================== Additional Plugin Builtins =====================
+
+/// Load a dynamic library plugin
+pub fn bi_plugin_load_dynamic(path: &str) -> Result<Value> {
+    let mut registry = get_plugin_registry().lock().unwrap();
+    let plugin_id = registry.load_dynamic_plugin(Path::new(path))?;
+
+    let mut result = std::collections::BTreeMap::new();
+    result.insert("id".to_string(), Value::Str(plugin_id));
+    result.insert("status".to_string(), Value::Str("loaded".to_string()));
+    result.insert("type".to_string(), Value::Str("dynamic".to_string()));
+
+    Ok(Value::Record(result))
+}
+
+/// Load a script plugin
+pub fn bi_plugin_load_script(path: &str) -> Result<Value> {
+    let mut registry = get_plugin_registry().lock().unwrap();
+    let plugin_id = registry.load_script_plugin(Path::new(path))?;
+
+    let mut result = std::collections::BTreeMap::new();
+    result.insert("id".to_string(), Value::Str(plugin_id));
+    result.insert("status".to_string(), Value::Str("loaded".to_string()));
+    result.insert("type".to_string(), Value::Str("script".to_string()));
+
+    Ok(Value::Record(result))
+}
+
+/// Load all plugins from configured paths
+pub fn bi_plugin_load_all() -> Value {
+    let mut registry = get_plugin_registry().lock().unwrap();
+    let results = registry.load_all_plugins();
+
+    let loaded: Vec<Value> = results
+        .into_iter()
+        .filter_map(|r| r.ok())
+        .map(Value::Str)
+        .collect();
+
+    Value::Array(loaded)
+}
+
+/// Reload a plugin
+pub fn bi_plugin_reload(plugin_id: &str) -> Result<Value> {
+    let mut registry = get_plugin_registry().lock().unwrap();
+    registry.reload_plugin(plugin_id)?;
+
+    let mut result = std::collections::BTreeMap::new();
+    result.insert("id".to_string(), Value::Str(plugin_id.to_string()));
+    result.insert("status".to_string(), Value::Str("reloaded".to_string()));
+
+    Ok(Value::Record(result))
+}
+
+/// Unload a plugin
+pub fn bi_plugin_unload(plugin_id: &str) -> Result<Value> {
+    unload_plugin(plugin_id)
+}
+
+/// Enable hot-reloading
+pub fn bi_plugin_hot_reload(enable: bool) -> Value {
+    set_hot_reload(enable);
+    Value::Bool(enable)
+}
+
+/// Check for plugin updates (hot-reload)
+pub fn bi_plugin_check_updates() -> Value {
+    let mut registry = get_plugin_registry().lock().unwrap();
+    let reloaded = registry.check_hot_reload();
+
+    Value::Array(reloaded.into_iter().map(Value::Str).collect())
+}
+
+/// List plugin builtins
+pub fn bi_plugin_builtins() -> Value {
+    let registry = get_plugin_registry().lock().unwrap();
+    let builtins = registry.list_plugin_builtins();
+
+    let list: Vec<Value> = builtins
+        .into_iter()
+        .map(|(name, plugin_id)| {
+            let mut rec = std::collections::BTreeMap::new();
+            rec.insert("name".to_string(), Value::Str(name));
+            rec.insert("plugin".to_string(), Value::Str(plugin_id));
+            Value::Record(rec)
+        })
+        .collect();
+
+    Value::Array(list)
+}
+
+/// Get help for a plugin builtin
+pub fn bi_plugin_builtin_help(name: &str) -> Value {
+    let registry = get_plugin_registry().lock().unwrap();
+    match registry.get_plugin_builtin_help(name) {
+        Some(help) => Value::Str(help),
+        None => Value::Null,
+    }
+}
+
+/// Search marketplace for plugins
+#[cfg(feature = "native")]
+pub fn bi_marketplace_search(query: &str) -> Result<Value> {
+    let registry = get_plugin_registry().lock().unwrap();
+    let results = registry.search_marketplace(query)?;
+
+    let list: Vec<Value> = results
+        .into_iter()
+        .map(|p| {
+            let mut rec = std::collections::BTreeMap::new();
+            rec.insert("id".to_string(), Value::Str(p.id));
+            rec.insert("name".to_string(), Value::Str(p.name));
+            rec.insert("version".to_string(), Value::Str(p.version));
+            rec.insert("description".to_string(), Value::Str(p.description));
+            rec.insert("author".to_string(), Value::Str(p.author));
+            rec.insert("downloads".to_string(), Value::Int(p.downloads as i64));
+            rec.insert(
+                "categories".to_string(),
+                Value::Array(p.categories.into_iter().map(Value::Str).collect()),
+            );
+            Value::Record(rec)
+        })
+        .collect();
+
+    Ok(Value::Array(list))
+}
+
+/// Install plugin from marketplace
+#[cfg(feature = "native")]
+pub fn bi_marketplace_install(plugin_id: &str) -> Result<Value> {
+    let mut registry = get_plugin_registry().lock().unwrap();
+    let id = registry.install_from_marketplace(plugin_id)?;
+
+    let mut result = std::collections::BTreeMap::new();
+    result.insert("id".to_string(), Value::Str(id));
+    result.insert("status".to_string(), Value::Str("installed".to_string()));
+
+    Ok(Value::Record(result))
+}
+
+/// List configured marketplaces
+pub fn bi_marketplace_list() -> Value {
+    let registry = get_plugin_registry().lock().unwrap();
+    let marketplaces = registry.list_marketplaces();
+
+    let list: Vec<Value> = marketplaces
+        .into_iter()
+        .map(|m| {
+            let mut rec = std::collections::BTreeMap::new();
+            rec.insert("name".to_string(), Value::Str(m.name));
+            rec.insert("url".to_string(), Value::Str(m.url));
+            rec.insert("enabled".to_string(), Value::Bool(m.enabled));
+            Value::Record(rec)
+        })
+        .collect();
+
+    Value::Array(list)
+}
+
+/// Add a custom marketplace
+pub fn bi_marketplace_add(name: &str, url: &str) -> Value {
+    let mut registry = get_plugin_registry().lock().unwrap();
+    registry.add_marketplace(name.to_string(), url.to_string());
+    Value::Bool(true)
+}
+
+/// Get plugin source information
+pub fn bi_plugin_source(plugin_id: &str) -> Value {
+    let registry = get_plugin_registry().lock().unwrap();
+
+    if let Some(entry) = registry.plugins.get(plugin_id) {
+        let source_str = match &entry.source {
+            PluginSource::Builtin => "builtin".to_string(),
+            PluginSource::Manifest(p) => format!("manifest:{}", p.display()),
+            PluginSource::DynamicLibrary(p) => format!("dynamic:{}", p.display()),
+            PluginSource::Script(p) => format!("script:{}", p.display()),
+            PluginSource::Marketplace { registry, package } => {
+                format!("marketplace:{}:{}", registry, package)
+            }
+        };
+
+        let mut rec = std::collections::BTreeMap::new();
+        rec.insert("id".to_string(), Value::Str(plugin_id.to_string()));
+        rec.insert("source".to_string(), Value::Str(source_str));
+        rec.insert("enabled".to_string(), Value::Bool(entry.enabled));
+        rec.insert(
+            "load_time".to_string(),
+            Value::Int(entry.load_time.elapsed().as_secs() as i64),
+        );
+
+        Value::Record(rec)
+    } else {
+        Value::Null
+    }
+}
+
+/// List plugins by source type
+pub fn bi_plugins_by_source(source_type: &str) -> Value {
+    let registry = get_plugin_registry().lock().unwrap();
+
+    let filtered: Vec<Value> = registry
+        .plugins
+        .iter()
+        .filter(|(_, entry)| {
+            let matches = match source_type.to_lowercase().as_str() {
+                "builtin" => matches!(entry.source, PluginSource::Builtin),
+                "dynamic" | "library" => matches!(entry.source, PluginSource::DynamicLibrary(_)),
+                "script" => matches!(entry.source, PluginSource::Script(_)),
+                "manifest" => matches!(entry.source, PluginSource::Manifest(_)),
+                "marketplace" => matches!(entry.source, PluginSource::Marketplace { .. }),
+                _ => true,
+            };
+            matches
+        })
+        .map(|(id, entry)| {
+            let mut rec = std::collections::BTreeMap::new();
+            rec.insert("id".to_string(), Value::Str(id.clone()));
+            rec.insert("name".to_string(), Value::Str(entry.metadata.name.clone()));
+            rec.insert(
+                "version".to_string(),
+                Value::Str(entry.metadata.version.clone()),
+            );
+            rec.insert("enabled".to_string(), Value::Bool(entry.enabled));
+            Value::Record(rec)
+        })
+        .collect();
+
+    Value::Array(filtered)
 }
 
 // ===================== Tests =====================
@@ -1032,5 +2139,128 @@ mod tests {
         } else {
             panic!("Expected record");
         }
+    }
+
+    #[test]
+    fn test_plugin_categories() {
+        let cats = bi_plugin_categories();
+        if let Value::Array(arr) = cats {
+            assert!(arr.len() >= 5);
+            assert!(arr.contains(&Value::Str("Builtin".to_string())));
+            assert!(arr.contains(&Value::Str("FileHandler".to_string())));
+        } else {
+            panic!("Expected array");
+        }
+    }
+
+    #[test]
+    fn test_hot_reload_toggle() {
+        // Initially disabled
+        assert!(!is_hot_reload_enabled());
+
+        // Enable
+        set_hot_reload(true);
+        assert!(is_hot_reload_enabled());
+
+        // Disable again
+        set_hot_reload(false);
+        assert!(!is_hot_reload_enabled());
+    }
+
+    #[test]
+    fn test_plugin_source() {
+        let source = bi_plugin_source("builtin.json");
+        if let Value::Record(rec) = source {
+            assert_eq!(rec.get("id"), Some(&Value::Str("builtin.json".to_string())));
+            assert_eq!(rec.get("source"), Some(&Value::Str("builtin".to_string())));
+            assert_eq!(rec.get("enabled"), Some(&Value::Bool(true)));
+        } else {
+            panic!("Expected record");
+        }
+    }
+
+    #[test]
+    fn test_plugins_by_source() {
+        let builtin = bi_plugins_by_source("builtin");
+        if let Value::Array(arr) = builtin {
+            assert!(!arr.is_empty());
+        } else {
+            panic!("Expected array");
+        }
+    }
+
+    #[test]
+    fn test_marketplace_list() {
+        let list = bi_marketplace_list();
+        if let Value::Array(arr) = list {
+            // Should have at least the official marketplace
+            assert!(!arr.is_empty());
+        } else {
+            panic!("Expected array");
+        }
+    }
+
+    #[test]
+    fn test_plugin_builtins() {
+        let builtins = bi_plugin_builtins();
+        // May be empty if no plugin builtins registered
+        assert!(matches!(builtins, Value::Array(_)));
+    }
+
+    #[test]
+    fn test_script_plugin_parsing() {
+        // Create a temporary script plugin content
+        let content = r#"
+#! plugin.id = "test-plugin"
+#! plugin.name = "Test Plugin"
+#! plugin.version = "1.0.0"
+#! plugin.author = "Test Author"
+#! builtin.double = "fn(x) => x * 2"
+#! help.double = "Doubles the input value"
+
+let triple = fn(x) => x * 3
+        "#;
+
+        // Write to temp file
+        let temp_dir = std::env::temp_dir();
+        let temp_file = temp_dir.join("test_plugin.ae");
+        std::fs::write(&temp_file, content).unwrap();
+
+        // Load it
+        let plugin = ScriptPlugin::load(&temp_file).unwrap();
+
+        assert_eq!(plugin.metadata.id, "test-plugin");
+        assert_eq!(plugin.metadata.name, "Test Plugin");
+        assert_eq!(plugin.metadata.author, "Test Author");
+        assert!(plugin.builtins.contains_key("double"));
+        assert!(plugin.builtins.contains_key("triple"));
+        assert!(plugin.help_text.contains_key("double"));
+
+        // Cleanup
+        std::fs::remove_file(temp_file).ok();
+    }
+
+    #[test]
+    fn test_plugin_metadata_serialization() {
+        let metadata = PluginMetadata {
+            id: "test".to_string(),
+            name: "Test".to_string(),
+            version: "1.0.0".to_string(),
+            author: "Author".to_string(),
+            description: "Desc".to_string(),
+            categories: vec![PluginCategory::Builtin],
+            min_aether_version: "0.1.0".to_string(),
+            dependencies: vec![],
+            homepage: Some("https://example.com".to_string()),
+            license: Some("MIT".to_string()),
+            keywords: vec!["test".to_string()],
+        };
+
+        let json = serde_json::to_string(&metadata).unwrap();
+        let parsed: PluginMetadata = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(metadata.id, parsed.id);
+        assert_eq!(metadata.homepage, parsed.homepage);
+        assert_eq!(metadata.license, parsed.license);
     }
 }

@@ -1,0 +1,46 @@
+#! plugin.id = "math-utils"
+#! plugin.name = "Math Utilities"
+#! plugin.version = "1.0.0"
+#! plugin.author = "AetherShell Team"
+#! plugin.description = "Mathematical utility functions for AetherShell"
+#! plugin.license = "Apache-2.0"
+
+#! builtin.double = "fn(x) => x * 2"
+#! builtin.triple = "fn(x) => x * 3"
+#! builtin.square = "fn(x) => x * x"
+#! builtin.cube = "fn(x) => x * x * x"
+#! builtin.factorial = "fn(n) => if n <= 1 then 1 else n * factorial(n - 1)"
+#! builtin.abs = "fn(x) => if x < 0 then -x else x"
+#! builtin.clamp = "fn(x, min, max) => if x < min then min else if x > max then max else x"
+
+#! help.double = "Doubles a number: double(5) -> 10"
+#! help.triple = "Triples a number: triple(5) -> 15"
+#! help.square = "Squares a number: square(5) -> 25"
+#! help.cube = "Cubes a number: cube(3) -> 27"
+#! help.factorial = "Calculates factorial: factorial(5) -> 120"
+#! help.abs = "Returns absolute value: abs(-5) -> 5"
+#! help.clamp = "Clamps value to range: clamp(10, 0, 5) -> 5"
+
+# Additional exported functions (these will be auto-detected)
+let fibonacci = fn(n) =>
+    if n <= 1 then n
+    else fibonacci(n - 1) + fibonacci(n - 2)
+
+let is_prime = fn(n) =>
+    if n <= 1 then false
+    else if n <= 3 then true
+    else if n % 2 == 0 then false
+    else _check_prime(n, 3)
+
+# Private helper (starts with underscore, not exported)
+let _check_prime = fn(n, i) =>
+    if i * i > n then true
+    else if n % i == 0 then false
+    else _check_prime(n, i + 2)
+
+let gcd = fn(a, b) =>
+    if b == 0 then a
+    else gcd(b, a % b)
+
+let lcm = fn(a, b) =>
+    (a * b) / gcd(a, b)

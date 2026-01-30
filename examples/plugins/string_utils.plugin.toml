@@ -1,0 +1,54 @@
+[plugin]
+id = "string-utils"
+name = "String Utilities"
+version = "1.0.0"
+author = "AetherShell Team"
+description = "String manipulation utilities for AetherShell"
+categories = ["Builtin"]
+min_aether_version = "0.1.0"
+license = "Apache-2.0"
+homepage = "https://github.com/nervosys/AetherShell"
+keywords = ["string", "text", "utilities"]
+
+[builtins]
+# Reverse a string
+reverse_str = """
+fn(s) => s | split("") | reverse | join("")
+"""
+
+# Capitalize first letter
+capitalize = """
+fn(s) => upper(s[0]) + s[1:]
+"""
+
+# Title case (capitalize each word)
+title_case = """
+fn(s) => s | split(" ") | map(fn(w) => upper(w[0]) + lower(w[1:])) | join(" ")
+"""
+
+# Count occurrences of a substring
+count_substr = """
+fn(s, sub) => len(s | split(sub)) - 1
+"""
+
+# Pad left with character
+pad_left = """
+fn(s, width, char) => 
+    if len(s) >= width then s 
+    else (char * (width - len(s))) + s
+"""
+
+# Pad right with character  
+pad_right = """
+fn(s, width, char) =>
+    if len(s) >= width then s
+    else s + (char * (width - len(s)))
+"""
+
+[help]
+reverse_str = "Reverse a string: reverse_str('hello') -> 'olleh'"
+capitalize = "Capitalize first letter: capitalize('hello') -> 'Hello'"
+title_case = "Title case all words: title_case('hello world') -> 'Hello World'"
+count_substr = "Count substring occurrences: count_substr('banana', 'an') -> 2"
+pad_left = "Pad string left: pad_left('42', 5, '0') -> '00042'"
+pad_right = "Pad string right: pad_right('hi', 5, '-') -> 'hi---'"
