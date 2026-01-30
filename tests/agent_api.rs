@@ -8,6 +8,10 @@ use aethershell::agent_api::{
 };
 use serde_json::json;
 
+// ============================================================================
+// Basic API Tests
+// ============================================================================
+
 #[test]
 fn test_call_request_simple() {
     let request = AgentRequest::Call {
@@ -361,6 +365,734 @@ fn test_result_types() {
             "Expected type {} but got {:?}",
             expected_type,
             parsed.result_type
+        );
+    }
+}
+
+// ============================================================================
+// Comprehensive Schema Format Tests
+// ============================================================================
+
+/// Helper to validate common schema structure
+fn validate_schema_base(result: &serde_json::Value, expected_format: &str) {
+    assert_eq!(
+        result.get("format").and_then(|v| v.as_str()),
+        Some(expected_format),
+        "Format should be '{}'",
+        expected_format
+    );
+}
+
+/// Helper to validate OpenAI-compatible tool format
+fn validate_openai_tools(tools: &[serde_json::Value]) {
+    assert!(!tools.is_empty(), "Tools array should not be empty");
+    for tool in tools {
+        assert_eq!(
+            tool.get("type").and_then(|v| v.as_str()),
+            Some("function"),
+            "Tool type should be 'function'"
+        );
+        let func = tool
+            .get("function")
+            .expect("Tool should have function field");
+        assert!(func.get("name").is_some(), "Function should have name");
+        assert!(
+            func.get("description").is_some(),
+            "Function should have description"
+        );
+        assert!(
+            func.get("parameters").is_some(),
+            "Function should have parameters"
+        );
+    }
+}
+
+// --- OpenAI Family Tests ---
+
+#[test]
+fn test_schema_openai_structure() {
+    let request = AgentRequest::Schema {
+        format: SchemaFormat::OpenAI,
+    };
+    let response = process_request(&request);
+    assert!(response.success);
+
+    let result = response.result.unwrap();
+    validate_schema_base(&result, "openai_function_calling");
+
+    // Check compatible_models includes GPT-5
+    let models = result
+        .get("compatible_models")
+        .and_then(|v| v.as_array())
+        .unwrap();
+    let model_names: Vec<&str> = models.iter().filter_map(|m| m.as_str()).collect();
+    assert!(model_names.contains(&"gpt-5"), "Should include gpt-5");
+    assert!(model_names.contains(&"o3"), "Should include o3");
+
+    let tools = result.get("tools").and_then(|v| v.as_array()).unwrap();
+    validate_openai_tools(tools);
+}
+
+#[test]
+fn test_schema_azure_openai_structure() {
+    let request = AgentRequest::Schema {
+        format: SchemaFormat::AzureOpenAI,
+    };
+    let response = process_request(&request);
+    assert!(response.success);
+
+    let result = response.result.unwrap();
+    validate_schema_base(&result, "azure_openai_function_calling");
+    assert!(
+        result.get("api_version").is_some(),
+        "Should have api_version"
+    );
+    assert!(
+        result.get("compatible_deployments").is_some(),
+        "Should have compatible_deployments"
+    );
+
+    let tools = result.get("tools").and_then(|v| v.as_array()).unwrap();
+    validate_openai_tools(tools);
+}
+
+// --- Anthropic Tests ---
+
+#[test]
+fn test_schema_claude_structure() {
+    let request = AgentRequest::Schema {
+        format: SchemaFormat::Claude,
+    };
+    let response = process_request(&request);
+    assert!(response.success);
+
+    let result = response.result.unwrap();
+    validate_schema_base(&result, "anthropic_tool_use");
+
+    // Check for Claude 4.5 models
+    let models = result
+        .get("compatible_models")
+        .and_then(|v| v.as_array())
+        .unwrap();
+    let model_names: Vec<&str> = models.iter().filter_map(|m| m.as_str()).collect();
+    assert!(
+        model_names.iter().any(|m| m.contains("4.5")),
+        "Should include Claude 4.5 models"
+    );
+
+    let tools = result.get("tools").and_then(|v| v.as_array()).unwrap();
+    assert!(!tools.is_empty());
+
+    // Claude uses input_schema instead of parameters
+    let first_tool = &tools[0];
+    assert!(first_tool.get("name").is_some());
+    assert!(
+        first_tool.get("input_schema").is_some(),
+        "Claude tools should use input_schema"
+    );
+}
+
+// --- Google Tests ---
+
+#[test]
+fn test_schema_gemini_structure() {
+    let request = AgentRequest::Schema {
+        format: SchemaFormat::Gemini,
+    };
+    let response = process_request(&request);
+    assert!(response.success);
+
+    let result = response.result.unwrap();
+    validate_schema_base(&result, "gemini_function_calling");
+
+    // Check for Gemini 2.5 models
+    let models = result
+        .get("compatible_models")
+        .and_then(|v| v.as_array())
+        .unwrap();
+    let model_names: Vec<&str> = models.iter().filter_map(|m| m.as_str()).collect();
+    assert!(
+        model_names.iter().any(|m| m.contains("2.5")),
+        "Should include Gemini 2.5 models"
+    );
+
+    // Gemini uses function_declarations
+    assert!(
+        result.get("function_declarations").is_some(),
+        "Should have function_declarations"
+    );
+}
+
+// --- Meta Tests ---
+
+#[test]
+fn test_schema_llama_structure() {
+    let request = AgentRequest::Schema {
+        format: SchemaFormat::Llama,
+    };
+    let response = process_request(&request);
+    assert!(response.success);
+
+    let result = response.result.unwrap();
+    validate_schema_base(&result, "llama_function_calling");
+
+    // Check for Llama 4 models
+    let models = result
+        .get("compatible_models")
+        .and_then(|v| v.as_array())
+        .unwrap();
+    let model_names: Vec<&str> = models.iter().filter_map(|m| m.as_str()).collect();
+    assert!(
+        model_names.iter().any(|m| m.contains("llama-4")),
+        "Should include Llama 4 models"
+    );
+
+    assert!(
+        result.get("system_prompt").is_some(),
+        "Llama schema should have system_prompt"
+    );
+
+    let tools = result.get("tools").and_then(|v| v.as_array()).unwrap();
+    validate_openai_tools(tools);
+}
+
+// --- Mistral Tests ---
+
+#[test]
+fn test_schema_mistral_structure() {
+    let request = AgentRequest::Schema {
+        format: SchemaFormat::Mistral,
+    };
+    let response = process_request(&request);
+    assert!(response.success);
+
+    let result = response.result.unwrap();
+    validate_schema_base(&result, "mistral_function_calling");
+
+    // Check for latest Mistral models
+    let models = result
+        .get("compatible_models")
+        .and_then(|v| v.as_array())
+        .unwrap();
+    let model_names: Vec<&str> = models.iter().filter_map(|m| m.as_str()).collect();
+    assert!(
+        model_names.iter().any(|m| m.contains("2501")),
+        "Should include 2501 models"
+    );
+
+    assert!(
+        result.get("tool_choice").is_some(),
+        "Mistral should have tool_choice"
+    );
+}
+
+// --- Cohere Tests ---
+
+#[test]
+fn test_schema_cohere_structure() {
+    let request = AgentRequest::Schema {
+        format: SchemaFormat::Cohere,
+    };
+    let response = process_request(&request);
+    assert!(response.success);
+
+    let result = response.result.unwrap();
+    validate_schema_base(&result, "cohere_tools");
+
+    // Check for Command A
+    let models = result
+        .get("compatible_models")
+        .and_then(|v| v.as_array())
+        .unwrap();
+    let model_names: Vec<&str> = models.iter().filter_map(|m| m.as_str()).collect();
+    assert!(
+        model_names.contains(&"command-a"),
+        "Should include command-a"
+    );
+
+    // Cohere uses parameter_definitions format
+    let tools = result.get("tools").and_then(|v| v.as_array()).unwrap();
+    assert!(!tools.is_empty());
+    let first_tool = &tools[0];
+    assert!(
+        first_tool.get("parameter_definitions").is_some(),
+        "Cohere tools should use parameter_definitions"
+    );
+}
+
+// --- xAI Tests ---
+
+#[test]
+fn test_schema_grok_structure() {
+    let request = AgentRequest::Schema {
+        format: SchemaFormat::Grok,
+    };
+    let response = process_request(&request);
+    assert!(response.success);
+
+    let result = response.result.unwrap();
+    validate_schema_base(&result, "grok_function_calling");
+
+    // Check for Grok 3 models
+    let models = result
+        .get("compatible_models")
+        .and_then(|v| v.as_array())
+        .unwrap();
+    let model_names: Vec<&str> = models.iter().filter_map(|m| m.as_str()).collect();
+    assert!(model_names.contains(&"grok-3"), "Should include grok-3");
+}
+
+// --- DeepSeek Tests ---
+
+#[test]
+fn test_schema_deepseek_structure() {
+    let request = AgentRequest::Schema {
+        format: SchemaFormat::DeepSeek,
+    };
+    let response = process_request(&request);
+    assert!(response.success);
+
+    let result = response.result.unwrap();
+    validate_schema_base(&result, "deepseek_function_calling");
+
+    // Check for reasoning support
+    assert_eq!(
+        result.get("reasoning_support").and_then(|v| v.as_bool()),
+        Some(true),
+        "DeepSeek should have reasoning_support: true"
+    );
+
+    // Check for R1 models
+    let models = result
+        .get("compatible_models")
+        .and_then(|v| v.as_array())
+        .unwrap();
+    let model_names: Vec<&str> = models.iter().filter_map(|m| m.as_str()).collect();
+    assert!(
+        model_names.iter().any(|m| m.contains("r1")),
+        "Should include R1 models"
+    );
+}
+
+// --- AWS Bedrock Tests ---
+
+#[test]
+fn test_schema_bedrock_structure() {
+    let request = AgentRequest::Schema {
+        format: SchemaFormat::Bedrock,
+    };
+    let response = process_request(&request);
+    assert!(response.success);
+
+    let result = response.result.unwrap();
+    validate_schema_base(&result, "bedrock_converse");
+
+    // Bedrock uses toolConfig structure
+    let tool_config = result.get("toolConfig").expect("Should have toolConfig");
+    let tools = tool_config.get("tools").and_then(|v| v.as_array()).unwrap();
+    assert!(!tools.is_empty());
+
+    // Bedrock tools use toolSpec format
+    let first_tool = &tools[0];
+    assert!(
+        first_tool.get("toolSpec").is_some(),
+        "Bedrock tools should use toolSpec"
+    );
+}
+
+// --- Alibaba Qwen Tests ---
+
+#[test]
+fn test_schema_qwen_structure() {
+    let request = AgentRequest::Schema {
+        format: SchemaFormat::Qwen,
+    };
+    let response = process_request(&request);
+    assert!(response.success);
+
+    let result = response.result.unwrap();
+    validate_schema_base(&result, "qwen_function_calling");
+
+    // Check for Qwen 3 models
+    let models = result
+        .get("compatible_models")
+        .and_then(|v| v.as_array())
+        .unwrap();
+    let model_names: Vec<&str> = models.iter().filter_map(|m| m.as_str()).collect();
+    assert!(
+        model_names.iter().any(|m| m.contains("qwen3")),
+        "Should include Qwen 3 models"
+    );
+}
+
+// --- Chinese AI Provider Tests ---
+
+#[test]
+fn test_schema_kimi_structure() {
+    let request = AgentRequest::Schema {
+        format: SchemaFormat::Kimi,
+    };
+    let response = process_request(&request);
+    assert!(response.success);
+
+    let result = response.result.unwrap();
+    validate_schema_base(&result, "kimi_function_calling");
+    assert!(result.get("api_base").is_some(), "Should have api_base");
+
+    // Check for Kimi K2
+    let models = result
+        .get("compatible_models")
+        .and_then(|v| v.as_array())
+        .unwrap();
+    let model_names: Vec<&str> = models.iter().filter_map(|m| m.as_str()).collect();
+    assert!(
+        model_names
+            .iter()
+            .any(|m| m.contains("k2") || m.contains("v2")),
+        "Should include latest Kimi models"
+    );
+}
+
+#[test]
+fn test_schema_yi_structure() {
+    let request = AgentRequest::Schema {
+        format: SchemaFormat::Yi,
+    };
+    let response = process_request(&request);
+    assert!(response.success);
+
+    let result = response.result.unwrap();
+    validate_schema_base(&result, "yi_function_calling");
+    assert_eq!(
+        result.get("api_base").and_then(|v| v.as_str()),
+        Some("https://api.01.ai/v1")
+    );
+}
+
+#[test]
+fn test_schema_glm_structure() {
+    let request = AgentRequest::Schema {
+        format: SchemaFormat::GLM,
+    };
+    let response = process_request(&request);
+    assert!(response.success);
+
+    let result = response.result.unwrap();
+    validate_schema_base(&result, "glm_function_calling");
+
+    // Check for GLM-5
+    let models = result
+        .get("compatible_models")
+        .and_then(|v| v.as_array())
+        .unwrap();
+    let model_names: Vec<&str> = models.iter().filter_map(|m| m.as_str()).collect();
+    assert!(
+        model_names.iter().any(|m| m.contains("glm-5")),
+        "Should include GLM-5 models"
+    );
+}
+
+// --- Additional SOTA Provider Tests ---
+
+#[test]
+fn test_schema_reka_structure() {
+    let request = AgentRequest::Schema {
+        format: SchemaFormat::Reka,
+    };
+    let response = process_request(&request);
+    assert!(response.success);
+
+    let result = response.result.unwrap();
+    validate_schema_base(&result, "reka_function_calling");
+    assert_eq!(
+        result.get("multimodal").and_then(|v| v.as_bool()),
+        Some(true),
+        "Reka should be multimodal"
+    );
+}
+
+#[test]
+fn test_schema_ai21_structure() {
+    let request = AgentRequest::Schema {
+        format: SchemaFormat::AI21,
+    };
+    let response = process_request(&request);
+    assert!(response.success);
+
+    let result = response.result.unwrap();
+    validate_schema_base(&result, "ai21_function_calling");
+
+    // Check for Jamba 2
+    let models = result
+        .get("compatible_models")
+        .and_then(|v| v.as_array())
+        .unwrap();
+    let model_names: Vec<&str> = models.iter().filter_map(|m| m.as_str()).collect();
+    assert!(
+        model_names.iter().any(|m| m.contains("jamba-2")),
+        "Should include Jamba 2 models"
+    );
+}
+
+#[test]
+fn test_schema_perplexity_structure() {
+    let request = AgentRequest::Schema {
+        format: SchemaFormat::Perplexity,
+    };
+    let response = process_request(&request);
+    assert!(response.success);
+
+    let result = response.result.unwrap();
+    validate_schema_base(&result, "perplexity_function_calling");
+    assert_eq!(
+        result.get("online_search").and_then(|v| v.as_bool()),
+        Some(true),
+        "Perplexity should have online_search: true"
+    );
+}
+
+// --- Inference Platform Tests ---
+
+#[test]
+fn test_schema_together_structure() {
+    let request = AgentRequest::Schema {
+        format: SchemaFormat::Together,
+    };
+    let response = process_request(&request);
+    assert!(response.success);
+
+    let result = response.result.unwrap();
+    validate_schema_base(&result, "together_function_calling");
+    assert_eq!(
+        result.get("api_base").and_then(|v| v.as_str()),
+        Some("https://api.together.xyz/v1")
+    );
+
+    // Together uses tool_capable_models
+    assert!(result.get("tool_capable_models").is_some());
+}
+
+#[test]
+fn test_schema_groq_structure() {
+    let request = AgentRequest::Schema {
+        format: SchemaFormat::Groq,
+    };
+    let response = process_request(&request);
+    assert!(response.success);
+
+    let result = response.result.unwrap();
+    validate_schema_base(&result, "groq_function_calling");
+    assert_eq!(
+        result.get("ultra_low_latency").and_then(|v| v.as_bool()),
+        Some(true),
+        "Groq should have ultra_low_latency: true"
+    );
+}
+
+#[test]
+fn test_schema_fireworks_structure() {
+    let request = AgentRequest::Schema {
+        format: SchemaFormat::Fireworks,
+    };
+    let response = process_request(&request);
+    assert!(response.success);
+
+    let result = response.result.unwrap();
+    validate_schema_base(&result, "fireworks_function_calling");
+    assert_eq!(
+        result.get("fast_inference").and_then(|v| v.as_bool()),
+        Some(true),
+        "Fireworks should have fast_inference: true"
+    );
+}
+
+// --- Local/Self-hosted Tests ---
+
+#[test]
+fn test_schema_ollama_structure() {
+    let request = AgentRequest::Schema {
+        format: SchemaFormat::Ollama,
+    };
+    let response = process_request(&request);
+    assert!(response.success);
+
+    let result = response.result.unwrap();
+    validate_schema_base(&result, "ollama_tools");
+    assert!(result.get("endpoint").is_some(), "Should have endpoint");
+
+    // Check for Llama 4 in Ollama
+    let models = result
+        .get("compatible_models")
+        .and_then(|v| v.as_array())
+        .unwrap();
+    let model_names: Vec<&str> = models.iter().filter_map(|m| m.as_str()).collect();
+    assert!(
+        model_names.iter().any(|m| m.contains("llama4")),
+        "Should include Llama 4 models"
+    );
+}
+
+#[test]
+fn test_schema_vllm_structure() {
+    let request = AgentRequest::Schema {
+        format: SchemaFormat::VLLM,
+    };
+    let response = process_request(&request);
+    assert!(response.success);
+
+    let result = response.result.unwrap();
+    validate_schema_base(&result, "vllm_openai_compatible");
+    assert!(result.get("endpoint").is_some());
+    assert!(result.get("tool_choice_modes").is_some());
+}
+
+#[test]
+fn test_schema_huggingface_structure() {
+    let request = AgentRequest::Schema {
+        format: SchemaFormat::HuggingFace,
+    };
+    let response = process_request(&request);
+    assert!(response.success);
+
+    let result = response.result.unwrap();
+    validate_schema_base(&result, "huggingface_tgi");
+    assert!(result.get("compatible_endpoints").is_some());
+    assert!(result.get("recommended_models").is_some());
+}
+
+// --- Multi-Provider Tests ---
+
+#[test]
+fn test_schema_openrouter_structure() {
+    let request = AgentRequest::Schema {
+        format: SchemaFormat::OpenRouter,
+    };
+    let response = process_request(&request);
+    assert!(response.success);
+
+    let result = response.result.unwrap();
+    validate_schema_base(&result, "openrouter_unified");
+    assert_eq!(
+        result.get("api_base").and_then(|v| v.as_str()),
+        Some("https://openrouter.ai/api/v1")
+    );
+
+    // OpenRouter should have diverse model list
+    let models = result
+        .get("tool_capable_models")
+        .and_then(|v| v.as_array())
+        .unwrap();
+    let model_names: Vec<&str> = models.iter().filter_map(|m| m.as_str()).collect();
+
+    // Check for models from multiple providers
+    assert!(
+        model_names.iter().any(|m| m.starts_with("openai/")),
+        "Should have OpenAI models"
+    );
+    assert!(
+        model_names.iter().any(|m| m.starts_with("anthropic/")),
+        "Should have Anthropic models"
+    );
+    assert!(
+        model_names.iter().any(|m| m.starts_with("google/")),
+        "Should have Google models"
+    );
+}
+
+// --- Schema Generation CLI Tests ---
+
+#[test]
+fn test_generate_schema_all_formats() {
+    let formats = vec![
+        "openai",
+        "azure",
+        "claude",
+        "gemini",
+        "llama",
+        "mistral",
+        "cohere",
+        "grok",
+        "deepseek",
+        "bedrock",
+        "qwen",
+        "kimi",
+        "yi",
+        "glm",
+        "reka",
+        "ai21",
+        "perplexity",
+        "together",
+        "groq",
+        "fireworks",
+        "ollama",
+        "vllm",
+        "huggingface",
+        "openrouter",
+        "json",
+        "compact",
+    ];
+
+    for format in formats {
+        let result = generate_schema(format);
+        assert!(
+            result.is_ok(),
+            "Schema generation for '{}' should succeed: {:?}",
+            format,
+            result.err()
+        );
+
+        // Verify it's valid JSON
+        let json_str = result.unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json_str)
+            .expect(&format!("Schema for '{}' should be valid JSON", format));
+        assert!(parsed.is_object(), "Schema should be a JSON object");
+    }
+}
+
+#[test]
+fn test_generate_schema_aliases() {
+    // Test format aliases
+    let alias_pairs = vec![
+        ("gpt", "openai"),
+        ("chatgpt", "openai"),
+        ("anthropic", "claude"),
+        ("google", "gemini"),
+        ("meta", "llama"),
+        ("xai", "grok"),
+        ("aws", "bedrock"),
+        ("alibaba", "qwen"),
+        ("moonshot", "kimi"),
+        ("01ai", "yi"),
+        ("chatglm", "glm"),
+        ("zhipu", "glm"),
+        ("jamba", "ai21"),
+        ("sonar", "perplexity"),
+        ("hf", "huggingface"),
+        ("tgi", "huggingface"),
+    ];
+
+    for (alias, canonical) in alias_pairs {
+        let alias_result = generate_schema(alias);
+        let canonical_result = generate_schema(canonical);
+
+        assert!(alias_result.is_ok(), "Alias '{}' should work", alias);
+        assert!(
+            canonical_result.is_ok(),
+            "Canonical '{}' should work",
+            canonical
+        );
+
+        // Both should produce the same format field
+        let alias_json: serde_json::Value = serde_json::from_str(&alias_result.unwrap()).unwrap();
+        let canonical_json: serde_json::Value =
+            serde_json::from_str(&canonical_result.unwrap()).unwrap();
+
+        assert_eq!(
+            alias_json.get("format"),
+            canonical_json.get("format"),
+            "Alias '{}' should produce same format as '{}'",
+            alias,
+            canonical
         );
     }
 }

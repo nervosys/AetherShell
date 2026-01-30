@@ -1,0 +1,349 @@
+# =============================================================================
+# AetherShell Agent API Integration Examples
+# =============================================================================
+# This file demonstrates how to use the Agent API with various AI providers.
+# The Agent API server runs on port 3002 and provides a JSON-based interface
+# for AI agents to interact with AetherShell's typed shell capabilities.
+
+# Start the Agent API server in a separate terminal:
+#   ae --agent-api
+# or with a custom port:
+#   ae --agent-api --agent-port 3003
+
+# =============================================================================
+# 1. Basic API Usage
+# =============================================================================
+
+# Test if the API is running
+let api_base = "http://localhost:3002"
+
+# Simple eval request
+let eval_result = http("POST", api_base, {
+    "action": "eval",
+    "code": "1 + 2 * 3"
+})
+print($"Eval result: {eval_result}")
+
+# List available builtins
+let builtins = http("POST", api_base, {
+    "action": "list_builtins"
+})
+print($"Available builtins: {builtins.result | length}")
+
+# =============================================================================
+# 2. OpenAI Integration (GPT-5, o3, o4-mini)
+# =============================================================================
+
+# Generate schema for OpenAI function calling
+let openai_schema = http("POST", api_base, {
+    "action": "schema",
+    "format": "openai"
+})
+
+# Use with OpenAI's API
+let openai_messages = [
+    {"role": "system", "content": "You are a helpful assistant that uses shell commands."},
+    {"role": "user", "content": "List files in the current directory"}
+]
+
+# This would be sent to OpenAI's API:
+# curl https://api.openai.com/v1/chat/completions \
+#   -H "Authorization: Bearer $OPENAI_API_KEY" \
+#   -H "Content-Type: application/json" \
+#   -d '{
+#     "model": "gpt-5",
+#     "messages": [...],
+#     "tools": <openai_schema.result.tools>
+#   }'
+
+print("OpenAI schema generated with tools for:")
+print(openai_schema.result.tools | map(fn(t) => t.function.name))
+
+# =============================================================================
+# 3. Claude Integration (Claude 4.5 Opus/Sonnet/Haiku)
+# =============================================================================
+
+# Generate schema for Claude's tool_use format
+let claude_schema = http("POST", api_base, {
+    "action": "schema",
+    "format": "claude"
+})
+
+# Claude uses a different format - input_schema instead of parameters
+print("Claude schema uses Anthropic tool_use format")
+print($"Compatible models: {claude_schema.result.compatible_models}")
+
+# Example Claude API request structure:
+# {
+#   "model": "claude-4.5-sonnet",
+#   "max_tokens": 1024,
+#   "tools": <claude_schema.result.tools>,
+#   "messages": [{"role": "user", "content": "..."}]
+# }
+
+# =============================================================================
+# 4. Gemini Integration (Gemini 2.5 Pro/Flash)
+# =============================================================================
+
+let gemini_schema = http("POST", api_base, {
+    "action": "schema",
+    "format": "gemini"
+})
+
+# Gemini uses function_declarations format
+print("Gemini schema uses Google's function_declarations format")
+print($"Declarations count: {gemini_schema.result.function_declarations | length}")
+
+# =============================================================================
+# 5. Open Source Models (Llama 4, Mistral, Qwen)
+# =============================================================================
+
+# Llama 4 (400B Scout, 200B Maverick)
+let llama_schema = http("POST", api_base, {
+    "action": "schema", 
+    "format": "llama"
+})
+print($"Llama 4 compatible models: {llama_schema.result.compatible_models}")
+
+# Mistral (Large 2501, Codestral 2501)
+let mistral_schema = http("POST", api_base, {
+    "action": "schema",
+    "format": "mistral"
+})
+print($"Mistral compatible models: {mistral_schema.result.compatible_models}")
+
+# Qwen 3 (235B A22B, 32B, Coder)
+let qwen_schema = http("POST", api_base, {
+    "action": "schema",
+    "format": "qwen"
+})
+print($"Qwen 3 compatible models: {qwen_schema.result.compatible_models}")
+
+# =============================================================================
+# 6. Inference Platforms (Together, Groq, Fireworks)
+# =============================================================================
+
+# Together AI - run open source models
+let together_schema = http("POST", api_base, {
+    "action": "schema",
+    "format": "together"
+})
+print($"Together API base: {together_schema.result.api_base}")
+
+# Groq - ultra low latency inference
+let groq_schema = http("POST", api_base, {
+    "action": "schema",
+    "format": "groq"
+})
+print($"Groq ultra low latency: {groq_schema.result.ultra_low_latency}")
+
+# Fireworks - fast inference
+let fireworks_schema = http("POST", api_base, {
+    "action": "schema",
+    "format": "fireworks"
+})
+print($"Fireworks fast inference: {fireworks_schema.result.fast_inference}")
+
+# =============================================================================
+# 7. Local Models (Ollama, vLLM)
+# =============================================================================
+
+# Ollama - local model serving
+let ollama_schema = http("POST", api_base, {
+    "action": "schema",
+    "format": "ollama"
+})
+print($"Ollama endpoint: {ollama_schema.result.endpoint}")
+print($"Ollama models: {ollama_schema.result.compatible_models}")
+
+# vLLM - high-performance local inference
+let vllm_schema = http("POST", api_base, {
+    "action": "schema",
+    "format": "vllm"
+})
+print($"vLLM endpoint: {vllm_schema.result.endpoint}")
+
+# =============================================================================
+# 8. Multi-Provider (OpenRouter)
+# =============================================================================
+
+# OpenRouter provides unified access to many models
+let openrouter_schema = http("POST", api_base, {
+    "action": "schema",
+    "format": "openrouter"
+})
+print($"OpenRouter API base: {openrouter_schema.result.api_base}")
+print("OpenRouter tool-capable models include models from:")
+print("  - OpenAI (gpt-5, o3)")
+print("  - Anthropic (claude-4.5-opus, claude-4.5-sonnet)")
+print("  - Google (gemini-2.5-pro, gemini-2.5-flash)")
+print("  - Meta (llama-4-400b-scout)")
+print("  - And many more...")
+
+# =============================================================================
+# 9. Chinese AI Providers (Kimi, GLM, Yi)
+# =============================================================================
+
+# Kimi/Moonshot (K2, V2)
+let kimi_schema = http("POST", api_base, {
+    "action": "schema",
+    "format": "kimi"
+})
+print($"Kimi API base: {kimi_schema.result.api_base}")
+
+# GLM/ChatGLM (GLM-5, CodeGeeX 4)
+let glm_schema = http("POST", api_base, {
+    "action": "schema",
+    "format": "glm"
+})
+print($"GLM models: {glm_schema.result.compatible_models}")
+
+# =============================================================================
+# 10. Reasoning Models (DeepSeek R1)
+# =============================================================================
+
+let deepseek_schema = http("POST", api_base, {
+    "action": "schema",
+    "format": "deepseek"
+})
+print($"DeepSeek reasoning support: {deepseek_schema.result.reasoning_support}")
+print($"DeepSeek models: {deepseek_schema.result.compatible_models}")
+
+# =============================================================================
+# 11. Executing Tool Calls
+# =============================================================================
+
+# When an AI model returns a tool call, execute it:
+let tool_call = {
+    "name": "ls",
+    "arguments": {"path": "."}
+}
+
+# Execute via Agent API
+let result = http("POST", api_base, {
+    "action": "call",
+    "builtin": tool_call.name,
+    "args": tool_call.arguments
+})
+
+if result.success {
+    print($"Tool execution successful!")
+    print($"Result type: {result.result_type}")
+    # result.result contains the structured output
+} else {
+    print($"Tool execution failed: {result.error}")
+}
+
+# =============================================================================
+# 12. Pipeline Execution
+# =============================================================================
+
+# Execute multi-step pipelines
+let pipeline_result = http("POST", api_base, {
+    "action": "pipeline",
+    "steps": [
+        {"builtin": "ls", "args": {"path": "."}},
+        {"eval": "where(fn(f) => f.size > 1000)"},
+        {"eval": "select(\"name\", \"size\")"}
+    ]
+})
+
+print("Pipeline result (files > 1KB):")
+print(pipeline_result.result)
+
+# =============================================================================
+# 13. Type Information
+# =============================================================================
+
+# Get type information for better function calls
+let type_info = http("POST", api_base, {
+    "action": "type_info"
+})
+print("Available types in AetherShell:")
+print(type_info.result.types)
+
+# Get specific type info
+let array_type = http("POST", api_base, {
+    "action": "type_info",
+    "type_name": "Array"
+})
+print($"Array type info: {array_type.result}")
+
+# =============================================================================
+# 14. Streaming API (Server-Sent Events)
+# =============================================================================
+
+# The Agent API supports Server-Sent Events (SSE) for streaming responses.
+# This is useful for long-running operations like pipelines.
+
+# Streaming endpoints:
+#   POST /api/v1/stream/execute   - Stream any request
+#   POST /api/v1/stream/pipeline  - Stream pipeline execution with progress
+#   POST /api/v1/stream/eval      - Stream code evaluation
+
+# Example: Stream a pipeline with curl
+# curl -N -X POST http://localhost:3002/api/v1/stream/pipeline \
+#   -H "Content-Type: application/json" \
+#   -d '{
+#     "steps": [
+#       {"builtin": "ls", "args": {"path": "."}},
+#       {"eval": "where(fn(f) => f.size > 1000)"},
+#       {"eval": "select(\"name\", \"size\")"}
+#     ]
+#   }'
+
+# SSE events format:
+#   event: start
+#   data: {"message": "Starting pipeline with 3 steps"}
+#
+#   event: progress
+#   data: {"current": 1, "total": 3, "percentage": 33.33, "message": "Processing step 1/3: ls"}
+#
+#   event: progress
+#   data: {"current": 2, "total": 3, "percentage": 66.66, "message": "Processing step 2/3: where"}
+#
+#   event: progress
+#   data: {"current": 3, "total": 3, "percentage": 100, "message": "Processing step 3/3: select"}
+#
+#   event: complete
+#   data: {"success": true, "result": [...], "result_type": "Array"}
+
+# JavaScript/TypeScript example for consuming SSE:
+# const eventSource = new EventSource('http://localhost:3002/api/v1/stream/pipeline', {
+#   method: 'POST',
+#   headers: { 'Content-Type': 'application/json' },
+#   body: JSON.stringify({ steps: [...] })
+# });
+#
+# eventSource.addEventListener('progress', (event) => {
+#   const data = JSON.parse(event.data);
+#   console.log(`Progress: ${data.percentage}% - ${data.message}`);
+# });
+#
+# eventSource.addEventListener('complete', (event) => {
+#   const data = JSON.parse(event.data);
+#   console.log('Result:', data.result);
+# });
+
+print("Streaming endpoints available at /api/v1/stream/*")
+
+# =============================================================================
+# Summary
+# =============================================================================
+
+print("")
+print("=== Agent API Summary ===")
+print("Supported schema formats: 26+")
+print("Including: OpenAI, Claude, Gemini, Llama, Mistral, Cohere, Grok,")
+print("          DeepSeek, Bedrock, Azure OpenAI, Qwen, Kimi, Yi, GLM,")
+print("          Reka, AI21, Perplexity, Together, Groq, Fireworks,")
+print("          Ollama, vLLM, HuggingFace, OpenRouter, JSON, Ontology")
+print("")
+print("Latest models supported:")
+print("  - GPT-5, o3, o4-mini (OpenAI)")
+print("  - Claude 4.5 Opus/Sonnet/Haiku (Anthropic)")
+print("  - Gemini 2.5 Pro/Flash (Google)")
+print("  - Llama 4 400B/200B (Meta)")
+print("  - DeepSeek R1/V3 with reasoning")
+print("  - Grok 3 (xAI)")
+print("  - And many more!")

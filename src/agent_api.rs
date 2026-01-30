@@ -2456,14 +2456,94 @@ fn build_fireworks_schema(ontology: &LanguageOntology) -> JsonValue {
 pub mod server {
     use super::*;
     use axum::{
-        extract::State,
-        http::StatusCode,
-        response::IntoResponse,
+        body::Body,
+        http::{header, StatusCode},
+        response::{IntoResponse, Response},
         routing::{get, post},
         Json, Router,
     };
-    use std::sync::Arc;
+    use std::convert::Infallible;
     use tower_http::cors::{Any, CorsLayer};
+
+    /// Server-Sent Event for streaming responses
+    #[derive(Debug, Clone, serde::Serialize)]
+    pub struct StreamEvent {
+        /// Event type: "start", "progress", "data", "complete", "error"
+        pub event: String,
+        /// Event data (JSON value)
+        pub data: JsonValue,
+        /// Optional event ID for reconnection
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub id: Option<String>,
+    }
+
+    impl StreamEvent {
+        pub fn start(message: &str) -> Self {
+            Self {
+                event: "start".to_string(),
+                data: json!({ "message": message }),
+                id: None,
+            }
+        }
+
+        pub fn progress(current: usize, total: usize, message: &str) -> Self {
+            Self {
+                event: "progress".to_string(),
+                data: json!({
+                    "current": current,
+                    "total": total,
+                    "percentage": if total > 0 { (current as f64 / total as f64) * 100.0 } else { 0.0 },
+                    "message": message
+                }),
+                id: None,
+            }
+        }
+
+        pub fn data(result: JsonValue, result_type: Option<&str>) -> Self {
+            Self {
+                event: "data".to_string(),
+                data: json!({
+                    "result": result,
+                    "result_type": result_type
+                }),
+                id: None,
+            }
+        }
+
+        pub fn complete(result: JsonValue, result_type: Option<&str>) -> Self {
+            Self {
+                event: "complete".to_string(),
+                data: json!({
+                    "success": true,
+                    "result": result,
+                    "result_type": result_type
+                }),
+                id: None,
+            }
+        }
+
+        pub fn error(message: &str) -> Self {
+            Self {
+                event: "error".to_string(),
+                data: json!({
+                    "success": false,
+                    "error": message
+                }),
+                id: None,
+            }
+        }
+
+        /// Format as SSE text
+        pub fn to_sse(&self) -> String {
+            let mut output = String::new();
+            output.push_str(&format!("event: {}\n", self.event));
+            if let Some(ref id) = self.id {
+                output.push_str(&format!("id: {}\n", id));
+            }
+            output.push_str(&format!("data: {}\n\n", serde_json::to_string(&self.data).unwrap_or_default()));
+            output
+        }
+    }
 
     /// Agent API server configuration
     #[derive(Debug, Clone)]
@@ -2492,6 +2572,10 @@ pub mod server {
             .route("/api/v1/call/:builtin", post(handle_call))
             .route("/api/v1/pipeline", post(handle_pipeline))
             .route("/api/v1/eval", post(handle_eval))
+            // Streaming endpoints (SSE)
+            .route("/api/v1/stream/execute", post(handle_stream_execute))
+            .route("/api/v1/stream/pipeline", post(handle_stream_pipeline))
+            .route("/api/v1/stream/eval", post(handle_stream_eval))
             // Discovery endpoints
             .route("/api/v1/schema", get(handle_schema))
             .route("/api/v1/schema/:format", get(handle_schema_format))
@@ -2523,6 +2607,9 @@ pub mod server {
         println!("  POST /api/v1/call/:builtin    - Call a single builtin");
         println!("  POST /api/v1/pipeline         - Execute a pipeline");
         println!("  POST /api/v1/eval             - Evaluate raw code");
+        println!("  POST /api/v1/stream/execute   - Stream execution (SSE)");
+        println!("  POST /api/v1/stream/pipeline  - Stream pipeline (SSE)");
+        println!("  POST /api/v1/stream/eval      - Stream eval (SSE)");
         println!("  GET  /api/v1/schema           - Get language ontology");
         println!("  GET  /api/v1/schema/:format   - Get schema for AI provider");
         println!("  GET  /api/v1/builtins         - List all builtins");
@@ -2590,6 +2677,130 @@ pub mod server {
         } else {
             (StatusCode::BAD_REQUEST, Json(response))
         }
+    }
+
+    // ========================================================================
+    // Streaming Handlers (Server-Sent Events)
+    // ========================================================================
+
+    /// Stream execution of a generic request
+    async fn handle_stream_execute(Json(request): Json<AgentRequest>) -> impl IntoResponse {
+        create_sse_response(async move {
+            let response = process_request(&request);
+            vec![
+                StreamEvent::start("Processing request..."),
+                if response.success {
+                    StreamEvent::complete(
+                        response.result.unwrap_or(JsonValue::Null),
+                        response.result_type.as_deref(),
+                    )
+                } else {
+                    StreamEvent::error(&response.error.unwrap_or_else(|| "Unknown error".to_string()))
+                },
+            ]
+        })
+    }
+
+    /// Stream pipeline execution with progress updates
+    async fn handle_stream_pipeline(Json(body): Json<JsonValue>) -> impl IntoResponse {
+        let steps: Vec<PipelineStep> = serde_json::from_value(
+            body.get("steps")
+                .cloned()
+                .unwrap_or(JsonValue::Array(vec![])),
+        )
+        .unwrap_or_default();
+
+        let input = body.get("input").cloned();
+        let total_steps = steps.len();
+
+        create_sse_response(async move {
+            let mut events = vec![StreamEvent::start(&format!("Starting pipeline with {} steps", total_steps))];
+
+            if steps.is_empty() {
+                events.push(StreamEvent::error("Pipeline must have at least one step"));
+                return events;
+            }
+
+            // Process pipeline using existing infrastructure
+            let request = AgentRequest::Pipeline { 
+                steps: steps.clone(), 
+                input: input.clone() 
+            };
+            
+            // Emit progress for each step (simulated since actual execution is atomic)
+            for (i, step) in steps.iter().enumerate() {
+                events.push(StreamEvent::progress(
+                    i + 1,
+                    total_steps,
+                    &format!("Processing step {}/{}: {}", i + 1, total_steps, step.builtin),
+                ));
+            }
+
+            // Execute the full pipeline
+            let response = process_request(&request);
+
+            if response.success {
+                events.push(StreamEvent::complete(
+                    response.result.unwrap_or(JsonValue::Null),
+                    response.result_type.as_deref(),
+                ));
+            } else {
+                events.push(StreamEvent::error(
+                    &response.error.unwrap_or_else(|| "Unknown error".to_string())
+                ));
+            }
+
+            events
+        })
+    }
+
+    /// Stream code evaluation
+    async fn handle_stream_eval(Json(body): Json<JsonValue>) -> impl IntoResponse {
+        let code = body
+            .get("code")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        create_sse_response(async move {
+            let mut events = vec![StreamEvent::start("Evaluating code...")];
+
+            let request = AgentRequest::Eval { code };
+            let response = process_request(&request);
+
+            if response.success {
+                events.push(StreamEvent::complete(
+                    response.result.unwrap_or(JsonValue::Null),
+                    response.result_type.as_deref(),
+                ));
+            } else {
+                events.push(StreamEvent::error(
+                    &response.error.unwrap_or_else(|| "Unknown error".to_string())
+                ));
+            }
+            events
+        })
+    }
+
+    /// Helper to create SSE response from events
+    fn create_sse_response<F>(event_generator: F) -> impl IntoResponse
+    where
+        F: std::future::Future<Output = Vec<StreamEvent>> + Send + 'static,
+    {
+        let stream = async_stream::stream! {
+            let events = event_generator.await;
+            for event in events {
+                yield Ok::<_, Infallible>(event.to_sse());
+            }
+        };
+
+        Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, "text/event-stream")
+            .header(header::CACHE_CONTROL, "no-cache")
+            .header("X-Accel-Buffering", "no")
+            .body(Body::from_stream(stream))
+            .unwrap()
     }
 
     async fn handle_schema() -> impl IntoResponse {
