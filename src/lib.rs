@@ -51,6 +51,8 @@ pub mod syntax_kb;
 pub mod transpile;
 #[cfg(feature = "native")]
 pub mod tui;
+#[cfg(feature = "native")]
+pub mod workflows;
 
 // WASM module - only compiled when targeting wasm32 with web feature
 #[cfg(all(feature = "web", target_arch = "wasm32"))]
