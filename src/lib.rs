@@ -28,6 +28,8 @@ pub mod evolution;
 #[cfg(feature = "native")]
 pub mod mcp;
 #[cfg(feature = "native")]
+pub mod metrics;
+#[cfg(feature = "native")]
 pub mod neural;
 #[cfg(feature = "native")]
 pub mod os_tools;
