@@ -177,10 +177,10 @@ nanda_propose("deployment", {version: "2.0", approve_threshold: 0.7})
 ### 🧠 ML & Enterprise
 - **Neural networks** creation & evolution
 - **Reinforcement learning** (Q-Learning, DQN)
-- **Enterprise RBAC** with role-based access
-- **Audit logging** & compliance reporting
+- **Enterprise RBAC** with role inheritance
+- **Token/API key authentication**
+- **Comprehensive audit logging**
 - **SSO integration** (SAML, OAuth, OIDC)
-- **Cluster management** for distributed AI
 
 </td>
 <td width="50%">
@@ -189,9 +189,33 @@ nanda_propose("deployment", {version: "2.0", approve_threshold: 0.7})
 - **Interactive TUI** with tabs & themes
 - **Language Server Protocol** (LSP)
 - **VS Code extension** with IntelliSense
-- **Plugin system** with TOML manifests
+- **Plugin system** with hot-reload
 - **WASM support** for browser REPL
 - **Package management** & imports
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+### 🔧 Infrastructure
+- **Distributed agents** with leader election
+- **Service discovery** (mDNS/gossip)
+- **Workflow templates** (MapReduce, Saga, Pipeline)
+- **Circuit breakers** for fault tolerance
+- **Agent persistence** & checkpoints
+- **Cluster orchestration**
+
+</td>
+<td width="50%">
+
+### 📊 Observability
+- **Prometheus metrics** export
+- **OpenTelemetry traces** (W3C format)
+- **Real-time dashboards**
+- **Rule-based alerting**
+- **Performance snapshots**
+- **Distributed tracing**
 
 </td>
 </tr>
@@ -321,7 +345,11 @@ AetherShell is a **typed functional language** with 215+ built-in functions acro
 | **Errors**       | `try`/`catch`, `throw`, `is_error`                          | 4     |
 | **AI**           | `ai`, `agent`, `swarm`, `rag_query`, `finetune_start`       | 20+   |
 | **Enterprise**   | `role_create`, `audit_log`, `sso_init`, `compliance_check`  | 22    |
-| **Distributed**  | `cluster_create`, `job_submit`, `aggregate_results`         | 15    |
+| **Auth & RBAC**  | `auth_login`, `auth_check`, `rbac_assign`, `auth_audit`     | 10    |
+| **Distributed**  | `cluster_create`, `job_submit`, `leader_elect`              | 21    |
+| **Workflows**    | `workflow_create`, `saga_run`, `map_reduce`, `fan_out`      | 18    |
+| **Persistence**  | `save_state`, `load_state`, `checkpoint`, `restore`         | 22    |
+| **Metrics**      | `metrics`, `trace`, `alerts`, `dashboard`                   | 20    |
 | **Platform**     | `platform`, `is_windows`, `is_linux`, `features`            | 12    |
 | **MCP Protocol** | `mcp_tools`, `mcp_call`, 130+ tool integrations             | 130+  |
 
@@ -1252,29 +1280,37 @@ pods = mcp_call("kubectl", {command: "get pods -o json"})
   | where(fn(p) => p.restarts > 0)
 ```
 
-### Enterprise: RBAC & Compliance
+### Enterprise: Authentication & RBAC
 
 ```ae
-# Create roles with typed permissions
-permissions = [
-    {resource: "reports", actions: ["read", "export"]},
-    {resource: "dashboards", actions: ["read", "create"]}
-]
-role_create("data_analyst", permissions, "Data analytics team role")
+# Register users and authenticate
+user = auth_register("alice", "secure_password")
+result = auth_login("alice", "secure_password")
+print("Session: ${result.session.id}")
 
-# Grant roles to users
-role_grant("user_123", "data_analyst")
+# Token-based authentication
+token = result.token.token
+auth_verify(token)  # Validate bearer token
 
-# Check permissions before operations
-can_export = check_permission("user_123", "reports", "export")
-if can_export {
-    audit_log("report_export", {user: "user_123", report: "Q4_sales"})
-    # ... export the report
+# API key management for services
+api_key = auth_create_key(user.id, "automation-key")
+print("Key: ${api_key.key}")  # Save this - shown only once!
+
+# Role-based access control with inheritance
+rbac_assign(user.id, "operator")  # Built-in roles: admin, operator, viewer, agent
+
+# Permission checks (supports wildcards: resource:* or *:*)
+if auth_check(user.id, "agent:execute") {
+    agent("Analyze logs", ["cat", "grep"])
 }
 
-# Compliance reporting
-compliance_result = compliance_check("GDPR")
-report = compliance_report("SOC2", "json")
+# Comprehensive audit logging
+audit = auth_audit(50)  # Last 50 entries
+audit | where(fn(e) => e.event == "LoginFailed") | take(10)
+
+# Session management
+sessions = auth_sessions(user.id)
+auth_logout(result.session.id)
 ```
 
 ### AI: Fine-tuning & RAG
@@ -1299,24 +1335,128 @@ kg_relate("AetherShell", "has_feature", "typed_pipelines")
 kg_query({entity: "AetherShell"})
 ```
 
-### Distributed Computing
+### Distributed Agents & Workflows
 
 ```ae
-# Create a compute cluster
-cluster_create("ml_cluster", {max_nodes: 10})
+# Service Discovery - find agents on the network
+discovery = service_discover("ai-agent", 5000)  # 5s timeout
+print("Found ${len(discovery.agents)} agents")
 
-# Add worker nodes
-cluster_add_node("ml_cluster", "worker_1", {capabilities: ["gpu", "ml"]})
-cluster_add_node("ml_cluster", "worker_2", {capabilities: ["gpu", "ml"]})
+# Leader Election - Raft-inspired consensus
+leader = leader_elect("workflow-coordinator")
+print("Leader: ${leader.node_id}")
 
-# Submit distributed jobs
-job_submit("ml_cluster", "train_model", {
-    model: "neural_net",
-    data: "training_set.csv"
+# Gossip Protocol - cluster membership
+cluster = gossip_join("ml-cluster", {port: 7946})
+gossip_broadcast(cluster, {task: "sync_models"})
+
+# Workflow Templates - enterprise patterns
+
+# MapReduce for distributed processing
+results = workflow_map_reduce(
+    data: load_data("large_dataset.csv"),
+    map_fn: fn(chunk) => analyze(chunk),
+    reduce_fn: fn(a, b) => merge_results(a, b)
+)
+
+# Saga Pattern for distributed transactions
+saga_run("order_processing", [
+    {step: "reserve_inventory", compensate: "release_inventory"},
+    {step: "charge_payment", compensate: "refund_payment"},
+    {step: "ship_order", compensate: "cancel_shipment"}
+])
+
+# Fan-Out/Fan-In for parallel execution
+fan_out_results = workflow_fan_out(
+    tasks: ["analyze_logs", "scan_security", "check_compliance"],
+    timeout_ms: 30000
+)
+
+# Circuit Breaker for fault tolerance
+circuit = circuit_breaker("external-api", {
+    failure_threshold: 5,
+    reset_timeout_ms: 30000
+})
+result = circuit_call(circuit, fn() => http_get(url))
+```
+
+### Agent Persistence & State Management
+
+```ae
+# Save agent state for recovery
+agent_state = {
+    name: "analyzer",
+    agent_type: "code_review",
+    config: {model: "gpt-4o", temperature: 0.7},
+    capabilities: ["code_analysis", "security_scan"]
+}
+save_state("analyzer", agent_state)
+
+# Load state on restart
+restored = load_state("analyzer")
+print("Restored agent: ${restored.name}")
+
+# List all saved agent states
+states = list_states()
+states | map(fn(s) => s.name)
+
+# Conversation history with search
+save_conversation("session_001", {
+    agent_id: "analyzer",
+    messages: messages,
+    tags: ["code_review", "security"]
 })
 
-# Monitor cluster status
-cluster_status("ml_cluster")
+# Search conversations
+results = search_conversations("security vulnerability")
+
+# Checkpoint for long-running operations
+checkpoint("training_job", {
+    epoch: 50,
+    loss: 0.023,
+    model_weights: weights
+})
+
+# Restore from checkpoint on failure
+saved = restore_checkpoint("training_job")
+print("Resuming from epoch ${saved.state.epoch}")
+```
+
+### Metrics & Observability
+
+```ae
+# Get real-time metrics
+metrics_summary = metrics()
+print("Requests: ${metrics_summary.requests_total}")
+print("Error rate: ${metrics_summary.error_rate}")
+
+# Prometheus-compatible export (for scraping)
+prometheus_output = metrics_prometheus()
+# Outputs: aethershell_requests_total 1234
+#          aethershell_request_duration_seconds_bucket{le="0.1"} 890
+
+# Distributed tracing (W3C Trace Context)
+span = trace_start("process_request")
+span = trace_attribute(span, "user_id", user.id)
+span = trace_event(span, "validation_complete")
+# ... do work ...
+trace_end(span)
+
+# View recent traces
+traces = trace_list(10)
+traces | map(fn(t) => {name: t.name, duration_us: t.duration_us})
+
+# Dashboard for real-time monitoring
+dashboard_summary = dashboard()
+print("Active agents: ${dashboard_summary.current.active_agents}")
+print("Avg latency: ${dashboard_summary.current.latency_ms}ms")
+
+# Alerting - get active alerts
+active_alerts = alerts()
+critical = active_alerts.active | where(fn(a) => a.severity == "Critical")
+
+# Alert history
+alert_history = alerts().history | take(20)
 ```
 
 ### Interactive Data Exploration
