@@ -2457,13 +2457,273 @@ pub mod server {
     use super::*;
     use axum::{
         body::Body,
+        extract::ws::{Message, WebSocket, WebSocketUpgrade},
         http::{header, StatusCode},
         response::{IntoResponse, Response},
         routing::{get, post},
         Json, Router,
     };
+    use std::collections::HashMap;
     use std::convert::Infallible;
+    use std::sync::Arc;
+    use tokio::sync::{broadcast, mpsc, RwLock};
     use tower_http::cors::{Any, CorsLayer};
+
+    // ========================================================================
+    // WebSocket Types
+    // ========================================================================
+
+    /// WebSocket message from client
+    #[derive(Debug, Clone, serde::Deserialize)]
+    #[serde(tag = "type")]
+    pub enum WsClientMessage {
+        /// Execute a request
+        #[serde(rename = "execute")]
+        Execute { id: String, request: AgentRequest },
+        /// Subscribe to a channel
+        #[serde(rename = "subscribe")]
+        Subscribe { channel: String },
+        /// Unsubscribe from a channel
+        #[serde(rename = "unsubscribe")]
+        Unsubscribe { channel: String },
+        /// Ping for keepalive
+        #[serde(rename = "ping")]
+        Ping { id: Option<String> },
+        /// Register as an agent
+        #[serde(rename = "register")]
+        Register { agent_id: String, capabilities: Vec<String> },
+        /// Send message to another agent
+        #[serde(rename = "agent_message")]
+        AgentMessage { to: String, payload: JsonValue },
+        /// Broadcast to all agents
+        #[serde(rename = "broadcast")]
+        Broadcast { channel: String, payload: JsonValue },
+    }
+
+    /// WebSocket message to client
+    #[derive(Debug, Clone, serde::Serialize)]
+    #[serde(tag = "type")]
+    pub enum WsServerMessage {
+        /// Response to an execute request
+        #[serde(rename = "response")]
+        Response { id: String, response: AgentResponse },
+        /// Streaming event (progress, data, etc.)
+        #[serde(rename = "stream")]
+        Stream { id: String, event: StreamEvent },
+        /// Channel message (from subscription)
+        #[serde(rename = "channel")]
+        Channel { channel: String, payload: JsonValue },
+        /// Pong response
+        #[serde(rename = "pong")]
+        Pong { id: Option<String>, timestamp: u64 },
+        /// Error message
+        #[serde(rename = "error")]
+        Error { id: Option<String>, message: String },
+        /// Agent message received
+        #[serde(rename = "agent_message")]
+        AgentMessage { from: String, payload: JsonValue },
+        /// Agent registered confirmation
+        #[serde(rename = "registered")]
+        Registered { agent_id: String },
+        /// List of connected agents
+        #[serde(rename = "agents")]
+        Agents { agents: Vec<AgentInfo> },
+    }
+
+    /// Information about a connected agent
+    #[derive(Debug, Clone, serde::Serialize)]
+    pub struct AgentInfo {
+        pub id: String,
+        pub capabilities: Vec<String>,
+        pub connected_at: u64,
+    }
+
+    // ========================================================================
+    // Agent Orchestration State
+    // ========================================================================
+
+    /// Shared state for agent orchestration
+    #[derive(Debug)]
+    pub struct OrchestratorState {
+        /// Connected agents by ID
+        agents: RwLock<HashMap<String, AgentConnection>>,
+        /// Broadcast channels for pub/sub
+        channels: RwLock<HashMap<String, broadcast::Sender<JsonValue>>>,
+        /// Task queue for distributed work
+        task_queue: RwLock<Vec<Task>>,
+        /// Workflow definitions
+        workflows: RwLock<HashMap<String, Workflow>>,
+    }
+
+    #[derive(Debug)]
+    struct AgentConnection {
+        info: AgentInfo,
+        sender: mpsc::Sender<WsServerMessage>,
+    }
+
+    /// A task in the orchestration queue
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+    pub struct Task {
+        pub id: String,
+        pub name: String,
+        pub payload: JsonValue,
+        pub status: TaskStatus,
+        pub assigned_to: Option<String>,
+        pub created_at: u64,
+        pub priority: i32,
+    }
+
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+    pub enum TaskStatus {
+        Pending,
+        Assigned,
+        Running,
+        Completed,
+        Failed,
+    }
+
+    /// A workflow definition
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+    pub struct Workflow {
+        pub id: String,
+        pub name: String,
+        pub steps: Vec<WorkflowStep>,
+        pub current_step: usize,
+        pub status: WorkflowStatus,
+        pub context: JsonValue,
+    }
+
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+    pub struct WorkflowStep {
+        pub name: String,
+        pub agent_capability: Option<String>,
+        pub request: AgentRequest,
+        pub on_success: Option<String>,
+        pub on_failure: Option<String>,
+    }
+
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+    pub enum WorkflowStatus {
+        Pending,
+        Running,
+        Paused,
+        Completed,
+        Failed,
+    }
+
+    impl OrchestratorState {
+        pub fn new() -> Self {
+            Self {
+                agents: RwLock::new(HashMap::new()),
+                channels: RwLock::new(HashMap::new()),
+                task_queue: RwLock::new(Vec::new()),
+                workflows: RwLock::new(HashMap::new()),
+            }
+        }
+
+        pub async fn register_agent(
+            &self,
+            agent_id: String,
+            capabilities: Vec<String>,
+            sender: mpsc::Sender<WsServerMessage>,
+        ) {
+            let info = AgentInfo {
+                id: agent_id.clone(),
+                capabilities,
+                connected_at: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs(),
+            };
+            let conn = AgentConnection { info, sender };
+            self.agents.write().await.insert(agent_id, conn);
+        }
+
+        pub async fn unregister_agent(&self, agent_id: &str) {
+            self.agents.write().await.remove(agent_id);
+        }
+
+        pub async fn get_agents(&self) -> Vec<AgentInfo> {
+            self.agents
+                .read()
+                .await
+                .values()
+                .map(|c| c.info.clone())
+                .collect()
+        }
+
+        pub async fn send_to_agent(&self, agent_id: &str, message: WsServerMessage) -> bool {
+            if let Some(conn) = self.agents.read().await.get(agent_id) {
+                conn.sender.send(message).await.is_ok()
+            } else {
+                false
+            }
+        }
+
+        pub async fn broadcast_to_channel(&self, channel: &str, payload: JsonValue) {
+            let channels = self.channels.read().await;
+            if let Some(tx) = channels.get(channel) {
+                let _ = tx.send(payload);
+            }
+        }
+
+        pub async fn subscribe_to_channel(&self, channel: &str) -> broadcast::Receiver<JsonValue> {
+            let mut channels = self.channels.write().await;
+            if let Some(tx) = channels.get(channel) {
+                tx.subscribe()
+            } else {
+                let (tx, rx) = broadcast::channel(100);
+                channels.insert(channel.to_string(), tx);
+                rx
+            }
+        }
+
+        pub async fn add_task(&self, task: Task) {
+            self.task_queue.write().await.push(task);
+        }
+
+        pub async fn get_pending_tasks(&self) -> Vec<Task> {
+            self.task_queue
+                .read()
+                .await
+                .iter()
+                .filter(|t| t.status == TaskStatus::Pending)
+                .cloned()
+                .collect()
+        }
+
+        pub async fn claim_task(&self, task_id: &str, agent_id: &str) -> Option<Task> {
+            let mut queue = self.task_queue.write().await;
+            if let Some(task) = queue.iter_mut().find(|t| t.id == task_id && t.status == TaskStatus::Pending) {
+                task.status = TaskStatus::Assigned;
+                task.assigned_to = Some(agent_id.to_string());
+                Some(task.clone())
+            } else {
+                None
+            }
+        }
+
+        pub async fn complete_task(&self, task_id: &str, success: bool) {
+            let mut queue = self.task_queue.write().await;
+            if let Some(task) = queue.iter_mut().find(|t| t.id == task_id) {
+                task.status = if success { TaskStatus::Completed } else { TaskStatus::Failed };
+            }
+        }
+
+        pub async fn add_workflow(&self, workflow: Workflow) {
+            self.workflows.write().await.insert(workflow.id.clone(), workflow);
+        }
+
+        pub async fn get_workflow(&self, workflow_id: &str) -> Option<Workflow> {
+            self.workflows.read().await.get(workflow_id).cloned()
+        }
+    }
+
+    impl Default for OrchestratorState {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
 
     /// Server-Sent Event for streaming responses
     #[derive(Debug, Clone, serde::Serialize)]
@@ -2565,6 +2825,9 @@ pub mod server {
 
     /// Start the Agent API HTTP server
     pub async fn start_agent_api_server(config: AgentApiConfig) -> Result<()> {
+        // Create shared orchestrator state
+        let state = Arc::new(OrchestratorState::new());
+
         let mut app = Router::new()
             // Main execution endpoint
             .route("/api/v1/execute", post(handle_execute))
@@ -2576,6 +2839,32 @@ pub mod server {
             .route("/api/v1/stream/execute", post(handle_stream_execute))
             .route("/api/v1/stream/pipeline", post(handle_stream_pipeline))
             .route("/api/v1/stream/eval", post(handle_stream_eval))
+            // WebSocket endpoint for real-time bidirectional communication
+            .route("/api/v1/ws", get({
+                let state = Arc::clone(&state);
+                move |ws| handle_websocket(ws, state)
+            }))
+            // Orchestration endpoints
+            .route("/api/v1/orchestration/agents", get({
+                let state = Arc::clone(&state);
+                move || handle_list_agents(state)
+            }))
+            .route("/api/v1/orchestration/tasks", get({
+                let state = Arc::clone(&state);
+                move || handle_list_tasks(state)
+            }))
+            .route("/api/v1/orchestration/tasks", post({
+                let state = Arc::clone(&state);
+                move |body| handle_create_task(body, state)
+            }))
+            .route("/api/v1/orchestration/workflows", post({
+                let state = Arc::clone(&state);
+                move |body| handle_create_workflow(body, state)
+            }))
+            .route("/api/v1/orchestration/workflows/:id", get({
+                let state = Arc::clone(&state);
+                move |path| handle_get_workflow(path, state)
+            }))
             // Discovery endpoints
             .route("/api/v1/schema", get(handle_schema))
             .route("/api/v1/schema/:format", get(handle_schema_format))
@@ -2610,6 +2899,8 @@ pub mod server {
         println!("  POST /api/v1/stream/execute   - Stream execution (SSE)");
         println!("  POST /api/v1/stream/pipeline  - Stream pipeline (SSE)");
         println!("  POST /api/v1/stream/eval      - Stream eval (SSE)");
+        println!("  GET  /api/v1/ws               - WebSocket (real-time bidirectional)");
+        println!("  GET  /api/v1/orchestration/*  - Agent orchestration APIs");
         println!("  GET  /api/v1/schema           - Get language ontology");
         println!("  GET  /api/v1/schema/:format   - Get schema for AI provider");
         println!("  GET  /api/v1/builtins         - List all builtins");
@@ -2907,6 +3198,11 @@ pub mod server {
             "status": "healthy",
             "service": "aethershell-agent-api",
             "version": env!("CARGO_PKG_VERSION"),
+            "features": {
+                "websocket": true,
+                "sse_streaming": true,
+                "orchestration": true
+            },
             "supported_agents": [
                 "openai", "azure_openai", "claude", "gemini",
                 "llama", "mistral", "cohere", "grok", "deepseek",
@@ -2932,6 +3228,202 @@ pub mod server {
                 "standard": ["json", "jsonschema", "ontology", "compact"]
             }
         }))
+    }
+
+    // ========================================================================
+    // WebSocket Handler
+    // ========================================================================
+
+    async fn handle_websocket(
+        ws: WebSocketUpgrade,
+        state: Arc<OrchestratorState>,
+    ) -> impl IntoResponse {
+        ws.on_upgrade(move |socket| handle_websocket_connection(socket, state))
+    }
+
+    async fn handle_websocket_connection(socket: WebSocket, state: Arc<OrchestratorState>) {
+        use futures_util::{SinkExt, StreamExt};
+
+        let (mut sender, mut receiver) = socket.split();
+        let (tx, mut rx) = mpsc::channel::<WsServerMessage>(100);
+        let mut agent_id: Option<String> = None;
+
+        // Task for sending messages to the client
+        let send_task = tokio::spawn(async move {
+            while let Some(msg) = rx.recv().await {
+                if let Ok(json) = serde_json::to_string(&msg) {
+                    if sender.send(Message::Text(json)).await.is_err() {
+                        break;
+                    }
+                }
+            }
+        });
+
+        // Process incoming messages
+        while let Some(result) = receiver.next().await {
+            match result {
+                Ok(Message::Text(text)) => {
+                    if let Ok(msg) = serde_json::from_str::<WsClientMessage>(&text) {
+                        let response = match msg {
+                            WsClientMessage::Execute { id, request } => {
+                                let response = process_request(&request);
+                                Some(WsServerMessage::Response { id, response })
+                            }
+                            WsClientMessage::Ping { id } => {
+                                let timestamp = std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_secs();
+                                Some(WsServerMessage::Pong { id, timestamp })
+                            }
+                            WsClientMessage::Register { agent_id: aid, capabilities } => {
+                                agent_id = Some(aid.clone());
+                                state.register_agent(aid.clone(), capabilities, tx.clone()).await;
+                                Some(WsServerMessage::Registered { agent_id: aid })
+                            }
+                            WsClientMessage::AgentMessage { to, payload } => {
+                                if let Some(ref from) = agent_id {
+                                    let msg = WsServerMessage::AgentMessage {
+                                        from: from.clone(),
+                                        payload,
+                                    };
+                                    state.send_to_agent(&to, msg).await;
+                                }
+                                None
+                            }
+                            WsClientMessage::Broadcast { channel, payload } => {
+                                state.broadcast_to_channel(&channel, payload).await;
+                                None
+                            }
+                            WsClientMessage::Subscribe { channel } => {
+                                let mut rx = state.subscribe_to_channel(&channel).await;
+                                let tx_clone = tx.clone();
+                                let channel_clone = channel.clone();
+                                tokio::spawn(async move {
+                                    while let Ok(payload) = rx.recv().await {
+                                        let msg = WsServerMessage::Channel {
+                                            channel: channel_clone.clone(),
+                                            payload,
+                                        };
+                                        if tx_clone.send(msg).await.is_err() {
+                                            break;
+                                        }
+                                    }
+                                });
+                                None
+                            }
+                            WsClientMessage::Unsubscribe { channel: _ } => {
+                                // Channel subscriptions are dropped when the task ends
+                                None
+                            }
+                        };
+
+                        if let Some(response) = response {
+                            if tx.send(response).await.is_err() {
+                                break;
+                            }
+                        }
+                    }
+                }
+                Ok(Message::Close(_)) => break,
+                Err(_) => break,
+                _ => {}
+            }
+        }
+
+        // Clean up
+        if let Some(aid) = agent_id {
+            state.unregister_agent(&aid).await;
+        }
+        send_task.abort();
+    }
+
+    // ========================================================================
+    // Orchestration Handlers
+    // ========================================================================
+
+    async fn handle_list_agents(state: Arc<OrchestratorState>) -> impl IntoResponse {
+        let agents = state.get_agents().await;
+        Json(json!({
+            "success": true,
+            "agents": agents
+        }))
+    }
+
+    async fn handle_list_tasks(state: Arc<OrchestratorState>) -> impl IntoResponse {
+        let tasks = state.get_pending_tasks().await;
+        Json(json!({
+            "success": true,
+            "tasks": tasks
+        }))
+    }
+
+    async fn handle_create_task(
+        Json(body): Json<JsonValue>,
+        state: Arc<OrchestratorState>,
+    ) -> impl IntoResponse {
+        let task = Task {
+            id: uuid::Uuid::new_v4().to_string(),
+            name: body.get("name").and_then(|v| v.as_str()).unwrap_or("unnamed").to_string(),
+            payload: body.get("payload").cloned().unwrap_or(JsonValue::Null),
+            status: TaskStatus::Pending,
+            assigned_to: None,
+            created_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+            priority: body.get("priority").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
+        };
+        let task_id = task.id.clone();
+        state.add_task(task).await;
+
+        (StatusCode::CREATED, Json(json!({
+            "success": true,
+            "task_id": task_id
+        })))
+    }
+
+    async fn handle_create_workflow(
+        Json(body): Json<JsonValue>,
+        state: Arc<OrchestratorState>,
+    ) -> impl IntoResponse {
+        let steps: Vec<WorkflowStep> = body
+            .get("steps")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default();
+
+        let workflow = Workflow {
+            id: uuid::Uuid::new_v4().to_string(),
+            name: body.get("name").and_then(|v| v.as_str()).unwrap_or("unnamed").to_string(),
+            steps,
+            current_step: 0,
+            status: WorkflowStatus::Pending,
+            context: body.get("context").cloned().unwrap_or(JsonValue::Object(Default::default())),
+        };
+        let workflow_id = workflow.id.clone();
+        state.add_workflow(workflow).await;
+
+        (StatusCode::CREATED, Json(json!({
+            "success": true,
+            "workflow_id": workflow_id
+        })))
+    }
+
+    async fn handle_get_workflow(
+        axum::extract::Path(workflow_id): axum::extract::Path<String>,
+        state: Arc<OrchestratorState>,
+    ) -> impl IntoResponse {
+        if let Some(workflow) = state.get_workflow(&workflow_id).await {
+            (StatusCode::OK, Json(json!({
+                "success": true,
+                "workflow": workflow
+            })))
+        } else {
+            (StatusCode::NOT_FOUND, Json(json!({
+                "success": false,
+                "error": "Workflow not found"
+            })))
+        }
     }
 }
 
