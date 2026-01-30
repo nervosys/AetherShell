@@ -944,12 +944,30 @@ files | where(fn(f) => f.size > 1000) | map(fn(f) => f.name)
 - `POST /api/v1/call/:builtin` - Call a single builtin
 - `POST /api/v1/pipeline` - Execute a pipeline
 - `POST /api/v1/eval` - Evaluate raw AetherShell code
+- `POST /api/v1/stream/execute` - Stream any request (SSE)
+- `POST /api/v1/stream/pipeline` - Stream pipeline with progress (SSE)
+- `POST /api/v1/stream/eval` - Stream code evaluation (SSE)
 - `GET /api/v1/schema` - Get compact language ontology
 - `GET /api/v1/schema/:format` - Get schema for AI platform
 - `GET /api/v1/builtins` - List all builtins
 - `GET /api/v1/builtins/:name` - Describe a specific builtin
 - `GET /api/v1/types` - Get type information
 - `GET /health` - Health check with supported platforms list
+
+**Streaming (Server-Sent Events):**
+```bash
+# Stream a pipeline with progress updates
+curl -N -X POST http://localhost:3002/api/v1/stream/pipeline \
+  -H "Content-Type: application/json" \
+  -d '{"steps": [{"builtin": "ls", "args": {"path": "."}}, {"eval": "take(5)"}]}'
+
+# Events: start → progress (per step) → complete/error
+```
+
+**Integration Examples:**
+- Python: `examples/integration/python_integration.py` (OpenAI, Anthropic, LangChain)
+- TypeScript: `examples/integration/typescript_integration.ts` (OpenAI, Anthropic, Vercel AI)
+- AetherShell: `examples/12_agent_api_integration.ae`
 
 **Language Ontology:** The schema endpoint exposes AetherShell's complete type system, operators, syntax patterns, and all builtin functions in platform-native formats that AI agents can understand and use for intelligent code generation.
 
