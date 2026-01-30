@@ -947,12 +947,60 @@ files | where(fn(f) => f.size > 1000) | map(fn(f) => f.name)
 - `POST /api/v1/stream/execute` - Stream any request (SSE)
 - `POST /api/v1/stream/pipeline` - Stream pipeline with progress (SSE)
 - `POST /api/v1/stream/eval` - Stream code evaluation (SSE)
+- `GET /api/v1/ws` - WebSocket for real-time bidirectional communication
 - `GET /api/v1/schema` - Get compact language ontology
 - `GET /api/v1/schema/:format` - Get schema for AI platform
 - `GET /api/v1/builtins` - List all builtins
 - `GET /api/v1/builtins/:name` - Describe a specific builtin
 - `GET /api/v1/types` - Get type information
 - `GET /health` - Health check with supported platforms list
+
+**Orchestration Endpoints:**
+- `GET /api/v1/orchestration/agents` - List connected agents
+- `GET /api/v1/orchestration/tasks` - List pending tasks
+- `POST /api/v1/orchestration/tasks` - Create a new task
+- `POST /api/v1/orchestration/workflows` - Create a workflow
+- `GET /api/v1/orchestration/workflows/:id` - Get workflow status
+
+**WebSocket API:**
+```javascript
+// Connect to WebSocket
+const ws = new WebSocket('ws://localhost:3002/api/v1/ws');
+
+// Register as an agent
+ws.send(JSON.stringify({
+  type: 'register',
+  agent_id: 'my-agent',
+  capabilities: ['code-analysis', 'security-scan']
+}));
+
+// Execute a request
+ws.send(JSON.stringify({
+  type: 'execute',
+  id: 'req-1',
+  request: { action: 'eval', code: '1 + 2' }
+}));
+
+// Send message to another agent
+ws.send(JSON.stringify({
+  type: 'agent_message',
+  to: 'other-agent',
+  payload: { task: 'analyze', data: '...' }
+}));
+
+// Subscribe to a channel
+ws.send(JSON.stringify({ type: 'subscribe', channel: 'alerts' }));
+
+// Handle responses
+ws.onmessage = (event) => {
+  const msg = JSON.parse(event.data);
+  switch (msg.type) {
+    case 'response': console.log('Result:', msg.response); break;
+    case 'agent_message': console.log('From:', msg.from, msg.payload); break;
+    case 'channel': console.log('Channel:', msg.channel, msg.payload); break;
+  }
+};
+```
 
 **Streaming (Server-Sent Events):**
 ```bash
