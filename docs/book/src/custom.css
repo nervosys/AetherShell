@@ -1,0 +1,161 @@
+/* Custom styles for AetherShell documentation */
+
+:root {
+    --sidebar-width: 280px;
+    --page-padding: 15px;
+    --content-max-width: 900px;
+}
+
+/* Catppuccin Mocha colors */
+.ayu {
+    --bg: #1e1e2e;
+    --fg: #cdd6f4;
+    --sidebar-bg: #181825;
+    --sidebar-fg: #bac2de;
+    --sidebar-non-existant: #6c7086;
+    --sidebar-active: #cba6f7;
+    --sidebar-spacer: #313244;
+    --scrollbar: #45475a;
+    --icons: #9399b2;
+    --icons-hover: #cdd6f4;
+    --links: #89b4fa;
+    --inline-code-color: #f5c2e7;
+    --code-bg: #313244;
+    --search-mark-bg: #fab387;
+}
+
+/* Code blocks */
+pre {
+    border-radius: 8px;
+    padding: 1em;
+    overflow-x: auto;
+}
+
+code {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 0.9em;
+}
+
+/* Tables */
+table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 1em 0;
+}
+
+th,
+td {
+    border: 1px solid #45475a;
+    padding: 0.5em 1em;
+    text-align: left;
+}
+
+th {
+    background-color: #313244;
+    font-weight: 600;
+}
+
+tr:nth-child(even) {
+    background-color: #1e1e2e;
+}
+
+/* Warning/info boxes */
+.warning {
+    background: linear-gradient(135deg, #cba6f720, #89b4fa20);
+    border-left: 4px solid #cba6f7;
+    padding: 1em;
+    border-radius: 0 8px 8px 0;
+    margin: 1em 0;
+}
+
+/* Headers */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+    color: #cba6f7;
+}
+
+h1 {
+    border-bottom: 2px solid #45475a;
+    padding-bottom: 0.5em;
+}
+
+/* Links */
+a {
+    color: #89b4fa;
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+    color: #b4befe;
+}
+
+/* Navigation */
+.sidebar .sidebar-scrollbox {
+    padding: 10px;
+}
+
+.sidebar .chapter li a {
+    padding: 8px 16px;
+    border-radius: 6px;
+    transition: all 0.2s;
+}
+
+.sidebar .chapter li a:hover {
+    background-color: #313244;
+}
+
+.sidebar .chapter li.active>a {
+    background-color: #cba6f720;
+    color: #cba6f7;
+    font-weight: 600;
+}
+
+/* Search */
+#searchbar {
+    background-color: #313244;
+    border: 1px solid #45475a;
+    border-radius: 8px;
+    padding: 10px 16px;
+    color: #cdd6f4;
+}
+
+#searchbar:focus {
+    border-color: #cba6f7;
+    outline: none;
+}
+
+/* Buttons */
+.nav-chapters {
+    border-radius: 8px;
+    transition: all 0.2s;
+}
+
+.nav-chapters:hover {
+    background-color: #313244;
+}
+
+/* Copy button */
+.copy-button {
+    background-color: #45475a;
+    border-radius: 4px;
+}
+
+.copy-button:hover {
+    background-color: #585b70;
+}
+
+/* Mobile responsiveness */
+@media (max-width: 768px) {
+    .sidebar {
+        width: 100%;
+    }
+
+    .content {
+        padding: 1em;
+    }
+}

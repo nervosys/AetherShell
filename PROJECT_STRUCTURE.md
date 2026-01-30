@@ -48,6 +48,17 @@ AetherShell/
 - **Binary tools**: `bin/` contains additional binary utilities
 - **Transpilation**: `transpile/` handles code conversion between shell languages
 - **TUI components**: `tui/` contains terminal user interface code
+- **Providers**: `providers/` contains the AI provider abstraction and OS ontology
+
+### Provider Architecture (`src/providers/`)
+- **`ontology.rs`**: OS operation ontology with platform support definitions
+- **`platform.rs`**: Cross-platform execution layer with native implementations
+- **`tools.rs`**: AI provider tool integration (converts ontology to tool schemas)
+- **`bridge.rs`**: Legacy/new provider compatibility layer
+- **`traits.rs`**: Core provider trait definitions
+- **`schema.rs`**: JSON Schema generation for tools
+- **`registry.rs`**: Provider registration and routing
+- **`impls/`**: Concrete provider implementations (OpenAI, Anthropic, Google, Ollama)
 
 ### Testing Structure
 - **`tests/`**: Rust unit and integration tests (run with `cargo test`)

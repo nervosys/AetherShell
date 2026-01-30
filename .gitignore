@@ -34,3 +34,4 @@ Cargo.lock.bak
 *.backup
 *.orig
 .test_output/
+node_modules/

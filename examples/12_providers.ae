@@ -1,0 +1,91 @@
+# Provider System Example
+# Demonstrates AetherShell's universal LLM provider interface
+
+# List all supported providers
+let providers = [
+  "openai:gpt-4o",
+  "anthropic:claude-3-5-sonnet-20241022", 
+  "google:gemini-1.5-pro",
+  "ollama:llama3",
+  "groq:mixtral-8x7b-32768",
+  "together:meta-llama/Llama-3-70b-chat-hf",
+  "deepseek:deepseek-chat",
+  "xai:grok-beta",
+  "openrouter:anthropic/claude-3"
+]
+
+print "=== AetherShell Universal Provider System ==="
+print ""
+
+# Simple chat with any provider (using environment's default)
+let response = ai "Hello, what is 2+2?" 
+print response
+
+# Specify a specific model via URI
+let response2 = ai "Explain quantum computing in one sentence" --model "openai:gpt-4o"
+print response2
+
+# Multi-turn conversation
+let conversation = [
+  { role: "system", content: "You are a helpful shell assistant." },
+  { role: "user", content: "How do I list files in Linux?" },
+]
+let response3 = ai_chat conversation --model "anthropic:claude-3-5-sonnet-20241022"
+print response3
+
+# Using tools with the provider system
+let tools = [
+  {
+    name: "read_file",
+    description: "Read contents of a file",
+    parameters: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "File path to read" }
+      },
+      required: ["path"]
+    }
+  },
+  {
+    name: "list_directory",
+    description: "List files in a directory", 
+    parameters: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Directory path" }
+      },
+      required: ["path"]
+    }
+  }
+]
+
+# AI can request tool calls
+let agent_response = ai "What files are in the current directory?" --tools tools --model "openai:gpt-4o"
+print agent_response
+
+# Pipeline integration - AI processes structured data
+let files = ls "."
+let summary = files | ai "Summarize these files by type"
+print summary
+
+# Embeddings for semantic search
+let texts = ["shell scripting", "file management", "process control"]
+let embeddings = embed texts --model "openai:text-embedding-3-small"
+print "Generated embeddings for semantic search"
+
+# Provider-specific features
+# Streaming (when supported)
+ai_stream "Tell me a short story" --model "openai:gpt-4o" | fn(chunk) => print chunk
+
+# Local models via Ollama
+ai "What is the meaning of life?" --model "ollama:llama3"
+
+print ""
+print "=== Provider System Features ==="
+print "• Universal model URI scheme (provider:model)"
+print "• 19 providers supported"
+print "• Automatic API key detection from environment"
+print "• Tool/function calling normalization"
+print "• Multi-modal support (images, audio)"
+print "• Streaming support"
+print "• Structured data integration with pipelines"
