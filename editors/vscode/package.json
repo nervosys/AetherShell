@@ -95,7 +95,11 @@
                 },
                 "aethershell.trace.server": {
                     "type": "string",
-                    "enum": ["off", "messages", "verbose"],
+                    "enum": [
+                        "off",
+                        "messages",
+                        "verbose"
+                    ],
                     "default": "off",
                     "description": "Traces the communication between VS Code and the language server."
                 },
@@ -111,7 +115,12 @@
                 },
                 "aethershell.ai.provider": {
                     "type": "string",
-                    "enum": ["openai", "anthropic", "ollama", "auto"],
+                    "enum": [
+                        "openai",
+                        "anthropic",
+                        "ollama",
+                        "auto"
+                    ],
                     "default": "auto",
                     "description": "AI provider to use for AI-powered features."
                 },

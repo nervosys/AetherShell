@@ -3,11 +3,11 @@
 //! This module provides compatibility between the new universal provider interface
 //! and the existing `ai.rs` functionality, enabling gradual migration.
 
-use crate::providers::{
-    self, ChatRequest, ChatResponse, Message, ModelUri, ProviderConfig, ProviderType,
-    create_provider, LLMProvider,
-};
 use crate::ai::{self, ChatMessage, ModelRef, Provider as LegacyProvider};
+use crate::providers::{
+    self, create_provider, ChatRequest, ChatResponse, LLMProvider, Message, ModelUri,
+    ProviderConfig, ProviderType,
+};
 use anyhow::{anyhow, Result};
 use std::sync::Arc;
 use tokio::runtime::Runtime;
@@ -70,7 +70,7 @@ pub fn message_to_chat_message(msg: &Message) -> ChatMessage {
 }
 
 /// Universal completion using the new provider system
-/// 
+///
 /// This function uses the new provider infrastructure while maintaining
 /// compatibility with existing code.
 pub fn complete_with_provider(prompt: &str, model_uri: Option<&str>) -> Result<String> {
@@ -88,12 +88,15 @@ pub fn complete_with_provider(prompt: &str, model_uri: Option<&str>) -> Result<S
 
     // Create runtime and execute
     let rt = Runtime::new().map_err(|e| anyhow!("Failed to create async runtime: {}", e))?;
-    
+
     let request = ChatRequest::simple(uri, prompt);
-    let response = rt.block_on(provider.chat(request))
+    let response = rt
+        .block_on(provider.chat(request))
         .map_err(|e| anyhow!("Provider error: {}", e))?;
 
-    response.content.ok_or_else(|| anyhow!("No content in response"))
+    response
+        .content
+        .ok_or_else(|| anyhow!("No content in response"))
 }
 
 /// Chat with messages using the new provider system
@@ -113,10 +116,13 @@ pub fn chat_with_provider(messages: &[ChatMessage], model_uri: Option<&str>) -> 
     let request = ChatRequest::new(uri, msgs);
 
     let rt = Runtime::new().map_err(|e| anyhow!("Failed to create async runtime: {}", e))?;
-    let response = rt.block_on(provider.chat(request))
+    let response = rt
+        .block_on(provider.chat(request))
         .map_err(|e| anyhow!("Provider error: {}", e))?;
 
-    response.content.ok_or_else(|| anyhow!("No content in response"))
+    response
+        .content
+        .ok_or_else(|| anyhow!("No content in response"))
 }
 
 /// Get available models from a provider
@@ -126,7 +132,8 @@ pub fn list_provider_models(provider_uri: &str) -> Result<Vec<String>> {
     let provider = create_provider(config);
 
     let rt = Runtime::new().map_err(|e| anyhow!("Failed to create async runtime: {}", e))?;
-    let models = rt.block_on(provider.list_models())
+    let models = rt
+        .block_on(provider.list_models())
         .map_err(|e| anyhow!("Provider error: {}", e))?;
 
     Ok(models.into_iter().map(|m| m.id).collect())
@@ -153,7 +160,8 @@ pub fn embed_with_provider(texts: &[String], model_uri: Option<&str>) -> Result<
     };
 
     let rt = Runtime::new().map_err(|e| anyhow!("Failed to create async runtime: {}", e))?;
-    let response = rt.block_on(provider.embed(request))
+    let response = rt
+        .block_on(provider.embed(request))
         .map_err(|e| anyhow!("Provider error: {}", e))?;
 
     Ok(response.embeddings)
@@ -169,7 +177,10 @@ impl UniversalBackend {
     pub fn new(model_uri: ModelUri) -> Self {
         let config = ProviderConfig::from_env(model_uri.provider);
         let provider = create_provider(config);
-        Self { provider, model_uri }
+        Self {
+            provider,
+            model_uri,
+        }
     }
 
     pub fn from_uri(uri_str: &str) -> Result<Self> {
@@ -184,7 +195,8 @@ impl ai::LlmBackend for UniversalBackend {
         let request = ChatRequest::new(self.model_uri.clone(), msgs);
 
         let rt = Runtime::new()?;
-        let response = rt.block_on(self.provider.chat(request))
+        let response = rt
+            .block_on(self.provider.chat(request))
             .map_err(|e| anyhow!("{}", e))?;
 
         response.content.ok_or_else(|| anyhow!("No content"))
@@ -197,8 +209,14 @@ mod tests {
 
     #[test]
     fn test_legacy_provider_conversion() {
-        assert_eq!(legacy_to_provider_type(&LegacyProvider::OpenAI), ProviderType::OpenAI);
-        assert_eq!(legacy_to_provider_type(&LegacyProvider::Ollama), ProviderType::Ollama);
+        assert_eq!(
+            legacy_to_provider_type(&LegacyProvider::OpenAI),
+            ProviderType::OpenAI
+        );
+        assert_eq!(
+            legacy_to_provider_type(&LegacyProvider::Ollama),
+            ProviderType::Ollama
+        );
     }
 
     #[test]

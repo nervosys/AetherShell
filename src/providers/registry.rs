@@ -3,12 +3,12 @@
 //! Central registry for managing LLM providers, their configurations,
 //! and intelligent routing of requests to the best available provider.
 
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-use serde::{Deserialize, Serialize};
 
+use super::traits::{ChatRequest, ChatResponse, LLMProvider, ModelInfo, ProviderError};
 use super::{ModelUri, ProviderConfig, ProviderType};
-use super::traits::{LLMProvider, ProviderError, ModelInfo, ChatRequest, ChatResponse};
 
 // ============================================================================
 // PROVIDER REGISTRY
@@ -73,7 +73,7 @@ impl ProviderRegistry {
     /// Create a registry with auto-detected providers from environment
     pub fn from_environment() -> Self {
         let registry = Self::new();
-        
+
         // Auto-detect configured providers
         for provider_type in ProviderType::all() {
             if let Some(env_key) = provider_type.api_key_env_var() {
@@ -90,14 +90,14 @@ impl ProviderRegistry {
     /// Register a provider
     pub fn register(&self, provider_type: ProviderType, config: ProviderConfig) {
         let mut providers = self.providers.write().unwrap();
-        
+
         let entry = ProviderEntry {
             config,
             instance: None,
             status: ProviderStatus::Unchecked,
             models: Vec::new(),
         };
-        
+
         providers.insert(provider_type.clone(), entry);
 
         // Set as default if first provider
@@ -150,7 +150,9 @@ impl ProviderRegistry {
         let providers = self.providers.read().unwrap();
         providers
             .iter()
-            .filter(|(_, e)| e.status == ProviderStatus::Ready || e.status == ProviderStatus::Unchecked)
+            .filter(|(_, e)| {
+                e.status == ProviderStatus::Ready || e.status == ProviderStatus::Unchecked
+            })
             .map(|(k, _)| k.clone())
             .collect()
     }
@@ -172,7 +174,7 @@ impl ProviderRegistry {
     /// Find the best provider for a request
     pub fn route(&self, request: &ChatRequest) -> Result<ProviderType, ProviderError> {
         let routing_rules = self.routing_rules.read().unwrap();
-        
+
         // Check routing rules first
         for rule in routing_rules.iter() {
             if rule.matches(request) {
@@ -184,7 +186,7 @@ impl ProviderRegistry {
 
         // Use the model's provider if specified
         let provider = request.model.provider.clone();
-        
+
         // Check if provider is available
         let providers = self.providers.read().unwrap();
         if let Some(entry) = providers.get(&provider) {
@@ -195,13 +197,13 @@ impl ProviderRegistry {
                     return self.find_fallback(&provider, reason);
                 }
                 ProviderStatus::AuthFailed { reason } => {
-                    return Err(ProviderError::AuthenticationFailed { 
-                        message: reason.clone() 
+                    return Err(ProviderError::AuthenticationFailed {
+                        message: reason.clone(),
                     });
                 }
                 ProviderStatus::Disabled => {
-                    return Err(ProviderError::Unavailable { 
-                        message: "Provider is disabled".to_string() 
+                    return Err(ProviderError::Unavailable {
+                        message: "Provider is disabled".to_string(),
                     });
                 }
             }
@@ -219,12 +221,19 @@ impl ProviderRegistry {
     }
 
     /// Find a fallback provider when the primary is unavailable
-    fn find_fallback(&self, _original: &ProviderType, _reason: &str) -> Result<ProviderType, ProviderError> {
+    fn find_fallback(
+        &self,
+        _original: &ProviderType,
+        _reason: &str,
+    ) -> Result<ProviderType, ProviderError> {
         let providers = self.providers.read().unwrap();
-        
+
         // Find any ready provider
         for (provider_type, entry) in providers.iter() {
-            if matches!(entry.status, ProviderStatus::Ready | ProviderStatus::Unchecked) {
+            if matches!(
+                entry.status,
+                ProviderStatus::Ready | ProviderStatus::Unchecked
+            ) {
                 return Ok(provider_type.clone());
             }
         }
@@ -252,11 +261,12 @@ impl ProviderRegistry {
         let mut stats = self.stats.write().unwrap();
         stats.total_requests += 1;
         stats.total_tokens += tokens as u64;
-        
-        let provider_stats = stats.by_provider
+
+        let provider_stats = stats
+            .by_provider
             .entry(provider.clone())
             .or_insert_with(ProviderStats::default);
-        
+
         provider_stats.requests += 1;
         provider_stats.tokens += tokens as u64;
         if success {
@@ -330,25 +340,28 @@ impl RoutingCondition {
             Self::All { conditions } => conditions.iter().all(|c| c.matches(request)),
             Self::Any { conditions } => conditions.iter().any(|c| c.matches(request)),
             Self::Not { condition } => !condition.matches(request),
-            Self::ModelPattern { pattern } => {
-                request.model.model.contains(pattern)
+            Self::ModelPattern { pattern } => request.model.model.contains(pattern),
+            Self::HasTools => {
+                request.tools.is_some() && !request.tools.as_ref().unwrap().is_empty()
             }
-            Self::HasTools => request.tools.is_some() && !request.tools.as_ref().unwrap().is_empty(),
-            Self::HasVision => {
-                request.messages.iter().any(|m| {
-                    m.content.iter().any(|c| matches!(c, super::traits::ContentPart::Image { .. }))
-                })
-            }
+            Self::HasVision => request.messages.iter().any(|m| {
+                m.content
+                    .iter()
+                    .any(|c| matches!(c, super::traits::ContentPart::Image { .. }))
+            }),
             Self::TokenCountOver { threshold } => {
-                let estimated: u32 = request.messages.iter()
+                let estimated: u32 = request
+                    .messages
+                    .iter()
                     .map(|m| m.text_content().len() as u32 / 4)
                     .sum();
                 estimated > *threshold
             }
-            Self::User { user_id } => {
-                request.user.as_ref() == Some(user_id)
-            }
-            Self::TimeRange { start_hour, end_hour } => {
+            Self::User { user_id } => request.user.as_ref() == Some(user_id),
+            Self::TimeRange {
+                start_hour,
+                end_hour,
+            } => {
                 use chrono::Timelike;
                 let hour = chrono::Local::now().hour() as u8;
                 if start_hour <= end_hour {
@@ -452,18 +465,33 @@ pub struct ModelAliases {
 impl ModelAliases {
     pub fn new() -> Self {
         let mut aliases = Self::default();
-        
+
         // Add common aliases
         aliases.add("gpt4", ModelUri::parse("openai:gpt-4o").unwrap());
         aliases.add("gpt4-mini", ModelUri::parse("openai:gpt-4o-mini").unwrap());
-        aliases.add("claude", ModelUri::parse("anthropic:claude-3-5-sonnet-20241022").unwrap());
-        aliases.add("claude-opus", ModelUri::parse("anthropic:claude-3-opus-20240229").unwrap());
+        aliases.add(
+            "claude",
+            ModelUri::parse("anthropic:claude-3-5-sonnet-20241022").unwrap(),
+        );
+        aliases.add(
+            "claude-opus",
+            ModelUri::parse("anthropic:claude-3-opus-20240229").unwrap(),
+        );
         aliases.add("gemini", ModelUri::parse("google:gemini-1.5-pro").unwrap());
-        aliases.add("gemini-flash", ModelUri::parse("google:gemini-1.5-flash").unwrap());
+        aliases.add(
+            "gemini-flash",
+            ModelUri::parse("google:gemini-1.5-flash").unwrap(),
+        );
         aliases.add("llama", ModelUri::parse("ollama:llama3.2").unwrap());
-        aliases.add("mistral", ModelUri::parse("mistral:mistral-large-latest").unwrap());
-        aliases.add("deepseek", ModelUri::parse("deepseek:deepseek-chat").unwrap());
-        
+        aliases.add(
+            "mistral",
+            ModelUri::parse("mistral:mistral-large-latest").unwrap(),
+        );
+        aliases.add(
+            "deepseek",
+            ModelUri::parse("deepseek:deepseek-chat").unwrap(),
+        );
+
         aliases
     }
 
@@ -503,7 +531,7 @@ impl ModelAliases {
 lazy_static::lazy_static! {
     /// Global provider registry
     pub static ref PROVIDER_REGISTRY: ProviderRegistry = ProviderRegistry::from_environment();
-    
+
     /// Global model aliases
     pub static ref MODEL_ALIASES: ModelAliases = ModelAliases::new();
 }
@@ -524,10 +552,15 @@ mod tests {
         let config = ProviderConfig {
             provider: ProviderType::OpenAI,
             api_key: Some("test".to_string()),
-            base_url: None, organization: None, project: None,
-            default_model: None, timeout_secs: Some(120), max_retries: Some(3), extra: HashMap::new(),
+            base_url: None,
+            organization: None,
+            project: None,
+            default_model: None,
+            timeout_secs: Some(120),
+            max_retries: Some(3),
+            extra: HashMap::new(),
         };
-        
+
         registry.register(ProviderType::OpenAI, config);
         assert!(registry.list().contains(&ProviderType::OpenAI));
     }
@@ -535,7 +568,7 @@ mod tests {
     #[test]
     fn test_model_aliases() {
         let aliases = ModelAliases::new();
-        
+
         let gpt4 = aliases.resolve("gpt4");
         assert!(gpt4.is_some());
         assert_eq!(gpt4.unwrap().provider, ProviderType::OpenAI);
@@ -544,27 +577,20 @@ mod tests {
     #[test]
     fn test_routing_condition_always() {
         let condition = RoutingCondition::Always;
-        let request = ChatRequest::new(
-            ModelUri::parse("openai:gpt-4o").unwrap(),
-            vec![],
-        );
+        let request = ChatRequest::new(ModelUri::parse("openai:gpt-4o").unwrap(), vec![]);
         assert!(condition.matches(&request));
     }
 
     #[test]
     fn test_routing_condition_has_tools() {
         let condition = RoutingCondition::HasTools;
-        
-        let request_no_tools = ChatRequest::new(
-            ModelUri::parse("openai:gpt-4o").unwrap(),
-            vec![],
-        );
+
+        let request_no_tools = ChatRequest::new(ModelUri::parse("openai:gpt-4o").unwrap(), vec![]);
         assert!(!condition.matches(&request_no_tools));
-        
-        let request_with_tools = ChatRequest::new(
-            ModelUri::parse("openai:gpt-4o").unwrap(),
-            vec![],
-        ).with_tools(vec![super::super::schema::ToolSchema::new("test", "test")]);
+
+        let request_with_tools =
+            ChatRequest::new(ModelUri::parse("openai:gpt-4o").unwrap(), vec![])
+                .with_tools(vec![super::super::schema::ToolSchema::new("test", "test")]);
         assert!(condition.matches(&request_with_tools));
     }
 }

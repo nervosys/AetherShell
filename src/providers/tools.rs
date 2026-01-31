@@ -1,6 +1,6 @@
 //! AI Provider Tool Integration
 //!
-//! This module provides the integration layer between LLM providers and 
+//! This module provides the integration layer between LLM providers and
 //! AetherShell's OS abstraction ontology, making AetherShell the default
 //! OS interface for all AI agents.
 //!
@@ -38,10 +38,10 @@
 //! ```
 
 use super::ontology::{
-    OSOperation, OSOperationRegistry, OS_ONTOLOGY, CapabilityDomain,
-    ParamType, PermissionLevel, SupportedPlatform,
+    CapabilityDomain, OSOperation, OSOperationRegistry, ParamType, PermissionLevel,
+    SupportedPlatform, OS_ONTOLOGY,
 };
-use super::platform::{PlatformExecutor, ExecutionResult, PLATFORM_EXECUTOR};
+use super::platform::{ExecutionResult, PlatformExecutor, PLATFORM_EXECUTOR};
 use super::schema::ToolSchema;
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
@@ -157,7 +157,8 @@ impl AetherToolRegistry {
             CapabilityDomain::Device => "device.",
             CapabilityDomain::Observability => "obs.",
         };
-        self.tools.values()
+        self.tools
+            .values()
             .filter(|t| t.name.starts_with(domain_prefix))
             .collect()
     }
@@ -170,17 +171,19 @@ impl AetherToolRegistry {
     /// Execute a tool with given arguments
     pub fn execute(&self, tool_name: &str, args: JsonValue) -> ToolResult {
         let start = std::time::Instant::now();
-        
+
         // Validate tool exists and is available
         let tool = match self.tools.get(tool_name) {
             Some(t) => t,
-            None => return ToolResult {
-                tool_name: tool_name.to_string(),
-                success: false,
-                content: None,
-                error: Some(format!("Tool '{}' not found", tool_name)),
-                metadata: ToolExecutionMetadata::default(),
-            },
+            None => {
+                return ToolResult {
+                    tool_name: tool_name.to_string(),
+                    success: false,
+                    content: None,
+                    error: Some(format!("Tool '{}' not found", tool_name)),
+                    metadata: ToolExecutionMetadata::default(),
+                }
+            }
         };
 
         if !tool.available {
@@ -188,7 +191,10 @@ impl AetherToolRegistry {
                 tool_name: tool_name.to_string(),
                 success: false,
                 content: None,
-                error: Some(format!("Tool '{}' not available on current platform", tool_name)),
+                error: Some(format!(
+                    "Tool '{}' not available on current platform",
+                    tool_name
+                )),
                 metadata: ToolExecutionMetadata::default(),
             };
         }
@@ -233,7 +239,10 @@ impl AetherToolRegistry {
             error: if result.success {
                 None
             } else {
-                Some(format!("Exit code {:?}: {}", result.exit_code, result.stderr))
+                Some(format!(
+                    "Exit code {:?}: {}",
+                    result.exit_code, result.stderr
+                ))
             },
             metadata: ToolExecutionMetadata {
                 duration_ms: start.elapsed().as_millis() as u64,
@@ -288,7 +297,8 @@ impl Default for AetherToolRegistry {
 
 fn operation_to_tool(op: &OSOperation, current_platform: SupportedPlatform) -> AetherTool {
     // Check if operation is available on current platform
-    let available = op.supported_platforms
+    let available = op
+        .supported_platforms
         .as_ref()
         .map(|platforms| platforms.iter().any(|p| p.includes(current_platform)))
         .unwrap_or(true); // Default to available if not specified
@@ -304,7 +314,9 @@ fn operation_to_tool(op: &OSOperation, current_platform: SupportedPlatform) -> A
         description: format!(
             "{}{}",
             op.description,
-            platform_note.map(|n| format!(" Note: {}", n)).unwrap_or_default()
+            platform_note
+                .map(|n| format!(" Note: {}", n))
+                .unwrap_or_default()
         ),
         parameters,
         permission_level: op.security.permission_level.clone(),
@@ -347,7 +359,7 @@ fn params_to_json_schema(params: &[super::ontology::OperationParameter]) -> Json
     for param in params {
         let schema = param_type_to_json_schema(&param.param_type);
         properties.insert(param.name.clone(), schema);
-        
+
         if param.required {
             required.push(param.name.clone());
         }
@@ -362,7 +374,12 @@ fn params_to_json_schema(params: &[super::ontology::OperationParameter]) -> Json
 
 fn param_type_to_json_schema(param_type: &ParamType) -> JsonValue {
     match param_type {
-        ParamType::String { format, min_length, max_length, pattern } => {
+        ParamType::String {
+            format,
+            min_length,
+            max_length,
+            pattern,
+        } => {
             let mut schema = json!({ "type": "string" });
             if let Some(min) = min_length {
                 schema["minLength"] = json!(min);
@@ -396,7 +413,11 @@ fn param_type_to_json_schema(param_type: &ParamType) -> JsonValue {
             schema
         }
         ParamType::Boolean => json!({ "type": "boolean" }),
-        ParamType::Array { items, min_items, max_items } => {
+        ParamType::Array {
+            items,
+            min_items,
+            max_items,
+        } => {
             let mut schema = json!({
                 "type": "array",
                 "items": param_type_to_json_schema(items),
@@ -409,7 +430,10 @@ fn param_type_to_json_schema(param_type: &ParamType) -> JsonValue {
             }
             schema
         }
-        ParamType::Object { properties, required } => {
+        ParamType::Object {
+            properties,
+            required,
+        } => {
             let props: serde_json::Map<String, JsonValue> = properties
                 .iter()
                 .map(|(k, v)| (k.clone(), param_type_to_json_schema(v)))
@@ -427,8 +451,8 @@ fn param_type_to_json_schema(param_type: &ParamType) -> JsonValue {
             })
         }
         ParamType::Path { .. } => json!({ "type": "string", "format": "path" }),
-        ParamType::Uri { schemes } => json!({ 
-            "type": "string", 
+        ParamType::Uri { schemes } => json!({
+            "type": "string",
             "format": "uri",
             "description": format!("URI with schemes: {}", schemes.join(", ")),
         }),
@@ -487,7 +511,7 @@ mod tests {
         let registry = AetherToolRegistry::new();
         let functions = registry.to_openai_functions();
         assert!(!functions.is_empty());
-        
+
         // Check structure
         let first = &functions[0];
         assert_eq!(first["type"], "function");
@@ -500,7 +524,7 @@ mod tests {
         let registry = AetherToolRegistry::new();
         let tools = registry.to_anthropic_tools();
         assert!(!tools.is_empty());
-        
+
         // Check structure
         let first = &tools[0];
         assert!(first["name"].is_string());
@@ -511,7 +535,7 @@ mod tests {
     #[test]
     fn test_tool_execution() {
         let registry = AetherToolRegistry::new();
-        
+
         // Test env.get which should work on all platforms
         let result = registry.execute("env.get", json!({ "name": "PATH" }));
         // Should succeed (PATH exists on all platforms)
@@ -522,10 +546,10 @@ mod tests {
     fn test_domain_filtering() {
         let registry = AetherToolRegistry::new();
         let fs_tools = registry.tools_by_domain(&CapabilityDomain::FileSystem);
-        
+
         // Should have filesystem tools
         assert!(!fs_tools.is_empty());
-        
+
         // All should start with fs.
         for tool in fs_tools {
             assert!(tool.name.starts_with("fs."));

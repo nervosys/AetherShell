@@ -8,9 +8,9 @@
 //! This module ensures AetherShell serves as the default OS abstraction layer for AI providers,
 //! translating abstract operations into platform-specific implementations.
 
+use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use anyhow::{anyhow, Result};
 
 pub use crate::os_tools::OperatingSystem;
 
@@ -47,19 +47,19 @@ pub struct PlatformCapabilities {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum PackageManagerType {
-    Apt,      // Debian/Ubuntu
-    Yum,      // RHEL/CentOS
-    Dnf,      // Fedora
-    Pacman,   // Arch
-    Brew,     // macOS
+    Apt,        // Debian/Ubuntu
+    Yum,        // RHEL/CentOS
+    Dnf,        // Fedora
+    Pacman,     // Arch
+    Brew,       // macOS
     Chocolatey, // Windows
-    Winget,   // Windows
-    Scoop,    // Windows
-    Apk,      // Alpine
-    Pkg,      // FreeBSD
-    Snap,     // Cross-platform
-    Flatpak,  // Cross-platform
-    Termux,   // Android
+    Winget,     // Windows
+    Scoop,      // Windows
+    Apk,        // Alpine
+    Pkg,        // FreeBSD
+    Snap,       // Cross-platform
+    Flatpak,    // Cross-platform
+    Termux,     // Android
     None,
 }
 
@@ -69,26 +69,26 @@ pub enum ContainerType {
     Podman,
     Containerd,
     LXC,
-    WSL,  // Windows Subsystem for Linux
+    WSL, // Windows Subsystem for Linux
     None,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub enum FilesystemAccessLevel {
     #[default]
-    Full,          // Full access to filesystem
-    UserOnly,      // Only user directories
-    Sandboxed,     // App sandbox only (iOS)
-    Restricted,    // Limited access (Android without root)
+    Full, // Full access to filesystem
+    UserOnly,   // Only user directories
+    Sandboxed,  // App sandbox only (iOS)
+    Restricted, // Limited access (Android without root)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub enum HardwareAccessLevel {
     #[default]
-    Full,          // Direct hardware access
-    Limited,       // Through APIs only
-    Virtualized,   // Running in VM
-    None,          // No direct hardware access
+    Full, // Direct hardware access
+    Limited,     // Through APIs only
+    Virtualized, // Running in VM
+    None,        // No direct hardware access
 }
 
 impl PlatformCapabilities {
@@ -171,7 +171,11 @@ impl PlatformCapabilities {
                 admin_possible: is_android_rooted(),
                 background_processes: true,
                 service_management: is_android_rooted(),
-                package_manager: if has_termux() { Some(PackageManagerType::Termux) } else { None },
+                package_manager: if has_termux() {
+                    Some(PackageManagerType::Termux)
+                } else {
+                    None
+                },
                 container_runtime: None,
                 virtualization: false,
                 network_config: is_android_rooted(),
@@ -235,8 +239,8 @@ fn detect_windows_container() -> Option<ContainerType> {
 fn is_android_rooted() -> bool {
     #[cfg(target_os = "android")]
     {
-        std::path::Path::new("/system/xbin/su").exists() ||
-        std::path::Path::new("/system/bin/su").exists()
+        std::path::Path::new("/system/xbin/su").exists()
+            || std::path::Path::new("/system/bin/su").exists()
     }
     #[cfg(not(target_os = "android"))]
     false
@@ -323,277 +327,401 @@ impl PlatformRegistry {
     /// Register core operations with platform-specific implementations
     fn register_core_operations(&mut self) {
         // ===================== File System =====================
-        
+
         // fs.read_file - Universal (Rust std::fs)
         for os in all_operating_systems() {
-            self.register("fs.read_file", PlatformImplementation {
-                os: os.clone(),
-                command: "__native__".to_string(), // Use native Rust
-                args_template: vec![],
-                env_vars: HashMap::new(),
-                requires_elevation: false,
-                fallback: None,
-            });
+            self.register(
+                "fs.read_file",
+                PlatformImplementation {
+                    os: os.clone(),
+                    command: "__native__".to_string(), // Use native Rust
+                    args_template: vec![],
+                    env_vars: HashMap::new(),
+                    requires_elevation: false,
+                    fallback: None,
+                },
+            );
         }
 
         // fs.write_file - Universal (Rust std::fs)
         for os in all_operating_systems() {
-            self.register("fs.write_file", PlatformImplementation {
-                os: os.clone(),
-                command: "__native__".to_string(),
-                args_template: vec![],
-                env_vars: HashMap::new(),
-                requires_elevation: false,
-                fallback: None,
-            });
+            self.register(
+                "fs.write_file",
+                PlatformImplementation {
+                    os: os.clone(),
+                    command: "__native__".to_string(),
+                    args_template: vec![],
+                    env_vars: HashMap::new(),
+                    requires_elevation: false,
+                    fallback: None,
+                },
+            );
         }
 
         // fs.list_dir
-        self.register("fs.list_dir", PlatformImplementation {
-            os: OperatingSystem::Windows,
-            command: "dir".to_string(),
-            args_template: vec!["/B".to_string(), "{path}".to_string()],
-            env_vars: HashMap::new(),
-            requires_elevation: false,
-            fallback: Some(Box::new(PlatformImplementation {
+        self.register(
+            "fs.list_dir",
+            PlatformImplementation {
                 os: OperatingSystem::Windows,
-                command: "powershell".to_string(),
-                args_template: vec!["-Command".to_string(), "Get-ChildItem -Path {path}".to_string()],
+                command: "dir".to_string(),
+                args_template: vec!["/B".to_string(), "{path}".to_string()],
                 env_vars: HashMap::new(),
                 requires_elevation: false,
-                fallback: None,
-            })),
-        });
+                fallback: Some(Box::new(PlatformImplementation {
+                    os: OperatingSystem::Windows,
+                    command: "powershell".to_string(),
+                    args_template: vec![
+                        "-Command".to_string(),
+                        "Get-ChildItem -Path {path}".to_string(),
+                    ],
+                    env_vars: HashMap::new(),
+                    requires_elevation: false,
+                    fallback: None,
+                })),
+            },
+        );
 
-        for os in [OperatingSystem::Linux, OperatingSystem::MacOS, OperatingSystem::BSD] {
-            self.register("fs.list_dir", PlatformImplementation {
-                os: os.clone(),
+        for os in [
+            OperatingSystem::Linux,
+            OperatingSystem::MacOS,
+            OperatingSystem::BSD,
+        ] {
+            self.register(
+                "fs.list_dir",
+                PlatformImplementation {
+                    os: os.clone(),
+                    command: "ls".to_string(),
+                    args_template: vec!["-la".to_string(), "{path}".to_string()],
+                    env_vars: HashMap::new(),
+                    requires_elevation: false,
+                    fallback: None,
+                },
+            );
+        }
+
+        self.register(
+            "fs.list_dir",
+            PlatformImplementation {
+                os: OperatingSystem::Android,
                 command: "ls".to_string(),
                 args_template: vec!["-la".to_string(), "{path}".to_string()],
                 env_vars: HashMap::new(),
                 requires_elevation: false,
                 fallback: None,
-            });
-        }
+            },
+        );
 
-        self.register("fs.list_dir", PlatformImplementation {
-            os: OperatingSystem::Android,
-            command: "ls".to_string(),
-            args_template: vec!["-la".to_string(), "{path}".to_string()],
-            env_vars: HashMap::new(),
-            requires_elevation: false,
-            fallback: None,
-        });
-
-        self.register("fs.list_dir", PlatformImplementation {
-            os: OperatingSystem::iOS,
-            command: "ls".to_string(), // Available if jailbroken
-            args_template: vec!["-la".to_string(), "{path}".to_string()],
-            env_vars: HashMap::new(),
-            requires_elevation: false,
-            fallback: None,
-        });
+        self.register(
+            "fs.list_dir",
+            PlatformImplementation {
+                os: OperatingSystem::iOS,
+                command: "ls".to_string(), // Available if jailbroken
+                args_template: vec!["-la".to_string(), "{path}".to_string()],
+                env_vars: HashMap::new(),
+                requires_elevation: false,
+                fallback: None,
+            },
+        );
 
         // ===================== Process Management =====================
 
         // process.list
-        self.register("process.list", PlatformImplementation {
-            os: OperatingSystem::Windows,
-            command: "tasklist".to_string(),
-            args_template: vec!["/V".to_string(), "/FO".to_string(), "CSV".to_string()],
-            env_vars: HashMap::new(),
-            requires_elevation: false,
-            fallback: Some(Box::new(PlatformImplementation {
+        self.register(
+            "process.list",
+            PlatformImplementation {
                 os: OperatingSystem::Windows,
-                command: "powershell".to_string(),
-                args_template: vec!["-Command".to_string(), "Get-Process | ConvertTo-Json".to_string()],
+                command: "tasklist".to_string(),
+                args_template: vec!["/V".to_string(), "/FO".to_string(), "CSV".to_string()],
                 env_vars: HashMap::new(),
                 requires_elevation: false,
-                fallback: None,
-            })),
-        });
+                fallback: Some(Box::new(PlatformImplementation {
+                    os: OperatingSystem::Windows,
+                    command: "powershell".to_string(),
+                    args_template: vec![
+                        "-Command".to_string(),
+                        "Get-Process | ConvertTo-Json".to_string(),
+                    ],
+                    env_vars: HashMap::new(),
+                    requires_elevation: false,
+                    fallback: None,
+                })),
+            },
+        );
 
-        for os in [OperatingSystem::Linux, OperatingSystem::MacOS, OperatingSystem::BSD] {
-            self.register("process.list", PlatformImplementation {
-                os: os.clone(),
-                command: "ps".to_string(),
-                args_template: vec!["aux".to_string()],
-                env_vars: HashMap::new(),
-                requires_elevation: false,
-                fallback: None,
-            });
+        for os in [
+            OperatingSystem::Linux,
+            OperatingSystem::MacOS,
+            OperatingSystem::BSD,
+        ] {
+            self.register(
+                "process.list",
+                PlatformImplementation {
+                    os: os.clone(),
+                    command: "ps".to_string(),
+                    args_template: vec!["aux".to_string()],
+                    env_vars: HashMap::new(),
+                    requires_elevation: false,
+                    fallback: None,
+                },
+            );
         }
 
-        self.register("process.list", PlatformImplementation {
-            os: OperatingSystem::Android,
-            command: "ps".to_string(),
-            args_template: vec!["-A".to_string()],
-            env_vars: HashMap::new(),
-            requires_elevation: false,
-            fallback: None,
-        });
-
-        // process.kill
-        self.register("process.kill", PlatformImplementation {
-            os: OperatingSystem::Windows,
-            command: "taskkill".to_string(),
-            args_template: vec!["/F".to_string(), "/PID".to_string(), "{pid}".to_string()],
-            env_vars: HashMap::new(),
-            requires_elevation: true,
-            fallback: None,
-        });
-
-        for os in [OperatingSystem::Linux, OperatingSystem::MacOS, OperatingSystem::BSD, OperatingSystem::Android] {
-            self.register("process.kill", PlatformImplementation {
-                os: os.clone(),
-                command: "kill".to_string(),
-                args_template: vec!["-9".to_string(), "{pid}".to_string()],
+        self.register(
+            "process.list",
+            PlatformImplementation {
+                os: OperatingSystem::Android,
+                command: "ps".to_string(),
+                args_template: vec!["-A".to_string()],
                 env_vars: HashMap::new(),
                 requires_elevation: false,
                 fallback: None,
-            });
+            },
+        );
+
+        // process.kill
+        self.register(
+            "process.kill",
+            PlatformImplementation {
+                os: OperatingSystem::Windows,
+                command: "taskkill".to_string(),
+                args_template: vec!["/F".to_string(), "/PID".to_string(), "{pid}".to_string()],
+                env_vars: HashMap::new(),
+                requires_elevation: true,
+                fallback: None,
+            },
+        );
+
+        for os in [
+            OperatingSystem::Linux,
+            OperatingSystem::MacOS,
+            OperatingSystem::BSD,
+            OperatingSystem::Android,
+        ] {
+            self.register(
+                "process.kill",
+                PlatformImplementation {
+                    os: os.clone(),
+                    command: "kill".to_string(),
+                    args_template: vec!["-9".to_string(), "{pid}".to_string()],
+                    env_vars: HashMap::new(),
+                    requires_elevation: false,
+                    fallback: None,
+                },
+            );
         }
 
         // ===================== Network =====================
 
         // network.http_request - Universal (reqwest)
         for os in all_operating_systems() {
-            self.register("network.http_request", PlatformImplementation {
-                os: os.clone(),
-                command: "__native__".to_string(),
-                args_template: vec![],
-                env_vars: HashMap::new(),
-                requires_elevation: false,
-                fallback: None,
-            });
+            self.register(
+                "network.http_request",
+                PlatformImplementation {
+                    os: os.clone(),
+                    command: "__native__".to_string(),
+                    args_template: vec![],
+                    env_vars: HashMap::new(),
+                    requires_elevation: false,
+                    fallback: None,
+                },
+            );
         }
 
         // network.ping
-        self.register("network.ping", PlatformImplementation {
-            os: OperatingSystem::Windows,
-            command: "ping".to_string(),
-            args_template: vec!["-n".to_string(), "{count}".to_string(), "{host}".to_string()],
-            env_vars: HashMap::new(),
-            requires_elevation: false,
-            fallback: None,
-        });
-
-        for os in [OperatingSystem::Linux, OperatingSystem::MacOS, OperatingSystem::BSD] {
-            self.register("network.ping", PlatformImplementation {
-                os: os.clone(),
+        self.register(
+            "network.ping",
+            PlatformImplementation {
+                os: OperatingSystem::Windows,
                 command: "ping".to_string(),
-                args_template: vec!["-c".to_string(), "{count}".to_string(), "{host}".to_string()],
+                args_template: vec![
+                    "-n".to_string(),
+                    "{count}".to_string(),
+                    "{host}".to_string(),
+                ],
                 env_vars: HashMap::new(),
                 requires_elevation: false,
                 fallback: None,
-            });
+            },
+        );
+
+        for os in [
+            OperatingSystem::Linux,
+            OperatingSystem::MacOS,
+            OperatingSystem::BSD,
+        ] {
+            self.register(
+                "network.ping",
+                PlatformImplementation {
+                    os: os.clone(),
+                    command: "ping".to_string(),
+                    args_template: vec![
+                        "-c".to_string(),
+                        "{count}".to_string(),
+                        "{host}".to_string(),
+                    ],
+                    env_vars: HashMap::new(),
+                    requires_elevation: false,
+                    fallback: None,
+                },
+            );
         }
 
         // ===================== System Info =====================
 
         // system.info
-        self.register("system.info", PlatformImplementation {
-            os: OperatingSystem::Windows,
-            command: "powershell".to_string(),
-            args_template: vec!["-Command".to_string(), "Get-ComputerInfo | ConvertTo-Json".to_string()],
-            env_vars: HashMap::new(),
-            requires_elevation: false,
-            fallback: None,
-        });
-
-        for os in [OperatingSystem::Linux, OperatingSystem::Android] {
-            self.register("system.info", PlatformImplementation {
-                os: os.clone(),
-                command: "uname".to_string(),
-                args_template: vec!["-a".to_string()],
+        self.register(
+            "system.info",
+            PlatformImplementation {
+                os: OperatingSystem::Windows,
+                command: "powershell".to_string(),
+                args_template: vec![
+                    "-Command".to_string(),
+                    "Get-ComputerInfo | ConvertTo-Json".to_string(),
+                ],
                 env_vars: HashMap::new(),
                 requires_elevation: false,
                 fallback: None,
-            });
+            },
+        );
+
+        for os in [OperatingSystem::Linux, OperatingSystem::Android] {
+            self.register(
+                "system.info",
+                PlatformImplementation {
+                    os: os.clone(),
+                    command: "uname".to_string(),
+                    args_template: vec!["-a".to_string()],
+                    env_vars: HashMap::new(),
+                    requires_elevation: false,
+                    fallback: None,
+                },
+            );
         }
 
-        self.register("system.info", PlatformImplementation {
-            os: OperatingSystem::MacOS,
-            command: "system_profiler".to_string(),
-            args_template: vec!["SPSoftwareDataType".to_string(), "-json".to_string()],
-            env_vars: HashMap::new(),
-            requires_elevation: false,
-            fallback: None,
-        });
+        self.register(
+            "system.info",
+            PlatformImplementation {
+                os: OperatingSystem::MacOS,
+                command: "system_profiler".to_string(),
+                args_template: vec!["SPSoftwareDataType".to_string(), "-json".to_string()],
+                env_vars: HashMap::new(),
+                requires_elevation: false,
+                fallback: None,
+            },
+        );
 
         // ===================== Environment =====================
 
         // env.get - Universal
         for os in all_operating_systems() {
-            self.register("env.get", PlatformImplementation {
-                os: os.clone(),
-                command: "__native__".to_string(),
-                args_template: vec![],
-                env_vars: HashMap::new(),
-                requires_elevation: false,
-                fallback: None,
-            });
+            self.register(
+                "env.get",
+                PlatformImplementation {
+                    os: os.clone(),
+                    command: "__native__".to_string(),
+                    args_template: vec![],
+                    env_vars: HashMap::new(),
+                    requires_elevation: false,
+                    fallback: None,
+                },
+            );
         }
 
         // ===================== Package Management =====================
 
         // package.install
-        self.register("package.install", PlatformImplementation {
-            os: OperatingSystem::Windows,
-            command: "winget".to_string(),
-            args_template: vec!["install".to_string(), "-e".to_string(), "{package}".to_string()],
-            env_vars: HashMap::new(),
-            requires_elevation: true,
-            fallback: Some(Box::new(PlatformImplementation {
+        self.register(
+            "package.install",
+            PlatformImplementation {
                 os: OperatingSystem::Windows,
-                command: "choco".to_string(),
-                args_template: vec!["install".to_string(), "-y".to_string(), "{package}".to_string()],
-                env_vars: HashMap::new(),
-                requires_elevation: true,
-                fallback: None,
-            })),
-        });
-
-        self.register("package.install", PlatformImplementation {
-            os: OperatingSystem::MacOS,
-            command: "brew".to_string(),
-            args_template: vec!["install".to_string(), "{package}".to_string()],
-            env_vars: HashMap::new(),
-            requires_elevation: false,
-            fallback: None,
-        });
-
-        self.register("package.install", PlatformImplementation {
-            os: OperatingSystem::Linux,
-            command: "apt".to_string(),
-            args_template: vec!["install".to_string(), "-y".to_string(), "{package}".to_string()],
-            env_vars: HashMap::new(),
-            requires_elevation: true,
-            fallback: Some(Box::new(PlatformImplementation {
-                os: OperatingSystem::Linux,
-                command: "dnf".to_string(),
-                args_template: vec!["install".to_string(), "-y".to_string(), "{package}".to_string()],
+                command: "winget".to_string(),
+                args_template: vec![
+                    "install".to_string(),
+                    "-e".to_string(),
+                    "{package}".to_string(),
+                ],
                 env_vars: HashMap::new(),
                 requires_elevation: true,
                 fallback: Some(Box::new(PlatformImplementation {
-                    os: OperatingSystem::Linux,
-                    command: "pacman".to_string(),
-                    args_template: vec!["-S".to_string(), "--noconfirm".to_string(), "{package}".to_string()],
+                    os: OperatingSystem::Windows,
+                    command: "choco".to_string(),
+                    args_template: vec![
+                        "install".to_string(),
+                        "-y".to_string(),
+                        "{package}".to_string(),
+                    ],
                     env_vars: HashMap::new(),
                     requires_elevation: true,
                     fallback: None,
                 })),
-            })),
-        });
+            },
+        );
 
-        self.register("package.install", PlatformImplementation {
-            os: OperatingSystem::Android,
-            command: "pkg".to_string(), // Termux
-            args_template: vec!["install".to_string(), "-y".to_string(), "{package}".to_string()],
-            env_vars: HashMap::new(),
-            requires_elevation: false,
-            fallback: None,
-        });
+        self.register(
+            "package.install",
+            PlatformImplementation {
+                os: OperatingSystem::MacOS,
+                command: "brew".to_string(),
+                args_template: vec!["install".to_string(), "{package}".to_string()],
+                env_vars: HashMap::new(),
+                requires_elevation: false,
+                fallback: None,
+            },
+        );
+
+        self.register(
+            "package.install",
+            PlatformImplementation {
+                os: OperatingSystem::Linux,
+                command: "apt".to_string(),
+                args_template: vec![
+                    "install".to_string(),
+                    "-y".to_string(),
+                    "{package}".to_string(),
+                ],
+                env_vars: HashMap::new(),
+                requires_elevation: true,
+                fallback: Some(Box::new(PlatformImplementation {
+                    os: OperatingSystem::Linux,
+                    command: "dnf".to_string(),
+                    args_template: vec![
+                        "install".to_string(),
+                        "-y".to_string(),
+                        "{package}".to_string(),
+                    ],
+                    env_vars: HashMap::new(),
+                    requires_elevation: true,
+                    fallback: Some(Box::new(PlatformImplementation {
+                        os: OperatingSystem::Linux,
+                        command: "pacman".to_string(),
+                        args_template: vec![
+                            "-S".to_string(),
+                            "--noconfirm".to_string(),
+                            "{package}".to_string(),
+                        ],
+                        env_vars: HashMap::new(),
+                        requires_elevation: true,
+                        fallback: None,
+                    })),
+                })),
+            },
+        );
+
+        self.register(
+            "package.install",
+            PlatformImplementation {
+                os: OperatingSystem::Android,
+                command: "pkg".to_string(), // Termux
+                args_template: vec![
+                    "install".to_string(),
+                    "-y".to_string(),
+                    "{package}".to_string(),
+                ],
+                env_vars: HashMap::new(),
+                requires_elevation: false,
+                fallback: None,
+            },
+        );
     }
 }
 
@@ -650,12 +778,20 @@ impl PlatformExecutor {
         operation_id: &str,
         params: &HashMap<String, serde_json::Value>,
     ) -> Result<ExecutionResult> {
-        let impl_ = self.registry.get_current(operation_id)
-            .ok_or_else(|| anyhow!("Operation '{}' not supported on {:?}", operation_id, self.current_os))?;
+        let impl_ = self.registry.get_current(operation_id).ok_or_else(|| {
+            anyhow!(
+                "Operation '{}' not supported on {:?}",
+                operation_id,
+                self.current_os
+            )
+        })?;
 
         // Check elevation requirements
         if impl_.requires_elevation && !self.has_elevation() {
-            return Err(anyhow!("Operation '{}' requires elevated privileges", operation_id));
+            return Err(anyhow!(
+                "Operation '{}' requires elevated privileges",
+                operation_id
+            ));
         }
 
         // Handle native Rust implementations
@@ -665,7 +801,7 @@ impl PlatformExecutor {
 
         // Build command with parameter substitution
         let args = self.substitute_params(&impl_.args_template, params);
-        
+
         // Execute command
         let output = std::process::Command::new(&impl_.command)
             .args(&args)
@@ -681,21 +817,28 @@ impl PlatformExecutor {
         })
     }
 
-    fn substitute_params(&self, template: &[String], params: &HashMap<String, serde_json::Value>) -> Vec<String> {
-        template.iter().map(|t| {
-            let mut result = t.clone();
-            for (key, value) in params {
-                let placeholder = format!("{{{}}}", key);
-                let value_str = match value {
-                    serde_json::Value::String(s) => s.clone(),
-                    serde_json::Value::Number(n) => n.to_string(),
-                    serde_json::Value::Bool(b) => b.to_string(),
-                    _ => value.to_string(),
-                };
-                result = result.replace(&placeholder, &value_str);
-            }
-            result
-        }).collect()
+    fn substitute_params(
+        &self,
+        template: &[String],
+        params: &HashMap<String, serde_json::Value>,
+    ) -> Vec<String> {
+        template
+            .iter()
+            .map(|t| {
+                let mut result = t.clone();
+                for (key, value) in params {
+                    let placeholder = format!("{{{}}}", key);
+                    let value_str = match value {
+                        serde_json::Value::String(s) => s.clone(),
+                        serde_json::Value::Number(n) => n.to_string(),
+                        serde_json::Value::Bool(b) => b.to_string(),
+                        _ => value.to_string(),
+                    };
+                    result = result.replace(&placeholder, &value_str);
+                }
+                result
+            })
+            .collect()
     }
 
     fn execute_native(
@@ -705,7 +848,8 @@ impl PlatformExecutor {
     ) -> Result<ExecutionResult> {
         match operation_id {
             "fs.read_file" => {
-                let path = params.get("path")
+                let path = params
+                    .get("path")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow!("Missing 'path' parameter"))?;
                 let content = std::fs::read_to_string(path)?;
@@ -717,10 +861,12 @@ impl PlatformExecutor {
                 })
             }
             "fs.write_file" => {
-                let path = params.get("path")
+                let path = params
+                    .get("path")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow!("Missing 'path' parameter"))?;
-                let content = params.get("content")
+                let content = params
+                    .get("content")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow!("Missing 'content' parameter"))?;
                 std::fs::write(path, content)?;
@@ -732,7 +878,8 @@ impl PlatformExecutor {
                 })
             }
             "env.get" => {
-                let name = params.get("name")
+                let name = params
+                    .get("name")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow!("Missing 'name' parameter"))?;
                 let value = std::env::var(name).unwrap_or_default();
@@ -797,7 +944,7 @@ pub struct ExecutionResult {
 lazy_static::lazy_static! {
     /// Global platform registry
     pub static ref PLATFORM_REGISTRY: PlatformRegistry = PlatformRegistry::new();
-    
+
     /// Global platform executor
     pub static ref PLATFORM_EXECUTOR: PlatformExecutor = PlatformExecutor::new();
 }
