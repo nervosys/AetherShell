@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.svg" alt="Æther Shell" width="180">
+  <img src="assets/banner.png" alt="Æther Shell" width="180">
 </p>
 
 <h1 align="center">Æther Shell (ae)</h1>
