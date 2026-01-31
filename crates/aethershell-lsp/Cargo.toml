@@ -32,8 +32,8 @@ thiserror = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
-# AetherShell core (path dependency) - use native feature explicitly
-aethershell = { path = "../..", default-features = false, features = [
+# AetherShell core - use native feature explicitly
+aethershell = { version = "0.3.0", path = "../..", default-features = false, features = [
     "native",
 ] }
 
