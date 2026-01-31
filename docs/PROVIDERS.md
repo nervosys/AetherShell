@@ -26,53 +26,53 @@ src/providers/
 
 ### Supported Providers (19 total)
 
-| Provider | URI Scheme | Example | Notes |
-|----------|------------|---------|-------|
-| OpenAI | `openai:` | `openai:gpt-4o` | Full support |
-| Anthropic | `anthropic:` | `anthropic:claude-3-5-sonnet` | Native API |
-| Google | `google:` | `google:gemini-1.5-pro` | Native API |
-| Azure OpenAI | `azure:` | `azure:gpt-4/deployment` | OpenAI-compatible |
-| AWS Bedrock | `bedrock:` | `bedrock:anthropic.claude-v2` | OpenAI-compatible |
-| Ollama | `ollama:` | `ollama:llama3` | Local, native API |
-| Together AI | `together:` | `together:meta-llama/Llama-3-70b` | OpenAI-compatible |
-| Groq | `groq:` | `groq:mixtral-8x7b` | OpenAI-compatible |
-| Mistral | `mistral:` | `mistral:mistral-large` | OpenAI-compatible |
-| Cohere | `cohere:` | `cohere:command-r-plus` | OpenAI-compatible |
-| Perplexity | `perplexity:` | `perplexity:llama-3.1-sonar` | OpenAI-compatible |
-| Fireworks | `fireworks:` | `fireworks:llama-v3-70b` | OpenAI-compatible |
-| DeepSeek | `deepseek:` | `deepseek:deepseek-chat` | OpenAI-compatible |
-| xAI | `xai:` | `xai:grok-beta` | OpenAI-compatible |
-| OpenRouter | `openrouter:` | `openrouter:anthropic/claude-3` | OpenAI-compatible |
-| vLLM | `vllm:` | `vllm:meta-llama/Llama-3` | OpenAI-compatible |
-| TGI | `tgi:` | `tgi:mixtral` | OpenAI-compatible |
-| llama.cpp | `llamacpp:` | `llamacpp:model.gguf` | OpenAI-compatible |
-| Local/Custom | `local:` | `local:http://localhost:8080` | OpenAI-compatible |
+| Provider     | URI Scheme    | Example                           | Notes             |
+| ------------ | ------------- | --------------------------------- | ----------------- |
+| OpenAI       | `openai:`     | `openai:gpt-4o`                   | Full support      |
+| Anthropic    | `anthropic:`  | `anthropic:claude-3-5-sonnet`     | Native API        |
+| Google       | `google:`     | `google:gemini-1.5-pro`           | Native API        |
+| Azure OpenAI | `azure:`      | `azure:gpt-4/deployment`          | OpenAI-compatible |
+| AWS Bedrock  | `bedrock:`    | `bedrock:anthropic.claude-v2`     | OpenAI-compatible |
+| Ollama       | `ollama:`     | `ollama:llama3`                   | Local, native API |
+| Together AI  | `together:`   | `together:meta-llama/Llama-3-70b` | OpenAI-compatible |
+| Groq         | `groq:`       | `groq:mixtral-8x7b`               | OpenAI-compatible |
+| Mistral      | `mistral:`    | `mistral:mistral-large`           | OpenAI-compatible |
+| Cohere       | `cohere:`     | `cohere:command-r-plus`           | OpenAI-compatible |
+| Perplexity   | `perplexity:` | `perplexity:llama-3.1-sonar`      | OpenAI-compatible |
+| Fireworks    | `fireworks:`  | `fireworks:llama-v3-70b`          | OpenAI-compatible |
+| DeepSeek     | `deepseek:`   | `deepseek:deepseek-chat`          | OpenAI-compatible |
+| xAI          | `xai:`        | `xai:grok-beta`                   | OpenAI-compatible |
+| OpenRouter   | `openrouter:` | `openrouter:anthropic/claude-3`   | OpenAI-compatible |
+| vLLM         | `vllm:`       | `vllm:meta-llama/Llama-3`         | OpenAI-compatible |
+| TGI          | `tgi:`        | `tgi:mixtral`                     | OpenAI-compatible |
+| llama.cpp    | `llamacpp:`   | `llamacpp:model.gguf`             | OpenAI-compatible |
+| Local/Custom | `local:`      | `local:http://localhost:8080`     | OpenAI-compatible |
 
 ### OS Operation Ontology
 
 The ontology defines 19 capability domains with 80+ operations:
 
-| Domain | Operations | Description |
-|--------|------------|-------------|
-| FileSystem | read_file, write_file, list_dir, etc. | File and directory operations |
-| Process | run_command, kill_process, etc. | Process management |
-| Network | http_request, ping, dns_lookup | Network operations |
-| Environment | get_env, set_env, list_env | Environment variables |
-| User | get_current_user, list_users | User management |
-| Package | install_package, list_packages | Package managers |
-| Service | start_service, stop_service | System services |
-| Cron | schedule_job, list_jobs | Scheduled tasks |
-| Clipboard | get_clipboard, set_clipboard | Clipboard access |
-| System | get_cpu_info, get_memory_info | System information |
-| Git | git_status, git_commit | Version control |
-| Docker | docker_run, docker_ps | Containerization |
-| Database | query_db, execute_sql | Database access |
-| Web | fetch_url, parse_html | Web scraping |
-| AI | complete_prompt, embed_text | AI operations |
-| Search | grep_files, find_files | File search |
-| Archive | compress_files, extract_archive | Compression |
-| Security | encrypt_data, hash_data | Security operations |
-| Shell | eval_script, source_file | Shell evaluation |
+| Domain      | Operations                            | Description                   |
+| ----------- | ------------------------------------- | ----------------------------- |
+| FileSystem  | read_file, write_file, list_dir, etc. | File and directory operations |
+| Process     | run_command, kill_process, etc.       | Process management            |
+| Network     | http_request, ping, dns_lookup        | Network operations            |
+| Environment | get_env, set_env, list_env            | Environment variables         |
+| User        | get_current_user, list_users          | User management               |
+| Package     | install_package, list_packages        | Package managers              |
+| Service     | start_service, stop_service           | System services               |
+| Cron        | schedule_job, list_jobs               | Scheduled tasks               |
+| Clipboard   | get_clipboard, set_clipboard          | Clipboard access              |
+| System      | get_cpu_info, get_memory_info         | System information            |
+| Git         | git_status, git_commit                | Version control               |
+| Docker      | docker_run, docker_ps                 | Containerization              |
+| Database    | query_db, execute_sql                 | Database access               |
+| Web         | fetch_url, parse_html                 | Web scraping                  |
+| AI          | complete_prompt, embed_text           | AI operations                 |
+| Search      | grep_files, find_files                | File search                   |
+| Archive     | compress_files, extract_archive       | Compression                   |
+| Security    | encrypt_data, hash_data               | Security operations           |
+| Shell       | eval_script, source_file              | Shell evaluation              |
 
 ### Tool Schema Generation
 
@@ -166,15 +166,15 @@ let provider = registry.route_with_condition(RoutingCondition::HasTools)?;
 
 ## Environment Variables
 
-| Variable | Provider | Required |
-|----------|----------|----------|
-| `OPENAI_API_KEY` | OpenAI | Yes |
-| `ANTHROPIC_API_KEY` | Anthropic | Yes |
-| `GOOGLE_API_KEY` | Google | Yes |
-| `AZURE_OPENAI_API_KEY` | Azure | Yes |
-| `TOGETHER_API_KEY` | Together | Yes |
-| `GROQ_API_KEY` | Groq | Yes |
-| ... | ... | ... |
+| Variable               | Provider  | Required |
+| ---------------------- | --------- | -------- |
+| `OPENAI_API_KEY`       | OpenAI    | Yes      |
+| `ANTHROPIC_API_KEY`    | Anthropic | Yes      |
+| `GOOGLE_API_KEY`       | Google    | Yes      |
+| `AZURE_OPENAI_API_KEY` | Azure     | Yes      |
+| `TOGETHER_API_KEY`     | Together  | Yes      |
+| `GROQ_API_KEY`         | Groq      | Yes      |
+| ...                    | ...       | ...      |
 
 ## Testing
 

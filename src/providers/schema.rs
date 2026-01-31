@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 use std::collections::HashMap;
 
-use super::ontology::{OSOperation, ParamType, StringFormat, PathType, DateTimeFormat, Constraint};
+use super::ontology::{Constraint, DateTimeFormat, OSOperation, ParamType, PathType, StringFormat};
 use super::ProviderType;
 
 // ============================================================================
@@ -53,34 +53,19 @@ impl ToolSchema {
     }
 
     /// Add a string parameter
-    pub fn with_string_param(
-        mut self,
-        name: &str,
-        description: &str,
-        required: bool,
-    ) -> Self {
+    pub fn with_string_param(mut self, name: &str, description: &str, required: bool) -> Self {
         self.add_param(name, description, json!({"type": "string"}), required);
         self
     }
 
     /// Add an integer parameter
-    pub fn with_integer_param(
-        mut self,
-        name: &str,
-        description: &str,
-        required: bool,
-    ) -> Self {
+    pub fn with_integer_param(mut self, name: &str, description: &str, required: bool) -> Self {
         self.add_param(name, description, json!({"type": "integer"}), required);
         self
     }
 
     /// Add a boolean parameter
-    pub fn with_boolean_param(
-        mut self,
-        name: &str,
-        description: &str,
-        required: bool,
-    ) -> Self {
+    pub fn with_boolean_param(mut self, name: &str, description: &str, required: bool) -> Self {
         self.add_param(name, description, json!({"type": "boolean"}), required);
         self
     }
@@ -174,8 +159,14 @@ impl ToolSchema {
     fn cohere_params(&self) -> JsonValue {
         let mut params = HashMap::new();
 
-        if let Some(props) = self.parameters.get("properties").and_then(|p| p.as_object()) {
-            let required = self.parameters.get("required")
+        if let Some(props) = self
+            .parameters
+            .get("properties")
+            .and_then(|p| p.as_object())
+        {
+            let required = self
+                .parameters
+                .get("required")
                 .and_then(|r| r.as_array())
                 .map(|arr| {
                     arr.iter()
@@ -186,19 +177,24 @@ impl ToolSchema {
                 .unwrap_or_default();
 
             for (name, schema) in props {
-                let desc = schema.get("description")
+                let desc = schema
+                    .get("description")
                     .and_then(|d| d.as_str())
                     .unwrap_or("");
-                
-                let param_type = schema.get("type")
+
+                let param_type = schema
+                    .get("type")
                     .and_then(|t| t.as_str())
                     .unwrap_or("string");
 
-                params.insert(name.clone(), json!({
-                    "description": desc,
-                    "type": param_type,
-                    "required": required.contains(name)
-                }));
+                params.insert(
+                    name.clone(),
+                    json!({
+                        "description": desc,
+                        "type": param_type,
+                        "required": required.contains(name)
+                    }),
+                );
             }
         }
 
@@ -219,7 +215,7 @@ impl ToolSchema {
             | ProviderType::Ollama
             | ProviderType::TGI
             | ProviderType::LlamaCpp => self.to_openai(),
-            
+
             ProviderType::Anthropic | ProviderType::Bedrock => self.to_anthropic(),
             ProviderType::Google => self.to_google(),
             ProviderType::Cohere => self.to_cohere(),
@@ -248,27 +244,27 @@ impl SchemaGenerator {
     /// Generate a tool schema from an OS operation
     pub fn from_operation(&self, op: &OSOperation) -> ToolSchema {
         let mut schema = ToolSchema::new(&op.id, &op.description);
-        
+
         let mut properties = serde_json::Map::new();
         let mut required = Vec::new();
 
         for param in &op.parameters {
             let param_schema = self.param_type_to_json(&param.param_type);
             let mut param_obj = param_schema.as_object().cloned().unwrap_or_default();
-            
+
             param_obj.insert("description".to_string(), json!(&param.description));
-            
+
             if let Some(default) = &param.default {
                 param_obj.insert("default".to_string(), default.clone());
             }
-            
+
             // Add examples if available
             if !param.examples.is_empty() {
                 param_obj.insert("examples".to_string(), json!(param.examples));
             }
 
             properties.insert(param.name.clone(), JsonValue::Object(param_obj));
-            
+
             if param.required {
                 required.push(param.name.clone());
             }
@@ -290,7 +286,12 @@ impl SchemaGenerator {
     /// Convert a ParamType to JSON Schema
     fn param_type_to_json(&self, param_type: &ParamType) -> JsonValue {
         match param_type {
-            ParamType::String { format, min_length, max_length, pattern } => {
+            ParamType::String {
+                format,
+                min_length,
+                max_length,
+                pattern,
+            } => {
                 let mut obj = json!({"type": "string"});
                 if let Some(obj_mut) = obj.as_object_mut() {
                     if let Some(fmt) = format {
@@ -333,7 +334,11 @@ impl SchemaGenerator {
                 obj
             }
             ParamType::Boolean => json!({"type": "boolean"}),
-            ParamType::Array { items, min_items, max_items } => {
+            ParamType::Array {
+                items,
+                min_items,
+                max_items,
+            } => {
                 let mut obj = json!({
                     "type": "array",
                     "items": self.param_type_to_json(items)
@@ -348,7 +353,10 @@ impl SchemaGenerator {
                 }
                 obj
             }
-            ParamType::Object { properties, required } => {
+            ParamType::Object {
+                properties,
+                required,
+            } => {
                 let props: serde_json::Map<String, JsonValue> = properties
                     .iter()
                     .map(|(k, v)| (k.clone(), self.param_type_to_json(v)))
@@ -365,7 +373,10 @@ impl SchemaGenerator {
                     "enum": values
                 })
             }
-            ParamType::Path { must_exist, path_type } => {
+            ParamType::Path {
+                must_exist,
+                path_type,
+            } => {
                 let mut obj = json!({
                     "type": "string",
                     "format": "path"
@@ -490,7 +501,7 @@ impl SchemaGenerator {
             .iter()
             .map(|s| s.to_provider_format(self.provider.clone()))
             .collect();
-        
+
         match self.provider {
             ProviderType::Google => {
                 // Google wraps tools in a function_declarations array
@@ -573,9 +584,12 @@ impl ResultFormatter {
                     "is_error": true
                 })
             }
-            _ => self.success(tool_call_id, json!({
-                "error": error
-            })),
+            _ => self.success(
+                tool_call_id,
+                json!({
+                    "error": error
+                }),
+            ),
         }
     }
 }
@@ -592,7 +606,12 @@ pub mod common_tools {
     pub fn read_file() -> ToolSchema {
         ToolSchema::new("read_file", "Read the contents of a file")
             .with_string_param("path", "Path to the file to read", true)
-            .with_enum_param("encoding", "Text encoding", vec!["utf-8", "ascii", "binary"], false)
+            .with_enum_param(
+                "encoding",
+                "Text encoding",
+                vec!["utf-8", "ascii", "binary"],
+                false,
+            )
     }
 
     /// Write file tool
@@ -620,7 +639,12 @@ pub mod common_tools {
     pub fn http_request() -> ToolSchema {
         ToolSchema::new("http_request", "Make an HTTP request")
             .with_string_param("url", "Target URL", true)
-            .with_enum_param("method", "HTTP method", vec!["GET", "POST", "PUT", "DELETE"], false)
+            .with_enum_param(
+                "method",
+                "HTTP method",
+                vec!["GET", "POST", "PUT", "DELETE"],
+                false,
+            )
             .with_string_param("body", "Request body", false)
     }
 
@@ -664,9 +688,12 @@ mod tests {
 
     #[test]
     fn test_openai_format() {
-        let schema = ToolSchema::new("my_tool", "Does something")
-            .with_string_param("arg", "An argument", true);
-        
+        let schema = ToolSchema::new("my_tool", "Does something").with_string_param(
+            "arg",
+            "An argument",
+            true,
+        );
+
         let openai = schema.to_openai();
         assert_eq!(openai["type"], "function");
         assert_eq!(openai["function"]["name"], "my_tool");
@@ -674,9 +701,12 @@ mod tests {
 
     #[test]
     fn test_anthropic_format() {
-        let schema = ToolSchema::new("my_tool", "Does something")
-            .with_string_param("arg", "An argument", true);
-        
+        let schema = ToolSchema::new("my_tool", "Does something").with_string_param(
+            "arg",
+            "An argument",
+            true,
+        );
+
         let anthropic = schema.to_anthropic();
         assert_eq!(anthropic["name"], "my_tool");
         assert!(anthropic.get("input_schema").is_some());

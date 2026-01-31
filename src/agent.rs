@@ -23,7 +23,7 @@
 //!
 //! Security: CVSS 9.8 → 2.5 (CRIT-002 FIXED)
 
-use crate::providers::tools::{AETHER_TOOLS, ToolResult};
+use crate::providers::tools::{ToolResult, AETHER_TOOLS};
 use crate::security::{check_rate_limit, validate_ai_prompt, validate_command};
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};

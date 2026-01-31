@@ -7,17 +7,15 @@
 //! - Extended thinking
 
 use async_trait::async_trait;
+use futures::Stream;
 use reqwest::Client;
 use serde_json::{json, Value as JsonValue};
 use std::pin::Pin;
-use futures::Stream;
 
 use crate::providers::{
-    ModelUri, ProviderConfig, ProviderType,
-    ChatRequest, ChatResponse, Message, ContentPart, ToolCall,
-    EmbeddingRequest, EmbeddingResponse,
-    LLMProvider, ModelInfo, ProviderError,
-    StreamChunk, ToolSchema, Usage,
+    ChatRequest, ChatResponse, ContentPart, EmbeddingRequest, EmbeddingResponse, LLMProvider,
+    Message, ModelInfo, ModelUri, ProviderConfig, ProviderError, ProviderType, StreamChunk,
+    ToolCall, ToolSchema, Usage,
 };
 
 const ANTHROPIC_API_VERSION: &str = "2023-06-01";
@@ -37,7 +35,9 @@ impl AnthropicProvider {
     }
 
     fn base_url(&self) -> String {
-        self.config.base_url.clone()
+        self.config
+            .base_url
+            .clone()
             .unwrap_or_else(|| "https://api.anthropic.com/v1".to_string())
     }
 
@@ -59,7 +59,9 @@ impl AnthropicProvider {
             let content = if msg.content.len() == 1 {
                 match &msg.content[0] {
                     ContentPart::Text { text } => json!(text),
-                    ContentPart::Image { data, media_type, .. } => {
+                    ContentPart::Image {
+                        data, media_type, ..
+                    } => {
                         if let (Some(data), Some(mt)) = (data, media_type) {
                             json!([{
                                 "type": "image",
@@ -76,26 +78,32 @@ impl AnthropicProvider {
                     _ => json!(msg.text()),
                 }
             } else {
-                json!(msg.content.iter().map(|part| {
-                    match part {
-                        ContentPart::Text { text } => json!({"type": "text", "text": text}),
-                        ContentPart::Image { data, media_type, .. } => {
-                            if let (Some(d), Some(mt)) = (data, media_type) {
-                                json!({
-                                    "type": "image",
-                                    "source": {
-                                        "type": "base64",
-                                        "media_type": mt,
-                                        "data": d
-                                    }
-                                })
-                            } else {
-                                json!({"type": "text", "text": ""})
+                json!(msg
+                    .content
+                    .iter()
+                    .map(|part| {
+                        match part {
+                            ContentPart::Text { text } => json!({"type": "text", "text": text}),
+                            ContentPart::Image {
+                                data, media_type, ..
+                            } => {
+                                if let (Some(d), Some(mt)) = (data, media_type) {
+                                    json!({
+                                        "type": "image",
+                                        "source": {
+                                            "type": "base64",
+                                            "media_type": mt,
+                                            "data": d
+                                        }
+                                    })
+                                } else {
+                                    json!({"type": "text", "text": ""})
+                                }
                             }
+                            _ => json!({"type": "text", "text": ""}),
                         }
-                        _ => json!({"type": "text", "text": ""}),
-                    }
-                }).collect::<Vec<_>>())
+                    })
+                    .collect::<Vec<_>>())
             };
 
             // Map roles
@@ -124,7 +132,7 @@ impl AnthropicProvider {
             if msg.role == "assistant" {
                 if let Some(ref tool_calls) = msg.tool_calls {
                     let mut content_blocks: Vec<JsonValue> = Vec::new();
-                    
+
                     if let Some(text) = msg.content.first() {
                         if let ContentPart::Text { text } = text {
                             if !text.is_empty() {
@@ -132,7 +140,7 @@ impl AnthropicProvider {
                             }
                         }
                     }
-                    
+
                     for tc in tool_calls {
                         content_blocks.push(json!({
                             "type": "tool_use",
@@ -142,7 +150,7 @@ impl AnthropicProvider {
                                 .unwrap_or(json!({}))
                         }));
                     }
-                    
+
                     anthropic_messages.push(json!({
                         "role": "assistant",
                         "content": content_blocks
@@ -161,46 +169,55 @@ impl AnthropicProvider {
     }
 
     fn build_tools(&self, tools: &[ToolSchema]) -> Vec<JsonValue> {
-        tools.iter().map(|tool| {
-            json!({
-                "name": tool.name,
-                "description": tool.description,
-                "input_schema": tool.parameters
+        tools
+            .iter()
+            .map(|tool| {
+                json!({
+                    "name": tool.name,
+                    "description": tool.description,
+                    "input_schema": tool.parameters
+                })
             })
-        }).collect()
+            .collect()
     }
 
     fn parse_tool_use(&self, content: &JsonValue) -> Vec<ToolCall> {
-        content.as_array()
+        content
+            .as_array()
             .map(|arr| {
-                arr.iter().filter_map(|block| {
-                    if block["type"] == "tool_use" {
-                        Some(ToolCall {
-                            id: block["id"].as_str()?.to_string(),
-                            name: block["name"].as_str()?.to_string(),
-                            arguments: block["input"].to_string(),
-                        })
-                    } else {
-                        None
-                    }
-                }).collect()
+                arr.iter()
+                    .filter_map(|block| {
+                        if block["type"] == "tool_use" {
+                            Some(ToolCall {
+                                id: block["id"].as_str()?.to_string(),
+                                name: block["name"].as_str()?.to_string(),
+                                arguments: block["input"].to_string(),
+                            })
+                        } else {
+                            None
+                        }
+                    })
+                    .collect()
             })
             .unwrap_or_default()
     }
 
     fn extract_text(&self, content: &JsonValue) -> Option<String> {
-        content.as_array().map(|arr| {
-            arr.iter()
-                .filter_map(|block| {
-                    if block["type"] == "text" {
-                        block["text"].as_str().map(|s| s.to_string())
-                    } else {
-                        None
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join("")
-        }).filter(|s| !s.is_empty())
+        content
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|block| {
+                        if block["type"] == "text" {
+                            block["text"].as_str().map(|s| s.to_string())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("")
+            })
+            .filter(|s| !s.is_empty())
     }
 }
 
@@ -237,33 +254,42 @@ impl LLMProvider for AnthropicProvider {
             body["tools"] = json!(self.build_tools(&request.tools));
         }
 
-        let api_key = self.api_key()
+        let api_key = self
+            .api_key()
             .ok_or_else(|| ProviderError::Authentication {
                 message: "Missing API key".to_string(),
             })?;
 
-        let response = self.client.post(&url)
+        let response = self
+            .client
+            .post(&url)
             .header("Content-Type", "application/json")
             .header("x-api-key", api_key)
             .header("anthropic-version", ANTHROPIC_API_VERSION)
             .json(&body)
             .send()
             .await
-            .map_err(|e| ProviderError::Network { message: e.to_string() })?;
+            .map_err(|e| ProviderError::Network {
+                message: e.to_string(),
+            })?;
 
         if !response.status().is_success() {
             let status = response.status().as_u16();
             let text = response.text().await.unwrap_or_default();
-            
+
             return Err(match status {
                 401 => ProviderError::Authentication { message: text },
                 429 => ProviderError::RateLimit { retry_after: None },
-                _ => ProviderError::Api { status, message: text },
+                _ => ProviderError::Api {
+                    status,
+                    message: text,
+                },
             });
         }
 
-        let json: JsonValue = response.json().await
-            .map_err(|e| ProviderError::Unknown { message: e.to_string() })?;
+        let json: JsonValue = response.json().await.map_err(|e| ProviderError::Unknown {
+            message: e.to_string(),
+        })?;
 
         self.parse_response(&json)
     }
@@ -271,7 +297,8 @@ impl LLMProvider for AnthropicProvider {
     async fn chat_stream(
         &self,
         _request: ChatRequest,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamChunk, ProviderError>> + Send>>, ProviderError> {
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamChunk, ProviderError>> + Send>>, ProviderError>
+    {
         Err(ProviderError::Unsupported {
             feature: "streaming".to_string(),
         })
@@ -329,13 +356,17 @@ impl LLMProvider for AnthropicProvider {
         let text = self.extract_text(content);
         let tool_calls = {
             let calls = self.parse_tool_use(content);
-            if calls.is_empty() { None } else { Some(calls) }
+            if calls.is_empty() {
+                None
+            } else {
+                Some(calls)
+            }
         };
 
         let usage = response.get("usage").map(|u| Usage {
             prompt_tokens: u["input_tokens"].as_u64().unwrap_or(0) as u32,
             completion_tokens: u["output_tokens"].as_u64().unwrap_or(0) as u32,
-            total_tokens: (u["input_tokens"].as_u64().unwrap_or(0) 
+            total_tokens: (u["input_tokens"].as_u64().unwrap_or(0)
                 + u["output_tokens"].as_u64().unwrap_or(0)) as u32,
         });
 
@@ -356,8 +387,7 @@ mod tests {
 
     #[test]
     fn test_anthropic_provider_creation() {
-        let config = ProviderConfig::new(ProviderType::Anthropic)
-            .with_api_key("test-key");
+        let config = ProviderConfig::new(ProviderType::Anthropic).with_api_key("test-key");
         let provider = AnthropicProvider::new(config);
         assert_eq!(provider.name(), "Anthropic");
     }
@@ -366,12 +396,9 @@ mod tests {
     fn test_system_extraction() {
         let config = ProviderConfig::new(ProviderType::Anthropic);
         let provider = AnthropicProvider::new(config);
-        
-        let messages = vec![
-            Message::system("You are helpful"),
-            Message::user("Hello"),
-        ];
-        
+
+        let messages = vec![Message::system("You are helpful"), Message::user("Hello")];
+
         let (system, msgs) = provider.build_request(&messages);
         assert_eq!(system, Some("You are helpful".to_string()));
         assert_eq!(msgs.len(), 1); // Only user message

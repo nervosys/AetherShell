@@ -3,17 +3,15 @@
 //! Native implementation for Google's Generative AI API (Gemini)
 
 use async_trait::async_trait;
+use futures::Stream;
 use reqwest::Client;
 use serde_json::{json, Value as JsonValue};
 use std::pin::Pin;
-use futures::Stream;
 
 use crate::providers::{
-    ModelUri, ProviderConfig, ProviderType,
-    ChatRequest, ChatResponse, Message, ContentPart, ToolCall,
-    EmbeddingRequest, EmbeddingResponse,
-    LLMProvider, ModelInfo, ProviderError,
-    StreamChunk, ToolSchema, Usage,
+    ChatRequest, ChatResponse, ContentPart, EmbeddingRequest, EmbeddingResponse, LLMProvider,
+    Message, ModelInfo, ModelUri, ProviderConfig, ProviderError, ProviderType, StreamChunk,
+    ToolCall, ToolSchema, Usage,
 };
 
 /// Google Gemini API provider
@@ -31,7 +29,9 @@ impl GoogleProvider {
     }
 
     fn base_url(&self) -> String {
-        self.config.base_url.clone()
+        self.config
+            .base_url
+            .clone()
             .unwrap_or_else(|| "https://generativelanguage.googleapis.com/v1beta".to_string())
     }
 
@@ -52,10 +52,14 @@ impl GoogleProvider {
                 continue;
             }
 
-            let parts: Vec<JsonValue> = msg.content.iter().map(|part| {
-                match part {
+            let parts: Vec<JsonValue> = msg
+                .content
+                .iter()
+                .map(|part| match part {
                     ContentPart::Text { text } => json!({"text": text}),
-                    ContentPart::Image { data, media_type, .. } => {
+                    ContentPart::Image {
+                        data, media_type, ..
+                    } => {
                         if let (Some(d), Some(mt)) = (data, media_type) {
                             json!({
                                 "inline_data": {
@@ -68,8 +72,8 @@ impl GoogleProvider {
                         }
                     }
                     _ => json!({"text": ""}),
-                }
-            }).collect();
+                })
+                .collect();
 
             // Map roles
             let role = match msg.role.as_str() {
@@ -139,28 +143,32 @@ impl GoogleProvider {
     }
 
     fn parse_function_calls(&self, parts: &JsonValue) -> Vec<ToolCall> {
-        parts.as_array()
+        parts
+            .as_array()
             .map(|arr| {
-                arr.iter().filter_map(|part| {
-                    part.get("functionCall").map(|fc| {
-                        ToolCall {
+                arr.iter()
+                    .filter_map(|part| {
+                        part.get("functionCall").map(|fc| ToolCall {
                             id: format!("call_{}", uuid::Uuid::new_v4()),
                             name: fc["name"].as_str().unwrap_or("").to_string(),
                             arguments: fc["args"].to_string(),
-                        }
+                        })
                     })
-                }).collect()
+                    .collect()
             })
             .unwrap_or_default()
     }
 
     fn extract_text(&self, parts: &JsonValue) -> Option<String> {
-        parts.as_array().map(|arr| {
-            arr.iter()
-                .filter_map(|part| part["text"].as_str().map(|s| s.to_string()))
-                .collect::<Vec<_>>()
-                .join("")
-        }).filter(|s| !s.is_empty())
+        parts
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|part| part["text"].as_str().map(|s| s.to_string()))
+                    .collect::<Vec<_>>()
+                    .join("")
+            })
+            .filter(|s| !s.is_empty())
     }
 }
 
@@ -175,7 +183,8 @@ impl LLMProvider for GoogleProvider {
     }
 
     async fn chat(&self, request: ChatRequest) -> Result<ChatResponse, ProviderError> {
-        let api_key = self.api_key()
+        let api_key = self
+            .api_key()
             .ok_or_else(|| ProviderError::Authentication {
                 message: "Missing API key".to_string(),
             })?;
@@ -215,26 +224,34 @@ impl LLMProvider for GoogleProvider {
             body["tools"] = self.build_tools(&request.tools);
         }
 
-        let response = self.client.post(&url)
+        let response = self
+            .client
+            .post(&url)
             .header("Content-Type", "application/json")
             .json(&body)
             .send()
             .await
-            .map_err(|e| ProviderError::Network { message: e.to_string() })?;
+            .map_err(|e| ProviderError::Network {
+                message: e.to_string(),
+            })?;
 
         if !response.status().is_success() {
             let status = response.status().as_u16();
             let text = response.text().await.unwrap_or_default();
-            
+
             return Err(match status {
                 401 | 403 => ProviderError::Authentication { message: text },
                 429 => ProviderError::RateLimit { retry_after: None },
-                _ => ProviderError::Api { status, message: text },
+                _ => ProviderError::Api {
+                    status,
+                    message: text,
+                },
             });
         }
 
-        let json: JsonValue = response.json().await
-            .map_err(|e| ProviderError::Unknown { message: e.to_string() })?;
+        let json: JsonValue = response.json().await.map_err(|e| ProviderError::Unknown {
+            message: e.to_string(),
+        })?;
 
         self.parse_response(&json)
     }
@@ -242,14 +259,16 @@ impl LLMProvider for GoogleProvider {
     async fn chat_stream(
         &self,
         _request: ChatRequest,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamChunk, ProviderError>> + Send>>, ProviderError> {
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamChunk, ProviderError>> + Send>>, ProviderError>
+    {
         Err(ProviderError::Unsupported {
             feature: "streaming".to_string(),
         })
     }
 
     async fn embed(&self, request: EmbeddingRequest) -> Result<EmbeddingResponse, ProviderError> {
-        let api_key = self.api_key()
+        let api_key = self
+            .api_key()
             .ok_or_else(|| ProviderError::Authentication {
                 message: "Missing API key".to_string(),
             })?;
@@ -268,37 +287,54 @@ impl LLMProvider for GoogleProvider {
             api_key
         );
 
-        let requests: Vec<JsonValue> = request.input.iter().map(|text| {
-            json!({
-                "model": format!("models/{}", model),
-                "content": {"parts": [{"text": text}]}
+        let requests: Vec<JsonValue> = request
+            .input
+            .iter()
+            .map(|text| {
+                json!({
+                    "model": format!("models/{}", model),
+                    "content": {"parts": [{"text": text}]}
+                })
             })
-        }).collect();
+            .collect();
 
         let body = json!({ "requests": requests });
 
-        let response = self.client.post(&url)
+        let response = self
+            .client
+            .post(&url)
             .header("Content-Type", "application/json")
             .json(&body)
             .send()
             .await
-            .map_err(|e| ProviderError::Network { message: e.to_string() })?;
+            .map_err(|e| ProviderError::Network {
+                message: e.to_string(),
+            })?;
 
         if !response.status().is_success() {
             let status = response.status().as_u16();
             let text = response.text().await.unwrap_or_default();
-            return Err(ProviderError::Api { status, message: text });
+            return Err(ProviderError::Api {
+                status,
+                message: text,
+            });
         }
 
-        let json: JsonValue = response.json().await
-            .map_err(|e| ProviderError::Unknown { message: e.to_string() })?;
+        let json: JsonValue = response.json().await.map_err(|e| ProviderError::Unknown {
+            message: e.to_string(),
+        })?;
 
-        let embeddings = json["embeddings"].as_array()
-            .ok_or_else(|| ProviderError::Unknown { message: "Invalid response".to_string() })?
+        let embeddings = json["embeddings"]
+            .as_array()
+            .ok_or_else(|| ProviderError::Unknown {
+                message: "Invalid response".to_string(),
+            })?
             .iter()
             .filter_map(|e| {
                 e["values"].as_array().map(|arr| {
-                    arr.iter().filter_map(|v| v.as_f64().map(|f| f as f32)).collect()
+                    arr.iter()
+                        .filter_map(|v| v.as_f64().map(|f| f as f32))
+                        .collect()
                 })
             })
             .collect();
@@ -350,16 +386,21 @@ impl LLMProvider for GoogleProvider {
     }
 
     fn parse_response(&self, response: &JsonValue) -> Result<ChatResponse, ProviderError> {
-        let candidate = response["candidates"].get(0)
-            .ok_or_else(|| ProviderError::Unknown { 
-                message: "No candidates in response".to_string() 
+        let candidate = response["candidates"]
+            .get(0)
+            .ok_or_else(|| ProviderError::Unknown {
+                message: "No candidates in response".to_string(),
             })?;
 
         let parts = &candidate["content"]["parts"];
         let text = self.extract_text(parts);
         let tool_calls = {
             let calls = self.parse_function_calls(parts);
-            if calls.is_empty() { None } else { Some(calls) }
+            if calls.is_empty() {
+                None
+            } else {
+                Some(calls)
+            }
         };
 
         let usage = response.get("usageMetadata").map(|u| Usage {
@@ -385,8 +426,7 @@ mod tests {
 
     #[test]
     fn test_google_provider_creation() {
-        let config = ProviderConfig::new(ProviderType::Google)
-            .with_api_key("test-key");
+        let config = ProviderConfig::new(ProviderType::Google).with_api_key("test-key");
         let provider = GoogleProvider::new(config);
         assert_eq!(provider.name(), "Google");
     }

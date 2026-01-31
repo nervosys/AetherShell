@@ -117,7 +117,6 @@ impl CapabilityDomain {
     }
 }
 
-
 // ============================================================================
 // PLATFORM SUPPORT
 // ============================================================================
@@ -153,17 +152,27 @@ impl SupportedPlatform {
     pub fn includes(&self, platform: SupportedPlatform) -> bool {
         match self {
             Self::Universal => true,
-            Self::Desktop => matches!(platform, Self::Windows | Self::MacOS | Self::Linux | Self::Desktop),
+            Self::Desktop => matches!(
+                platform,
+                Self::Windows | Self::MacOS | Self::Linux | Self::Desktop
+            ),
             Self::Mobile => matches!(platform, Self::IOS | Self::Android | Self::Mobile),
             Self::Unix => matches!(platform, Self::MacOS | Self::Linux | Self::BSD | Self::Unix),
             _ => *self == platform,
         }
     }
-    
+
     /// Expand meta-platforms to concrete platforms
     pub fn concrete_platforms(&self) -> Vec<Self> {
         match self {
-            Self::Universal => vec![Self::Windows, Self::MacOS, Self::Linux, Self::BSD, Self::IOS, Self::Android],
+            Self::Universal => vec![
+                Self::Windows,
+                Self::MacOS,
+                Self::Linux,
+                Self::BSD,
+                Self::IOS,
+                Self::Android,
+            ],
             Self::Desktop => vec![Self::Windows, Self::MacOS, Self::Linux],
             Self::Mobile => vec![Self::IOS, Self::Android],
             Self::Unix => vec![Self::MacOS, Self::Linux, Self::BSD],
@@ -530,10 +539,7 @@ impl OSOperationRegistry {
 
         self.operations.insert(id.clone(), op);
 
-        self.by_domain
-            .entry(domain)
-            .or_default()
-            .push(id.clone());
+        self.by_domain.entry(domain).or_default().push(id.clone());
 
         for tag in tags {
             self.by_tag.entry(tag).or_default().push(id.clone());
@@ -549,7 +555,11 @@ impl OSOperationRegistry {
     pub fn by_domain(&self, domain: &CapabilityDomain) -> Vec<&OSOperation> {
         self.by_domain
             .get(domain)
-            .map(|ids| ids.iter().filter_map(|id| self.operations.get(id)).collect())
+            .map(|ids| {
+                ids.iter()
+                    .filter_map(|id| self.operations.get(id))
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
@@ -557,7 +567,11 @@ impl OSOperationRegistry {
     pub fn by_tag(&self, tag: &str) -> Vec<&OSOperation> {
         self.by_tag
             .get(tag)
-            .map(|ids| ids.iter().filter_map(|id| self.operations.get(id)).collect())
+            .map(|ids| {
+                ids.iter()
+                    .filter_map(|id| self.operations.get(id))
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
@@ -569,7 +583,10 @@ impl OSOperationRegistry {
             .filter(|op| {
                 op.name.to_lowercase().contains(&query_lower)
                     || op.description.to_lowercase().contains(&query_lower)
-                    || op.tags.iter().any(|t| t.to_lowercase().contains(&query_lower))
+                    || op
+                        .tags
+                        .iter()
+                        .any(|t| t.to_lowercase().contains(&query_lower))
             })
             .collect()
     }
@@ -637,7 +654,11 @@ impl OSOperationRegistry {
                     name: "encoding".to_string(),
                     description: "Text encoding (utf-8, ascii, binary)".to_string(),
                     param_type: ParamType::Enum {
-                        values: vec!["utf-8".to_string(), "ascii".to_string(), "binary".to_string()],
+                        values: vec![
+                            "utf-8".to_string(),
+                            "ascii".to_string(),
+                            "binary".to_string(),
+                        ],
                     },
                     required: false,
                     default: Some(json!("utf-8")),
@@ -660,22 +681,31 @@ impl OSOperationRegistry {
             returns: ReturnType {
                 value_type: ParamType::Object {
                     properties: HashMap::from([
-                        ("content".to_string(), ParamType::String {
-                            format: None,
-                            min_length: None,
-                            max_length: None,
-                            pattern: None,
-                        }),
-                        ("size".to_string(), ParamType::Integer {
-                            minimum: Some(0),
-                            maximum: None,
-                        }),
-                        ("encoding".to_string(), ParamType::String {
-                            format: None,
-                            min_length: None,
-                            max_length: None,
-                            pattern: None,
-                        }),
+                        (
+                            "content".to_string(),
+                            ParamType::String {
+                                format: None,
+                                min_length: None,
+                                max_length: None,
+                                pattern: None,
+                            },
+                        ),
+                        (
+                            "size".to_string(),
+                            ParamType::Integer {
+                                minimum: Some(0),
+                                maximum: None,
+                            },
+                        ),
+                        (
+                            "encoding".to_string(),
+                            ParamType::String {
+                                format: None,
+                                min_length: None,
+                                max_length: None,
+                                pattern: None,
+                            },
+                        ),
                     ]),
                     required: vec!["content".to_string()],
                 },
@@ -691,7 +721,9 @@ impl OSOperationRegistry {
                         code: "PERMISSION_DENIED".to_string(),
                         description: "Insufficient permissions to read the file".to_string(),
                         recoverable: false,
-                        remediation: Some("Check file permissions or request elevated access".to_string()),
+                        remediation: Some(
+                            "Check file permissions or request elevated access".to_string(),
+                        ),
                     },
                 ],
             },
@@ -719,9 +751,7 @@ impl OSOperationRegistry {
             },
             examples: vec![OperationExample {
                 description: "Read a configuration file".to_string(),
-                input: HashMap::from([
-                    ("path".to_string(), json!("./config.json")),
-                ]),
+                input: HashMap::from([("path".to_string(), json!("./config.json"))]),
                 expected_output: Some(json!({
                     "content": "{\"key\": \"value\"}",
                     "size": 18,
@@ -742,7 +772,8 @@ impl OSOperationRegistry {
         self.register(OSOperation {
             id: "fs.write_file".to_string(),
             name: "Write File".to_string(),
-            description: "Write content to a file. Creates the file if it doesn't exist.".to_string(),
+            description: "Write content to a file. Creates the file if it doesn't exist."
+                .to_string(),
             domain: CapabilityDomain::FileSystem,
             parameters: vec![
                 OperationParameter {
@@ -775,7 +806,11 @@ impl OSOperationRegistry {
                     name: "mode".to_string(),
                     description: "Write mode".to_string(),
                     param_type: ParamType::Enum {
-                        values: vec!["overwrite".to_string(), "append".to_string(), "create_new".to_string()],
+                        values: vec![
+                            "overwrite".to_string(),
+                            "append".to_string(),
+                            "create_new".to_string(),
+                        ],
                     },
                     required: false,
                     default: Some(json!("overwrite")),
@@ -786,28 +821,32 @@ impl OSOperationRegistry {
             returns: ReturnType {
                 value_type: ParamType::Object {
                     properties: HashMap::from([
-                        ("bytes_written".to_string(), ParamType::Integer {
-                            minimum: Some(0),
-                            maximum: None,
-                        }),
-                        ("path".to_string(), ParamType::String {
-                            format: None,
-                            min_length: None,
-                            max_length: None,
-                            pattern: None,
-                        }),
+                        (
+                            "bytes_written".to_string(),
+                            ParamType::Integer {
+                                minimum: Some(0),
+                                maximum: None,
+                            },
+                        ),
+                        (
+                            "path".to_string(),
+                            ParamType::String {
+                                format: None,
+                                min_length: None,
+                                max_length: None,
+                                pattern: None,
+                            },
+                        ),
                     ]),
                     required: vec!["bytes_written".to_string()],
                 },
                 description: "Write operation result".to_string(),
-                errors: vec![
-                    ErrorType {
-                        code: "PERMISSION_DENIED".to_string(),
-                        description: "Cannot write to this location".to_string(),
-                        recoverable: false,
-                        remediation: None,
-                    },
-                ],
+                errors: vec![ErrorType {
+                    code: "PERMISSION_DENIED".to_string(),
+                    description: "Cannot write to this location".to_string(),
+                    recoverable: false,
+                    remediation: None,
+                }],
             },
             security: SecurityRequirements {
                 permission_level: PermissionLevel::WriteUser,
@@ -845,7 +884,8 @@ impl OSOperationRegistry {
         self.register(OSOperation {
             id: "fs.list_dir".to_string(),
             name: "List Directory".to_string(),
-            description: "List contents of a directory with optional filtering and recursion.".to_string(),
+            description: "List contents of a directory with optional filtering and recursion."
+                .to_string(),
             domain: CapabilityDomain::FileSystem,
             parameters: vec![
                 OperationParameter {
@@ -897,28 +937,47 @@ impl OSOperationRegistry {
                 value_type: ParamType::Array {
                     items: Box::new(ParamType::Object {
                         properties: HashMap::from([
-                            ("name".to_string(), ParamType::String {
-                                format: None,
-                                min_length: None,
-                                max_length: None,
-                                pattern: None,
-                            }),
-                            ("path".to_string(), ParamType::String {
-                                format: None,
-                                min_length: None,
-                                max_length: None,
-                                pattern: None,
-                            }),
-                            ("type".to_string(), ParamType::Enum {
-                                values: vec!["file".to_string(), "directory".to_string(), "symlink".to_string()],
-                            }),
-                            ("size".to_string(), ParamType::Integer {
-                                minimum: Some(0),
-                                maximum: None,
-                            }),
-                            ("modified".to_string(), ParamType::DateTime {
-                                format: DateTimeFormat::Iso8601,
-                            }),
+                            (
+                                "name".to_string(),
+                                ParamType::String {
+                                    format: None,
+                                    min_length: None,
+                                    max_length: None,
+                                    pattern: None,
+                                },
+                            ),
+                            (
+                                "path".to_string(),
+                                ParamType::String {
+                                    format: None,
+                                    min_length: None,
+                                    max_length: None,
+                                    pattern: None,
+                                },
+                            ),
+                            (
+                                "type".to_string(),
+                                ParamType::Enum {
+                                    values: vec![
+                                        "file".to_string(),
+                                        "directory".to_string(),
+                                        "symlink".to_string(),
+                                    ],
+                                },
+                            ),
+                            (
+                                "size".to_string(),
+                                ParamType::Integer {
+                                    minimum: Some(0),
+                                    maximum: None,
+                                },
+                            ),
+                            (
+                                "modified".to_string(),
+                                ParamType::DateTime {
+                                    format: DateTimeFormat::Iso8601,
+                                },
+                            ),
                         ]),
                         required: vec!["name".to_string(), "path".to_string(), "type".to_string()],
                     }),
@@ -948,7 +1007,11 @@ impl OSOperationRegistry {
             },
             examples: vec![],
             related: vec!["fs.read_file".to_string(), "fs.search".to_string()],
-            tags: vec!["directory".to_string(), "list".to_string(), "browse".to_string()],
+            tags: vec![
+                "directory".to_string(),
+                "list".to_string(),
+                "browse".to_string(),
+            ],
             is_mutating: false,
             is_idempotent: true,
             execution_time: ExecutionTime::Fast,
@@ -964,44 +1027,54 @@ impl OSOperationRegistry {
             name: "List Processes".to_string(),
             description: "List running processes on the system.".to_string(),
             domain: CapabilityDomain::Process,
-            parameters: vec![
-                OperationParameter {
-                    name: "filter".to_string(),
-                    description: "Filter by process name pattern".to_string(),
-                    param_type: ParamType::String {
-                        format: Some(StringFormat::Glob),
-                        min_length: None,
-                        max_length: None,
-                        pattern: None,
-                    },
-                    required: false,
-                    default: None,
-                    constraints: vec![],
-                    examples: vec![json!("python*"), json!("node")],
+            parameters: vec![OperationParameter {
+                name: "filter".to_string(),
+                description: "Filter by process name pattern".to_string(),
+                param_type: ParamType::String {
+                    format: Some(StringFormat::Glob),
+                    min_length: None,
+                    max_length: None,
+                    pattern: None,
                 },
-            ],
+                required: false,
+                default: None,
+                constraints: vec![],
+                examples: vec![json!("python*"), json!("node")],
+            }],
             returns: ReturnType {
                 value_type: ParamType::Array {
                     items: Box::new(ParamType::Object {
                         properties: HashMap::from([
-                            ("pid".to_string(), ParamType::Integer {
-                                minimum: Some(1),
-                                maximum: None,
-                            }),
-                            ("name".to_string(), ParamType::String {
-                                format: None,
-                                min_length: None,
-                                max_length: None,
-                                pattern: None,
-                            }),
-                            ("cpu_percent".to_string(), ParamType::Number {
-                                minimum: Some(0.0),
-                                maximum: Some(100.0),
-                            }),
-                            ("memory_mb".to_string(), ParamType::Number {
-                                minimum: Some(0.0),
-                                maximum: None,
-                            }),
+                            (
+                                "pid".to_string(),
+                                ParamType::Integer {
+                                    minimum: Some(1),
+                                    maximum: None,
+                                },
+                            ),
+                            (
+                                "name".to_string(),
+                                ParamType::String {
+                                    format: None,
+                                    min_length: None,
+                                    max_length: None,
+                                    pattern: None,
+                                },
+                            ),
+                            (
+                                "cpu_percent".to_string(),
+                                ParamType::Number {
+                                    minimum: Some(0.0),
+                                    maximum: Some(100.0),
+                                },
+                            ),
+                            (
+                                "memory_mb".to_string(),
+                                ParamType::Number {
+                                    minimum: Some(0.0),
+                                    maximum: None,
+                                },
+                            ),
                         ]),
                         required: vec!["pid".to_string(), "name".to_string()],
                     }),
@@ -1131,26 +1204,38 @@ impl OSOperationRegistry {
             returns: ReturnType {
                 value_type: ParamType::Object {
                     properties: HashMap::from([
-                        ("exit_code".to_string(), ParamType::Integer {
-                            minimum: None,
-                            maximum: None,
-                        }),
-                        ("stdout".to_string(), ParamType::String {
-                            format: None,
-                            min_length: None,
-                            max_length: None,
-                            pattern: None,
-                        }),
-                        ("stderr".to_string(), ParamType::String {
-                            format: None,
-                            min_length: None,
-                            max_length: None,
-                            pattern: None,
-                        }),
-                        ("duration_ms".to_string(), ParamType::Integer {
-                            minimum: Some(0),
-                            maximum: None,
-                        }),
+                        (
+                            "exit_code".to_string(),
+                            ParamType::Integer {
+                                minimum: None,
+                                maximum: None,
+                            },
+                        ),
+                        (
+                            "stdout".to_string(),
+                            ParamType::String {
+                                format: None,
+                                min_length: None,
+                                max_length: None,
+                                pattern: None,
+                            },
+                        ),
+                        (
+                            "stderr".to_string(),
+                            ParamType::String {
+                                format: None,
+                                min_length: None,
+                                max_length: None,
+                                pattern: None,
+                            },
+                        ),
+                        (
+                            "duration_ms".to_string(),
+                            ParamType::Integer {
+                                minimum: Some(0),
+                                maximum: None,
+                            },
+                        ),
                     ]),
                     required: vec!["exit_code".to_string()],
                 },
@@ -1160,7 +1245,9 @@ impl OSOperationRegistry {
                         code: "COMMAND_NOT_FOUND".to_string(),
                         description: "The command was not found".to_string(),
                         recoverable: false,
-                        remediation: Some("Check command spelling or install the required software".to_string()),
+                        remediation: Some(
+                            "Check command spelling or install the required software".to_string(),
+                        ),
                     },
                     ErrorType {
                         code: "TIMEOUT".to_string(),
@@ -1194,15 +1281,25 @@ impl OSOperationRegistry {
             },
             examples: vec![],
             related: vec!["process.list".to_string(), "process.kill".to_string()],
-            tags: vec!["process".to_string(), "execute".to_string(), "shell".to_string()],
+            tags: vec![
+                "process".to_string(),
+                "execute".to_string(),
+                "shell".to_string(),
+            ],
             is_mutating: true,
             is_idempotent: false,
             execution_time: ExecutionTime::Variable,
             supported_platforms: Some(vec![SupportedPlatform::Desktop]),
             platform_notes: {
                 let mut notes = HashMap::new();
-                notes.insert("ios".to_string(), "Requires jailbreak for arbitrary process spawn".to_string());
-                notes.insert("android".to_string(), "Available via Termux or root".to_string());
+                notes.insert(
+                    "ios".to_string(),
+                    "Requires jailbreak for arbitrary process spawn".to_string(),
+                );
+                notes.insert(
+                    "android".to_string(),
+                    "Available via Termux or root".to_string(),
+                );
                 notes
             },
         });
@@ -1295,24 +1392,36 @@ impl OSOperationRegistry {
             returns: ReturnType {
                 value_type: ParamType::Object {
                     properties: HashMap::from([
-                        ("status".to_string(), ParamType::Integer {
-                            minimum: Some(100),
-                            maximum: Some(599),
-                        }),
-                        ("headers".to_string(), ParamType::Object {
-                            properties: HashMap::new(),
-                            required: vec![],
-                        }),
-                        ("body".to_string(), ParamType::String {
-                            format: None,
-                            min_length: None,
-                            max_length: None,
-                            pattern: None,
-                        }),
-                        ("duration_ms".to_string(), ParamType::Integer {
-                            minimum: Some(0),
-                            maximum: None,
-                        }),
+                        (
+                            "status".to_string(),
+                            ParamType::Integer {
+                                minimum: Some(100),
+                                maximum: Some(599),
+                            },
+                        ),
+                        (
+                            "headers".to_string(),
+                            ParamType::Object {
+                                properties: HashMap::new(),
+                                required: vec![],
+                            },
+                        ),
+                        (
+                            "body".to_string(),
+                            ParamType::String {
+                                format: None,
+                                min_length: None,
+                                max_length: None,
+                                pattern: None,
+                            },
+                        ),
+                        (
+                            "duration_ms".to_string(),
+                            ParamType::Integer {
+                                minimum: Some(0),
+                                maximum: None,
+                            },
+                        ),
                     ]),
                     required: vec!["status".to_string()],
                 },
@@ -1372,63 +1481,94 @@ impl OSOperationRegistry {
         self.register(OSOperation {
             id: "system.info".to_string(),
             name: "System Information".to_string(),
-            description: "Get detailed system information including OS, hardware, and resources.".to_string(),
+            description: "Get detailed system information including OS, hardware, and resources."
+                .to_string(),
             domain: CapabilityDomain::System,
             parameters: vec![],
             returns: ReturnType {
                 value_type: ParamType::Object {
                     properties: HashMap::from([
-                        ("os".to_string(), ParamType::Object {
-                            properties: HashMap::from([
-                                ("name".to_string(), ParamType::String {
-                                    format: None,
-                                    min_length: None,
-                                    max_length: None,
-                                    pattern: None,
-                                }),
-                                ("version".to_string(), ParamType::String {
-                                    format: None,
-                                    min_length: None,
-                                    max_length: None,
-                                    pattern: None,
-                                }),
-                                ("arch".to_string(), ParamType::String {
-                                    format: None,
-                                    min_length: None,
-                                    max_length: None,
-                                    pattern: None,
-                                }),
-                            ]),
-                            required: vec!["name".to_string()],
-                        }),
-                        ("cpu".to_string(), ParamType::Object {
-                            properties: HashMap::from([
-                                ("cores".to_string(), ParamType::Integer {
-                                    minimum: Some(1),
-                                    maximum: None,
-                                }),
-                                ("model".to_string(), ParamType::String {
-                                    format: None,
-                                    min_length: None,
-                                    max_length: None,
-                                    pattern: None,
-                                }),
-                            ]),
-                            required: vec![],
-                        }),
-                        ("memory".to_string(), ParamType::Object {
-                            properties: HashMap::from([
-                                ("total_mb".to_string(), ParamType::Integer {
-                                    minimum: Some(0),
-                                    maximum: None,
-                                }),
-                                ("available_mb".to_string(), ParamType::Integer {
-                                    minimum: Some(0),
-                                    maximum: None,
-                                }),
-                            ]),
-                            required: vec![],
-                        }),
+                        (
+                            "os".to_string(),
+                            ParamType::Object {
+                                properties: HashMap::from([
+                                    (
+                                        "name".to_string(),
+                                        ParamType::String {
+                                            format: None,
+                                            min_length: None,
+                                            max_length: None,
+                                            pattern: None,
+                                        },
+                                    ),
+                                    (
+                                        "version".to_string(),
+                                        ParamType::String {
+                                            format: None,
+                                            min_length: None,
+                                            max_length: None,
+                                            pattern: None,
+                                        },
+                                    ),
+                                    (
+                                        "arch".to_string(),
+                                        ParamType::String {
+                                            format: None,
+                                            min_length: None,
+                                            max_length: None,
+                                            pattern: None,
+                                        },
+                                    ),
+                                ]),
+                                required: vec!["name".to_string()],
+                            },
+                        ),
+                        (
+                            "cpu".to_string(),
+                            ParamType::Object {
+                                properties: HashMap::from([
+                                    (
+                                        "cores".to_string(),
+                                        ParamType::Integer {
+                                            minimum: Some(1),
+                                            maximum: None,
+                                        },
+                                    ),
+                                    (
+                                        "model".to_string(),
+                                        ParamType::String {
+                                            format: None,
+                                            min_length: None,
+                                            max_length: None,
+                                            pattern: None,
+                                        },
+                                    ),
+                                ]),
+                                required: vec![],
+                            },
+                        ),
+                        (
+                            "memory".to_string(),
+                            ParamType::Object {
+                                properties: HashMap::from([
+                                    (
+                                        "total_mb".to_string(),
+                                        ParamType::Integer {
+                                            minimum: Some(0),
+                                            maximum: None,
+                                        },
+                                    ),
+                                    (
+                                        "available_mb".to_string(),
+                                        ParamType::Integer {
+                                            minimum: Some(0),
+                                            maximum: None,
+                                        },
+                                    ),
+                                ]),
+                                required: vec![],
+                            },
+                        ),
                     ]),
                     required: vec!["os".to_string()],
                 },
@@ -1471,22 +1611,20 @@ impl OSOperationRegistry {
             name: "Get Environment Variable".to_string(),
             description: "Get the value of an environment variable.".to_string(),
             domain: CapabilityDomain::Environment,
-            parameters: vec![
-                OperationParameter {
-                    name: "name".to_string(),
-                    description: "Variable name".to_string(),
-                    param_type: ParamType::String {
-                        format: None,
-                        min_length: Some(1),
-                        max_length: Some(256),
-                        pattern: Some("^[A-Za-z_][A-Za-z0-9_]*$".to_string()),
-                    },
-                    required: true,
-                    default: None,
-                    constraints: vec![],
-                    examples: vec![json!("HOME"), json!("PATH")],
+            parameters: vec![OperationParameter {
+                name: "name".to_string(),
+                description: "Variable name".to_string(),
+                param_type: ParamType::String {
+                    format: None,
+                    min_length: Some(1),
+                    max_length: Some(256),
+                    pattern: Some("^[A-Za-z_][A-Za-z0-9_]*$".to_string()),
                 },
-            ],
+                required: true,
+                default: None,
+                constraints: vec![],
+                examples: vec![json!("HOME"), json!("PATH")],
+            }],
             returns: ReturnType {
                 value_type: ParamType::OneOf {
                     variants: vec![
@@ -1580,22 +1718,31 @@ impl OSOperationRegistry {
             returns: ReturnType {
                 value_type: ParamType::Object {
                     properties: HashMap::from([
-                        ("exit_code".to_string(), ParamType::Integer {
-                            minimum: None,
-                            maximum: None,
-                        }),
-                        ("stdout".to_string(), ParamType::String {
-                            format: None,
-                            min_length: None,
-                            max_length: None,
-                            pattern: None,
-                        }),
-                        ("stderr".to_string(), ParamType::String {
-                            format: None,
-                            min_length: None,
-                            max_length: None,
-                            pattern: None,
-                        }),
+                        (
+                            "exit_code".to_string(),
+                            ParamType::Integer {
+                                minimum: None,
+                                maximum: None,
+                            },
+                        ),
+                        (
+                            "stdout".to_string(),
+                            ParamType::String {
+                                format: None,
+                                min_length: None,
+                                max_length: None,
+                                pattern: None,
+                            },
+                        ),
+                        (
+                            "stderr".to_string(),
+                            ParamType::String {
+                                format: None,
+                                min_length: None,
+                                max_length: None,
+                                pattern: None,
+                            },
+                        ),
                     ]),
                     required: vec!["exit_code".to_string()],
                 },
@@ -1626,7 +1773,11 @@ impl OSOperationRegistry {
             },
             examples: vec![],
             related: vec!["process.spawn".to_string()],
-            tags: vec!["shell".to_string(), "command".to_string(), "execute".to_string()],
+            tags: vec![
+                "shell".to_string(),
+                "command".to_string(),
+                "execute".to_string(),
+            ],
             is_mutating: true,
             is_idempotent: false,
             execution_time: ExecutionTime::Variable,
@@ -1672,7 +1823,11 @@ impl OSOperationRegistry {
                     name: "format".to_string(),
                     description: "Output format".to_string(),
                     param_type: ParamType::Enum {
-                        values: vec!["text".to_string(), "html".to_string(), "markdown".to_string()],
+                        values: vec![
+                            "text".to_string(),
+                            "html".to_string(),
+                            "markdown".to_string(),
+                        ],
                     },
                     required: false,
                     default: Some(json!("text")),
@@ -1683,28 +1838,37 @@ impl OSOperationRegistry {
             returns: ReturnType {
                 value_type: ParamType::Object {
                     properties: HashMap::from([
-                        ("content".to_string(), ParamType::String {
-                            format: None,
-                            min_length: None,
-                            max_length: None,
-                            pattern: None,
-                        }),
-                        ("title".to_string(), ParamType::String {
-                            format: None,
-                            min_length: None,
-                            max_length: None,
-                            pattern: None,
-                        }),
-                        ("links".to_string(), ParamType::Array {
-                            items: Box::new(ParamType::String {
+                        (
+                            "content".to_string(),
+                            ParamType::String {
                                 format: None,
                                 min_length: None,
                                 max_length: None,
                                 pattern: None,
-                            }),
-                            min_items: None,
-                            max_items: None,
-                        }),
+                            },
+                        ),
+                        (
+                            "title".to_string(),
+                            ParamType::String {
+                                format: None,
+                                min_length: None,
+                                max_length: None,
+                                pattern: None,
+                            },
+                        ),
+                        (
+                            "links".to_string(),
+                            ParamType::Array {
+                                items: Box::new(ParamType::String {
+                                    format: None,
+                                    min_length: None,
+                                    max_length: None,
+                                    pattern: None,
+                                }),
+                                min_items: None,
+                                max_items: None,
+                            },
+                        ),
                     ]),
                     required: vec!["content".to_string()],
                 },
@@ -1788,18 +1952,24 @@ impl OSOperationRegistry {
             returns: ReturnType {
                 value_type: ParamType::Object {
                     properties: HashMap::from([
-                        ("hash".to_string(), ParamType::String {
-                            format: Some(StringFormat::Hex),
-                            min_length: None,
-                            max_length: None,
-                            pattern: None,
-                        }),
-                        ("algorithm".to_string(), ParamType::String {
-                            format: None,
-                            min_length: None,
-                            max_length: None,
-                            pattern: None,
-                        }),
+                        (
+                            "hash".to_string(),
+                            ParamType::String {
+                                format: Some(StringFormat::Hex),
+                                min_length: None,
+                                max_length: None,
+                                pattern: None,
+                            },
+                        ),
+                        (
+                            "algorithm".to_string(),
+                            ParamType::String {
+                                format: None,
+                                min_length: None,
+                                max_length: None,
+                                pattern: None,
+                            },
+                        ),
                     ]),
                     required: vec!["hash".to_string()],
                 },
@@ -1917,31 +2087,46 @@ impl OSOperationRegistry {
             returns: ReturnType {
                 value_type: ParamType::Object {
                     properties: HashMap::from([
-                        ("text".to_string(), ParamType::String {
-                            format: None,
-                            min_length: None,
-                            max_length: None,
-                            pattern: None,
-                        }),
-                        ("model".to_string(), ParamType::String {
-                            format: None,
-                            min_length: None,
-                            max_length: None,
-                            pattern: None,
-                        }),
-                        ("usage".to_string(), ParamType::Object {
-                            properties: HashMap::from([
-                                ("prompt_tokens".to_string(), ParamType::Integer {
-                                    minimum: Some(0),
-                                    maximum: None,
-                                }),
-                                ("completion_tokens".to_string(), ParamType::Integer {
-                                    minimum: Some(0),
-                                    maximum: None,
-                                }),
-                            ]),
-                            required: vec![],
-                        }),
+                        (
+                            "text".to_string(),
+                            ParamType::String {
+                                format: None,
+                                min_length: None,
+                                max_length: None,
+                                pattern: None,
+                            },
+                        ),
+                        (
+                            "model".to_string(),
+                            ParamType::String {
+                                format: None,
+                                min_length: None,
+                                max_length: None,
+                                pattern: None,
+                            },
+                        ),
+                        (
+                            "usage".to_string(),
+                            ParamType::Object {
+                                properties: HashMap::from([
+                                    (
+                                        "prompt_tokens".to_string(),
+                                        ParamType::Integer {
+                                            minimum: Some(0),
+                                            maximum: None,
+                                        },
+                                    ),
+                                    (
+                                        "completion_tokens".to_string(),
+                                        ParamType::Integer {
+                                            minimum: Some(0),
+                                            maximum: None,
+                                        },
+                                    ),
+                                ]),
+                                required: vec![],
+                            },
+                        ),
                     ]),
                     required: vec!["text".to_string()],
                 },
@@ -1985,7 +2170,11 @@ impl OSOperationRegistry {
             },
             examples: vec![],
             related: vec!["ai.chat".to_string(), "ai.embed".to_string()],
-            tags: vec!["ai".to_string(), "llm".to_string(), "completion".to_string()],
+            tags: vec![
+                "ai".to_string(),
+                "llm".to_string(),
+                "completion".to_string(),
+            ],
             is_mutating: false,
             is_idempotent: false, // Non-deterministic
             execution_time: ExecutionTime::Slow,
@@ -2029,13 +2218,13 @@ mod tests {
     #[test]
     fn test_platform_support() {
         let registry = OSOperationRegistry::new();
-        
+
         // Check that fs.read_file has platform support
         let fs_read = registry.get("fs.read_file").unwrap();
         assert!(fs_read.supported_platforms.is_some());
         let platforms = fs_read.supported_platforms.as_ref().unwrap();
         assert!(platforms.contains(&SupportedPlatform::Universal));
-        
+
         // Check process.spawn has mobile limitations
         let proc_spawn = registry.get("process.spawn").unwrap();
         assert!(proc_spawn.platform_notes.contains_key("ios"));
@@ -2050,19 +2239,19 @@ mod tests {
         assert!(SupportedPlatform::Universal.includes(SupportedPlatform::Linux));
         assert!(SupportedPlatform::Universal.includes(SupportedPlatform::IOS));
         assert!(SupportedPlatform::Universal.includes(SupportedPlatform::Android));
-        
+
         // Desktop includes Windows, MacOS, Linux
         assert!(SupportedPlatform::Desktop.includes(SupportedPlatform::Windows));
         assert!(SupportedPlatform::Desktop.includes(SupportedPlatform::MacOS));
         assert!(SupportedPlatform::Desktop.includes(SupportedPlatform::Linux));
         assert!(!SupportedPlatform::Desktop.includes(SupportedPlatform::IOS));
         assert!(!SupportedPlatform::Desktop.includes(SupportedPlatform::Android));
-        
+
         // Mobile includes iOS, Android
         assert!(SupportedPlatform::Mobile.includes(SupportedPlatform::IOS));
         assert!(SupportedPlatform::Mobile.includes(SupportedPlatform::Android));
         assert!(!SupportedPlatform::Mobile.includes(SupportedPlatform::Windows));
-        
+
         // Unix includes MacOS, Linux, BSD but not Windows
         assert!(SupportedPlatform::Unix.includes(SupportedPlatform::MacOS));
         assert!(SupportedPlatform::Unix.includes(SupportedPlatform::Linux));
@@ -2080,15 +2269,15 @@ mod tests {
         assert!(universal.contains(&SupportedPlatform::BSD));
         assert!(universal.contains(&SupportedPlatform::IOS));
         assert!(universal.contains(&SupportedPlatform::Android));
-        
+
         // Desktop expands to Windows, MacOS, Linux
         let desktop = SupportedPlatform::Desktop.concrete_platforms();
         assert_eq!(desktop.len(), 3);
-        
+
         // Mobile expands to iOS, Android
         let mobile = SupportedPlatform::Mobile.concrete_platforms();
         assert_eq!(mobile.len(), 2);
-        
+
         // Concrete platform returns itself
         let windows = SupportedPlatform::Windows.concrete_platforms();
         assert_eq!(windows.len(), 1);

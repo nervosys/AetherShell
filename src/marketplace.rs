@@ -219,7 +219,12 @@ impl RegistryClient {
     }
 
     /// Install an agent
-    pub fn install<'a>(&'a mut self, name: &'a str, version: Option<&'a str>) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<InstalledAgent>> + Send + 'a>> {
+    pub fn install<'a>(
+        &'a mut self,
+        name: &'a str,
+        version: Option<&'a str>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<InstalledAgent>> + Send + 'a>>
+    {
         Box::pin(async move {
             // Check if already installed
             if let Some(installed) = self.installed.get(name) {

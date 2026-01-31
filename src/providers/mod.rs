@@ -35,10 +35,13 @@ pub mod tools;
 pub mod traits;
 
 pub use ontology::*;
-pub use platform::{PlatformCapabilities, PlatformExecutor, PlatformRegistry, ExecutionResult, PLATFORM_EXECUTOR, PLATFORM_REGISTRY};
+pub use platform::{
+    ExecutionResult, PlatformCapabilities, PlatformExecutor, PlatformRegistry, PLATFORM_EXECUTOR,
+    PLATFORM_REGISTRY,
+};
 pub use registry::*;
 pub use schema::*;
-pub use tools::{AetherToolRegistry, AetherTool, ToolResult, AETHER_TOOLS};
+pub use tools::{AetherTool, AetherToolRegistry, ToolResult, AETHER_TOOLS};
 pub use traits::*;
 
 use anyhow::{anyhow, Result};
@@ -212,29 +215,76 @@ impl ProviderType {
 
     pub fn all() -> Vec<Self> {
         vec![
-            Self::OpenAI, Self::Anthropic, Self::Google, Self::Azure,
-            Self::Bedrock, Self::Ollama, Self::Together, Self::Groq,
-            Self::Mistral, Self::Cohere, Self::Perplexity, Self::Fireworks,
-            Self::DeepSeek, Self::XAI, Self::OpenRouter, Self::VLLM,
-            Self::TGI, Self::LlamaCpp, Self::Local,
+            Self::OpenAI,
+            Self::Anthropic,
+            Self::Google,
+            Self::Azure,
+            Self::Bedrock,
+            Self::Ollama,
+            Self::Together,
+            Self::Groq,
+            Self::Mistral,
+            Self::Cohere,
+            Self::Perplexity,
+            Self::Fireworks,
+            Self::DeepSeek,
+            Self::XAI,
+            Self::OpenRouter,
+            Self::VLLM,
+            Self::TGI,
+            Self::LlamaCpp,
+            Self::Local,
         ]
     }
 
     pub fn is_openai_compatible(&self) -> bool {
-        matches!(self, Self::OpenAI | Self::Azure | Self::Together | Self::Groq |
-            Self::Perplexity | Self::Fireworks | Self::DeepSeek | Self::XAI |
-            Self::OpenRouter | Self::VLLM | Self::Local)
+        matches!(
+            self,
+            Self::OpenAI
+                | Self::Azure
+                | Self::Together
+                | Self::Groq
+                | Self::Perplexity
+                | Self::Fireworks
+                | Self::DeepSeek
+                | Self::XAI
+                | Self::OpenRouter
+                | Self::VLLM
+                | Self::Local
+        )
     }
 
     pub fn supports_tools(&self) -> bool {
-        matches!(self, Self::OpenAI | Self::Anthropic | Self::Google | Self::Azure |
-            Self::Bedrock | Self::Together | Self::Groq | Self::Mistral |
-            Self::Cohere | Self::Fireworks | Self::DeepSeek | Self::XAI | Self::OpenRouter)
+        matches!(
+            self,
+            Self::OpenAI
+                | Self::Anthropic
+                | Self::Google
+                | Self::Azure
+                | Self::Bedrock
+                | Self::Together
+                | Self::Groq
+                | Self::Mistral
+                | Self::Cohere
+                | Self::Fireworks
+                | Self::DeepSeek
+                | Self::XAI
+                | Self::OpenRouter
+        )
     }
 
     pub fn supports_vision(&self) -> bool {
-        matches!(self, Self::OpenAI | Self::Anthropic | Self::Google | Self::Azure |
-            Self::Together | Self::Groq | Self::Fireworks | Self::OpenRouter)
+        matches!(
+            self,
+            Self::OpenAI
+                | Self::Anthropic
+                | Self::Google
+                | Self::Azure
+                | Self::Together
+                | Self::Groq
+                | Self::Fireworks
+                | Self::OpenRouter
+        )
     }
 
     pub fn supports_streaming(&self) -> bool {
@@ -277,19 +327,32 @@ pub struct ProviderConfig {
 impl ProviderConfig {
     pub fn new(provider: ProviderType) -> Self {
         Self {
-            provider, api_key: None, base_url: None, organization: None,
-            project: None, default_model: None, timeout_secs: Some(120),
-            max_retries: Some(3), extra: HashMap::new(),
+            provider,
+            api_key: None,
+            base_url: None,
+            organization: None,
+            project: None,
+            default_model: None,
+            timeout_secs: Some(120),
+            max_retries: Some(3),
+            extra: HashMap::new(),
         }
     }
 
     pub fn from_env(provider: ProviderType) -> Self {
-        let api_key = provider.api_key_env_var()
+        let api_key = provider
+            .api_key_env_var()
             .and_then(|var| std::env::var(var).ok());
         Self {
-            provider, api_key, base_url: None, organization: None,
-            project: None, default_model: None, timeout_secs: Some(120),
-            max_retries: Some(3), extra: HashMap::new(),
+            provider,
+            api_key,
+            base_url: None,
+            organization: None,
+            project: None,
+            default_model: None,
+            timeout_secs: Some(120),
+            max_retries: Some(3),
+            extra: HashMap::new(),
         }
     }
 
@@ -316,12 +379,22 @@ impl ProviderConfig {
     }
 
     pub fn effective_base_url(&self) -> String {
-        self.base_url.clone().unwrap_or_else(|| self.provider.default_base_url().to_string())
+        self.base_url
+            .clone()
+            .unwrap_or_else(|| self.provider.default_base_url().to_string())
     }
 
     pub fn model_uri(&self) -> ModelUri {
-        let model = self.default_model.clone().unwrap_or_else(|| "default".to_string());
-        ModelUri { provider: self.provider, model, deployment: None, options: HashMap::new() }
+        let model = self
+            .default_model
+            .clone()
+            .unwrap_or_else(|| "default".to_string());
+        ModelUri {
+            provider: self.provider,
+            model,
+            deployment: None,
+            options: HashMap::new(),
+        }
     }
 }
 
@@ -344,8 +417,14 @@ mod tests {
 
     #[test]
     fn test_provider_schemes() {
-        assert_eq!(ProviderType::from_scheme("openai").unwrap(), ProviderType::OpenAI);
-        assert_eq!(ProviderType::from_scheme("claude").unwrap(), ProviderType::Anthropic);
+        assert_eq!(
+            ProviderType::from_scheme("openai").unwrap(),
+            ProviderType::OpenAI
+        );
+        assert_eq!(
+            ProviderType::from_scheme("claude").unwrap(),
+            ProviderType::Anthropic
+        );
         assert!(ProviderType::from_scheme("unknown").is_err());
     }
 

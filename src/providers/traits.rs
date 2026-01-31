@@ -4,14 +4,14 @@
 //! enabling AetherShell to seamlessly switch between any AI backend.
 
 use async_trait::async_trait;
+use futures::Stream;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::pin::Pin;
-use futures::Stream;
 
-use super::{ModelUri, ProviderConfig, ProviderType, ToolFormat};
 use super::schema::ToolSchema;
+use super::{ModelUri, ProviderConfig, ProviderType, ToolFormat};
 
 // ============================================================================
 // MESSAGE TYPES
@@ -63,14 +63,9 @@ pub enum ContentPart {
 #[serde(untagged)]
 pub enum ImageSource {
     /// Base64 encoded image
-    Base64 {
-        media_type: String,
-        data: String,
-    },
+    Base64 { media_type: String, data: String },
     /// URL to image
-    Url {
-        url: String,
-    },
+    Url { url: String },
 }
 
 /// Audio source variants
@@ -78,14 +73,9 @@ pub enum ImageSource {
 #[serde(untagged)]
 pub enum AudioSource {
     /// Base64 encoded audio
-    Base64 {
-        media_type: String,
-        data: String,
-    },
+    Base64 { media_type: String, data: String },
     /// URL to audio
-    Url {
-        url: String,
-    },
+    Url { url: String },
 }
 
 /// A message in a conversation
@@ -108,7 +98,9 @@ impl Message {
     pub fn text(role: Role, content: impl Into<String>) -> Self {
         Self {
             role,
-            content: vec![ContentPart::Text { text: content.into() }],
+            content: vec![ContentPart::Text {
+                text: content.into(),
+            }],
             name: None,
             tool_call_id: None,
         }
@@ -136,7 +128,9 @@ impl Message {
             content: vec![
                 ContentPart::Text { text: text.into() },
                 ContentPart::Image {
-                    source: ImageSource::Url { url: image_url.into() },
+                    source: ImageSource::Url {
+                        url: image_url.into(),
+                    },
                 },
             ],
             name: None,
@@ -145,7 +139,11 @@ impl Message {
     }
 
     /// Create a tool result message
-    pub fn tool_result(tool_use_id: impl Into<String>, content: impl Into<String>, is_error: bool) -> Self {
+    pub fn tool_result(
+        tool_use_id: impl Into<String>,
+        content: impl Into<String>,
+        is_error: bool,
+    ) -> Self {
         Self {
             role: Role::Tool,
             content: vec![ContentPart::ToolResult {
@@ -321,7 +319,10 @@ impl ChatResponse {
 
     /// Check if the response has tool calls
     pub fn has_tool_calls(&self) -> bool {
-        self.tool_calls.as_ref().map(|tc| !tc.is_empty()).unwrap_or(false)
+        self.tool_calls
+            .as_ref()
+            .map(|tc| !tc.is_empty())
+            .unwrap_or(false)
     }
 }
 
@@ -503,12 +504,21 @@ pub enum ProviderError {
 impl std::fmt::Display for ProviderError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::AuthenticationFailed { message } => write!(f, "Authentication failed: {}", message),
+            Self::AuthenticationFailed { message } => {
+                write!(f, "Authentication failed: {}", message)
+            }
             Self::RateLimited { message, .. } => write!(f, "Rate limited: {}", message),
             Self::InvalidRequest { message } => write!(f, "Invalid request: {}", message),
             Self::ModelNotFound { model } => write!(f, "Model not found: {}", model),
-            Self::ContextLengthExceeded { max_tokens, requested_tokens } => {
-                write!(f, "Context length exceeded: {} > {}", requested_tokens, max_tokens)
+            Self::ContextLengthExceeded {
+                max_tokens,
+                requested_tokens,
+            } => {
+                write!(
+                    f,
+                    "Context length exceeded: {} > {}",
+                    requested_tokens, max_tokens
+                )
             }
             Self::ContentFiltered { message } => write!(f, "Content filtered: {}", message),
             Self::Unavailable { message } => write!(f, "Provider unavailable: {}", message),
@@ -576,10 +586,7 @@ pub trait LLMProvider: Send + Sync {
 pub trait LLMProviderExt: LLMProvider {
     /// Simple text completion
     async fn complete(&self, prompt: &str) -> Result<String, ProviderError> {
-        let request = ChatRequest::new(
-            self.config().model_uri(),
-            vec![Message::user(prompt)],
-        );
+        let request = ChatRequest::new(self.config().model_uri(), vec![Message::user(prompt)]);
         let response = self.chat(request).await?;
         Ok(response.text())
     }
@@ -590,8 +597,7 @@ pub trait LLMProviderExt: LLMProvider {
         messages: Vec<Message>,
         tools: Vec<ToolSchema>,
     ) -> Result<ChatResponse, ProviderError> {
-        let request = ChatRequest::new(self.config().model_uri(), messages)
-            .with_tools(tools);
+        let request = ChatRequest::new(self.config().model_uri(), messages).with_tools(tools);
         self.chat(request).await
     }
 
@@ -604,9 +610,13 @@ pub trait LLMProviderExt: LLMProvider {
             dimensions: None,
         };
         let response = self.embed(request).await?;
-        response.embeddings.into_iter().next().ok_or_else(|| {
-            ProviderError::Unknown { message: "No embedding returned".to_string() }
-        })
+        response
+            .embeddings
+            .into_iter()
+            .next()
+            .ok_or_else(|| ProviderError::Unknown {
+                message: "No embedding returned".to_string(),
+            })
     }
 
     /// Count tokens in a message (approximate if not supported natively)
@@ -636,11 +646,9 @@ impl ProviderFactory {
                     message: "Provider implementation pending".to_string(),
                 })
             }
-            ProviderType::Anthropic => {
-                Err(ProviderError::Unknown {
-                    message: "Provider implementation pending".to_string(),
-                })
-            }
+            ProviderType::Anthropic => Err(ProviderError::Unknown {
+                message: "Provider implementation pending".to_string(),
+            }),
             _ => Err(ProviderError::Unknown {
                 message: format!("Provider {:?} not implemented", uri.provider),
             }),
@@ -653,11 +661,9 @@ impl ProviderFactory {
         config: ProviderConfig,
     ) -> Result<Box<dyn LLMProvider>, ProviderError> {
         match provider_type {
-            ProviderType::OpenAI => {
-                Err(ProviderError::Unknown {
-                    message: "Provider implementation pending".to_string(),
-                })
-            }
+            ProviderType::OpenAI => Err(ProviderError::Unknown {
+                message: "Provider implementation pending".to_string(),
+            }),
             _ => Err(ProviderError::Unknown {
                 message: format!("Provider {:?} not implemented", provider_type),
             }),
@@ -688,7 +694,7 @@ mod tests {
         let request = ChatRequest::new(uri, vec![Message::user("Hi")])
             .with_max_tokens(100)
             .with_temperature(0.7);
-        
+
         assert_eq!(request.max_tokens, Some(100));
         assert_eq!(request.temperature, Some(0.7));
     }

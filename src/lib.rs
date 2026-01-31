@@ -44,6 +44,8 @@ pub mod persistence;
 #[cfg(feature = "native")]
 pub mod plugins;
 #[cfg(feature = "native")]
+pub mod providers;
+#[cfg(feature = "native")]
 pub mod repl;
 #[cfg(feature = "native")]
 pub mod rl;
@@ -61,8 +63,6 @@ pub mod transpile;
 pub mod tui;
 #[cfg(feature = "native")]
 pub mod workflows;
-#[cfg(feature = "native")]
-pub mod providers;
 
 // WASM module - only compiled when targeting wasm32 with web feature
 #[cfg(all(feature = "web", target_arch = "wasm32"))]
