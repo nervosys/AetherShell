@@ -28,6 +28,8 @@ pub mod eval;
 #[cfg(feature = "native")]
 pub mod evolution;
 #[cfg(feature = "native")]
+pub mod external_tools;
+#[cfg(feature = "native")]
 pub mod marketplace;
 #[cfg(feature = "native")]
 pub mod mcp;
