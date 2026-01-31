@@ -1,8 +1,6 @@
 <p align="center">
-  <img src="assets/banner.png" alt="Æther Shell" width="100%">
+  <img src="assets/banner.png" alt="Æther Shell (ae)" width="100%">
 </p>
-
-<h1 align="center">Æther Shell (ae)</h1>
 
 <p align="center">
   <a href="https://crates.io/crates/aethershell"><img src="https://img.shields.io/crates/v/aethershell.svg?style=flat-square&logo=rust&color=orange" alt="Crates.io"></a>
