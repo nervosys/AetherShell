@@ -151,6 +151,7 @@ nanda_propose("deployment", {version: "2.0", approve_threshold: 0.7})
 ### 🤖 AI-Native Shell
 - **Multi-modal AI**: Images, audio, video analysis
 - **Autonomous agents** with tool access
+- **OS Abstraction**: Cross-platform agent ontology
 - **MCP Protocol**: 130+ tools across 27 categories
 - **A2A Protocol**: Agent-to-agent communication
 - **A2UI Protocol**: Agent-to-user interface
@@ -229,6 +230,7 @@ AetherShell is the **only shell** combining these capabilities:
 | ----------------------------------- | :---------: | :----------------: | :-----: |
 | AI Agents with Tools                |      ✅      |         ❌          |    ❌    |
 | Multi-modal AI (Vision/Audio/Video) |      ✅      |         ❌          |    ❌    |
+| Cross-Platform OS Abstraction       |      ✅      |         ❌          |    ❌    |
 | MCP Protocol (130+ tools)           |      ✅      |         ❌          |    ❌    |
 | A2A (Agent-to-Agent)                |      ✅      |         ❌          |    ❌    |
 | A2UI (Agent-to-User Interface)      |      ✅      |         ❌          |    ❌    |
@@ -818,6 +820,174 @@ average = scores | avg()                # => 87.6
 unique_ids = [1, 2, 1, 3, 2] | unique() # => [1, 2, 3]
 record_values = {a: 1, b: 2} | values() # => [1, 2]
 ```
+
+### Agentic OS Interaction — Cross-Platform Abstraction
+
+AetherShell provides a **unified OS abstraction layer** that allows AI agents to interact with operating systems through a platform-agnostic ontology. This enables the same agent code to work across Windows, macOS, Linux, iOS, and Android.
+
+#### OS Operations Ontology
+
+```ae
+# Platform-agnostic file operations
+os_exec("fs.list_dir", {path: "./src", recursive: false})
+os_exec("fs.read_file", {path: "config.toml"})
+os_exec("fs.write_file", {path: "output.txt", content: "Hello, World!"})
+os_exec("fs.delete", {path: "temp.log", recursive: false})
+
+# Process management (works the same on all platforms)
+os_exec("process.list", {})                    # List all processes
+os_exec("process.spawn", {                     # Start a new process
+  command: "cargo",
+  args: ["build", "--release"],
+  working_dir: "./project"
+})
+os_exec("process.kill", {pid: 1234, signal: "SIGTERM"})
+
+# Environment variable access
+os_exec("env.get", {name: "HOME"})
+os_exec("env.set", {name: "MY_VAR", value: "hello"})
+os_exec("env.list", {})                        # List all env vars
+
+# Network operations
+os_exec("network.http_request", {
+  method: "GET",
+  url: "https://api.example.com/data",
+  headers: {Authorization: "Bearer token123"}
+})
+
+# System information (platform-aware)
+os_exec("system.info", {})
+# => {os: "Windows", version: "11", arch: "x86_64", hostname: "dev-pc"}
+```
+
+#### Platform Detection & Capabilities
+
+```ae
+# Detect current platform
+platform = platform_info()
+print(platform.os)          # => "Windows" | "macOS" | "Linux" | "iOS" | "Android"
+print(platform.version)     # => "11" | "14.0" | "6.5.0"
+print(platform.arch)        # => "x86_64" | "aarch64"
+
+# Check platform-specific capabilities
+if platform.capabilities.has_gui {
+    os_exec("ui.notify", {title: "Done!", message: "Build complete"})
+}
+
+if platform.capabilities.full_shell {
+    # Full shell access available (desktop OS or rooted mobile)
+    os_exec("shell.execute", {command: "docker ps"})
+}
+
+# Platform-conditional logic
+match platform.os {
+    "Windows" => os_exec("shell.execute", {command: "dir /s"}),
+    "macOS" | "Linux" => os_exec("shell.execute", {command: "ls -la"}),
+    "Android" => os_exec("fs.list_dir", {path: "/sdcard"}),
+    _ => print("Unsupported platform")
+}
+```
+
+#### AI Agents with OS Ontology
+
+AI providers (OpenAI, Anthropic, Google, etc.) can use the OS ontology through standardized tool schemas:
+
+```ae
+# Agent with ontology-based tools (provider-agnostic)
+agent({
+  goal: "Organize my downloads folder by file type",
+  tools: ["fs.list_dir", "fs.move", "fs.create_dir", "fs.delete"],
+  model: "openai:gpt-4o"
+})
+
+# The agent uses platform-agnostic operations:
+# 1. fs.list_dir({path: "~/Downloads"})
+# 2. fs.create_dir({path: "~/Downloads/Images"})
+# 3. fs.move({source: "photo.jpg", dest: "~/Downloads/Images/photo.jpg"})
+
+# Multi-platform deployment automation
+agent({
+  goal: "Deploy application to all target platforms",
+  tools: ["fs.*", "process.*", "network.*", "system.info"],
+  context: {
+    targets: ["windows-server", "linux-docker", "macos-ci"]
+  }
+})
+```
+
+#### Tool Registry for AI Providers
+
+```ae
+# Get tools in OpenAI function calling format
+tools_openai = os_tools({format: "openai"})
+# Returns JSON schema compatible with OpenAI's function calling API
+
+# Get tools in Anthropic format
+tools_anthropic = os_tools({format: "anthropic"})
+# Returns tool definitions for Claude's tool use API
+
+# Filter tools by capability domain
+fs_tools = os_tools({domain: "filesystem"})
+process_tools = os_tools({domain: "process"})
+network_tools = os_tools({domain: "network"})
+
+# Check tool availability on current platform
+available = os_tools({available_only: true})
+# Only returns tools that work on the current OS
+```
+
+#### Cross-Platform Agent Example
+
+```ae
+# Agent that works identically on Windows, macOS, and Linux
+backup_agent = agent({
+  goal: "Create a backup of important project files",
+  tools: [
+    "fs.list_dir",      # List directory contents
+    "fs.read_file",     # Read file contents
+    "fs.write_file",    # Write files
+    "fs.create_dir",    # Create directories
+    "fs.copy",          # Copy files
+    "system.info"       # Get system information
+  ],
+  context: {
+    source: "./project",
+    dest: platform.os == "Windows" 
+      ? "C:\\Backups\\project" 
+      : "/backups/project"
+  }
+})
+
+# The ontology automatically handles:
+# - Path separators (\ vs /)
+# - Permission models (UAC vs sudo vs sandbox)
+# - File system differences (case sensitivity, etc.)
+# - Available commands per platform
+```
+
+#### Security & Permission Levels
+
+```ae
+# Operations have permission levels for safety
+os_exec("fs.read_file", {path: "config.toml"})     # read: allowed by default
+os_exec("fs.write_file", {path: "out.txt", ...})   # write: requires confirmation
+os_exec("fs.delete", {path: "important/", ...})    # delete: requires explicit approval
+os_exec("process.kill", {pid: 1234})               # system: highest permission level
+
+# Agents respect permission boundaries
+agent({
+  goal: "Clean up temporary files",
+  tools: ["fs.list_dir", "fs.delete"],
+  permissions: "cautious"   # Requires approval for each delete
+})
+
+agent({
+  goal: "Automated CI/CD pipeline",
+  tools: ["fs.*", "process.*", "network.*"],
+  permissions: "trusted"    # Pre-approved for automation
+})
+```
+
 
 ### Agentic Protocols — MCP, A2A, A2UI, NANDA
 
