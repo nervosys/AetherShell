@@ -989,6 +989,58 @@ agent({
 ```
 
 
+
+#### External Tool Integration
+
+AetherShell supports **self-describing external tools** that expose their capabilities through standardized AI manifests. Tools like [simon](https://github.com/nervosys/simon) (hardware monitoring) can be registered and used by AI agents automatically:
+
+```ae
+# Register a self-describing tool (has `ai manifest` command)
+external_tool_register("C:/path/to/simon.exe")
+
+# List available capabilities from registered tools
+external_tools()
+# => ["simon"] with 36 hardware monitoring functions
+
+# Execute external tool capabilities
+external_tool_exec("simon", "get_cpu_info", {})
+# => {cores: [...], frequency: {...}, utilization: 23.5}
+
+external_tool_exec("simon", "get_gpu_status", {})
+# => [{name: "RTX 4090", temp: 45, utilization: 12, memory: {...}}]
+
+external_tool_exec("simon", "get_system_summary", {})
+# => Comprehensive system overview: CPU, GPU, memory, disk, network
+```
+
+**Self-Describing Tool Protocol:**
+```bash
+# Tools expose their schema via `ai manifest` command
+simon ai manifest -f json     # JSON schema of all capabilities
+simon ai manifest -f openai   # OpenAI function calling format
+simon ai manifest -f anthropic # Anthropic tool format
+simon ai manifest -f mcp      # Model Context Protocol format
+
+# CLI commands with JSON output for programmatic use
+simon cli cpu -f json         # CPU stats as JSON
+simon cli gpu -f json         # GPU stats as JSON
+```
+
+**Agent with External Tools:**
+```ae
+# AI agent that can monitor hardware using external tools
+agent({
+  goal: "Monitor system health and alert if GPU temperature exceeds 80°C",
+  tools: ["simon.get_gpu_status", "simon.get_system_temperatures"],
+  model: "openai:gpt-4o"
+})
+
+# The agent automatically:
+# 1. Calls simon.get_gpu_status({})
+# 2. Checks temperature values
+# 3. Reports status or triggers alerts
+```
+
 ### Agentic Protocols — MCP, A2A, A2UI, NANDA
 
 AetherShell provides first-class support for modern agent communication protocols:
