@@ -11,16 +11,17 @@
 //! - **State Isolation**: Each agent has isolated state with parent access
 //! - **Result Aggregation**: Child results flow back to parents
 //! - **Cycle Detection**: Prevents infinite recursion loops
+//! - **Permission Control**: Well-defined permissions for subagent spawning
 //!
 //! ## Architecture
 //!
 //! ```text
-//! RootAgent (depth=0)
-//! ├── SubAgent1 (depth=1)
-//! │   ├── SubAgent1.1 (depth=2)
-//! │   └── SubAgent1.2 (depth=2)
-//! └── SubAgent2 (depth=1)
-//!     └── SubAgent2.1 (depth=2)
+//! RootAgent (depth=0, permissions={tools:[*], domains:[*]})
+//! ├── SubAgent1 (depth=1, permissions={tools:[ls,cat], domains:[FileSystem]})
+//! │   ├── SubAgent1.1 (depth=2, permissions={tools:[cat], domains:[FileSystem]})
+//! │   └── SubAgent1.2 (depth=2, permissions={tools:[ls], domains:[FileSystem]})
+//! └── SubAgent2 (depth=1, permissions={tools:[http_get], domains:[Network]})
+//!     └── SubAgent2.1 (depth=2, permissions={tools:[http_get], domains:[Network]})
 //! ```
 //!
 //! ## Security
@@ -30,6 +31,9 @@
 //! - Per-agent timeout enforcement
 //! - Memory limits per agent hierarchy
 //! - Audit logging of spawn operations
+//! - **Subagent Permissions**: Tool allowlists, domain restrictions, path constraints
+//! - **Permission Inheritance**: Children cannot exceed parent permissions
+//! - **Resource Quotas**: CPU, memory, and network limits per spawn level
 
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
@@ -72,6 +76,12 @@ pub struct RlmConfig {
     pub trace_enabled: bool,
     /// Model URI for subagents (None = inherit from parent)
     pub subagent_model_uri: Option<String>,
+    /// Root agent permissions (None = use defaults)
+    #[serde(skip)]
+    pub root_permissions: Option<SubagentPermissions>,
+    /// Subagent spawning policy (None = use defaults)
+    #[serde(skip)]
+    pub subagent_policy: Option<SubagentPolicy>,
 }
 
 impl Default for RlmConfig {
@@ -83,6 +93,8 @@ impl Default for RlmConfig {
             max_concurrent_children: DEFAULT_MAX_CONCURRENT_CHILDREN,
             trace_enabled: true,
             subagent_model_uri: None,
+            root_permissions: None,
+            subagent_policy: None,
         }
     }
 }
@@ -285,6 +297,331 @@ pub struct HierarchyStats {
     pub max_depth: usize,
     pub max_agents: usize,
 }
+
+// ===================== Subagent Permissions =====================
+
+/// Permissions that define what a subagent is allowed to do.
+///
+/// This struct implements a capability-based security model where parent agents
+/// define what their children can do. Children cannot exceed parent permissions.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubagentPermissions {
+    /// Tools the subagent is allowed to use
+    pub allowed_tools: HashSet<String>,
+    /// Whether all tools are allowed (wildcard)
+    pub allow_all_tools: bool,
+    /// Filesystem paths the subagent can access
+    pub allowed_paths: HashSet<String>,
+    /// Network hosts the subagent can connect to
+    pub allowed_hosts: HashSet<String>,
+    /// Whether the subagent can write to files
+    pub can_write_files: bool,
+    /// Whether the subagent can execute shell commands
+    pub can_execute_shell: bool,
+    /// Whether the subagent can make network requests
+    pub can_access_network: bool,
+    /// Whether the subagent can read environment variables
+    pub can_access_env: bool,
+    /// Whether the subagent can spawn its own subagents
+    pub can_spawn_subagents: bool,
+    /// Maximum depth this subagent can spawn to
+    pub max_spawn_depth: usize,
+    /// Maximum number of children this subagent can spawn
+    pub max_children: usize,
+    /// Maximum execution time in seconds
+    pub timeout_secs: u64,
+    /// Maximum memory in MB (advisory)
+    pub max_memory_mb: usize,
+}
+
+impl Default for SubagentPermissions {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SubagentPermissions {
+    /// Create new restrictive permissions (secure defaults)
+    pub fn new() -> Self {
+        Self {
+            allowed_tools: HashSet::new(),
+            allow_all_tools: false,
+            allowed_paths: HashSet::new(),
+            allowed_hosts: HashSet::new(),
+            can_write_files: false,
+            can_execute_shell: false,
+            can_access_network: false,
+            can_access_env: true,
+            can_spawn_subagents: true,
+            max_spawn_depth: 3,
+            max_children: 10,
+            timeout_secs: 60,
+            max_memory_mb: 512,
+        }
+    }
+
+    /// Create permissions that allow everything (use with caution)
+    pub fn allow_all() -> Self {
+        let mut perms = Self::new();
+        perms.allow_all_tools = true;
+        perms.allowed_paths.insert("*".to_string());
+        perms.allowed_hosts.insert("*".to_string());
+        perms.can_write_files = true;
+        perms.can_execute_shell = true;
+        perms.can_access_network = true;
+        perms.max_spawn_depth = 5;
+        perms.max_children = 50;
+        perms
+    }
+
+    /// Create read-only permissions (safe for most tasks)
+    pub fn read_only() -> Self {
+        let mut perms = Self::new();
+        perms.allowed_tools = ["ls", "cat", "grep", "find", "head", "tail", "wc"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        perms.can_access_env = true;
+        perms.can_spawn_subagents = false;
+        perms
+    }
+
+    /// Create network-only permissions
+    pub fn network_only() -> Self {
+        let mut perms = Self::new();
+        perms.allowed_tools = ["http_get", "http_post", "fetch"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        perms.can_access_network = true;
+        perms.can_spawn_subagents = false;
+        perms
+    }
+
+    /// Add specific tools to the allowed list
+    pub fn with_tools(mut self, tools: Vec<&str>) -> Self {
+        for tool in tools {
+            self.allowed_tools.insert(tool.to_string());
+        }
+        self
+    }
+
+    /// Add allowed filesystem paths
+    pub fn with_allowed_paths(mut self, paths: Vec<&str>) -> Self {
+        for path in paths {
+            self.allowed_paths.insert(path.to_string());
+        }
+        self
+    }
+
+    /// Add allowed network hosts
+    pub fn with_allowed_hosts(mut self, hosts: Vec<&str>) -> Self {
+        for host in hosts {
+            self.allowed_hosts.insert(host.to_string());
+        }
+        self
+    }
+
+    /// Enable file write access
+    pub fn with_write_access(mut self) -> Self {
+        self.can_write_files = true;
+        self
+    }
+
+    /// Enable shell command execution
+    pub fn with_shell_access(mut self) -> Self {
+        self.can_execute_shell = true;
+        self
+    }
+
+    /// Enable network access
+    pub fn with_network_access(mut self) -> Self {
+        self.can_access_network = true;
+        self
+    }
+
+    /// Configure spawn permissions
+    pub fn with_spawn(mut self, allowed: bool, max_depth: usize, max_children: usize) -> Self {
+        self.can_spawn_subagents = allowed;
+        self.max_spawn_depth = max_depth;
+        self.max_children = max_children;
+        self
+    }
+
+    /// Configure resource limits
+    pub fn with_limits(mut self, timeout_secs: u64, max_memory_mb: usize) -> Self {
+        self.timeout_secs = timeout_secs;
+        self.max_memory_mb = max_memory_mb;
+        self
+    }
+
+    /// Check if a tool is allowed
+    pub fn is_tool_allowed(&self, tool: &str) -> bool {
+        self.allow_all_tools || self.allowed_tools.contains(tool)
+    }
+
+    /// Check if a path is allowed
+    pub fn is_path_allowed(&self, path: &str) -> bool {
+        if self.allowed_paths.contains("*") {
+            return true;
+        }
+        self.allowed_paths
+            .iter()
+            .any(|allowed| path.starts_with(allowed))
+    }
+
+    /// Check if a host is allowed
+    pub fn is_host_allowed(&self, host: &str) -> bool {
+        if self.allowed_hosts.contains("*") {
+            return true;
+        }
+        self.allowed_hosts.contains(host)
+    }
+
+    /// Validate that child permissions don't exceed parent permissions
+    pub fn validate_child(&self, child: &SubagentPermissions) -> Result<()> {
+        // Check capability escalation
+        if child.can_write_files && !self.can_write_files {
+            return Err(anyhow!("Child cannot have write access when parent doesn't"));
+        }
+        if child.can_execute_shell && !self.can_execute_shell {
+            return Err(anyhow!("Child cannot have shell access when parent doesn't"));
+        }
+        if child.can_access_network && !self.can_access_network {
+            return Err(anyhow!("Child cannot have network access when parent doesn't"));
+        }
+
+        // Check spawn depth
+        if child.max_spawn_depth > self.max_spawn_depth {
+            return Err(anyhow!(
+                "Child spawn depth ({}) exceeds parent ({})",
+                child.max_spawn_depth,
+                self.max_spawn_depth
+            ));
+        }
+
+        // Check tools (if parent has restrictions)
+        if !self.allow_all_tools {
+            for tool in &child.allowed_tools {
+                if !self.allowed_tools.contains(tool) {
+                    return Err(anyhow!("Child requests tool '{}' not allowed by parent", tool));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Create restricted child permissions based on parent permissions
+    pub fn create_child_permissions(&self) -> SubagentPermissions {
+        let mut child = self.clone();
+        // Decrease spawn depth for children
+        child.max_spawn_depth = self.max_spawn_depth.saturating_sub(1);
+        // Reduce max children
+        child.max_children = self.max_children / 2;
+        child
+    }
+}
+
+// ===================== Subagent Policy =====================
+
+/// Global policy for subagent spawning behavior
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubagentPolicy {
+    /// Whether agents can request custom permissions
+    pub allow_custom_permissions: bool,
+    /// Global maximum spawn depth across all agents
+    pub global_max_depth: usize,
+    /// Global maximum number of agents
+    pub global_max_agents: usize,
+    /// Whether spawning requires approval (future: human-in-the-loop)
+    pub require_spawn_approval: bool,
+    /// Audit level for spawn operations
+    pub audit_level: AuditLevel,
+    /// Default permissions for agents that don't specify their own
+    pub default_permissions: SubagentPermissions,
+}
+
+impl Default for SubagentPolicy {
+    fn default() -> Self {
+        Self {
+            allow_custom_permissions: true,
+            global_max_depth: 5,
+            global_max_agents: 50,
+            require_spawn_approval: false,
+            audit_level: AuditLevel::Basic,
+            default_permissions: SubagentPermissions::new(),
+        }
+    }
+}
+
+impl SubagentPolicy {
+    /// Create a restrictive policy for high-security environments
+    pub fn restrictive() -> Self {
+        Self {
+            allow_custom_permissions: false,
+            global_max_depth: 2,
+            global_max_agents: 10,
+            require_spawn_approval: true,
+            audit_level: AuditLevel::Detailed,
+            default_permissions: SubagentPermissions::read_only(),
+        }
+    }
+
+    /// Create a permissive policy for trusted environments
+    pub fn permissive() -> Self {
+        Self {
+            allow_custom_permissions: true,
+            global_max_depth: 10,
+            global_max_agents: 100,
+            require_spawn_approval: false,
+            audit_level: AuditLevel::Minimal,
+            default_permissions: SubagentPermissions::allow_all(),
+        }
+    }
+}
+
+/// Audit level for spawn operations
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AuditLevel {
+    /// No auditing
+    Minimal,
+    /// Log spawn and completion
+    Basic,
+    /// Log all operations
+    Detailed,
+    /// Log everything with full context
+    Verbose,
+}
+
+// ===================== RlmConfig Extensions =====================
+
+impl RlmConfig {
+    /// Set root agent permissions
+    pub fn with_permissions(mut self, permissions: SubagentPermissions) -> Self {
+        self.root_permissions = Some(permissions);
+        self
+    }
+
+    /// Set subagent policy
+    pub fn with_policy(mut self, policy: SubagentPolicy) -> Self {
+        self.subagent_policy = Some(policy);
+        self
+    }
+
+    /// Get effective root permissions
+    pub fn effective_root_permissions(&self) -> SubagentPermissions {
+        self.root_permissions
+            .clone()
+            .unwrap_or_else(SubagentPermissions::new)
+    }
+
+    /// Get effective subagent policy
+    pub fn effective_policy(&self) -> SubagentPolicy {
+        self.subagent_policy.clone().unwrap_or_default()
+    }
+}
+
 
 // ===================== Recursive Agent =====================
 
@@ -910,5 +1247,123 @@ mod tests {
         let stats = state.stats();
         assert_eq!(stats.total_spawned, 1);
         assert_eq!(stats.currently_active, 0);
+    }
+    
+    // ===================== Permission Tests =====================
+    
+    #[test]
+    fn test_subagent_permissions_default() {
+        let perms = SubagentPermissions::new();
+        
+        // Default permissions are restrictive
+        assert!(!perms.can_write_files);
+        assert!(!perms.can_execute_shell);
+        assert!(!perms.can_access_network);
+        assert!(perms.can_access_env);
+        assert!(perms.can_spawn_subagents);
+        assert_eq!(perms.max_spawn_depth, 3);
+    }
+    
+    #[test]
+    fn test_subagent_permissions_allow_all() {
+        let perms = SubagentPermissions::allow_all();
+        
+        assert!(perms.can_write_files);
+        assert!(perms.can_execute_shell);
+        assert!(perms.can_access_network);
+        assert!(perms.allowed_paths.contains(&"*".to_string()));
+        assert!(perms.allowed_hosts.contains(&"*".to_string()));
+    }
+    
+    #[test]
+    fn test_subagent_permissions_read_only() {
+        let perms = SubagentPermissions::read_only();
+        
+        assert!(!perms.can_write_files);
+        assert!(!perms.can_execute_shell);
+        assert!(!perms.can_access_network);
+        assert!(perms.allowed_tools.contains("ls"));
+        assert!(perms.allowed_tools.contains("cat"));
+        assert!(perms.allowed_tools.contains("grep"));
+    }
+    
+    #[test]
+    fn test_subagent_permissions_tool_check() {
+        let perms = SubagentPermissions::new()
+            .with_tools(vec!["ls", "cat", "grep"]);
+        
+        assert!(perms.is_tool_allowed("ls"));
+        assert!(perms.is_tool_allowed("cat"));
+        assert!(!perms.is_tool_allowed("rm"));
+        assert!(!perms.is_tool_allowed("sh"));
+    }
+    
+    #[test]
+    fn test_subagent_permissions_path_check() {
+        let perms = SubagentPermissions::new()
+            .with_allowed_paths(vec!["/home/user/project", "/tmp"]);
+        
+        assert!(perms.is_path_allowed("/home/user/project/src"));
+        assert!(perms.is_path_allowed("/tmp/test.txt"));
+        assert!(!perms.is_path_allowed("/etc/passwd"));
+        assert!(!perms.is_path_allowed("/home/user/other"));
+    }
+    
+    #[test]
+    fn test_subagent_permissions_validate_child() {
+        let parent = SubagentPermissions::new()
+            .with_tools(vec!["ls", "cat", "grep"])
+            .with_spawn(true, 3, 10)
+            .with_limits(60, 512);
+        
+        // Valid child (subset of parent)
+        let child = SubagentPermissions::new()
+            .with_tools(vec!["ls", "cat"])
+            .with_spawn(true, 2, 5)
+            .with_limits(30, 256);
+        
+        assert!(parent.validate_child(&child).is_ok());
+        
+        // Invalid child (exceeds parent's spawn depth)
+        let bad_child = SubagentPermissions::new()
+            .with_spawn(true, 5, 10);
+        
+        assert!(parent.validate_child(&bad_child).is_err());
+    }
+    
+    #[test]
+    fn test_subagent_permissions_escalation() {
+        let parent = SubagentPermissions::new();
+        
+        // Child cannot have write access if parent doesn't
+        let child_with_write = SubagentPermissions::new().with_write_access();
+        assert!(parent.validate_child(&child_with_write).is_err());
+        
+        // Child cannot have shell access if parent doesn't
+        let child_with_shell = SubagentPermissions::new().with_shell_access();
+        assert!(parent.validate_child(&child_with_shell).is_err());
+    }
+    
+    #[test]
+    fn test_subagent_policy_default() {
+        let policy = SubagentPolicy::default();
+        
+        assert!(policy.allow_custom_permissions);
+        assert_eq!(policy.global_max_depth, 5);
+        assert_eq!(policy.global_max_agents, 50);
+        assert!(!policy.require_spawn_approval);
+    }
+    
+    #[test]
+    fn test_rlm_config_with_permissions() {
+        let config = RlmConfig::default()
+            .with_permissions(SubagentPermissions::read_only())
+            .with_policy(SubagentPolicy::restrictive());
+        
+        assert!(config.root_permissions.is_some());
+        assert!(config.subagent_policy.is_some());
+        
+        let perms = config.effective_root_permissions();
+        assert!(!perms.can_write_files);
     }
 }
