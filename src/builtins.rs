@@ -757,6 +757,28 @@ lazy_static::lazy_static! {
         map.insert("sqlite_exec", 502);
         map.insert("sql", 501);
 
+        // 520-527: File Editing (for AI agents)
+        map.insert("file_write", 520);
+        map.insert("write_file", 520);
+        map.insert("text_write", 520);
+        map.insert("file_append", 521);
+        map.insert("append_file", 521);
+        map.insert("file_patch", 522);
+        map.insert("patch_file", 522);
+        map.insert("file_replace", 523);
+        map.insert("text_replace", 523);
+        map.insert("str_replace_in_file", 523);
+        map.insert("file_insert", 524);
+        map.insert("insert_lines", 524);
+        map.insert("file_delete_lines", 525);
+        map.insert("delete_lines", 525);
+        map.insert("remove_lines", 525);
+        map.insert("file_edit", 526);
+        map.insert("edit_file", 526);
+        map.insert("text_edit", 526);
+        map.insert("file_diff", 527);
+        map.insert("diff_files", 527);
+
 
         map
     };
@@ -1996,6 +2018,15 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_db_json_to_sqlite(args, input),
     |args, input, _| bi_db_sqlite_to_json(args, input),
     |args, input, _| bi_db_kv_store(args, input),
+    // 520-527: File Editing (for AI agents)
+    |args, input, _| bi_file_write(args, input),
+    |args, input, _| bi_file_append(args, input),
+    |args, input, _| bi_file_patch(args, input),
+    |args, input, _| bi_file_replace(args, input),
+    |args, input, _| bi_file_insert(args, input),
+    |args, input, _| bi_file_delete_lines(args, input),
+    |args, input, _| bi_file_edit(args, input),
+    |args, input, _| bi_file_diff(args, input),
 ];
 
 fn fast_builtin_lookup(
@@ -19313,4 +19344,713 @@ fn bi_db_kv_store(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     ], None);
     
     Ok(Value::Str(store_path))
+}
+
+// =====================================================================
+// ROBUST FILE EDITING BUILTINS (for AI agents)
+// =====================================================================
+// These functions provide structured, atomic file editing that avoids
+// shell quoting/escaping issues that plague BASH and PowerShell.
+// AI agents can safely manipulate multi-line text without worrying about
+// special characters, newlines, or encoding problems.
+// =====================================================================
+
+/// file_write(path, content) - Write content to a file (creates or overwrites)
+/// This is the foundation for safe file writing without shell escaping issues.
+/// Usage: file_write("config.txt", "line1\nline2\nline3")
+///        content | file_write("output.txt")
+fn bi_file_write(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if args.is_empty() {
+        return Err(anyhow!("file_write requires a file path"));
+    }
+
+    let path = match &args[0] {
+        Value::Str(s) => s.clone(),
+        _ => return Err(anyhow!("file_write: path must be a string")),
+    };
+
+    // Get content from args or pipeline input
+    let content = if args.len() > 1 {
+        match &args[1] {
+            Value::Str(s) => s.clone(),
+            Value::Array(arr) => arr
+                .iter()
+                .map(|v| match v {
+                    Value::Str(s) => s.clone(),
+                    other => format!("{:?}", other),
+                })
+                .collect::<Vec<_>>()
+                .join("\n"),
+            other => format!("{:?}", other),
+        }
+    } else {
+        match input {
+            Some(Value::Str(s)) => s,
+            Some(Value::Array(arr)) => arr
+                .iter()
+                .map(|v| match v {
+                    Value::Str(s) => s.clone(),
+                    other => format!("{:?}", other),
+                })
+                .collect::<Vec<_>>()
+                .join("\n"),
+            Some(other) => format!("{:?}", other),
+            None => return Err(anyhow!("file_write requires content to write")),
+        }
+    };
+
+    // Write atomically: write to temp file, then rename
+    let parent = std::path::Path::new(&path).parent();
+    let temp_path = match parent {
+        Some(p) if p.exists() => {
+            let temp_name = format!(".aether_tmp_{}", std::process::id());
+            p.join(temp_name).to_string_lossy().to_string()
+        }
+        _ => format!(".aether_tmp_{}", std::process::id()),
+    };
+
+    // Write to temp file
+    fs::write(&temp_path, &content)
+        .with_context(|| format!("file_write: failed to write temp file '{}'", temp_path))?;
+
+    // Rename to final destination (atomic on most filesystems)
+    fs::rename(&temp_path, &path).or_else(|_| {
+        // Fallback: copy and delete (for cross-device moves)
+        fs::copy(&temp_path, &path)?;
+        fs::remove_file(&temp_path)?;
+        Ok::<(), std::io::Error>(())
+    }).with_context(|| format!("file_write: failed to write to '{}'", path))?;
+
+    let mut result = BTreeMap::new();
+    result.insert("path".to_string(), Value::Str(path));
+    result.insert("bytes".to_string(), Value::Int(content.len() as i64));
+    result.insert("lines".to_string(), Value::Int(content.lines().count() as i64));
+    result.insert("success".to_string(), Value::Bool(true));
+
+    Ok(Value::Record(result))
+}
+
+/// file_append(path, content) - Append content to a file
+/// Usage: file_append("log.txt", "New log entry\n")
+///        new_lines | file_append("data.txt")
+fn bi_file_append(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if args.is_empty() {
+        return Err(anyhow!("file_append requires a file path"));
+    }
+
+    let path = match &args[0] {
+        Value::Str(s) => s.clone(),
+        _ => return Err(anyhow!("file_append: path must be a string")),
+    };
+
+    // Get content from args or pipeline input
+    let content = if args.len() > 1 {
+        match &args[1] {
+            Value::Str(s) => s.clone(),
+            Value::Array(arr) => arr
+                .iter()
+                .map(|v| match v {
+                    Value::Str(s) => s.clone(),
+                    other => format!("{:?}", other),
+                })
+                .collect::<Vec<_>>()
+                .join("\n"),
+            other => format!("{:?}", other),
+        }
+    } else {
+        match input {
+            Some(Value::Str(s)) => s,
+            Some(Value::Array(arr)) => arr
+                .iter()
+                .map(|v| match v {
+                    Value::Str(s) => s.clone(),
+                    other => format!("{:?}", other),
+                })
+                .collect::<Vec<_>>()
+                .join("\n"),
+            Some(other) => format!("{:?}", other),
+            None => return Err(anyhow!("file_append requires content to append")),
+        }
+    };
+
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .with_context(|| format!("file_append: failed to open '{}'", path))?;
+
+    file.write_all(content.as_bytes())
+        .with_context(|| format!("file_append: failed to write to '{}'", path))?;
+
+    let mut result = BTreeMap::new();
+    result.insert("path".to_string(), Value::Str(path));
+    result.insert("bytes_appended".to_string(), Value::Int(content.len() as i64));
+    result.insert("success".to_string(), Value::Bool(true));
+
+    Ok(Value::Record(result))
+}
+
+/// file_patch(path, patches) - Apply multiple search/replace operations atomically
+/// Patches is an array of records: [{find: "old", replace: "new"}, ...]
+/// Usage: file_patch("config.txt", [{find: "DEBUG=0", replace: "DEBUG=1"}])
+fn bi_file_patch(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if args.is_empty() {
+        return Err(anyhow!("file_patch requires a file path"));
+    }
+
+    let path = match &args[0] {
+        Value::Str(s) => s.clone(),
+        _ => return Err(anyhow!("file_patch: path must be a string")),
+    };
+
+    let patches = if args.len() > 1 {
+        match &args[1] {
+            Value::Array(arr) => arr.clone(),
+            Value::Record(r) => vec![Value::Record(r.clone())],
+            _ => return Err(anyhow!("file_patch: patches must be an array of records")),
+        }
+    } else {
+        match input {
+            Some(Value::Array(arr)) => arr,
+            Some(Value::Record(r)) => vec![Value::Record(r)],
+            _ => return Err(anyhow!("file_patch: patches must be provided")),
+        }
+    };
+
+    // Read current content
+    let mut content = fs::read_to_string(&path)
+        .with_context(|| format!("file_patch: failed to read '{}'", path))?;
+
+    let mut applied = Vec::new();
+    let mut failed = Vec::new();
+
+    for (i, patch) in patches.iter().enumerate() {
+        let record = match patch {
+            Value::Record(r) => r,
+            _ => {
+                failed.push(Value::Str(format!("patch {}: not a record", i)));
+                continue;
+            }
+        };
+
+        let find_str = match record.get("find").or(record.get("old")).or(record.get("search")) {
+            Some(Value::Str(s)) => s.clone(),
+            _ => {
+                failed.push(Value::Str(format!("patch {}: missing 'find' string", i)));
+                continue;
+            }
+        };
+
+        let replace_str = match record.get("replace").or(record.get("new")).or(record.get("with")) {
+            Some(Value::Str(s)) => s.clone(),
+            _ => {
+                failed.push(Value::Str(format!("patch {}: missing 'replace' string", i)));
+                continue;
+            }
+        };
+
+        if content.contains(&find_str) {
+            let count = content.matches(&find_str).count();
+            content = content.replace(&find_str, &replace_str);
+
+            let mut patch_result = BTreeMap::new();
+            patch_result.insert("find".to_string(), Value::Str(find_str));
+            patch_result.insert("replace".to_string(), Value::Str(replace_str));
+            patch_result.insert("count".to_string(), Value::Int(count as i64));
+            applied.push(Value::Record(patch_result));
+        } else {
+            failed.push(Value::Str(format!("patch {}: '{}' not found", i,
+                if find_str.len() > 40 { format!("{}...", &find_str[..40]) } else { find_str })));
+        }
+    }
+
+    // Write back atomically
+    let temp_path = format!("{}.aether_tmp", path);
+    fs::write(&temp_path, &content)?;
+    fs::rename(&temp_path, &path)?;
+
+    let mut result = BTreeMap::new();
+    result.insert("path".to_string(), Value::Str(path));
+    result.insert("applied".to_string(), Value::Array(applied.clone()));
+    result.insert("failed".to_string(), Value::Array(failed.clone()));
+    result.insert("success".to_string(), Value::Bool(failed.is_empty()));
+    result.insert("patches_applied".to_string(), Value::Int(applied.len() as i64));
+    result.insert("patches_failed".to_string(), Value::Int(failed.len() as i64));
+
+    Ok(Value::Record(result))
+}
+
+/// file_replace(path, old_text, new_text) - Simple string replacement in a file
+/// Usage: file_replace("config.txt", "old_value", "new_value")
+fn bi_file_replace(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if args.len() < 3 {
+        return Err(anyhow!("file_replace requires path, old_text, and new_text"));
+    }
+
+    let path = match &args[0] {
+        Value::Str(s) => s.clone(),
+        _ => return Err(anyhow!("file_replace: path must be a string")),
+    };
+
+    let old_text = match &args[1] {
+        Value::Str(s) => s.clone(),
+        _ => return Err(anyhow!("file_replace: old_text must be a string")),
+    };
+
+    let new_text = match &args[2] {
+        Value::Str(s) => s.clone(),
+        _ => return Err(anyhow!("file_replace: new_text must be a string")),
+    };
+
+    let mut patch = BTreeMap::new();
+    patch.insert("find".to_string(), Value::Str(old_text));
+    patch.insert("replace".to_string(), Value::Str(new_text));
+
+    bi_file_patch(vec![Value::Str(path), Value::Array(vec![Value::Record(patch)])], None)
+}
+
+/// file_insert(path, position, content) - Insert content at a specific position
+fn bi_file_insert(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if args.len() < 2 {
+        return Err(anyhow!("file_insert requires path and position"));
+    }
+
+    let path = match &args[0] {
+        Value::Str(s) => s.clone(),
+        _ => return Err(anyhow!("file_insert: path must be a string")),
+    };
+
+    let content = if args.len() > 2 {
+        match &args[2] {
+            Value::Str(s) => s.clone(),
+            Value::Array(arr) => arr
+                .iter()
+                .map(|v| match v {
+                    Value::Str(s) => s.clone(),
+                    other => format!("{:?}", other),
+                })
+                .collect::<Vec<_>>()
+                .join("\n"),
+            other => format!("{:?}", other),
+        }
+    } else {
+        match input {
+            Some(Value::Str(s)) => s,
+            Some(Value::Array(arr)) => arr
+                .iter()
+                .map(|v| match v {
+                    Value::Str(s) => s.clone(),
+                    other => format!("{:?}", other),
+                })
+                .collect::<Vec<_>>()
+                .join("\n"),
+            Some(other) => format!("{:?}", other),
+            None => return Err(anyhow!("file_insert requires content to insert")),
+        }
+    };
+
+    let mut file_content = fs::read_to_string(&path)
+        .with_context(|| format!("file_insert: failed to read '{}'", path))?;
+
+    let mut lines: Vec<String> = file_content.lines().map(|s| s.to_string()).collect();
+    let insert_lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+    let insert_pos: usize;
+    let mut pattern_found = true;
+
+    match &args[1] {
+        Value::Int(line_num) => {
+            let line = (*line_num).max(1) as usize;
+            insert_pos = (line - 1).min(lines.len());
+        }
+        Value::Str(pos) => {
+            match pos.as_str() {
+                "start" | "beginning" | "top" => insert_pos = 0,
+                "end" | "bottom" | "append" => insert_pos = lines.len(),
+                _ => {
+                    if let Some(idx) = lines.iter().position(|l| l.contains(pos)) {
+                        insert_pos = idx + 1;
+                    } else {
+                        pattern_found = false;
+                        insert_pos = lines.len();
+                    }
+                }
+            }
+        }
+        Value::Record(r) => {
+            if let Some(Value::Str(after_pattern)) = r.get("after") {
+                if let Some(idx) = lines.iter().position(|l| l.contains(after_pattern)) {
+                    insert_pos = idx + 1;
+                } else {
+                    pattern_found = false;
+                    insert_pos = lines.len();
+                }
+            } else if let Some(Value::Str(before_pattern)) = r.get("before") {
+                if let Some(idx) = lines.iter().position(|l| l.contains(before_pattern)) {
+                    insert_pos = idx;
+                } else {
+                    pattern_found = false;
+                    insert_pos = 0;
+                }
+            } else if let Some(Value::Int(line)) = r.get("line") {
+                insert_pos = ((*line).max(1) as usize - 1).min(lines.len());
+            } else {
+                return Err(anyhow!("file_insert: position record must have 'after', 'before', or 'line' key"));
+            }
+        }
+        _ => return Err(anyhow!("file_insert: position must be a line number, string, or record")),
+    }
+
+    for (i, line) in insert_lines.iter().enumerate() {
+        lines.insert(insert_pos + i, line.clone());
+    }
+
+    file_content = lines.join("\n");
+    if !file_content.ends_with('\n') {
+        file_content.push('\n');
+    }
+
+    let temp_path = format!("{}.aether_tmp", path);
+    fs::write(&temp_path, &file_content)?;
+    fs::rename(&temp_path, &path)?;
+
+    let mut result = BTreeMap::new();
+    result.insert("path".to_string(), Value::Str(path));
+    result.insert("lines_inserted".to_string(), Value::Int(insert_lines.len() as i64));
+    result.insert("at_line".to_string(), Value::Int((insert_pos + 1) as i64));
+    result.insert("pattern_found".to_string(), Value::Bool(pattern_found));
+    result.insert("success".to_string(), Value::Bool(true));
+
+    Ok(Value::Record(result))
+}
+
+/// file_delete_lines(path, start, end?) - Delete lines from a file
+fn bi_file_delete_lines(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if args.len() < 2 {
+        return Err(anyhow!("file_delete_lines requires path and line specification"));
+    }
+
+    let path = match &args[0] {
+        Value::Str(s) => s.clone(),
+        _ => return Err(anyhow!("file_delete_lines: path must be a string")),
+    };
+
+    let content = fs::read_to_string(&path)
+        .with_context(|| format!("file_delete_lines: failed to read '{}'", path))?;
+
+    let lines: Vec<&str> = content.lines().collect();
+    let original_count = lines.len();
+    let mut keep: Vec<bool> = vec![true; lines.len()];
+
+    match &args[1] {
+        Value::Int(start_line) => {
+            let start = (*start_line).max(1) as usize - 1;
+            let end = if args.len() > 2 {
+                match &args[2] {
+                    Value::Int(e) => (*e).max(1) as usize - 1,
+                    _ => start,
+                }
+            } else {
+                start
+            };
+
+            for i in start..=end.min(lines.len() - 1) {
+                keep[i] = false;
+            }
+        }
+        Value::Record(r) => {
+            if let Some(Value::Str(pattern)) = r.get("matching").or(r.get("contains")).or(r.get("pattern")) {
+                for (i, line) in lines.iter().enumerate() {
+                    if line.contains(pattern) {
+                        keep[i] = false;
+                    }
+                }
+            } else if let Some(Value::Str(exact)) = r.get("exact") {
+                for (i, line) in lines.iter().enumerate() {
+                    if *line == exact {
+                        keep[i] = false;
+                    }
+                }
+            } else {
+                return Err(anyhow!("file_delete_lines: record must have 'matching', 'contains', or 'exact' key"));
+            }
+        }
+        _ => return Err(anyhow!("file_delete_lines: second argument must be line number or record")),
+    }
+
+    let new_lines: Vec<&str> = lines.into_iter()
+        .enumerate()
+        .filter(|(i, _)| keep[*i])
+        .map(|(_, line)| line)
+        .collect();
+
+    let deleted_count = original_count - new_lines.len();
+    let mut new_content = new_lines.join("\n");
+    if !new_content.is_empty() {
+        new_content.push('\n');
+    }
+
+    let temp_path = format!("{}.aether_tmp", path);
+    fs::write(&temp_path, &new_content)?;
+    fs::rename(&temp_path, &path)?;
+
+    let mut result = BTreeMap::new();
+    result.insert("path".to_string(), Value::Str(path));
+    result.insert("lines_deleted".to_string(), Value::Int(deleted_count as i64));
+    result.insert("lines_remaining".to_string(), Value::Int(new_lines.len() as i64));
+    result.insert("success".to_string(), Value::Bool(true));
+
+    Ok(Value::Record(result))
+}
+
+/// file_edit(path, edits) - Apply structured edits to a file
+fn bi_file_edit(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if args.is_empty() {
+        return Err(anyhow!("file_edit requires a file path"));
+    }
+
+    let path = match &args[0] {
+        Value::Str(s) => s.clone(),
+        _ => return Err(anyhow!("file_edit: path must be a string")),
+    };
+
+    let edits = if args.len() > 1 {
+        match &args[1] {
+            Value::Array(arr) => arr.clone(),
+            Value::Record(r) => vec![Value::Record(r.clone())],
+            _ => return Err(anyhow!("file_edit: edits must be an array of edit operations")),
+        }
+    } else {
+        match input {
+            Some(Value::Array(arr)) => arr,
+            Some(Value::Record(r)) => vec![Value::Record(r)],
+            _ => return Err(anyhow!("file_edit: edits must be provided")),
+        }
+    };
+
+    let content = fs::read_to_string(&path)
+        .with_context(|| format!("file_edit: failed to read '{}'", path))?;
+
+    let mut lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+    let mut applied = Vec::new();
+    let mut failed = Vec::new();
+
+    // Sort edits by line number in reverse order
+    let mut sorted_edits: Vec<(usize, Value)> = edits.into_iter().enumerate().collect();
+    sorted_edits.sort_by(|a, b| {
+        let get_line = |v: &Value| -> i64 {
+            if let Value::Record(r) = v {
+                r.get("start_line").or(r.get("line")).and_then(|v| match v {
+                    Value::Int(n) => Some(*n),
+                    _ => None,
+                }).unwrap_or(0)
+            } else {
+                0
+            }
+        };
+        get_line(&b.1).cmp(&get_line(&a.1))
+    });
+
+    for (idx, edit) in sorted_edits {
+        let record = match &edit {
+            Value::Record(r) => r,
+            _ => {
+                failed.push(Value::Str(format!("edit {}: not a record", idx)));
+                continue;
+            }
+        };
+
+        let op = match record.get("op").or(record.get("operation")) {
+            Some(Value::Str(s)) => s.as_str(),
+            _ => {
+                failed.push(Value::Str(format!("edit {}: missing 'op' field", idx)));
+                continue;
+            }
+        };
+
+        match op {
+            "replace_range" | "replace" => {
+                let start_line = match record.get("start_line").or(record.get("line")) {
+                    Some(Value::Int(n)) => (*n).max(1) as usize - 1,
+                    _ => {
+                        failed.push(Value::Str(format!("edit {}: missing start_line", idx)));
+                        continue;
+                    }
+                };
+                let end_line = match record.get("end_line") {
+                    Some(Value::Int(n)) => (*n).max(1) as usize - 1,
+                    _ => start_line,
+                };
+                let new_content = match record.get("content").or(record.get("text")) {
+                    Some(Value::Str(s)) => s.clone(),
+                    _ => String::new(),
+                };
+
+                if start_line < lines.len() {
+                    let end = end_line.min(lines.len() - 1);
+                    let new_lines: Vec<String> = new_content.lines().map(|s| s.to_string()).collect();
+
+                    lines.drain(start_line..=end);
+                    for (i, line) in new_lines.into_iter().enumerate() {
+                        lines.insert(start_line + i, line);
+                    }
+
+                    let mut result = BTreeMap::new();
+                    result.insert("op".to_string(), Value::Str("replace_range".to_string()));
+                    result.insert("start_line".to_string(), Value::Int((start_line + 1) as i64));
+                    result.insert("end_line".to_string(), Value::Int((end + 1) as i64));
+                    applied.push(Value::Record(result));
+                } else {
+                    failed.push(Value::Str(format!("edit {}: line {} out of range", idx, start_line + 1)));
+                }
+            }
+            "insert_at" | "insert" => {
+                let line = match record.get("line") {
+                    Some(Value::Int(n)) => (*n).max(1) as usize - 1,
+                    _ => {
+                        failed.push(Value::Str(format!("edit {}: missing line", idx)));
+                        continue;
+                    }
+                };
+                let new_content = match record.get("content").or(record.get("text")) {
+                    Some(Value::Str(s)) => s.clone(),
+                    _ => String::new(),
+                };
+
+                let insert_pos = line.min(lines.len());
+                let new_lines: Vec<String> = new_content.lines().map(|s| s.to_string()).collect();
+
+                for (i, new_line) in new_lines.iter().enumerate() {
+                    lines.insert(insert_pos + i, new_line.clone());
+                }
+
+                let mut result = BTreeMap::new();
+                result.insert("op".to_string(), Value::Str("insert_at".to_string()));
+                result.insert("line".to_string(), Value::Int((insert_pos + 1) as i64));
+                result.insert("lines_inserted".to_string(), Value::Int(new_lines.len() as i64));
+                applied.push(Value::Record(result));
+            }
+            "delete_range" | "delete" => {
+                let start_line = match record.get("start_line").or(record.get("line")) {
+                    Some(Value::Int(n)) => (*n).max(1) as usize - 1,
+                    _ => {
+                        failed.push(Value::Str(format!("edit {}: missing start_line", idx)));
+                        continue;
+                    }
+                };
+                let end_line = match record.get("end_line") {
+                    Some(Value::Int(n)) => (*n).max(1) as usize - 1,
+                    _ => start_line,
+                };
+
+                if start_line < lines.len() {
+                    let end = end_line.min(lines.len() - 1);
+                    let deleted_count = end - start_line + 1;
+                    lines.drain(start_line..=end);
+
+                    let mut result = BTreeMap::new();
+                    result.insert("op".to_string(), Value::Str("delete_range".to_string()));
+                    result.insert("start_line".to_string(), Value::Int((start_line + 1) as i64));
+                    result.insert("lines_deleted".to_string(), Value::Int(deleted_count as i64));
+                    applied.push(Value::Record(result));
+                } else {
+                    failed.push(Value::Str(format!("edit {}: line {} out of range", idx, start_line + 1)));
+                }
+            }
+            _ => {
+                failed.push(Value::Str(format!("edit {}: unknown operation '{}'", idx, op)));
+            }
+        }
+    }
+
+    // Write back
+    let mut new_content = lines.join("\n");
+    if !new_content.is_empty() && !new_content.ends_with('\n') {
+        new_content.push('\n');
+    }
+
+    let temp_path = format!("{}.aether_tmp", path);
+    fs::write(&temp_path, &new_content)?;
+    fs::rename(&temp_path, &path)?;
+
+    let mut result = BTreeMap::new();
+    result.insert("path".to_string(), Value::Str(path));
+    result.insert("applied".to_string(), Value::Array(applied.clone()));
+    result.insert("failed".to_string(), Value::Array(failed.clone()));
+    result.insert("success".to_string(), Value::Bool(failed.is_empty()));
+    result.insert("edits_applied".to_string(), Value::Int(applied.len() as i64));
+    result.insert("edits_failed".to_string(), Value::Int(failed.len() as i64));
+    result.insert("final_lines".to_string(), Value::Int(lines.len() as i64));
+
+    Ok(Value::Record(result))
+}
+
+/// file_diff(path1, path2) - Compare two files and return differences
+fn bi_file_diff(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if args.len() < 2 {
+        return Err(anyhow!("file_diff requires two file paths"));
+    }
+
+    let path1 = match &args[0] {
+        Value::Str(s) => s.clone(),
+        _ => return Err(anyhow!("file_diff: first path must be a string")),
+    };
+
+    let path2 = match &args[1] {
+        Value::Str(s) => s.clone(),
+        _ => return Err(anyhow!("file_diff: second path must be a string")),
+    };
+
+    let content1 = fs::read_to_string(&path1)
+        .with_context(|| format!("file_diff: failed to read '{}'", path1))?;
+    let content2 = fs::read_to_string(&path2)
+        .with_context(|| format!("file_diff: failed to read '{}'", path2))?;
+
+    let lines1: Vec<&str> = content1.lines().collect();
+    let lines2: Vec<&str> = content2.lines().collect();
+
+    let mut diffs = Vec::new();
+    let max_lines = lines1.len().max(lines2.len());
+
+    for i in 0..max_lines {
+        let line1 = lines1.get(i);
+        let line2 = lines2.get(i);
+
+        match (line1, line2) {
+            (Some(l1), Some(l2)) if l1 != l2 => {
+                let mut diff = BTreeMap::new();
+                diff.insert("line".to_string(), Value::Int((i + 1) as i64));
+                diff.insert("type".to_string(), Value::Str("changed".to_string()));
+                diff.insert("old".to_string(), Value::Str(l1.to_string()));
+                diff.insert("new".to_string(), Value::Str(l2.to_string()));
+                diffs.push(Value::Record(diff));
+            }
+            (Some(l1), None) => {
+                let mut diff = BTreeMap::new();
+                diff.insert("line".to_string(), Value::Int((i + 1) as i64));
+                diff.insert("type".to_string(), Value::Str("deleted".to_string()));
+                diff.insert("old".to_string(), Value::Str(l1.to_string()));
+                diffs.push(Value::Record(diff));
+            }
+            (None, Some(l2)) => {
+                let mut diff = BTreeMap::new();
+                diff.insert("line".to_string(), Value::Int((i + 1) as i64));
+                diff.insert("type".to_string(), Value::Str("added".to_string()));
+                diff.insert("new".to_string(), Value::Str(l2.to_string()));
+                diffs.push(Value::Record(diff));
+            }
+            _ => {}
+        }
+    }
+
+    let mut result = BTreeMap::new();
+    result.insert("file1".to_string(), Value::Str(path1));
+    result.insert("file2".to_string(), Value::Str(path2));
+    result.insert("lines1".to_string(), Value::Int(lines1.len() as i64));
+    result.insert("lines2".to_string(), Value::Int(lines2.len() as i64));
+    result.insert("differences".to_string(), Value::Array(diffs.clone()));
+    result.insert("diff_count".to_string(), Value::Int(diffs.len() as i64));
+    result.insert("identical".to_string(), Value::Bool(diffs.is_empty()));
+
+    Ok(Value::Record(result))
 }
