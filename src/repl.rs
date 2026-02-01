@@ -201,6 +201,7 @@ fn pp_colored(v: &Value) -> String {
         Value::AsyncLambda(_) => colorize("<async lambda>", &colors.dim),
         Value::Future(_) => colorize("<future>", &colors.dim),
         Value::Error(msg) => colorize(&format!("Error: {}", msg), &colors.error),
+        Value::Builtin(b) => colorize(&format!("<builtin:{}>", b.name), &colors.dim),
     }
 }
 
@@ -220,6 +221,7 @@ fn pp_item_colored(v: &Value) -> String {
         Value::AsyncLambda(_) => colorize("<async lambda>", &colors.dim),
         Value::Future(_) => colorize("<future>", &colors.dim),
         Value::Error(msg) => colorize(&format!("Error: {}", msg), &colors.error),
+        Value::Builtin(b) => colorize(&format!("<builtin:{}>", b.name), &colors.dim),
     }
 }
 
@@ -264,7 +266,8 @@ fn pp(v: &Value) -> String {
         Value::Lambda(_) => "<lambda>".into(),
         Value::AsyncLambda(_) => "<async lambda>".into(),
         Value::Future(_) => "<future>".into(),
-        Value::Error(msg) => format!("Error: {}", msg),
+        Value::Builtin(b) => format!("<builtin:{}>", b.name),
+            Value::Error(msg) => format!("Error: {}", msg),
     }
 }
 
@@ -283,6 +286,7 @@ fn pp_item(v: &Value) -> String {
         Value::Lambda(_) => "<lambda>".into(),
         Value::AsyncLambda(_) => "<async lambda>".into(),
         Value::Future(_) => "<future>".into(),
-        Value::Error(msg) => format!("Error: {}", msg),
+        Value::Builtin(b) => format!("<builtin:{}>", b.name),
+            Value::Error(msg) => format!("Error: {}", msg),
     }
 }

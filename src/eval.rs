@@ -585,6 +585,10 @@ fn call_value_with_pipe(
                 args: all_args,
             }))
         }
+        // Builtin reference from module: call the builtin by name
+        Value::Builtin(b) => {
+            builtins::call_with_input(&b.name, args, pin, env)
+        }
         Value::Str(name) | Value::Uri(name) => {
             if let Some(p) = pin {
                 let mut all = Vec::with_capacity(1 + args.len());
@@ -615,6 +619,7 @@ fn is_truthy(v: &Value) -> bool {
         Value::AsyncLambda(_) => true,
         Value::Future(_) => true,
         Value::Error(_) => false, // Errors are falsy
+        Value::Builtin(_) => true, // Builtins are truthy
     }
 }
 

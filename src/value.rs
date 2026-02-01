@@ -87,6 +87,12 @@ pub struct Table {
     pub schema: Vec<String>,
 }
 
+/// A reference to a builtin function (for module system)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BuiltinRef {
+    pub name: String,
+}
+
 /// The dynamic value space of the shell.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum Value {
@@ -106,6 +112,8 @@ pub enum Value {
     Future(Future),
     /// An error value for try/catch handling
     Error(String),
+    /// A reference to a builtin function
+    Builtin(BuiltinRef),
 }
 
 impl Value {
@@ -124,6 +132,7 @@ impl Value {
             Value::AsyncLambda(_) => "AsyncLambda",
             Value::Future(_) => "Future",
             Value::Error(_) => "Error",
+            Value::Builtin(_) => "Builtin",
         }
     }
 
@@ -211,6 +220,7 @@ impl Value {
             Value::AsyncLambda(_) => "<async lambda>".to_string(),
             Value::Future(_) => "<future>".to_string(),
             Value::Error(msg) => format!("Error: {}", msg),
+            Value::Builtin(b) => format!("<builtin:{}>", b.name),
         }
     }
 
@@ -274,6 +284,7 @@ impl Value {
             Value::AsyncLambda(_) => json!("<async lambda>"),
             Value::Future(_) => json!("<future>"),
             Value::Error(msg) => json!({"error": msg}),
+            Value::Builtin(b) => json!({"_type": "Builtin", "name": b.name}),
         }
     }
 }
@@ -350,6 +361,7 @@ pub mod pretty {
             Value::AsyncLambda(_) => write!(w, "{}", (theme.dim)("<async lambda>")),
             Value::Future(_) => write!(w, "{}", (theme.dim)("<future>")),
             Value::Error(msg) => write!(w, "Error: {}", msg),
+            Value::Builtin(b) => write!(w, "{}", (theme.dim)(&format!("<builtin:{}>", b.name))),
         }
     }
 
@@ -410,6 +422,7 @@ pub mod pretty {
             Value::AsyncLambda(_) => "<async lambda>".into(),
             Value::Future(_) => "<future>".into(),
             Value::Error(msg) => format!("Error: {}", truncate(msg, 30)),
+            Value::Builtin(b) => format!("<builtin:{}>", b.name),
         }
     }
 
