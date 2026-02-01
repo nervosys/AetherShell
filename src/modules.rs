@@ -105,6 +105,15 @@ pub fn fs_module() -> Value {
         ("write", "save_json"),
         ("ls", "ls"),
         ("find", "find"),
+        // Robust file editing (for AI agents)
+        ("write_text", "file_write"),
+        ("append", "file_append"),
+        ("patch", "file_patch"),
+        ("replace", "file_replace"),
+        ("insert", "file_insert"),
+        ("delete_lines", "file_delete_lines"),
+        ("edit", "file_edit"),
+        ("diff", "file_diff"),
     ])
 }
 
