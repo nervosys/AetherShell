@@ -700,6 +700,10 @@ fn value_to_json(value: &Value) -> JsonValue {
             "_type": "Error",
             "message": e
         }),
+        Value::Builtin(b) => json!({
+            "_type": "Builtin",
+            "name": b.name
+        }),
     }
 }
 

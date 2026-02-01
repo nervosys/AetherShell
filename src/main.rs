@@ -3,8 +3,17 @@ use std::env;
 use std::fs;
 use std::io::{self, Read};
 
-use aethershell::{env::Env, eval, parser, transpile};
+use aethershell::{env::Env, eval, modules, parser, transpile};
 use clap::{Parser, Subcommand};
+
+/// Create an environment with all builtin modules pre-registered
+fn create_env_with_modules() -> Env {
+    let mut env = Env::new();
+    for (name, module) in modules::all_modules() {
+        env.register_module(name, module);
+    }
+    env
+}
 
 #[derive(Parser)]
 #[command(name = "ae")]
@@ -548,7 +557,7 @@ fn repl() -> Result<()> {
     // Simple REPL; keep it lean and rely on your existing `repl.rs` if you have one.
     // Here we do a tiny inline REPL to avoid extra wires.
     use std::io::Write;
-    let mut env = Env::default();
+    let mut env = create_env_with_modules();
     let mut line = String::new();
 
     println!("Æther REPL — type 'exit', 'quit', or Ctrl-D to exit");
@@ -593,7 +602,7 @@ fn run_file(path: &str, bash_mode: bool) -> Result<()> {
 }
 
 fn run_code(code: &str) -> Result<()> {
-    let mut env = Env::default();
+    let mut env = create_env_with_modules();
     let exit_code = aethershell::repl::run_one(&mut env, code)?;
     if exit_code != 0 {
         std::process::exit(exit_code);

@@ -36,6 +36,8 @@ pub mod mcp;
 #[cfg(feature = "native")]
 pub mod metrics;
 #[cfg(feature = "native")]
+pub mod modules;
+#[cfg(feature = "native")]
 pub mod neural;
 #[cfg(feature = "native")]
 pub mod os_tools;

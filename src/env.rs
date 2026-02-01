@@ -35,6 +35,13 @@ impl Env {
         }
     }
 
+    /// Register a module as an immutable global variable.
+    /// Used by the module system to provide namespaced access to builtins.
+    pub fn register_module(&mut self, name: &str, module: Value) {
+        self.vars.insert(name.to_string(), module);
+        self.mutable_vars.insert(name.to_string(), false);
+    }
+
     pub fn input(&self) -> Option<&Value> {
         self.pipe_input.as_ref()
     }
