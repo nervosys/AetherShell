@@ -117,6 +117,27 @@ pub fn fs_module() -> Value {
     ])
 }
 
+/// File module (dedicated): file.write(), file.backup(), file.patch(), etc.
+pub fn file_module() -> Value {
+    module(&[
+        ("read", "cat"),
+        ("write", "file_write"),
+        ("append", "file_append"),
+        ("exists", "file_exists"),
+        ("patch", "file_patch"),
+        ("replace", "file_replace"),
+        ("insert", "file_insert"),
+        ("delete_lines", "file_delete_lines"),
+        ("edit", "file_edit"),
+        ("diff", "file_diff"),
+        ("backup", "file_backup"),
+        ("copy", "file_copy"),
+        ("move", "file_move"),
+        ("mkdir", "file_mkdir"),
+    ])
+}
+
+
 /// Network module: net.interfaces(), net.ping(), net.dns_lookup(), etc.
 pub fn net_module() -> Value {
     module(&[
@@ -655,6 +676,7 @@ pub fn all_modules() -> Vec<(&'static str, Value)> {
         ("sys", sys_module()),
         ("proc", proc_module()),
         ("fs", fs_module()),
+        ("file", file_module()),
         ("net", net_module()),
         ("http", http_module()),
         ("gui", gui_module()),

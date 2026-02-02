@@ -778,6 +778,22 @@ lazy_static::lazy_static! {
         map.insert("text_edit", 526);
         map.insert("file_diff", 527);
         map.insert("diff_files", 527);
+        // 528-532: Additional file operations
+        map.insert("file_backup", 528);
+        map.insert("backup_file", 528);
+        map.insert("file_copy", 529);
+        map.insert("copy_file", 529);
+        map.insert("cp", 529);
+        map.insert("file_move", 530);
+        map.insert("move_file", 530);
+        map.insert("mv", 530);
+        map.insert("file_rename", 530);
+        map.insert("file_exists", 531);
+        map.insert("path_exists", 531);
+        map.insert("exists", 531);
+        map.insert("file_mkdir", 532);
+        map.insert("mkdir", 532);
+        map.insert("mkdirp", 532);
 
 
         map
@@ -2027,6 +2043,12 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_file_delete_lines(args, input),
     |args, input, _| bi_file_edit(args, input),
     |args, input, _| bi_file_diff(args, input),
+    // 528-532: Additional file operations
+    |args, input, _| bi_file_backup(args, input),
+    |args, input, _| bi_file_copy(args, input),
+    |args, input, _| bi_file_move(args, input),
+    |args, input, _| bi_file_exists(args, input),
+    |args, input, _| bi_file_mkdir(args, input),
 ];
 
 fn fast_builtin_lookup(
@@ -20051,6 +20073,177 @@ fn bi_file_diff(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     result.insert("differences".to_string(), Value::Array(diffs.clone()));
     result.insert("diff_count".to_string(), Value::Int(diffs.len() as i64));
     result.insert("identical".to_string(), Value::Bool(diffs.is_empty()));
+
+    Ok(Value::Record(result))
+}
+/// file_backup(path, [suffix]) - Create a backup copy of a file before editing
+/// Usage: file_backup("config.txt")  -> creates config.txt.bak
+/// Usage: file_backup("config.txt", ".backup")  -> creates config.txt.backup
+pub fn bi_file_backup(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let path = match args.first().or(input.as_ref()) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("file_backup requires a file path")),
+    };
+
+    let suffix = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => ".bak".to_string(),
+    };
+
+    let backup_path = format!("{}{}", path, suffix);
+
+    if !std::path::Path::new(&path).exists() {
+        return Err(anyhow!("file_backup: source file '{}' does not exist", path));
+    }
+
+    let bytes_copied = fs::copy(&path, &backup_path)
+        .with_context(|| format!("file_backup: failed to copy '{}' to '{}'", path, backup_path))?;
+
+    let mut result = BTreeMap::new();
+    result.insert("path".to_string(), Value::Str(path));
+    result.insert("backup".to_string(), Value::Str(backup_path));
+    result.insert("bytes".to_string(), Value::Int(bytes_copied as i64));
+    result.insert("success".to_string(), Value::Bool(true));
+
+    Ok(Value::Record(result))
+}
+
+/// file_copy(source, dest) - Copy a file or directory
+pub fn bi_file_copy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if args.len() < 2 {
+        return Err(anyhow!("file_copy requires source and destination paths"));
+    }
+
+    let source = match &args[0] {
+        Value::Str(s) => s.clone(),
+        _ => return Err(anyhow!("file_copy: source must be a string")),
+    };
+
+    let dest = match &args[1] {
+        Value::Str(s) => s.clone(),
+        _ => return Err(anyhow!("file_copy: destination must be a string")),
+    };
+
+    let source_path = std::path::Path::new(&source);
+    
+    if !source_path.exists() {
+        return Err(anyhow!("file_copy: source '{}' does not exist", source));
+    }
+
+    let bytes_copied = if source_path.is_dir() {
+        copy_dir_recursive(&source, &dest)?
+    } else {
+        fs::copy(&source, &dest)
+            .with_context(|| format!("file_copy: failed to copy '{}' to '{}'", source, dest))?
+    };
+
+    let mut result = BTreeMap::new();
+    result.insert("source".to_string(), Value::Str(source));
+    result.insert("dest".to_string(), Value::Str(dest));
+    result.insert("bytes".to_string(), Value::Int(bytes_copied as i64));
+    result.insert("success".to_string(), Value::Bool(true));
+
+    Ok(Value::Record(result))
+}
+
+fn copy_dir_recursive(src: &str, dst: &str) -> Result<u64> {
+    let src_path = std::path::Path::new(src);
+    let dst_path = std::path::Path::new(dst);
+    
+    fs::create_dir_all(dst_path)?;
+    
+    let mut total_bytes = 0u64;
+    
+    for entry in WalkDir::new(src_path).min_depth(1) {
+        let entry = entry?;
+        let src_file = entry.path();
+        let relative = src_file.strip_prefix(src_path)?;
+        let dst_file = dst_path.join(relative);
+        
+        if entry.file_type().is_dir() {
+            fs::create_dir_all(&dst_file)?;
+        } else {
+            if let Some(parent) = dst_file.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            total_bytes += fs::copy(src_file, &dst_file)?;
+        }
+    }
+    
+    Ok(total_bytes)
+}
+
+/// file_move(source, dest) - Move/rename a file or directory
+pub fn bi_file_move(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if args.len() < 2 {
+        return Err(anyhow!("file_move requires source and destination paths"));
+    }
+
+    let source = match &args[0] {
+        Value::Str(s) => s.clone(),
+        _ => return Err(anyhow!("file_move: source must be a string")),
+    };
+
+    let dest = match &args[1] {
+        Value::Str(s) => s.clone(),
+        _ => return Err(anyhow!("file_move: destination must be a string")),
+    };
+
+    if !std::path::Path::new(&source).exists() {
+        return Err(anyhow!("file_move: source '{}' does not exist", source));
+    }
+
+    let metadata = fs::metadata(&source)?;
+    let bytes = metadata.len();
+
+    fs::rename(&source, &dest)
+        .with_context(|| format!("file_move: failed to move '{}' to '{}'", source, dest))?;
+
+    let mut result = BTreeMap::new();
+    result.insert("source".to_string(), Value::Str(source));
+    result.insert("dest".to_string(), Value::Str(dest));
+    result.insert("bytes".to_string(), Value::Int(bytes as i64));
+    result.insert("success".to_string(), Value::Bool(true));
+
+    Ok(Value::Record(result))
+}
+
+/// file_exists(path) - Check if a file or directory exists
+pub fn bi_file_exists(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let path = match args.first().or(input.as_ref()) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("file_exists requires a path")),
+    };
+
+    let exists = std::path::Path::new(&path).exists();
+    let is_file = std::path::Path::new(&path).is_file();
+    let is_dir = std::path::Path::new(&path).is_dir();
+
+    let mut result = BTreeMap::new();
+    result.insert("path".to_string(), Value::Str(path));
+    result.insert("exists".to_string(), Value::Bool(exists));
+    result.insert("is_file".to_string(), Value::Bool(is_file));
+    result.insert("is_dir".to_string(), Value::Bool(is_dir));
+
+    Ok(Value::Record(result))
+}
+
+/// file_mkdir(path) - Create a directory (and parents if needed)
+pub fn bi_file_mkdir(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let path = match args.first().or(input.as_ref()) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("file_mkdir requires a path")),
+    };
+
+    let already_exists = std::path::Path::new(&path).exists();
+
+    fs::create_dir_all(&path)
+        .with_context(|| format!("file_mkdir: failed to create '{}'", path))?;
+
+    let mut result = BTreeMap::new();
+    result.insert("path".to_string(), Value::Str(path));
+    result.insert("created".to_string(), Value::Bool(!already_exists));
+    result.insert("success".to_string(), Value::Bool(true));
 
     Ok(Value::Record(result))
 }
