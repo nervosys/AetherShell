@@ -103,7 +103,7 @@ arr.flatten([[1,2], [3,4]])   # => [1, 2, 3, 4]
 arr.unique([1, 2, 2, 3])      # => [1, 2, 3]
 ```
 
-**All modules:** `file`, `sys`, `proc`, `fs`, `net`, `http`, `gui`, `web`, `crypto`, `db`, `svc`, `cron`, `archive`, `user`, `perm`, `pkg`, `hw`, `clip`, `input`, `ai`, `math`, `str`, `arr`, `json`, `mcp`, `shell`, `a2ui`, `cluster`, `nn`, `evo`, `rl`
+**All modules:** `file`, `sys`, `proc`, `fs`, `net`, `http`, `gui`, `web`, `crypto`, `db`, `svc`, `cron`, `archive`, `user`, `perm`, `pkg`, `hw`, `clip`, `input`, `ai`, `math`, `str`, `arr`, `json`, `mcp`, `shell`, `a2ui`, `a2a`, `nanda`, `rbac`, `audit`, `sso`, `cluster`, `nn`, `evo`, `rl`
 
 ---
 
@@ -192,8 +192,8 @@ mcp.connect("http://localhost:3001")     # Connect to server
 
 ### A2A (Agent-to-Agent)
 ```ae
-a2a_send("analyzer", {task: "review", files: ls("./src")})
-a2a_receive("analyzer")
+a2a.send("analyzer", {task: "review", files: ls("./src")})
+a2a.receive("analyzer")
 ```
 
 ### A2UI (Agent-to-User Interface)
@@ -205,8 +205,8 @@ a2ui.confirm("Deploy to production?")
 
 ### NANDA (Consensus)
 ```ae
-nanda_propose("deployment", {version: "2.0", threshold: 0.7})
-nanda_vote("proposal_id", true)
+nanda.propose("deployment", {version: "2.0", threshold: 0.7})
+nanda.vote("proposal_id", true)
 ```
 
 ---
@@ -215,17 +215,17 @@ nanda_vote("proposal_id", true)
 
 ```ae
 # RBAC
-role_create("admin", ["read", "write", "delete"])
-role_grant("alice", "admin")
-check_permission("alice", "config.toml", "write")
+rbac.create("admin", ["read", "write", "delete"])
+rbac.grant("alice", "admin")
+rbac.check("alice", "config.toml", "write")
 
 # Audit logging
-audit_log("file_modified", "config.toml", {user: "alice"})
-audit_query({action: "file_modified", since: "2024-01-01"})
+audit.log("file_modified", "config.toml", {user: "alice"})
+audit.query({action: "file_modified", since: "2024-01-01"})
 
 # SSO
-sso_init("okta", {client_id: "...", issuer: "https://..."})
-sso_auth(callback_data)
+sso.init("okta", {client_id: "...", issuer: "https://..."})
+sso.auth(callback_data)
 ```
 
 ---
