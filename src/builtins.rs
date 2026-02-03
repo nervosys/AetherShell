@@ -794,6 +794,25 @@ lazy_static::lazy_static! {
         map.insert("file_mkdir", 532);
         map.insert("mkdir", 532);
         map.insert("mkdirp", 532);
+        // 540-549: A2A (Agent-to-Agent) Protocol
+        map.insert("a2a_send", 539);
+        map.insert("a2a_receive", 540);
+        map.insert("a2a_broadcast", 541);
+        map.insert("a2a_discover", 542);
+        map.insert("a2a_register", 543);
+        map.insert("a2a_unregister", 544);
+        map.insert("a2a_status", 545);
+        map.insert("a2a_agents", 546);
+
+        // 550-559: NANDA (Consensus) Protocol
+        map.insert("nanda_propose", 549);
+        map.insert("nanda_vote", 550);
+        map.insert("nanda_commit", 551);
+        map.insert("nanda_abort", 552);
+        map.insert("nanda_status", 553);
+        map.insert("nanda_consensus", 554);
+        map.insert("nanda_quorum", 555);
+
 
 
         map
@@ -2048,7 +2067,35 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_file_copy(args, input),
     |args, input, _| bi_file_move(args, input),
     |args, input, _| bi_file_exists(args, input),
-    |args, input, _| bi_file_mkdir(args, input),
+    
+    // 533-539: Reserved/placeholder
+    |_, _, _| Ok(Value::Null),
+    |_, _, _| Ok(Value::Null),
+    |_, _, _| Ok(Value::Null),
+    |_, _, _| Ok(Value::Null),
+    |_, _, _| Ok(Value::Null),
+    |_, _, _| Ok(Value::Null),
+    |_, _, _| Ok(Value::Null),
+    // 540-547: A2A (Agent-to-Agent) Protocol
+    |args, input, _| bi_a2a_send(args, input),
+    |args, input, _| bi_a2a_receive(args, input),
+    |args, input, _| bi_a2a_broadcast(args, input),
+    |args, input, _| bi_a2a_discover(args, input),
+    |args, input, _| bi_a2a_register(args, input),
+    |args, input, _| bi_a2a_unregister(args, input),
+    |args, input, _| bi_a2a_status(args, input),
+    |args, input, _| bi_a2a_agents(args, input),
+    // 548-549: Reserved
+    |_, _, _| Ok(Value::Null),
+    |_, _, _| Ok(Value::Null),
+    // 550-556: NANDA (Consensus) Protocol
+    |args, input, _| bi_nanda_propose(args, input),
+    |args, input, _| bi_nanda_vote(args, input),
+    |args, input, _| bi_nanda_commit(args, input),
+    |args, input, _| bi_nanda_abort(args, input),
+    |args, input, _| bi_nanda_status(args, input),
+    |args, input, _| bi_nanda_consensus(args, input),
+    |args, input, _| bi_nanda_quorum(args, input),
 ];
 
 fn fast_builtin_lookup(
@@ -20245,5 +20292,272 @@ pub fn bi_file_mkdir(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     result.insert("created".to_string(), Value::Bool(!already_exists));
     result.insert("success".to_string(), Value::Bool(true));
 
+    Ok(Value::Record(result))
+}
+
+// ===================== A2A (Agent-to-Agent) Protocol =====================
+
+lazy_static::lazy_static! {
+    /// A2A agent registry - maps agent names to their connection info
+    static ref A2A_REGISTRY: std::sync::RwLock<BTreeMap<String, BTreeMap<String, Value>>> = {
+        std::sync::RwLock::new(BTreeMap::new())
+    };
+
+    /// A2A message queue - pending messages for each agent
+    static ref A2A_MESSAGES: std::sync::RwLock<BTreeMap<String, Vec<Value>>> = {
+        std::sync::RwLock::new(BTreeMap::new())
+    };
+}
+
+/// a2a.send(target, message) - Send a message to another agent
+fn bi_a2a_send(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if args.len() < 2 {
+        return Err(anyhow!("a2a.send: requires target and message arguments"));
+    }
+    let target = args[0].as_str().context("a2a.send: target must be a string")?;
+    let message = args[1].clone();
+
+    let registry = A2A_REGISTRY.read().unwrap();
+    if !registry.contains_key(target) {
+        return Err(anyhow!("a2a.send: agent '{}' not found in registry", target));
+    }
+    drop(registry);
+
+    let mut messages = A2A_MESSAGES.write().unwrap();
+    messages.entry(target.to_string()).or_default().push(message);
+
+    let mut result = BTreeMap::new();
+    result.insert("sent".to_string(), Value::Bool(true));
+    result.insert("target".to_string(), Value::Str(target.to_string()));
+    Ok(Value::Record(result))
+}
+
+/// a2a.receive(agent_name?) - Receive pending messages
+fn bi_a2a_receive(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let agent_name = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).unwrap_or_else(|| "default".to_string());
+    let mut messages = A2A_MESSAGES.write().unwrap();
+    let pending = messages.remove(&agent_name).unwrap_or_default();
+    Ok(Value::Array(pending))
+}
+
+/// a2a.broadcast(message) - Broadcast to all agents
+fn bi_a2a_broadcast(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if args.is_empty() { return Err(anyhow!("a2a.broadcast: requires a message")); }
+    let message = args[0].clone();
+    let registry = A2A_REGISTRY.read().unwrap();
+    let agents: Vec<String> = registry.keys().cloned().collect();
+    drop(registry);
+    let mut messages = A2A_MESSAGES.write().unwrap();
+    for agent in &agents { messages.entry(agent.clone()).or_default().push(message.clone()); }
+    let mut result = BTreeMap::new();
+    result.insert("broadcast".to_string(), Value::Bool(true));
+    result.insert("recipients".to_string(), Value::Int(agents.len() as i64));
+    Ok(Value::Record(result))
+}
+
+/// a2a.discover() - Discover available agents
+fn bi_a2a_discover(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let registry = A2A_REGISTRY.read().unwrap();
+    let agents: Vec<Value> = registry.iter().map(|(name, info)| {
+        let mut agent = info.clone();
+        agent.insert("name".to_string(), Value::Str(name.clone()));
+        Value::Record(agent)
+    }).collect();
+    Ok(Value::Array(agents))
+}
+
+/// a2a.register(name, info?) - Register an agent
+fn bi_a2a_register(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if args.is_empty() { return Err(anyhow!("a2a.register: requires agent name")); }
+    let name = args[0].as_str().context("a2a.register: name must be a string")?;
+    let info = args.get(1).and_then(|v| v.as_record().ok()).cloned().unwrap_or_default();
+    let mut registry = A2A_REGISTRY.write().unwrap();
+    registry.insert(name.to_string(), info);
+    let mut result = BTreeMap::new();
+    result.insert("registered".to_string(), Value::Bool(true));
+    result.insert("name".to_string(), Value::Str(name.to_string()));
+    Ok(Value::Record(result))
+}
+
+/// a2a.unregister(name) - Unregister an agent
+fn bi_a2a_unregister(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if args.is_empty() { return Err(anyhow!("a2a.unregister: requires agent name")); }
+    let name = args[0].as_str().context("a2a.unregister: name must be a string")?;
+    let mut registry = A2A_REGISTRY.write().unwrap();
+    let removed = registry.remove(name).is_some();
+    let mut messages = A2A_MESSAGES.write().unwrap();
+    messages.remove(name);
+    let mut result = BTreeMap::new();
+    result.insert("unregistered".to_string(), Value::Bool(removed));
+    result.insert("name".to_string(), Value::Str(name.to_string()));
+    Ok(Value::Record(result))
+}
+
+/// a2a.status() - Get A2A subsystem status
+fn bi_a2a_status(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let registry = A2A_REGISTRY.read().unwrap();
+    let messages = A2A_MESSAGES.read().unwrap();
+    let pending_count: usize = messages.values().map(|v| v.len()).sum();
+    let mut result = BTreeMap::new();
+    result.insert("active".to_string(), Value::Bool(true));
+    result.insert("agents".to_string(), Value::Int(registry.len() as i64));
+    result.insert("pending_messages".to_string(), Value::Int(pending_count as i64));
+    Ok(Value::Record(result))
+}
+
+/// a2a.agents() - List all registered agents
+fn bi_a2a_agents(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let registry = A2A_REGISTRY.read().unwrap();
+    let agents: Vec<Value> = registry.keys().map(|name| Value::Str(name.clone())).collect();
+    Ok(Value::Array(agents))
+}
+
+// ===================== NANDA (Consensus) Protocol =====================
+
+lazy_static::lazy_static! {
+    static ref NANDA_PROPOSALS: std::sync::RwLock<BTreeMap<String, BTreeMap<String, Value>>> = {
+        std::sync::RwLock::new(BTreeMap::new())
+    };
+    static ref NANDA_VOTES: std::sync::RwLock<BTreeMap<String, Vec<(String, bool)>>> = {
+        std::sync::RwLock::new(BTreeMap::new())
+    };
+}
+
+fn nanda_uuid() -> String {
+    use rand::Rng;
+    let mut rng = rand::thread_rng();
+    let bytes: [u8; 16] = rng.gen();
+    format!("{:08x}-{:04x}-4{:03x}-{:04x}-{:012x}",
+        u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]),
+        u16::from_be_bytes([bytes[4], bytes[5]]),
+        u16::from_be_bytes([bytes[6], bytes[7]]) & 0x0fff,
+        (u16::from_be_bytes([bytes[8], bytes[9]]) & 0x3fff) | 0x8000,
+        u64::from_be_bytes([0, 0, bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]]))
+}
+
+/// nanda.propose(name, data) - Create a consensus proposal
+fn bi_nanda_propose(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if args.len() < 2 { return Err(anyhow!("nanda.propose: requires name and data arguments")); }
+    let name = args[0].as_str().context("nanda.propose: name must be a string")?;
+    let data = args[1].as_record().context("nanda.propose: data must be a record")?;
+    let proposal_id = format!("prop_{}", nanda_uuid());
+    let threshold = data.get("threshold").and_then(|v| v.as_float().ok()).unwrap_or(0.5);
+    let mut proposal = data.clone();
+    proposal.insert("id".to_string(), Value::Str(proposal_id.clone()));
+    proposal.insert("name".to_string(), Value::Str(name.to_string()));
+    proposal.insert("threshold".to_string(), Value::Float(threshold));
+    proposal.insert("status".to_string(), Value::Str("pending".to_string()));
+    let mut proposals = NANDA_PROPOSALS.write().unwrap();
+    proposals.insert(proposal_id.clone(), proposal.clone());
+    Ok(Value::Record(proposal))
+}
+
+/// nanda.vote(proposal_id, approve) - Vote on a proposal
+fn bi_nanda_vote(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if args.len() < 2 { return Err(anyhow!("nanda.vote: requires proposal_id and approve arguments")); }
+    let proposal_id = args[0].as_str().context("nanda.vote: proposal_id must be a string")?;
+    let approve = args[1].as_bool().context("nanda.vote: approve must be a boolean")?;
+    let proposals = NANDA_PROPOSALS.read().unwrap();
+    if !proposals.contains_key(proposal_id) { return Err(anyhow!("nanda.vote: proposal '{}' not found", proposal_id)); }
+    drop(proposals);
+    let voter = format!("voter_{}", rand::random::<u32>() % 1000);
+    let mut votes = NANDA_VOTES.write().unwrap();
+    votes.entry(proposal_id.to_string()).or_default().push((voter.clone(), approve));
+    let mut result = BTreeMap::new();
+    result.insert("voted".to_string(), Value::Bool(true));
+    result.insert("proposal_id".to_string(), Value::Str(proposal_id.to_string()));
+    result.insert("voter".to_string(), Value::Str(voter));
+    result.insert("approve".to_string(), Value::Bool(approve));
+    Ok(Value::Record(result))
+}
+
+/// nanda.commit(proposal_id) - Commit a proposal if consensus reached
+fn bi_nanda_commit(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if args.is_empty() { return Err(anyhow!("nanda.commit: requires proposal_id")); }
+    let proposal_id = args[0].as_str().context("nanda.commit: proposal_id must be a string")?;
+    let mut proposals = NANDA_PROPOSALS.write().unwrap();
+    let proposal = proposals.get_mut(proposal_id).ok_or_else(|| anyhow!("nanda.commit: proposal '{}' not found", proposal_id))?;
+    let threshold = proposal.get("threshold").and_then(|v| v.as_float().ok()).unwrap_or(0.5);
+    let votes = NANDA_VOTES.read().unwrap();
+    let proposal_votes = votes.get(proposal_id).map(|v| v.as_slice()).unwrap_or(&[]);
+    let total = proposal_votes.len();
+    let approvals = proposal_votes.iter().filter(|(_, v)| *v).count();
+    let approval_ratio = if total > 0 { approvals as f64 / total as f64 } else { 0.0 };
+    if approval_ratio >= threshold {
+        proposal.insert("status".to_string(), Value::Str("committed".to_string()));
+        let mut result = BTreeMap::new();
+        result.insert("committed".to_string(), Value::Bool(true));
+        result.insert("proposal_id".to_string(), Value::Str(proposal_id.to_string()));
+        result.insert("approval_ratio".to_string(), Value::Float(approval_ratio));
+        Ok(Value::Record(result))
+    } else {
+        Err(anyhow!("nanda.commit: consensus not reached ({}% < {}%)", (approval_ratio * 100.0) as i64, (threshold * 100.0) as i64))
+    }
+}
+
+/// nanda.abort(proposal_id) - Abort a proposal
+fn bi_nanda_abort(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if args.is_empty() { return Err(anyhow!("nanda.abort: requires proposal_id")); }
+    let proposal_id = args[0].as_str().context("nanda.abort: proposal_id must be a string")?;
+    let mut proposals = NANDA_PROPOSALS.write().unwrap();
+    let proposal = proposals.get_mut(proposal_id).ok_or_else(|| anyhow!("nanda.abort: proposal '{}' not found", proposal_id))?;
+    proposal.insert("status".to_string(), Value::Str("aborted".to_string()));
+    let mut result = BTreeMap::new();
+    result.insert("aborted".to_string(), Value::Bool(true));
+    result.insert("proposal_id".to_string(), Value::Str(proposal_id.to_string()));
+    Ok(Value::Record(result))
+}
+
+/// nanda.status(proposal_id?) - Get proposal status
+fn bi_nanda_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if let Some(proposal_id) = args.first().and_then(|v| v.as_str().ok()) {
+        let proposals = NANDA_PROPOSALS.read().unwrap();
+        let proposal = proposals.get(proposal_id).ok_or_else(|| anyhow!("nanda.status: proposal '{}' not found", proposal_id))?;
+        Ok(Value::Record(proposal.clone()))
+    } else {
+        let proposals = NANDA_PROPOSALS.read().unwrap();
+        let summary: Vec<Value> = proposals.iter().map(|(_, p)| Value::Record(p.clone())).collect();
+        Ok(Value::Array(summary))
+    }
+}
+
+/// nanda.consensus(proposal_id) - Check if consensus has been reached
+fn bi_nanda_consensus(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if args.is_empty() { return Err(anyhow!("nanda.consensus: requires proposal_id")); }
+    let proposal_id = args[0].as_str().context("nanda.consensus: proposal_id must be a string")?;
+    let proposals = NANDA_PROPOSALS.read().unwrap();
+    let proposal = proposals.get(proposal_id).ok_or_else(|| anyhow!("nanda.consensus: proposal '{}' not found", proposal_id))?;
+    let threshold = proposal.get("threshold").and_then(|v| v.as_float().ok()).unwrap_or(0.5);
+    let votes = NANDA_VOTES.read().unwrap();
+    let proposal_votes = votes.get(proposal_id).map(|v| v.as_slice()).unwrap_or(&[]);
+    let total = proposal_votes.len();
+    let approvals = proposal_votes.iter().filter(|(_, v)| *v).count();
+    let approval_ratio = if total > 0 { approvals as f64 / total as f64 } else { 0.0 };
+    let mut result = BTreeMap::new();
+    result.insert("reached".to_string(), Value::Bool(approval_ratio >= threshold));
+    result.insert("approval_ratio".to_string(), Value::Float(approval_ratio));
+    result.insert("threshold".to_string(), Value::Float(threshold));
+    result.insert("total_votes".to_string(), Value::Int(total as i64));
+    result.insert("approvals".to_string(), Value::Int(approvals as i64));
+    Ok(Value::Record(result))
+}
+
+/// nanda.quorum(proposal_id) - Get quorum status
+fn bi_nanda_quorum(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if args.is_empty() { return Err(anyhow!("nanda.quorum: requires proposal_id")); }
+    let proposal_id = args[0].as_str().context("nanda.quorum: proposal_id must be a string")?;
+    let proposals = NANDA_PROPOSALS.read().unwrap();
+    if !proposals.contains_key(proposal_id) { return Err(anyhow!("nanda.quorum: proposal '{}' not found", proposal_id)); }
+    let registry = A2A_REGISTRY.read().unwrap();
+    let total_agents = registry.len().max(1);
+    let votes = NANDA_VOTES.read().unwrap();
+    let proposal_votes = votes.get(proposal_id).map(|v| v.len()).unwrap_or(0);
+    let quorum_ratio = proposal_votes as f64 / total_agents as f64;
+    let quorum_reached = quorum_ratio >= 0.5;
+    let mut result = BTreeMap::new();
+    result.insert("quorum_reached".to_string(), Value::Bool(quorum_reached));
+    result.insert("participation".to_string(), Value::Float(quorum_ratio));
+    result.insert("votes_cast".to_string(), Value::Int(proposal_votes as i64));
+    result.insert("total_agents".to_string(), Value::Int(total_agents as i64));
     Ok(Value::Record(result))
 }
