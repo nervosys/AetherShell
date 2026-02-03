@@ -57,6 +57,40 @@ agent("Find bugs in src/", ["file.read", "grep"])
 
 ---
 
+## Language
+
+```ae
+# Types (inferred or explicit)
+name = "AetherShell"                    # String
+count = 42                              # Int
+config: Record = {host: "localhost"}    # Explicit annotation
+
+# Lambdas
+double = fn(x) => x * 2
+add = fn(a, b) => a + b
+
+# Pipelines - typed data, not text
+[1, 2, 3, 4, 5]
+  | where(fn(x) => x > 2)               # [3, 4, 5]
+  | map(fn(x) => x * 2)                 # [6, 8, 10]
+  | reduce(fn(a, b) => a + b, 0)        # 24
+
+# Pattern matching
+grade = fn(score) => match score {
+    90..100 => "A",
+    80..89 => "B",
+    _ => "C"
+}
+
+# Error handling
+result = try { risky() } catch e { default }
+
+# String interpolation
+greeting = "Hello, ${name}!"
+```
+
+---
+
 ## Modules
 
 All 215+ builtins are organized into **31 namespaced modules**:
@@ -109,37 +143,87 @@ arr.unique([1, 2, 2, 3])      # => [1, 2, 3]
 
 ---
 
-## Language
+## 🤖 AI Coding Assistants
+
+AI coding tools like **Claude Code**, **ChatGPT**, **Cursor**, **Windsurf**, and **VS Code Copilot** can leverage AetherShell for **reliable, cross-platform OS operations**.
+
+### The Problem
+
+When AI assistants need to perform system operations, they face platform fragmentation:
+
+```bash
+# Different commands per platform
+ls -la                    # Linux/macOS
+dir                       # Windows cmd
+Get-ChildItem             # PowerShell
+
+# Different escaping rules, encoding issues, error handling...
+```
+
+This forces AI tools to detect the OS, generate platform-specific commands, and handle edge cases—leading to errors and inconsistent behavior.
+
+### The Solution: AetherShell as Universal Runtime
 
 ```ae
-# Types (inferred or explicit)
-name = "AetherShell"                    # String
-count = 42                              # Int
-config: Record = {host: "localhost"}    # Explicit annotation
-
-# Lambdas
-double = fn(x) => x * 2
-add = fn(a, b) => a + b
-
-# Pipelines - typed data, not text
-[1, 2, 3, 4, 5]
-  | where(fn(x) => x > 2)               # [3, 4, 5]
-  | map(fn(x) => x * 2)                 # [6, 8, 10]
-  | reduce(fn(a, b) => a + b, 0)        # 24
-
-# Pattern matching
-grade = fn(score) => match score {
-    90..100 => "A",
-    80..89 => "B",
-    _ => "C"
-}
-
-# Error handling
-result = try { risky() } catch e { default }
-
-# String interpolation
-greeting = "Hello, ${name}!"
+# Same command works everywhere: Windows, macOS, Linux
+ls("./src")                              # => [{name, size, modified, ...}]
+file.read("config.json")                 # => String content
+file.write("output.txt", data)           # => {success: true, bytes: 42}
+sys.hostname()                           # => "my-machine"
+proc.list() | where(fn(p) => p.cpu > 10) # => High CPU processes
 ```
+
+### Benefits for AI Coding Tools
+
+| Capability | Without AetherShell | With AetherShell |
+|------------|---------------------|------------------|
+| **Cross-platform** | Generate 3+ variants | Single command |
+| **File editing** | Escape hell (`sed`, heredocs) | `file.replace()`, `file.patch()` |
+| **Structured output** | Parse text with regex | Native records/arrays |
+| **Error handling** | Exit codes only | `{success, error, details}` |
+| **Safe execution** | Shell injection risks | Typed parameters |
+| **Batch operations** | Script multiple commands | Atomic operations |
+
+### Integration Example
+
+An AI assistant can execute AetherShell commands directly:
+
+```ae
+# AI discovers system state
+sys.cpu_info()           # => {cores: 8, model: "Apple M2"}
+sys.mem_info()           # => {total: 16384, used: 8192}
+net.interfaces()         # => [{name: "eth0", ip: "192.168.1.5", ...}]
+
+# AI modifies files reliably (no escaping issues)
+file.replace("src/config.rs",
+    'const DEBUG: bool = false',
+    'const DEBUG: bool = true')
+
+# AI performs batch operations atomically
+file.patch("Cargo.toml", [
+    {find: 'version = "0.2.0"', replace: 'version = "0.3.0"'},
+    {find: 'edition = "2018"', replace: 'edition = "2021"'}
+])
+# => {success: true, patches_applied: 2}
+
+# AI creates complex pipelines
+ls("./src") 
+  | where(fn(f) => f.name | str.ends_with(".rs"))
+  | map(fn(f) => {file: f.name, lines: file.read(f.path) | str.lines() | len()})
+# => [{file: "main.rs", lines: 142}, ...]
+```
+
+### Tool Discovery
+
+AI assistants can discover available operations:
+
+```ae
+mcp.tools()              # List all 130+ MCP-compatible tools
+help("file")             # Documentation for file module
+file                     # => {read, write, exists, copy, move, patch, ...}
+```
+
+This enables AI tools to understand what operations are available and use them correctly—without hardcoding platform-specific knowledge.
 
 ---
 
