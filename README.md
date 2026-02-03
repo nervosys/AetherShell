@@ -15,6 +15,7 @@
   <a href="#-modules">Modules</a> •
   <a href="#-ai-agents">AI Agents</a> •
   <a href="#-protocols">Protocols</a> •
+  <a href="#external-integrations">External Integrations</a> •
   <a href="docs/TUI_GUIDE.md">TUI Guide</a>
 </p>
 
@@ -103,7 +104,7 @@ arr.flatten([[1,2], [3,4]])   # => [1, 2, 3, 4]
 arr.unique([1, 2, 2, 3])      # => [1, 2, 3]
 ```
 
-**All modules:** `file`, `sys`, `proc`, `fs`, `net`, `http`, `gui`, `web`, `crypto`, `db`, `svc`, `cron`, `archive`, `user`, `perm`, `pkg`, `hw`, `clip`, `input`, `ai`, `math`, `str`, `arr`, `json`, `mcp`, `shell`, `a2ui`, `a2a`, `nanda`, `rbac`, `audit`, `sso`, `cluster`, `nn`, `evo`, `rl`
+**All modules:** `file`, `sys`, `proc`, `fs`, `net`, `http`, `gui`, `web`, `crypto`, `db`, `svc`, `cron`, `archive`, `user`, `perm`, `pkg`, `hw`, `clip`, `input`, `ai`, `agent`, `math`, `str`, `arr`, `json`, `mcp`, `shell`, `a2ui`, `a2a`, `nanda`, `rbac`, `audit`, `sso`, `cluster`, `nn`, `evo`, `rl`
 
 ---
 
@@ -208,6 +209,87 @@ a2ui.confirm("Deploy to production?")
 nanda.propose("deployment", {version: "2.0", threshold: 0.7})
 nanda.vote("proposal_id", true)
 ```
+---
+
+## External Integrations
+
+Connect AetherShell to external LLM providers and MCP tool servers.
+
+### External LLMs
+
+```ae
+# Auto-detect best available backend
+model = ai.detect()                      # => "ollama:llama3.2:3b"
+ai.backends()                            # List all available providers
+
+# OpenAI (set OPENAI_API_KEY)
+ai("openai:gpt-4o", "Explain quantum computing")
+ai("openai:gpt-4o-mini", "Summarize: ...")  # Cost-effective
+
+# Anthropic Claude (set ANTHROPIC_API_KEY)
+ai("anthropic:claude-3-opus", "Write detailed analysis")
+
+# Local Ollama (free, private)
+# Start: ollama serve && ollama pull llama3.2:3b
+ai("ollama:llama3.2:3b", "Hello!")
+ai("ollama:codellama:7b", "Write a function to...")
+
+# vLLM (high-performance local)
+ai("vllm:mistral-7b", "Generate code for...")
+
+# Any OpenAI-compatible server (set COMPAT_API_BASE)
+ai("compat:local-model", "Process this request")
+```
+
+### External MCP Tools (e.g., SiliconMonitor)
+
+```ae
+# List available MCP servers
+mcp.servers()
+
+# Connect to external MCP server (e.g., SiliconMonitor for hardware metrics)
+# Start server first: silicon-monitor --mcp --port 3006
+monitor = mcp.connect("http://localhost:3006")
+print(monitor.available)                 # => true
+print(monitor.tools)                     # => ["cpu_usage", "memory_info", ...]
+
+# Create agent with external tool access
+agent(
+    "Monitor system health and alert on high CPU usage",
+    ai.detect(),                         # Use best available LLM
+    monitor.tools,                       # Give agent access to metrics
+    5                                    # Max reasoning steps
+)
+
+# Connect multiple MCP servers
+fs_server = mcp.connect("http://localhost:3001")      # Filesystem
+git_server = mcp.connect("http://localhost:3002")     # Git operations
+monitor = mcp.connect("http://localhost:3006")        # Hardware metrics
+
+# Combine tools for powerful agents
+all_tools = fs_server.tools + git_server.tools + monitor.tools
+agent(
+    "Analyze codebase performance impact on system resources",
+    "openai:gpt-4o",
+    all_tools,
+    10
+)
+
+# Agent with MCP endpoint
+agent.with_mcp("Check system health", monitor.tools, "http://localhost:3006")
+```
+
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `OPENAI_API_KEY` | OpenAI API key |
+| `ANTHROPIC_API_KEY` | Anthropic Claude API key |
+| `AETHER_AI` | Default AI provider (`openai`, `ollama`) |
+| `OLLAMA_HOST` | Ollama server URL (default: localhost) |
+| `VLLM_API_BASE` | vLLM server endpoint |
+| `COMPAT_API_BASE` | Custom OpenAI-compatible endpoint |
+| `AGENT_ALLOW_CMDS` | Whitelist of allowed shell commands |
 
 ---
 
