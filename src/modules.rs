@@ -670,6 +670,71 @@ pub fn rl_module() -> Value {
     ])
 }
 
+/// A2A (Agent-to-Agent) protocol module
+pub fn a2a_module() -> Value {
+    module(&[
+        ("send", "a2a_send"),
+        ("receive", "a2a_receive"),
+        ("broadcast", "a2a_broadcast"),
+        ("discover", "a2a_discover"),
+        ("register", "a2a_register"),
+        ("unregister", "a2a_unregister"),
+        ("status", "a2a_status"),
+        ("agents", "a2a_agents"),
+    ])
+}
+
+/// NANDA (consensus) protocol module
+pub fn nanda_module() -> Value {
+    module(&[
+        ("propose", "nanda_propose"),
+        ("vote", "nanda_vote"),
+        ("commit", "nanda_commit"),
+        ("abort", "nanda_abort"),
+        ("status", "nanda_status"),
+        ("consensus", "nanda_consensus"),
+        ("quorum", "nanda_quorum"),
+    ])
+}
+
+/// RBAC (Role-Based Access Control) module
+pub fn rbac_module() -> Value {
+    module(&[
+        ("create", "rbac_create_role"),
+        ("delete", "rbac_delete_role"),
+        ("grant", "rbac_grant"),
+        ("revoke", "rbac_revoke"),
+        ("check", "rbac_check"),
+        ("roles", "rbac_roles"),
+        ("permissions", "rbac_permissions"),
+        ("user_roles", "rbac_user_roles"),
+    ])
+}
+
+/// Audit logging module
+pub fn audit_module() -> Value {
+    module(&[
+        ("log", "audit_log"),
+        ("query", "audit_query"),
+        ("export", "audit_export"),
+        ("retention", "audit_retention"),
+        ("stream", "audit_stream"),
+    ])
+}
+
+/// SSO (Single Sign-On) module
+pub fn sso_module() -> Value {
+    module(&[
+        ("init", "sso_init"),
+        ("auth", "sso_auth"),
+        ("refresh", "sso_refresh"),
+        ("logout", "sso_logout"),
+        ("validate", "sso_validate"),
+        ("user_info", "sso_user_info"),
+        ("providers", "sso_providers"),
+    ])
+}
+
 /// Get all modules as a map for registering in the environment
 pub fn all_modules() -> Vec<(&'static str, Value)> {
     vec![
@@ -700,6 +765,11 @@ pub fn all_modules() -> Vec<(&'static str, Value)> {
         ("mcp", mcp_module()),
         ("shell", shell_module()),
         ("a2ui", a2ui_module()),
+        ("a2a", a2a_module()),
+        ("nanda", nanda_module()),
+        ("rbac", rbac_module()),
+        ("audit", audit_module()),
+        ("sso", sso_module()),
         ("cluster", cluster_module()),
         ("nn", nn_module()),
         ("evo", evo_module()),
