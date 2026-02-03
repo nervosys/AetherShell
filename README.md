@@ -14,6 +14,7 @@
   <a href="#-quick-start">Quick Start</a> •
   <a href="#-modules">Modules</a> •
   <a href="#-ai-agents">AI Agents</a> •
+  <a href="#reliable-file-editing-for-llms">File Editing</a> •
   <a href="#-protocols">Protocols</a> •
   <a href="#external-integrations">External Integrations</a> •
   <a href="docs/TUI_GUIDE.md">TUI Guide</a>
@@ -175,6 +176,79 @@ swarm({
         {role: "reporter", goal: "Generate report"}
     ],
     tools: ["file.read", "grep", "http.get"]
+})
+
+---
+
+## Reliable File Editing for LLMs
+
+Traditional shells (Bash, PowerShell) make multi-line text operations error-prone for LLMs due to escaping, quoting, and command injection issues. AetherShell provides **structured file editing** that LLMs can use reliably:
+
+### The Problem with Traditional Shells
+
+```bash
+# Bash: Fragile multi-line insertion - escaping nightmare
+sed -i '10a\
+line1\
+line2' file.txt                          # Fails with quotes, backslashes, $vars
+
+# PowerShell: Complex and error-prone  
+$content = Get-Content file.txt          # Race conditions, encoding issues
+```
+
+### AetherShell: Structured, Reliable Operations
+
+```ae
+# Simple string replacement (handles any content)
+file.replace("config.rs", 
+    "const DEBUG: bool = false;",
+    "const DEBUG: bool = true;")
+
+# Multi-line insertion at specific position
+file.insert("main.rs", {after: "use std::io;"}, "use std::fs;
+use std::path::Path;
+use std::collections::HashMap;")
+
+# Insert at line number
+file.insert("script.py", 10, "# This comment spans
+# multiple lines without
+# any escaping needed")
+
+# Batch patches (atomic, all-or-nothing)
+file.patch("config.toml", [
+    {find: "debug = false", replace: "debug = true"},
+    {find: 'log_level = "info"', replace: 'log_level = "debug"'},
+    {find: "timeout = 30", replace: "timeout = 60"}
+])
+# => {success: true, patches_applied: 3, patches_failed: 0}
+
+# Replace with multi-line content
+file.replace("template.html",
+    "<body></body>",
+    "<body>
+        <header>Welcome</header>
+        <main id=\"content\">
+            Loading...
+        </main>
+    </body>")
+```
+
+### Why This Matters for AI Agents
+
+| Operation | Bash/PowerShell | AetherShell |
+|-----------|-----------------|-------------|
+| Multi-line insert | ❌ Escape hell | ✅ Native strings |
+| Special chars (`$`, `"`, `\`) | ❌ Breaks commands | ✅ Just works |
+| Atomic batch edits | ❌ Manual rollback | ✅ Built-in |
+| Structured results | ❌ Exit codes only | ✅ `{success, applied, failed}` |
+| Unicode/encoding | ❌ Platform-dependent | ✅ UTF-8 always |
+
+```ae
+# AI agent can safely edit any file
+agent({
+    goal: "Add error handling to all functions",
+    tools: ["file.read", "file.patch", "file.insert", "grep"],
+    model: "openai:gpt-4o"
 })
 ```
 
