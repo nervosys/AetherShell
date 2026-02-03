@@ -1,0 +1,291 @@
+#!/usr/bin/env ae
+# ============================================================================
+# External Tools & LLM Integration Demo
+# ============================================================================
+# This example demonstrates how to connect AetherShell to:
+# 1. External MCP tools (like SiliconMonitor for hardware metrics)
+# 2. External LLMs (OpenAI, Anthropic, Ollama, vLLM, etc.)
+# ============================================================================
+
+print("╔════════════════════════════════════════════════════════════════════╗")
+print("║     AetherShell External Tools & LLM Integration Demo              ║")
+print("╚════════════════════════════════════════════════════════════════════╝")
+print("")
+
+# ============================================================================
+# PART 1: External LLM Configuration
+# ============================================================================
+print("═══════════════════════════════════════════════════════════════")
+print("PART 1: Connecting to External LLMs")
+print("═══════════════════════════════════════════════════════════════")
+print("")
+
+# AetherShell supports multiple LLM providers via URI scheme:
+#   - openai:gpt-4o           → OpenAI API
+#   - openai:gpt-4o-mini      → OpenAI API (cheaper)
+#   - anthropic:claude-3      → Anthropic API
+#   - ollama:llama3.2:3b      → Local Ollama server
+#   - ollama:codellama:7b     → Local Ollama (code)
+#   - vllm:mistral-7b         → Local vLLM server
+#   - compat:any-model        → Generic OpenAI-compatible endpoint
+
+print("🔍 Step 1: Detect Available AI Backends")
+print("─────────────────────────────────────────")
+let backends = ai_backends()
+print("Found " + len(backends) + " AI backend(s):")
+backends | foreach(fn(b) => print("  ✓ " + b.name + " (" + b.provider + ")"))
+print("")
+
+print("🎯 Step 2: Auto-Select Best Backend")
+print("─────────────────────────────────────────")
+let selected = ai_detect()
+print("Auto-selected: " + selected)
+print("")
+
+# ============================================================================
+# EXAMPLE: Connecting to Different LLM Providers
+# ============================================================================
+print("📡 Step 3: LLM Provider Configuration Examples")
+print("─────────────────────────────────────────────────")
+print("")
+
+# --- OpenAI Configuration ---
+print("1️⃣  OpenAI (set OPENAI_API_KEY environment variable)")
+print("    # Using GPT-4o for complex tasks:")
+print("    response = ai(\"openai:gpt-4o\", \"Explain quantum entanglement\")")
+print("")
+print("    # Using GPT-4o-mini for cost-effective tasks:")
+print("    response = ai(\"openai:gpt-4o-mini\", \"Summarize this text: ...\")")
+print("")
+
+# --- Anthropic Configuration ---
+print("2️⃣  Anthropic Claude (set ANTHROPIC_API_KEY environment variable)")
+print("    response = ai(\"anthropic:claude-3-opus\", \"Write a detailed analysis\")")
+print("")
+
+# --- Local Ollama ---
+print("3️⃣  Ollama (local, free - run: ollama serve)")
+print("    # Start Ollama server first: ollama serve")
+print("    # Pull a model: ollama pull llama3.2:3b")
+print("    response = ai(\"ollama:llama3.2:3b\", \"Hello, how are you?\")")
+print("")
+
+# --- vLLM Server ---
+print("4️⃣  vLLM (high-performance local inference)")
+print("    # Start vLLM: python -m vllm.entrypoints.openai.api_server ...")
+print("    response = ai(\"vllm:mistral-7b\", \"Generate code for...\")")
+print("")
+
+# --- OpenAI-Compatible Servers ---
+print("5️⃣  Any OpenAI-Compatible Server (LM Studio, LocalAI, etc.)")
+print("    # Set COMPAT_API_BASE to your server URL")
+print("    response = ai(\"compat:local-model\", \"Process this request\")")
+print("")
+
+# ============================================================================
+# PART 2: External MCP Tools (like SiliconMonitor)
+# ============================================================================
+print("═══════════════════════════════════════════════════════════════")
+print("PART 2: Connecting to External MCP Tools")
+print("═══════════════════════════════════════════════════════════════")
+print("")
+
+# MCP (Model Context Protocol) allows AI agents to use external tools safely.
+# Tools like SiliconMonitor expose hardware metrics via MCP.
+
+print("🔍 Step 1: Detect Available MCP Servers")
+print("─────────────────────────────────────────")
+let mcp_list = mcp_servers()
+print("Found " + len(mcp_list) + " MCP server(s)")
+print("")
+
+print("🔌 Step 2: Connect to External MCP Server")
+print("─────────────────────────────────────────")
+print("")
+
+# Example: Connecting to SiliconMonitor (hardware metrics MCP server)
+# SiliconMonitor typically runs on port 3006 and provides:
+#   - cpu_usage()     → Current CPU utilization
+#   - memory_info()   → RAM usage statistics  
+#   - gpu_metrics()   → GPU temperature, utilization
+#   - disk_io()       → Disk read/write stats
+#   - network_stats() → Network bandwidth usage
+#   - system_temps()  → System temperature readings
+
+print("Example: SiliconMonitor Hardware Metrics Server")
+print("────────────────────────────────────────────────")
+print("# Start SiliconMonitor MCP server (hypothetical):")
+print("#   silicon-monitor --mcp --port 3006")
+print("")
+print("# Connect from AetherShell:")
+print("let monitor = mcp_connect(\"http://localhost:3006\")")
+print("print(\"Connected: \" + monitor.available)")
+print("print(\"Tools: \" + monitor.tools)")
+print("")
+
+# ============================================================================
+# PART 3: Integration Patterns
+# ============================================================================
+print("═══════════════════════════════════════════════════════════════")
+print("PART 3: Integration Patterns")
+print("═══════════════════════════════════════════════════════════════")
+print("")
+
+# --- Pattern A: AI Agent with MCP Tools ---
+print("🤖 Pattern A: AI Agent with External Tools")
+print("──────────────────────────────────────────")
+print("")
+print("# Connect to monitoring MCP server:")
+print("let monitor = mcp_connect(\"http://localhost:3006\")")
+print("")
+print("# Create agent that can use monitoring tools:")
+print("agent(")
+print("    \"Monitor system health and alert on issues\",")
+print("    ai_detect(),           # Use best available LLM")
+print("    monitor.tools,         # Give agent access to metrics tools")
+print("    5                      # Max 5 reasoning steps")
+print(")")
+print("")
+
+# --- Pattern B: Multi-Server Agent ---
+print("🔗 Pattern B: Agent with Multiple MCP Servers")
+print("───────────────────────────────────────────────")
+print("")
+print("# Connect to multiple external tools:")
+print("let fs_server = mcp_connect(\"http://localhost:3001\")      # Filesystem")
+print("let git_server = mcp_connect(\"http://localhost:3002\")     # Git")
+print("let monitor = mcp_connect(\"http://localhost:3006\")        # SiliconMonitor")
+print("")
+print("# Combine tools for powerful agent:")
+print("let all_tools = fs_server.tools + git_server.tools + monitor.tools")
+print("agent(")
+print("    \"Analyze codebase performance and system impact\",")
+print("    \"openai:gpt-4o\",      # Use powerful model")
+print("    all_tools,            # Access to all tools")
+print("    10                    # More steps for complex task")
+print(")")
+print("")
+
+# --- Pattern C: Custom MCP Server Registration ---
+print("⚙️  Pattern C: Register Custom MCP Server")
+print("──────────────────────────────────────────")
+print("")
+print("# Start your own MCP server with custom tools:")
+print("custom_server = mcp_server_start({")
+print("    name: \"silicon_monitor\",")
+print("    type: \"external\",")
+print("    endpoint: \"http://localhost:3006\",")
+print("    tools: [")
+print("        {")
+print("            name: \"cpu_usage\",")
+print("            description: \"Get current CPU utilization percentage\",")
+print("            parameters: []")
+print("        },")
+print("        {")
+print("            name: \"memory_info\",")
+print("            description: \"Get RAM usage in GB\",")
+print("            parameters: []")
+print("        },")
+print("        {")
+print("            name: \"gpu_metrics\",")
+print("            description: \"Get GPU temperature and utilization\",")
+print("            parameters: [\"gpu_id\"]")
+print("        }")
+print("    ]")
+print("})")
+print("")
+
+# ============================================================================
+# PART 4: Complete Working Example
+# ============================================================================
+print("═══════════════════════════════════════════════════════════════")
+print("PART 4: Complete Working Example")
+print("═══════════════════════════════════════════════════════════════")
+print("")
+
+print("This example creates a system monitoring agent that can:")
+print("  • Query hardware metrics from SiliconMonitor")
+print("  • Analyze trends and detect anomalies")
+print("  • Generate reports using an LLM")
+print("")
+
+print("┌─────────────────────────────────────────────────────────────┐")
+print("│                    EXAMPLE SCRIPT                           │")
+print("├─────────────────────────────────────────────────────────────┤")
+print("│                                                              │")
+print("│  # 1. Configure LLM backend                                 │")
+print("│  # Set env: OPENAI_API_KEY=sk-xxx (or use Ollama)          │")
+print("│                                                              │")
+print("│  # 2. Start SiliconMonitor MCP server                       │")
+print("│  #    silicon-monitor --mcp --port 3006                     │")
+print("│                                                              │")
+print("│  # 3. Run the agent                                         │")
+print("│  let monitor = mcp_connect(\"http://localhost:3006\")        │")
+print("│                                                              │")
+print("│  if monitor.available {                                     │")
+print("│      agent(                                                 │")
+print("│          \"Check system health: CPU, memory, GPU temps.\",   │")
+print("│          ai_detect(),                                       │")
+print("│          monitor.tools,                                     │")
+print("│          5                                                  │")
+print("│      ) | print                                              │")
+print("│  } else {                                                   │")
+print("│      print(\"Monitor not available - start server first\")   │")
+print("│  }                                                          │")
+print("│                                                              │")
+print("└─────────────────────────────────────────────────────────────┘")
+print("")
+
+# ============================================================================
+# PART 5: Environment Variables Reference
+# ============================================================================
+print("═══════════════════════════════════════════════════════════════")
+print("PART 5: Environment Variables Reference")
+print("═══════════════════════════════════════════════════════════════")
+print("")
+print("┌─────────────────────┬────────────────────────────────────────┐")
+print("│ Variable            │ Description                            │")
+print("├─────────────────────┼────────────────────────────────────────┤")
+print("│ OPENAI_API_KEY      │ OpenAI API key                         │")
+print("│ ANTHROPIC_API_KEY   │ Anthropic Claude API key               │")
+print("│ AETHER_AI           │ Default AI provider (openai/ollama)    │")
+print("│ OLLAMA_HOST         │ Ollama server URL (default: localhost) │")
+print("│ VLLM_API_BASE       │ vLLM server endpoint                   │")
+print("│ COMPAT_API_BASE     │ Custom OpenAI-compatible endpoint      │")
+print("│ AGENT_ALLOW_CMDS    │ Whitelist of allowed shell commands    │")
+print("└─────────────────────┴────────────────────────────────────────┘")
+print("")
+
+# ============================================================================
+# Summary
+# ============================================================================
+print("═══════════════════════════════════════════════════════════════")
+print("Summary")
+print("═══════════════════════════════════════════════════════════════")
+print("")
+print("AetherShell provides seamless integration with:")
+print("")
+print("  🧠 External LLMs:")
+print("     • OpenAI (GPT-4o, GPT-4o-mini)")
+print("     • Anthropic (Claude 3)")
+print("     • Ollama (local, free)")
+print("     • vLLM (high-performance)")
+print("     • Any OpenAI-compatible server")
+print("")
+print("  🔧 External Tools via MCP:")
+print("     • SiliconMonitor (hardware metrics)")
+print("     • Filesystem servers")
+print("     • Git servers")
+print("     • Docker servers")
+print("     • Database servers")
+print("     • Custom MCP servers")
+print("")
+print("  🔗 Key Commands:")
+print("     • ai_detect()          - Auto-select best LLM")
+print("     • ai_backends()        - List available LLMs")
+print("     • mcp_connect(url)     - Connect to MCP server")
+print("     • mcp_servers()        - List MCP servers")
+print("     • agent(goal, model, tools)")
+print("     • agent_with_mcp(goal, tools, endpoint)")
+print("")
+print("✨ Demo complete!")
