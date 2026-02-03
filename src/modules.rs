@@ -461,6 +461,7 @@ pub fn ai_module() -> Value {
         ("agent", "agent"),
         ("swarm", "swarm"),
         ("backends", "ai_backends"),
+        ("detect", "ai_detect"),
         // RAG functions
         ("rag_index", "rag_index"),
         ("rag_search", "rag_search"),
@@ -476,6 +477,14 @@ pub fn ai_module() -> Value {
 }
 
 /// Math module: math.abs(), math.sqrt(), math.sin(), etc.
+
+/// Agent module: agent.with_mcp(), agent.run(), etc.
+pub fn agent_module() -> Value {
+    module(&[
+        ("run", "agent"),
+        ("with_mcp", "agent_with_mcp"),
+    ])
+}
 pub fn math_module() -> Value {
     module(&[
         ("abs", "abs"),
@@ -758,6 +767,7 @@ pub fn all_modules() -> Vec<(&'static str, Value)> {
         ("clip", clip_module()),
         ("input", input_module()),
         ("ai", ai_module()),
+        ("agent", agent_module()),
         ("math", math_module()),
         ("str", str_module()),
         ("arr", arr_module()),
