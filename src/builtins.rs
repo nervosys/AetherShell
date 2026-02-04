@@ -812,9 +812,235 @@ lazy_static::lazy_static! {
         map.insert("nanda_status", 553);
         map.insert("nanda_consensus", 554);
         map.insert("nanda_quorum", 555);
-
-
-
+    // AI Coding Assistant - Git (560-586)
+    map.insert("git_status", 560);
+    map.insert("git_diff", 561);
+    map.insert("git_diff_staged", 562);
+    map.insert("git_log", 563);
+    map.insert("git_blame", 564);
+    map.insert("git_branch", 565);
+    map.insert("git_branches", 566);
+    map.insert("git_checkout", 567);
+    map.insert("git_commit", 568);
+    map.insert("git_add", 569);
+    map.insert("git_reset", 570);
+    map.insert("git_stash", 571);
+    map.insert("git_stash_pop", 572);
+    map.insert("git_stash_list", 573);
+    map.insert("git_remote", 574);
+    map.insert("git_fetch", 575);
+    map.insert("git_pull", 576);
+    map.insert("git_push", 577);
+    map.insert("git_merge", 578);
+    map.insert("git_rebase", 579);
+    map.insert("git_cherry_pick", 580);
+    map.insert("git_tags", 581);
+    map.insert("git_show", 582);
+    map.insert("git_rev_parse", 583);
+    map.insert("git_root", 584);
+    map.insert("git_ignore", 585);
+    map.insert("git_clean", 586);
+    // AI Coding Assistant - Code (590-606)
+    map.insert("code_parse", 590);
+    map.insert("code_symbols", 591);
+    map.insert("code_outline", 592);
+    map.insert("code_references", 593);
+    map.insert("code_definition", 594);
+    map.insert("code_imports", 595);
+    map.insert("code_exports", 596);
+    map.insert("code_dependencies", 597);
+    map.insert("code_callers", 598);
+    map.insert("code_callees", 599);
+    map.insert("code_hover", 600);
+    map.insert("code_signature", 601);
+    map.insert("code_completions", 602);
+    map.insert("code_format", 603);
+    map.insert("code_language", 604);
+    map.insert("code_comments", 605);
+    map.insert("code_todos", 606);
+    // AI Coding Assistant - Project (610-626)
+    map.insert("project_type", 610);
+    map.insert("project_root", 611);
+    map.insert("project_name", 612);
+    map.insert("project_version", 613);
+    map.insert("project_dependencies", 614);
+    map.insert("project_dev_dependencies", 615);
+    map.insert("project_scripts", 616);
+    map.insert("project_structure", 617);
+    map.insert("project_entry_points", 618);
+    map.insert("project_test_files", 619);
+    map.insert("project_config_files", 620);
+    map.insert("project_readme", 621);
+    map.insert("project_license", 622);
+    map.insert("project_gitignore", 623);
+    map.insert("project_languages", 624);
+    map.insert("project_loc", 625);
+    map.insert("project_size", 626);
+    // AI Coding Assistant - Search (630-643)
+    map.insert("search_code", 630);
+    map.insert("search_grep", 631);
+    map.insert("search_regex", 632);
+    map.insert("search_symbols", 633);
+    map.insert("search_files", 634);
+    map.insert("search_recent", 635);
+    map.insert("search_modified", 636);
+    map.insert("search_by_type", 637);
+    map.insert("search_by_size", 638);
+    map.insert("search_duplicates", 639);
+    map.insert("search_todos", 640);
+    map.insert("search_fixmes", 641);
+    map.insert("search_semantic", 642);
+    map.insert("search_similar", 643);
+    // AI Coding Assistant - Test (650-661)
+    map.insert("test_run", 650);
+    map.insert("test_run_file", 651);
+    map.insert("test_run_function", 652);
+    map.insert("test_list", 653);
+    map.insert("test_coverage", 654);
+    map.insert("test_failing", 655);
+    map.insert("test_passing", 656);
+    map.insert("test_skipped", 657);
+    map.insert("test_watch", 658);
+    map.insert("test_bench", 659);
+    map.insert("test_snapshot", 660);
+    map.insert("test_generate", 661);
+    // AI Coding Assistant - Diagnostics (670-678)
+    map.insert("diag_check", 670);
+    map.insert("diag_lint", 671);
+    map.insert("diag_errors", 672);
+    map.insert("diag_warnings", 673);
+    map.insert("diag_all", 674);
+    map.insert("diag_fix", 675);
+    map.insert("diag_explain", 676);
+    map.insert("diag_suppress", 677);
+    map.insert("diag_config", 678);
+    // AI Coding Assistant - Refactor (680-691)
+    map.insert("refactor_rename", 680);
+    map.insert("refactor_rename_file", 681);
+    map.insert("refactor_extract_function", 682);
+    map.insert("refactor_extract_variable", 683);
+    map.insert("refactor_extract_constant", 684);
+    map.insert("refactor_inline", 685);
+    map.insert("refactor_move_to_file", 686);
+    map.insert("refactor_change_signature", 687);
+    map.insert("refactor_add_parameter", 688);
+    map.insert("refactor_remove_parameter", 689);
+    map.insert("refactor_organize_imports", 690);
+    map.insert("refactor_remove_unused", 691);
+    // AI Coding Assistant - Session (700-712)
+    map.insert("session_start", 700);
+    map.insert("session_end", 701);
+    map.insert("session_id", 702);
+    map.insert("session_history", 703);
+    map.insert("session_undo", 704);
+    map.insert("session_redo", 705);
+    map.insert("session_checkpoint", 706);
+    map.insert("session_restore", 707);
+    map.insert("session_checkpoints", 708);
+    map.insert("session_diff_since", 709);
+    map.insert("session_changes", 710);
+    map.insert("session_rollback", 711);
+    map.insert("session_export", 712);
+    // AI Coding Assistant - Docs (720-727)
+    map.insert("docs_generate", 720);
+    map.insert("docs_search", 721);
+    map.insert("docs_api", 722);
+    map.insert("docs_readme", 723);
+    map.insert("docs_changelog", 724);
+    map.insert("docs_examples", 725);
+    map.insert("docs_types", 726);
+    map.insert("docs_signatures", 727);
+    // AI Coding Assistant - Environment (730-747)
+    map.insert("env_detect", 730);
+    map.insert("env_python", 731);
+    map.insert("env_node", 732);
+    map.insert("env_rust", 733);
+    map.insert("env_go", 734);
+    map.insert("env_java", 735);
+    map.insert("env_dotnet", 736);
+    map.insert("env_ruby", 737);
+    map.insert("env_shell", 738);
+    map.insert("env_path", 739);
+    map.insert("env_var", 740);
+    map.insert("env_vars", 741);
+    map.insert("env_set", 742);
+    map.insert("env_unset", 743);
+    map.insert("env_docker", 744);
+    map.insert("env_container", 745);
+    map.insert("env_venv", 746);
+    map.insert("env_activate", 747);
+    // Platform versioning module (indices 748-787)
+    map.insert("platform_snapshot", 748);
+    map.insert("platform_os_version", 749);
+    map.insert("platform_kernel", 750);
+    map.insert("platform_build", 751);
+    map.insert("platform_arch", 752);
+    map.insert("platform_hostname", 753);
+    map.insert("platform_machine_id", 754);
+    map.insert("platform_tool_version", 755);
+    map.insert("platform_tool_versions", 756);
+    map.insert("platform_detect_tools", 757);
+    map.insert("platform_has_tool", 758);
+    map.insert("platform_capabilities", 759);
+    map.insert("platform_has_admin", 760);
+    map.insert("platform_has_sudo", 761);
+    map.insert("platform_has_gui", 762);
+    map.insert("platform_has_network", 763);
+    map.insert("platform_has_container", 764);
+    map.insert("platform_pkg_managers", 765);
+    map.insert("platform_normalize_path", 766);
+    map.insert("platform_normalize_output", 767);
+    map.insert("platform_path_sep", 768);
+    map.insert("platform_line_ending", 769);
+    map.insert("platform_shell_type", 770);
+    map.insert("platform_require", 771);
+    map.insert("platform_check_reqs", 772);
+    map.insert("platform_satisfies", 773);
+    map.insert("platform_diff", 774);
+    map.insert("platform_compatible", 775);
+    map.insert("platform_db_init", 776);
+    map.insert("platform_db_store", 777);
+    map.insert("platform_db_load", 778);
+    map.insert("platform_db_list", 779);
+    map.insert("platform_db_delete", 780);
+    map.insert("platform_db_compare", 781);
+    map.insert("platform_db_export", 782);
+    map.insert("platform_db_import", 783);
+    map.insert("platform_fingerprint", 784);
+    map.insert("platform_hash", 785);
+    // Platform categorized tools (786-799)
+    map.insert("platform_compilers", 786);
+    map.insert("platform_build_systems", 787);
+    map.insert("platform_runtimes", 788);
+    map.insert("platform_pkg_lang", 789);
+    map.insert("platform_containers", 790);
+    map.insert("platform_cloud_clis", 791);
+    map.insert("platform_databases", 792);
+    map.insert("platform_linters", 793);
+    map.insert("platform_vcs", 794);
+    map.insert("platform_iac_tools", 795);
+    // Platform library detection (796-803)
+    map.insert("platform_libs", 796);
+    map.insert("platform_lib_version", 797);
+    map.insert("platform_system_libs", 798);
+    map.insert("platform_sdk_version", 799);
+    map.insert("platform_libc", 800);
+    map.insert("platform_libcpp", 801);
+    map.insert("platform_ssl_version", 802);
+    map.insert("platform_cuda_version", 803);
+    // Platform hardware detection (804-815)
+    map.insert("platform_cpu", 804);
+    map.insert("platform_cpu_count", 805);
+    map.insert("platform_cpu_freq", 806);
+    map.insert("platform_memory", 807);
+    map.insert("platform_memory_total", 808);
+    map.insert("platform_memory_free", 809);
+    map.insert("platform_disks", 810);
+    map.insert("platform_disk_usage", 811);
+    map.insert("platform_gpus", 812);
+    map.insert("platform_gpu_memory", 813);
+    map.insert("platform_network_interfaces", 814);
+    map.insert("platform_hardware_summary", 815);
         map
     };
 
@@ -2096,6 +2322,290 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_nanda_status(args, input),
     |args, input, _| bi_nanda_consensus(args, input),
     |args, input, _| bi_nanda_quorum(args, input),
+    // Reserved (556-559)
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    // AI Coding Assistant - Git (560-586)
+    |args, input, _| bi_git_status(args, input),
+    |args, input, _| bi_git_diff(args, input),
+    |args, input, _| bi_git_diff_staged(args, input),
+    |args, input, _| bi_git_log(args, input),
+    |args, input, _| bi_git_blame(args, input),
+    |args, input, _| bi_git_branch(args, input),
+    |args, input, _| bi_git_branches(args, input),
+    |args, input, _| bi_git_checkout(args, input),
+    |args, input, _| bi_git_commit(args, input),
+    |args, input, _| bi_git_add(args, input),
+    |args, input, _| bi_git_reset(args, input),
+    |args, input, _| bi_git_stash(args, input),
+    |args, input, _| bi_git_stash_pop(args, input),
+    |args, input, _| bi_git_stash_list(args, input),
+    |args, input, _| bi_git_remote(args, input),
+    |args, input, _| bi_git_fetch(args, input),
+    |args, input, _| bi_git_pull(args, input),
+    |args, input, _| bi_git_push(args, input),
+    |args, input, _| bi_git_merge(args, input),
+    |args, input, _| bi_git_rebase(args, input),
+    |args, input, _| bi_git_cherry_pick(args, input),
+    |args, input, _| bi_git_tags(args, input),
+    |args, input, _| bi_git_show(args, input),
+    |args, input, _| bi_git_rev_parse(args, input),
+    |args, input, _| bi_git_root(args, input),
+    |args, input, _| bi_git_ignore(args, input),
+    |args, input, _| bi_git_clean(args, input),
+    // Reserved (587-589)
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    // AI Coding Assistant - Code (590-606)
+    |args, input, _| bi_code_parse(args, input),
+    |args, input, _| bi_code_symbols(args, input),
+    |args, input, _| bi_code_outline(args, input),
+    |args, input, _| bi_code_references(args, input),
+    |args, input, _| bi_code_definition(args, input),
+    |args, input, _| bi_code_imports(args, input),
+    |args, input, _| bi_code_exports(args, input),
+    |args, input, _| bi_code_dependencies(args, input),
+    |args, input, _| bi_code_callers(args, input),
+    |args, input, _| bi_code_callees(args, input),
+    |args, input, _| bi_code_hover(args, input),
+    |args, input, _| bi_code_signature(args, input),
+    |args, input, _| bi_code_completions(args, input),
+    |args, input, _| bi_code_format(args, input),
+    |args, input, _| bi_code_language(args, input),
+    |args, input, _| bi_code_comments(args, input),
+    |args, input, _| bi_code_todos(args, input),
+    // Reserved (607-609)
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    // AI Coding Assistant - Project (610-626)
+    |args, input, _| bi_project_type(args, input),
+    |args, input, _| bi_project_root(args, input),
+    |args, input, _| bi_project_name(args, input),
+    |args, input, _| bi_project_version(args, input),
+    |args, input, _| bi_project_dependencies(args, input),
+    |args, input, _| bi_project_dev_dependencies(args, input),
+    |args, input, _| bi_project_scripts(args, input),
+    |args, input, _| bi_project_structure(args, input),
+    |args, input, _| bi_project_entry_points(args, input),
+    |args, input, _| bi_project_test_files(args, input),
+    |args, input, _| bi_project_config_files(args, input),
+    |args, input, _| bi_project_readme(args, input),
+    |args, input, _| bi_project_license(args, input),
+    |args, input, _| bi_project_gitignore(args, input),
+    |args, input, _| bi_project_languages(args, input),
+    |args, input, _| bi_project_loc(args, input),
+    |args, input, _| bi_project_size(args, input),
+    // Reserved (627-629)
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    // AI Coding Assistant - Search (630-643)
+    |args, input, _| bi_search_code(args, input),
+    |args, input, _| bi_search_grep(args, input),
+    |args, input, _| bi_search_regex(args, input),
+    |args, input, _| bi_search_symbols(args, input),
+    |args, input, _| bi_search_files(args, input),
+    |args, input, _| bi_search_recent(args, input),
+    |args, input, _| bi_search_modified(args, input),
+    |args, input, _| bi_search_by_type(args, input),
+    |args, input, _| bi_search_by_size(args, input),
+    |args, input, _| bi_search_duplicates(args, input),
+    |args, input, _| bi_search_todos(args, input),
+    |args, input, _| bi_search_fixmes(args, input),
+    |args, input, _| bi_search_semantic(args, input),
+    |args, input, _| bi_search_similar(args, input),
+    // Reserved (644-649)
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    // AI Coding Assistant - Test (650-661)
+    |args, input, _| bi_test_run(args, input),
+    |args, input, _| bi_test_run_file(args, input),
+    |args, input, _| bi_test_run_function(args, input),
+    |args, input, _| bi_test_list(args, input),
+    |args, input, _| bi_test_coverage(args, input),
+    |args, input, _| bi_test_failing(args, input),
+    |args, input, _| bi_test_passing(args, input),
+    |args, input, _| bi_test_skipped(args, input),
+    |args, input, _| bi_test_watch(args, input),
+    |args, input, _| bi_test_bench(args, input),
+    |args, input, _| bi_test_snapshot(args, input),
+    |args, input, _| bi_test_generate(args, input),
+    // Reserved (662-669)
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    // AI Coding Assistant - Diagnostics (670-678)
+    |args, input, _| bi_diag_check(args, input),
+    |args, input, _| bi_diag_lint(args, input),
+    |args, input, _| bi_diag_errors(args, input),
+    |args, input, _| bi_diag_warnings(args, input),
+    |args, input, _| bi_diag_all(args, input),
+    |args, input, _| bi_diag_fix(args, input),
+    |args, input, _| bi_diag_explain(args, input),
+    |args, input, _| bi_diag_suppress(args, input),
+    |args, input, _| bi_diag_config(args, input),
+    // Reserved (679)
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    // AI Coding Assistant - Refactor (680-691)
+    |args, input, _| bi_refactor_rename(args, input),
+    |args, input, _| bi_refactor_rename_file(args, input),
+    |args, input, _| bi_refactor_extract_function(args, input),
+    |args, input, _| bi_refactor_extract_variable(args, input),
+    |args, input, _| bi_refactor_extract_constant(args, input),
+    |args, input, _| bi_refactor_inline(args, input),
+    |args, input, _| bi_refactor_move_to_file(args, input),
+    |args, input, _| bi_refactor_change_signature(args, input),
+    |args, input, _| bi_refactor_add_parameter(args, input),
+    |args, input, _| bi_refactor_remove_parameter(args, input),
+    |args, input, _| bi_refactor_organize_imports(args, input),
+    |args, input, _| bi_refactor_remove_unused(args, input),
+    // Reserved (692-699)
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    // AI Coding Assistant - Session (700-712)
+    |args, input, _| bi_session_start(args, input),
+    |args, input, _| bi_session_end(args, input),
+    |args, input, _| bi_session_id(args, input),
+    |args, input, _| bi_session_history(args, input),
+    |args, input, _| bi_session_undo(args, input),
+    |args, input, _| bi_session_redo(args, input),
+    |args, input, _| bi_session_checkpoint(args, input),
+    |args, input, _| bi_session_restore(args, input),
+    |args, input, _| bi_session_checkpoints(args, input),
+    |args, input, _| bi_session_diff_since(args, input),
+    |args, input, _| bi_session_changes(args, input),
+    |args, input, _| bi_session_rollback(args, input),
+    |args, input, _| bi_session_export(args, input),
+    // Reserved (713-719)
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    // AI Coding Assistant - Docs (720-727)
+    |args, input, _| bi_docs_generate(args, input),
+    |args, input, _| bi_docs_search(args, input),
+    |args, input, _| bi_docs_api(args, input),
+    |args, input, _| bi_docs_readme(args, input),
+    |args, input, _| bi_docs_changelog(args, input),
+    |args, input, _| bi_docs_examples(args, input),
+    |args, input, _| bi_docs_types(args, input),
+    |args, input, _| bi_docs_signatures(args, input),
+    // Reserved (728-729)
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    // AI Coding Assistant - Environment (730-747)
+    |args, input, _| bi_env_detect(args, input),
+    |args, input, _| bi_env_python(args, input),
+    |args, input, _| bi_env_node(args, input),
+    |args, input, _| bi_env_rust(args, input),
+    |args, input, _| bi_env_go(args, input),
+    |args, input, _| bi_env_java(args, input),
+    |args, input, _| bi_env_dotnet(args, input),
+    |args, input, _| bi_env_ruby(args, input),
+    |args, input, _| bi_env_shell(args, input),
+    |args, input, _| bi_env_path(args, input),
+    |args, input, _| bi_env_var(args, input),
+    |args, input, _| bi_env_vars(args, input),
+    |args, input, _| bi_env_set(args, input),
+    |args, input, _| bi_env_unset(args, input),
+    |args, input, _| bi_env_docker(args, input),
+    |args, input, _| bi_env_container(args, input),
+    |args, input, _| bi_env_venv(args, input),
+    |args, input, _| bi_env_activate(args, input),
+    // Platform versioning module (748-785)
+    |args, input, _| bi_platform_snapshot(args, input),
+    |args, input, _| bi_platform_os_version(args, input),
+    |args, input, _| bi_platform_kernel(args, input),
+    |args, input, _| bi_platform_build(args, input),
+    |args, input, _| bi_platform_arch(args, input),
+    |args, input, _| bi_platform_hostname(args, input),
+    |args, input, _| bi_platform_machine_id(args, input),
+    |args, input, _| bi_platform_tool_version(args, input),
+    |args, input, _| bi_platform_tool_versions(args, input),
+    |args, input, _| bi_platform_detect_tools(args, input),
+    |args, input, _| bi_platform_has_tool(args, input),
+    |args, input, _| bi_platform_capabilities(args, input),
+    |args, input, _| bi_platform_has_admin(args, input),
+    |args, input, _| bi_platform_has_sudo(args, input),
+    |args, input, _| bi_platform_has_gui(args, input),
+    |args, input, _| bi_platform_has_network(args, input),
+    |args, input, _| bi_platform_has_container(args, input),
+    |args, input, _| bi_platform_pkg_managers(args, input),
+    |args, input, _| bi_platform_normalize_path(args, input),
+    |args, input, _| bi_platform_normalize_output(args, input),
+    |args, input, _| bi_platform_path_sep(args, input),
+    |args, input, _| bi_platform_line_ending(args, input),
+    |args, input, _| bi_platform_shell_type(args, input),
+    |args, input, _| bi_platform_require(args, input),
+    |args, input, _| bi_platform_check_reqs(args, input),
+    |args, input, _| bi_platform_satisfies(args, input),
+    |args, input, _| bi_platform_diff(args, input),
+    |args, input, _| bi_platform_compatible(args, input),
+    |args, input, _| bi_platform_db_init(args, input),
+    |args, input, _| bi_platform_db_store(args, input),
+    |args, input, _| bi_platform_db_load(args, input),
+    |args, input, _| bi_platform_db_list(args, input),
+    |args, input, _| bi_platform_db_delete(args, input),
+    |args, input, _| bi_platform_db_compare(args, input),
+    |args, input, _| bi_platform_db_export(args, input),
+    |args, input, _| bi_platform_db_import(args, input),
+    |args, input, _| bi_platform_fingerprint(args, input),
+    |args, input, _| bi_platform_hash(args, input),
+    // Platform categorized tools (786-795)
+    |args, input, _| bi_platform_compilers(args, input),
+    |args, input, _| bi_platform_build_systems(args, input),
+    |args, input, _| bi_platform_runtimes(args, input),
+    |args, input, _| bi_platform_pkg_lang(args, input),
+    |args, input, _| bi_platform_containers(args, input),
+    |args, input, _| bi_platform_cloud_clis(args, input),
+    |args, input, _| bi_platform_databases(args, input),
+    |args, input, _| bi_platform_linters(args, input),
+    |args, input, _| bi_platform_vcs(args, input),
+    |args, input, _| bi_platform_iac_tools(args, input),
+    // Platform library detection (796-803)
+    |args, input, _| bi_platform_libs(args, input),
+    |args, input, _| bi_platform_lib_version(args, input),
+    |args, input, _| bi_platform_system_libs(args, input),
+    |args, input, _| bi_platform_sdk_version(args, input),
+    |args, input, _| bi_platform_libc(args, input),
+    |args, input, _| bi_platform_libcpp(args, input),
+    |args, input, _| bi_platform_ssl_version(args, input),
+    |args, input, _| bi_platform_cuda_version(args, input),
+    // Platform hardware detection (804-815)
+    |args, input, _| bi_platform_cpu(args, input),
+    |args, input, _| bi_platform_cpu_count(args, input),
+    |args, input, _| bi_platform_cpu_freq(args, input),
+    |args, input, _| bi_platform_memory(args, input),
+    |args, input, _| bi_platform_memory_total(args, input),
+    |args, input, _| bi_platform_memory_free(args, input),
+    |args, input, _| bi_platform_disks(args, input),
+    |args, input, _| bi_platform_disk_usage(args, input),
+    |args, input, _| bi_platform_gpus(args, input),
+    |args, input, _| bi_platform_gpu_memory(args, input),
+    |args, input, _| bi_platform_network_interfaces(args, input),
+    |args, input, _| bi_platform_hardware_summary(args, input),
 ];
 
 fn fast_builtin_lookup(
@@ -20561,3 +21071,3427 @@ fn bi_nanda_quorum(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     result.insert("total_agents".to_string(), Value::Int(total_agents as i64));
     Ok(Value::Record(result))
 }
+
+
+// ============== AI CODING ASSISTANT BUILTINS ==============
+
+// Git module implementations
+fn bi_git_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let path = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).unwrap_or(".".to_string());
+    let output = std::process::Command::new("git")
+        .args(["status", "--porcelain", "-b"])
+        .current_dir(&path)
+        .output()?;
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let lines: Vec<Value> = stdout.lines().map(|l| Value::Str(l.to_string())).collect();
+    Ok(Value::Array(lines))
+}
+
+fn bi_git_diff(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let path = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).unwrap_or(".".to_string());
+    let output = std::process::Command::new("git")
+        .args(["diff"])
+        .current_dir(&path)
+        .output()?;
+    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()))
+}
+
+fn bi_git_diff_staged(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let path = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).unwrap_or(".".to_string());
+    let output = std::process::Command::new("git")
+        .args(["diff", "--staged"])
+        .current_dir(&path)
+        .output()?;
+    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()))
+}
+
+fn bi_git_log(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let count = args.first().and_then(|v| v.as_int().ok()).unwrap_or(10);
+    let output = std::process::Command::new("git")
+        .args(["log", &format!("-{}", count), "--oneline"])
+        .output()?;
+    let lines: Vec<Value> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(|l| Value::Str(l.to_string()))
+        .collect();
+    Ok(Value::Array(lines))
+}
+
+fn bi_git_blame(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let file = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("file path required"))?;
+    let output = std::process::Command::new("git")
+        .args(["blame", &file])
+        .output()?;
+    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()))
+}
+
+fn bi_git_branch(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("git")
+        .args(["branch", "--show-current"])
+        .output()?;
+    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()))
+}
+
+fn bi_git_branches(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("git")
+        .args(["branch", "-a"])
+        .output()?;
+    let branches: Vec<Value> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(|l| Value::Str(l.trim().trim_start_matches("* ").to_string()))
+        .collect();
+    Ok(Value::Array(branches))
+}
+
+fn bi_git_checkout(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let branch = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("branch name required"))?;
+    let output = std::process::Command::new("git")
+        .args(["checkout", &branch])
+        .output()?;
+    Ok(Value::Bool(output.status.success()))
+}
+
+fn bi_git_commit(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let msg = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("commit message required"))?;
+    let output = std::process::Command::new("git")
+        .args(["commit", "-m", &msg])
+        .output()?;
+    Ok(Value::Bool(output.status.success()))
+}
+
+fn bi_git_add(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let files: Vec<String> = args.iter().filter_map(|v| v.as_str().ok()).map(|s| s.to_string()).collect();
+    let mut cmd = std::process::Command::new("git");
+    cmd.arg("add");
+    for f in &files {
+        cmd.arg(f);
+    }
+    let output = cmd.output()?;
+    Ok(Value::Bool(output.status.success()))
+}
+
+fn bi_git_reset(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mode = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).unwrap_or("--mixed".to_string());
+    let output = std::process::Command::new("git")
+        .args(["reset", &mode])
+        .output()?;
+    Ok(Value::Bool(output.status.success()))
+}
+
+fn bi_git_stash(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("git")
+        .args(["stash"])
+        .output()?;
+    Ok(Value::Bool(output.status.success()))
+}
+
+fn bi_git_stash_pop(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("git")
+        .args(["stash", "pop"])
+        .output()?;
+    Ok(Value::Bool(output.status.success()))
+}
+
+fn bi_git_stash_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("git")
+        .args(["stash", "list"])
+        .output()?;
+    let stashes: Vec<Value> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(|l| Value::Str(l.to_string()))
+        .collect();
+    Ok(Value::Array(stashes))
+}
+
+fn bi_git_remote(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("git")
+        .args(["remote", "-v"])
+        .output()?;
+    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()))
+}
+
+fn bi_git_fetch(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("git")
+        .args(["fetch"])
+        .output()?;
+    Ok(Value::Bool(output.status.success()))
+}
+
+fn bi_git_pull(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("git")
+        .args(["pull"])
+        .output()?;
+    Ok(Value::Bool(output.status.success()))
+}
+
+fn bi_git_push(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("git")
+        .args(["push"])
+        .output()?;
+    Ok(Value::Bool(output.status.success()))
+}
+
+fn bi_git_merge(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let branch = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("branch name required"))?;
+    let output = std::process::Command::new("git")
+        .args(["merge", &branch])
+        .output()?;
+    Ok(Value::Bool(output.status.success()))
+}
+
+fn bi_git_rebase(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let branch = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("branch name required"))?;
+    let output = std::process::Command::new("git")
+        .args(["rebase", &branch])
+        .output()?;
+    Ok(Value::Bool(output.status.success()))
+}
+
+fn bi_git_cherry_pick(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let commit = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("commit hash required"))?;
+    let output = std::process::Command::new("git")
+        .args(["cherry-pick", &commit])
+        .output()?;
+    Ok(Value::Bool(output.status.success()))
+}
+
+fn bi_git_tags(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("git")
+        .args(["tag", "-l"])
+        .output()?;
+    let tags: Vec<Value> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(|l| Value::Str(l.to_string()))
+        .collect();
+    Ok(Value::Array(tags))
+}
+
+fn bi_git_show(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let commit = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).unwrap_or("HEAD".to_string());
+    let output = std::process::Command::new("git")
+        .args(["show", &commit])
+        .output()?;
+    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()))
+}
+
+fn bi_git_rev_parse(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let rev = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).unwrap_or("HEAD".to_string());
+    let output = std::process::Command::new("git")
+        .args(["rev-parse", &rev])
+        .output()?;
+    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()))
+}
+
+fn bi_git_root(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .output()?;
+    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()))
+}
+
+fn bi_git_ignore(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let pattern = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("pattern required"))?;
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(".gitignore")?;
+    writeln!(file, "{}", pattern)?;
+    Ok(Value::Bool(true))
+}
+
+fn bi_git_clean(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let dry_run = args.first().and_then(|v| v.as_bool().ok()).unwrap_or(true);
+    let flag = if dry_run { "-n" } else { "-f" };
+    let output = std::process::Command::new("git")
+        .args(["clean", "-d", flag])
+        .output()?;
+    let files: Vec<Value> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(|l| Value::Str(l.to_string()))
+        .collect();
+    Ok(Value::Array(files))
+}
+
+// Code module implementations
+fn bi_code_parse(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let file = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("file path required"))?;
+    let content = std::fs::read_to_string(&file)?;
+    let lines = content.lines().count();
+    let mut result = BTreeMap::new();
+    result.insert("path".to_string(), Value::Str(file));
+    result.insert("lines".to_string(), Value::Int(lines as i64));
+    result.insert("size".to_string(), Value::Int(content.len() as i64));
+    Ok(Value::Record(result))
+}
+
+fn bi_code_symbols(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let file = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("file path required"))?;
+    let content = std::fs::read_to_string(&file)?;
+    let mut symbols = Vec::new();
+    for (i, line) in content.lines().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("fn ") || trimmed.starts_with("pub fn ") ||
+           trimmed.starts_with("struct ") || trimmed.starts_with("pub struct ") ||
+           trimmed.starts_with("enum ") || trimmed.starts_with("pub enum ") ||
+           trimmed.starts_with("impl ") || trimmed.starts_with("trait ") ||
+           trimmed.starts_with("def ") || trimmed.starts_with("class ") ||
+           trimmed.starts_with("function ") || trimmed.starts_with("const ") {
+            let mut sym = BTreeMap::new();
+            sym.insert("line".to_string(), Value::Int((i + 1) as i64));
+            sym.insert("text".to_string(), Value::Str(trimmed.to_string()));
+            symbols.push(Value::Record(sym));
+        }
+    }
+    Ok(Value::Array(symbols))
+}
+
+fn bi_code_outline(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    bi_code_symbols(args, input)
+}
+
+fn bi_code_references(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::Array(vec![]))
+}
+
+fn bi_code_definition(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::Null)
+}
+
+fn bi_code_imports(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let file = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("file path required"))?;
+    let content = std::fs::read_to_string(&file)?;
+    let imports: Vec<Value> = content.lines()
+        .filter(|l| l.trim().starts_with("use ") || l.trim().starts_with("import ") || 
+                   l.trim().starts_with("from ") || l.trim().starts_with("#include"))
+        .map(|l| Value::Str(l.trim().to_string()))
+        .collect();
+    Ok(Value::Array(imports))
+}
+
+fn bi_code_exports(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let file = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("file path required"))?;
+    let content = std::fs::read_to_string(&file)?;
+    let exports: Vec<Value> = content.lines()
+        .filter(|l| l.trim().starts_with("pub ") || l.trim().starts_with("export "))
+        .map(|l| Value::Str(l.trim().to_string()))
+        .collect();
+    Ok(Value::Array(exports))
+}
+
+fn bi_code_dependencies(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    bi_code_imports(args, _input)
+}
+
+fn bi_code_callers(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::Array(vec![]))
+}
+
+fn bi_code_callees(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::Array(vec![]))
+}
+
+fn bi_code_hover(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::Null)
+}
+
+fn bi_code_signature(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::Null)
+}
+
+fn bi_code_completions(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::Array(vec![]))
+}
+
+fn bi_code_format(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let file = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("file path required"))?;
+    let ext = std::path::Path::new(&file).extension().and_then(|s| s.to_str()).unwrap_or("");
+    let result = match ext {
+        "rs" => std::process::Command::new("rustfmt").arg(&file).output(),
+        "py" => std::process::Command::new("black").arg(&file).output(),
+        "js" | "ts" => std::process::Command::new("prettier").args(["--write", &file]).output(),
+        _ => return Ok(Value::Bool(false)),
+    };
+    Ok(Value::Bool(result.map(|o| o.status.success()).unwrap_or(false)))
+}
+
+fn bi_code_language(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let file = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("file path required"))?;
+    let ext = std::path::Path::new(&file).extension().and_then(|s| s.to_str()).unwrap_or("");
+    let lang = match ext {
+        "rs" => "rust",
+        "py" => "python",
+        "js" => "javascript",
+        "ts" => "typescript",
+        "go" => "go",
+        "java" => "java",
+        "c" | "h" => "c",
+        "cpp" | "hpp" | "cc" => "cpp",
+        "rb" => "ruby",
+        "sh" => "shell",
+        "md" => "markdown",
+        "json" => "json",
+        "toml" => "toml",
+        "yaml" | "yml" => "yaml",
+        _ => "unknown",
+    };
+    Ok(Value::Str(lang.to_string()))
+}
+
+fn bi_code_comments(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let file = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("file path required"))?;
+    let content = std::fs::read_to_string(&file)?;
+    let comments: Vec<Value> = content.lines()
+        .enumerate()
+        .filter(|(_, l)| {
+            let t = l.trim();
+            t.starts_with("//") || t.starts_with("#") || t.starts_with("/*") || t.starts_with("*")
+        })
+        .map(|(i, l)| {
+            let mut rec = BTreeMap::new();
+            rec.insert("line".to_string(), Value::Int((i + 1) as i64));
+            rec.insert("text".to_string(), Value::Str(l.trim().to_string()));
+            Value::Record(rec)
+        })
+        .collect();
+    Ok(Value::Array(comments))
+}
+
+fn bi_code_todos(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let file = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("file path required"))?;
+    let content = std::fs::read_to_string(&file)?;
+    let todos: Vec<Value> = content.lines()
+        .enumerate()
+        .filter(|(_, l)| l.to_uppercase().contains("TODO") || l.to_uppercase().contains("FIXME"))
+        .map(|(i, l)| {
+            let mut rec = BTreeMap::new();
+            rec.insert("line".to_string(), Value::Int((i + 1) as i64));
+            rec.insert("text".to_string(), Value::Str(l.trim().to_string()));
+            Value::Record(rec)
+        })
+        .collect();
+    Ok(Value::Array(todos))
+}
+
+// Project module implementations
+fn bi_project_type(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if std::path::Path::new("Cargo.toml").exists() { return Ok(Value::Str("rust".to_string())); }
+    if std::path::Path::new("package.json").exists() { return Ok(Value::Str("node".to_string())); }
+    if std::path::Path::new("pyproject.toml").exists() || std::path::Path::new("setup.py").exists() { 
+        return Ok(Value::Str("python".to_string())); 
+    }
+    if std::path::Path::new("go.mod").exists() { return Ok(Value::Str("go".to_string())); }
+    if std::path::Path::new("pom.xml").exists() { return Ok(Value::Str("java".to_string())); }
+    Ok(Value::Str("unknown".to_string()))
+}
+
+fn bi_project_root(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .output();
+    if let Ok(o) = output {
+        if o.status.success() {
+            return Ok(Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()));
+        }
+    }
+    Ok(Value::Str(std::env::current_dir()?.to_string_lossy().to_string()))
+}
+
+fn bi_project_name(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if let Ok(content) = std::fs::read_to_string("Cargo.toml") {
+        for line in content.lines() {
+            if line.starts_with("name = ") {
+                return Ok(Value::Str(line.split('"').nth(1).unwrap_or("unknown").to_string()));
+            }
+        }
+    }
+    if let Ok(content) = std::fs::read_to_string("package.json") {
+        if let Some(start) = content.find("\"name\":") {
+            let rest = &content[start + 7..];
+            if let Some(name) = rest.split('"').nth(1) {
+                return Ok(Value::Str(name.to_string()));
+            }
+        }
+    }
+    Ok(Value::Str("unknown".to_string()))
+}
+
+fn bi_project_version(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if let Ok(content) = std::fs::read_to_string("Cargo.toml") {
+        for line in content.lines() {
+            if line.starts_with("version = ") {
+                return Ok(Value::Str(line.split('"').nth(1).unwrap_or("0.0.0").to_string()));
+            }
+        }
+    }
+    Ok(Value::Str("0.0.0".to_string()))
+}
+
+fn bi_project_dependencies(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut deps = Vec::new();
+    if let Ok(content) = std::fs::read_to_string("Cargo.toml") {
+        let mut in_deps = false;
+        for line in content.lines() {
+            if line.starts_with("[dependencies]") { in_deps = true; continue; }
+            if line.starts_with("[") { in_deps = false; }
+            if in_deps && line.contains("=") {
+                deps.push(Value::Str(line.split('=').next().unwrap_or("").trim().to_string()));
+            }
+        }
+    }
+    Ok(Value::Array(deps))
+}
+
+fn bi_project_dev_dependencies(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut deps = Vec::new();
+    if let Ok(content) = std::fs::read_to_string("Cargo.toml") {
+        let mut in_deps = false;
+        for line in content.lines() {
+            if line.starts_with("[dev-dependencies]") { in_deps = true; continue; }
+            if line.starts_with("[") { in_deps = false; }
+            if in_deps && line.contains("=") {
+                deps.push(Value::Str(line.split('=').next().unwrap_or("").trim().to_string()));
+            }
+        }
+    }
+    Ok(Value::Array(deps))
+}
+
+fn bi_project_scripts(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::Array(vec![]))
+}
+
+fn bi_project_structure(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut files = Vec::new();
+    fn walk(dir: &std::path::Path, files: &mut Vec<Value>, depth: usize) {
+        if depth > 3 { return; }
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                if name.starts_with(".") || name == "target" || name == "node_modules" { continue; }
+                files.push(Value::Str(path.to_string_lossy().to_string()));
+                if path.is_dir() { walk(&path, files, depth + 1); }
+            }
+        }
+    }
+    walk(std::path::Path::new("."), &mut files, 0);
+    Ok(Value::Array(files))
+}
+
+fn bi_project_entry_points(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut entries = Vec::new();
+    if std::path::Path::new("src/main.rs").exists() { entries.push(Value::Str("src/main.rs".to_string())); }
+    if std::path::Path::new("src/lib.rs").exists() { entries.push(Value::Str("src/lib.rs".to_string())); }
+    if std::path::Path::new("index.js").exists() { entries.push(Value::Str("index.js".to_string())); }
+    if std::path::Path::new("main.py").exists() { entries.push(Value::Str("main.py".to_string())); }
+    Ok(Value::Array(entries))
+}
+
+fn bi_project_test_files(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut tests = Vec::new();
+    if std::path::Path::new("tests").is_dir() {
+        if let Ok(entries) = std::fs::read_dir("tests") {
+            for entry in entries.flatten() {
+                tests.push(Value::Str(entry.path().to_string_lossy().to_string()));
+            }
+        }
+    }
+    Ok(Value::Array(tests))
+}
+
+fn bi_project_config_files(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let configs = ["Cargo.toml", "package.json", "pyproject.toml", "tsconfig.json", ".eslintrc.json", "rustfmt.toml"];
+    let found: Vec<Value> = configs.iter()
+        .filter(|c| std::path::Path::new(c).exists())
+        .map(|c| Value::Str(c.to_string()))
+        .collect();
+    Ok(Value::Array(found))
+}
+
+fn bi_project_readme(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    for name in ["README.md", "README.txt", "README", "readme.md"] {
+        if let Ok(content) = std::fs::read_to_string(name) {
+            return Ok(Value::Str(content));
+        }
+    }
+    Ok(Value::Null)
+}
+
+fn bi_project_license(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    for name in ["LICENSE", "LICENSE.md", "LICENSE.txt"] {
+        if let Ok(content) = std::fs::read_to_string(name) {
+            return Ok(Value::Str(content));
+        }
+    }
+    Ok(Value::Null)
+}
+
+fn bi_project_gitignore(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if let Ok(content) = std::fs::read_to_string(".gitignore") {
+        return Ok(Value::Str(content));
+    }
+    Ok(Value::Null)
+}
+
+fn bi_project_languages(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut langs = std::collections::HashSet::new();
+    fn check_ext(path: &std::path::Path, langs: &mut std::collections::HashSet<String>) {
+        if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+            let lang = match ext {
+                "rs" => "Rust", "py" => "Python", "js" => "JavaScript", "ts" => "TypeScript",
+                "go" => "Go", "java" => "Java", "rb" => "Ruby", "c" | "h" => "C",
+                "cpp" | "hpp" => "C++", "sh" => "Shell", _ => return,
+            };
+            langs.insert(lang.to_string());
+        }
+    }
+    fn walk(dir: &std::path::Path, langs: &mut std::collections::HashSet<String>, depth: usize) {
+        if depth > 3 { return; }
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                if name.starts_with(".") || name == "target" || name == "node_modules" { continue; }
+                if path.is_file() { check_ext(&path, langs); }
+                else if path.is_dir() { walk(&path, langs, depth + 1); }
+            }
+        }
+    }
+    walk(std::path::Path::new("."), &mut langs, 0);
+    Ok(Value::Array(langs.into_iter().map(Value::Str).collect()))
+}
+
+fn bi_project_loc(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("wc")
+        .args(["-l", "src/*.rs"])
+        .output();
+    if let Ok(o) = output {
+        let out = String::from_utf8_lossy(&o.stdout);
+        if let Some(total) = out.lines().last() {
+            if let Some(count) = total.split_whitespace().next() {
+                if let Ok(n) = count.parse::<i64>() {
+                    return Ok(Value::Int(n));
+                }
+            }
+        }
+    }
+    Ok(Value::Int(0))
+}
+
+fn bi_project_size(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut total: u64 = 0;
+    fn walk(dir: &std::path::Path, total: &mut u64, depth: usize) {
+        if depth > 5 { return; }
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                if name.starts_with(".") || name == "target" || name == "node_modules" { continue; }
+                if path.is_file() {
+                    if let Ok(meta) = path.metadata() { *total += meta.len(); }
+                } else if path.is_dir() {
+                    walk(&path, total, depth + 1);
+                }
+            }
+        }
+    }
+    walk(std::path::Path::new("."), &mut total, 0);
+    Ok(Value::Int(total as i64))
+}
+
+// Search module implementations
+fn bi_search_code(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let pattern = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("pattern required"))?;
+    let output = std::process::Command::new("grep")
+        .args(["-rn", &pattern, "."])
+        .output()?;
+    let matches: Vec<Value> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .take(100)
+        .map(|l| Value::Str(l.to_string()))
+        .collect();
+    Ok(Value::Array(matches))
+}
+
+fn bi_search_grep(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    bi_search_code(args, input)
+}
+
+fn bi_search_regex(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    bi_search_code(args, input)
+}
+
+fn bi_search_symbols(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let pattern = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("pattern required"))?;
+    let output = std::process::Command::new("grep")
+        .args(["-rn", &format!("fn {}|struct {}|class {}|def {}", pattern, pattern, pattern, pattern), "."])
+        .output()?;
+    let matches: Vec<Value> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .take(50)
+        .map(|l| Value::Str(l.to_string()))
+        .collect();
+    Ok(Value::Array(matches))
+}
+
+fn bi_search_files(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let pattern = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("pattern required"))?;
+    let output = std::process::Command::new("find")
+        .args([".", "-name", &pattern])
+        .output()?;
+    let files: Vec<Value> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(|l| Value::Str(l.to_string()))
+        .collect();
+    Ok(Value::Array(files))
+}
+
+fn bi_search_recent(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("find")
+        .args([".", "-type", "f", "-mtime", "-1"])
+        .output()?;
+    let files: Vec<Value> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .take(50)
+        .map(|l| Value::Str(l.to_string()))
+        .collect();
+    Ok(Value::Array(files))
+}
+
+fn bi_search_modified(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let days = args.first().and_then(|v| v.as_int().ok()).unwrap_or(7);
+    let output = std::process::Command::new("find")
+        .args([".", "-type", "f", "-mtime", &format!("-{}", days)])
+        .output()?;
+    let files: Vec<Value> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .take(100)
+        .map(|l| Value::Str(l.to_string()))
+        .collect();
+    Ok(Value::Array(files))
+}
+
+fn bi_search_by_type(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let ext = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("extension required"))?;
+    let output = std::process::Command::new("find")
+        .args([".", "-name", &format!("*.{}", ext)])
+        .output()?;
+    let files: Vec<Value> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(|l| Value::Str(l.to_string()))
+        .collect();
+    Ok(Value::Array(files))
+}
+
+fn bi_search_by_size(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let size = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).unwrap_or("+1M".to_string());
+    let output = std::process::Command::new("find")
+        .args([".", "-type", "f", "-size", &size])
+        .output()?;
+    let files: Vec<Value> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(|l| Value::Str(l.to_string()))
+        .collect();
+    Ok(Value::Array(files))
+}
+
+fn bi_search_duplicates(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::Array(vec![]))
+}
+
+fn bi_search_todos(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("grep")
+        .args(["-rn", "TODO", "."])
+        .output()?;
+    let todos: Vec<Value> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .take(100)
+        .map(|l| Value::Str(l.to_string()))
+        .collect();
+    Ok(Value::Array(todos))
+}
+
+fn bi_search_fixmes(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("grep")
+        .args(["-rn", "FIXME", "."])
+        .output()?;
+    let fixmes: Vec<Value> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .take(100)
+        .map(|l| Value::Str(l.to_string()))
+        .collect();
+    Ok(Value::Array(fixmes))
+}
+
+fn bi_search_semantic(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::Array(vec![]))
+}
+
+fn bi_search_similar(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::Array(vec![]))
+}
+
+// Test module implementations
+fn bi_test_run(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("cargo")
+        .args(["test"])
+        .output()?;
+    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()))
+}
+
+fn bi_test_run_file(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let file = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("file required"))?;
+    let output = std::process::Command::new("cargo")
+        .args(["test", "--test", &file])
+        .output()?;
+    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()))
+}
+
+fn bi_test_run_function(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let func = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("function name required"))?;
+    let output = std::process::Command::new("cargo")
+        .args(["test", &func])
+        .output()?;
+    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()))
+}
+
+fn bi_test_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("cargo")
+        .args(["test", "--", "--list"])
+        .output()?;
+    let tests: Vec<Value> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter(|l| l.contains(": test"))
+        .map(|l| Value::Str(l.split(':').next().unwrap_or("").to_string()))
+        .collect();
+    Ok(Value::Array(tests))
+}
+
+fn bi_test_coverage(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::Null)
+}
+
+fn bi_test_failing(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::Array(vec![]))
+}
+
+fn bi_test_passing(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::Array(vec![]))
+}
+
+fn bi_test_skipped(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::Array(vec![]))
+}
+
+fn bi_test_watch(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::Str("Use: cargo watch -x test".to_string()))
+}
+
+fn bi_test_bench(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("cargo")
+        .args(["bench"])
+        .output()?;
+    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()))
+}
+
+fn bi_test_snapshot(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::Null)
+}
+
+fn bi_test_generate(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::Null)
+}
+
+// Diagnostics module implementations
+fn bi_diag_check(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("cargo")
+        .args(["check", "--message-format=short"])
+        .output()?;
+    Ok(Value::Str(String::from_utf8_lossy(&output.stderr).to_string()))
+}
+
+fn bi_diag_lint(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("cargo")
+        .args(["clippy", "--message-format=short"])
+        .output()?;
+    Ok(Value::Str(String::from_utf8_lossy(&output.stderr).to_string()))
+}
+
+fn bi_diag_errors(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("cargo")
+        .args(["check", "--message-format=short"])
+        .output()?;
+    let errors: Vec<Value> = String::from_utf8_lossy(&output.stderr)
+        .lines()
+        .filter(|l| l.contains("error"))
+        .map(|l| Value::Str(l.to_string()))
+        .collect();
+    Ok(Value::Array(errors))
+}
+
+fn bi_diag_warnings(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("cargo")
+        .args(["check", "--message-format=short"])
+        .output()?;
+    let warnings: Vec<Value> = String::from_utf8_lossy(&output.stderr)
+        .lines()
+        .filter(|l| l.contains("warning"))
+        .map(|l| Value::Str(l.to_string()))
+        .collect();
+    Ok(Value::Array(warnings))
+}
+
+fn bi_diag_all(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    bi_diag_check(_args, _input)
+}
+
+fn bi_diag_fix(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("cargo")
+        .args(["fix", "--allow-dirty"])
+        .output()?;
+    Ok(Value::Bool(output.status.success()))
+}
+
+fn bi_diag_explain(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let code = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("error code required"))?;
+    let output = std::process::Command::new("rustc")
+        .args(["--explain", &code])
+        .output()?;
+    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()))
+}
+
+fn bi_diag_suppress(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::Null)
+}
+
+fn bi_diag_config(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if let Ok(content) = std::fs::read_to_string("clippy.toml") {
+        return Ok(Value::Str(content));
+    }
+    if let Ok(content) = std::fs::read_to_string(".clippy.toml") {
+        return Ok(Value::Str(content));
+    }
+    Ok(Value::Null)
+}
+
+// Refactor module implementations
+fn bi_refactor_rename(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::Str("Use IDE rename functionality".to_string()))
+}
+
+fn bi_refactor_rename_file(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if args.len() < 2 {
+        return Err(anyhow::anyhow!("old and new path required"));
+    }
+    let old = args[0].as_str().unwrap_or("").to_string();
+    let new = args[1].as_str().unwrap_or("").to_string();
+    std::fs::rename(&old, &new)?;
+    Ok(Value::Bool(true))
+}
+
+fn bi_refactor_extract_function(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::Str("Use IDE extract function".to_string()))
+}
+
+fn bi_refactor_extract_variable(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::Str("Use IDE extract variable".to_string()))
+}
+
+fn bi_refactor_extract_constant(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::Str("Use IDE extract constant".to_string()))
+}
+
+fn bi_refactor_inline(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::Str("Use IDE inline".to_string()))
+}
+
+fn bi_refactor_move_to_file(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::Str("Use IDE move to file".to_string()))
+}
+
+fn bi_refactor_change_signature(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::Str("Use IDE change signature".to_string()))
+}
+
+fn bi_refactor_add_parameter(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::Str("Use IDE add parameter".to_string()))
+}
+
+fn bi_refactor_remove_parameter(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::Str("Use IDE remove parameter".to_string()))
+}
+
+fn bi_refactor_organize_imports(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let file = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("file required"))?;
+    let content = std::fs::read_to_string(&file)?;
+    let mut imports: Vec<&str> = content.lines().filter(|l| l.starts_with("use ")).collect();
+    imports.sort();
+    Ok(Value::Array(imports.into_iter().map(|s| Value::Str(s.to_string())).collect()))
+}
+
+fn bi_refactor_remove_unused(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("cargo")
+        .args(["fix", "--allow-dirty", "--edition"])
+        .output()?;
+    Ok(Value::Bool(output.status.success()))
+}
+
+// Session module implementations
+use std::sync::atomic::{AtomicU64, Ordering};
+static SESSION_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+fn bi_session_start(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let id = SESSION_COUNTER.fetch_add(1, Ordering::SeqCst);
+    Ok(Value::Int(id as i64))
+}
+
+fn bi_session_end(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::Bool(true))
+}
+
+fn bi_session_id(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::Int(SESSION_COUNTER.load(Ordering::SeqCst) as i64))
+}
+
+fn bi_session_history(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::Array(vec![]))
+}
+
+fn bi_session_undo(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::Bool(false))
+}
+
+fn bi_session_redo(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::Bool(false))
+}
+
+fn bi_session_checkpoint(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).unwrap_or("checkpoint".to_string());
+    let output = std::process::Command::new("git")
+        .args(["stash", "push", "-m", &name])
+        .output()?;
+    Ok(Value::Bool(output.status.success()))
+}
+
+fn bi_session_restore(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let index = args.first().and_then(|v| v.as_int().ok()).unwrap_or(0);
+    let output = std::process::Command::new("git")
+        .args(["stash", "apply", &format!("stash@{{{}}}", index)])
+        .output()?;
+    Ok(Value::Bool(output.status.success()))
+}
+
+fn bi_session_checkpoints(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    bi_git_stash_list(_args, _input)
+}
+
+fn bi_session_diff_since(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let commit = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).unwrap_or("HEAD~1".to_string());
+    let output = std::process::Command::new("git")
+        .args(["diff", &commit])
+        .output()?;
+    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()))
+}
+
+fn bi_session_changes(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    bi_git_status(vec![], None)
+}
+
+fn bi_session_rollback(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let commit = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).unwrap_or("HEAD".to_string());
+    let output = std::process::Command::new("git")
+        .args(["reset", "--hard", &commit])
+        .output()?;
+    Ok(Value::Bool(output.status.success()))
+}
+
+fn bi_session_export(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let file = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).unwrap_or("session.patch".to_string());
+    let output = std::process::Command::new("git")
+        .args(["diff"])
+        .output()?;
+    std::fs::write(&file, &output.stdout)?;
+    Ok(Value::Str(file))
+}
+
+// Docs module implementations
+fn bi_docs_generate(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("cargo")
+        .args(["doc", "--no-deps"])
+        .output()?;
+    Ok(Value::Bool(output.status.success()))
+}
+
+fn bi_docs_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let query = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("query required"))?;
+    let output = std::process::Command::new("grep")
+        .args(["-rn", &query, "target/doc"])
+        .output()?;
+    let matches: Vec<Value> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .take(20)
+        .map(|l| Value::Str(l.to_string()))
+        .collect();
+    Ok(Value::Array(matches))
+}
+
+fn bi_docs_api(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::Str("target/doc/index.html".to_string()))
+}
+
+fn bi_docs_readme(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    bi_project_readme(_args, _input)
+}
+
+fn bi_docs_changelog(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    for name in ["CHANGELOG.md", "CHANGELOG", "CHANGES.md", "HISTORY.md"] {
+        if let Ok(content) = std::fs::read_to_string(name) {
+            return Ok(Value::Str(content));
+        }
+    }
+    Ok(Value::Null)
+}
+
+fn bi_docs_examples(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut examples = Vec::new();
+    if std::path::Path::new("examples").is_dir() {
+        if let Ok(entries) = std::fs::read_dir("examples") {
+            for entry in entries.flatten() {
+                examples.push(Value::Str(entry.path().to_string_lossy().to_string()));
+            }
+        }
+    }
+    Ok(Value::Array(examples))
+}
+
+fn bi_docs_types(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::Array(vec![]))
+}
+
+fn bi_docs_signatures(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::Array(vec![]))
+}
+
+// Environment module implementations
+fn bi_env_detect(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut env = BTreeMap::new();
+    env.insert("os".to_string(), Value::Str(std::env::consts::OS.to_string()));
+    env.insert("arch".to_string(), Value::Str(std::env::consts::ARCH.to_string()));
+    env.insert("family".to_string(), Value::Str(std::env::consts::FAMILY.to_string()));
+    Ok(Value::Record(env))
+}
+
+fn bi_env_python(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("python")
+        .args(["--version"])
+        .output()?;
+    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()))
+}
+
+fn bi_env_node(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("node")
+        .args(["--version"])
+        .output()?;
+    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()))
+}
+
+fn bi_env_rust(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("rustc")
+        .args(["--version"])
+        .output()?;
+    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()))
+}
+
+fn bi_env_go(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("go")
+        .args(["version"])
+        .output()?;
+    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()))
+}
+
+fn bi_env_java(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("java")
+        .args(["--version"])
+        .output()?;
+    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).lines().next().unwrap_or("").to_string()))
+}
+
+fn bi_env_dotnet(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("dotnet")
+        .args(["--version"])
+        .output()?;
+    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()))
+}
+
+fn bi_env_ruby(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("ruby")
+        .args(["--version"])
+        .output()?;
+    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()))
+}
+
+fn bi_env_shell(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::Str(std::env::var("SHELL").unwrap_or_else(|_| std::env::var("COMSPEC").unwrap_or_default())))
+}
+
+fn bi_env_path(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let path = std::env::var("PATH").unwrap_or_default();
+    let parts: Vec<Value> = path.split(if cfg!(windows) { ";" } else { ":" })
+        .map(|p| Value::Str(p.to_string()))
+        .collect();
+    Ok(Value::Array(parts))
+}
+
+fn bi_env_var(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("variable name required"))?;
+    Ok(Value::Str(std::env::var(&name).unwrap_or_default()))
+}
+
+fn bi_env_vars(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let vars: BTreeMap<String, Value> = std::env::vars()
+        .map(|(k, v)| (k, Value::Str(v)))
+        .collect();
+    Ok(Value::Record(vars))
+}
+
+fn bi_env_set(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if args.len() < 2 {
+        return Err(anyhow::anyhow!("name and value required"));
+    }
+    let name = args[0].as_str().unwrap_or("").to_string();
+    let value = args[1].as_str().unwrap_or("").to_string();
+    std::env::set_var(&name, &value);
+    Ok(Value::Bool(true))
+}
+
+fn bi_env_unset(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("variable name required"))?;
+    std::env::remove_var(&name);
+    Ok(Value::Bool(true))
+}
+
+fn bi_env_docker(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("docker")
+        .args(["--version"])
+        .output()?;
+    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()))
+}
+
+fn bi_env_container(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let in_docker = std::path::Path::new("/.dockerenv").exists();
+    let in_container = std::env::var("container").is_ok();
+    Ok(Value::Bool(in_docker || in_container))
+}
+
+fn bi_env_venv(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::Str(std::env::var("VIRTUAL_ENV").unwrap_or_default()))
+}
+
+fn bi_env_activate(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let venv = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("venv path required"))?;
+    let activate = if cfg!(windows) {
+        format!("{}\\Scripts\\activate", venv)
+    } else {
+        format!("{}/bin/activate", venv)
+    };
+    Ok(Value::Str(format!("source {}", activate)))
+}
+
+// ============================================================================
+// Platform Versioning Module - Cross-platform determinism for AI agents
+// ============================================================================
+
+/// Database path for platform snapshots
+fn platform_db_path() -> std::path::PathBuf {
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_else(|_| ".".to_string());
+    std::path::Path::new(&home).join(".aether").join("platform_db.json")
+}
+
+/// Get tool version by running command with --version
+fn get_tool_version(tool: &str) -> Option<String> {
+    let version_args: &[&str] = match tool {
+        "java" => &["-version"],
+        "go" | "docker" | "kubectl" => &["version"],
+        _ => &["--version"],
+    };
+    
+    std::process::Command::new(tool)
+        .args(version_args)
+        .output()
+        .ok()
+        .and_then(|o| {
+            let out = String::from_utf8_lossy(&o.stdout);
+            let err = String::from_utf8_lossy(&o.stderr);
+            let combined = if out.is_empty() { err } else { out };
+            combined.lines().next().map(|s| s.trim().to_string())
+        })
+}
+
+/// Complete system snapshot with all versioning info
+fn bi_platform_snapshot(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut snapshot = std::collections::BTreeMap::new();
+    
+    // Timestamp
+    snapshot.insert("timestamp".to_string(), Value::Str(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs().to_string())
+            .unwrap_or_else(|_| "0".to_string())
+    ));
+    
+    // OS info
+    snapshot.insert("os".to_string(), Value::Str(std::env::consts::OS.to_string()));
+    snapshot.insert("arch".to_string(), Value::Str(std::env::consts::ARCH.to_string()));
+    snapshot.insert("family".to_string(), Value::Str(std::env::consts::FAMILY.to_string()));
+    
+    // Hostname
+    if let Ok(hostname) = std::process::Command::new(if cfg!(windows) { "hostname" } else { "hostname" })
+        .output()
+    {
+        let h = String::from_utf8_lossy(&hostname.stdout).trim().to_string();
+        snapshot.insert("hostname".to_string(), Value::Str(h));
+    }
+    
+    // OS version
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(out) = std::process::Command::new("cmd").args(["/c", "ver"]).output() {
+            let ver = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            snapshot.insert("os_version".to_string(), Value::Str(ver));
+        }
+        if let Ok(out) = std::process::Command::new("wmic").args(["os", "get", "BuildNumber"]).output() {
+            let build = String::from_utf8_lossy(&out.stdout)
+                .lines().nth(1).unwrap_or("").trim().to_string();
+            snapshot.insert("build".to_string(), Value::Str(build));
+        }
+    }
+    
+    #[cfg(not(target_os = "windows"))]
+    {
+        if let Ok(out) = std::process::Command::new("uname").arg("-r").output() {
+            let kernel = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            snapshot.insert("kernel".to_string(), Value::Str(kernel));
+        }
+        if let Ok(out) = std::process::Command::new("uname").arg("-v").output() {
+            let build = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            snapshot.insert("build".to_string(), Value::Str(build));
+        }
+        // Try to get distro info
+        if std::path::Path::new("/etc/os-release").exists() {
+            if let Ok(content) = std::fs::read_to_string("/etc/os-release") {
+                for line in content.lines() {
+                    if line.starts_with("PRETTY_NAME=") {
+                        let name = line.trim_start_matches("PRETTY_NAME=").trim_matches('"');
+                        snapshot.insert("os_version".to_string(), Value::Str(name.to_string()));
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    
+    // Tool versions
+    let tools = ["git", "python", "python3", "node", "npm", "cargo", "rustc", 
+                 "go", "java", "docker", "kubectl", "terraform", "aws", "az", "gcloud"];
+    let mut tool_versions = std::collections::BTreeMap::new();
+    for tool in tools {
+        if let Some(ver) = get_tool_version(tool) {
+            tool_versions.insert(tool.to_string(), Value::Str(ver));
+        }
+    }
+    snapshot.insert("tools".to_string(), Value::Record(tool_versions));
+    
+    // Environment variables that affect behavior
+    let env_vars = ["PATH", "HOME", "USER", "SHELL", "TERM", "LANG", "LC_ALL",
+                    "CARGO_HOME", "RUSTUP_HOME", "GOPATH", "JAVA_HOME", "PYTHONPATH"];
+    let mut env_map = std::collections::BTreeMap::new();
+    for var in env_vars {
+        if let Ok(val) = std::env::var(var) {
+            env_map.insert(var.to_string(), Value::Str(val));
+        }
+    }
+    snapshot.insert("env".to_string(), Value::Record(env_map));
+    
+    // Generate fingerprint hash
+    let fp = format!("{:?}", snapshot);
+    let hash = format!("{:x}", md5_simple(&fp));
+    snapshot.insert("fingerprint".to_string(), Value::Str(hash));
+    
+    Ok(Value::Record(snapshot))
+}
+
+/// Simple MD5-like hash for fingerprinting (not cryptographic)
+fn md5_simple(s: &str) -> u64 {
+    let mut hash: u64 = 0;
+    for (i, b) in s.bytes().enumerate() {
+        hash = hash.wrapping_add((b as u64).wrapping_mul((i as u64).wrapping_add(1)));
+        hash = hash.rotate_left(7);
+    }
+    hash
+}
+
+fn bi_platform_os_version(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(out) = std::process::Command::new("cmd").args(["/c", "ver"]).output() {
+            return Ok(Value::Str(String::from_utf8_lossy(&out.stdout).trim().to_string()));
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(out) = std::process::Command::new("sw_vers").arg("-productVersion").output() {
+            return Ok(Value::Str(String::from_utf8_lossy(&out.stdout).trim().to_string()));
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        if std::path::Path::new("/etc/os-release").exists() {
+            if let Ok(content) = std::fs::read_to_string("/etc/os-release") {
+                for line in content.lines() {
+                    if line.starts_with("VERSION=") {
+                        return Ok(Value::Str(line.trim_start_matches("VERSION=").trim_matches('"').to_string()));
+                    }
+                }
+            }
+        }
+        if let Ok(out) = std::process::Command::new("uname").arg("-r").output() {
+            return Ok(Value::Str(String::from_utf8_lossy(&out.stdout).trim().to_string()));
+        }
+    }
+    Ok(Value::Str("unknown".to_string()))
+}
+
+fn bi_platform_kernel(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(out) = std::process::Command::new("wmic").args(["os", "get", "Version"]).output() {
+            let ver = String::from_utf8_lossy(&out.stdout).lines().nth(1).unwrap_or("").trim().to_string();
+            return Ok(Value::Str(ver));
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        if let Ok(out) = std::process::Command::new("uname").arg("-r").output() {
+            return Ok(Value::Str(String::from_utf8_lossy(&out.stdout).trim().to_string()));
+        }
+    }
+    Ok(Value::Str("unknown".to_string()))
+}
+
+fn bi_platform_build(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(out) = std::process::Command::new("wmic").args(["os", "get", "BuildNumber"]).output() {
+            let build = String::from_utf8_lossy(&out.stdout).lines().nth(1).unwrap_or("").trim().to_string();
+            return Ok(Value::Str(build));
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(out) = std::process::Command::new("sw_vers").arg("-buildVersion").output() {
+            return Ok(Value::Str(String::from_utf8_lossy(&out.stdout).trim().to_string()));
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(out) = std::process::Command::new("uname").arg("-v").output() {
+            return Ok(Value::Str(String::from_utf8_lossy(&out.stdout).trim().to_string()));
+        }
+    }
+    Ok(Value::Str("unknown".to_string()))
+}
+
+fn bi_platform_arch(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::Str(std::env::consts::ARCH.to_string()))
+}
+
+fn bi_platform_hostname(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if let Ok(out) = std::process::Command::new("hostname").output() {
+        Ok(Value::Str(String::from_utf8_lossy(&out.stdout).trim().to_string()))
+    } else {
+        Ok(Value::Str("unknown".to_string()))
+    }
+}
+
+fn bi_platform_machine_id(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(id) = std::fs::read_to_string("/etc/machine-id") {
+            return Ok(Value::Str(id.trim().to_string()));
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(out) = std::process::Command::new("ioreg")
+            .args(["-rd1", "-c", "IOPlatformExpertDevice"])
+            .output()
+        {
+            let output = String::from_utf8_lossy(&out.stdout);
+            for line in output.lines() {
+                if line.contains("IOPlatformUUID") {
+                    if let Some(uuid) = line.split('"').nth(3) {
+                        return Ok(Value::Str(uuid.to_string()));
+                    }
+                }
+            }
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(out) = std::process::Command::new("wmic")
+            .args(["csproduct", "get", "UUID"])
+            .output()
+        {
+            let uuid = String::from_utf8_lossy(&out.stdout).lines().nth(1).unwrap_or("").trim().to_string();
+            return Ok(Value::Str(uuid));
+        }
+    }
+    Ok(Value::Str("unknown".to_string()))
+}
+
+fn bi_platform_tool_version(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let tool = args.first().and_then(|v| v.as_str().ok()).unwrap_or("unknown");
+    match get_tool_version(tool) {
+        Some(ver) => Ok(Value::Str(ver)),
+        None => Ok(Value::Null),
+    }
+}
+
+fn bi_platform_tool_versions(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut versions = std::collections::BTreeMap::new();
+    
+    // Compilers & Build Tools
+    let compilers = ["gcc", "g++", "clang", "clang++", "rustc", "go", "javac", 
+                     "swift", "kotlinc", "scalac", "ghc", "ocaml", "fpc", "gfortran",
+                     "nvcc", "hipcc", "dmd", "ldc2", "gdc", "zig", "nim", "crystal"];
+    for tool in compilers {
+        if let Some(ver) = get_tool_version(tool) {
+            versions.insert(format!("compiler.{}", tool), Value::Str(ver));
+        }
+    }
+    
+    // Build Systems
+    let build_systems = ["make", "cmake", "ninja", "meson", "bazel", "buck2", "scons",
+                         "gradle", "maven", "ant", "cargo", "cabal", "stack", "mix",
+                         "dune", "zig", "xmake", "premake5", "waf"];
+    for tool in build_systems {
+        if let Some(ver) = get_tool_version(tool) {
+            versions.insert(format!("build.{}", tool), Value::Str(ver));
+        }
+    }
+    
+    // Linkers
+    let linkers = ["ld", "lld", "gold", "mold", "link"];
+    for tool in linkers {
+        if let Some(ver) = get_tool_version(tool) {
+            versions.insert(format!("linker.{}", tool), Value::Str(ver));
+        }
+    }
+    
+    // Language Runtimes
+    let runtimes = ["python", "python3", "node", "deno", "bun", "ruby", "php", 
+                    "perl", "lua", "luajit", "julia", "R", "java", "dotnet", "mono",
+                    "erlang", "elixir", "racket", "sbcl", "clisp"];
+    for tool in runtimes {
+        if let Some(ver) = get_tool_version(tool) {
+            versions.insert(format!("runtime.{}", tool), Value::Str(ver));
+        }
+    }
+    
+    // Package Managers (Language)
+    let pkg_lang = ["pip", "pip3", "pipx", "poetry", "pdm", "uv", "conda", "mamba",
+                    "npm", "yarn", "pnpm", "bun", "gem", "bundler", "composer",
+                    "cargo", "go", "nuget", "dotnet", "maven", "gradle",
+                    "cabal", "stack", "opam", "mix", "hex", "rebar3", "cpan", "luarocks"];
+    for tool in pkg_lang {
+        if let Some(ver) = get_tool_version(tool) {
+            versions.insert(format!("pkg.{}", tool), Value::Str(ver));
+        }
+    }
+    
+    // Package Managers (System)
+    let pkg_sys = ["apt", "apt-get", "dnf", "yum", "pacman", "zypper", "apk",
+                   "brew", "port", "nix", "guix", "snap", "flatpak",
+                   "choco", "winget", "scoop", "vcpkg", "conan"];
+    for tool in pkg_sys {
+        if let Some(ver) = get_tool_version(tool) {
+            versions.insert(format!("syspkg.{}", tool), Value::Str(ver));
+        }
+    }
+    
+    // Version Control
+    let vcs = ["git", "hg", "svn", "fossil", "darcs", "bzr", "cvs"];
+    for tool in vcs {
+        if let Some(ver) = get_tool_version(tool) {
+            versions.insert(format!("vcs.{}", tool), Value::Str(ver));
+        }
+    }
+    
+    // Containers & Virtualization
+    let containers = ["docker", "podman", "buildah", "skopeo", "containerd", "runc",
+                      "nerdctl", "crictl", "ctr", "lxc", "lxd", "vagrant", "packer",
+                      "qemu-system-x86_64", "vboxmanage", "multipass"];
+    for tool in containers {
+        if let Some(ver) = get_tool_version(tool) {
+            versions.insert(format!("container.{}", tool), Value::Str(ver));
+        }
+    }
+    
+    // Orchestration & IaC
+    let orchestration = ["kubectl", "helm", "kustomize", "k3s", "k3d", "kind", "minikube",
+                         "terraform", "terragrunt", "pulumi", "cdktf", "crossplane",
+                         "ansible", "ansible-playbook", "chef", "puppet", "salt"];
+    for tool in orchestration {
+        if let Some(ver) = get_tool_version(tool) {
+            versions.insert(format!("iac.{}", tool), Value::Str(ver));
+        }
+    }
+    
+    // Cloud CLIs
+    let cloud = ["aws", "az", "gcloud", "doctl", "linode-cli", "vultr-cli",
+                 "oci", "ibmcloud", "hcloud", "exo", "scaleway", "flyctl"];
+    for tool in cloud {
+        if let Some(ver) = get_tool_version(tool) {
+            versions.insert(format!("cloud.{}", tool), Value::Str(ver));
+        }
+    }
+    
+    // Databases
+    let databases = ["psql", "mysql", "sqlite3", "mongosh", "redis-cli", "mongod",
+                     "pg_dump", "mysqldump", "cqlsh", "influx", "clickhouse-client"];
+    for tool in databases {
+        if let Some(ver) = get_tool_version(tool) {
+            versions.insert(format!("db.{}", tool), Value::Str(ver));
+        }
+    }
+    
+    // Testing & Quality
+    let testing = ["pytest", "jest", "mocha", "rspec", "phpunit", "go", "cargo",
+                   "valgrind", "gdb", "lldb", "strace", "dtrace", "perf"];
+    for tool in testing {
+        if let Some(ver) = get_tool_version(tool) {
+            versions.insert(format!("test.{}", tool), Value::Str(ver));
+        }
+    }
+    
+    // Linters & Formatters
+    let linters = ["eslint", "prettier", "black", "ruff", "mypy", "pylint", "flake8",
+                   "rubocop", "clippy", "rustfmt", "gofmt", "golangci-lint",
+                   "shellcheck", "hadolint", "yamllint", "jsonlint", "tflint"];
+    for tool in linters {
+        if let Some(ver) = get_tool_version(tool) {
+            versions.insert(format!("lint.{}", tool), Value::Str(ver));
+        }
+    }
+    
+    // Documentation
+    let docs = ["sphinx-build", "mkdocs", "hugo", "jekyll", "doxygen", "typedoc",
+                "rustdoc", "godoc", "javadoc", "pdoc"];
+    for tool in docs {
+        if let Some(ver) = get_tool_version(tool) {
+            versions.insert(format!("docs.{}", tool), Value::Str(ver));
+        }
+    }
+    
+    // CI/CD & DevOps
+    let cicd = ["gh", "gitlab-runner", "circleci", "drone", "act", "jenkins-cli",
+                "argocd", "flux", "tekton", "skaffold", "tilt", "devspace"];
+    for tool in cicd {
+        if let Some(ver) = get_tool_version(tool) {
+            versions.insert(format!("cicd.{}", tool), Value::Str(ver));
+        }
+    }
+    
+    // Security
+    let security = ["gpg", "openssl", "ssh", "ssh-keygen", "age", "sops",
+                    "vault", "trivy", "grype", "syft", "cosign", "sigstore"];
+    for tool in security {
+        if let Some(ver) = get_tool_version(tool) {
+            versions.insert(format!("security.{}", tool), Value::Str(ver));
+        }
+    }
+    
+    // Network Tools
+    let network = ["curl", "wget", "httpie", "jq", "yq", "fx", "grpcurl",
+                   "nmap", "netcat", "socat", "tcpdump", "wireshark"];
+    for tool in network {
+        if let Some(ver) = get_tool_version(tool) {
+            versions.insert(format!("net.{}", tool), Value::Str(ver));
+        }
+    }
+    
+    Ok(Value::Record(versions))
+}
+
+fn bi_platform_detect_tools(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let tools = ["git", "python", "python3", "node", "npm", "yarn", "pnpm",
+                 "cargo", "rustc", "go", "java", "javac", "docker", "podman",
+                 "kubectl", "helm", "terraform", "ansible", "aws", "az", "gcloud",
+                 "ruby", "gem", "php", "composer", "dotnet", "swift", "gcc", "g++",
+                 "clang", "make", "cmake", "ninja", "meson", "gradle", "maven",
+                 "pip", "pip3", "pipenv", "poetry", "conda", "mamba", "uv",
+                 "nvcc", "sqlite3", "psql", "mysql", "mongod", "redis-cli"];
+    
+    let available: Vec<Value> = tools.iter()
+        .filter(|t| which::which(t).is_ok())
+        .map(|t| Value::Str(t.to_string()))
+        .collect();
+    
+    Ok(Value::Array(available))
+}
+
+fn bi_platform_has_tool(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let tool = args.first().and_then(|v| v.as_str().ok()).unwrap_or("");
+    Ok(Value::Bool(which::which(tool).is_ok()))
+}
+
+fn bi_platform_capabilities(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut caps = std::collections::BTreeMap::new();
+    
+    // Admin/sudo
+    #[cfg(target_os = "windows")]
+    {
+        // Check if running as admin
+        let is_admin = std::process::Command::new("net")
+            .args(["session"])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        caps.insert("has_admin".to_string(), Value::Bool(is_admin));
+        caps.insert("has_sudo".to_string(), Value::Bool(false));
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        caps.insert("has_admin".to_string(), Value::Bool(unsafe { libc::geteuid() } == 0));
+        caps.insert("has_sudo".to_string(), Value::Bool(which::which("sudo").is_ok()));
+    }
+    
+    // GUI
+    #[cfg(target_os = "windows")]
+    {
+        caps.insert("has_gui".to_string(), Value::Bool(true));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        caps.insert("has_gui".to_string(), Value::Bool(true));
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let has_display = std::env::var("DISPLAY").is_ok() || std::env::var("WAYLAND_DISPLAY").is_ok();
+        caps.insert("has_gui".to_string(), Value::Bool(has_display));
+    }
+    
+    // Network - try to connect to localhost
+    caps.insert("has_network".to_string(), Value::Bool(true)); // Basic assumption
+    
+    // Container runtimes
+    caps.insert("has_docker".to_string(), Value::Bool(which::which("docker").is_ok()));
+    caps.insert("has_podman".to_string(), Value::Bool(which::which("podman").is_ok()));
+    caps.insert("has_container".to_string(), Value::Bool(
+        which::which("docker").is_ok() || which::which("podman").is_ok()
+    ));
+    
+    // Package managers
+    let mut pkg_mgrs = Vec::new();
+    if which::which("apt").is_ok() { pkg_mgrs.push("apt"); }
+    if which::which("dnf").is_ok() { pkg_mgrs.push("dnf"); }
+    if which::which("yum").is_ok() { pkg_mgrs.push("yum"); }
+    if which::which("pacman").is_ok() { pkg_mgrs.push("pacman"); }
+    if which::which("brew").is_ok() { pkg_mgrs.push("brew"); }
+    if which::which("choco").is_ok() { pkg_mgrs.push("choco"); }
+    if which::which("winget").is_ok() { pkg_mgrs.push("winget"); }
+    if which::which("scoop").is_ok() { pkg_mgrs.push("scoop"); }
+    if which::which("snap").is_ok() { pkg_mgrs.push("snap"); }
+    if which::which("flatpak").is_ok() { pkg_mgrs.push("flatpak"); }
+    caps.insert("pkg_managers".to_string(), Value::Array(
+        pkg_mgrs.into_iter().map(|s| Value::Str(s.to_string())).collect()
+    ));
+    
+    Ok(Value::Record(caps))
+}
+
+fn bi_platform_has_admin(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    #[cfg(target_os = "windows")]
+    {
+        let is_admin = std::process::Command::new("net")
+            .args(["session"])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        return Ok(Value::Bool(is_admin));
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        return Ok(Value::Bool(unsafe { libc::geteuid() } == 0));
+    }
+}
+
+fn bi_platform_has_sudo(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::Bool(which::which("sudo").is_ok()))
+}
+
+fn bi_platform_has_gui(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    #[cfg(target_os = "windows")]
+    {
+        return Ok(Value::Bool(true));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        return Ok(Value::Bool(true));
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let has_display = std::env::var("DISPLAY").is_ok() || std::env::var("WAYLAND_DISPLAY").is_ok();
+        return Ok(Value::Bool(has_display));
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    {
+        return Ok(Value::Bool(false));
+    }
+}
+
+fn bi_platform_has_network(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    // Simple check - try to resolve localhost
+    Ok(Value::Bool(std::net::TcpListener::bind("127.0.0.1:0").is_ok()))
+}
+
+fn bi_platform_has_container(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::Bool(which::which("docker").is_ok() || which::which("podman").is_ok()))
+}
+
+fn bi_platform_pkg_managers(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let managers = [
+        ("apt", "apt"),
+        ("apt-get", "apt-get"),
+        ("dnf", "dnf"),
+        ("yum", "yum"),
+        ("pacman", "pacman"),
+        ("zypper", "zypper"),
+        ("brew", "brew"),
+        ("port", "port"),
+        ("choco", "choco"),
+        ("winget", "winget"),
+        ("scoop", "scoop"),
+        ("snap", "snap"),
+        ("flatpak", "flatpak"),
+        ("nix", "nix"),
+        ("guix", "guix"),
+    ];
+    
+    let available: Vec<Value> = managers.iter()
+        .filter(|(_, cmd)| which::which(cmd).is_ok())
+        .map(|(name, _)| Value::Str(name.to_string()))
+        .collect();
+    
+    Ok(Value::Array(available))
+}
+
+fn bi_platform_normalize_path(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let path = args.first().and_then(|v| v.as_str().ok()).unwrap_or("");
+    // Convert backslashes to forward slashes for cross-platform consistency
+    let normalized = path.replace('\\', "/");
+    Ok(Value::Str(normalized))
+}
+
+fn bi_platform_normalize_output(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = args.first().and_then(|v| v.as_str().ok()).unwrap_or("");
+    // Normalize line endings to LF
+    let normalized = output.replace("\r\n", "\n").replace('\r', "\n");
+    Ok(Value::Str(normalized))
+}
+
+fn bi_platform_path_sep(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::Str(std::path::MAIN_SEPARATOR.to_string()))
+}
+
+fn bi_platform_line_ending(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    #[cfg(target_os = "windows")]
+    {
+        return Ok(Value::Str("\r\n".to_string()));
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        return Ok(Value::Str("\n".to_string()));
+    }
+}
+
+fn bi_platform_shell_type(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    #[cfg(target_os = "windows")]
+    {
+        if std::env::var("PSModulePath").is_ok() {
+            return Ok(Value::Str("powershell".to_string()));
+        }
+        return Ok(Value::Str("cmd".to_string()));
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        if let Ok(shell) = std::env::var("SHELL") {
+            let shell_name = std::path::Path::new(&shell)
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("sh");
+            return Ok(Value::Str(shell_name.to_string()));
+        }
+        return Ok(Value::Str("sh".to_string()));
+    }
+}
+
+fn bi_platform_require(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    // Expect a record like {os: "linux|windows", python: ">=3.10", docker: true}
+    let spec = match args.first() {
+        Some(Value::Record(r)) => r.clone(),
+        _ => return Ok(Value::Record({
+            let mut m = std::collections::BTreeMap::new();
+            m.insert("satisfied".to_string(), Value::Bool(true));
+            m.insert("missing".to_string(), Value::Array(vec![]));
+            m
+        })),
+    };
+    
+    let mut missing = Vec::new();
+    let mut satisfied = true;
+    
+    for (key, val) in &spec {
+        match key.as_str() {
+            "os" => {
+                let required_os = val.as_str().unwrap_or("");
+                let current_os = std::env::consts::OS;
+                let matches = required_os.split('|').any(|o| o.trim() == current_os);
+                if !matches {
+                    satisfied = false;
+                    missing.push(Value::Str(format!("os: need {}, have {}", required_os, current_os)));
+                }
+            }
+            "arch" => {
+                let required = val.as_str().unwrap_or("");
+                let current = std::env::consts::ARCH;
+                if !required.split('|').any(|a| a.trim() == current) {
+                    satisfied = false;
+                    missing.push(Value::Str(format!("arch: need {}, have {}", required, current)));
+                }
+            }
+            _ => {
+                // Check if it's a tool requirement
+                if let Ok(required) = val.as_bool() {
+                    if required && which::which(key).is_err() {
+                        satisfied = false;
+                        missing.push(Value::Str(format!("{}: not found", key)));
+                    }
+                } else if let Ok(ver_req) = val.as_str() {
+                    if which::which(key).is_err() {
+                        satisfied = false;
+                        missing.push(Value::Str(format!("{}: not found", key)));
+                    }
+                    // TODO: version comparison
+                }
+            }
+        }
+    }
+    
+    let mut result = std::collections::BTreeMap::new();
+    result.insert("satisfied".to_string(), Value::Bool(satisfied));
+    result.insert("missing".to_string(), Value::Array(missing));
+    Ok(Value::Record(result))
+}
+
+fn bi_platform_check_reqs(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    bi_platform_require(args, input)
+}
+
+fn bi_platform_satisfies(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let result = bi_platform_require(args, input)?;
+    if let Value::Record(r) = result {
+        if let Some(Value::Bool(sat)) = r.get("satisfied") {
+            return Ok(Value::Bool(*sat));
+        }
+    }
+    Ok(Value::Bool(false))
+}
+
+fn bi_platform_diff(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    // Compare two snapshots
+    let snap1 = match args.first() {
+        Some(Value::Record(r)) => r.clone(),
+        _ => return Ok(Value::Null),
+    };
+    let snap2 = match args.get(1) {
+        Some(Value::Record(r)) => r.clone(),
+        _ => return Ok(Value::Null),
+    };
+    
+    let mut diff = std::collections::BTreeMap::new();
+    let mut added = Vec::new();
+    let mut removed = Vec::new();
+    let mut changed = Vec::new();
+    
+    // Find added/changed in snap2
+    for (key, val2) in &snap2 {
+        match snap1.get(key) {
+            None => added.push(Value::Str(key.clone())),
+            Some(val1) if val1 != val2 => {
+                let mut change = std::collections::BTreeMap::new();
+                change.insert("key".to_string(), Value::Str(key.clone()));
+                change.insert("old".to_string(), val1.clone());
+                change.insert("new".to_string(), val2.clone());
+                changed.push(Value::Record(change));
+            }
+            _ => {}
+        }
+    }
+    
+    // Find removed in snap2
+    for key in snap1.keys() {
+        if !snap2.contains_key(key) {
+            removed.push(Value::Str(key.clone()));
+        }
+    }
+    
+    diff.insert("added".to_string(), Value::Array(added));
+    diff.insert("removed".to_string(), Value::Array(removed));
+    diff.insert("changed".to_string(), Value::Array(changed));
+    
+    Ok(Value::Record(diff))
+}
+
+fn bi_platform_compatible(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    // Check if two snapshots are compatible (same OS family, arch)
+    let snap1 = match args.first() {
+        Some(Value::Record(r)) => r,
+        _ => return Ok(Value::Bool(false)),
+    };
+    let snap2 = match args.get(1) {
+        Some(Value::Record(r)) => r,
+        _ => return Ok(Value::Bool(false)),
+    };
+    
+    let os_match = snap1.get("os") == snap2.get("os");
+    let arch_match = snap1.get("arch") == snap2.get("arch");
+    let family_match = snap1.get("family") == snap2.get("family");
+    
+    Ok(Value::Bool(os_match && arch_match && family_match))
+}
+
+fn bi_platform_db_init(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let db_path = platform_db_path();
+    if let Some(parent) = db_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    if !db_path.exists() {
+        std::fs::write(&db_path, "{}")?;
+    }
+    Ok(Value::Str(db_path.to_string_lossy().to_string()))
+}
+
+fn bi_platform_db_store(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let key = args.first().and_then(|v| v.as_str().ok()).unwrap_or("default");
+    let snapshot = match args.get(1) {
+        Some(v) => v.clone(),
+        None => bi_platform_snapshot(vec![], None)?,
+    };
+    
+    let db_path = platform_db_path();
+    bi_platform_db_init(vec![], None)?;
+    
+    let content = std::fs::read_to_string(&db_path).unwrap_or_else(|_| "{}".to_string());
+    let mut db: serde_json::Map<String, serde_json::Value> = 
+        serde_json::from_str(&content).unwrap_or_default();
+    
+    // Convert Value to serde_json::Value
+    let json_val = value_to_json(snapshot.clone());
+    db.insert(key.to_string(), json_val);
+    
+    std::fs::write(&db_path, serde_json::to_string_pretty(&db)?)?;
+    Ok(Value::Bool(true))
+}
+
+fn bi_platform_db_load(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let key = args.first().and_then(|v| v.as_str().ok()).unwrap_or("default");
+    
+    let db_path = platform_db_path();
+    if !db_path.exists() {
+        return Ok(Value::Null);
+    }
+    
+    let content = std::fs::read_to_string(&db_path)?;
+    let db: serde_json::Map<String, serde_json::Value> = 
+        serde_json::from_str(&content).unwrap_or_default();
+    
+    match db.get(key) {
+        Some(val) => Ok(json_to_value(val.clone())),
+        None => Ok(Value::Null),
+    }
+}
+
+fn bi_platform_db_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let db_path = platform_db_path();
+    if !db_path.exists() {
+        return Ok(Value::Array(vec![]));
+    }
+    
+    let content = std::fs::read_to_string(&db_path)?;
+    let db: serde_json::Map<String, serde_json::Value> = 
+        serde_json::from_str(&content).unwrap_or_default();
+    
+    let keys: Vec<Value> = db.keys().map(|k| Value::Str(k.clone())).collect();
+    Ok(Value::Array(keys))
+}
+
+fn bi_platform_db_delete(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let key = args.first().and_then(|v| v.as_str().ok()).unwrap_or("");
+    
+    let db_path = platform_db_path();
+    if !db_path.exists() {
+        return Ok(Value::Bool(false));
+    }
+    
+    let content = std::fs::read_to_string(&db_path)?;
+    let mut db: serde_json::Map<String, serde_json::Value> = 
+        serde_json::from_str(&content).unwrap_or_default();
+    
+    let existed = db.remove(key).is_some();
+    std::fs::write(&db_path, serde_json::to_string_pretty(&db)?)?;
+    
+    Ok(Value::Bool(existed))
+}
+
+fn bi_platform_db_compare(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let key1 = args.first().and_then(|v| v.as_str().ok()).unwrap_or("");
+    let key2 = args.get(1).and_then(|v| v.as_str().ok()).unwrap_or("");
+    
+    let snap1 = bi_platform_db_load(vec![Value::Str(key1.to_string())], None)?;
+    let snap2 = bi_platform_db_load(vec![Value::Str(key2.to_string())], None)?;
+    
+    bi_platform_diff(vec![snap1, snap2], None)
+}
+
+fn bi_platform_db_export(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let file_path = args.first().and_then(|v| v.as_str().ok());
+    
+    let db_path = platform_db_path();
+    if !db_path.exists() {
+        return Ok(Value::Str("{}".to_string()));
+    }
+    
+    let content = std::fs::read_to_string(&db_path)?;
+    
+    if let Some(path) = file_path {
+        std::fs::write(path, &content)?;
+        Ok(Value::Str(path.to_string()))
+    } else {
+        Ok(Value::Str(content))
+    }
+}
+
+fn bi_platform_db_import(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let source = args.first().and_then(|v| v.as_str().ok()).unwrap_or("");
+    
+    // Check if it's a file path or JSON string
+    let content = if std::path::Path::new(source).exists() {
+        std::fs::read_to_string(source)?
+    } else {
+        source.to_string()
+    };
+    
+    // Validate JSON
+    let imported: serde_json::Map<String, serde_json::Value> = 
+        serde_json::from_str(&content)?;
+    
+    let db_path = platform_db_path();
+    bi_platform_db_init(vec![], None)?;
+    
+    // Merge with existing
+    let existing = std::fs::read_to_string(&db_path).unwrap_or_else(|_| "{}".to_string());
+    let mut db: serde_json::Map<String, serde_json::Value> = 
+        serde_json::from_str(&existing).unwrap_or_default();
+    
+    for (k, v) in imported {
+        db.insert(k, v);
+    }
+    
+    std::fs::write(&db_path, serde_json::to_string_pretty(&db)?)?;
+    Ok(Value::Int(db.len() as i64))
+}
+
+fn bi_platform_fingerprint(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let snapshot = bi_platform_snapshot(vec![], None)?;
+    if let Value::Record(r) = snapshot {
+        if let Some(fp) = r.get("fingerprint") {
+            return Ok(fp.clone());
+        }
+    }
+    Ok(Value::Str("unknown".to_string()))
+}
+
+fn bi_platform_hash(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let data = match args.first() {
+        Some(v) => format!("{:?}", v),
+        None => "".to_string(),
+    };
+    Ok(Value::Str(format!("{:x}", md5_simple(&data))))
+}
+
+// ============================================================================
+
+// ============================================================================
+// Platform Categorized Tool & Library Detection
+// ============================================================================
+
+fn bi_platform_compilers(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let compilers = ["gcc", "g++", "clang", "clang++", "rustc", "go", "javac", 
+                     "swift", "kotlinc", "scalac", "ghc", "ocaml", "fpc", "gfortran",
+                     "nvcc", "hipcc", "dmd", "ldc2", "gdc", "zig", "nim", "crystal",
+                     "tcc", "pcc", "icc", "icx", "nvc", "nvc++", "emcc", "wasm-ld"];
+    let mut versions = std::collections::BTreeMap::new();
+    for tool in compilers {
+        if let Some(ver) = get_tool_version(tool) {
+            versions.insert(tool.to_string(), Value::Str(ver));
+        }
+    }
+    Ok(Value::Record(versions))
+}
+
+fn bi_platform_build_systems(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let build_systems = ["make", "cmake", "ninja", "meson", "bazel", "buck2", "scons",
+                         "gradle", "maven", "ant", "cargo", "cabal", "stack", "mix",
+                         "dune", "xmake", "premake5", "waf", "rake", "shake",
+                         "tup", "gn", "gyp", "qmake", "autoconf", "automake", "libtool"];
+    let mut versions = std::collections::BTreeMap::new();
+    for tool in build_systems {
+        if let Some(ver) = get_tool_version(tool) {
+            versions.insert(tool.to_string(), Value::Str(ver));
+        }
+    }
+    Ok(Value::Record(versions))
+}
+
+fn bi_platform_runtimes(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let runtimes = ["python", "python3", "node", "deno", "bun", "ruby", "php", 
+                    "perl", "lua", "luajit", "julia", "R", "java", "dotnet", "mono",
+                    "erlang", "elixir", "racket", "sbcl", "clisp", "guile",
+                    "tcl", "tk", "groovy", "scala", "kotlin", "clojure"];
+    let mut versions = std::collections::BTreeMap::new();
+    for tool in runtimes {
+        if let Some(ver) = get_tool_version(tool) {
+            versions.insert(tool.to_string(), Value::Str(ver));
+        }
+    }
+    Ok(Value::Record(versions))
+}
+
+fn bi_platform_pkg_lang(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let pkg_lang = ["pip", "pip3", "pipx", "poetry", "pdm", "uv", "conda", "mamba",
+                    "npm", "yarn", "pnpm", "bun", "gem", "bundler", "composer",
+                    "cargo", "go", "nuget", "dotnet", "maven", "gradle",
+                    "cabal", "stack", "opam", "mix", "hex", "rebar3", "cpan", "luarocks",
+                    "pub", "swift", "spm", "vcpkg", "conan", "hunter", "cpm"];
+    let mut versions = std::collections::BTreeMap::new();
+    for tool in pkg_lang {
+        if let Some(ver) = get_tool_version(tool) {
+            versions.insert(tool.to_string(), Value::Str(ver));
+        }
+    }
+    Ok(Value::Record(versions))
+}
+
+fn bi_platform_containers(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let containers = ["docker", "podman", "buildah", "skopeo", "containerd", "runc",
+                      "nerdctl", "crictl", "ctr", "lxc", "lxd", "vagrant", "packer",
+                      "qemu-system-x86_64", "vboxmanage", "multipass", "lima",
+                      "colima", "rancher", "k3d", "kind", "minikube", "microk8s"];
+    let mut versions = std::collections::BTreeMap::new();
+    for tool in containers {
+        if let Some(ver) = get_tool_version(tool) {
+            versions.insert(tool.to_string(), Value::Str(ver));
+        }
+    }
+    Ok(Value::Record(versions))
+}
+
+fn bi_platform_cloud_clis(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let cloud = ["aws", "az", "gcloud", "doctl", "linode-cli", "vultr-cli",
+                 "oci", "ibmcloud", "hcloud", "exo", "scaleway", "flyctl",
+                 "netlify", "vercel", "heroku", "railway", "render",
+                 "cf", "wrangler", "supabase", "firebase", "amplify"];
+    let mut versions = std::collections::BTreeMap::new();
+    for tool in cloud {
+        if let Some(ver) = get_tool_version(tool) {
+            versions.insert(tool.to_string(), Value::Str(ver));
+        }
+    }
+    Ok(Value::Record(versions))
+}
+
+fn bi_platform_databases(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let databases = ["psql", "mysql", "sqlite3", "mongosh", "redis-cli", "mongod",
+                     "pg_dump", "mysqldump", "cqlsh", "influx", "clickhouse-client",
+                     "cockroach", "tiup", "vitess", "pgcli", "mycli", "litecli",
+                     "duckdb", "questdb", "timescaledb", "surreal"];
+    let mut versions = std::collections::BTreeMap::new();
+    for tool in databases {
+        if let Some(ver) = get_tool_version(tool) {
+            versions.insert(tool.to_string(), Value::Str(ver));
+        }
+    }
+    Ok(Value::Record(versions))
+}
+
+fn bi_platform_linters(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let linters = ["eslint", "prettier", "black", "ruff", "mypy", "pylint", "flake8",
+                   "rubocop", "clippy", "rustfmt", "gofmt", "golangci-lint",
+                   "shellcheck", "hadolint", "yamllint", "jsonlint", "tflint",
+                   "stylelint", "htmlhint", "markdownlint", "actionlint",
+                   "cppcheck", "clang-tidy", "clang-format", "astyle", "uncrustify"];
+    let mut versions = std::collections::BTreeMap::new();
+    for tool in linters {
+        if let Some(ver) = get_tool_version(tool) {
+            versions.insert(tool.to_string(), Value::Str(ver));
+        }
+    }
+    Ok(Value::Record(versions))
+}
+
+fn bi_platform_vcs(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let vcs = ["git", "hg", "svn", "fossil", "darcs", "bzr", "cvs",
+               "git-lfs", "git-annex", "dvc", "gh", "glab", "hub"];
+    let mut versions = std::collections::BTreeMap::new();
+    for tool in vcs {
+        if let Some(ver) = get_tool_version(tool) {
+            versions.insert(tool.to_string(), Value::Str(ver));
+        }
+    }
+    Ok(Value::Record(versions))
+}
+
+fn bi_platform_iac_tools(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let iac = ["kubectl", "helm", "kustomize", "k3s", "k3d", "kind", "minikube",
+               "terraform", "terragrunt", "pulumi", "cdktf", "crossplane",
+               "ansible", "ansible-playbook", "chef", "puppet", "salt",
+               "vagrant", "packer", "nomad", "consul", "vault",
+               "argocd", "flux", "tekton", "skaffold", "tilt", "devspace"];
+    let mut versions = std::collections::BTreeMap::new();
+    for tool in iac {
+        if let Some(ver) = get_tool_version(tool) {
+            versions.insert(tool.to_string(), Value::Str(ver));
+        }
+    }
+    Ok(Value::Record(versions))
+}
+
+fn bi_platform_libs(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut libs = std::collections::BTreeMap::new();
+    
+    // Check pkg-config for common libraries
+    let check_libs = ["openssl", "libssl", "libcrypto", "zlib", "libpng", "libjpeg",
+                      "libcurl", "sqlite3", "libxml-2.0", "libffi", "glib-2.0",
+                      "gtk+-3.0", "qt5", "sdl2", "glfw3", "vulkan", "opencv4",
+                      "protobuf", "grpc", "boost", "eigen3", "fmt", "spdlog"];
+    
+    for lib in check_libs {
+        if let Ok(out) = std::process::Command::new("pkg-config")
+            .args(["--modversion", lib])
+            .output()
+        {
+            if out.status.success() {
+                let ver = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                libs.insert(lib.to_string(), Value::Str(ver));
+            }
+        }
+    }
+    
+    Ok(Value::Record(libs))
+}
+
+fn bi_platform_lib_version(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let lib = args.first().and_then(|v| v.as_str().ok()).unwrap_or("");
+    
+    if let Ok(out) = std::process::Command::new("pkg-config")
+        .args(["--modversion", lib])
+        .output()
+    {
+        if out.status.success() {
+            return Ok(Value::Str(String::from_utf8_lossy(&out.stdout).trim().to_string()));
+        }
+    }
+    Ok(Value::Null)
+}
+
+fn bi_platform_system_libs(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut info = std::collections::BTreeMap::new();
+    
+    #[cfg(target_os = "linux")]
+    {
+        // Get glibc version
+        if let Ok(out) = std::process::Command::new("ldd").arg("--version").output() {
+            let ver = String::from_utf8_lossy(&out.stdout);
+            if let Some(line) = ver.lines().next() {
+                info.insert("glibc".to_string(), Value::Str(line.to_string()));
+            }
+        }
+        // Get libstdc++ version
+        if let Ok(out) = std::process::Command::new("strings")
+            .args(["/usr/lib/x86_64-linux-gnu/libstdc++.so.6"])
+            .output()
+        {
+            let output = String::from_utf8_lossy(&out.stdout);
+            let glibcxx: Vec<&str> = output.lines()
+                .filter(|l| l.starts_with("GLIBCXX_"))
+                .collect();
+            if let Some(last) = glibcxx.last() {
+                info.insert("libstdc++".to_string(), Value::Str(last.to_string()));
+            }
+        }
+    }
+    
+    #[cfg(target_os = "macos")]
+    {
+        // Get macOS SDK version
+        if let Ok(out) = std::process::Command::new("xcrun")
+            .args(["--show-sdk-version"])
+            .output()
+        {
+            let ver = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            info.insert("macos_sdk".to_string(), Value::Str(ver));
+        }
+        // Get Xcode version
+        if let Ok(out) = std::process::Command::new("xcodebuild")
+            .arg("-version")
+            .output()
+        {
+            let ver = String::from_utf8_lossy(&out.stdout);
+            if let Some(line) = ver.lines().next() {
+                info.insert("xcode".to_string(), Value::Str(line.to_string()));
+            }
+        }
+    }
+    
+    #[cfg(target_os = "windows")]
+    {
+        // Get Windows SDK version
+        if let Ok(sdk_path) = std::env::var("WindowsSdkDir") {
+            info.insert("windows_sdk_path".to_string(), Value::Str(sdk_path));
+        }
+        if let Ok(sdk_ver) = std::env::var("WindowsSDKVersion") {
+            info.insert("windows_sdk".to_string(), Value::Str(sdk_ver));
+        }
+        // Get Visual Studio version
+        if let Ok(vs_path) = std::env::var("VSINSTALLDIR") {
+            info.insert("vs_path".to_string(), Value::Str(vs_path));
+        }
+        // Get MSVC version
+        if let Ok(out) = std::process::Command::new("cl").output() {
+            let ver = String::from_utf8_lossy(&out.stderr);
+            if let Some(line) = ver.lines().next() {
+                info.insert("msvc".to_string(), Value::Str(line.to_string()));
+            }
+        }
+    }
+    
+    Ok(Value::Record(info))
+}
+
+fn bi_platform_sdk_version(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let sdk = args.first().and_then(|v| v.as_str().ok()).unwrap_or("");
+    
+    match sdk {
+        "android" => {
+            if let Ok(home) = std::env::var("ANDROID_HOME").or_else(|_| std::env::var("ANDROID_SDK_ROOT")) {
+                // Try to read build-tools version
+                let bt_path = std::path::Path::new(&home).join("build-tools");
+                if bt_path.exists() {
+                    if let Ok(entries) = std::fs::read_dir(bt_path) {
+                        let versions: Vec<String> = entries
+                            .filter_map(|e| e.ok())
+                            .filter_map(|e| e.file_name().into_string().ok())
+                            .collect();
+                        return Ok(Value::Array(versions.into_iter().map(Value::Str).collect()));
+                    }
+                }
+            }
+        }
+        "ios" | "macos" | "xcode" => {
+            if let Ok(out) = std::process::Command::new("xcrun").args(["--show-sdk-version"]).output() {
+                return Ok(Value::Str(String::from_utf8_lossy(&out.stdout).trim().to_string()));
+            }
+        }
+        "windows" => {
+            if let Ok(ver) = std::env::var("WindowsSDKVersion") {
+                return Ok(Value::Str(ver));
+            }
+        }
+        "dotnet" => {
+            if let Ok(out) = std::process::Command::new("dotnet").args(["--list-sdks"]).output() {
+                let sdks: Vec<Value> = String::from_utf8_lossy(&out.stdout)
+                    .lines()
+                    .map(|l| Value::Str(l.to_string()))
+                    .collect();
+                return Ok(Value::Array(sdks));
+            }
+        }
+        "java" | "jdk" => {
+            if let Ok(home) = std::env::var("JAVA_HOME") {
+                return Ok(Value::Str(home));
+            }
+        }
+        _ => {}
+    }
+    
+    Ok(Value::Null)
+}
+
+fn bi_platform_libc(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(out) = std::process::Command::new("ldd").arg("--version").output() {
+            let ver = String::from_utf8_lossy(&out.stdout);
+            if let Some(line) = ver.lines().next() {
+                return Ok(Value::Str(line.to_string()));
+            }
+        }
+        // Alternative: check /lib
+        if let Ok(entries) = std::fs::read_dir("/lib/x86_64-linux-gnu") {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.starts_with("libc.so") || name.starts_with("libc-") {
+                    return Ok(Value::Str(name));
+                }
+            }
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        return Ok(Value::Str("libSystem (macOS)".to_string()));
+    }
+    #[cfg(target_os = "windows")]
+    {
+        // MSVC runtime
+        if let Ok(out) = std::process::Command::new("where").arg("ucrtbase.dll").output() {
+            if out.status.success() {
+                return Ok(Value::Str("ucrt (Universal CRT)".to_string()));
+            }
+        }
+        return Ok(Value::Str("msvcrt".to_string()));
+    }
+    Ok(Value::Str("unknown".to_string()))
+}
+
+fn bi_platform_libcpp(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    #[cfg(target_os = "linux")]
+    {
+        // Check for libstdc++ version
+        let paths = [
+            "/usr/lib/x86_64-linux-gnu/libstdc++.so.6",
+            "/usr/lib64/libstdc++.so.6",
+            "/lib/x86_64-linux-gnu/libstdc++.so.6"
+        ];
+        for path in paths {
+            if std::path::Path::new(path).exists() {
+                if let Ok(out) = std::process::Command::new("strings").arg(path).output() {
+                    let output = String::from_utf8_lossy(&out.stdout);
+                    let glibcxx: Vec<&str> = output.lines()
+                        .filter(|l| l.starts_with("GLIBCXX_") || l.starts_with("CXXABI_"))
+                        .collect();
+                    if !glibcxx.is_empty() {
+                        let max_gxx = glibcxx.iter().filter(|l| l.starts_with("GLIBCXX_")).max();
+                        let max_abi = glibcxx.iter().filter(|l| l.starts_with("CXXABI_")).max();
+                        let mut info = std::collections::BTreeMap::new();
+                        if let Some(g) = max_gxx {
+                            info.insert("glibcxx".to_string(), Value::Str(g.to_string()));
+                        }
+                        if let Some(a) = max_abi {
+                            info.insert("cxxabi".to_string(), Value::Str(a.to_string()));
+                        }
+                        return Ok(Value::Record(info));
+                    }
+                }
+            }
+        }
+        // Check for libc++
+        if std::path::Path::new("/usr/lib/x86_64-linux-gnu/libc++.so").exists() {
+            return Ok(Value::Str("libc++ (LLVM)".to_string()));
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        return Ok(Value::Str("libc++ (Apple LLVM)".to_string()));
+    }
+    #[cfg(target_os = "windows")]
+    {
+        return Ok(Value::Str("MSVC STL".to_string()));
+    }
+    Ok(Value::Str("unknown".to_string()))
+}
+
+fn bi_platform_ssl_version(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    // Try openssl first
+    if let Ok(out) = std::process::Command::new("openssl").arg("version").output() {
+        if out.status.success() {
+            return Ok(Value::Str(String::from_utf8_lossy(&out.stdout).trim().to_string()));
+        }
+    }
+    // Try pkg-config
+    if let Ok(out) = std::process::Command::new("pkg-config")
+        .args(["--modversion", "openssl"])
+        .output()
+    {
+        if out.status.success() {
+            return Ok(Value::Str(String::from_utf8_lossy(&out.stdout).trim().to_string()));
+        }
+    }
+    Ok(Value::Null)
+}
+
+fn bi_platform_cuda_version(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut info = std::collections::BTreeMap::new();
+    
+    // CUDA Toolkit version
+    if let Ok(out) = std::process::Command::new("nvcc").arg("--version").output() {
+        let output = String::from_utf8_lossy(&out.stdout);
+        for line in output.lines() {
+            if line.contains("release") {
+                info.insert("cuda_toolkit".to_string(), Value::Str(line.trim().to_string()));
+                break;
+            }
+        }
+    }
+    
+    // NVIDIA driver version
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(out) = std::process::Command::new("nvidia-smi")
+            .args(["--query-gpu=driver_version", "--format=csv,noheader"])
+            .output()
+        {
+            if out.status.success() {
+                let ver = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                info.insert("nvidia_driver".to_string(), Value::Str(ver));
+            }
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(out) = std::process::Command::new("nvidia-smi").output() {
+            let output = String::from_utf8_lossy(&out.stdout);
+            for line in output.lines() {
+                if line.contains("Driver Version") {
+                    info.insert("nvidia_driver".to_string(), Value::Str(line.trim().to_string()));
+                    break;
+                }
+            }
+        }
+    }
+    
+    // cuDNN version
+    if let Ok(cudnn_path) = std::env::var("CUDNN_PATH") {
+        info.insert("cudnn_path".to_string(), Value::Str(cudnn_path));
+    }
+    
+    // Check for ROCm/HIP as alternative
+    if let Ok(out) = std::process::Command::new("hipcc").arg("--version").output() {
+        let ver = String::from_utf8_lossy(&out.stdout);
+        if let Some(line) = ver.lines().next() {
+            info.insert("hip".to_string(), Value::Str(line.to_string()));
+        }
+    }
+    
+    if info.is_empty() {
+        Ok(Value::Null)
+    } else {
+        Ok(Value::Record(info))
+    }
+}
+
+
+// ============================================================================
+// Platform Hardware Detection
+// ============================================================================
+
+fn bi_platform_cpu(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut info = std::collections::BTreeMap::new();
+    
+    #[cfg(target_os = "windows")]
+    {
+        // Get CPU info from PowerShell (more reliable than WMIC which may not be available)
+        if let Ok(out) = std::process::Command::new("powershell")
+            .args(["-Command", "Get-CimInstance Win32_Processor | Select-Object Name,NumberOfCores,NumberOfLogicalProcessors,MaxClockSpeed | ConvertTo-Json"])
+            .output()
+        {
+            if out.status.success() {
+                let json_str = String::from_utf8_lossy(&out.stdout);
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                    if let Some(name) = json.get("Name").and_then(|v| v.as_str()) {
+                        info.insert("name".to_string(), Value::Str(name.to_string()));
+                    }
+                    if let Some(cores) = json.get("NumberOfCores").and_then(|v| v.as_i64()) {
+                        info.insert("cores".to_string(), Value::Int(cores));
+                    }
+                    if let Some(lp) = json.get("NumberOfLogicalProcessors").and_then(|v| v.as_i64()) {
+                        info.insert("logical_processors".to_string(), Value::Int(lp));
+                    }
+                    if let Some(mhz) = json.get("MaxClockSpeed").and_then(|v| v.as_i64()) {
+                        info.insert("max_clock_mhz".to_string(), Value::Int(mhz));
+                    }
+                }
+            }
+        }
+        // Also get architecture
+        if let Ok(arch) = std::env::var("PROCESSOR_ARCHITECTURE") {
+            info.insert("arch".to_string(), Value::Str(arch));
+        }
+    }
+    
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(cpuinfo) = std::fs::read_to_string("/proc/cpuinfo") {
+            for line in cpuinfo.lines() {
+                if let Some((key, val)) = line.split_once(':') {
+                    let key = key.trim();
+                    let val = val.trim();
+                    match key {
+                        "model name" => { info.insert("name".to_string(), Value::Str(val.to_string())); }
+                        "cpu cores" => {
+                            if let Ok(n) = val.parse::<i64>() {
+                                info.insert("cores".to_string(), Value::Int(n));
+                            }
+                        }
+                        "siblings" => {
+                            if let Ok(n) = val.parse::<i64>() {
+                                info.insert("logical_processors".to_string(), Value::Int(n));
+                            }
+                        }
+                        "cpu MHz" => {
+                            if let Ok(f) = val.parse::<f64>() {
+                                info.insert("current_mhz".to_string(), Value::Float(f));
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        info.insert("arch".to_string(), Value::Str(std::env::consts::ARCH.to_string()));
+    }
+    
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(out) = std::process::Command::new("sysctl")
+            .args(["-n", "machdep.cpu.brand_string"])
+            .output()
+        {
+            info.insert("name".to_string(), Value::Str(String::from_utf8_lossy(&out.stdout).trim().to_string()));
+        }
+        if let Ok(out) = std::process::Command::new("sysctl")
+            .args(["-n", "hw.physicalcpu"])
+            .output()
+        {
+            if let Ok(n) = String::from_utf8_lossy(&out.stdout).trim().parse::<i64>() {
+                info.insert("cores".to_string(), Value::Int(n));
+            }
+        }
+        if let Ok(out) = std::process::Command::new("sysctl")
+            .args(["-n", "hw.logicalcpu"])
+            .output()
+        {
+            if let Ok(n) = String::from_utf8_lossy(&out.stdout).trim().parse::<i64>() {
+                info.insert("logical_processors".to_string(), Value::Int(n));
+            }
+        }
+        info.insert("arch".to_string(), Value::Str(std::env::consts::ARCH.to_string()));
+    }
+    
+    Ok(Value::Record(info))
+}
+
+fn bi_platform_cpu_count(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    // Use std::thread::available_parallelism for logical CPUs
+    if let Ok(count) = std::thread::available_parallelism() {
+        Ok(Value::Int(count.get() as i64))
+    } else {
+        Ok(Value::Int(1))
+    }
+}
+
+fn bi_platform_cpu_freq(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    #[cfg(target_os = "windows")]
+    {
+        // Use PowerShell instead of WMIC (more reliable)
+        if let Ok(out) = std::process::Command::new("powershell")
+            .args(["-Command", "(Get-CimInstance Win32_Processor).MaxClockSpeed"])
+            .output()
+        {
+            if out.status.success() {
+                if let Ok(n) = String::from_utf8_lossy(&out.stdout).trim().parse::<i64>() {
+                    return Ok(Value::Int(n));
+                }
+            }
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(cpuinfo) = std::fs::read_to_string("/proc/cpuinfo") {
+            for line in cpuinfo.lines() {
+                if line.starts_with("cpu MHz") {
+                    if let Some((_, val)) = line.split_once(':') {
+                        if let Ok(f) = val.trim().parse::<f64>() {
+                            return Ok(Value::Float(f));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(out) = std::process::Command::new("sysctl")
+            .args(["-n", "hw.cpufrequency"])
+            .output()
+        {
+            if let Ok(n) = String::from_utf8_lossy(&out.stdout).trim().parse::<i64>() {
+                return Ok(Value::Int(n / 1_000_000)); // Convert Hz to MHz
+            }
+        }
+    }
+    Ok(Value::Null)
+}
+
+fn bi_platform_memory(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut info = std::collections::BTreeMap::new();
+    
+    #[cfg(target_os = "windows")]
+    {
+        // Use PowerShell instead of WMIC
+        if let Ok(out) = std::process::Command::new("powershell")
+            .args(["-Command", "Get-CimInstance Win32_OperatingSystem | Select-Object TotalVisibleMemorySize,FreePhysicalMemory | ConvertTo-Json"])
+            .output()
+        {
+            if out.status.success() {
+                let json_str = String::from_utf8_lossy(&out.stdout);
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                    if let Some(total) = json.get("TotalVisibleMemorySize").and_then(|v| v.as_i64()) {
+                        info.insert("total_kb".to_string(), Value::Int(total));
+                        info.insert("total_gb".to_string(), Value::Float(total as f64 / 1024.0 / 1024.0));
+                    }
+                    if let Some(free) = json.get("FreePhysicalMemory").and_then(|v| v.as_i64()) {
+                        info.insert("free_kb".to_string(), Value::Int(free));
+                        info.insert("free_gb".to_string(), Value::Float(free as f64 / 1024.0 / 1024.0));
+                    }
+                }
+            }
+        }
+    }
+    
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(meminfo) = std::fs::read_to_string("/proc/meminfo") {
+            for line in meminfo.lines() {
+                if let Some((key, val)) = line.split_once(':') {
+                    let key = key.trim();
+                    let val = val.trim().replace(" kB", "");
+                    if let Ok(kb) = val.parse::<i64>() {
+                        match key {
+                            "MemTotal" => {
+                                info.insert("total_kb".to_string(), Value::Int(kb));
+                                info.insert("total_gb".to_string(), Value::Float(kb as f64 / 1024.0 / 1024.0));
+                            }
+                            "MemFree" => {
+                                info.insert("free_kb".to_string(), Value::Int(kb));
+                            }
+                            "MemAvailable" => {
+                                info.insert("available_kb".to_string(), Value::Int(kb));
+                                info.insert("available_gb".to_string(), Value::Float(kb as f64 / 1024.0 / 1024.0));
+                            }
+                            "Buffers" => { info.insert("buffers_kb".to_string(), Value::Int(kb)); }
+                            "Cached" => { info.insert("cached_kb".to_string(), Value::Int(kb)); }
+                            "SwapTotal" => { info.insert("swap_total_kb".to_string(), Value::Int(kb)); }
+                            "SwapFree" => { info.insert("swap_free_kb".to_string(), Value::Int(kb)); }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(out) = std::process::Command::new("sysctl")
+            .args(["-n", "hw.memsize"])
+            .output()
+        {
+            if let Ok(bytes) = String::from_utf8_lossy(&out.stdout).trim().parse::<i64>() {
+                info.insert("total_bytes".to_string(), Value::Int(bytes));
+                info.insert("total_gb".to_string(), Value::Float(bytes as f64 / 1024.0 / 1024.0 / 1024.0));
+            }
+        }
+    }
+    
+    Ok(Value::Record(info))
+}
+
+fn bi_platform_memory_total(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    #[cfg(target_os = "windows")]
+    {
+        // Use PowerShell instead of WMIC
+        if let Ok(out) = std::process::Command::new("powershell")
+            .args(["-Command", "(Get-CimInstance Win32_OperatingSystem).TotalVisibleMemorySize"])
+            .output()
+        {
+            if out.status.success() {
+                if let Ok(kb) = String::from_utf8_lossy(&out.stdout).trim().parse::<i64>() {
+                    return Ok(Value::Int(kb * 1024)); // Return bytes
+                }
+            }
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(meminfo) = std::fs::read_to_string("/proc/meminfo") {
+            for line in meminfo.lines() {
+                if line.starts_with("MemTotal:") {
+                    let val = line.replace("MemTotal:", "").replace(" kB", "");
+                    if let Ok(kb) = val.trim().parse::<i64>() {
+                        return Ok(Value::Int(kb * 1024));
+                    }
+                }
+            }
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(out) = std::process::Command::new("sysctl")
+            .args(["-n", "hw.memsize"])
+            .output()
+        {
+            if let Ok(bytes) = String::from_utf8_lossy(&out.stdout).trim().parse::<i64>() {
+                return Ok(Value::Int(bytes));
+            }
+        }
+    }
+    Ok(Value::Null)
+}
+
+fn bi_platform_memory_free(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    #[cfg(target_os = "windows")]
+    {
+        // Use PowerShell instead of WMIC
+        if let Ok(out) = std::process::Command::new("powershell")
+            .args(["-Command", "(Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory"])
+            .output()
+        {
+            if out.status.success() {
+                if let Ok(kb) = String::from_utf8_lossy(&out.stdout).trim().parse::<i64>() {
+                    return Ok(Value::Int(kb * 1024)); // Return bytes
+                }
+            }
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(meminfo) = std::fs::read_to_string("/proc/meminfo") {
+            for line in meminfo.lines() {
+                if line.starts_with("MemAvailable:") {
+                    let val = line.replace("MemAvailable:", "").replace(" kB", "");
+                    if let Ok(kb) = val.trim().parse::<i64>() {
+                        return Ok(Value::Int(kb * 1024));
+                    }
+                }
+            }
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        // macOS doesn't have a simple free memory sysctl, use vm_stat
+        if let Ok(out) = std::process::Command::new("vm_stat").output() {
+            let output = String::from_utf8_lossy(&out.stdout);
+            let mut free_pages: i64 = 0;
+            let page_size: i64 = 4096;
+            for line in output.lines() {
+                if line.starts_with("Pages free:") {
+                    let val = line.replace("Pages free:", "").replace(".", "");
+                    if let Ok(n) = val.trim().parse::<i64>() {
+                        free_pages = n;
+                    }
+                }
+            }
+            return Ok(Value::Int(free_pages * page_size));
+        }
+    }
+    Ok(Value::Null)
+}
+
+fn bi_platform_disks(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut disks = Vec::new();
+    
+    #[cfg(target_os = "windows")]
+    {
+        // Use PowerShell instead of WMIC
+        if let Ok(out) = std::process::Command::new("powershell")
+            .args(["-Command", "Get-CimInstance Win32_LogicalDisk | Select-Object DeviceID,Size,FreeSpace,FileSystem,VolumeName | ConvertTo-Json"])
+            .output()
+        {
+            if out.status.success() {
+                let json_str = String::from_utf8_lossy(&out.stdout);
+                // Handle both single object and array
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                    let items = if json.is_array() {
+                        json.as_array().unwrap().clone()
+                    } else {
+                        vec![json]
+                    };
+                    for item in items {
+                        let mut disk = std::collections::BTreeMap::new();
+                        if let Some(id) = item.get("DeviceID").and_then(|v| v.as_str()) {
+                            disk.insert("mount".to_string(), Value::Str(id.to_string()));
+                        }
+                        if let Some(size) = item.get("Size").and_then(|v| v.as_i64()) {
+                            disk.insert("size_bytes".to_string(), Value::Int(size));
+                            disk.insert("size_gb".to_string(), Value::Float(size as f64 / 1024.0 / 1024.0 / 1024.0));
+                        }
+                        if let Some(free) = item.get("FreeSpace").and_then(|v| v.as_i64()) {
+                            disk.insert("free_bytes".to_string(), Value::Int(free));
+                            disk.insert("free_gb".to_string(), Value::Float(free as f64 / 1024.0 / 1024.0 / 1024.0));
+                        }
+                        if let Some(fs) = item.get("FileSystem").and_then(|v| v.as_str()) {
+                            disk.insert("filesystem".to_string(), Value::Str(fs.to_string()));
+                        }
+                        if let Some(label) = item.get("VolumeName").and_then(|v| v.as_str()) {
+                            disk.insert("label".to_string(), Value::Str(label.to_string()));
+                        }
+                        if !disk.is_empty() {
+                            disks.push(Value::Record(disk));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(out) = std::process::Command::new("df")
+            .args(["-B1", "--output=source,target,fstype,size,avail"])
+            .output()
+        {
+            let output = String::from_utf8_lossy(&out.stdout);
+            for line in output.lines().skip(1) {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 5 && !parts[0].starts_with("tmpfs") && !parts[0].starts_with("devtmpfs") {
+                    let mut disk = std::collections::BTreeMap::new();
+                    disk.insert("device".to_string(), Value::Str(parts[0].to_string()));
+                    disk.insert("mount".to_string(), Value::Str(parts[1].to_string()));
+                    disk.insert("filesystem".to_string(), Value::Str(parts[2].to_string()));
+                    if let Ok(n) = parts[3].parse::<i64>() {
+                        disk.insert("size_bytes".to_string(), Value::Int(n));
+                        disk.insert("size_gb".to_string(), Value::Float(n as f64 / 1024.0 / 1024.0 / 1024.0));
+                    }
+                    if let Ok(n) = parts[4].parse::<i64>() {
+                        disk.insert("free_bytes".to_string(), Value::Int(n));
+                        disk.insert("free_gb".to_string(), Value::Float(n as f64 / 1024.0 / 1024.0 / 1024.0));
+                    }
+                    disks.push(Value::Record(disk));
+                }
+            }
+        }
+    }
+    
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(out) = std::process::Command::new("df")
+            .args(["-b"])
+            .output()
+        {
+            let output = String::from_utf8_lossy(&out.stdout);
+            for line in output.lines().skip(1) {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 9 && parts[0].starts_with("/dev/") {
+                    let mut disk = std::collections::BTreeMap::new();
+                    disk.insert("device".to_string(), Value::Str(parts[0].to_string()));
+                    disk.insert("mount".to_string(), Value::Str(parts[8].to_string()));
+                    if let Ok(n) = parts[1].parse::<i64>() {
+                        let bytes = n * 512;
+                        disk.insert("size_bytes".to_string(), Value::Int(bytes));
+                        disk.insert("size_gb".to_string(), Value::Float(bytes as f64 / 1024.0 / 1024.0 / 1024.0));
+                    }
+                    if let Ok(n) = parts[3].parse::<i64>() {
+                        let bytes = n * 512;
+                        disk.insert("free_bytes".to_string(), Value::Int(bytes));
+                        disk.insert("free_gb".to_string(), Value::Float(bytes as f64 / 1024.0 / 1024.0 / 1024.0));
+                    }
+                    disks.push(Value::Record(disk));
+                }
+            }
+        }
+    }
+    
+    Ok(Value::Array(disks))
+}
+
+fn bi_platform_disk_usage(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let path = args.first().and_then(|v| v.as_str().ok()).unwrap_or(".");
+    
+    #[cfg(target_os = "windows")]
+    {
+        // Get drive letter from path
+        let drive = if path.len() >= 2 && path.chars().nth(1) == Some(':') {
+            &path[0..2]
+        } else {
+            "C:"
+        };
+        // Use PowerShell Get-CimInstance instead of WMIC
+        let ps_cmd = format!(
+            "$disk = Get-CimInstance Win32_LogicalDisk | Where-Object {{ $_.DeviceID -eq '{}' }};              if ($disk) {{                $disk | Select-Object @{{N='Size';E={{$_.Size}}}}, @{{N='FreeSpace';E={{$_.FreeSpace}}}} |                ForEach-Object {{ 'Size=' + $_.Size; 'FreeSpace=' + $_.FreeSpace }}              }}",
+            drive
+        );
+        if let Ok(out) = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-Command", &ps_cmd])
+            .output()
+        {
+            let mut info = std::collections::BTreeMap::new();
+            let output = String::from_utf8_lossy(&out.stdout);
+            for line in output.lines() {
+                if let Some((key, val)) = line.split_once('=') {
+                    let key = key.trim().to_lowercase();
+                    if let Ok(n) = val.trim().parse::<i64>() {
+                        match key.as_str() {
+                            "size" => { info.insert("total_bytes".to_string(), Value::Int(n)); }
+                            "freespace" => { info.insert("free_bytes".to_string(), Value::Int(n)); }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            let tot = info.get("total_bytes").and_then(|v| if let Value::Int(n) = v { Some(*n) } else { None });
+            let fre = info.get("free_bytes").and_then(|v| if let Value::Int(n) = v { Some(*n) } else { None });
+            if let (Some(total), Some(free)) = (tot, fre) {
+                info.insert("used_bytes".to_string(), Value::Int(total - free));
+                info.insert("usage_percent".to_string(), Value::Float(((total - free) as f64 / total as f64) * 100.0));
+            }
+            return Ok(Value::Record(info));
+        }
+    }
+    
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
+        if let Ok(out) = std::process::Command::new("df")
+            .args(["-B1", path])
+            .output()
+        {
+            let output = String::from_utf8_lossy(&out.stdout);
+            if let Some(line) = output.lines().nth(1) {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 4 {
+                    let mut info = std::collections::BTreeMap::new();
+                    if let Ok(total) = parts[1].parse::<i64>() {
+                        info.insert("total_bytes".to_string(), Value::Int(total));
+                    }
+                    if let Ok(used) = parts[2].parse::<i64>() {
+                        info.insert("used_bytes".to_string(), Value::Int(used));
+                    }
+                    if let Ok(free) = parts[3].parse::<i64>() {
+                        info.insert("free_bytes".to_string(), Value::Int(free));
+                    }
+                    if parts.len() >= 5 {
+                        let pct = parts[4].replace('%', "");
+                        if let Ok(p) = pct.parse::<f64>() {
+                            info.insert("usage_percent".to_string(), Value::Float(p));
+                        }
+                    }
+                    return Ok(Value::Record(info));
+                }
+            }
+        }
+    }
+    
+    Ok(Value::Null)
+}
+
+fn bi_platform_gpus(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut gpus = Vec::new();
+    
+    // NVIDIA GPUs via nvidia-smi
+    if let Ok(out) = std::process::Command::new("nvidia-smi")
+        .args(["--query-gpu=index,name,memory.total,memory.free,driver_version,temperature.gpu,utilization.gpu", 
+               "--format=csv,noheader,nounits"])
+        .output()
+    {
+        if out.status.success() {
+            let output = String::from_utf8_lossy(&out.stdout);
+            for line in output.lines() {
+                let parts: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
+                if parts.len() >= 7 {
+                    let mut gpu = std::collections::BTreeMap::new();
+                    gpu.insert("vendor".to_string(), Value::Str("NVIDIA".to_string()));
+                    if let Ok(idx) = parts[0].parse::<i64>() {
+                        gpu.insert("index".to_string(), Value::Int(idx));
+                    }
+                    gpu.insert("name".to_string(), Value::Str(parts[1].to_string()));
+                    if let Ok(mem) = parts[2].parse::<i64>() {
+                        gpu.insert("memory_mb".to_string(), Value::Int(mem));
+                    }
+                    if let Ok(free) = parts[3].parse::<i64>() {
+                        gpu.insert("memory_free_mb".to_string(), Value::Int(free));
+                    }
+                    gpu.insert("driver".to_string(), Value::Str(parts[4].to_string()));
+                    if let Ok(temp) = parts[5].parse::<i64>() {
+                        gpu.insert("temperature_c".to_string(), Value::Int(temp));
+                    }
+                    if let Ok(util) = parts[6].parse::<i64>() {
+                        gpu.insert("utilization_percent".to_string(), Value::Int(util));
+                    }
+                    gpus.push(Value::Record(gpu));
+                }
+            }
+        }
+    }
+    
+    // AMD GPUs via rocm-smi (Linux)
+    #[cfg(target_os = "linux")]
+    if gpus.is_empty() {
+        if let Ok(out) = std::process::Command::new("rocm-smi")
+            .args(["--showproductname", "--showmeminfo", "vram", "--showtemp", "--showuse"])
+            .output()
+        {
+            if out.status.success() {
+                let mut gpu = std::collections::BTreeMap::new();
+                gpu.insert("vendor".to_string(), Value::Str("AMD".to_string()));
+                let output = String::from_utf8_lossy(&out.stdout);
+                gpu.insert("raw_info".to_string(), Value::Str(output.to_string()));
+                gpus.push(Value::Record(gpu));
+            }
+        }
+    }
+    
+    // Fallback: Windows DirectX
+    #[cfg(target_os = "windows")]
+    if gpus.is_empty() {
+        if let Ok(out) = std::process::Command::new("wmic")
+            .args(["path", "win32_VideoController", "get", "Name,AdapterRAM,DriverVersion", "/format:list"])
+            .output()
+        {
+            let output = String::from_utf8_lossy(&out.stdout);
+            let mut current = std::collections::BTreeMap::new();
+            for line in output.lines() {
+                if line.is_empty() && !current.is_empty() {
+                    gpus.push(Value::Record(current.clone()));
+                    current.clear();
+                } else if let Some((key, val)) = line.split_once('=') {
+                    let key = key.trim().to_lowercase();
+                    let val = val.trim();
+                    if !val.is_empty() {
+                        match key.as_str() {
+                            "name" => { current.insert("name".to_string(), Value::Str(val.to_string())); }
+                            "adapterram" => {
+                                if let Ok(n) = val.parse::<i64>() {
+                                    current.insert("memory_bytes".to_string(), Value::Int(n));
+                                    current.insert("memory_mb".to_string(), Value::Int(n / 1024 / 1024));
+                                }
+                            }
+                            "driverversion" => { current.insert("driver".to_string(), Value::Str(val.to_string())); }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            if !current.is_empty() {
+                gpus.push(Value::Record(current));
+            }
+        }
+    }
+    
+    Ok(Value::Array(gpus))
+}
+
+fn bi_platform_gpu_memory(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut info = std::collections::BTreeMap::new();
+    
+    if let Ok(out) = std::process::Command::new("nvidia-smi")
+        .args(["--query-gpu=memory.total,memory.used,memory.free", "--format=csv,noheader,nounits"])
+        .output()
+    {
+        if out.status.success() {
+            let output = String::from_utf8_lossy(&out.stdout);
+            if let Some(line) = output.lines().next() {
+                let parts: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
+                if parts.len() >= 3 {
+                    if let Ok(total) = parts[0].parse::<i64>() {
+                        info.insert("total_mb".to_string(), Value::Int(total));
+                    }
+                    if let Ok(used) = parts[1].parse::<i64>() {
+                        info.insert("used_mb".to_string(), Value::Int(used));
+                    }
+                    if let Ok(free) = parts[2].parse::<i64>() {
+                        info.insert("free_mb".to_string(), Value::Int(free));
+                    }
+                }
+            }
+        }
+    }
+    
+    if info.is_empty() {
+        Ok(Value::Null)
+    } else {
+        Ok(Value::Record(info))
+    }
+}
+
+fn bi_platform_network_interfaces(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut interfaces = Vec::new();
+    
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(out) = std::process::Command::new("wmic")
+            .args(["nic", "where", "NetEnabled=true", "get", "Name,MACAddress,Speed", "/format:list"])
+            .output()
+        {
+            let output = String::from_utf8_lossy(&out.stdout);
+            let mut current = std::collections::BTreeMap::new();
+            for line in output.lines() {
+                if line.is_empty() && !current.is_empty() {
+                    interfaces.push(Value::Record(current.clone()));
+                    current.clear();
+                } else if let Some((key, val)) = line.split_once('=') {
+                    let key = key.trim().to_lowercase();
+                    let val = val.trim();
+                    if !val.is_empty() {
+                        match key.as_str() {
+                            "name" => { current.insert("name".to_string(), Value::Str(val.to_string())); }
+                            "macaddress" => { current.insert("mac".to_string(), Value::Str(val.to_string())); }
+                            "speed" => {
+                                if let Ok(n) = val.parse::<i64>() {
+                                    current.insert("speed_bps".to_string(), Value::Int(n));
+                                    current.insert("speed_mbps".to_string(), Value::Int(n / 1_000_000));
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            if !current.is_empty() {
+                interfaces.push(Value::Record(current));
+            }
+        }
+        // Also get IP addresses
+        if let Ok(out) = std::process::Command::new("ipconfig").output() {
+            let output = String::from_utf8_lossy(&out.stdout);
+            // Just add raw output for now
+            if interfaces.is_empty() {
+                let mut info = std::collections::BTreeMap::new();
+                info.insert("raw".to_string(), Value::Str(output.to_string()));
+                interfaces.push(Value::Record(info));
+            }
+        }
+    }
+    
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(out) = std::process::Command::new("ip")
+            .args(["--json", "addr"])
+            .output()
+        {
+            if out.status.success() {
+                if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&out.stdout) {
+                    if let Some(arr) = json.as_array() {
+                        for iface in arr {
+                            let mut nic = std::collections::BTreeMap::new();
+                            if let Some(name) = iface.get("ifname").and_then(|v| v.as_str()) {
+                                nic.insert("name".to_string(), Value::Str(name.to_string()));
+                            }
+                            if let Some(state) = iface.get("operstate").and_then(|v| v.as_str()) {
+                                nic.insert("state".to_string(), Value::Str(state.to_string()));
+                            }
+                            if let Some(mac) = iface.get("address").and_then(|v| v.as_str()) {
+                                nic.insert("mac".to_string(), Value::Str(mac.to_string()));
+                            }
+                            if let Some(addrs) = iface.get("addr_info").and_then(|v| v.as_array()) {
+                                let ips: Vec<Value> = addrs.iter()
+                                    .filter_map(|a| a.get("local").and_then(|v| v.as_str()))
+                                    .map(|s| Value::Str(s.to_string()))
+                                    .collect();
+                                if !ips.is_empty() {
+                                    nic.insert("addresses".to_string(), Value::Array(ips));
+                                }
+                            }
+                            interfaces.push(Value::Record(nic));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(out) = std::process::Command::new("ifconfig").output() {
+            let output = String::from_utf8_lossy(&out.stdout);
+            let mut current_name = String::new();
+            let mut current = std::collections::BTreeMap::new();
+            
+            for line in output.lines() {
+                if !line.starts_with('\t') && !line.starts_with(' ') && line.contains(':') {
+                    if !current_name.is_empty() && !current.is_empty() {
+                        current.insert("name".to_string(), Value::Str(current_name.clone()));
+                        interfaces.push(Value::Record(current.clone()));
+                    }
+                    current.clear();
+                    current_name = line.split(':').next().unwrap_or("").to_string();
+                } else if line.contains("ether ") {
+                    let mac = line.split("ether ").nth(1).unwrap_or("").split_whitespace().next().unwrap_or("");
+                    current.insert("mac".to_string(), Value::Str(mac.to_string()));
+                } else if line.contains("inet ") && !line.contains("inet6") {
+                    let ip = line.split("inet ").nth(1).unwrap_or("").split_whitespace().next().unwrap_or("");
+                    current.insert("ipv4".to_string(), Value::Str(ip.to_string()));
+                }
+            }
+            if !current_name.is_empty() && !current.is_empty() {
+                current.insert("name".to_string(), Value::Str(current_name));
+                interfaces.push(Value::Record(current));
+            }
+        }
+    }
+    
+    Ok(Value::Array(interfaces))
+}
+
+fn bi_platform_hardware_summary(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut summary = std::collections::BTreeMap::new();
+    
+    // CPU info
+    if let Ok(Value::Record(cpu)) = bi_platform_cpu(vec![], None) {
+        summary.insert("cpu".to_string(), Value::Record(cpu));
+    }
+    
+    // Memory info
+    if let Ok(Value::Record(mem)) = bi_platform_memory(vec![], None) {
+        summary.insert("memory".to_string(), Value::Record(mem));
+    }
+    
+    // Disk info
+    if let Ok(Value::Array(disks)) = bi_platform_disks(vec![], None) {
+        summary.insert("disks".to_string(), Value::Array(disks));
+    }
+    
+    // GPU info
+    if let Ok(Value::Array(gpus)) = bi_platform_gpus(vec![], None) {
+        if !gpus.is_empty() {
+            summary.insert("gpus".to_string(), Value::Array(gpus));
+        }
+    }
+    
+    // Network info
+    if let Ok(Value::Array(nics)) = bi_platform_network_interfaces(vec![], None) {
+        if !nics.is_empty() {
+            summary.insert("network".to_string(), Value::Array(nics));
+        }
+    }
+    
+    // Add architecture and OS
+    summary.insert("arch".to_string(), Value::Str(std::env::consts::ARCH.to_string()));
+    summary.insert("os".to_string(), Value::Str(std::env::consts::OS.to_string()));
+    
+    Ok(Value::Record(summary))
+}
+
+// ============================================================================

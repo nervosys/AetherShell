@@ -127,6 +127,17 @@ crypto.jwt_decode(token)                   # Decode JWT
 db.sqlite_open("app.db")                   # Open SQLite
 db.sqlite_query(conn, "SELECT * FROM users")
 
+# Platform detection & hardware info
+platform.os()                 # => "windows" | "linux" | "macos"
+platform.arch()               # => "x86_64" | "aarch64"
+platform.cpu()                # => {name: "AMD Ryzen 9", cores: 12, logical_processors: 24, ...}
+platform.memory()             # => {total_gb: 93.6, free_gb: 14.6, ...}
+platform.disks()              # => [{mount: "C:", size_gb: 3725, free_gb: 256, ...}, ...]
+platform.disk_usage("C:")     # => {total_bytes: 3999990280192, free_bytes: 275183259648, usage_percent: 93.1}
+platform.gpus()               # => [{name: "NVIDIA RTX 4090", memory_mb: 24564}, ...]
+platform.network_interfaces() # => [{name: "Ethernet", ip: "192.168.1.5", mac: "..."}, ...]
+platform.hardware_summary()   # => {cpu: {...}, memory: {...}, disks: [...], gpus: [...], ...}
+
 # Math and strings
 math.sqrt(16)                 # => 4.0
 math.pow(2, 10)               # => 1024
@@ -139,7 +150,7 @@ arr.flatten([[1,2], [3,4]])   # => [1, 2, 3, 4]
 arr.unique([1, 2, 2, 3])      # => [1, 2, 3]
 ```
 
-**All modules:** `file`, `sys`, `proc`, `fs`, `net`, `http`, `gui`, `web`, `crypto`, `db`, `svc`, `cron`, `archive`, `user`, `perm`, `pkg`, `hw`, `clip`, `input`, `ai`, `agent`, `math`, `str`, `arr`, `json`, `mcp`, `shell`, `a2ui`, `a2a`, `nanda`, `rbac`, `audit`, `sso`, `cluster`, `nn`, `evo`, `rl`
+**All modules:** `file`, `sys`, `proc`, `fs`, `net`, `http`, `gui`, `web`, `crypto`, `db`, `svc`, `cron`, `archive`, `user`, `perm`, `pkg`, `hw`, `clip`, `input`, `ai`, `agent`, `math`, `str`, `arr`, `json`, `mcp`, `shell`, `platform`, `a2ui`, `a2a`, `nanda`, `rbac`, `audit`, `sso`, `cluster`, `nn`, `evo`, `rl`
 
 ---
 

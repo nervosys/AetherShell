@@ -744,6 +744,313 @@ pub fn sso_module() -> Value {
     ])
 }
 
+
+// ============== AI CODING ASSISTANT MODULES ==============
+
+/// Git operations module for AI coding assistants
+pub fn git_module() -> Value {
+    module(&[
+        ("status", "git_status"),
+        ("diff", "git_diff"),
+        ("diff_staged", "git_diff_staged"),
+        ("log", "git_log"),
+        ("blame", "git_blame"),
+        ("branch", "git_branch"),
+        ("branches", "git_branches"),
+        ("checkout", "git_checkout"),
+        ("commit", "git_commit"),
+        ("add", "git_add"),
+        ("reset", "git_reset"),
+        ("stash", "git_stash"),
+        ("stash_pop", "git_stash_pop"),
+        ("stash_list", "git_stash_list"),
+        ("remote", "git_remote"),
+        ("fetch", "git_fetch"),
+        ("pull", "git_pull"),
+        ("push", "git_push"),
+        ("merge", "git_merge"),
+        ("rebase", "git_rebase"),
+        ("cherry_pick", "git_cherry_pick"),
+        ("tags", "git_tags"),
+        ("show", "git_show"),
+        ("rev_parse", "git_rev_parse"),
+        ("root", "git_root"),
+        ("ignore", "git_ignore"),
+        ("clean", "git_clean"),
+    ])
+}
+
+/// Code analysis module for AI coding assistants
+pub fn code_module() -> Value {
+    module(&[
+        ("parse", "code_parse"),
+        ("symbols", "code_symbols"),
+        ("outline", "code_outline"),
+        ("references", "code_references"),
+        ("definition", "code_definition"),
+        ("imports", "code_imports"),
+        ("exports", "code_exports"),
+        ("dependencies", "code_dependencies"),
+        ("callers", "code_callers"),
+        ("callees", "code_callees"),
+        ("hover", "code_hover"),
+        ("signature", "code_signature"),
+        ("completions", "code_completions"),
+        ("format", "code_format"),
+        ("language", "code_language"),
+        ("comments", "code_comments"),
+        ("todos", "code_todos"),
+    ])
+}
+
+/// Project structure module for AI coding assistants
+pub fn project_module() -> Value {
+    module(&[
+        ("ptype", "project_type"),
+        ("root", "project_root"),
+        ("name", "project_name"),
+        ("version", "project_version"),
+        ("dependencies", "project_dependencies"),
+        ("dev_dependencies", "project_dev_dependencies"),
+        ("scripts", "project_scripts"),
+        ("structure", "project_structure"),
+        ("entry_points", "project_entry_points"),
+        ("test_files", "project_test_files"),
+        ("config_files", "project_config_files"),
+        ("readme", "project_readme"),
+        ("license", "project_license"),
+        ("gitignore", "project_gitignore"),
+        ("languages", "project_languages"),
+        ("loc", "project_loc"),
+        ("size", "project_size"),
+    ])
+}
+
+/// Code search module for AI coding assistants  
+pub fn search_module() -> Value {
+    module(&[
+        ("code", "search_code"),
+        ("grep", "search_grep"),
+        ("regex", "search_regex"),
+        ("symbols", "search_symbols"),
+        ("files", "search_files"),
+        ("recent", "search_recent"),
+        ("modified", "search_modified"),
+        ("by_type", "search_by_type"),
+        ("by_size", "search_by_size"),
+        ("duplicates", "search_duplicates"),
+        ("todos", "search_todos"),
+        ("fixmes", "search_fixmes"),
+        ("semantic", "search_semantic"),
+        ("similar", "search_similar"),
+    ])
+}
+
+/// Test execution module for AI coding assistants
+pub fn test_module() -> Value {
+    module(&[
+        ("run", "test_run"),
+        ("run_file", "test_run_file"),
+        ("run_function", "test_run_function"),
+        ("list", "test_list"),
+        ("coverage", "test_coverage"),
+        ("failing", "test_failing"),
+        ("passing", "test_passing"),
+        ("skipped", "test_skipped"),
+        ("watch", "test_watch"),
+        ("bench", "test_bench"),
+        ("snapshot", "test_snapshot"),
+        ("generate", "test_generate"),
+    ])
+}
+
+/// Diagnostics module for AI coding assistants
+pub fn diag_module() -> Value {
+    module(&[
+        ("check", "diag_check"),
+        ("lint", "diag_lint"),
+        ("errors", "diag_errors"),
+        ("warnings", "diag_warnings"),
+        ("all", "diag_all"),
+        ("fix", "diag_fix"),
+        ("explain", "diag_explain"),
+        ("suppress", "diag_suppress"),
+        ("config", "diag_config"),
+    ])
+}
+
+/// Refactoring module for AI coding assistants
+pub fn refactor_module() -> Value {
+    module(&[
+        ("rename", "refactor_rename"),
+        ("rename_file", "refactor_rename_file"),
+        ("extract_function", "refactor_extract_function"),
+        ("extract_variable", "refactor_extract_variable"),
+        ("extract_constant", "refactor_extract_constant"),
+        ("inline", "refactor_inline"),
+        ("move_to_file", "refactor_move_to_file"),
+        ("change_signature", "refactor_change_signature"),
+        ("add_parameter", "refactor_add_parameter"),
+        ("remove_parameter", "refactor_remove_parameter"),
+        ("organize_imports", "refactor_organize_imports"),
+        ("remove_unused", "refactor_remove_unused"),
+    ])
+}
+
+/// Session management module for AI coding assistants
+pub fn session_module() -> Value {
+    module(&[
+        ("start", "session_start"),
+        ("end", "session_end"),
+        ("id", "session_id"),
+        ("history", "session_history"),
+        ("undo", "session_undo"),
+        ("redo", "session_redo"),
+        ("checkpoint", "session_checkpoint"),
+        ("restore", "session_restore"),
+        ("checkpoints", "session_checkpoints"),
+        ("diff_since", "session_diff_since"),
+        ("changes", "session_changes"),
+        ("rollback", "session_rollback"),
+        ("export", "session_export"),
+    ])
+}
+
+/// Documentation module for AI coding assistants
+pub fn docs_module() -> Value {
+    module(&[
+        ("generate", "docs_generate"),
+        ("search", "docs_search"),
+        ("api", "docs_api"),
+        ("readme", "docs_readme"),
+        ("changelog", "docs_changelog"),
+        ("examples", "docs_examples"),
+        ("types", "docs_types"),
+        ("signatures", "docs_signatures"),
+    ])
+}
+
+/// Environment detection module for AI coding assistants
+pub fn devenv_module() -> Value {
+    module(&[
+        ("detect", "env_detect"),
+        ("python", "env_python"),
+        ("node", "env_node"),
+        ("rust", "env_rust"),
+        ("go", "env_go"),
+        ("java", "env_java"),
+        ("dotnet", "env_dotnet"),
+        ("ruby", "env_ruby"),
+        ("shell", "env_shell"),
+        ("path", "env_path"),
+        ("var", "env_var"),
+        ("vars", "env_vars"),
+        ("set", "env_set"),
+        ("unset", "env_unset"),
+        ("docker", "env_docker"),
+        ("container", "env_container"),
+        ("venv", "env_venv"),
+        ("activate", "env_activate"),
+    ])
+}
+
+/// Platform versioning and system snapshot module for cross-platform determinism
+pub fn platform_module() -> Value {
+    module(&[
+        // System versioning
+        ("snapshot", "platform_snapshot"),
+        ("os_version", "platform_os_version"),
+        ("kernel", "platform_kernel"),
+        ("build", "platform_build"),
+        ("arch", "platform_arch"),
+        ("hostname", "platform_hostname"),
+        ("machine_id", "platform_machine_id"),
+        
+        // Tool versioning
+        ("tool_version", "platform_tool_version"),
+        ("tool_versions", "platform_tool_versions"),
+        ("detect_tools", "platform_detect_tools"),
+        ("has_tool", "platform_has_tool"),
+        
+        // Capabilities
+        ("capabilities", "platform_capabilities"),
+        ("has_admin", "platform_has_admin"),
+        ("has_sudo", "platform_has_sudo"),
+        ("has_gui", "platform_has_gui"),
+        ("has_network", "platform_has_network"),
+        ("has_container", "platform_has_container"),
+        ("pkg_managers", "platform_pkg_managers"),
+        
+        // Normalization
+        ("normalize_path", "platform_normalize_path"),
+        ("normalize_output", "platform_normalize_output"),
+        ("path_sep", "platform_path_sep"),
+        ("line_ending", "platform_line_ending"),
+        ("shell_type", "platform_shell_type"),
+        
+        // Requirements
+        ("require", "platform_require"),
+        ("check_reqs", "platform_check_reqs"),
+        ("satisfies", "platform_satisfies"),
+        
+        // Diff/compare
+        ("diff", "platform_diff"),
+        ("compatible", "platform_compatible"),
+        
+        // Database operations
+        ("db_init", "platform_db_init"),
+        ("db_store", "platform_db_store"),
+        ("db_load", "platform_db_load"),
+        ("db_list", "platform_db_list"),
+        ("db_delete", "platform_db_delete"),
+        ("db_compare", "platform_db_compare"),
+        ("db_export", "platform_db_export"),
+        ("db_import", "platform_db_import"),
+        
+        // Fingerprinting
+        ("fingerprint", "platform_fingerprint"),
+        ("hash", "platform_hash"),
+        
+        // Categorized tool queries
+        ("compilers", "platform_compilers"),
+        ("build_systems", "platform_build_systems"),
+        ("runtimes", "platform_runtimes"),
+        ("pkg_lang", "platform_pkg_lang"),
+        ("containers", "platform_containers"),
+        ("cloud_clis", "platform_cloud_clis"),
+        ("databases", "platform_databases"),
+        ("linters", "platform_linters"),
+        ("vcs", "platform_vcs"),
+        ("iac_tools", "platform_iac_tools"),
+        
+        // Library detection
+        ("libs", "platform_libs"),
+        ("lib_version", "platform_lib_version"),
+        ("system_libs", "platform_system_libs"),
+        ("sdk_version", "platform_sdk_version"),
+        
+        // Runtime info
+        ("libc", "platform_libc"),
+        ("libcpp", "platform_libcpp"),
+        ("ssl_version", "platform_ssl_version"),
+        ("cuda_version", "platform_cuda_version"),
+        
+        // Hardware detection
+        ("cpu", "platform_cpu"),
+        ("cpu_count", "platform_cpu_count"),
+        ("cpu_freq", "platform_cpu_freq"),
+        ("memory", "platform_memory"),
+        ("memory_total", "platform_memory_total"),
+        ("memory_free", "platform_memory_free"),
+        ("disks", "platform_disks"),
+        ("disk_usage", "platform_disk_usage"),
+        ("gpus", "platform_gpus"),
+        ("gpu_memory", "platform_gpu_memory"),
+        ("network_interfaces", "platform_network_interfaces"),
+        ("hardware_summary", "platform_hardware_summary"),
+    ])
+}
+
 /// Get all modules as a map for registering in the environment
 pub fn all_modules() -> Vec<(&'static str, Value)> {
     vec![
@@ -777,6 +1084,20 @@ pub fn all_modules() -> Vec<(&'static str, Value)> {
         ("a2ui", a2ui_module()),
         ("a2a", a2a_module()),
         ("nanda", nanda_module()),
+        ("git", git_module()),
+        ("code", code_module()),
+        ("project", project_module()),
+        ("search", search_module()),
+        ("test", test_module()),
+        ("diag", diag_module()),
+        ("refactor", refactor_module()),
+        ("session", session_module()),
+        ("docs", docs_module()),
+        ("devenv", devenv_module()),
+        ("platform", platform_module()),
+        ("platform", platform_module()),
+        ("platform", platform_module()),
+
         ("rbac", rbac_module()),
         ("audit", audit_module()),
         ("sso", sso_module()),
