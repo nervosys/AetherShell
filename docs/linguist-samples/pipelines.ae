@@ -1,0 +1,23 @@
+# Arrays + typed pipelines with functional transforms
+result = [1,2,3,4] | map(fn(x) => x * 2) | reduce(fn(a,b) => a + b, 0)
+print(result)  # => 20
+
+# Filter, take, and print
+filtered = [5,4,3,2,1] | where(fn(x) => x > 2) | take(2)
+print(filtered)  # => [5,4]
+
+# HTTP request with structured response
+resp = http_get("https://api.github.com")
+print("Status: " + resp.status)
+print("Fields: " + len(keys(resp)))
+
+# Table operations on file system
+files = ls(".")
+regular_files = files | where(fn(r) => r.is_dir == false)
+print("Regular files: " + len(regular_files))
+
+file_names = regular_files | map(fn(f) => f.name) | take(5)
+print(file_names)
+
+dirs = files | where(fn(r) => r.is_dir == true)
+print("Directories: " + len(dirs))
