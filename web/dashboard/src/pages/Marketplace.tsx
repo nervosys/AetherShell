@@ -1,21 +1,8 @@
-import { useState, useEffect } from 'react'
-import { Search, Download, Star, GitFork, Tag, User, Clock, Filter, ChevronDown } from 'lucide-react'
+import { useState, useEffect, useCallback } from 'react'
+import { Search, Download, Star, GitFork, Tag, User, Clock, Filter, ChevronDown, Check, Loader2, Upload } from 'lucide-react'
 import clsx from 'clsx'
 import { Card, Button, Badge } from '../components/ui'
-
-interface MarketplaceAgent {
-    id: string
-    name: string
-    description: string
-    author: string
-    version: string
-    downloads: number
-    stars: number
-    forks: number
-    tags: string[]
-    updatedAt: number
-    verified: boolean
-}
+import { useDashboardStore, type MarketplaceAgent } from '../store/dashboard'
 
 export default function Marketplace() {
     const [searchQuery, setSearchQuery] = useState('')
@@ -23,37 +10,33 @@ export default function Marketplace() {
     const [sortBy, setSortBy] = useState('downloads')
     const [agents, setAgents] = useState<MarketplaceAgent[]>(mockMarketplaceAgents)
     const [loading, setLoading] = useState(false)
+    const [showPublish, setShowPublish] = useState(false)
+    const { searchMarketplace, publishAgent } = useDashboardStore()
 
-    // Try to fetch from API, fall back to mock data
-    useEffect(() => {
-        async function fetchMarketplace() {
-            try {
-                setLoading(true)
-                const response = await fetch(`/api/v1/marketplace/agents`)
-                if (response.ok) {
-                    const data = await response.json()
-                    if (data.agents && data.agents.length > 0) {
-                        setAgents(data.agents)
-                    }
-                }
-            } catch {
-                // API not available, use mock data
-            } finally {
-                setLoading(false)
+    // Fetch from API on mount and when search/category changes
+    const fetchAgents = useCallback(async () => {
+        try {
+            setLoading(true)
+            const results = await searchMarketplace(searchQuery, selectedCategory)
+            if (results.length > 0) {
+                setAgents(results)
+            } else if (!searchQuery && selectedCategory === 'all') {
+                setAgents(mockMarketplaceAgents) // fallback to mock
+            } else {
+                setAgents([])
             }
+        } catch {
+            // API not available, keep current data
+        } finally {
+            setLoading(false)
         }
-        fetchMarketplace()
-    }, [])
+    }, [searchQuery, selectedCategory, searchMarketplace])
+
+    useEffect(() => {
+        fetchAgents()
+    }, [fetchAgents])
 
     const filteredAgents = agents
-        .filter(agent => {
-            const matchesSearch =
-                agent.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                agent.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                agent.tags.some(t => t.toLowerCase().includes(searchQuery.toLowerCase()))
-            const matchesCategory = selectedCategory === 'all' || agent.tags.includes(selectedCategory)
-            return matchesSearch && matchesCategory
-        })
         .sort((a, b) => {
             switch (sortBy) {
                 case 'downloads': return b.downloads - a.downloads
@@ -71,10 +54,23 @@ export default function Marketplace() {
                     <h1 className="text-2xl font-bold text-text">Marketplace</h1>
                     <p className="text-subtext0 mt-1">Discover and install community agents</p>
                 </div>
-                <Button>
+                <Button onClick={() => setShowPublish(true)}>
+                    <Upload size={16} />
                     Publish Agent
                 </Button>
             </div>
+
+            {/* Publish Dialog */}
+            {showPublish && (
+                <PublishDialog
+                    onClose={() => setShowPublish(false)}
+                    onPublish={async (def) => {
+                        await publishAgent(def)
+                        setShowPublish(false)
+                        fetchAgents()
+                    }}
+                />
+            )}
 
             {/* Search & Filters */}
             <div className="flex flex-col md:flex-row gap-4">
@@ -141,11 +137,20 @@ export default function Marketplace() {
             </div>
 
             {/* Agent Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filteredAgents.map((agent) => (
-                    <AgentCard key={agent.id} agent={agent} />
-                ))}
-            </div>
+            {loading ? (
+                <Card>
+                    <div className="text-center py-12 text-subtext0">
+                        <Loader2 size={48} className="mx-auto mb-4 animate-spin opacity-50" />
+                        <p>Searching marketplace...</p>
+                    </div>
+                </Card>
+            ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {filteredAgents.map((agent) => (
+                        <AgentCard key={agent.id} agent={agent} onRefresh={fetchAgents} />
+                    ))}
+                </div>
+            )}
 
             {filteredAgents.length === 0 && (
                 <Card>
@@ -161,9 +166,28 @@ export default function Marketplace() {
 
 interface AgentCardProps {
     agent: MarketplaceAgent
+    onRefresh: () => void
 }
 
-function AgentCard({ agent }: AgentCardProps) {
+function AgentCard({ agent, onRefresh }: AgentCardProps) {
+    const [installing, setInstalling] = useState(false)
+    const [installed, setInstalled] = useState(agent.installed || false)
+    const [error, setError] = useState<string | null>(null)
+    const { installMarketplaceAgent } = useDashboardStore()
+
+    const handleInstall = async () => {
+        try {
+            setInstalling(true)
+            setError(null)
+            await installMarketplaceAgent(agent.id, agent.version)
+            setInstalled(true)
+            onRefresh()
+        } catch (e) {
+            setError(e instanceof Error ? e.message : 'Install failed')
+        } finally {
+            setInstalling(false)
+        }
+    }
     const formatNumber = (n: number) => {
         if (n >= 1000) return `${(n / 1000).toFixed(1)}k`
         return n.toString()
@@ -232,12 +256,107 @@ function AgentCard({ agent }: AgentCardProps) {
             </div>
 
             <div className="p-3 border-t border-surface1">
-                <Button className="w-full" size="sm">
-                    <Download size={14} />
-                    Install
+                {error && (
+                    <p className="text-xs text-red mb-2">{error}</p>
+                )}
+                <Button
+                    className="w-full"
+                    size="sm"
+                    onClick={handleInstall}
+                    disabled={installing || installed}
+                >
+                    {installing ? (
+                        <><Loader2 size={14} className="animate-spin" /> Installing...</>
+                    ) : installed ? (
+                        <><Check size={14} /> Installed</>
+                    ) : (
+                        <><Download size={14} /> Install</>
+                    )}
                 </Button>
             </div>
         </Card>
+    )
+}
+
+// Publish Dialog
+function PublishDialog({ onClose, onPublish }: {
+    onClose: () => void
+    onPublish: (def: { name: string; description: string; systemPrompt: string; tools: string[]; model?: string }) => Promise<void>
+}) {
+    const [name, setName] = useState('')
+    const [description, setDescription] = useState('')
+    const [systemPrompt, setSystemPrompt] = useState('')
+    const [tools, setTools] = useState('')
+    const [model, setModel] = useState('')
+    const [publishing, setPublishing] = useState(false)
+    const [error, setError] = useState<string | null>(null)
+
+    const handleSubmit = async () => {
+        if (!name || !description || !systemPrompt) {
+            setError('Name, description, and system prompt are required')
+            return
+        }
+        try {
+            setPublishing(true)
+            setError(null)
+            await onPublish({
+                name,
+                description,
+                systemPrompt,
+                tools: tools.split(',').map(t => t.trim()).filter(Boolean),
+                model: model || undefined,
+            })
+        } catch (e) {
+            setError(e instanceof Error ? e.message : 'Publish failed')
+            setPublishing(false)
+        }
+    }
+
+    return (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
+            <div className="w-full max-w-lg bg-surface0 rounded-xl border border-surface1" onClick={(e) => e.stopPropagation()}>
+                <div className="p-6 space-y-4">
+                    <h2 className="text-xl font-bold text-text">Publish Agent</h2>
+                    {error && <p className="text-sm text-red">{error}</p>}
+                    <div>
+                        <label className="block text-sm text-subtext0 mb-1">Agent Name</label>
+                        <input value={name} onChange={e => setName(e.target.value)}
+                            className="w-full px-3 py-2 bg-surface0 border border-surface1 rounded-lg text-text focus:outline-none focus:border-mauve"
+                            placeholder="my-agent" />
+                    </div>
+                    <div>
+                        <label className="block text-sm text-subtext0 mb-1">Description</label>
+                        <input value={description} onChange={e => setDescription(e.target.value)}
+                            className="w-full px-3 py-2 bg-surface0 border border-surface1 rounded-lg text-text focus:outline-none focus:border-mauve"
+                            placeholder="What does your agent do?" />
+                    </div>
+                    <div>
+                        <label className="block text-sm text-subtext0 mb-1">System Prompt</label>
+                        <textarea value={systemPrompt} onChange={e => setSystemPrompt(e.target.value)} rows={3}
+                            className="w-full px-3 py-2 bg-surface0 border border-surface1 rounded-lg text-text focus:outline-none focus:border-mauve resize-none"
+                            placeholder="You are a helpful agent that..." />
+                    </div>
+                    <div>
+                        <label className="block text-sm text-subtext0 mb-1">Tools (comma-separated)</label>
+                        <input value={tools} onChange={e => setTools(e.target.value)}
+                            className="w-full px-3 py-2 bg-surface0 border border-surface1 rounded-lg text-text focus:outline-none focus:border-mauve"
+                            placeholder="ls, cat, git, http_get" />
+                    </div>
+                    <div>
+                        <label className="block text-sm text-subtext0 mb-1">Model (optional)</label>
+                        <input value={model} onChange={e => setModel(e.target.value)}
+                            className="w-full px-3 py-2 bg-surface0 border border-surface1 rounded-lg text-text focus:outline-none focus:border-mauve"
+                            placeholder="openai:gpt-4o-mini" />
+                    </div>
+                    <div className="flex gap-3 justify-end pt-2">
+                        <Button onClick={onClose} size="sm">Cancel</Button>
+                        <Button onClick={handleSubmit} disabled={publishing} size="sm">
+                            {publishing ? <><Loader2 size={14} className="animate-spin" /> Publishing...</> : 'Publish'}
+                        </Button>
+                    </div>
+                </div>
+            </div>
+        </div>
     )
 }
 

@@ -132,6 +132,16 @@ pub struct RegistryClient {
     installed: HashMap<String, InstalledAgent>,
 }
 
+impl std::fmt::Debug for RegistryClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RegistryClient")
+            .field("registry_url", &self.registry_url)
+            .field("cache_dir", &self.cache_dir)
+            .field("installed_count", &self.installed.len())
+            .finish()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstalledAgent {
     pub manifest: AgentManifest,
