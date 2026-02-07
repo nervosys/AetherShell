@@ -93,6 +93,9 @@ interface DashboardState {
     createWorkflow: (workflow: Partial<Workflow>) => Promise<string>
     cancelWorkflow: (id: string) => Promise<void>
     publishAgent: (agentDef: AgentDefinition) => Promise<void>
+    searchMarketplace: (query: string, category?: string) => Promise<MarketplaceAgent[]>
+    installMarketplaceAgent: (name: string, version?: string) => Promise<void>
+    uninstallMarketplaceAgent: (name: string) => Promise<void>
 }
 
 export interface ActivityEntry {
@@ -109,6 +112,21 @@ export interface AgentDefinition {
     systemPrompt: string
     tools: string[]
     model?: string
+}
+
+export interface MarketplaceAgent {
+    id: string
+    name: string
+    description: string
+    author: string
+    version: string
+    downloads: number
+    stars: number
+    forks: number
+    tags: string[]
+    updatedAt: number
+    verified: boolean
+    installed?: boolean
 }
 
 // Store implementation
@@ -252,6 +270,42 @@ export const useDashboardStore = create<DashboardState>()(
             })
             if (!response.ok) throw new Error('Failed to publish agent')
             addActivity(set, 'agent', `Published agent: ${agentDef.name}`)
+        },
+
+        searchMarketplace: async (query: string, category?: string) => {
+            const params = new URLSearchParams()
+            if (query) params.set('q', query)
+            if (category && category !== 'all') params.set('category', category)
+            const response = await fetch(`/api/v1/marketplace/search?${params}`)
+            if (!response.ok) throw new Error('Marketplace search failed')
+            const data = await response.json()
+            return (data.agents || []) as MarketplaceAgent[]
+        },
+
+        installMarketplaceAgent: async (name: string, version?: string) => {
+            const response = await fetch('/api/v1/marketplace/install', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, version }),
+            })
+            if (!response.ok) {
+                const data = await response.json().catch(() => ({}))
+                throw new Error(data.error || 'Failed to install agent')
+            }
+            addActivity(set, 'agent', `Installed agent: ${name}`)
+        },
+
+        uninstallMarketplaceAgent: async (name: string) => {
+            const response = await fetch('/api/v1/marketplace/uninstall', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name }),
+            })
+            if (!response.ok) {
+                const data = await response.json().catch(() => ({}))
+                throw new Error(data.error || 'Failed to uninstall agent')
+            }
+            addActivity(set, 'agent', `Uninstalled agent: ${name}`)
         },
     }))
 )

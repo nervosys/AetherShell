@@ -33,6 +33,7 @@ use std::collections::HashMap;
 
 use crate::env::Env;
 use crate::eval::eval_program;
+use crate::marketplace::{RegistryClient, SearchQuery, SortBy};
 use crate::parser::parse_program;
 use crate::value::Value;
 
@@ -2557,6 +2558,8 @@ pub mod server {
         task_queue: RwLock<Vec<Task>>,
         /// Workflow definitions
         workflows: RwLock<HashMap<String, Workflow>>,
+        /// Marketplace registry client
+        marketplace: RwLock<Option<RegistryClient>>,
     }
 
     #[derive(Debug)]
@@ -2617,11 +2620,13 @@ pub mod server {
 
     impl OrchestratorState {
         pub fn new() -> Self {
+            let marketplace_client = RegistryClient::new(None).ok();
             Self {
                 agents: RwLock::new(HashMap::new()),
                 channels: RwLock::new(HashMap::new()),
                 task_queue: RwLock::new(Vec::new()),
                 workflows: RwLock::new(HashMap::new()),
+                marketplace: RwLock::new(marketplace_client),
             }
         }
 
@@ -2886,8 +2891,22 @@ pub mod server {
                 let state = Arc::clone(&state);
                 move |body| handle_publish_agent(body, state)
             }))
-            .route("/api/v1/marketplace/search", get(handle_marketplace_search))
-            .route("/api/v1/marketplace/agents", get(handle_marketplace_list))
+            .route("/api/v1/marketplace/search", get({
+                let state = Arc::clone(&state);
+                move |params| handle_marketplace_search(params, state)
+            }))
+            .route("/api/v1/marketplace/agents", get({
+                let state = Arc::clone(&state);
+                move || handle_marketplace_list(state)
+            }))
+            .route("/api/v1/marketplace/install", post({
+                let state = Arc::clone(&state);
+                move |body| handle_marketplace_install(body, state)
+            }))
+            .route("/api/v1/marketplace/uninstall", post({
+                let state = Arc::clone(&state);
+                move |body| handle_marketplace_uninstall(body, state)
+            }))
             // Discovery endpoints
             .route("/api/v1/schema", get(handle_schema))
             .route("/api/v1/schema/:format", get(handle_schema_format))
@@ -3602,28 +3621,209 @@ pub mod server {
 
     async fn handle_marketplace_search(
         axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+        state: Arc<OrchestratorState>,
     ) -> impl IntoResponse {
-        let query = params.get("q").cloned().unwrap_or_default();
+        let query_str = params.get("q").cloned().unwrap_or_default();
         let category = params.get("category").cloned();
+        let sort = params.get("sort").and_then(|s| match s.as_str() {
+            "stars" => Some(SortBy::Stars),
+            "recent" => Some(SortBy::Recent),
+            "name" => Some(SortBy::Name),
+            _ => Some(SortBy::Downloads),
+        });
 
-        // Use the marketplace module if available, otherwise return placeholder
+        // Try registry search first
+        let marketplace = state.marketplace.read().await;
+        if let Some(client) = marketplace.as_ref() {
+            let search_query = SearchQuery {
+                query: if query_str.is_empty() { None } else { Some(query_str.clone()) },
+                category: category.clone(),
+                keyword: None,
+                author: None,
+                sort_by: sort,
+                page: params.get("page").and_then(|p| p.parse().ok()),
+                per_page: params.get("per_page").and_then(|p| p.parse().ok()),
+            };
+
+            match client.search(search_query).await {
+                Ok(results) => {
+                    let agents: Vec<JsonValue> = results.results.iter().map(|a| json!({
+                        "id": a.manifest.name,
+                        "name": a.manifest.display_name,
+                        "description": a.manifest.description,
+                        "author": a.manifest.author.name,
+                        "version": a.manifest.version,
+                        "downloads": a.downloads,
+                        "stars": a.stars,
+                        "forks": a.forks,
+                        "tags": a.manifest.keywords,
+                        "updatedAt": a.updated_at * 1000,
+                        "verified": a.verified,
+                    })).collect();
+
+                    return Json(json!({
+                        "success": true,
+                        "query": query_str,
+                        "category": category,
+                        "agents": agents,
+                        "total": results.total,
+                        "page": results.page,
+                        "per_page": results.per_page,
+                    }));
+                }
+                Err(_) => {
+                    // Fall through to local-only response
+                }
+            }
+        }
+
+        // Fallback: return installed agents that match the query
+        let installed_agents = get_installed_as_json(&state).await;
+        let filtered: Vec<JsonValue> = if query_str.is_empty() {
+            installed_agents.clone()
+        } else {
+            let q = query_str.to_lowercase();
+            installed_agents.iter().filter(|a| {
+                a.get("name").and_then(|n| n.as_str()).unwrap_or("").to_lowercase().contains(&q)
+                || a.get("description").and_then(|d| d.as_str()).unwrap_or("").to_lowercase().contains(&q)
+            }).cloned().collect()
+        };
+
         Json(json!({
             "success": true,
-            "query": query,
+            "query": query_str,
             "category": category,
-            "agents": [],
-            "total": 0,
-            "message": "Connect to registry.aethershell.dev for community agents"
+            "agents": filtered,
+            "total": filtered.len(),
+            "page": 1,
+            "per_page": 20,
+            "source": "local",
         }))
     }
 
-    async fn handle_marketplace_list() -> impl IntoResponse {
+    async fn handle_marketplace_list(state: Arc<OrchestratorState>) -> impl IntoResponse {
+        let installed_agents = get_installed_as_json(&state).await;
+
         Json(json!({
             "success": true,
-            "agents": [],
-            "total": 0,
-            "message": "Connect to registry.aethershell.dev for community agents"
+            "agents": installed_agents,
+            "total": installed_agents.len(),
         }))
+    }
+
+    async fn handle_marketplace_install(
+        Json(body): Json<JsonValue>,
+        state: Arc<OrchestratorState>,
+    ) -> impl IntoResponse {
+        let name = match body.get("name").and_then(|n| n.as_str()) {
+            Some(n) => n.to_string(),
+            None => return (StatusCode::BAD_REQUEST, Json(json!({
+                "success": false,
+                "error": "Missing required field: name"
+            }))),
+        };
+        let version = body.get("version").and_then(|v| v.as_str()).map(|s| s.to_string());
+
+        let mut marketplace = state.marketplace.write().await;
+        let client = match marketplace.as_mut() {
+            Some(c) => c,
+            None => return (StatusCode::SERVICE_UNAVAILABLE, Json(json!({
+                "success": false,
+                "error": "Marketplace client not available"
+            }))),
+        };
+
+        match client.install(&name, version.as_deref()).await {
+            Ok(installed) => {
+                // Broadcast install event
+                state.broadcast_to_channel("agents", json!({
+                    "type": "agent_installed",
+                    "agent": {
+                        "name": installed.manifest.name,
+                        "version": installed.manifest.version,
+                        "description": installed.manifest.description,
+                    }
+                })).await;
+
+                (StatusCode::OK, Json(json!({
+                    "success": true,
+                    "message": format!("Installed {} v{}", installed.manifest.display_name, installed.manifest.version),
+                    "agent": {
+                        "name": installed.manifest.name,
+                        "version": installed.manifest.version,
+                        "path": installed.path.to_string_lossy(),
+                    }
+                })))
+            }
+            Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({
+                "success": false,
+                "error": format!("Failed to install {}: {}", name, e)
+            }))),
+        }
+    }
+
+    async fn handle_marketplace_uninstall(
+        Json(body): Json<JsonValue>,
+        state: Arc<OrchestratorState>,
+    ) -> impl IntoResponse {
+        let name = match body.get("name").and_then(|n| n.as_str()) {
+            Some(n) => n.to_string(),
+            None => return (StatusCode::BAD_REQUEST, Json(json!({
+                "success": false,
+                "error": "Missing required field: name"
+            }))),
+        };
+
+        let mut marketplace = state.marketplace.write().await;
+        let client = match marketplace.as_mut() {
+            Some(c) => c,
+            None => return (StatusCode::SERVICE_UNAVAILABLE, Json(json!({
+                "success": false,
+                "error": "Marketplace client not available"
+            }))),
+        };
+
+        match client.uninstall(&name) {
+            Ok(()) => {
+                state.broadcast_to_channel("agents", json!({
+                    "type": "agent_uninstalled",
+                    "name": name,
+                })).await;
+
+                (StatusCode::OK, Json(json!({
+                    "success": true,
+                    "message": format!("Uninstalled {}", name)
+                })))
+            }
+            Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({
+                "success": false,
+                "error": format!("Failed to uninstall {}: {}", name, e)
+            }))),
+        }
+    }
+
+    /// Helper: convert installed agents to JSON array
+    async fn get_installed_as_json(state: &OrchestratorState) -> Vec<JsonValue> {
+        let marketplace = state.marketplace.read().await;
+        match marketplace.as_ref() {
+            Some(client) => {
+                client.list_installed().iter().map(|a| json!({
+                    "id": a.manifest.name,
+                    "name": a.manifest.display_name,
+                    "description": a.manifest.description,
+                    "author": a.manifest.author.name,
+                    "version": a.manifest.version,
+                    "downloads": 0,
+                    "stars": 0,
+                    "forks": 0,
+                    "tags": a.manifest.keywords,
+                    "updatedAt": a.installed_at * 1000,
+                    "verified": false,
+                    "installed": true,
+                })).collect()
+            }
+            None => vec![],
+        }
     }
 }
 
