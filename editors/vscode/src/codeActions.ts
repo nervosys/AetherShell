@@ -237,11 +237,41 @@ export function registerCodeActionCommands(context: vscode.ExtensionContext): vo
             lineNumber: number
         ) => {
             const line = document.lineAt(lineNumber);
-            // Simple implementation - could be enhanced
             const text = line.text;
 
-            // This is a simplified conversion
-            vscode.window.showInformationMessage('Format conversion would replace: ' + text);
+            // Parse string concatenation: "hello " + name + " world" → format("hello {} world", name)
+            // Split by + and categorize parts as string literals or expressions
+            const parts = text.match(/"[^"]*"|'[^']*'|[^+]+/g);
+            if (!parts) {
+                return;
+            }
+
+            let formatStr = '';
+            const args: string[] = [];
+
+            for (const part of parts) {
+                const trimmed = part.trim().replace(/^\+\s*|\s*\+$/g, '').trim();
+                if (!trimmed) continue;
+                if ((trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+                    (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+                    // String literal — strip quotes and add to format string
+                    formatStr += trimmed.slice(1, -1);
+                } else {
+                    // Expression — add placeholder
+                    formatStr += '{}';
+                    args.push(trimmed);
+                }
+            }
+
+            const argsStr = args.length > 0 ? ', ' + args.join(', ') : '';
+            // Find the assignment part if any
+            const assignMatch = text.match(/^(\s*(?:let\s+\w+\s*=\s*)?)/);
+            const prefix = assignMatch ? assignMatch[1] : '';
+            const newLine = `${prefix}format("${formatStr}"${argsStr})`;
+
+            const edit = new vscode.WorkspaceEdit();
+            edit.replace(document.uri, line.range, newLine);
+            await vscode.workspace.applyEdit(edit);
         })
     );
 
@@ -276,47 +306,126 @@ export function registerCodeActionCommands(context: vscode.ExtensionContext): vo
         })
     );
 
-    // AI improve
+    // AI improve — runs ae with AI to suggest improvements
     context.subscriptions.push(
         vscode.commands.registerCommand('aethershell.aiImprove', async (
             document: vscode.TextDocument,
             range: vscode.Range
         ) => {
-            const selectedText = document.getText(range);
+            const config = vscode.workspace.getConfiguration('aethershell');
+            if (!config.get<boolean>('ai.enabled', true)) {
+                vscode.window.showWarningMessage('AI features are disabled. Enable via aethershell.ai.enabled setting.');
+                return;
+            }
 
-            vscode.window.withProgress({
+            const selectedText = document.getText(range) || document.lineAt(range.start.line).text;
+            if (!selectedText.trim()) {
+                vscode.window.showWarningMessage('Select code to improve.');
+                return;
+            }
+
+            const result = await vscode.window.withProgress({
                 location: vscode.ProgressLocation.Notification,
                 title: 'AI analyzing code...',
-                cancellable: false
-            }, async () => {
-                // In a real implementation, this would call the AI
-                vscode.window.showInformationMessage(
-                    'AI improvement would analyze: ' + selectedText.substring(0, 50) + '...'
-                );
+                cancellable: true
+            }, async (_progress, token) => {
+                const escapedCode = selectedText.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
+                const prompt = `Improve this AetherShell code. Return ONLY the improved code, no explanations:\n${escapedCode}`;
+                const aeCode = `ai("${prompt.replace(/"/g, '\\"')}")`;
+
+                return await runAeCommand(aeCode, config, token);
             });
+
+            if (result && result.trim()) {
+                // Show diff in an untitled document so user can review
+                const doc = await vscode.workspace.openTextDocument({
+                    content: `# AI Suggested Improvement\n\n## Original:\n${selectedText}\n\n## Improved:\n${result}`,
+                    language: 'aethershell'
+                });
+                await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside });
+            }
         })
     );
 
-    // AI document
+    // AI document — generates documentation comment for code
     context.subscriptions.push(
         vscode.commands.registerCommand('aethershell.aiDocument', async (
             document: vscode.TextDocument,
             range: vscode.Range
         ) => {
-            const selectedText = document.getText(range);
+            const config = vscode.workspace.getConfiguration('aethershell');
+            if (!config.get<boolean>('ai.enabled', true)) {
+                vscode.window.showWarningMessage('AI features are disabled. Enable via aethershell.ai.enabled setting.');
+                return;
+            }
 
-            vscode.window.withProgress({
+            const selectedText = document.getText(range) || document.lineAt(range.start.line).text;
+            if (!selectedText.trim()) {
+                vscode.window.showWarningMessage('Select code to document.');
+                return;
+            }
+
+            const result = await vscode.window.withProgress({
                 location: vscode.ProgressLocation.Notification,
                 title: 'Generating documentation...',
-                cancellable: false
-            }, async () => {
-                // In a real implementation, this would call the AI
-                vscode.window.showInformationMessage(
-                    'AI would generate docs for: ' + selectedText.substring(0, 50) + '...'
-                );
+                cancellable: true
+            }, async (_progress, token) => {
+                const escapedCode = selectedText.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
+                const prompt = `Write a concise AetherShell documentation comment (using # comments) for this code. Include parameter types and return type if applicable. Return ONLY the comment lines:\n${escapedCode}`;
+                const aeCode = `ai("${prompt.replace(/"/g, '\\"')}")`;
+
+                return await runAeCommand(aeCode, config, token);
             });
+
+            if (result && result.trim()) {
+                // Insert doc comment above the selection
+                const edit = new vscode.WorkspaceEdit();
+                const indentation = document.lineAt(range.start.line).text.match(/^\s*/)?.[0] || '';
+                const commentLines = result.trim().split('\n')
+                    .map(line => {
+                        line = line.trim();
+                        return line.startsWith('#') ? `${indentation}${line}` : `${indentation}# ${line}`;
+                    })
+                    .join('\n');
+                edit.insert(document.uri, new vscode.Position(range.start.line, 0), commentLines + '\n');
+                await vscode.workspace.applyEdit(edit);
+            }
         })
     );
+}
+
+/**
+ * Run an AetherShell command and capture output
+ */
+async function runAeCommand(
+    code: string,
+    config: vscode.WorkspaceConfiguration,
+    token?: vscode.CancellationToken
+): Promise<string | undefined> {
+    const { execFile } = require('child_process');
+    const customPath = config.get<string>('executable.path', '');
+    const aePath = customPath || (process.platform === 'win32' ? 'ae.exe' : 'ae');
+
+    return new Promise((resolve) => {
+        const proc = execFile(aePath, ['-e', code], {
+            timeout: 30000,
+            maxBuffer: 1024 * 1024,
+            env: { ...process.env, AETHER_AI: config.get<string>('ai.provider', 'auto') }
+        }, (error: Error | null, stdout: string, stderr: string) => {
+            if (error) {
+                if ((error as any).killed || token?.isCancellationRequested) {
+                    resolve(undefined);
+                } else {
+                    vscode.window.showErrorMessage(`AetherShell error: ${stderr || error.message}`);
+                    resolve(undefined);
+                }
+            } else {
+                resolve(stdout.trim());
+            }
+        });
+
+        token?.onCancellationRequested(() => proc.kill());
+    });
 }
 
 /**

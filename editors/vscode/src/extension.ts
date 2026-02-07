@@ -15,8 +15,10 @@ import { registerAgentPanel } from './agentPanel';
 let client: LanguageClient | undefined;
 let outputChannel: vscode.OutputChannel;
 let runner: AetherShellRunner | undefined;
+let extensionContext: vscode.ExtensionContext;
 
 export async function activate(context: vscode.ExtensionContext) {
+    extensionContext = context;
     outputChannel = vscode.window.createOutputChannel('AetherShell');
     outputChannel.appendLine('AetherShell extension activating...');
 
@@ -45,25 +47,35 @@ export async function activate(context: vscode.ExtensionContext) {
     registerAgentPanel(context);
     outputChannel.appendLine('Agent panel registered');
 
+    // Register run-on-save handler
     const config = vscode.workspace.getConfiguration('aethershell');
+    context.subscriptions.push(
+        vscode.workspace.onDidSaveTextDocument(async (document) => {
+            const runOnSave = vscode.workspace.getConfiguration('aethershell').get<boolean>('runOnSave', false);
+            if (runOnSave && document.languageId === 'aethershell' && runner) {
+                await runner.runFile(document);
+            }
+        })
+    );
+
     const lspEnabled = config.get<boolean>('lsp.enabled', true);
+
+    // Always register these commands so they're available even if LSP is disabled
+    context.subscriptions.push(
+        vscode.commands.registerCommand('aethershell.restartServer', async () => {
+            await restartServer();
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('aethershell.showOutput', () => {
+            outputChannel.show();
+        })
+    );
 
     if (!lspEnabled) {
         outputChannel.appendLine('Language server is disabled via configuration');
     } else {
-        // Register commands
-        context.subscriptions.push(
-            vscode.commands.registerCommand('aethershell.restartServer', async () => {
-                await restartServer();
-            })
-        );
-
-        context.subscriptions.push(
-            vscode.commands.registerCommand('aethershell.showOutput', () => {
-                outputChannel.show();
-            })
-        );
-
         // Start the language server
         await startServer(context);
     }
@@ -172,19 +184,19 @@ async function restartServer() {
     outputChannel.appendLine('Restarting language server...');
 
     if (client) {
-        await client.stop();
+        try {
+            await client.stop();
+        } catch (error) {
+            outputChannel.appendLine(`Warning during stop: ${error}`);
+        }
         client = undefined;
     }
 
-    const context = await vscode.commands.executeCommand<vscode.ExtensionContext>(
-        'workbench.extensions.getExtensionContext',
-        'nervosys.aethershell'
-    );
-
-    if (context) {
-        await startServer(context);
+    if (extensionContext) {
+        await startServer(extensionContext);
     } else {
-        outputChannel.appendLine('Failed to get extension context for restart');
+        outputChannel.appendLine('Extension context not available — cannot restart');
+        vscode.window.showErrorMessage('Could not restart: extension context unavailable');
     }
 }
 
