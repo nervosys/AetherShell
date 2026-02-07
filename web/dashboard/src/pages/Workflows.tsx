@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { GitBranch, Plus, Play, Pause, StopCircle, Eye, ChevronRight, CheckCircle2, XCircle, Clock, Loader2 } from 'lucide-react'
 import clsx from 'clsx'
 import { Card, Button, Badge, ProgressBar } from '../components/ui'
@@ -6,10 +6,13 @@ import { useWorkflows, useDashboardStore, type Workflow, type WorkflowStep } fro
 
 export default function Workflows() {
     const workflows = useWorkflows()
+    const connect = useDashboardStore(state => state.connect)
     const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null)
 
-    // Use mock data if no real workflows
-    const displayWorkflows = workflows.length > 0 ? workflows : mockWorkflows
+    // Ensure WebSocket connection
+    useEffect(() => { connect() }, [connect])
+
+    const displayWorkflows = workflows
     const selectedWorkflow = displayWorkflows.find(w => w.id === selectedWorkflowId)
 
     return (

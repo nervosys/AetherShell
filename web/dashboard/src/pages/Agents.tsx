@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Bot, Plus, Search, Filter, MoreVertical, Zap, Clock, AlertTriangle } from 'lucide-react'
 import clsx from 'clsx'
 import { Card, Button, Badge } from '../components/ui'
@@ -6,13 +6,17 @@ import { useAgents, useDashboardStore, type Agent } from '../store'
 
 export default function Agents() {
     const agents = useAgents()
+    const connect = useDashboardStore(state => state.connect)
     const selectAgent = useDashboardStore(state => state.selectAgent)
     const selectedAgentId = useDashboardStore(state => state.selectedAgentId)
     const [searchQuery, setSearchQuery] = useState('')
     const [statusFilter, setStatusFilter] = useState<string>('all')
 
-    // Use mock data if no real agents
-    const displayAgents = agents.length > 0 ? agents : mockAgents
+    // Ensure WebSocket connection
+    useEffect(() => { connect() }, [connect])
+
+    // Use real agents from WebSocket, or an empty list
+    const displayAgents = agents
 
     const filteredAgents = displayAgents.filter(agent => {
         const matchesSearch = agent.name.toLowerCase().includes(searchQuery.toLowerCase()) ||

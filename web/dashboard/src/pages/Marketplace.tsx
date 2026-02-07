@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Search, Download, Star, GitFork, Tag, User, Clock, Filter, ChevronDown } from 'lucide-react'
 import clsx from 'clsx'
 import { Card, Button, Badge } from '../components/ui'
@@ -21,8 +21,31 @@ export default function Marketplace() {
     const [searchQuery, setSearchQuery] = useState('')
     const [selectedCategory, setSelectedCategory] = useState('all')
     const [sortBy, setSortBy] = useState('downloads')
+    const [agents, setAgents] = useState<MarketplaceAgent[]>(mockMarketplaceAgents)
+    const [loading, setLoading] = useState(false)
 
-    const filteredAgents = mockMarketplaceAgents
+    // Try to fetch from API, fall back to mock data
+    useEffect(() => {
+        async function fetchMarketplace() {
+            try {
+                setLoading(true)
+                const response = await fetch(`/api/v1/marketplace/agents`)
+                if (response.ok) {
+                    const data = await response.json()
+                    if (data.agents && data.agents.length > 0) {
+                        setAgents(data.agents)
+                    }
+                }
+            } catch {
+                // API not available, use mock data
+            } finally {
+                setLoading(false)
+            }
+        }
+        fetchMarketplace()
+    }, [])
+
+    const filteredAgents = agents
         .filter(agent => {
             const matchesSearch =
                 agent.name.toLowerCase().includes(searchQuery.toLowerCase()) ||

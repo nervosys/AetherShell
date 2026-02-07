@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import {
     Bot,
     GitBranch,
@@ -10,26 +11,54 @@ import {
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts'
 import { format } from 'date-fns'
 import { Card, StatCard, Badge } from '../components/ui'
-import { useAgents, useWorkflows, useMetrics, useActivityLog } from '../store'
+import { useAgents, useWorkflows, useMetrics, useActivityLog, useDashboardStore } from '../store'
 
-// Mock data for charts (in production, this comes from real metrics)
-const requestsData = Array.from({ length: 24 }, (_, i) => ({
-    time: format(new Date(Date.now() - (23 - i) * 3600000), 'HH:mm'),
-    requests: Math.floor(Math.random() * 100) + 50,
-    latency: Math.floor(Math.random() * 200) + 50,
-}))
+// Generate time-series data from real metrics or mock
+function generateChartData(metrics: Map<string, { points: { timestamp: number; value: number }[] }>) {
+    const requestSeries = metrics.get('requests')
+    if (requestSeries && requestSeries.points.length > 0) {
+        return requestSeries.points.slice(-24).map(p => ({
+            time: format(new Date(p.timestamp), 'HH:mm'),
+            requests: Math.round(p.value),
+            latency: 0,
+        }))
+    }
+    return Array.from({ length: 24 }, (_, i) => ({
+        time: format(new Date(Date.now() - (23 - i) * 3600000), 'HH:mm'),
+        requests: Math.floor(Math.random() * 100) + 50,
+        latency: Math.floor(Math.random() * 200) + 50,
+    }))
+}
 
-const agentActivityData = Array.from({ length: 12 }, (_, i) => ({
-    time: format(new Date(Date.now() - (11 - i) * 300000), 'HH:mm'),
-    active: Math.floor(Math.random() * 10) + 5,
-    idle: Math.floor(Math.random() * 5) + 2,
-}))
+function generateAgentActivityData(agents: { status: string }[]) {
+    const online = agents.filter(a => a.status === 'online').length
+    const busy = agents.filter(a => a.status === 'busy').length
+    const idle = agents.filter(a => a.status !== 'busy' && a.status === 'online').length
+    if (agents.length > 0) {
+        return Array.from({ length: 12 }, (_, i) => ({
+            time: format(new Date(Date.now() - (11 - i) * 300000), 'HH:mm'),
+            active: online + busy,
+            idle: idle,
+        }))
+    }
+    return Array.from({ length: 12 }, (_, i) => ({
+        time: format(new Date(Date.now() - (11 - i) * 300000), 'HH:mm'),
+        active: Math.floor(Math.random() * 10) + 5,
+        idle: Math.floor(Math.random() * 5) + 2,
+    }))
+}
 
 export default function Dashboard() {
     const agents = useAgents()
     const workflows = useWorkflows()
-    useMetrics() // Keep subscription active
+    const metrics = useMetrics()
     const activityLog = useActivityLog()
+    const connect = useDashboardStore(state => state.connect)
+
+    // Auto-connect on mount
+    useEffect(() => {
+        connect()
+    }, [connect])
 
     const activeAgents = agents.filter(a => a.status === 'online' || a.status === 'busy').length
     const runningWorkflows = workflows.filter(w => w.status === 'running').length
@@ -38,6 +67,9 @@ export default function Dashboard() {
         w.completedAt &&
         new Date(w.completedAt).toDateString() === new Date().toDateString()
     ).length
+
+    const requestsData = generateChartData(metrics)
+    const agentActivityData = generateAgentActivityData(agents)
 
     return (
         <div className="space-y-6 animate-fade-in">
@@ -57,31 +89,31 @@ export default function Dashboard() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <StatCard
                     label="Active Agents"
-                    value={activeAgents || 3}
+                    value={activeAgents}
                     icon={<Bot size={24} />}
                     color="blue"
-                    change={{ value: 12, label: 'from yesterday' }}
+                    change={{ value: agents.length > 0 ? agents.length : 0, label: 'total registered' }}
                 />
                 <StatCard
                     label="Running Workflows"
-                    value={runningWorkflows || 7}
+                    value={runningWorkflows}
                     icon={<GitBranch size={24} />}
                     color="mauve"
-                    change={{ value: 5, label: 'from last hour' }}
+                    change={{ value: workflows.length, label: 'total' }}
                 />
                 <StatCard
                     label="Completed Today"
-                    value={completedToday || 42}
+                    value={completedToday}
                     icon={<CheckCircle2 size={24} />}
                     color="green"
-                    change={{ value: 18, label: 'from yesterday' }}
+                    change={{ value: completedToday, label: 'today' }}
                 />
                 <StatCard
                     label="Avg Response Time"
-                    value="124ms"
+                    value={metrics.get('latency') ? `${Math.round(metrics.get('latency')!.current)}ms` : '—'}
                     icon={<Activity size={24} />}
                     color="yellow"
-                    change={{ value: -8, label: 'improvement' }}
+                    change={{ value: 0, label: 'current' }}
                 />
             </div>
 
