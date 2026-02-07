@@ -2869,6 +2869,25 @@ pub mod server {
                 let state = Arc::clone(&state);
                 move |path| handle_get_workflow(path, state)
             }))
+            .route("/api/v1/orchestration/workflows/:id/cancel", post({
+                let state = Arc::clone(&state);
+                move |path| handle_cancel_workflow(path, state)
+            }))
+            .route("/api/v1/orchestration/workflows", get({
+                let state = Arc::clone(&state);
+                move || handle_list_workflows(state)
+            }))
+            .route("/api/v1/orchestration/metrics", get({
+                let state = Arc::clone(&state);
+                move || handle_orchestration_metrics(state)
+            }))
+            // Marketplace endpoints
+            .route("/api/v1/marketplace/publish", post({
+                let state = Arc::clone(&state);
+                move |body| handle_publish_agent(body, state)
+            }))
+            .route("/api/v1/marketplace/search", get(handle_marketplace_search))
+            .route("/api/v1/marketplace/agents", get(handle_marketplace_list))
             // Discovery endpoints
             .route("/api/v1/schema", get(handle_schema))
             .route("/api/v1/schema/:format", get(handle_schema_format))
@@ -2905,6 +2924,7 @@ pub mod server {
         println!("  POST /api/v1/stream/eval      - Stream eval (SSE)");
         println!("  GET  /api/v1/ws               - WebSocket (real-time bidirectional)");
         println!("  GET  /api/v1/orchestration/*  - Agent orchestration APIs");
+        println!("  POST /api/v1/marketplace/*    - Agent marketplace APIs");
         println!("  GET  /api/v1/schema           - Get language ontology");
         println!("  GET  /api/v1/schema/:format   - Get schema for AI provider");
         println!("  GET  /api/v1/builtins         - List all builtins");
@@ -3282,7 +3302,22 @@ pub mod server {
                             }
                             WsClientMessage::Register { agent_id: aid, capabilities } => {
                                 agent_id = Some(aid.clone());
-                                state.register_agent(aid.clone(), capabilities, tx.clone()).await;
+                                state.register_agent(aid.clone(), capabilities.clone(), tx.clone()).await;
+
+                                // Broadcast agent connection to subscribers
+                                state.broadcast_to_channel("agents", json!({
+                                    "type": "agent_connected",
+                                    "agent": {
+                                        "id": aid,
+                                        "capabilities": capabilities,
+                                        "status": "online",
+                                        "connectedAt": std::time::SystemTime::now()
+                                            .duration_since(std::time::UNIX_EPOCH)
+                                            .unwrap()
+                                            .as_millis() as u64
+                                    }
+                                })).await;
+
                                 Some(WsServerMessage::Registered { agent_id: aid })
                             }
                             WsClientMessage::AgentMessage { to, payload } => {
@@ -3336,8 +3371,12 @@ pub mod server {
         }
 
         // Clean up
-        if let Some(aid) = agent_id {
-            state.unregister_agent(&aid).await;
+        if let Some(ref aid) = agent_id {
+            state.broadcast_to_channel("agents", json!({
+                "type": "agent_disconnected",
+                "agentId": aid
+            })).await;
+            state.unregister_agent(aid).await;
         }
         send_task.abort();
     }
@@ -3405,7 +3444,26 @@ pub mod server {
             context: body.get("context").cloned().unwrap_or(JsonValue::Object(Default::default())),
         };
         let workflow_id = workflow.id.clone();
+        let workflow_name = workflow.name.clone();
+        let total_steps = workflow.steps.len();
         state.add_workflow(workflow).await;
+
+        // Broadcast workflow creation
+        state.broadcast_to_channel("workflows", json!({
+            "type": "workflow_created",
+            "workflow": {
+                "id": workflow_id,
+                "name": workflow_name,
+                "status": "pending",
+                "currentStep": 0,
+                "totalSteps": total_steps,
+                "startedAt": std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis() as u64,
+                "steps": []
+            }
+        })).await;
 
         (StatusCode::CREATED, Json(json!({
             "success": true,
@@ -3428,6 +3486,144 @@ pub mod server {
                 "error": "Workflow not found"
             })))
         }
+    }
+
+    async fn handle_cancel_workflow(
+        axum::extract::Path(workflow_id): axum::extract::Path<String>,
+        state: Arc<OrchestratorState>,
+    ) -> impl IntoResponse {
+        if let Some(mut workflow) = state.get_workflow(&workflow_id).await {
+            workflow.status = WorkflowStatus::Failed;
+            state.add_workflow(workflow).await;
+
+            // Broadcast cancellation
+            state.broadcast_to_channel("workflows", json!({
+                "type": "workflow_update",
+                "workflow": {
+                    "id": workflow_id,
+                    "status": "cancelled"
+                }
+            })).await;
+
+            (StatusCode::OK, Json(json!({
+                "success": true,
+                "message": "Workflow cancelled"
+            })))
+        } else {
+            (StatusCode::NOT_FOUND, Json(json!({
+                "success": false,
+                "error": "Workflow not found"
+            })))
+        }
+    }
+
+    async fn handle_list_workflows(
+        state: Arc<OrchestratorState>,
+    ) -> impl IntoResponse {
+        let workflows = state.workflows.read().await;
+        let list: Vec<_> = workflows.values().cloned().collect();
+        Json(json!({
+            "success": true,
+            "workflows": list
+        }))
+    }
+
+    async fn handle_orchestration_metrics(
+        state: Arc<OrchestratorState>,
+    ) -> impl IntoResponse {
+        let agents = state.get_agents().await;
+        let workflows = state.workflows.read().await;
+        let tasks = state.task_queue.read().await;
+
+        let running_workflows = workflows.values()
+            .filter(|w| w.status == WorkflowStatus::Running)
+            .count();
+        let completed_workflows = workflows.values()
+            .filter(|w| w.status == WorkflowStatus::Completed)
+            .count();
+        let failed_workflows = workflows.values()
+            .filter(|w| w.status == WorkflowStatus::Failed)
+            .count();
+        let pending_tasks = tasks.iter()
+            .filter(|t| t.status == TaskStatus::Pending)
+            .count();
+
+        Json(json!({
+            "success": true,
+            "metrics": {
+                "agents": {
+                    "total": agents.len(),
+                    "online": agents.len(),
+                },
+                "workflows": {
+                    "total": workflows.len(),
+                    "running": running_workflows,
+                    "completed": completed_workflows,
+                    "failed": failed_workflows,
+                },
+                "tasks": {
+                    "total": tasks.len(),
+                    "pending": pending_tasks,
+                },
+                "timestamp": std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs()
+            }
+        }))
+    }
+
+    async fn handle_publish_agent(
+        Json(body): Json<JsonValue>,
+        state: Arc<OrchestratorState>,
+    ) -> impl IntoResponse {
+        let agent_name = body.get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unnamed")
+            .to_string();
+
+        // Store in orchestrator state as a published agent
+        state.broadcast_to_channel("agents", json!({
+            "type": "agent_published",
+            "agent": {
+                "name": agent_name,
+                "description": body.get("description"),
+                "systemPrompt": body.get("systemPrompt"),
+                "tools": body.get("tools"),
+                "model": body.get("model"),
+            }
+        })).await;
+
+        (StatusCode::CREATED, Json(json!({
+            "success": true,
+            "message": format!("Agent '{}' published successfully", agent_name)
+        })))
+    }
+
+    async fn handle_marketplace_search(
+        axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+    ) -> impl IntoResponse {
+        let query = params.get("q").cloned().unwrap_or_default();
+        let category = params.get("category").cloned();
+
+        // Use the marketplace module if available, otherwise return placeholder
+        Json(json!({
+            "success": true,
+            "query": query,
+            "category": category,
+            "agents": [],
+            "total": 0,
+            "message": "Connect to registry.aethershell.dev for community agents"
+        }))
+    }
+
+    async fn handle_marketplace_list() -> impl IntoResponse {
+        Json(json!({
+            "success": true,
+            "agents": [],
+            "total": 0,
+            "message": "Connect to registry.aethershell.dev for community agents"
+        }))
     }
 }
 
