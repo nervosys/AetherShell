@@ -62,7 +62,9 @@ pub struct SelfDescribingParameters {
     pub required: Vec<String>,
 }
 
-fn default_object_type() -> String { "object".to_string() }
+fn default_object_type() -> String {
+    "object".to_string()
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SelfDescribingProperty {
@@ -298,13 +300,21 @@ impl ExternalToolRegistry {
         if !executable_path.exists() {
             // Try common binary locations
             let possible_paths = [
-                tool_path.join("target/release").join(&manifest.tool.executable),
-                tool_path.join("target/debug").join(&manifest.tool.executable),
+                tool_path
+                    .join("target/release")
+                    .join(&manifest.tool.executable),
+                tool_path
+                    .join("target/debug")
+                    .join(&manifest.tool.executable),
                 tool_path.join("bin").join(&manifest.tool.executable),
                 #[cfg(windows)]
-                tool_path.join("target/release").join(format!("{}.exe", &manifest.tool.executable)),
+                tool_path
+                    .join("target/release")
+                    .join(format!("{}.exe", &manifest.tool.executable)),
                 #[cfg(windows)]
-                tool_path.join("target/debug").join(format!("{}.exe", &manifest.tool.executable)),
+                tool_path
+                    .join("target/debug")
+                    .join(format!("{}.exe", &manifest.tool.executable)),
             ];
 
             let found_path = possible_paths.iter().find(|p| p.exists());
@@ -481,7 +491,7 @@ impl ExternalToolRegistry {
     // ========================================================================
 
     /// Register a self-describing tool (has `ai manifest` command)
-    /// 
+    ///
     /// Self-describing tools like simon provide:
     /// - `tool ai manifest -f json` - Returns JSON schema of capabilities
     /// - CLI subcommands with `-f json` for JSON output
@@ -497,9 +507,9 @@ impl ExternalToolRegistry {
 
         // Load manifest from tool
         let manifest = Self::load_self_describing_manifest(exe_path)?;
-        let tool_name = name.map(|s| s.to_string()).unwrap_or_else(|| {
-            manifest.name.to_lowercase().replace(' ', "_")
-        });
+        let tool_name = name
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| manifest.name.to_lowercase().replace(' ', "_"));
 
         // Convert to our format
         let capabilities = Self::convert_self_describing_capabilities(&manifest);
@@ -509,7 +519,10 @@ impl ExternalToolRegistry {
                 name: tool_name.clone(),
                 display_name: Some(manifest.name.clone()),
                 description: manifest.description.clone(),
-                version: manifest.version.clone().unwrap_or_else(|| "0.0.0".to_string()),
+                version: manifest
+                    .version
+                    .clone()
+                    .unwrap_or_else(|| "0.0.0".to_string()),
                 author: None,
                 license: None,
                 homepage: None,
@@ -567,40 +580,52 @@ impl ExternalToolRegistry {
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        serde_json::from_str(&stdout)
-            .with_context(|| "Failed to parse AI manifest JSON")
+        serde_json::from_str(&stdout).with_context(|| "Failed to parse AI manifest JSON")
     }
 
     /// Convert self-describing tools to ToolCapability format
-    fn convert_self_describing_capabilities(manifest: &SelfDescribingManifest) -> Vec<ToolCapability> {
-        manifest.tools.iter().map(|tool| {
-            // Map function name to CLI subcommand (e.g., get_cpu_info -> cli cpu)
-            let cmd = Self::function_to_cli_command(&tool.name);
-            
-            ToolCapability {
-                name: tool.name.clone(),
-                description: tool.description.clone(),
-                command: cmd,
-                args: vec!["-f".to_string(), "json".to_string()],
-                parameters: tool.parameters.properties.iter().map(|(name, prop)| {
-                    CapabilityParameter {
-                        name: name.clone(),
-                        description: prop.description.clone(),
-                        param_type: prop.prop_type.clone(),
-                        required: tool.parameters.required.contains(name),
-                        default: prop.default.clone(),
-                        enum_values: None,
-                    }
-                }).collect(),
-                output_format: OutputFormat::Json,
-                permission: PermissionLevel::Read,
-                examples: tool.example.iter().map(|ex| CapabilityExample {
-                    description: ex.clone(),
-                    args: json!({}),
-                    expected_output: None,
-                }).collect(),
-            }
-        }).collect()
+    fn convert_self_describing_capabilities(
+        manifest: &SelfDescribingManifest,
+    ) -> Vec<ToolCapability> {
+        manifest
+            .tools
+            .iter()
+            .map(|tool| {
+                // Map function name to CLI subcommand (e.g., get_cpu_info -> cli cpu)
+                let cmd = Self::function_to_cli_command(&tool.name);
+
+                ToolCapability {
+                    name: tool.name.clone(),
+                    description: tool.description.clone(),
+                    command: cmd,
+                    args: vec!["-f".to_string(), "json".to_string()],
+                    parameters: tool
+                        .parameters
+                        .properties
+                        .iter()
+                        .map(|(name, prop)| CapabilityParameter {
+                            name: name.clone(),
+                            description: prop.description.clone(),
+                            param_type: prop.prop_type.clone(),
+                            required: tool.parameters.required.contains(name),
+                            default: prop.default.clone(),
+                            enum_values: None,
+                        })
+                        .collect(),
+                    output_format: OutputFormat::Json,
+                    permission: PermissionLevel::Read,
+                    examples: tool
+                        .example
+                        .iter()
+                        .map(|ex| CapabilityExample {
+                            description: ex.clone(),
+                            args: json!({}),
+                            expected_output: None,
+                        })
+                        .collect(),
+                }
+            })
+            .collect()
     }
 
     /// Map function names to CLI subcommands
@@ -615,7 +640,7 @@ impl ExternalToolRegistry {
             .replace("_list", "")
             .replace("_summary", " all")
             .replace("_details", "");
-        
+
         if name.contains("system") {
             "cli all".to_string()
         } else if name.contains("gpu") {
@@ -647,7 +672,8 @@ impl ExternalToolRegistry {
         tool_name: &str,
         provider: &str,
     ) -> Result<Option<JsonValue>> {
-        let tool = self.get_tool(tool_name)
+        let tool = self
+            .get_tool(tool_name)
             .ok_or_else(|| anyhow!("Tool not found: {}", tool_name))?;
 
         if !tool.manifest.self_describing {
@@ -671,14 +697,17 @@ impl ExternalToolRegistry {
 
     /// List capabilities for a tool
     pub fn list_capabilities(&self, tool_name: &str) -> Result<Vec<(String, String)>> {
-        let tool = self.get_tool(tool_name)
+        let tool = self
+            .get_tool(tool_name)
             .ok_or_else(|| anyhow!("Tool not found: {}", tool_name))?;
 
-        Ok(tool.manifest.capabilities.iter()
+        Ok(tool
+            .manifest
+            .capabilities
+            .iter()
             .map(|c| (c.name.clone(), c.description.clone()))
             .collect())
     }
-
 
     /// Get a registered tool
     pub fn get_tool(&self, name: &str) -> Option<RegisteredTool> {
@@ -709,13 +738,7 @@ impl ExternalToolRegistry {
             .capabilities
             .iter()
             .find(|c| c.name == capability_name)
-            .ok_or_else(|| {
-                anyhow!(
-                    "Capability not found: {}.{}",
-                    tool_name,
-                    capability_name
-                )
-            })?;
+            .ok_or_else(|| anyhow!("Capability not found: {}.{}", tool_name, capability_name))?;
 
         let start = Instant::now();
 
@@ -828,7 +851,10 @@ impl ExternalToolRegistry {
             for param in parameters {
                 if let Some(value) = obj.get(&param.name) {
                     // Skip if already in template
-                    if template_args.iter().any(|a| a.contains(&format!("{{{}}}", param.name))) {
+                    if template_args
+                        .iter()
+                        .any(|a| a.contains(&format!("{{{}}}", param.name)))
+                    {
                         continue;
                     }
 
@@ -882,8 +908,10 @@ impl ExternalToolRegistry {
     /// Discover and register tools from search paths
     pub fn discover(&self) -> Vec<String> {
         let mut discovered = Vec::new();
-        
-        let paths: Vec<PathBuf> = self.search_paths.read()
+
+        let paths: Vec<PathBuf> = self
+            .search_paths
+            .read()
             .map(|p| p.clone())
             .unwrap_or_default();
 
@@ -918,7 +946,12 @@ impl ExternalToolRegistry {
 
     /// Check if a directory contains a tool
     fn is_tool_directory(path: &Path) -> bool {
-        let manifest_files = ["aethershell.toml", "tool.toml", ".aethershell.toml", "Cargo.toml"];
+        let manifest_files = [
+            "aethershell.toml",
+            "tool.toml",
+            ".aethershell.toml",
+            "Cargo.toml",
+        ];
         manifest_files.iter().any(|f| path.join(f).exists())
     }
 
@@ -981,10 +1014,13 @@ impl ExternalToolRegistry {
                 let mut required = Vec::new();
 
                 for param in &capability.parameters {
-                    properties.insert(param.name.clone(), json!({
-                        "type": param.param_type,
-                        "description": param.description,
-                    }));
+                    properties.insert(
+                        param.name.clone(),
+                        json!({
+                            "type": param.param_type,
+                            "description": param.description,
+                        }),
+                    );
                     if param.required {
                         required.push(param.name.clone());
                     }
@@ -1019,7 +1055,7 @@ lazy_static::lazy_static! {
     /// Global external tool registry
     pub static ref EXTERNAL_TOOLS: ExternalToolRegistry = {
         let registry = ExternalToolRegistry::new();
-        
+
         // Add default search paths
         if let Some(home) = dirs::home_dir() {
             registry.add_search_path(home.join(".aethershell").join("tools"));
@@ -1027,7 +1063,7 @@ lazy_static::lazy_static! {
         if let Some(data) = dirs::data_local_dir() {
             registry.add_search_path(data.join("aethershell").join("tools"));
         }
-        
+
         registry
     };
 }
@@ -1037,10 +1073,7 @@ lazy_static::lazy_static! {
 // ============================================================================
 
 /// Execute an external tool call from an agent
-pub fn execute_external_tool(
-    tool_call: &str,
-    args: &JsonValue,
-) -> Result<ExternalToolResult> {
+pub fn execute_external_tool(tool_call: &str, args: &JsonValue) -> Result<ExternalToolResult> {
     // Parse tool_call as "tool_capability" format
     let parts: Vec<&str> = tool_call.splitn(2, '_').collect();
     if parts.len() != 2 {
@@ -1130,9 +1163,10 @@ mod tests {
     #[test]
     fn test_substitute_arg() {
         let values = serde_json::from_str::<serde_json::Map<String, JsonValue>>(
-            r#"{"name": "test", "count": 5}"#
-        ).unwrap();
-        
+            r#"{"name": "test", "count": 5}"#,
+        )
+        .unwrap();
+
         assert_eq!(
             ExternalToolRegistry::substitute_arg("--name={name}", &values),
             "--name=test"
@@ -1178,10 +1212,21 @@ mod tests {
 
     #[test]
     fn test_function_to_cli_command() {
-        assert_eq!(ExternalToolRegistry::function_to_cli_command("get_cpu_info"), "cli cpu");
-        assert_eq!(ExternalToolRegistry::function_to_cli_command("get_gpu_status"), "cli gpu");
-        assert_eq!(ExternalToolRegistry::function_to_cli_command("get_system_summary"), "cli all");
-        assert_eq!(ExternalToolRegistry::function_to_cli_command("get_memory_info"), "cli memory");
+        assert_eq!(
+            ExternalToolRegistry::function_to_cli_command("get_cpu_info"),
+            "cli cpu"
+        );
+        assert_eq!(
+            ExternalToolRegistry::function_to_cli_command("get_gpu_status"),
+            "cli gpu"
+        );
+        assert_eq!(
+            ExternalToolRegistry::function_to_cli_command("get_system_summary"),
+            "cli all"
+        );
+        assert_eq!(
+            ExternalToolRegistry::function_to_cli_command("get_memory_info"),
+            "cli memory"
+        );
     }
-
 }

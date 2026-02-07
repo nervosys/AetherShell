@@ -267,7 +267,7 @@ fn pp(v: &Value) -> String {
         Value::AsyncLambda(_) => "<async lambda>".into(),
         Value::Future(_) => "<future>".into(),
         Value::Builtin(b) => format!("<builtin:{}>", b.name),
-            Value::Error(msg) => format!("Error: {}", msg),
+        Value::Error(msg) => format!("Error: {}", msg),
     }
 }
 
@@ -287,6 +287,6 @@ fn pp_item(v: &Value) -> String {
         Value::AsyncLambda(_) => "<async lambda>".into(),
         Value::Future(_) => "<future>".into(),
         Value::Builtin(b) => format!("<builtin:{}>", b.name),
-            Value::Error(msg) => format!("Error: {}", msg),
+        Value::Error(msg) => format!("Error: {}", msg),
     }
 }

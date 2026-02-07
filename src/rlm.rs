@@ -482,13 +482,19 @@ impl SubagentPermissions {
     pub fn validate_child(&self, child: &SubagentPermissions) -> Result<()> {
         // Check capability escalation
         if child.can_write_files && !self.can_write_files {
-            return Err(anyhow!("Child cannot have write access when parent doesn't"));
+            return Err(anyhow!(
+                "Child cannot have write access when parent doesn't"
+            ));
         }
         if child.can_execute_shell && !self.can_execute_shell {
-            return Err(anyhow!("Child cannot have shell access when parent doesn't"));
+            return Err(anyhow!(
+                "Child cannot have shell access when parent doesn't"
+            ));
         }
         if child.can_access_network && !self.can_access_network {
-            return Err(anyhow!("Child cannot have network access when parent doesn't"));
+            return Err(anyhow!(
+                "Child cannot have network access when parent doesn't"
+            ));
         }
 
         // Check spawn depth
@@ -504,7 +510,10 @@ impl SubagentPermissions {
         if !self.allow_all_tools {
             for tool in &child.allowed_tools {
                 if !self.allowed_tools.contains(tool) {
-                    return Err(anyhow!("Child requests tool '{}' not allowed by parent", tool));
+                    return Err(anyhow!(
+                        "Child requests tool '{}' not allowed by parent",
+                        tool
+                    ));
                 }
             }
         }
@@ -621,7 +630,6 @@ impl RlmConfig {
         self.subagent_policy.clone().unwrap_or_default()
     }
 }
-
 
 // ===================== Recursive Agent =====================
 
@@ -1248,13 +1256,13 @@ mod tests {
         assert_eq!(stats.total_spawned, 1);
         assert_eq!(stats.currently_active, 0);
     }
-    
+
     // ===================== Permission Tests =====================
-    
+
     #[test]
     fn test_subagent_permissions_default() {
         let perms = SubagentPermissions::new();
-        
+
         // Default permissions are restrictive
         assert!(!perms.can_write_files);
         assert!(!perms.can_execute_shell);
@@ -1263,22 +1271,22 @@ mod tests {
         assert!(perms.can_spawn_subagents);
         assert_eq!(perms.max_spawn_depth, 3);
     }
-    
+
     #[test]
     fn test_subagent_permissions_allow_all() {
         let perms = SubagentPermissions::allow_all();
-        
+
         assert!(perms.can_write_files);
         assert!(perms.can_execute_shell);
         assert!(perms.can_access_network);
         assert!(perms.allowed_paths.contains(&"*".to_string()));
         assert!(perms.allowed_hosts.contains(&"*".to_string()));
     }
-    
+
     #[test]
     fn test_subagent_permissions_read_only() {
         let perms = SubagentPermissions::read_only();
-        
+
         assert!(!perms.can_write_files);
         assert!(!perms.can_execute_shell);
         assert!(!perms.can_access_network);
@@ -1286,83 +1294,81 @@ mod tests {
         assert!(perms.allowed_tools.contains("cat"));
         assert!(perms.allowed_tools.contains("grep"));
     }
-    
+
     #[test]
     fn test_subagent_permissions_tool_check() {
-        let perms = SubagentPermissions::new()
-            .with_tools(vec!["ls", "cat", "grep"]);
-        
+        let perms = SubagentPermissions::new().with_tools(vec!["ls", "cat", "grep"]);
+
         assert!(perms.is_tool_allowed("ls"));
         assert!(perms.is_tool_allowed("cat"));
         assert!(!perms.is_tool_allowed("rm"));
         assert!(!perms.is_tool_allowed("sh"));
     }
-    
+
     #[test]
     fn test_subagent_permissions_path_check() {
-        let perms = SubagentPermissions::new()
-            .with_allowed_paths(vec!["/home/user/project", "/tmp"]);
-        
+        let perms =
+            SubagentPermissions::new().with_allowed_paths(vec!["/home/user/project", "/tmp"]);
+
         assert!(perms.is_path_allowed("/home/user/project/src"));
         assert!(perms.is_path_allowed("/tmp/test.txt"));
         assert!(!perms.is_path_allowed("/etc/passwd"));
         assert!(!perms.is_path_allowed("/home/user/other"));
     }
-    
+
     #[test]
     fn test_subagent_permissions_validate_child() {
         let parent = SubagentPermissions::new()
             .with_tools(vec!["ls", "cat", "grep"])
             .with_spawn(true, 3, 10)
             .with_limits(60, 512);
-        
+
         // Valid child (subset of parent)
         let child = SubagentPermissions::new()
             .with_tools(vec!["ls", "cat"])
             .with_spawn(true, 2, 5)
             .with_limits(30, 256);
-        
+
         assert!(parent.validate_child(&child).is_ok());
-        
+
         // Invalid child (exceeds parent's spawn depth)
-        let bad_child = SubagentPermissions::new()
-            .with_spawn(true, 5, 10);
-        
+        let bad_child = SubagentPermissions::new().with_spawn(true, 5, 10);
+
         assert!(parent.validate_child(&bad_child).is_err());
     }
-    
+
     #[test]
     fn test_subagent_permissions_escalation() {
         let parent = SubagentPermissions::new();
-        
+
         // Child cannot have write access if parent doesn't
         let child_with_write = SubagentPermissions::new().with_write_access();
         assert!(parent.validate_child(&child_with_write).is_err());
-        
+
         // Child cannot have shell access if parent doesn't
         let child_with_shell = SubagentPermissions::new().with_shell_access();
         assert!(parent.validate_child(&child_with_shell).is_err());
     }
-    
+
     #[test]
     fn test_subagent_policy_default() {
         let policy = SubagentPolicy::default();
-        
+
         assert!(policy.allow_custom_permissions);
         assert_eq!(policy.global_max_depth, 5);
         assert_eq!(policy.global_max_agents, 50);
         assert!(!policy.require_spawn_approval);
     }
-    
+
     #[test]
     fn test_rlm_config_with_permissions() {
         let config = RlmConfig::default()
             .with_permissions(SubagentPermissions::read_only())
             .with_policy(SubagentPolicy::restrictive());
-        
+
         assert!(config.root_permissions.is_some());
         assert!(config.subagent_policy.is_some());
-        
+
         let perms = config.effective_root_permissions();
         assert!(!perms.can_write_files);
     }
