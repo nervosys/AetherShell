@@ -2293,7 +2293,6 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_file_copy(args, input),
     |args, input, _| bi_file_move(args, input),
     |args, input, _| bi_file_exists(args, input),
-    
     // 533-539: Reserved/placeholder
     |_, _, _| Ok(Value::Null),
     |_, _, _| Ok(Value::Null),
@@ -5964,7 +5963,7 @@ fn format_value_one_line(v: &Value) -> String {
         Value::AsyncLambda(_) => "<async lambda>".into(),
         Value::Future(_) => "<future>".into(),
         Value::Builtin(b) => format!("<builtin:{}>", b.name),
-            Value::Error(msg) => format!("Error: {}", msg),
+        Value::Error(msg) => format!("Error: {}", msg),
     }
 }
 
@@ -13519,8 +13518,14 @@ fn bi_proc_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     let mut rec = std::collections::BTreeMap::new();
                     rec.insert("user".to_string(), Value::Str(parts[0].to_string()));
                     rec.insert("pid".to_string(), Value::Int(parts[1].parse().unwrap_or(0)));
-                    rec.insert("cpu".to_string(), Value::Float(parts[2].parse().unwrap_or(0.0)));
-                    rec.insert("mem".to_string(), Value::Float(parts[3].parse().unwrap_or(0.0)));
+                    rec.insert(
+                        "cpu".to_string(),
+                        Value::Float(parts[2].parse().unwrap_or(0.0)),
+                    );
+                    rec.insert(
+                        "mem".to_string(),
+                        Value::Float(parts[3].parse().unwrap_or(0.0)),
+                    );
                     rec.insert("command".to_string(), Value::Str(parts[10..].join(" ")));
                     procs.push(Value::Record(rec));
                 }
@@ -13537,17 +13542,22 @@ fn bi_proc_kill(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.parse().unwrap_or(0),
         _ => return Ok(Value::Bool(false)),
     };
-    let signal = args.get(1).and_then(|v| match v {
-        Value::Str(s) => Some(s.as_str()),
-        _ => None,
-    }).unwrap_or("TERM");
-    
+    let signal = args
+        .get(1)
+        .and_then(|v| match v {
+            Value::Str(s) => Some(s.as_str()),
+            _ => None,
+        })
+        .unwrap_or("TERM");
+
     #[cfg(target_os = "windows")]
     {
         let force = signal == "KILL" || signal == "9";
         let mut cmd = std::process::Command::new("taskkill");
         cmd.args(["/PID", &pid.to_string()]);
-        if force { cmd.arg("/F"); }
+        if force {
+            cmd.arg("/F");
+        }
         let output = cmd.output()?;
         return Ok(Value::Bool(output.status.success()));
     }
@@ -13575,7 +13585,7 @@ fn bi_proc_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.parse().unwrap_or(0),
         _ => return Ok(Value::Null),
     };
-    
+
     #[cfg(target_os = "windows")]
     {
         let cmd = format!(
@@ -13600,9 +13610,15 @@ fn bi_proc_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             if parts.len() > 20 {
                 let mut rec = std::collections::BTreeMap::new();
                 rec.insert("pid".to_string(), Value::Int(pid));
-                rec.insert("name".to_string(), Value::Str(parts[1].trim_matches(|c| c == '(' || c == ')').to_string()));
+                rec.insert(
+                    "name".to_string(),
+                    Value::Str(parts[1].trim_matches(|c| c == '(' || c == ')').to_string()),
+                );
                 rec.insert("state".to_string(), Value::Str(parts[2].to_string()));
-                rec.insert("ppid".to_string(), Value::Int(parts[3].parse().unwrap_or(0)));
+                rec.insert(
+                    "ppid".to_string(),
+                    Value::Int(parts[3].parse().unwrap_or(0)),
+                );
                 return Ok(Value::Record(rec));
             }
         }
@@ -13615,11 +13631,15 @@ fn bi_proc_spawn(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
-    let spawn_args: Vec<String> = args.iter().skip(1).filter_map(|v| match v {
-        Value::Str(s) => Some(s.clone()),
-        _ => None,
-    }).collect();
-    
+    let spawn_args: Vec<String> = args
+        .iter()
+        .skip(1)
+        .filter_map(|v| match v {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .collect();
+
     #[cfg(target_os = "windows")]
     {
         let child = std::process::Command::new("cmd")
@@ -13642,17 +13662,23 @@ fn bi_proc_wait(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Int(p)) => *p as u32,
         _ => return Ok(Value::Null),
     };
-    let timeout_ms = args.get(1).and_then(|v| match v {
-        Value::Int(t) => Some(*t as u64),
-        _ => None,
-    }).unwrap_or(30000);
-    
+    let timeout_ms = args
+        .get(1)
+        .and_then(|v| match v {
+            Value::Int(t) => Some(*t as u64),
+            _ => None,
+        })
+        .unwrap_or(30000);
+
     let start = std::time::Instant::now();
     while start.elapsed().as_millis() < timeout_ms as u128 {
         #[cfg(target_os = "windows")]
         {
             let output = std::process::Command::new("powershell")
-                .args(["-Command", &format!("Get-Process -Id {} -ErrorAction SilentlyContinue", pid)])
+                .args([
+                    "-Command",
+                    &format!("Get-Process -Id {} -ErrorAction SilentlyContinue", pid),
+                ])
                 .output()?;
             if !output.status.success() || output.stdout.is_empty() {
                 return Ok(Value::Bool(true));
@@ -13678,13 +13704,18 @@ fn bi_proc_exists(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.parse().unwrap_or(0),
         _ => return Ok(Value::Bool(false)),
     };
-    
+
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
-            .args(["-Command", &format!("Get-Process -Id {} -ErrorAction SilentlyContinue", pid)])
+            .args([
+                "-Command",
+                &format!("Get-Process -Id {} -ErrorAction SilentlyContinue", pid),
+            ])
             .output()?;
-        return Ok(Value::Bool(output.status.success() && !output.stdout.is_empty()));
+        return Ok(Value::Bool(
+            output.status.success() && !output.stdout.is_empty(),
+        ));
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -13700,7 +13731,7 @@ fn bi_proc_children(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Int(p)) => *p,
         _ => return Ok(Value::Array(vec![])),
     };
-    
+
     #[cfg(target_os = "windows")]
     {
         let cmd = format!(
@@ -13724,7 +13755,8 @@ fn bi_proc_children(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .output()?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
-            let children: Vec<Value> = text.lines()
+            let children: Vec<Value> = text
+                .lines()
                 .filter_map(|l| l.parse::<i64>().ok())
                 .map(Value::Int)
                 .collect();
@@ -13739,7 +13771,7 @@ fn bi_proc_parent(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Int(p)) => *p,
         _ => return Ok(Value::Null),
     };
-    
+
     #[cfg(target_os = "windows")]
     {
         let cmd = format!(
@@ -13750,7 +13782,10 @@ fn bi_proc_parent(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args(["-Command", &cmd])
             .output()?;
         if output.status.success() {
-            let ppid: i64 = String::from_utf8_lossy(&output.stdout).trim().parse().unwrap_or(0);
+            let ppid: i64 = String::from_utf8_lossy(&output.stdout)
+                .trim()
+                .parse()
+                .unwrap_or(0);
             return Ok(Value::Int(ppid));
         }
     }
@@ -13773,7 +13808,7 @@ fn bi_proc_priority(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Int(p)) => *p,
         _ => return Ok(Value::Null),
     };
-    
+
     #[cfg(target_os = "windows")]
     {
         let cmd = format!("(Get-Process -Id {}).PriorityClass", pid);
@@ -13781,7 +13816,9 @@ fn bi_proc_priority(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args(["-Command", &cmd])
             .output()?;
         if output.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).trim().to_string(),
+            ));
         }
     }
     #[cfg(not(target_os = "windows"))]
@@ -13790,7 +13827,10 @@ fn bi_proc_priority(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args(["-o", "ni=", "-p", &pid.to_string()])
             .output()?;
         if output.status.success() {
-            let nice: i64 = String::from_utf8_lossy(&output.stdout).trim().parse().unwrap_or(0);
+            let nice: i64 = String::from_utf8_lossy(&output.stdout)
+                .trim()
+                .parse()
+                .unwrap_or(0);
             return Ok(Value::Int(nice));
         }
     }
@@ -13807,7 +13847,7 @@ fn bi_proc_set_priority(args: Vec<Value>, _input: Option<Value>) -> Result<Value
         Some(Value::Str(s)) => s.parse().unwrap_or(0),
         _ => return Ok(Value::Bool(false)),
     };
-    
+
     #[cfg(target_os = "windows")]
     {
         let priority_class = match priority {
@@ -13817,7 +13857,10 @@ fn bi_proc_set_priority(args: Vec<Value>, _input: Option<Value>) -> Result<Value
             p if p < 10 => "BelowNormal",
             _ => "Idle",
         };
-        let cmd = format!("(Get-Process -Id {}).PriorityClass = '{}'", pid, priority_class);
+        let cmd = format!(
+            "(Get-Process -Id {}).PriorityClass = '{}'",
+            pid, priority_class
+        );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &cmd])
             .output()?;
@@ -13837,7 +13880,7 @@ fn bi_proc_cpu_usage(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Int(p)) => *p,
         _ => return Ok(Value::Float(0.0)),
     };
-    
+
     #[cfg(target_os = "windows")]
     {
         let cmd = format!("(Get-Process -Id {}).CPU", pid);
@@ -13845,7 +13888,10 @@ fn bi_proc_cpu_usage(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args(["-Command", &cmd])
             .output()?;
         if output.status.success() {
-            let cpu: f64 = String::from_utf8_lossy(&output.stdout).trim().parse().unwrap_or(0.0);
+            let cpu: f64 = String::from_utf8_lossy(&output.stdout)
+                .trim()
+                .parse()
+                .unwrap_or(0.0);
             return Ok(Value::Float(cpu));
         }
     }
@@ -13855,7 +13901,10 @@ fn bi_proc_cpu_usage(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args(["-o", "%cpu=", "-p", &pid.to_string()])
             .output()?;
         if output.status.success() {
-            let cpu: f64 = String::from_utf8_lossy(&output.stdout).trim().parse().unwrap_or(0.0);
+            let cpu: f64 = String::from_utf8_lossy(&output.stdout)
+                .trim()
+                .parse()
+                .unwrap_or(0.0);
             return Ok(Value::Float(cpu));
         }
     }
@@ -13867,7 +13916,7 @@ fn bi_proc_mem_usage(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Int(p)) => *p,
         _ => return Ok(Value::Int(0)),
     };
-    
+
     #[cfg(target_os = "windows")]
     {
         let cmd = format!("(Get-Process -Id {}).WorkingSet64", pid);
@@ -13875,7 +13924,10 @@ fn bi_proc_mem_usage(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args(["-Command", &cmd])
             .output()?;
         if output.status.success() {
-            let mem: i64 = String::from_utf8_lossy(&output.stdout).trim().parse().unwrap_or(0);
+            let mem: i64 = String::from_utf8_lossy(&output.stdout)
+                .trim()
+                .parse()
+                .unwrap_or(0);
             return Ok(Value::Int(mem));
         }
     }
@@ -13885,7 +13937,10 @@ fn bi_proc_mem_usage(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args(["-o", "rss=", "-p", &pid.to_string()])
             .output()?;
         if output.status.success() {
-            let mem: i64 = String::from_utf8_lossy(&output.stdout).trim().parse().unwrap_or(0);
+            let mem: i64 = String::from_utf8_lossy(&output.stdout)
+                .trim()
+                .parse()
+                .unwrap_or(0);
             return Ok(Value::Int(mem * 1024)); // Convert KB to bytes
         }
     }
@@ -13897,7 +13952,7 @@ fn bi_proc_threads(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Int(p)) => *p,
         _ => return Ok(Value::Int(0)),
     };
-    
+
     #[cfg(target_os = "windows")]
     {
         let cmd = format!("(Get-Process -Id {}).Threads.Count", pid);
@@ -13905,7 +13960,10 @@ fn bi_proc_threads(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args(["-Command", &cmd])
             .output()?;
         if output.status.success() {
-            let threads: i64 = String::from_utf8_lossy(&output.stdout).trim().parse().unwrap_or(0);
+            let threads: i64 = String::from_utf8_lossy(&output.stdout)
+                .trim()
+                .parse()
+                .unwrap_or(0);
             return Ok(Value::Int(threads));
         }
     }
@@ -13924,7 +13982,7 @@ fn bi_proc_env(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Int(p)) => *p,
         _ => return Ok(Value::Record(std::collections::BTreeMap::new())),
     };
-    
+
     #[cfg(target_os = "linux")]
     {
         let env_path = format!("/proc/{}/environ", pid);
@@ -13948,7 +14006,7 @@ fn bi_proc_cwd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Int(p)) => *p,
         _ => return Ok(Value::Null),
     };
-    
+
     #[cfg(target_os = "windows")]
     {
         // Windows doesn't easily expose CWD
@@ -13969,7 +14027,7 @@ fn bi_proc_exe(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Int(p)) => *p,
         _ => return Ok(Value::Null),
     };
-    
+
     #[cfg(target_os = "windows")]
     {
         let cmd = format!("(Get-Process -Id {}).Path", pid);
@@ -13977,7 +14035,9 @@ fn bi_proc_exe(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args(["-Command", &cmd])
             .output()?;
         if output.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).trim().to_string(),
+            ));
         }
     }
     #[cfg(target_os = "linux")]
@@ -13995,7 +14055,7 @@ fn bi_proc_cmdline(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Int(p)) => *p,
         _ => return Ok(Value::Array(vec![])),
     };
-    
+
     #[cfg(target_os = "windows")]
     {
         let cmd = format!(
@@ -14006,14 +14066,17 @@ fn bi_proc_cmdline(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args(["-Command", &cmd])
             .output()?;
         if output.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).trim().to_string(),
+            ));
         }
     }
     #[cfg(target_os = "linux")]
     {
         let cmdline_path = format!("/proc/{}/cmdline", pid);
         if let Ok(cmdline_data) = std::fs::read(&cmdline_path) {
-            let args: Vec<Value> = cmdline_data.split(|&b| b == 0)
+            let args: Vec<Value> = cmdline_data
+                .split(|&b| b == 0)
                 .filter(|s| !s.is_empty())
                 .map(|s| Value::Str(String::from_utf8_lossy(s).to_string()))
                 .collect();
@@ -14028,7 +14091,7 @@ fn bi_proc_start_time(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
         Some(Value::Int(p)) => *p,
         _ => return Ok(Value::Null),
     };
-    
+
     #[cfg(target_os = "windows")]
     {
         let cmd = format!("(Get-Process -Id {}).StartTime.ToString('o')", pid);
@@ -14036,7 +14099,9 @@ fn bi_proc_start_time(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
             .args(["-Command", &cmd])
             .output()?;
         if output.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).trim().to_string(),
+            ));
         }
     }
     #[cfg(not(target_os = "windows"))]
@@ -14045,7 +14110,9 @@ fn bi_proc_start_time(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
             .args(["-o", "lstart=", "-p", &pid.to_string()])
             .output()?;
         if output.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).trim().to_string(),
+            ));
         }
     }
     Ok(Value::Null)
@@ -14056,7 +14123,7 @@ fn bi_proc_suspend(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Int(p)) => *p,
         _ => return Ok(Value::Bool(false)),
     };
-    
+
     #[cfg(target_os = "windows")]
     {
         // Windows doesn't have a direct suspend; using debug API requires more setup
@@ -14076,7 +14143,7 @@ fn bi_proc_resume(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Int(p)) => *p,
         _ => return Ok(Value::Bool(false)),
     };
-    
+
     #[cfg(target_os = "windows")]
     {
         return Ok(Value::Bool(false));
@@ -14099,15 +14166,21 @@ fn bi_fs_stat(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
-    
+
     if let Ok(meta) = std::fs::metadata(&path) {
         let mut rec = std::collections::BTreeMap::new();
         rec.insert("size".to_string(), Value::Int(meta.len() as i64));
         rec.insert("is_file".to_string(), Value::Bool(meta.is_file()));
         rec.insert("is_dir".to_string(), Value::Bool(meta.is_dir()));
-        rec.insert("is_symlink".to_string(), Value::Bool(meta.file_type().is_symlink()));
-        rec.insert("readonly".to_string(), Value::Bool(meta.permissions().readonly()));
-        
+        rec.insert(
+            "is_symlink".to_string(),
+            Value::Bool(meta.file_type().is_symlink()),
+        );
+        rec.insert(
+            "readonly".to_string(),
+            Value::Bool(meta.permissions().readonly()),
+        );
+
         #[cfg(unix)]
         {
             use std::os::unix::fs::MetadataExt;
@@ -14119,15 +14192,21 @@ fn bi_fs_stat(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             rec.insert("blocks".to_string(), Value::Int(meta.blocks() as i64));
             rec.insert("blksize".to_string(), Value::Int(meta.blksize() as i64));
         }
-        
+
         if let Ok(modified) = meta.modified() {
             if let Ok(duration) = modified.duration_since(std::time::UNIX_EPOCH) {
-                rec.insert("modified".to_string(), Value::Int(duration.as_secs() as i64));
+                rec.insert(
+                    "modified".to_string(),
+                    Value::Int(duration.as_secs() as i64),
+                );
             }
         }
         if let Ok(accessed) = meta.accessed() {
             if let Ok(duration) = accessed.duration_since(std::time::UNIX_EPOCH) {
-                rec.insert("accessed".to_string(), Value::Int(duration.as_secs() as i64));
+                rec.insert(
+                    "accessed".to_string(),
+                    Value::Int(duration.as_secs() as i64),
+                );
             }
         }
         if let Ok(created) = meta.created() {
@@ -14135,7 +14214,7 @@ fn bi_fs_stat(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 rec.insert("created".to_string(), Value::Int(duration.as_secs() as i64));
             }
         }
-        
+
         return Ok(Value::Record(rec));
     }
     Ok(Value::Null)
@@ -14146,13 +14225,16 @@ fn bi_fs_lstat(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
-    
+
     if let Ok(meta) = std::fs::symlink_metadata(&path) {
         let mut rec = std::collections::BTreeMap::new();
         rec.insert("size".to_string(), Value::Int(meta.len() as i64));
         rec.insert("is_file".to_string(), Value::Bool(meta.is_file()));
         rec.insert("is_dir".to_string(), Value::Bool(meta.is_dir()));
-        rec.insert("is_symlink".to_string(), Value::Bool(meta.file_type().is_symlink()));
+        rec.insert(
+            "is_symlink".to_string(),
+            Value::Bool(meta.file_type().is_symlink()),
+        );
         return Ok(Value::Record(rec));
     }
     Ok(Value::Null)
@@ -14165,10 +14247,13 @@ fn bi_fs_chmod(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     };
     let mode = match args.get(1) {
         Some(Value::Int(m)) => *m as u32,
-        Some(Value::Str(s)) => u32::from_str_radix(s.trim_start_matches("0o").trim_start_matches("0"), 8).unwrap_or(0o644),
+        Some(Value::Str(s)) => {
+            u32::from_str_radix(s.trim_start_matches("0o").trim_start_matches("0"), 8)
+                .unwrap_or(0o644)
+        }
         _ => return Ok(Value::Bool(false)),
     };
-    
+
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -14207,7 +14292,7 @@ fn bi_fs_chown(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Int(g)) => *g,
         _ => uid,
     };
-    
+
     #[cfg(unix)]
     {
         let output = std::process::Command::new("chown")
@@ -14231,7 +14316,7 @@ fn bi_fs_link(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Bool(false)),
     };
-    
+
     Ok(Value::Bool(std::fs::hard_link(&src, &dst).is_ok()))
 }
 
@@ -14244,7 +14329,7 @@ fn bi_fs_symlink(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Bool(false)),
     };
-    
+
     #[cfg(unix)]
     {
         return Ok(Value::Bool(std::os::unix::fs::symlink(&src, &dst).is_ok()));
@@ -14253,9 +14338,13 @@ fn bi_fs_symlink(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let is_dir = std::fs::metadata(&src).map(|m| m.is_dir()).unwrap_or(false);
         if is_dir {
-            return Ok(Value::Bool(std::os::windows::fs::symlink_dir(&src, &dst).is_ok()));
+            return Ok(Value::Bool(
+                std::os::windows::fs::symlink_dir(&src, &dst).is_ok(),
+            ));
         } else {
-            return Ok(Value::Bool(std::os::windows::fs::symlink_file(&src, &dst).is_ok()));
+            return Ok(Value::Bool(
+                std::os::windows::fs::symlink_file(&src, &dst).is_ok(),
+            ));
         }
     }
 }
@@ -14265,7 +14354,7 @@ fn bi_fs_readlink(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
-    
+
     if let Ok(target) = std::fs::read_link(&path) {
         return Ok(Value::Str(target.to_string_lossy().to_string()));
     }
@@ -14277,7 +14366,7 @@ fn bi_fs_realpath(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
-    
+
     if let Ok(real) = std::fs::canonicalize(&path) {
         return Ok(Value::Str(real.to_string_lossy().to_string()));
     }
@@ -14285,18 +14374,25 @@ fn bi_fs_realpath(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_fs_tempfile(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let prefix = args.first().and_then(|v| match v {
-        Value::Str(s) => Some(s.as_str()),
-        _ => None,
-    }).unwrap_or("aether_");
-    
+    let prefix = args
+        .first()
+        .and_then(|v| match v {
+            Value::Str(s) => Some(s.as_str()),
+            _ => None,
+        })
+        .unwrap_or("aether_");
+
     let temp_dir = std::env::temp_dir();
-    let filename = format!("{}_{}", prefix, std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos());
+    let filename = format!(
+        "{}_{}",
+        prefix,
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    );
     let path = temp_dir.join(&filename);
-    
+
     if std::fs::File::create(&path).is_ok() {
         return Ok(Value::Str(path.to_string_lossy().to_string()));
     }
@@ -14304,18 +14400,25 @@ fn bi_fs_tempfile(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_fs_tempdir(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let prefix = args.first().and_then(|v| match v {
-        Value::Str(s) => Some(s.as_str()),
-        _ => None,
-    }).unwrap_or("aether_");
-    
+    let prefix = args
+        .first()
+        .and_then(|v| match v {
+            Value::Str(s) => Some(s.as_str()),
+            _ => None,
+        })
+        .unwrap_or("aether_");
+
     let temp_dir = std::env::temp_dir();
-    let dirname = format!("{}_{}", prefix, std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos());
+    let dirname = format!(
+        "{}_{}",
+        prefix,
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    );
     let path = temp_dir.join(&dirname);
-    
+
     if std::fs::create_dir_all(&path).is_ok() {
         return Ok(Value::Str(path.to_string_lossy().to_string()));
     }
@@ -14336,19 +14439,19 @@ fn bi_fs_glob(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Array(vec![])),
     };
-    
+
     // Simple glob implementation
     let mut results = Vec::new();
     let base_dir = std::path::Path::new(&pattern)
         .parent()
         .unwrap_or(std::path::Path::new("."));
-    
+
     if let Ok(entries) = std::fs::read_dir(base_dir) {
         let pattern_name = std::path::Path::new(&pattern)
             .file_name()
             .map(|s| s.to_string_lossy().to_string())
             .unwrap_or_default();
-        
+
         for entry in entries.filter_map(|e| e.ok()) {
             let name = entry.file_name().to_string_lossy().to_string();
             // Simple wildcard matching
@@ -14382,13 +14485,23 @@ fn bi_fs_walk(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => ".".to_string(),
     };
-    let max_depth = args.get(1).and_then(|v| match v {
-        Value::Int(d) => Some(*d as usize),
-        _ => None,
-    }).unwrap_or(100);
-    
-    fn walk_recursive(dir: &std::path::Path, depth: usize, max_depth: usize, results: &mut Vec<Value>) {
-        if depth > max_depth { return; }
+    let max_depth = args
+        .get(1)
+        .and_then(|v| match v {
+            Value::Int(d) => Some(*d as usize),
+            _ => None,
+        })
+        .unwrap_or(100);
+
+    fn walk_recursive(
+        dir: &std::path::Path,
+        depth: usize,
+        max_depth: usize,
+        results: &mut Vec<Value>,
+    ) {
+        if depth > max_depth {
+            return;
+        }
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.filter_map(|e| e.ok()) {
                 let path = entry.path();
@@ -14399,7 +14512,7 @@ fn bi_fs_walk(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             }
         }
     }
-    
+
     let mut results = Vec::new();
     walk_recursive(std::path::Path::new(&dir), 0, max_depth, &mut results);
     Ok(Value::Array(results))
@@ -14410,13 +14523,24 @@ fn bi_fs_tree(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => ".".to_string(),
     };
-    let max_depth = args.get(1).and_then(|v| match v {
-        Value::Int(d) => Some(*d as usize),
-        _ => None,
-    }).unwrap_or(3);
-    
-    fn tree_recursive(dir: &std::path::Path, prefix: &str, depth: usize, max_depth: usize, lines: &mut Vec<String>) {
-        if depth > max_depth { return; }
+    let max_depth = args
+        .get(1)
+        .and_then(|v| match v {
+            Value::Int(d) => Some(*d as usize),
+            _ => None,
+        })
+        .unwrap_or(3);
+
+    fn tree_recursive(
+        dir: &std::path::Path,
+        prefix: &str,
+        depth: usize,
+        max_depth: usize,
+        lines: &mut Vec<String>,
+    ) {
+        if depth > max_depth {
+            return;
+        }
         if let Ok(mut entries) = std::fs::read_dir(dir) {
             let entries: Vec<_> = entries.by_ref().filter_map(|e| e.ok()).collect();
             let count = entries.len();
@@ -14425,15 +14549,15 @@ fn bi_fs_tree(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 let connector = if is_last { "└── " } else { "├── " };
                 let name = entry.file_name().to_string_lossy().to_string();
                 lines.push(format!("{}{}{}", prefix, connector, name));
-                
+
                 if entry.path().is_dir() {
-                    let new_prefix = format!("{}{}",prefix, if is_last { "    " } else { "│   " });
+                    let new_prefix = format!("{}{}", prefix, if is_last { "    " } else { "│   " });
                     tree_recursive(&entry.path(), &new_prefix, depth + 1, max_depth, lines);
                 }
             }
         }
     }
-    
+
     let mut lines = vec![dir.clone()];
     tree_recursive(std::path::Path::new(&dir), "", 0, max_depth, &mut lines);
     Ok(Value::Str(lines.join("\n")))
@@ -14444,7 +14568,7 @@ fn bi_fs_du(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => ".".to_string(),
     };
-    
+
     fn dir_size(path: &std::path::Path) -> u64 {
         let mut size = 0;
         if path.is_file() {
@@ -14462,14 +14586,20 @@ fn bi_fs_du(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
         size
     }
-    
+
     let size = dir_size(std::path::Path::new(&path));
     let mut rec = std::collections::BTreeMap::new();
     rec.insert("path".to_string(), Value::Str(path));
     rec.insert("bytes".to_string(), Value::Int(size as i64));
     rec.insert("kb".to_string(), Value::Float(size as f64 / 1024.0));
-    rec.insert("mb".to_string(), Value::Float(size as f64 / 1024.0 / 1024.0));
-    rec.insert("gb".to_string(), Value::Float(size as f64 / 1024.0 / 1024.0 / 1024.0));
+    rec.insert(
+        "mb".to_string(),
+        Value::Float(size as f64 / 1024.0 / 1024.0),
+    );
+    rec.insert(
+        "gb".to_string(),
+        Value::Float(size as f64 / 1024.0 / 1024.0 / 1024.0),
+    );
     Ok(Value::Record(rec))
 }
 
@@ -14488,9 +14618,7 @@ fn bi_fs_df(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let output = std::process::Command::new("df")
-            .args(["-h"])
-            .output()?;
+        let output = std::process::Command::new("df").args(["-h"]).output()?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
             let mut drives = Vec::new();
@@ -14519,14 +14647,19 @@ fn bi_fs_mount(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_fs_unmount(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("unmount requires elevated privileges".to_string()))
+    Ok(Value::Str(
+        "unmount requires elevated privileges".to_string(),
+    ))
 }
 
 fn bi_fs_mounts(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
-            .args(["-Command", "Get-PSDrive -PSProvider FileSystem | Select-Object Name,Root | ConvertTo-Json"])
+            .args([
+                "-Command",
+                "Get-PSDrive -PSProvider FileSystem | Select-Object Name,Root | ConvertTo-Json",
+            ])
             .output()?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
@@ -14579,7 +14712,9 @@ fn bi_net_interfaces(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
             .args(["addr", "show"])
             .output()?;
         if output.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).to_string(),
+            ));
         }
     }
     Ok(Value::Array(vec![]))
@@ -14604,7 +14739,9 @@ fn bi_net_ip(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args(["-I"])
             .output()?;
         if output.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).trim().to_string(),
+            ));
         }
     }
     Ok(Value::Null)
@@ -14615,11 +14752,17 @@ fn bi_net_dns_lookup(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Array(vec![])),
     };
-    
+
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
-            .args(["-Command", &format!("Resolve-DnsName {} | Select-Object IPAddress | ConvertTo-Json", hostname)])
+            .args([
+                "-Command",
+                &format!(
+                    "Resolve-DnsName {} | Select-Object IPAddress | ConvertTo-Json",
+                    hostname
+                ),
+            ])
             .output()?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
@@ -14649,11 +14792,17 @@ fn bi_net_dns_reverse(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
-    
+
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
-            .args(["-Command", &format!("Resolve-DnsName {} | Select-Object NameHost | ConvertTo-Json", ip)])
+            .args([
+                "-Command",
+                &format!(
+                    "Resolve-DnsName {} | Select-Object NameHost | ConvertTo-Json",
+                    ip
+                ),
+            ])
             .output()?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
@@ -14668,7 +14817,9 @@ fn bi_net_dns_reverse(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
             .args(["+short", "-x", &ip])
             .output()?;
         if output.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).trim().to_string(),
+            ));
         }
     }
     Ok(Value::Null)
@@ -14679,24 +14830,31 @@ fn bi_net_ping(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
-    let count = args.get(1).and_then(|v| match v {
-        Value::Int(c) => Some(*c),
-        _ => None,
-    }).unwrap_or(4);
-    
+    let count = args
+        .get(1)
+        .and_then(|v| match v {
+            Value::Int(c) => Some(*c),
+            _ => None,
+        })
+        .unwrap_or(4);
+
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("ping")
             .args(["-n", &count.to_string(), &host])
             .output()?;
-        return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()));
+        return Ok(Value::Str(
+            String::from_utf8_lossy(&output.stdout).to_string(),
+        ));
     }
     #[cfg(not(target_os = "windows"))]
     {
         let output = std::process::Command::new("ping")
             .args(["-c", &count.to_string(), &host])
             .output()?;
-        return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()));
+        return Ok(Value::Str(
+            String::from_utf8_lossy(&output.stdout).to_string(),
+        ));
     }
 }
 
@@ -14705,20 +14863,24 @@ fn bi_net_traceroute(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
-    
+
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("tracert")
             .args(["-d", &host])
             .output()?;
-        return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()));
+        return Ok(Value::Str(
+            String::from_utf8_lossy(&output.stdout).to_string(),
+        ));
     }
     #[cfg(not(target_os = "windows"))]
     {
         let output = std::process::Command::new("traceroute")
             .args(["-n", &host])
             .output()?;
-        return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()));
+        return Ok(Value::Str(
+            String::from_utf8_lossy(&output.stdout).to_string(),
+        ));
     }
 }
 
@@ -14737,11 +14899,11 @@ fn bi_net_connections(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let output = std::process::Command::new("ss")
-            .args(["-tuln"])
-            .output()?;
+        let output = std::process::Command::new("ss").args(["-tuln"]).output()?;
         if output.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).to_string(),
+            ));
         }
     }
     Ok(Value::Array(vec![]))
@@ -14774,22 +14936,24 @@ fn bi_net_ports(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let output = std::process::Command::new("netstat")
             .args(["-an"])
             .output()?;
-        return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()));
+        return Ok(Value::Str(
+            String::from_utf8_lossy(&output.stdout).to_string(),
+        ));
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let output = std::process::Command::new("ss")
-            .args(["-tuln"])
-            .output()?;
-        return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()));
+        let output = std::process::Command::new("ss").args(["-tuln"]).output()?;
+        return Ok(Value::Str(
+            String::from_utf8_lossy(&output.stdout).to_string(),
+        ));
     }
 }
 
 fn bi_net_arp(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("arp")
-        .args(["-a"])
-        .output()?;
-    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()))
+    let output = std::process::Command::new("arp").args(["-a"]).output()?;
+    Ok(Value::Str(
+        String::from_utf8_lossy(&output.stdout).to_string(),
+    ))
 }
 
 fn bi_net_route(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -14798,14 +14962,16 @@ fn bi_net_route(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let output = std::process::Command::new("route")
             .args(["print"])
             .output()?;
-        return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()));
+        return Ok(Value::Str(
+            String::from_utf8_lossy(&output.stdout).to_string(),
+        ));
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let output = std::process::Command::new("ip")
-            .args(["route"])
-            .output()?;
-        return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()));
+        let output = std::process::Command::new("ip").args(["route"]).output()?;
+        return Ok(Value::Str(
+            String::from_utf8_lossy(&output.stdout).to_string(),
+        ));
     }
 }
 
@@ -14815,14 +14981,18 @@ fn bi_net_stats(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let output = std::process::Command::new("netstat")
             .args(["-s"])
             .output()?;
-        return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()));
+        return Ok(Value::Str(
+            String::from_utf8_lossy(&output.stdout).to_string(),
+        ));
     }
     #[cfg(not(target_os = "windows"))]
     {
         let output = std::process::Command::new("netstat")
             .args(["-s"])
             .output()?;
-        return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()));
+        return Ok(Value::Str(
+            String::from_utf8_lossy(&output.stdout).to_string(),
+        ));
     }
 }
 
@@ -14842,7 +15012,7 @@ fn bi_net_latency(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
-    
+
     let start = std::time::Instant::now();
     #[cfg(target_os = "windows")]
     {
@@ -14869,7 +15039,9 @@ fn bi_net_latency(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 fn bi_net_scan(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // Port scanning requires more complex implementation
-    Ok(Value::Str("Port scanning not implemented for security reasons".to_string()))
+    Ok(Value::Str(
+        "Port scanning not implemented for security reasons".to_string(),
+    ))
 }
 
 fn bi_net_whois(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -14877,11 +15049,9 @@ fn bi_net_whois(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
-    
-    let output = std::process::Command::new("whois")
-        .arg(&domain)
-        .output();
-    
+
+    let output = std::process::Command::new("whois").arg(&domain).output();
+
     match output {
         Ok(out) if out.status.success() => {
             Ok(Value::Str(String::from_utf8_lossy(&out.stdout).to_string()))
@@ -14896,17 +15066,32 @@ fn bi_net_whois(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 fn bi_sys_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut rec = std::collections::BTreeMap::new();
-    rec.insert("os".to_string(), Value::Str(std::env::consts::OS.to_string()));
-    rec.insert("arch".to_string(), Value::Str(std::env::consts::ARCH.to_string()));
-    rec.insert("family".to_string(), Value::Str(std::env::consts::FAMILY.to_string()));
-    
+    rec.insert(
+        "os".to_string(),
+        Value::Str(std::env::consts::OS.to_string()),
+    );
+    rec.insert(
+        "arch".to_string(),
+        Value::Str(std::env::consts::ARCH.to_string()),
+    );
+    rec.insert(
+        "family".to_string(),
+        Value::Str(std::env::consts::FAMILY.to_string()),
+    );
+
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
-            .args(["-Command", "(Get-CimInstance Win32_OperatingSystem).Caption"])
+            .args([
+                "-Command",
+                "(Get-CimInstance Win32_OperatingSystem).Caption",
+            ])
             .output()?;
         if output.status.success() {
-            rec.insert("os_name".to_string(), Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()));
+            rec.insert(
+                "os_name".to_string(),
+                Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()),
+            );
         }
     }
     #[cfg(target_os = "linux")]
@@ -14914,13 +15099,16 @@ fn bi_sys_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         if let Ok(release) = std::fs::read_to_string("/etc/os-release") {
             for line in release.lines() {
                 if line.starts_with("PRETTY_NAME=") {
-                    rec.insert("os_name".to_string(), Value::Str(line[13..].trim_matches('"').to_string()));
+                    rec.insert(
+                        "os_name".to_string(),
+                        Value::Str(line[13..].trim_matches('"').to_string()),
+                    );
                     break;
                 }
             }
         }
     }
-    
+
     Ok(Value::Record(rec))
 }
 
@@ -14935,7 +15123,9 @@ fn bi_sys_hostname(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("hostname").output()?;
         if output.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).trim().to_string(),
+            ));
         }
     }
     Ok(Value::Null)
@@ -14953,14 +15143,16 @@ fn bi_sys_kernel(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("ver").output()?;
-        return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()));
+        return Ok(Value::Str(
+            String::from_utf8_lossy(&output.stdout).trim().to_string(),
+        ));
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let output = std::process::Command::new("uname")
-            .args(["-r"])
-            .output()?;
-        return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()));
+        let output = std::process::Command::new("uname").args(["-r"]).output()?;
+        return Ok(Value::Str(
+            String::from_utf8_lossy(&output.stdout).trim().to_string(),
+        ));
     }
 }
 
@@ -14971,7 +15163,10 @@ fn bi_sys_uptime(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args(["-Command", "((Get-Date) - (Get-CimInstance Win32_OperatingSystem).LastBootUpTime).TotalSeconds"])
             .output()?;
         if output.status.success() {
-            let secs: f64 = String::from_utf8_lossy(&output.stdout).trim().parse().unwrap_or(0.0);
+            let secs: f64 = String::from_utf8_lossy(&output.stdout)
+                .trim()
+                .parse()
+                .unwrap_or(0.0);
             return Ok(Value::Int(secs as i64));
         }
     }
@@ -14991,19 +15186,24 @@ fn bi_sys_boot_time(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
-            .args(["-Command", "(Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToString('o')"])
+            .args([
+                "-Command",
+                "(Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToString('o')",
+            ])
             .output()?;
         if output.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).trim().to_string(),
+            ));
         }
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let output = std::process::Command::new("uptime")
-            .args(["-s"])
-            .output()?;
+        let output = std::process::Command::new("uptime").args(["-s"]).output()?;
         if output.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).trim().to_string(),
+            ));
         }
     }
     Ok(Value::Null)
@@ -15033,11 +15233,17 @@ fn bi_sys_cpu_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     }
                 } else if line.starts_with("cpu cores") {
                     if let Some(cores) = line.split(':').nth(1) {
-                        rec.insert("cores".to_string(), Value::Int(cores.trim().parse().unwrap_or(0)));
+                        rec.insert(
+                            "cores".to_string(),
+                            Value::Int(cores.trim().parse().unwrap_or(0)),
+                        );
                     }
                 } else if line.starts_with("cpu MHz") {
                     if let Some(mhz) = line.split(':').nth(1) {
-                        rec.insert("mhz".to_string(), Value::Float(mhz.trim().parse().unwrap_or(0.0)));
+                        rec.insert(
+                            "mhz".to_string(),
+                            Value::Float(mhz.trim().parse().unwrap_or(0.0)),
+                        );
                     }
                 }
             }
@@ -15048,25 +15254,35 @@ fn bi_sys_cpu_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_sys_cpu_count(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Int(std::thread::available_parallelism()
-        .map(|p| p.get() as i64)
-        .unwrap_or(1)))
+    Ok(Value::Int(
+        std::thread::available_parallelism()
+            .map(|p| p.get() as i64)
+            .unwrap_or(1),
+    ))
 }
 
 fn bi_sys_cpu_freq(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
-            .args(["-Command", "(Get-CimInstance Win32_Processor).MaxClockSpeed"])
+            .args([
+                "-Command",
+                "(Get-CimInstance Win32_Processor).MaxClockSpeed",
+            ])
             .output()?;
         if output.status.success() {
-            let mhz: i64 = String::from_utf8_lossy(&output.stdout).trim().parse().unwrap_or(0);
+            let mhz: i64 = String::from_utf8_lossy(&output.stdout)
+                .trim()
+                .parse()
+                .unwrap_or(0);
             return Ok(Value::Int(mhz));
         }
     }
     #[cfg(target_os = "linux")]
     {
-        if let Ok(freq) = std::fs::read_to_string("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq") {
+        if let Ok(freq) =
+            std::fs::read_to_string("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq")
+        {
             let khz: i64 = freq.trim().parse().unwrap_or(0);
             return Ok(Value::Int(khz / 1000)); // Return MHz
         }
@@ -15120,11 +15336,11 @@ fn bi_sys_swap_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let output = std::process::Command::new("free")
-            .args(["-b"])
-            .output()?;
+        let output = std::process::Command::new("free").args(["-b"]).output()?;
         if output.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).to_string(),
+            ));
         }
     }
     Ok(Value::Null)
@@ -15141,9 +15357,18 @@ fn bi_sys_load_avg(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             let parts: Vec<&str> = loadavg.split_whitespace().collect();
             if parts.len() >= 3 {
                 let mut rec = std::collections::BTreeMap::new();
-                rec.insert("1min".to_string(), Value::Float(parts[0].parse().unwrap_or(0.0)));
-                rec.insert("5min".to_string(), Value::Float(parts[1].parse().unwrap_or(0.0)));
-                rec.insert("15min".to_string(), Value::Float(parts[2].parse().unwrap_or(0.0)));
+                rec.insert(
+                    "1min".to_string(),
+                    Value::Float(parts[0].parse().unwrap_or(0.0)),
+                );
+                rec.insert(
+                    "5min".to_string(),
+                    Value::Float(parts[1].parse().unwrap_or(0.0)),
+                );
+                rec.insert(
+                    "15min".to_string(),
+                    Value::Float(parts[2].parse().unwrap_or(0.0)),
+                );
                 return Ok(Value::Record(rec));
             }
         }
@@ -15152,10 +15377,16 @@ fn bi_sys_load_avg(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         // Windows doesn't have load average; return CPU usage instead
         let output = std::process::Command::new("powershell")
-            .args(["-Command", "(Get-CimInstance Win32_Processor).LoadPercentage"])
+            .args([
+                "-Command",
+                "(Get-CimInstance Win32_Processor).LoadPercentage",
+            ])
             .output()?;
         if output.status.success() {
-            let load: f64 = String::from_utf8_lossy(&output.stdout).trim().parse().unwrap_or(0.0);
+            let load: f64 = String::from_utf8_lossy(&output.stdout)
+                .trim()
+                .parse()
+                .unwrap_or(0.0);
             return Ok(Value::Float(load));
         }
     }
@@ -15166,7 +15397,10 @@ fn bi_sys_users(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
-            .args(["-Command", "Get-LocalUser | Select-Object Name,Enabled,LastLogon | ConvertTo-Json"])
+            .args([
+                "-Command",
+                "Get-LocalUser | Select-Object Name,Enabled,LastLogon | ConvertTo-Json",
+            ])
             .output()?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
@@ -15178,7 +15412,8 @@ fn bi_sys_users(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(not(target_os = "windows"))]
     {
         if let Ok(passwd) = std::fs::read_to_string("/etc/passwd") {
-            let users: Vec<Value> = passwd.lines()
+            let users: Vec<Value> = passwd
+                .lines()
                 .filter(|l| !l.starts_with('#'))
                 .map(|l| {
                     let parts: Vec<&str> = l.split(':').collect();
@@ -15203,7 +15438,10 @@ fn bi_sys_groups(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
-            .args(["-Command", "Get-LocalGroup | Select-Object Name,Description | ConvertTo-Json"])
+            .args([
+                "-Command",
+                "Get-LocalGroup | Select-Object Name,Description | ConvertTo-Json",
+            ])
             .output()?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
@@ -15215,7 +15453,8 @@ fn bi_sys_groups(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(not(target_os = "windows"))]
     {
         if let Ok(group) = std::fs::read_to_string("/etc/group") {
-            let groups: Vec<Value> = group.lines()
+            let groups: Vec<Value> = group
+                .lines()
                 .filter(|l| !l.starts_with('#'))
                 .map(|l| {
                     let parts: Vec<&str> = l.split(':').collect();
@@ -15236,7 +15475,7 @@ fn bi_sys_groups(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 fn bi_sys_user_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut rec = std::collections::BTreeMap::new();
-    
+
     #[cfg(target_os = "windows")]
     {
         if let Ok(user) = std::env::var("USERNAME") {
@@ -15261,7 +15500,7 @@ fn bi_sys_user_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             rec.insert("shell".to_string(), Value::Str(shell));
         }
     }
-    
+
     Ok(Value::Record(rec))
 }
 
@@ -15280,7 +15519,9 @@ fn bi_sys_locale(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args(["-Command", "(Get-Culture).Name"])
             .output()?;
         if output.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).trim().to_string(),
+            ));
         }
     }
     #[cfg(not(target_os = "windows"))]
@@ -15299,7 +15540,9 @@ fn bi_sys_timezone(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args(["-Command", "(Get-TimeZone).Id"])
             .output()?;
         if output.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).trim().to_string(),
+            ));
         }
     }
     #[cfg(not(target_os = "windows"))]
@@ -15322,7 +15565,10 @@ fn bi_svc_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
-            .args(["-Command", "Get-Service | Select-Object Name,DisplayName,Status | ConvertTo-Json"])
+            .args([
+                "-Command",
+                "Get-Service | Select-Object Name,DisplayName,Status | ConvertTo-Json",
+            ])
             .output()?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
@@ -15334,7 +15580,12 @@ fn bi_svc_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("systemctl")
-            .args(["list-units", "--type=service", "--no-pager", "--output=json"])
+            .args([
+                "list-units",
+                "--type=service",
+                "--no-pager",
+                "--output=json",
+            ])
             .output()?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
@@ -15351,11 +15602,17 @@ fn bi_svc_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
-    
+
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
-            .args(["-Command", &format!("Get-Service '{}' | Select-Object Name,Status | ConvertTo-Json", name)])
+            .args([
+                "-Command",
+                &format!(
+                    "Get-Service '{}' | Select-Object Name,Status | ConvertTo-Json",
+                    name
+                ),
+            ])
             .output()?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
@@ -15369,7 +15626,9 @@ fn bi_svc_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let output = std::process::Command::new("systemctl")
             .args(["status", &name])
             .output()?;
-        return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()));
+        return Ok(Value::Str(
+            String::from_utf8_lossy(&output.stdout).to_string(),
+        ));
     }
     Ok(Value::Null)
 }
@@ -15379,7 +15638,7 @@ fn bi_svc_start(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Bool(false)),
     };
-    
+
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
@@ -15401,7 +15660,7 @@ fn bi_svc_stop(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Bool(false)),
     };
-    
+
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
@@ -15423,7 +15682,7 @@ fn bi_svc_restart(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Bool(false)),
     };
-    
+
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
@@ -15445,11 +15704,14 @@ fn bi_svc_enable(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Bool(false)),
     };
-    
+
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
-            .args(["-Command", &format!("Set-Service '{}' -StartupType Automatic", name)])
+            .args([
+                "-Command",
+                &format!("Set-Service '{}' -StartupType Automatic", name),
+            ])
             .output()?;
         return Ok(Value::Bool(output.status.success()));
     }
@@ -15467,11 +15729,14 @@ fn bi_svc_disable(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Bool(false)),
     };
-    
+
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
-            .args(["-Command", &format!("Set-Service '{}' -StartupType Disabled", name)])
+            .args([
+                "-Command",
+                &format!("Set-Service '{}' -StartupType Disabled", name),
+            ])
             .output()?;
         return Ok(Value::Bool(output.status.success()));
     }
@@ -15489,24 +15754,37 @@ fn bi_svc_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
-    let lines = args.get(1).and_then(|v| match v {
-        Value::Int(n) => Some(*n),
-        _ => None,
-    }).unwrap_or(100);
-    
+    let lines = args
+        .get(1)
+        .and_then(|v| match v {
+            Value::Int(n) => Some(*n),
+            _ => None,
+        })
+        .unwrap_or(100);
+
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
-            .args(["-Command", &format!("Get-EventLog -LogName Application -Source '{}' -Newest {}", name, lines)])
+            .args([
+                "-Command",
+                &format!(
+                    "Get-EventLog -LogName Application -Source '{}' -Newest {}",
+                    name, lines
+                ),
+            ])
             .output()?;
-        return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()));
+        return Ok(Value::Str(
+            String::from_utf8_lossy(&output.stdout).to_string(),
+        ));
     }
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("journalctl")
             .args(["-u", &name, "-n", &lines.to_string(), "--no-pager"])
             .output()?;
-        return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()));
+        return Ok(Value::Str(
+            String::from_utf8_lossy(&output.stdout).to_string(),
+        ));
     }
 }
 
@@ -15515,11 +15793,15 @@ fn bi_svc_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_svc_create(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Service creation requires elevated privileges".to_string()))
+    Ok(Value::Str(
+        "Service creation requires elevated privileges".to_string(),
+    ))
 }
 
 fn bi_svc_delete(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Service deletion requires elevated privileges".to_string()))
+    Ok(Value::Str(
+        "Service deletion requires elevated privileges".to_string(),
+    ))
 }
 
 fn bi_cron_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -15528,23 +15810,31 @@ fn bi_cron_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let output = std::process::Command::new("schtasks")
             .args(["/Query", "/FO", "LIST"])
             .output()?;
-        return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()));
+        return Ok(Value::Str(
+            String::from_utf8_lossy(&output.stdout).to_string(),
+        ));
     }
     #[cfg(not(target_os = "windows"))]
     {
         let output = std::process::Command::new("crontab")
             .args(["-l"])
             .output()?;
-        return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()));
+        return Ok(Value::Str(
+            String::from_utf8_lossy(&output.stdout).to_string(),
+        ));
     }
 }
 
 fn bi_cron_add(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Use crontab -e or schtasks to add scheduled tasks".to_string()))
+    Ok(Value::Str(
+        "Use crontab -e or schtasks to add scheduled tasks".to_string(),
+    ))
 }
 
 fn bi_cron_remove(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Use crontab -e or schtasks to remove scheduled tasks".to_string()))
+    Ok(Value::Str(
+        "Use crontab -e or schtasks to remove scheduled tasks".to_string(),
+    ))
 }
 
 fn bi_cron_enable(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -15556,14 +15846,18 @@ fn bi_cron_disable(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_at_schedule(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Use 'at' command for one-time scheduling".to_string()))
+    Ok(Value::Str(
+        "Use 'at' command for one-time scheduling".to_string(),
+    ))
 }
 
 fn bi_at_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(not(target_os = "windows"))]
     {
         let output = std::process::Command::new("atq").output()?;
-        return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()));
+        return Ok(Value::Str(
+            String::from_utf8_lossy(&output.stdout).to_string(),
+        ));
     }
     #[cfg(target_os = "windows")]
     {
@@ -15591,9 +15885,16 @@ fn bi_startup_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("systemctl")
-            .args(["list-unit-files", "--type=service", "--state=enabled", "--no-pager"])
+            .args([
+                "list-unit-files",
+                "--type=service",
+                "--state=enabled",
+                "--no-pager",
+            ])
             .output()?;
-        return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()));
+        return Ok(Value::Str(
+            String::from_utf8_lossy(&output.stdout).to_string(),
+        ));
     }
     Ok(Value::Array(vec![]))
 }
@@ -15607,16 +15908,24 @@ fn bi_zip_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Bool(false)),
     };
-    let files: Vec<String> = args.iter().skip(1).filter_map(|v| match v {
-        Value::Str(s) => Some(s.clone()),
-        _ => None,
-    }).collect();
-    
+    let files: Vec<String> = args
+        .iter()
+        .skip(1)
+        .filter_map(|v| match v {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .collect();
+
     #[cfg(target_os = "windows")]
     {
         let cmd = format!(
             "Compress-Archive -Path {} -DestinationPath '{}'",
-            files.iter().map(|f| format!("'{}'", f)).collect::<Vec<_>>().join(","),
+            files
+                .iter()
+                .map(|f| format!("'{}'", f))
+                .collect::<Vec<_>>()
+                .join(","),
             archive
         );
         let output = std::process::Command::new("powershell")
@@ -15639,14 +15948,20 @@ fn bi_zip_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Bool(false)),
     };
-    let dest = args.get(1).and_then(|v| match v {
-        Value::Str(s) => Some(s.clone()),
-        _ => None,
-    }).unwrap_or(".".to_string());
-    
+    let dest = args
+        .get(1)
+        .and_then(|v| match v {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .unwrap_or(".".to_string());
+
     #[cfg(target_os = "windows")]
     {
-        let cmd = format!("Expand-Archive -Path '{}' -DestinationPath '{}'", archive, dest);
+        let cmd = format!(
+            "Expand-Archive -Path '{}' -DestinationPath '{}'",
+            archive, dest
+        );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &cmd])
             .output()?;
@@ -15666,7 +15981,7 @@ fn bi_zip_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Array(vec![])),
     };
-    
+
     #[cfg(target_os = "windows")]
     {
         let cmd = format!(
@@ -15688,7 +16003,9 @@ fn bi_zip_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let output = std::process::Command::new("unzip")
             .args(["-l", &archive])
             .output()?;
-        return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()));
+        return Ok(Value::Str(
+            String::from_utf8_lossy(&output.stdout).to_string(),
+        ));
     }
     Ok(Value::Array(vec![]))
 }
@@ -15698,11 +16015,15 @@ fn bi_zip_add(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Bool(false)),
     };
-    let files: Vec<String> = args.iter().skip(1).filter_map(|v| match v {
-        Value::Str(s) => Some(s.clone()),
-        _ => None,
-    }).collect();
-    
+    let files: Vec<String> = args
+        .iter()
+        .skip(1)
+        .filter_map(|v| match v {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .collect();
+
     #[cfg(not(target_os = "windows"))]
     {
         let output = std::process::Command::new("zip")
@@ -15716,7 +16037,11 @@ fn bi_zip_add(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let cmd = format!(
             "Compress-Archive -Path {} -Update -DestinationPath '{}'",
-            files.iter().map(|f| format!("'{}'", f)).collect::<Vec<_>>().join(","),
+            files
+                .iter()
+                .map(|f| format!("'{}'", f))
+                .collect::<Vec<_>>()
+                .join(","),
             archive
         );
         let output = std::process::Command::new("powershell")
@@ -15731,11 +16056,15 @@ fn bi_tar_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Bool(false)),
     };
-    let files: Vec<String> = args.iter().skip(1).filter_map(|v| match v {
-        Value::Str(s) => Some(s.clone()),
-        _ => None,
-    }).collect();
-    
+    let files: Vec<String> = args
+        .iter()
+        .skip(1)
+        .filter_map(|v| match v {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .collect();
+
     let output = std::process::Command::new("tar")
         .args(["-cvf", &archive])
         .args(&files)
@@ -15752,7 +16081,7 @@ fn bi_tar_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Value::Str(s) => Some(s.clone()),
         _ => None,
     });
-    
+
     let mut cmd = std::process::Command::new("tar");
     cmd.args(["-xvf", &archive]);
     if let Some(d) = dest {
@@ -15767,11 +16096,13 @@ fn bi_tar_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Array(vec![])),
     };
-    
+
     let output = std::process::Command::new("tar")
         .args(["-tvf", &archive])
         .output()?;
-    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()))
+    Ok(Value::Str(
+        String::from_utf8_lossy(&output.stdout).to_string(),
+    ))
 }
 
 fn bi_gzip_compress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -15779,7 +16110,7 @@ fn bi_gzip_compress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Bool(false)),
     };
-    
+
     let output = std::process::Command::new("gzip")
         .args(["-k", &file])
         .output()?;
@@ -15791,7 +16122,7 @@ fn bi_gzip_decompress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Bool(false)),
     };
-    
+
     let output = std::process::Command::new("gzip")
         .args(["-dk", &file])
         .output()?;
@@ -15803,7 +16134,7 @@ fn bi_bzip2_compress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Bool(false)),
     };
-    
+
     let output = std::process::Command::new("bzip2")
         .args(["-k", &file])
         .output()?;
@@ -15815,7 +16146,7 @@ fn bi_bzip2_decompress(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Bool(false)),
     };
-    
+
     let output = std::process::Command::new("bzip2")
         .args(["-dk", &file])
         .output()?;
@@ -15827,7 +16158,7 @@ fn bi_xz_compress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Bool(false)),
     };
-    
+
     let output = std::process::Command::new("xz")
         .args(["-k", &file])
         .output()?;
@@ -15839,7 +16170,7 @@ fn bi_xz_decompress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Bool(false)),
     };
-    
+
     let output = std::process::Command::new("xz")
         .args(["-dk", &file])
         .output()?;
@@ -15851,7 +16182,7 @@ fn bi_zstd_compress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Bool(false)),
     };
-    
+
     let output = std::process::Command::new("zstd")
         .args(["-k", &file])
         .output()?;
@@ -15863,7 +16194,7 @@ fn bi_zstd_decompress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Bool(false)),
     };
-    
+
     let output = std::process::Command::new("zstd")
         .args(["-dk", &file])
         .output()?;
@@ -15875,10 +16206,10 @@ fn bi_archive_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
-    
+
     let mut rec = std::collections::BTreeMap::new();
     rec.insert("path".to_string(), Value::Str(file.clone()));
-    
+
     if file.ends_with(".zip") {
         rec.insert("type".to_string(), Value::Str("zip".to_string()));
     } else if file.ends_with(".tar") || file.ends_with(".tar.gz") || file.ends_with(".tgz") {
@@ -15892,11 +16223,11 @@ fn bi_archive_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     } else if file.ends_with(".zst") {
         rec.insert("type".to_string(), Value::Str("zstd".to_string()));
     }
-    
+
     if let Ok(meta) = std::fs::metadata(&file) {
         rec.insert("size".to_string(), Value::Int(meta.len() as i64));
     }
-    
+
     Ok(Value::Record(rec))
 }
 
@@ -15905,7 +16236,7 @@ fn bi_archive_test(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Bool(false)),
     };
-    
+
     if file.ends_with(".zip") {
         #[cfg(not(target_os = "windows"))]
         {
@@ -15920,7 +16251,7 @@ fn bi_archive_test(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .output()?;
         return Ok(Value::Bool(output.status.success()));
     }
-    
+
     Ok(Value::Bool(std::fs::metadata(&file).is_ok()))
 }
 
@@ -15933,19 +16264,27 @@ fn bi_user_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_user_add(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("User creation requires elevated privileges".to_string()))
+    Ok(Value::Str(
+        "User creation requires elevated privileges".to_string(),
+    ))
 }
 
 fn bi_user_del(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("User deletion requires elevated privileges".to_string()))
+    Ok(Value::Str(
+        "User deletion requires elevated privileges".to_string(),
+    ))
 }
 
 fn bi_user_mod(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("User modification requires elevated privileges".to_string()))
+    Ok(Value::Str(
+        "User modification requires elevated privileges".to_string(),
+    ))
 }
 
 fn bi_user_passwd(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Password change requires elevated privileges".to_string()))
+    Ok(Value::Str(
+        "Password change requires elevated privileges".to_string(),
+    ))
 }
 
 fn bi_user_lock(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -15961,15 +16300,21 @@ fn bi_group_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_group_add(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Group creation requires elevated privileges".to_string()))
+    Ok(Value::Str(
+        "Group creation requires elevated privileges".to_string(),
+    ))
 }
 
 fn bi_group_del(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Group deletion requires elevated privileges".to_string()))
+    Ok(Value::Str(
+        "Group deletion requires elevated privileges".to_string(),
+    ))
 }
 
 fn bi_group_mod(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Group modification requires elevated privileges".to_string()))
+    Ok(Value::Str(
+        "Group modification requires elevated privileges".to_string(),
+    ))
 }
 
 fn bi_group_members(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -15977,11 +16322,17 @@ fn bi_group_members(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Array(vec![])),
     };
-    
+
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
-            .args(["-Command", &format!("Get-LocalGroupMember '{}' | Select-Object Name | ConvertTo-Json", group)])
+            .args([
+                "-Command",
+                &format!(
+                    "Get-LocalGroupMember '{}' | Select-Object Name | ConvertTo-Json",
+                    group
+                ),
+            ])
             .output()?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
@@ -15998,7 +16349,9 @@ fn bi_group_members(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         if output.status.success() {
             let line = String::from_utf8_lossy(&output.stdout);
             if let Some(members) = line.split(':').nth(3) {
-                let member_list: Vec<Value> = members.trim().split(',')
+                let member_list: Vec<Value> = members
+                    .trim()
+                    .split(',')
                     .filter(|s| !s.is_empty())
                     .map(|s| Value::Str(s.to_string()))
                     .collect();
@@ -16014,7 +16367,7 @@ fn bi_perm_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
-    
+
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -16027,7 +16380,9 @@ fn bi_perm_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         if let Ok(meta) = std::fs::metadata(&path) {
             let readonly = meta.permissions().readonly();
-            return Ok(Value::Str(if readonly { "readonly" } else { "readwrite" }.to_string()));
+            return Ok(Value::Str(
+                if readonly { "readonly" } else { "readwrite" }.to_string(),
+            ));
         }
     }
     Ok(Value::Null)
@@ -16046,7 +16401,7 @@ fn bi_perm_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => "r".to_string(),
     };
-    
+
     let meta = std::fs::metadata(&path);
     match mode.as_str() {
         "r" | "read" => Ok(Value::Bool(meta.is_ok())),
@@ -16072,7 +16427,9 @@ fn bi_perm_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_acl_get(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("ACL operations require platform-specific tools".to_string()))
+    Ok(Value::Str(
+        "ACL operations require platform-specific tools".to_string(),
+    ))
 }
 
 fn bi_acl_set(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -16085,21 +16442,27 @@ fn bi_sudo_check(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let output = std::process::Command::new("powershell")
             .args(["-Command", "([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)"])
             .output()?;
-        let is_admin = String::from_utf8_lossy(&output.stdout).trim().to_lowercase() == "true";
+        let is_admin = String::from_utf8_lossy(&output.stdout)
+            .trim()
+            .to_lowercase()
+            == "true";
         return Ok(Value::Bool(is_admin));
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let output = std::process::Command::new("id")
-            .args(["-u"])
-            .output()?;
-        let uid: u32 = String::from_utf8_lossy(&output.stdout).trim().parse().unwrap_or(1000);
+        let output = std::process::Command::new("id").args(["-u"]).output()?;
+        let uid: u32 = String::from_utf8_lossy(&output.stdout)
+            .trim()
+            .parse()
+            .unwrap_or(1000);
         return Ok(Value::Bool(uid == 0));
     }
 }
 
 fn bi_sudo_exec(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Use sudo directly in terminal for elevated commands".to_string()))
+    Ok(Value::Str(
+        "Use sudo directly in terminal for elevated commands".to_string(),
+    ))
 }
 
 fn bi_capabilities(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -16108,7 +16471,9 @@ fn bi_capabilities(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let output = std::process::Command::new("capsh")
             .args(["--print"])
             .output()?;
-        return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()));
+        return Ok(Value::Str(
+            String::from_utf8_lossy(&output.stdout).to_string(),
+        ));
     }
     Ok(Value::Null)
 }
@@ -16119,32 +16484,50 @@ fn bi_capabilities(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 fn detect_package_manager() -> &'static str {
     #[cfg(target_os = "windows")]
-    { return "winget"; }
+    {
+        return "winget";
+    }
     #[cfg(target_os = "macos")]
-    { return "brew"; }
+    {
+        return "brew";
+    }
     #[cfg(target_os = "linux")]
     {
-        if std::path::Path::new("/usr/bin/apt").exists() { return "apt"; }
-        if std::path::Path::new("/usr/bin/dnf").exists() { return "dnf"; }
-        if std::path::Path::new("/usr/bin/yum").exists() { return "yum"; }
-        if std::path::Path::new("/usr/bin/pacman").exists() { return "pacman"; }
+        if std::path::Path::new("/usr/bin/apt").exists() {
+            return "apt";
+        }
+        if std::path::Path::new("/usr/bin/dnf").exists() {
+            return "dnf";
+        }
+        if std::path::Path::new("/usr/bin/yum").exists() {
+            return "yum";
+        }
+        if std::path::Path::new("/usr/bin/pacman").exists() {
+            return "pacman";
+        }
         return "apt";
     }
 }
 
 fn bi_pkg_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let pm = detect_package_manager();
-    
+
     let output = match pm {
         "apt" => std::process::Command::new("dpkg").args(["-l"]).output()?,
-        "dnf" | "yum" => std::process::Command::new(pm).args(["list", "installed"]).output()?,
+        "dnf" | "yum" => std::process::Command::new(pm)
+            .args(["list", "installed"])
+            .output()?,
         "pacman" => std::process::Command::new("pacman").args(["-Q"]).output()?,
         "brew" => std::process::Command::new("brew").args(["list"]).output()?,
-        "winget" => std::process::Command::new("winget").args(["list"]).output()?,
+        "winget" => std::process::Command::new("winget")
+            .args(["list"])
+            .output()?,
         _ => return Ok(Value::Array(vec![])),
     };
-    
-    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()))
+
+    Ok(Value::Str(
+        String::from_utf8_lossy(&output.stdout).to_string(),
+    ))
 }
 
 fn bi_pkg_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -16153,17 +16536,29 @@ fn bi_pkg_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         _ => return Ok(Value::Array(vec![])),
     };
     let pm = detect_package_manager();
-    
+
     let output = match pm {
-        "apt" => std::process::Command::new("apt-cache").args(["search", &query]).output()?,
-        "dnf" | "yum" => std::process::Command::new(pm).args(["search", &query]).output()?,
-        "pacman" => std::process::Command::new("pacman").args(["-Ss", &query]).output()?,
-        "brew" => std::process::Command::new("brew").args(["search", &query]).output()?,
-        "winget" => std::process::Command::new("winget").args(["search", &query]).output()?,
+        "apt" => std::process::Command::new("apt-cache")
+            .args(["search", &query])
+            .output()?,
+        "dnf" | "yum" => std::process::Command::new(pm)
+            .args(["search", &query])
+            .output()?,
+        "pacman" => std::process::Command::new("pacman")
+            .args(["-Ss", &query])
+            .output()?,
+        "brew" => std::process::Command::new("brew")
+            .args(["search", &query])
+            .output()?,
+        "winget" => std::process::Command::new("winget")
+            .args(["search", &query])
+            .output()?,
         _ => return Ok(Value::Array(vec![])),
     };
-    
-    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()))
+
+    Ok(Value::Str(
+        String::from_utf8_lossy(&output.stdout).to_string(),
+    ))
 }
 
 fn bi_pkg_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -16172,37 +16567,63 @@ fn bi_pkg_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         _ => return Ok(Value::Null),
     };
     let pm = detect_package_manager();
-    
+
     let output = match pm {
-        "apt" => std::process::Command::new("apt-cache").args(["show", &package]).output()?,
-        "dnf" | "yum" => std::process::Command::new(pm).args(["info", &package]).output()?,
-        "pacman" => std::process::Command::new("pacman").args(["-Qi", &package]).output()?,
-        "brew" => std::process::Command::new("brew").args(["info", &package]).output()?,
-        "winget" => std::process::Command::new("winget").args(["show", &package]).output()?,
+        "apt" => std::process::Command::new("apt-cache")
+            .args(["show", &package])
+            .output()?,
+        "dnf" | "yum" => std::process::Command::new(pm)
+            .args(["info", &package])
+            .output()?,
+        "pacman" => std::process::Command::new("pacman")
+            .args(["-Qi", &package])
+            .output()?,
+        "brew" => std::process::Command::new("brew")
+            .args(["info", &package])
+            .output()?,
+        "winget" => std::process::Command::new("winget")
+            .args(["show", &package])
+            .output()?,
         _ => return Ok(Value::Null),
     };
-    
-    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()))
+
+    Ok(Value::Str(
+        String::from_utf8_lossy(&output.stdout).to_string(),
+    ))
 }
 
 fn bi_pkg_install(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Package installation requires elevated privileges. Use your package manager directly.".to_string()))
+    Ok(Value::Str(
+        "Package installation requires elevated privileges. Use your package manager directly."
+            .to_string(),
+    ))
 }
 
 fn bi_pkg_remove(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Package removal requires elevated privileges. Use your package manager directly.".to_string()))
+    Ok(Value::Str(
+        "Package removal requires elevated privileges. Use your package manager directly."
+            .to_string(),
+    ))
 }
 
 fn bi_pkg_update(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Package update requires elevated privileges. Use your package manager directly.".to_string()))
+    Ok(Value::Str(
+        "Package update requires elevated privileges. Use your package manager directly."
+            .to_string(),
+    ))
 }
 
 fn bi_pkg_upgrade(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Package upgrade requires elevated privileges. Use your package manager directly.".to_string()))
+    Ok(Value::Str(
+        "Package upgrade requires elevated privileges. Use your package manager directly."
+            .to_string(),
+    ))
 }
 
 fn bi_pkg_clean(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Package cleanup requires elevated privileges.".to_string()))
+    Ok(Value::Str(
+        "Package cleanup requires elevated privileges.".to_string(),
+    ))
 }
 
 fn bi_pkg_sources(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -16216,7 +16637,9 @@ fn bi_pkg_sources(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_pkg_add_source(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Adding package sources requires elevated privileges.".to_string()))
+    Ok(Value::Str(
+        "Adding package sources requires elevated privileges.".to_string(),
+    ))
 }
 
 fn bi_pkg_files(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -16225,14 +16648,20 @@ fn bi_pkg_files(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         _ => return Ok(Value::Array(vec![])),
     };
     let pm = detect_package_manager();
-    
+
     let output = match pm {
-        "apt" => std::process::Command::new("dpkg").args(["-L", &package]).output()?,
-        "pacman" => std::process::Command::new("pacman").args(["-Ql", &package]).output()?,
+        "apt" => std::process::Command::new("dpkg")
+            .args(["-L", &package])
+            .output()?,
+        "pacman" => std::process::Command::new("pacman")
+            .args(["-Ql", &package])
+            .output()?,
         _ => return Ok(Value::Array(vec![])),
     };
-    
-    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()))
+
+    Ok(Value::Str(
+        String::from_utf8_lossy(&output.stdout).to_string(),
+    ))
 }
 
 fn bi_pkg_owner(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -16241,14 +16670,20 @@ fn bi_pkg_owner(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         _ => return Ok(Value::Null),
     };
     let pm = detect_package_manager();
-    
+
     let output = match pm {
-        "apt" => std::process::Command::new("dpkg").args(["-S", &file]).output()?,
-        "pacman" => std::process::Command::new("pacman").args(["-Qo", &file]).output()?,
+        "apt" => std::process::Command::new("dpkg")
+            .args(["-S", &file])
+            .output()?,
+        "pacman" => std::process::Command::new("pacman")
+            .args(["-Qo", &file])
+            .output()?,
         _ => return Ok(Value::Null),
     };
-    
-    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()))
+
+    Ok(Value::Str(
+        String::from_utf8_lossy(&output.stdout).trim().to_string(),
+    ))
 }
 
 fn bi_pkg_verify(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -16257,12 +16692,14 @@ fn bi_pkg_verify(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         _ => return Ok(Value::Bool(false)),
     };
     let pm = detect_package_manager();
-    
+
     let output = match pm {
-        "apt" => std::process::Command::new("dpkg").args(["-V", &package]).output()?,
+        "apt" => std::process::Command::new("dpkg")
+            .args(["-V", &package])
+            .output()?,
         _ => return Ok(Value::Bool(true)),
     };
-    
+
     Ok(Value::Bool(output.status.success()))
 }
 
@@ -16272,14 +16709,20 @@ fn bi_pkg_deps(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         _ => return Ok(Value::Array(vec![])),
     };
     let pm = detect_package_manager();
-    
+
     let output = match pm {
-        "apt" => std::process::Command::new("apt-cache").args(["depends", &package]).output()?,
-        "pacman" => std::process::Command::new("pacman").args(["-Si", &package]).output()?,
+        "apt" => std::process::Command::new("apt-cache")
+            .args(["depends", &package])
+            .output()?,
+        "pacman" => std::process::Command::new("pacman")
+            .args(["-Si", &package])
+            .output()?,
         _ => return Ok(Value::Array(vec![])),
     };
-    
-    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()))
+
+    Ok(Value::Str(
+        String::from_utf8_lossy(&output.stdout).to_string(),
+    ))
 }
 
 fn bi_pkg_rdeps(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -16288,14 +16731,20 @@ fn bi_pkg_rdeps(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         _ => return Ok(Value::Array(vec![])),
     };
     let pm = detect_package_manager();
-    
+
     let output = match pm {
-        "apt" => std::process::Command::new("apt-cache").args(["rdepends", &package]).output()?,
-        "pacman" => std::process::Command::new("pacman").args(["-Sii", &package]).output()?,
+        "apt" => std::process::Command::new("apt-cache")
+            .args(["rdepends", &package])
+            .output()?,
+        "pacman" => std::process::Command::new("pacman")
+            .args(["-Sii", &package])
+            .output()?,
         _ => return Ok(Value::Array(vec![])),
     };
-    
-    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()))
+
+    Ok(Value::Str(
+        String::from_utf8_lossy(&output.stdout).to_string(),
+    ))
 }
 
 fn bi_pkg_changelog(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -16304,25 +16753,35 @@ fn bi_pkg_changelog(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         _ => return Ok(Value::Null),
     };
     let pm = detect_package_manager();
-    
+
     let output = match pm {
-        "apt" => std::process::Command::new("apt-get").args(["changelog", &package]).output()?,
+        "apt" => std::process::Command::new("apt-get")
+            .args(["changelog", &package])
+            .output()?,
         _ => return Ok(Value::Null),
     };
-    
-    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()))
+
+    Ok(Value::Str(
+        String::from_utf8_lossy(&output.stdout).to_string(),
+    ))
 }
 
 fn bi_pkg_hold(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Package hold requires elevated privileges.".to_string()))
+    Ok(Value::Str(
+        "Package hold requires elevated privileges.".to_string(),
+    ))
 }
 
 fn bi_pkg_unhold(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Package unhold requires elevated privileges.".to_string()))
+    Ok(Value::Str(
+        "Package unhold requires elevated privileges.".to_string(),
+    ))
 }
 
 fn bi_pkg_autoremove(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Package autoremove requires elevated privileges.".to_string()))
+    Ok(Value::Str(
+        "Package autoremove requires elevated privileges.".to_string(),
+    ))
 }
 
 fn bi_pkg_history(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -16372,7 +16831,9 @@ fn bi_hw_gpu(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let output = std::process::Command::new("lspci")
             .args(["-v", "-s", "$(lspci | grep -i vga | cut -d' ' -f1)"])
             .output()?;
-        return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()));
+        return Ok(Value::Str(
+            String::from_utf8_lossy(&output.stdout).to_string(),
+        ));
     }
     Ok(Value::Null)
 }
@@ -16385,7 +16846,10 @@ fn bi_hw_usb(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
-            .args(["-Command", "Get-PnpDevice -Class USB | Select-Object FriendlyName,Status | ConvertTo-Json"])
+            .args([
+                "-Command",
+                "Get-PnpDevice -Class USB | Select-Object FriendlyName,Status | ConvertTo-Json",
+            ])
             .output()?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
@@ -16397,7 +16861,9 @@ fn bi_hw_usb(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("lsusb").output()?;
-        return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()));
+        return Ok(Value::Str(
+            String::from_utf8_lossy(&output.stdout).to_string(),
+        ));
     }
     Ok(Value::Null)
 }
@@ -16406,15 +16872,22 @@ fn bi_hw_pci(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("lspci").output()?;
-        return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()));
+        return Ok(Value::Str(
+            String::from_utf8_lossy(&output.stdout).to_string(),
+        ));
     }
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
-            .args(["-Command", "Get-PnpDevice | Select-Object FriendlyName,Class | ConvertTo-Json"])
+            .args([
+                "-Command",
+                "Get-PnpDevice | Select-Object FriendlyName,Class | ConvertTo-Json",
+            ])
             .output()?;
         if output.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).to_string(),
+            ));
         }
     }
     Ok(Value::Null)
@@ -16424,7 +16897,10 @@ fn bi_hw_audio(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
-            .args(["-Command", "Get-CimInstance Win32_SoundDevice | Select-Object Name,Status | ConvertTo-Json"])
+            .args([
+                "-Command",
+                "Get-CimInstance Win32_SoundDevice | Select-Object Name,Status | ConvertTo-Json",
+            ])
             .output()?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
@@ -16435,10 +16911,10 @@ fn bi_hw_audio(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "linux")]
     {
-        let output = std::process::Command::new("aplay")
-            .args(["-l"])
-            .output()?;
-        return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()));
+        let output = std::process::Command::new("aplay").args(["-l"]).output()?;
+        return Ok(Value::Str(
+            String::from_utf8_lossy(&output.stdout).to_string(),
+        ));
     }
     Ok(Value::Null)
 }
@@ -16462,7 +16938,10 @@ fn bi_hw_battery(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let status_path = "/sys/class/power_supply/BAT0/status";
         let mut rec = std::collections::BTreeMap::new();
         if let Ok(capacity) = std::fs::read_to_string(capacity_path) {
-            rec.insert("capacity".to_string(), Value::Int(capacity.trim().parse().unwrap_or(0)));
+            rec.insert(
+                "capacity".to_string(),
+                Value::Int(capacity.trim().parse().unwrap_or(0)),
+            );
         }
         if let Ok(status) = std::fs::read_to_string(status_path) {
             rec.insert("status".to_string(), Value::Str(status.trim().to_string()));
@@ -16481,7 +16960,9 @@ fn bi_hw_sensors(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args(["-Command", "Get-CimInstance MSAcpi_ThermalZoneTemperature -Namespace root/wmi 2>$null | Select-Object CurrentTemperature | ConvertTo-Json"])
             .output()?;
         if output.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).to_string(),
+            ));
         }
     }
     #[cfg(target_os = "linux")]
@@ -16546,9 +17027,7 @@ public class WindowHelper {
     }
     #[cfg(target_os = "linux")]
     {
-        let output = std::process::Command::new("wmctrl")
-            .args(["-l"])
-            .output()?;
+        let output = std::process::Command::new("wmctrl").args(["-l"]).output()?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
             let mut windows = Vec::new();
@@ -16573,10 +17052,11 @@ fn bi_gui_focus_window(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         Some(Value::Int(h)) => h.to_string(),
         _ => return Ok(Value::Bool(false)),
     };
-    
+
     #[cfg(target_os = "windows")]
     {
-        let ps_script = format!(r#"
+        let ps_script = format!(
+            r#"
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
@@ -16588,7 +17068,9 @@ public class WindowFocus {{
 $hwnd = [WindowFocus]::FindWindow($null, "{}")
 if ($hwnd -eq [IntPtr]::Zero) {{ $hwnd = [IntPtr]::new({}) }}
 [WindowFocus]::SetForegroundWindow($hwnd)
-"#, title_or_hwnd, title_or_hwnd);
+"#,
+            title_or_hwnd, title_or_hwnd
+        );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
             .output()?;
@@ -16608,10 +17090,11 @@ fn bi_gui_minimize_window(args: Vec<Value>, _input: Option<Value>) -> Result<Val
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Bool(false)),
     };
-    
+
     #[cfg(target_os = "windows")]
     {
-        let ps_script = format!(r#"
+        let ps_script = format!(
+            r#"
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
@@ -16622,7 +17105,9 @@ public class WindowMin {{
 "@
 $hwnd = [WindowMin]::FindWindow($null, "{}")
 [WindowMin]::ShowWindow($hwnd, 6)
-"#, title);
+"#,
+            title
+        );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
             .output()?;
@@ -16642,10 +17127,11 @@ fn bi_gui_maximize_window(args: Vec<Value>, _input: Option<Value>) -> Result<Val
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Bool(false)),
     };
-    
+
     #[cfg(target_os = "windows")]
     {
-        let ps_script = format!(r#"
+        let ps_script = format!(
+            r#"
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
@@ -16656,7 +17142,9 @@ public class WindowMax {{
 "@
 $hwnd = [WindowMax]::FindWindow($null, "{}")
 [WindowMax]::ShowWindow($hwnd, 3)
-"#, title);
+"#,
+            title
+        );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
             .output()?;
@@ -16676,10 +17164,11 @@ fn bi_gui_close_window(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Bool(false)),
     };
-    
+
     #[cfg(target_os = "windows")]
     {
-        let ps_script = format!(r#"
+        let ps_script = format!(
+            r#"
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
@@ -16690,7 +17179,9 @@ public class WindowClose {{
 "@
 $hwnd = [WindowClose]::FindWindow($null, "{}")
 [WindowClose]::SendMessage($hwnd, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)
-"#, title);
+"#,
+            title
+        );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
             .output()?;
@@ -16718,10 +17209,11 @@ fn bi_gui_move_window(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
         Some(Value::Int(n)) => *n,
         _ => return Ok(Value::Bool(false)),
     };
-    
+
     #[cfg(target_os = "windows")]
     {
-        let ps_script = format!(r#"
+        let ps_script = format!(
+            r#"
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
@@ -16732,7 +17224,9 @@ public class WindowMove {{
 "@
 $hwnd = [WindowMove]::FindWindow($null, "{}")
 [WindowMove]::SetWindowPos($hwnd, [IntPtr]::Zero, {}, {}, 0, 0, 0x0001)
-"#, title, x, y);
+"#,
+            title, x, y
+        );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
             .output()?;
@@ -16760,10 +17254,11 @@ fn bi_gui_resize_window(args: Vec<Value>, _input: Option<Value>) -> Result<Value
         Some(Value::Int(n)) => *n,
         _ => return Ok(Value::Bool(false)),
     };
-    
+
     #[cfg(target_os = "windows")]
     {
-        let ps_script = format!(r#"
+        let ps_script = format!(
+            r#"
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
@@ -16774,7 +17269,9 @@ public class WindowResize {{
 "@
 $hwnd = [WindowResize]::FindWindow($null, "{}")
 [WindowResize]::SetWindowPos($hwnd, [IntPtr]::Zero, 0, 0, {}, {}, 0x0002)
-"#, title, w, h);
+"#,
+            title, w, h
+        );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
             .output()?;
@@ -16790,27 +17287,33 @@ $hwnd = [WindowResize]::FindWindow($null, "{}")
 }
 
 fn bi_gui_screenshot(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let path = args.first().and_then(|v| match v {
-        Value::Str(s) => Some(s.clone()),
-        _ => None,
-    }).unwrap_or_else(|| {
-        let ts = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        format!("screenshot_{}.png", ts)
-    });
-    
+    let path = args
+        .first()
+        .and_then(|v| match v {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| {
+            let ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            format!("screenshot_{}.png", ts)
+        });
+
     #[cfg(target_os = "windows")]
     {
-        let ps_script = format!(r#"
+        let ps_script = format!(
+            r#"
 Add-Type -AssemblyName System.Windows.Forms
 $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
 $bitmap = New-Object System.Drawing.Bitmap($screen.Width, $screen.Height)
 $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
 $graphics.CopyFromScreen($screen.Location, [System.Drawing.Point]::Empty, $screen.Size)
 $bitmap.Save("{}")
-"#, path);
+"#,
+            path
+        );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
             .output()?;
@@ -16820,9 +17323,7 @@ $bitmap.Save("{}")
     }
     #[cfg(target_os = "linux")]
     {
-        let output = std::process::Command::new("scrot")
-            .arg(&path)
-            .output()?;
+        let output = std::process::Command::new("scrot").arg(&path).output()?;
         if output.status.success() {
             return Ok(Value::Str(path));
         }
@@ -16844,12 +17345,22 @@ fn bi_gui_screenshot_window(args: Vec<Value>, _input: Option<Value>) -> Result<V
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
-    let path = args.get(1).and_then(|v| match v {
-        Value::Str(s) => Some(s.clone()),
-        _ => None,
-    }).unwrap_or_else(|| format!("window_{}.png", std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs()));
-    
+    let path = args
+        .get(1)
+        .and_then(|v| match v {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| {
+            format!(
+                "window_{}.png",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs()
+            )
+        });
+
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("scrot")
@@ -16872,10 +17383,11 @@ fn bi_gui_mouse_move(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Int(n)) => *n,
         _ => return Ok(Value::Bool(false)),
     };
-    
+
     #[cfg(target_os = "windows")]
     {
-        let ps_script = format!(r#"
+        let ps_script = format!(
+            r#"
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
@@ -16884,7 +17396,9 @@ public class MouseMove {{
 }}
 "@
 [MouseMove]::SetCursorPos({}, {})
-"#, x, y);
+"#,
+            x, y
+        );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
             .output()?;
@@ -16900,14 +17414,17 @@ public class MouseMove {{
 }
 
 fn bi_gui_mouse_click(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let button = args.first().and_then(|v| match v {
-        Value::Str(s) => Some(s.as_str()),
-        Value::Int(1) => Some("left"),
-        Value::Int(2) => Some("middle"),
-        Value::Int(3) => Some("right"),
-        _ => None,
-    }).unwrap_or("left");
-    
+    let button = args
+        .first()
+        .and_then(|v| match v {
+            Value::Str(s) => Some(s.as_str()),
+            Value::Int(1) => Some("left"),
+            Value::Int(2) => Some("middle"),
+            Value::Int(3) => Some("right"),
+            _ => None,
+        })
+        .unwrap_or("left");
+
     #[cfg(target_os = "windows")]
     {
         let (down, up) = match button {
@@ -16915,7 +17432,8 @@ fn bi_gui_mouse_click(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
             "middle" => (0x0020, 0x0040),
             _ => (0x0002, 0x0004), // left
         };
-        let ps_script = format!(r#"
+        let ps_script = format!(
+            r#"
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
@@ -16925,7 +17443,9 @@ public class MouseClick {{
 "@
 [MouseClick]::mouse_event({}, 0, 0, 0, [UIntPtr]::Zero)
 [MouseClick]::mouse_event({}, 0, 0, 0, [UIntPtr]::Zero)
-"#, down, up);
+"#,
+            down, up
+        );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
             .output()?;
@@ -16952,16 +17472,38 @@ fn bi_gui_mouse_double_click(args: Vec<Value>, _input: Option<Value>) -> Result<
 }
 
 fn bi_gui_mouse_drag(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let x1 = match args.first() { Some(Value::Int(n)) => *n, _ => return Ok(Value::Bool(false)) };
-    let y1 = match args.get(1) { Some(Value::Int(n)) => *n, _ => return Ok(Value::Bool(false)) };
-    let x2 = match args.get(2) { Some(Value::Int(n)) => *n, _ => return Ok(Value::Bool(false)) };
-    let y2 = match args.get(3) { Some(Value::Int(n)) => *n, _ => return Ok(Value::Bool(false)) };
-    
+    let x1 = match args.first() {
+        Some(Value::Int(n)) => *n,
+        _ => return Ok(Value::Bool(false)),
+    };
+    let y1 = match args.get(1) {
+        Some(Value::Int(n)) => *n,
+        _ => return Ok(Value::Bool(false)),
+    };
+    let x2 = match args.get(2) {
+        Some(Value::Int(n)) => *n,
+        _ => return Ok(Value::Bool(false)),
+    };
+    let y2 = match args.get(3) {
+        Some(Value::Int(n)) => *n,
+        _ => return Ok(Value::Bool(false)),
+    };
+
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("xdotool")
-            .args(["mousemove", &x1.to_string(), &y1.to_string(), "mousedown", "1", 
-                   "mousemove", &x2.to_string(), &y2.to_string(), "mouseup", "1"])
+            .args([
+                "mousemove",
+                &x1.to_string(),
+                &y1.to_string(),
+                "mousedown",
+                "1",
+                "mousemove",
+                &x2.to_string(),
+                &y2.to_string(),
+                "mouseup",
+                "1",
+            ])
             .output()?;
         return Ok(Value::Bool(output.status.success()));
     }
@@ -16977,10 +17519,11 @@ fn bi_gui_mouse_scroll(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         Some(Value::Int(n)) => *n,
         _ => 3,
     };
-    
+
     #[cfg(target_os = "windows")]
     {
-        let ps_script = format!(r#"
+        let ps_script = format!(
+            r#"
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
@@ -16989,7 +17532,9 @@ public class MouseScroll {{
 }}
 "@
 [MouseScroll]::mouse_event(0x0800, 0, 0, {}, [UIntPtr]::Zero)
-"#, amount * 120);
+"#,
+            amount * 120
+        );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
             .output()?;
@@ -17057,14 +17602,20 @@ fn bi_gui_key_press(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Bool(false)),
     };
-    
+
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
-            .args(["-Command", &format!(r#"
+            .args([
+                "-Command",
+                &format!(
+                    r#"
 Add-Type -AssemblyName System.Windows.Forms
 [System.Windows.Forms.SendKeys]::SendWait("{}")
-"#, key)])
+"#,
+                    key
+                ),
+            ])
             .output()?;
         return Ok(Value::Bool(output.status.success()));
     }
@@ -17078,11 +17629,14 @@ Add-Type -AssemblyName System.Windows.Forms
 }
 
 fn bi_gui_key_combo(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let keys: Vec<String> = args.iter().filter_map(|v| match v {
-        Value::Str(s) => Some(s.clone()),
-        _ => None,
-    }).collect();
-    
+    let keys: Vec<String> = args
+        .iter()
+        .filter_map(|v| match v {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .collect();
+
     #[cfg(target_os = "linux")]
     {
         let combo = keys.join("+");
@@ -17095,10 +17649,16 @@ fn bi_gui_key_combo(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let combo = keys.join("");
         let output = std::process::Command::new("powershell")
-            .args(["-Command", &format!(r#"
+            .args([
+                "-Command",
+                &format!(
+                    r#"
 Add-Type -AssemblyName System.Windows.Forms
 [System.Windows.Forms.SendKeys]::SendWait("{}")
-"#, combo)])
+"#,
+                    combo
+                ),
+            ])
             .output()?;
         return Ok(Value::Bool(output.status.success()));
     }
@@ -17109,15 +17669,26 @@ fn bi_gui_type_text(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Bool(false)),
     };
-    
+
     #[cfg(target_os = "windows")]
     {
-        let escaped = text.replace("{", "{{").replace("}", "}}").replace("+", "{+}").replace("^", "{^}").replace("%", "{%}");
+        let escaped = text
+            .replace("{", "{{")
+            .replace("}", "}}")
+            .replace("+", "{+}")
+            .replace("^", "{^}")
+            .replace("%", "{%}");
         let output = std::process::Command::new("powershell")
-            .args(["-Command", &format!(r#"
+            .args([
+                "-Command",
+                &format!(
+                    r#"
 Add-Type -AssemblyName System.Windows.Forms
 [System.Windows.Forms.SendKeys]::SendWait("{}")
-"#, escaped)])
+"#,
+                    escaped
+                ),
+            ])
             .output()?;
         return Ok(Value::Bool(output.status.success()));
     }
@@ -17164,7 +17735,9 @@ $title = New-Object System.Text.StringBuilder 256
             .args(["getactivewindow", "getwindowname"])
             .output()?;
         if output.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).trim().to_string(),
+            ));
         }
     }
     Ok(Value::Null)
@@ -17190,8 +17763,7 @@ $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
     }
     #[cfg(target_os = "linux")]
     {
-        let output = std::process::Command::new("xdpyinfo")
-            .output()?;
+        let output = std::process::Command::new("xdpyinfo").output()?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
             for line in text.lines() {
@@ -17212,7 +17784,9 @@ $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
 }
 
 fn bi_gui_find_image(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Image finding requires OpenCV or similar - not implemented".to_string()))
+    Ok(Value::Str(
+        "Image finding requires OpenCV or similar - not implemented".to_string(),
+    ))
 }
 
 fn bi_gui_ocr(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -17220,16 +17794,18 @@ fn bi_gui_ocr(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
-    
+
     let output = std::process::Command::new("tesseract")
         .args([&image_path, "stdout"])
         .output();
-    
+
     match output {
         Ok(out) if out.status.success() => {
             Ok(Value::Str(String::from_utf8_lossy(&out.stdout).to_string()))
         }
-        _ => Ok(Value::Str("OCR requires tesseract to be installed".to_string())),
+        _ => Ok(Value::Str(
+            "OCR requires tesseract to be installed".to_string(),
+        )),
     }
 }
 
@@ -17242,10 +17818,11 @@ fn bi_gui_notify(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => "".to_string(),
     };
-    
+
     #[cfg(target_os = "windows")]
     {
-        let ps_script = format!(r#"
+        let ps_script = format!(
+            r#"
 [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
 $template = [Windows.UI.Notifications.ToastTemplateType]::ToastText02
 $xml = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent($template)
@@ -17254,7 +17831,9 @@ $text[0].AppendChild($xml.CreateTextNode("{}")) | Out-Null
 $text[1].AppendChild($xml.CreateTextNode("{}")) | Out-Null
 $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
 [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("AetherShell").Show($toast)
-"#, title, message);
+"#,
+            title, message
+        );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
             .output()?;
@@ -17270,7 +17849,13 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
     #[cfg(target_os = "macos")]
     {
         let output = std::process::Command::new("osascript")
-            .args(["-e", &format!("display notification \"{}\" with title \"{}\"", message, title)])
+            .args([
+                "-e",
+                &format!(
+                    "display notification \"{}\" with title \"{}\"",
+                    message, title
+                ),
+            ])
             .output()?;
         return Ok(Value::Bool(output.status.success()));
     }
@@ -17281,17 +17866,23 @@ fn bi_gui_dialog_message(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
-    let title = args.get(1).and_then(|v| match v {
-        Value::Str(s) => Some(s.clone()),
-        _ => None,
-    }).unwrap_or("Message".to_string());
-    
+    let title = args
+        .get(1)
+        .and_then(|v| match v {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .unwrap_or("Message".to_string());
+
     #[cfg(target_os = "windows")]
     {
-        let ps_script = format!(r#"
+        let ps_script = format!(
+            r#"
 Add-Type -AssemblyName System.Windows.Forms
 [System.Windows.Forms.MessageBox]::Show("{}", "{}")
-"#, message, title);
+"#,
+            message, title
+        );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
             .output()?;
@@ -17307,7 +17898,10 @@ Add-Type -AssemblyName System.Windows.Forms
     #[cfg(target_os = "macos")]
     {
         let output = std::process::Command::new("osascript")
-            .args(["-e", &format!("display dialog \"{}\" with title \"{}\"", message, title)])
+            .args([
+                "-e",
+                &format!("display dialog \"{}\" with title \"{}\"", message, title),
+            ])
             .output()?;
         return Ok(Value::Bool(output.status.success()));
     }
@@ -17318,37 +17912,48 @@ fn bi_gui_dialog_input(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         Some(Value::Str(s)) => s.clone(),
         _ => "Enter value:".to_string(),
     };
-    let title = args.get(1).and_then(|v| match v {
-        Value::Str(s) => Some(s.clone()),
-        _ => None,
-    }).unwrap_or("Input".to_string());
-    
+    let title = args
+        .get(1)
+        .and_then(|v| match v {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .unwrap_or("Input".to_string());
+
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("zenity")
             .args(["--entry", "--title", &title, "--text", &prompt])
             .output()?;
         if output.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).trim().to_string(),
+            ));
         }
     }
     Ok(Value::Null)
 }
 
 fn bi_gui_dialog_file_open(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let title = args.first().and_then(|v| match v {
-        Value::Str(s) => Some(s.clone()),
-        _ => None,
-    }).unwrap_or("Open File".to_string());
-    
+    let title = args
+        .first()
+        .and_then(|v| match v {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .unwrap_or("Open File".to_string());
+
     #[cfg(target_os = "windows")]
     {
-        let ps_script = format!(r#"
+        let ps_script = format!(
+            r#"
 Add-Type -AssemblyName System.Windows.Forms
 $dialog = New-Object System.Windows.Forms.OpenFileDialog
 $dialog.Title = "{}"
 if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{ $dialog.FileName }}
-"#, title);
+"#,
+            title
+        );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
             .output()?;
@@ -17365,26 +17970,34 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{ $dialog
             .args(["--file-selection", "--title", &title])
             .output()?;
         if output.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).trim().to_string(),
+            ));
         }
     }
     Ok(Value::Null)
 }
 
 fn bi_gui_dialog_file_save(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let title = args.first().and_then(|v| match v {
-        Value::Str(s) => Some(s.clone()),
-        _ => None,
-    }).unwrap_or("Save File".to_string());
-    
+    let title = args
+        .first()
+        .and_then(|v| match v {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .unwrap_or("Save File".to_string());
+
     #[cfg(target_os = "windows")]
     {
-        let ps_script = format!(r#"
+        let ps_script = format!(
+            r#"
 Add-Type -AssemblyName System.Windows.Forms
 $dialog = New-Object System.Windows.Forms.SaveFileDialog
 $dialog.Title = "{}"
 if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{ $dialog.FileName }}
-"#, title);
+"#,
+            title
+        );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
             .output()?;
@@ -17401,26 +18014,34 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{ $dialog
             .args(["--file-selection", "--save", "--title", &title])
             .output()?;
         if output.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).trim().to_string(),
+            ));
         }
     }
     Ok(Value::Null)
 }
 
 fn bi_gui_dialog_folder(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let title = args.first().and_then(|v| match v {
-        Value::Str(s) => Some(s.clone()),
-        _ => None,
-    }).unwrap_or("Select Folder".to_string());
-    
+    let title = args
+        .first()
+        .and_then(|v| match v {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .unwrap_or("Select Folder".to_string());
+
     #[cfg(target_os = "windows")]
     {
-        let ps_script = format!(r#"
+        let ps_script = format!(
+            r#"
 Add-Type -AssemblyName System.Windows.Forms
 $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
 $dialog.Description = "{}"
 if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{ $dialog.SelectedPath }}
-"#, title);
+"#,
+            title
+        );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
             .output()?;
@@ -17437,7 +18058,9 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{ $dialog
             .args(["--file-selection", "--directory", "--title", &title])
             .output()?;
         if output.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).trim().to_string(),
+            ));
         }
     }
     Ok(Value::Null)
@@ -17479,7 +18102,9 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             .args(["--color-selection"])
             .output()?;
         if output.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).trim().to_string(),
+            ));
         }
     }
     Ok(Value::Null)
@@ -17494,7 +18119,7 @@ fn bi_web_open_url(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Bool(false)),
     };
-    
+
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("cmd")
@@ -17504,16 +18129,12 @@ fn bi_web_open_url(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "macos")]
     {
-        let output = std::process::Command::new("open")
-            .arg(&url)
-            .output()?;
+        let output = std::process::Command::new("open").arg(&url).output()?;
         return Ok(Value::Bool(output.status.success()));
     }
     #[cfg(target_os = "linux")]
     {
-        let output = std::process::Command::new("xdg-open")
-            .arg(&url)
-            .output()?;
+        let output = std::process::Command::new("xdg-open").arg(&url).output()?;
         return Ok(Value::Bool(output.status.success()));
     }
 }
@@ -17523,13 +18144,15 @@ fn bi_web_fetch(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
-    
+
     let output = std::process::Command::new("curl")
         .args(["-sS", "-L", &url])
         .output()?;
-    
+
     if output.status.success() {
-        Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()))
+        Ok(Value::Str(
+            String::from_utf8_lossy(&output.stdout).to_string(),
+        ))
     } else {
         Ok(Value::Null)
     }
@@ -17549,13 +18172,15 @@ fn bi_web_post(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(v) => serde_json::to_string(&value_to_json(v.clone())).unwrap_or_default(),
         _ => "".to_string(),
     };
-    
+
     let output = std::process::Command::new("curl")
         .args(["-sS", "-X", "POST", "-d", &data, &url])
         .output()?;
-    
+
     if output.status.success() {
-        Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()))
+        Ok(Value::Str(
+            String::from_utf8_lossy(&output.stdout).to_string(),
+        ))
     } else {
         Ok(Value::Null)
     }
@@ -17566,11 +18191,11 @@ fn bi_web_json_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
-    
+
     let output = std::process::Command::new("curl")
         .args(["-sS", "-L", "-H", "Accept: application/json", &url])
         .output()?;
-    
+
     if output.status.success() {
         let json_str = String::from_utf8_lossy(&output.stdout);
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -17589,11 +18214,22 @@ fn bi_web_json_post(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(v) => serde_json::to_string(&value_to_json(v.clone())).unwrap_or_default(),
         _ => "{}".to_string(),
     };
-    
+
     let output = std::process::Command::new("curl")
-        .args(["-sS", "-X", "POST", "-H", "Content-Type: application/json", "-H", "Accept: application/json", "-d", &data, &url])
+        .args([
+            "-sS",
+            "-X",
+            "POST",
+            "-H",
+            "Content-Type: application/json",
+            "-H",
+            "Accept: application/json",
+            "-d",
+            &data,
+            &url,
+        ])
         .output()?;
-    
+
     if output.status.success() {
         let json_str = String::from_utf8_lossy(&output.stdout);
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -17612,11 +18248,11 @@ fn bi_web_scrape(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Value::Str(s) => Some(s.clone()),
         _ => None,
     });
-    
+
     let output = std::process::Command::new("curl")
         .args(["-sS", "-L", &url])
         .output()?;
-    
+
     if output.status.success() {
         let html = String::from_utf8_lossy(&output.stdout).to_string();
         if let Some(sel) = selector {
@@ -17634,7 +18270,9 @@ fn bi_web_scrape(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 } else {
                     break;
                 }
-                if results.len() > 100 { break; }
+                if results.len() > 100 {
+                    break;
+                }
             }
             return Ok(Value::Array(results));
         }
@@ -17653,13 +18291,13 @@ fn bi_web_download(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         _ => {
             // Extract filename from URL
             url.split('/').last().unwrap_or("download").to_string()
-        },
+        }
     };
-    
+
     let output = std::process::Command::new("curl")
         .args(["-sS", "-L", "-o", &path, &url])
         .output()?;
-    
+
     Ok(Value::Bool(output.status.success()))
 }
 
@@ -17672,46 +18310,70 @@ fn bi_web_parse_url(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
-    
+
     let mut rec = std::collections::BTreeMap::new();
-    
+
     // Simple URL parsing
     let mut remaining = url.as_str();
-    
+
     // Protocol
     if let Some(idx) = remaining.find("://") {
-        rec.insert("protocol".to_string(), Value::Str(remaining[..idx].to_string()));
+        rec.insert(
+            "protocol".to_string(),
+            Value::Str(remaining[..idx].to_string()),
+        );
         remaining = &remaining[idx + 3..];
     }
-    
+
     // Host and port
     let host_end = remaining.find('/').unwrap_or(remaining.len());
     let host_part = &remaining[..host_end];
     if let Some(port_idx) = host_part.find(':') {
-        rec.insert("host".to_string(), Value::Str(host_part[..port_idx].to_string()));
-        rec.insert("port".to_string(), Value::Str(host_part[port_idx + 1..].to_string()));
+        rec.insert(
+            "host".to_string(),
+            Value::Str(host_part[..port_idx].to_string()),
+        );
+        rec.insert(
+            "port".to_string(),
+            Value::Str(host_part[port_idx + 1..].to_string()),
+        );
     } else {
         rec.insert("host".to_string(), Value::Str(host_part.to_string()));
     }
     remaining = &remaining[host_end..];
-    
+
     // Path and query
     if let Some(query_idx) = remaining.find('?') {
-        rec.insert("path".to_string(), Value::Str(remaining[..query_idx].to_string()));
+        rec.insert(
+            "path".to_string(),
+            Value::Str(remaining[..query_idx].to_string()),
+        );
         let query = &remaining[query_idx + 1..];
         if let Some(hash_idx) = query.find('#') {
-            rec.insert("query".to_string(), Value::Str(query[..hash_idx].to_string()));
-            rec.insert("hash".to_string(), Value::Str(query[hash_idx + 1..].to_string()));
+            rec.insert(
+                "query".to_string(),
+                Value::Str(query[..hash_idx].to_string()),
+            );
+            rec.insert(
+                "hash".to_string(),
+                Value::Str(query[hash_idx + 1..].to_string()),
+            );
         } else {
             rec.insert("query".to_string(), Value::Str(query.to_string()));
         }
     } else if let Some(hash_idx) = remaining.find('#') {
-        rec.insert("path".to_string(), Value::Str(remaining[..hash_idx].to_string()));
-        rec.insert("hash".to_string(), Value::Str(remaining[hash_idx + 1..].to_string()));
+        rec.insert(
+            "path".to_string(),
+            Value::Str(remaining[..hash_idx].to_string()),
+        );
+        rec.insert(
+            "hash".to_string(),
+            Value::Str(remaining[hash_idx + 1..].to_string()),
+        );
     } else {
         rec.insert("path".to_string(), Value::Str(remaining.to_string()));
     }
-    
+
     Ok(Value::Record(rec))
 }
 
@@ -17720,7 +18382,7 @@ fn bi_web_encode_url(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Str("".to_string())),
     };
-    
+
     let mut encoded = String::new();
     for c in text.chars() {
         match c {
@@ -17740,7 +18402,7 @@ fn bi_web_decode_url(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Str("".to_string())),
     };
-    
+
     let mut decoded = String::new();
     let mut chars = text.chars().peekable();
     while let Some(c) = chars.next() {
@@ -17763,7 +18425,7 @@ fn bi_web_parse_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Record(std::collections::BTreeMap::new())),
     };
-    
+
     let mut rec = std::collections::BTreeMap::new();
     for pair in query.trim_start_matches('?').split('&') {
         if let Some((k, v)) = pair.split_once('=') {
@@ -17778,14 +18440,21 @@ fn bi_web_build_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
         Some(Value::Record(r)) => r.clone(),
         _ => return Ok(Value::Str("".to_string())),
     };
-    
-    let pairs: Vec<String> = rec.iter()
-        .map(|(k, v)| format!("{}={}", k, match v {
-            Value::Str(s) => s.clone(),
-            v => format!("{:?}", v),
-        }))
+
+    let pairs: Vec<String> = rec
+        .iter()
+        .map(|(k, v)| {
+            format!(
+                "{}={}",
+                k,
+                match v {
+                    Value::Str(s) => s.clone(),
+                    v => format!("{:?}", v),
+                }
+            )
+        })
         .collect();
-    
+
     Ok(Value::Str(pairs.join("&")))
 }
 
@@ -17794,11 +18463,11 @@ fn bi_web_headers(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
-    
+
     let output = std::process::Command::new("curl")
         .args(["-sS", "-I", "-L", &url])
         .output()?;
-    
+
     if output.status.success() {
         let text = String::from_utf8_lossy(&output.stdout);
         let mut rec = std::collections::BTreeMap::new();
@@ -17817,14 +18486,15 @@ fn bi_web_cookies(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Array(vec![])),
     };
-    
+
     let output = std::process::Command::new("curl")
         .args(["-sS", "-I", "-L", &url])
         .output()?;
-    
+
     if output.status.success() {
         let text = String::from_utf8_lossy(&output.stdout);
-        let cookies: Vec<Value> = text.lines()
+        let cookies: Vec<Value> = text
+            .lines()
             .filter(|l| l.to_lowercase().starts_with("set-cookie:"))
             .map(|l| Value::Str(l[11..].trim().to_string()))
             .collect();
@@ -17839,25 +18509,32 @@ fn bi_web_form_submit(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
         _ => return Ok(Value::Null),
     };
     let form_data = match args.get(1) {
-        Some(Value::Record(r)) => {
-            r.iter()
-                .map(|(k, v)| format!("{}={}", k, match v {
-                    Value::Str(s) => s.clone(),
-                    v => format!("{:?}", v),
-                }))
-                .collect::<Vec<_>>()
-                .join("&")
-        },
+        Some(Value::Record(r)) => r
+            .iter()
+            .map(|(k, v)| {
+                format!(
+                    "{}={}",
+                    k,
+                    match v {
+                        Value::Str(s) => s.clone(),
+                        v => format!("{:?}", v),
+                    }
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("&"),
         Some(Value::Str(s)) => s.clone(),
         _ => "".to_string(),
     };
-    
+
     let output = std::process::Command::new("curl")
         .args(["-sS", "-X", "POST", "-d", &form_data, &url])
         .output()?;
-    
+
     if output.status.success() {
-        Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()))
+        Ok(Value::Str(
+            String::from_utf8_lossy(&output.stdout).to_string(),
+        ))
     } else {
         Ok(Value::Null)
     }
@@ -17872,15 +18549,25 @@ fn bi_web_upload_file(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Bool(false)),
     };
-    let field_name = args.get(2).and_then(|v| match v {
-        Value::Str(s) => Some(s.clone()),
-        _ => None,
-    }).unwrap_or("file".to_string());
-    
+    let field_name = args
+        .get(2)
+        .and_then(|v| match v {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .unwrap_or("file".to_string());
+
     let output = std::process::Command::new("curl")
-        .args(["-sS", "-X", "POST", "-F", &format!("{}=@{}", field_name, file_path), &url])
+        .args([
+            "-sS",
+            "-X",
+            "POST",
+            "-F",
+            &format!("{}=@{}", field_name, file_path),
+            &url,
+        ])
         .output()?;
-    
+
     Ok(Value::Bool(output.status.success()))
 }
 
@@ -17893,15 +18580,17 @@ fn bi_web_rest_api(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
-    let body = args.get(2).map(|v| serde_json::to_string(&value_to_json(v.clone())).unwrap_or_default());
+    let body = args
+        .get(2)
+        .map(|v| serde_json::to_string(&value_to_json(v.clone())).unwrap_or_default());
     let headers = args.get(3).and_then(|v| match v {
         Value::Record(r) => Some(r.clone()),
         _ => None,
     });
-    
+
     let mut cmd = std::process::Command::new("curl");
     cmd.args(["-sS", "-X", &method]);
-    
+
     // Add headers
     if let Some(hdrs) = headers {
         for (k, v) in hdrs {
@@ -17910,14 +18599,14 @@ fn bi_web_rest_api(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             }
         }
     }
-    
+
     // Add body
     if let Some(b) = body {
         cmd.args(["-H", "Content-Type: application/json", "-d", &b]);
     }
-    
+
     cmd.arg(&url);
-    
+
     let output = cmd.output()?;
     if output.status.success() {
         let json_str = String::from_utf8_lossy(&output.stdout);
@@ -17930,7 +18619,9 @@ fn bi_web_rest_api(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_web_websocket(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("WebSocket requires async runtime - use external tools".to_string()))
+    Ok(Value::Str(
+        "WebSocket requires async runtime - use external tools".to_string(),
+    ))
 }
 
 fn bi_web_graphql(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -17943,16 +18634,25 @@ fn bi_web_graphql(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         _ => return Ok(Value::Null),
     };
     let variables = args.get(2).map(|v| value_to_json(v.clone()));
-    
+
     let body = serde_json::json!({
         "query": query,
         "variables": variables.unwrap_or(serde_json::Value::Null)
     });
-    
+
     let output = std::process::Command::new("curl")
-        .args(["-sS", "-X", "POST", "-H", "Content-Type: application/json", "-d", &body.to_string(), &url])
+        .args([
+            "-sS",
+            "-X",
+            "POST",
+            "-H",
+            "Content-Type: application/json",
+            "-d",
+            &body.to_string(),
+            &url,
+        ])
         .output()?;
-    
+
     if output.status.success() {
         let json_str = String::from_utf8_lossy(&output.stdout);
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -17967,13 +18667,16 @@ fn bi_web_check_url(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Bool(false)),
     };
-    
+
     let output = std::process::Command::new("curl")
         .args(["-sS", "-o", "/dev/null", "-w", "%{http_code}", "-L", &url])
         .output()?;
-    
+
     if output.status.success() {
-        let code: u16 = String::from_utf8_lossy(&output.stdout).trim().parse().unwrap_or(0);
+        let code: u16 = String::from_utf8_lossy(&output.stdout)
+            .trim()
+            .parse()
+            .unwrap_or(0);
         return Ok(Value::Bool(code >= 200 && code < 400));
     }
     Ok(Value::Bool(false))
@@ -17984,7 +18687,7 @@ fn bi_web_robots_txt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
-    
+
     // Parse URL to get base
     let base = if url.starts_with("http") {
         let parts: Vec<&str> = url.splitn(4, '/').collect();
@@ -17996,7 +18699,7 @@ fn bi_web_robots_txt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     } else {
         format!("https://{}", url)
     };
-    
+
     bi_web_fetch(vec![Value::Str(format!("{}/robots.txt", base))], None)
 }
 
@@ -18005,7 +18708,7 @@ fn bi_web_sitemap(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
-    
+
     let base = if url.starts_with("http") {
         let parts: Vec<&str> = url.splitn(4, '/').collect();
         if parts.len() >= 3 {
@@ -18016,7 +18719,7 @@ fn bi_web_sitemap(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     } else {
         format!("https://{}", url)
     };
-    
+
     bi_web_fetch(vec![Value::Str(format!("{}/sitemap.xml", base))], None)
 }
 
@@ -18025,15 +18728,17 @@ fn bi_web_extract_emails(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Array(vec![])),
     };
-    
+
     let mut emails = Vec::new();
     let mut current = String::new();
     let mut in_email = false;
-    
+
     for c in text.chars() {
         if c.is_alphanumeric() || c == '.' || c == '_' || c == '-' || c == '+' {
             current.push(c);
-            if c == '@' { in_email = true; }
+            if c == '@' {
+                in_email = true;
+            }
         } else if c == '@' {
             current.push(c);
             in_email = true;
@@ -18048,7 +18753,7 @@ fn bi_web_extract_emails(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
             in_email = false;
         }
     }
-    
+
     Ok(Value::Array(emails))
 }
 
@@ -18057,10 +18762,10 @@ fn bi_web_extract_phones(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Array(vec![])),
     };
-    
+
     let mut phones = Vec::new();
     let mut current = String::new();
-    
+
     for c in text.chars() {
         if c.is_ascii_digit() || c == '+' || c == '-' || c == '(' || c == ')' || c == ' ' {
             current.push(c);
@@ -18072,7 +18777,7 @@ fn bi_web_extract_phones(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
             current.clear();
         }
     }
-    
+
     Ok(Value::Array(phones))
 }
 
@@ -18081,7 +18786,7 @@ fn bi_web_html_to_text(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Str("".to_string())),
     };
-    
+
     Ok(Value::Str(strip_html_tags(&html)))
 }
 
@@ -18090,14 +18795,17 @@ fn bi_web_html_to_markdown(args: Vec<Value>, _input: Option<Value>) -> Result<Va
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Str("".to_string())),
     };
-    
+
     // Simple HTML to Markdown conversion
     let mut md = html.clone();
     md = md.replace("<h1>", "# ").replace("</h1>", "\n");
     md = md.replace("<h2>", "## ").replace("</h2>", "\n");
     md = md.replace("<h3>", "### ").replace("</h3>", "\n");
     md = md.replace("<p>", "").replace("</p>", "\n\n");
-    md = md.replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n");
+    md = md
+        .replace("<br>", "\n")
+        .replace("<br/>", "\n")
+        .replace("<br />", "\n");
     md = md.replace("<strong>", "**").replace("</strong>", "**");
     md = md.replace("<b>", "**").replace("</b>", "**");
     md = md.replace("<em>", "*").replace("</em>", "*");
@@ -18106,10 +18814,10 @@ fn bi_web_html_to_markdown(args: Vec<Value>, _input: Option<Value>) -> Result<Va
     md = md.replace("<li>", "- ").replace("</li>", "\n");
     md = md.replace("<ul>", "").replace("</ul>", "\n");
     md = md.replace("<ol>", "").replace("</ol>", "\n");
-    
+
     // Strip remaining tags
     md = strip_html_tags(&md);
-    
+
     Ok(Value::Str(md))
 }
 
@@ -18122,12 +18830,18 @@ fn bi_web_json_path(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(json_val),
     };
-    
+
     let mut current = json_val;
-    for part in path.trim_start_matches('$').trim_start_matches('.').split('.') {
+    for part in path
+        .trim_start_matches('$')
+        .trim_start_matches('.')
+        .split('.')
+    {
         let part = part.trim();
-        if part.is_empty() { continue; }
-        
+        if part.is_empty() {
+            continue;
+        }
+
         // Array index?
         if part.contains('[') {
             if let Some((name, idx_str)) = part.split_once('[') {
@@ -18150,19 +18864,21 @@ fn bi_web_json_path(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             };
         }
     }
-    
+
     Ok(current)
 }
 
 fn bi_web_xpath(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("XPath requires XML parser - use web_scrape for simple extraction".to_string()))
+    Ok(Value::Str(
+        "XPath requires XML parser - use web_scrape for simple extraction".to_string(),
+    ))
 }
 
 // Helper function
 fn strip_html_tags(html: &str) -> String {
     let mut result = String::new();
     let mut in_tag = false;
-    
+
     for c in html.chars() {
         if c == '<' {
             in_tag = true;
@@ -18172,7 +18888,7 @@ fn strip_html_tags(html: &str) -> String {
             result.push(c);
         }
     }
-    
+
     // Clean up whitespace
     result.split_whitespace().collect::<Vec<_>>().join(" ")
 }
@@ -18188,14 +18904,20 @@ fn bi_clipboard_get(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args(["-Command", "Get-Clipboard"])
             .output()?;
         if output.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim_end().to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout)
+                    .trim_end()
+                    .to_string(),
+            ));
         }
     }
     #[cfg(target_os = "macos")]
     {
         let output = std::process::Command::new("pbpaste").output()?;
         if output.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).to_string(),
+            ));
         }
     }
     #[cfg(target_os = "linux")]
@@ -18213,7 +18935,9 @@ fn bi_clipboard_get(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args(["--clipboard", "--output"])
             .output()?;
         if output.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).to_string(),
+            ));
         }
     }
     Ok(Value::Null)
@@ -18228,11 +18952,14 @@ fn bi_clipboard_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             None => return Ok(Value::Bool(false)),
         },
     };
-    
+
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
-            .args(["-Command", &format!("Set-Clipboard -Value '{}'", text.replace("'", "''"))])
+            .args([
+                "-Command",
+                &format!("Set-Clipboard -Value '{}'", text.replace("'", "''")),
+            ])
             .output()?;
         return Ok(Value::Bool(output.status.success()));
     }
@@ -18294,7 +19021,7 @@ fn bi_clipboard_types(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
             .args(["-Command", "(Get-Clipboard -Format FileDropList) -ne $null"])
             .output()?;
         let has_files = String::from_utf8_lossy(&output.stdout).trim() == "True";
-        
+
         let mut types = vec![Value::Str("text".to_string())];
         if has_files {
             types.push(Value::Str("files".to_string()));
@@ -18308,56 +19035,68 @@ fn bi_clipboard_types(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 }
 
 fn bi_input_read_line(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let prompt = args.first().and_then(|v| match v {
-        Value::Str(s) => Some(s.clone()),
-        _ => None,
-    }).unwrap_or_default();
-    
+    let prompt = args
+        .first()
+        .and_then(|v| match v {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .unwrap_or_default();
+
     if !prompt.is_empty() {
         eprint!("{}", prompt);
     }
-    
+
     let mut input = String::new();
     std::io::stdin().read_line(&mut input)?;
-    Ok(Value::Str(input.trim_end_matches('\n').trim_end_matches('\r').to_string()))
+    Ok(Value::Str(
+        input
+            .trim_end_matches('\n')
+            .trim_end_matches('\r')
+            .to_string(),
+    ))
 }
 
 fn bi_input_read_password(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let prompt = args.first().and_then(|v| match v {
-        Value::Str(s) => Some(s.clone()),
-        _ => None,
-    }).unwrap_or_else(|| "Password: ".to_string());
-    
+    let prompt = args
+        .first()
+        .and_then(|v| match v {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| "Password: ".to_string());
+
     #[cfg(target_os = "windows")]
     {
-        let ps_script = format!(r#"
+        let ps_script = format!(
+            r#"
 $password = Read-Host -Prompt "{}" -AsSecureString
 $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($password)
 [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
-"#, prompt.trim_end_matches(": ").trim_end_matches(":"));
+"#,
+            prompt.trim_end_matches(": ").trim_end_matches(":")
+        );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
             .output()?;
         if output.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).trim().to_string(),
+            ));
         }
         return Ok(Value::Null);
     }
     #[cfg(unix)]
     {
         eprint!("{}", prompt);
-        let output = std::process::Command::new("stty")
-            .args(["-echo"])
-            .status();
-        
+        let output = std::process::Command::new("stty").args(["-echo"]).status();
+
         let mut input = String::new();
         std::io::stdin().read_line(&mut input)?;
-        
-        let _ = std::process::Command::new("stty")
-            .args(["echo"])
-            .status();
+
+        let _ = std::process::Command::new("stty").args(["echo"]).status();
         eprintln!();
-        
+
         return Ok(Value::Str(input.trim().to_string()));
     }
     #[cfg(not(any(unix, target_os = "windows")))]
@@ -18367,17 +19106,20 @@ $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($password)
 }
 
 fn bi_input_confirm(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let prompt = args.first().and_then(|v| match v {
-        Value::Str(s) => Some(s.clone()),
-        _ => None,
-    }).unwrap_or_else(|| "Confirm? [y/N]: ".to_string());
-    
+    let prompt = args
+        .first()
+        .and_then(|v| match v {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| "Confirm? [y/N]: ".to_string());
+
     eprint!("{}", prompt);
-    
+
     let mut input = String::new();
     std::io::stdin().read_line(&mut input)?;
     let response = input.trim().to_lowercase();
-    
+
     Ok(Value::Bool(response == "y" || response == "yes"))
 }
 
@@ -18390,17 +19132,17 @@ fn bi_input_select(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Array(arr)) => arr.clone(),
         _ => return Ok(Value::Null),
     };
-    
+
     eprintln!("{}", prompt);
     for (i, opt) in options.iter().enumerate() {
         eprintln!("  {}. {:?}", i + 1, opt);
     }
     eprint!("Choice: ");
-    
+
     let mut input = String::new();
     std::io::stdin().read_line(&mut input)?;
     let choice: usize = input.trim().parse().unwrap_or(0);
-    
+
     if choice > 0 && choice <= options.len() {
         Ok(options[choice - 1].clone())
     } else {
@@ -18417,36 +19159,46 @@ fn bi_input_multi_select(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
         Some(Value::Array(arr)) => arr.clone(),
         _ => return Ok(Value::Array(vec![])),
     };
-    
+
     eprintln!("{}", prompt);
     for (i, opt) in options.iter().enumerate() {
         eprintln!("  {}. {:?}", i + 1, opt);
     }
     eprint!("Choices: ");
-    
+
     let mut input = String::new();
     std::io::stdin().read_line(&mut input)?;
-    
-    let selected: Vec<Value> = input.trim()
+
+    let selected: Vec<Value> = input
+        .trim()
         .split(',')
         .filter_map(|s| s.trim().parse::<usize>().ok())
-        .filter_map(|i| if i > 0 && i <= options.len() { Some(options[i - 1].clone()) } else { None })
+        .filter_map(|i| {
+            if i > 0 && i <= options.len() {
+                Some(options[i - 1].clone())
+            } else {
+                None
+            }
+        })
         .collect();
-    
+
     Ok(Value::Array(selected))
 }
 
 fn bi_input_number(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let prompt = args.first().and_then(|v| match v {
-        Value::Str(s) => Some(s.clone()),
-        _ => None,
-    }).unwrap_or_else(|| "Enter number: ".to_string());
-    
+    let prompt = args
+        .first()
+        .and_then(|v| match v {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| "Enter number: ".to_string());
+
     eprint!("{}", prompt);
-    
+
     let mut input = String::new();
     std::io::stdin().read_line(&mut input)?;
-    
+
     if let Ok(n) = input.trim().parse::<i64>() {
         return Ok(Value::Int(n));
     }
@@ -18457,11 +19209,14 @@ fn bi_input_number(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_input_editor(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let initial_text = args.first().and_then(|v| match v {
-        Value::Str(s) => Some(s.clone()),
-        _ => None,
-    }).unwrap_or_default();
-    
+    let initial_text = args
+        .first()
+        .and_then(|v| match v {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .unwrap_or_default();
+
     let editor = std::env::var("EDITOR").unwrap_or_else(|_| {
         if cfg!(target_os = "windows") {
             "notepad".to_string()
@@ -18469,32 +19224,36 @@ fn bi_input_editor(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             "vi".to_string()
         }
     });
-    
+
     // Create temp file
     let temp_path = std::env::temp_dir().join(format!("aether_edit_{}.txt", std::process::id()));
     std::fs::write(&temp_path, &initial_text)?;
-    
+
     // Open editor
     let status = std::process::Command::new(&editor)
         .arg(&temp_path)
         .status()?;
-    
+
     if status.success() {
         let content = std::fs::read_to_string(&temp_path)?;
         let _ = std::fs::remove_file(&temp_path);
         return Ok(Value::Str(content));
     }
-    
+
     let _ = std::fs::remove_file(&temp_path);
     Ok(Value::Null)
 }
 
 fn bi_input_key(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Single key input requires raw terminal mode - use read_line".to_string()))
+    Ok(Value::Str(
+        "Single key input requires raw terminal mode - use read_line".to_string(),
+    ))
 }
 
 fn bi_input_hotkey(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Hotkey registration requires platform-specific APIs".to_string()))
+    Ok(Value::Str(
+        "Hotkey registration requires platform-specific APIs".to_string(),
+    ))
 }
 
 fn bi_input_available(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -18507,25 +19266,35 @@ fn bi_input_clear_buffer(_args: Vec<Value>, _input: Option<Value>) -> Result<Val
 }
 
 fn bi_input_timeout(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let prompt = args.first().and_then(|v| match v {
-        Value::Str(s) => Some(s.clone()),
-        _ => None,
-    }).unwrap_or_default();
-    let _timeout_ms = args.get(1).and_then(|v| match v {
-        Value::Int(n) => Some(*n),
-        _ => None,
-    }).unwrap_or(5000);
-    
+    let prompt = args
+        .first()
+        .and_then(|v| match v {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .unwrap_or_default();
+    let _timeout_ms = args
+        .get(1)
+        .and_then(|v| match v {
+            Value::Int(n) => Some(*n),
+            _ => None,
+        })
+        .unwrap_or(5000);
+
     // Simple implementation - no actual timeout
     bi_input_read_line(vec![Value::Str(prompt)], None)
 }
 
 fn bi_input_history(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Input history requires readline integration".to_string()))
+    Ok(Value::Str(
+        "Input history requires readline integration".to_string(),
+    ))
 }
 
 fn bi_input_autocomplete(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Autocomplete requires readline integration".to_string()))
+    Ok(Value::Str(
+        "Autocomplete requires readline integration".to_string(),
+    ))
 }
 
 // ============================================================================
@@ -18540,11 +19309,14 @@ fn bi_crypto_hash(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             _ => return Ok(Value::Null),
         },
     };
-    let algo = args.get(1).and_then(|v| match v {
-        Value::Str(s) => Some(s.to_lowercase()),
-        _ => None,
-    }).unwrap_or_else(|| "sha256".to_string());
-    
+    let algo = args
+        .get(1)
+        .and_then(|v| match v {
+            Value::Str(s) => Some(s.to_lowercase()),
+            _ => None,
+        })
+        .unwrap_or_else(|| "sha256".to_string());
+
     let hash_cmd = match algo.as_str() {
         "md5" => "md5sum",
         "sha1" => "sha1sum",
@@ -18553,7 +19325,7 @@ fn bi_crypto_hash(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         "sha512" | "sha-512" => "sha512sum",
         _ => "sha256sum",
     };
-    
+
     #[cfg(target_os = "windows")]
     {
         let ps_algo = match algo.as_str() {
@@ -18563,17 +19335,23 @@ fn bi_crypto_hash(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             "sha512" | "sha-512" => "SHA512",
             _ => "SHA256",
         };
-        let ps_script = format!(r#"
+        let ps_script = format!(
+            r#"
 $bytes = [System.Text.Encoding]::UTF8.GetBytes("{}")
 $hash = [System.Security.Cryptography.HashAlgorithm]::Create("{}")
 $hashBytes = $hash.ComputeHash($bytes)
 [System.BitConverter]::ToString($hashBytes).Replace("-", "").ToLower()
-"#, data.replace("\"", "`\""), ps_algo);
+"#,
+            data.replace("\"", "`\""),
+            ps_algo
+        );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
             .output()?;
         if output.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).trim().to_string(),
+            ));
         }
     }
     #[cfg(unix)]
@@ -18604,11 +19382,14 @@ fn bi_crypto_hash_file(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
-    let algo = args.get(1).and_then(|v| match v {
-        Value::Str(s) => Some(s.to_lowercase()),
-        _ => None,
-    }).unwrap_or_else(|| "sha256".to_string());
-    
+    let algo = args
+        .get(1)
+        .and_then(|v| match v {
+            Value::Str(s) => Some(s.to_lowercase()),
+            _ => None,
+        })
+        .unwrap_or_else(|| "sha256".to_string());
+
     #[cfg(target_os = "windows")]
     {
         let ps_algo = match algo.as_str() {
@@ -18619,10 +19400,18 @@ fn bi_crypto_hash_file(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
             _ => "SHA256",
         };
         let output = std::process::Command::new("powershell")
-            .args(["-Command", &format!("(Get-FileHash -Path '{}' -Algorithm {}).Hash.ToLower()", path, ps_algo)])
+            .args([
+                "-Command",
+                &format!(
+                    "(Get-FileHash -Path '{}' -Algorithm {}).Hash.ToLower()",
+                    path, ps_algo
+                ),
+            ])
             .output()?;
         if output.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).trim().to_string(),
+            ));
         }
     }
     #[cfg(unix)]
@@ -18634,9 +19423,7 @@ fn bi_crypto_hash_file(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
             "sha512" | "sha-512" => "sha512sum",
             _ => "sha256sum",
         };
-        let output = std::process::Command::new(hash_cmd)
-            .arg(&path)
-            .output()?;
+        let output = std::process::Command::new(hash_cmd).arg(&path).output()?;
         if output.status.success() {
             let hash = String::from_utf8_lossy(&output.stdout)
                 .split_whitespace()
@@ -18658,11 +19445,14 @@ fn bi_crypto_hmac(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
-    let algo = args.get(2).and_then(|v| match v {
-        Value::Str(s) => Some(s.to_lowercase()),
-        _ => None,
-    }).unwrap_or_else(|| "sha256".to_string());
-    
+    let algo = args
+        .get(2)
+        .and_then(|v| match v {
+            Value::Str(s) => Some(s.to_lowercase()),
+            _ => None,
+        })
+        .unwrap_or_else(|| "sha256".to_string());
+
     #[cfg(target_os = "windows")]
     {
         let ps_algo = match algo.as_str() {
@@ -18672,19 +19462,26 @@ fn bi_crypto_hmac(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             "sha512" | "sha-512" => "SHA512",
             _ => "SHA256",
         };
-        let ps_script = format!(r#"
+        let ps_script = format!(
+            r#"
 $key = [System.Text.Encoding]::UTF8.GetBytes("{}")
 $data = [System.Text.Encoding]::UTF8.GetBytes("{}")
 $hmac = New-Object System.Security.Cryptography.HMAC{}
 $hmac.Key = $key
 $hash = $hmac.ComputeHash($data)
 [System.BitConverter]::ToString($hash).Replace("-", "").ToLower()
-"#, key.replace("\"", "`\""), data.replace("\"", "`\""), ps_algo);
+"#,
+            key.replace("\"", "`\""),
+            data.replace("\"", "`\""),
+            ps_algo
+        );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
             .output()?;
         if output.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).trim().to_string(),
+            ));
         }
     }
     #[cfg(unix)]
@@ -18711,7 +19508,9 @@ fn bi_crypto_uuid(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args(["-Command", "[guid]::NewGuid().ToString()"])
             .output()?;
         if output.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).trim().to_string(),
+            ));
         }
     }
     #[cfg(unix)]
@@ -18720,7 +19519,9 @@ fn bi_crypto_uuid(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let output = std::process::Command::new("uuidgen").output();
         if let Ok(out) = output {
             if out.status.success() {
-                return Ok(Value::Str(String::from_utf8_lossy(&out.stdout).trim().to_lowercase()));
+                return Ok(Value::Str(
+                    String::from_utf8_lossy(&out.stdout).trim().to_lowercase(),
+                ));
             }
         }
         // Fallback to /proc/sys/kernel/random/uuid on Linux
@@ -18728,11 +19529,15 @@ fn bi_crypto_uuid(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             return Ok(Value::Str(uuid.trim().to_string()));
         }
     }
-    
+
     // Fallback: generate a v4-like UUID
     use std::time::{SystemTime, UNIX_EPOCH};
-    let ts = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
-    let uuid = format!("{:08x}-{:04x}-4{:03x}-{:04x}-{:012x}",
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let uuid = format!(
+        "{:08x}-{:04x}-4{:03x}-{:04x}-{:012x}",
         (ts >> 96) as u32,
         (ts >> 80) as u16,
         ((ts >> 64) as u16) & 0x0fff,
@@ -18747,20 +19552,25 @@ fn bi_crypto_random_bytes(args: Vec<Value>, _input: Option<Value>) -> Result<Val
         Some(Value::Int(n)) => *n as usize,
         _ => 32,
     };
-    
+
     #[cfg(target_os = "windows")]
     {
-        let ps_script = format!(r#"
+        let ps_script = format!(
+            r#"
 $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
 $bytes = New-Object byte[] {}
 $rng.GetBytes($bytes)
 [System.BitConverter]::ToString($bytes).Replace("-", "").ToLower()
-"#, count);
+"#,
+            count
+        );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
             .output()?;
         if output.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).trim().to_string(),
+            ));
         }
     }
     #[cfg(unix)]
@@ -18781,14 +19591,20 @@ fn bi_crypto_random_string(args: Vec<Value>, _input: Option<Value>) -> Result<Va
         Some(Value::Int(n)) => *n as usize,
         _ => 32,
     };
-    let charset = args.get(1).and_then(|v| match v {
-        Value::Str(s) => Some(s.clone()),
-        _ => None,
-    }).unwrap_or_else(|| "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".to_string());
-    
+    let charset = args
+        .get(1)
+        .and_then(|v| match v {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| {
+            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".to_string()
+        });
+
     #[cfg(target_os = "windows")]
     {
-        let ps_script = format!(r#"
+        let ps_script = format!(
+            r#"
 $charset = "{}"
 $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
 $result = ""
@@ -18798,12 +19614,16 @@ for ($i = 0; $i -lt {}; $i++) {{
     $result += $charset[$byte[0] % $charset.Length]
 }}
 $result
-"#, charset, length);
+"#,
+            charset, length
+        );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
             .output()?;
         if output.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).trim().to_string(),
+            ));
         }
     }
     #[cfg(unix)]
@@ -18814,7 +19634,9 @@ $result
             .output()?;
         if output.status.success() {
             let chars: Vec<char> = charset.chars().collect();
-            let result: String = output.stdout.iter()
+            let result: String = output
+                .stdout
+                .iter()
                 .take(length)
                 .map(|b| chars[(*b as usize) % chars.len()])
                 .collect();
@@ -18832,17 +19654,22 @@ fn bi_crypto_base64_encode(args: Vec<Value>, input: Option<Value>) -> Result<Val
             _ => return Ok(Value::Str("".to_string())),
         },
     };
-    
+
     #[cfg(target_os = "windows")]
     {
-        let ps_script = format!(r#"
+        let ps_script = format!(
+            r#"
 [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes("{}"))
-"#, data.replace("\"", "`\""));
+"#,
+            data.replace("\"", "`\"")
+        );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
             .output()?;
         if output.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).trim().to_string(),
+            ));
         }
     }
     #[cfg(unix)]
@@ -18857,7 +19684,9 @@ fn bi_crypto_base64_encode(args: Vec<Value>, input: Option<Value>) -> Result<Val
         }
         let output = child.wait_with_output()?;
         if output.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).trim().to_string(),
+            ));
         }
     }
     Ok(Value::Str("".to_string()))
@@ -18871,17 +19700,22 @@ fn bi_crypto_base64_decode(args: Vec<Value>, input: Option<Value>) -> Result<Val
             _ => return Ok(Value::Str("".to_string())),
         },
     };
-    
+
     #[cfg(target_os = "windows")]
     {
-        let ps_script = format!(r#"
+        let ps_script = format!(
+            r#"
 [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("{}"))
-"#, data);
+"#,
+            data
+        );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
             .output()?;
         if output.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).to_string(),
+            ));
         }
     }
     #[cfg(unix)]
@@ -18897,7 +19731,9 @@ fn bi_crypto_base64_decode(args: Vec<Value>, input: Option<Value>) -> Result<Val
         }
         let output = child.wait_with_output()?;
         if output.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).to_string(),
+            ));
         }
     }
     Ok(Value::Str("".to_string()))
@@ -18911,7 +19747,7 @@ fn bi_crypto_hex_encode(args: Vec<Value>, input: Option<Value>) -> Result<Value>
             _ => return Ok(Value::Str("".to_string())),
         },
     };
-    
+
     let hex: String = data.bytes().map(|b| format!("{:02x}", b)).collect();
     Ok(Value::Str(hex))
 }
@@ -18924,12 +19760,12 @@ fn bi_crypto_hex_decode(args: Vec<Value>, input: Option<Value>) -> Result<Value>
             _ => return Ok(Value::Str("".to_string())),
         },
     };
-    
+
     let bytes: Vec<u8> = (0..data.len())
         .step_by(2)
-        .filter_map(|i| u8::from_str_radix(&data[i..i+2.min(data.len())], 16).ok())
+        .filter_map(|i| u8::from_str_radix(&data[i..i + 2.min(data.len())], 16).ok())
         .collect();
-    
+
     Ok(Value::Str(String::from_utf8_lossy(&bytes).to_string()))
 }
 
@@ -18942,11 +19778,18 @@ fn bi_crypto_encrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
-    
+
     #[cfg(unix)]
     {
         let mut child = std::process::Command::new("openssl")
-            .args(["enc", "-aes-256-cbc", "-pbkdf2", "-base64", "-pass", &format!("pass:{}", password)])
+            .args([
+                "enc",
+                "-aes-256-cbc",
+                "-pbkdf2",
+                "-base64",
+                "-pass",
+                &format!("pass:{}", password),
+            ])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .spawn()?;
@@ -18956,7 +19799,9 @@ fn bi_crypto_encrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
         let output = child.wait_with_output()?;
         if output.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).trim().to_string(),
+            ));
         }
     }
     Ok(Value::Str("Encryption requires OpenSSL".to_string()))
@@ -18971,11 +19816,19 @@ fn bi_crypto_decrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
-    
+
     #[cfg(unix)]
     {
         let mut child = std::process::Command::new("openssl")
-            .args(["enc", "-aes-256-cbc", "-pbkdf2", "-d", "-base64", "-pass", &format!("pass:{}", password)])
+            .args([
+                "enc",
+                "-aes-256-cbc",
+                "-pbkdf2",
+                "-d",
+                "-base64",
+                "-pass",
+                &format!("pass:{}", password),
+            ])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .spawn()?;
@@ -18985,30 +19838,42 @@ fn bi_crypto_decrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
         let output = child.wait_with_output()?;
         if output.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).to_string(),
+            ));
         }
     }
     Ok(Value::Str("Decryption requires OpenSSL".to_string()))
 }
 
 fn bi_crypto_sign(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Digital signatures require key management - use openssl directly".to_string()))
+    Ok(Value::Str(
+        "Digital signatures require key management - use openssl directly".to_string(),
+    ))
 }
 
 fn bi_crypto_verify(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Signature verification requires key management - use openssl directly".to_string()))
+    Ok(Value::Str(
+        "Signature verification requires key management - use openssl directly".to_string(),
+    ))
 }
 
 fn bi_crypto_key_generate(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let key_type = args.first().and_then(|v| match v {
-        Value::Str(s) => Some(s.to_lowercase()),
-        _ => None,
-    }).unwrap_or_else(|| "rsa".to_string());
-    let bits = args.get(1).and_then(|v| match v {
-        Value::Int(n) => Some(*n),
-        _ => None,
-    }).unwrap_or(2048);
-    
+    let key_type = args
+        .first()
+        .and_then(|v| match v {
+            Value::Str(s) => Some(s.to_lowercase()),
+            _ => None,
+        })
+        .unwrap_or_else(|| "rsa".to_string());
+    let bits = args
+        .get(1)
+        .and_then(|v| match v {
+            Value::Int(n) => Some(*n),
+            _ => None,
+        })
+        .unwrap_or(2048);
+
     #[cfg(unix)]
     {
         let output = match key_type.as_str() {
@@ -19021,7 +19886,9 @@ fn bi_crypto_key_generate(args: Vec<Value>, _input: Option<Value>) -> Result<Val
             _ => return Ok(Value::Str("Unsupported key type".to_string())),
         };
         if output.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).to_string(),
+            ));
         }
     }
     Ok(Value::Str("Key generation requires OpenSSL".to_string()))
@@ -19032,18 +19899,23 @@ fn bi_crypto_password_hash(args: Vec<Value>, _input: Option<Value>) -> Result<Va
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
-    
+
     #[cfg(unix)]
     {
         let output = std::process::Command::new("openssl")
             .args(["passwd", "-6", &password])
             .output()?;
         if output.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).trim().to_string(),
+            ));
         }
     }
     // Fallback to SHA256 hash
-    bi_crypto_hash(vec![Value::Str(password), Value::Str("sha256".to_string())], None)
+    bi_crypto_hash(
+        vec![Value::Str(password), Value::Str("sha256".to_string())],
+        None,
+    )
 }
 
 fn bi_crypto_password_verify(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -19055,7 +19927,7 @@ fn bi_crypto_password_verify(args: Vec<Value>, _input: Option<Value>) -> Result<
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Bool(false)),
     };
-    
+
     // Simple verification - hash the password and compare
     if let Ok(Value::Str(computed)) = bi_crypto_password_hash(vec![Value::Str(password)], None) {
         return Ok(Value::Bool(computed == hash));
@@ -19072,17 +19944,21 @@ fn bi_crypto_cert_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
-    
+
     #[cfg(unix)]
     {
         let output = std::process::Command::new("openssl")
             .args(["x509", "-in", &path, "-text", "-noout"])
             .output()?;
         if output.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).to_string(),
+            ));
         }
     }
-    Ok(Value::Str("Certificate parsing requires OpenSSL".to_string()))
+    Ok(Value::Str(
+        "Certificate parsing requires OpenSSL".to_string(),
+    ))
 }
 
 // ============================================================================
@@ -19098,11 +19974,11 @@ fn bi_db_sqlite_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
-    
+
     let output = std::process::Command::new("sqlite3")
         .args(["-json", &db_path, &query])
         .output()?;
-    
+
     if output.status.success() {
         let json_str = String::from_utf8_lossy(&output.stdout);
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -19119,16 +19995,19 @@ fn bi_db_sqlite_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
                 return Ok(Value::Array(vec![]));
             }
             let headers: Vec<&str> = lines[0].split(',').collect();
-            let rows: Vec<Value> = lines[1..].iter().map(|line| {
-                let values: Vec<&str> = line.split(',').collect();
-                let mut rec = std::collections::BTreeMap::new();
-                for (i, h) in headers.iter().enumerate() {
-                    if let Some(v) = values.get(i) {
-                        rec.insert(h.to_string(), Value::Str(v.to_string()));
+            let rows: Vec<Value> = lines[1..]
+                .iter()
+                .map(|line| {
+                    let values: Vec<&str> = line.split(',').collect();
+                    let mut rec = std::collections::BTreeMap::new();
+                    for (i, h) in headers.iter().enumerate() {
+                        if let Some(v) = values.get(i) {
+                            rec.insert(h.to_string(), Value::Str(v.to_string()));
+                        }
                     }
-                }
-                Value::Record(rec)
-            }).collect();
+                    Value::Record(rec)
+                })
+                .collect();
             return Ok(Value::Array(rows));
         }
     }
@@ -19144,11 +20023,11 @@ fn bi_db_sqlite_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Bool(false)),
     };
-    
+
     let output = std::process::Command::new("sqlite3")
         .args([&db_path, &sql])
         .output()?;
-    
+
     Ok(Value::Bool(output.status.success()))
 }
 
@@ -19157,11 +20036,16 @@ fn bi_db_sqlite_tables(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Array(vec![])),
     };
-    
-    bi_db_sqlite_query(vec![
-        Value::Str(db_path),
-        Value::Str("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name".to_string())
-    ], None)
+
+    bi_db_sqlite_query(
+        vec![
+            Value::Str(db_path),
+            Value::Str(
+                "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name".to_string(),
+            ),
+        ],
+        None,
+    )
 }
 
 fn bi_db_sqlite_schema(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -19173,13 +20057,13 @@ fn bi_db_sqlite_schema(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         Value::Str(s) => Some(s.clone()),
         _ => None,
     });
-    
+
     let query = if let Some(t) = table {
         format!("PRAGMA table_info({})", t)
     } else {
         "SELECT sql FROM sqlite_master WHERE type='table'".to_string()
     };
-    
+
     bi_db_sqlite_query(vec![Value::Str(db_path), Value::Str(query)], None)
 }
 
@@ -19188,12 +20072,12 @@ fn bi_db_sqlite_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Bool(false)),
     };
-    
+
     // Just touch the file to create empty database
     let output = std::process::Command::new("sqlite3")
         .args([&db_path, "SELECT 1"])
         .output()?;
-    
+
     Ok(Value::Bool(output.status.success()))
 }
 
@@ -19206,11 +20090,11 @@ fn bi_db_sqlite_backup(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         Some(Value::Str(s)) => s.clone(),
         _ => format!("{}.backup", db_path),
     };
-    
+
     let output = std::process::Command::new("sqlite3")
         .args([&db_path, &format!(".backup '{}'", backup_path)])
         .output()?;
-    
+
     Ok(Value::Bool(output.status.success()))
 }
 
@@ -19227,11 +20111,14 @@ fn bi_db_sqlite_import_csv(args: Vec<Value>, _input: Option<Value>) -> Result<Va
         Some(Value::Str(s)) => s.clone(),
         _ => "imported".to_string(),
     };
-    
+
     let output = std::process::Command::new("sqlite3")
-        .args([&db_path, &format!(".mode csv\n.import {} {}", csv_path, table_name)])
+        .args([
+            &db_path,
+            &format!(".mode csv\n.import {} {}", csv_path, table_name),
+        ])
         .output()?;
-    
+
     Ok(Value::Bool(output.status.success()))
 }
 
@@ -19248,17 +20135,17 @@ fn bi_db_sqlite_export_csv(args: Vec<Value>, _input: Option<Value>) -> Result<Va
         Value::Str(s) => Some(s.clone()),
         _ => None,
     });
-    
+
     let query = if table_or_query.to_uppercase().starts_with("SELECT") {
         table_or_query
     } else {
         format!("SELECT * FROM {}", table_or_query)
     };
-    
+
     let output = std::process::Command::new("sqlite3")
         .args(["-header", "-csv", &db_path, &query])
         .output()?;
-    
+
     if output.status.success() {
         let csv = String::from_utf8_lossy(&output.stdout).to_string();
         if let Some(path) = output_path {
@@ -19279,18 +20166,22 @@ fn bi_db_kv_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
-    
-    bi_db_sqlite_query(vec![
-        Value::Str(store_path),
-        Value::Str(format!("SELECT value FROM kv WHERE key = '{}'", key))
-    ], None).map(|v| match v {
+
+    bi_db_sqlite_query(
+        vec![
+            Value::Str(store_path),
+            Value::Str(format!("SELECT value FROM kv WHERE key = '{}'", key)),
+        ],
+        None,
+    )
+    .map(|v| match v {
         Value::Array(arr) if !arr.is_empty() => {
             if let Value::Record(rec) = &arr[0] {
                 rec.get("value").cloned().unwrap_or(Value::Null)
             } else {
                 Value::Null
             }
-        },
+        }
         _ => Value::Null,
     })
 }
@@ -19309,17 +20200,29 @@ fn bi_db_kv_set(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(v) => format!("{:?}", v),
         _ => return Ok(Value::Bool(false)),
     };
-    
+
     // Ensure table exists
-    let _ = bi_db_sqlite_exec(vec![
-        Value::Str(store_path.clone()),
-        Value::Str("CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT)".to_string())
-    ], None);
-    
-    bi_db_sqlite_exec(vec![
-        Value::Str(store_path),
-        Value::Str(format!("INSERT OR REPLACE INTO kv (key, value) VALUES ('{}', '{}')", key, value.replace("'", "''")))
-    ], None)
+    let _ = bi_db_sqlite_exec(
+        vec![
+            Value::Str(store_path.clone()),
+            Value::Str(
+                "CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT)".to_string(),
+            ),
+        ],
+        None,
+    );
+
+    bi_db_sqlite_exec(
+        vec![
+            Value::Str(store_path),
+            Value::Str(format!(
+                "INSERT OR REPLACE INTO kv (key, value) VALUES ('{}', '{}')",
+                key,
+                value.replace("'", "''")
+            )),
+        ],
+        None,
+    )
 }
 
 fn bi_db_kv_delete(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -19331,11 +20234,14 @@ fn bi_db_kv_delete(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Bool(false)),
     };
-    
-    bi_db_sqlite_exec(vec![
-        Value::Str(store_path),
-        Value::Str(format!("DELETE FROM kv WHERE key = '{}'", key))
-    ], None)
+
+    bi_db_sqlite_exec(
+        vec![
+            Value::Str(store_path),
+            Value::Str(format!("DELETE FROM kv WHERE key = '{}'", key)),
+        ],
+        None,
+    )
 }
 
 fn bi_db_kv_keys(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -19343,15 +20249,23 @@ fn bi_db_kv_keys(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => ".aether_kv.db".to_string(),
     };
-    
-    bi_db_sqlite_query(vec![
-        Value::Str(store_path),
-        Value::Str("SELECT key FROM kv".to_string())
-    ], None).map(|v| match v {
-        Value::Array(arr) => Value::Array(arr.iter().filter_map(|r| match r {
-            Value::Record(rec) => rec.get("key").cloned(),
-            _ => None,
-        }).collect()),
+
+    bi_db_sqlite_query(
+        vec![
+            Value::Str(store_path),
+            Value::Str("SELECT key FROM kv".to_string()),
+        ],
+        None,
+    )
+    .map(|v| match v {
+        Value::Array(arr) => Value::Array(
+            arr.iter()
+                .filter_map(|r| match r {
+                    Value::Record(rec) => rec.get("key").cloned(),
+                    _ => None,
+                })
+                .collect(),
+        ),
         _ => Value::Array(vec![]),
     })
 }
@@ -19365,11 +20279,11 @@ fn bi_db_json_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => ".".to_string(),
     };
-    
+
     let output = std::process::Command::new("jq")
         .args([&jq_filter, &json_path])
         .output()?;
-    
+
     if output.status.success() {
         let json_str = String::from_utf8_lossy(&output.stdout);
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -19377,7 +20291,7 @@ fn bi_db_json_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
         return Ok(Value::Str(json_str.trim().to_string()));
     }
-    
+
     // Fallback: read JSON and apply simple filter
     if let Ok(content) = std::fs::read_to_string(&json_path) {
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
@@ -19392,26 +20306,29 @@ fn bi_db_csv_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Array(vec![])),
     };
-    
+
     let content = std::fs::read_to_string(&csv_path)?;
     let lines: Vec<&str> = content.lines().collect();
-    
+
     if lines.is_empty() {
         return Ok(Value::Array(vec![]));
     }
-    
+
     let headers: Vec<&str> = lines[0].split(',').map(|s| s.trim()).collect();
-    let rows: Vec<Value> = lines[1..].iter().map(|line| {
-        let values: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
-        let mut rec = std::collections::BTreeMap::new();
-        for (i, h) in headers.iter().enumerate() {
-            if let Some(v) = values.get(i) {
-                rec.insert(h.to_string(), Value::Str(v.to_string()));
+    let rows: Vec<Value> = lines[1..]
+        .iter()
+        .map(|line| {
+            let values: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
+            let mut rec = std::collections::BTreeMap::new();
+            for (i, h) in headers.iter().enumerate() {
+                if let Some(v) = values.get(i) {
+                    rec.insert(h.to_string(), Value::Str(v.to_string()));
+                }
             }
-        }
-        Value::Record(rec)
-    }).collect();
-    
+            Value::Record(rec)
+        })
+        .collect();
+
     Ok(Value::Array(rows))
 }
 
@@ -19428,25 +20345,26 @@ fn bi_db_json_to_csv(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             } else {
                 return Ok(Value::Str("".to_string()));
             }
-        },
+        }
         _ => return Ok(Value::Str("".to_string())),
     };
-    
+
     if json_data.is_empty() {
         return Ok(Value::Str("".to_string()));
     }
-    
+
     // Get headers from first record
     let headers: Vec<String> = match &json_data[0] {
         Value::Record(rec) => rec.keys().cloned().collect(),
         _ => return Ok(Value::Str("".to_string())),
     };
-    
+
     let mut csv = headers.join(",") + "\n";
-    
+
     for row in json_data {
         if let Value::Record(rec) = row {
-            let values: Vec<String> = headers.iter()
+            let values: Vec<String> = headers
+                .iter()
                 .map(|h| match rec.get(h) {
                     Some(Value::Str(s)) => {
                         if s.contains(',') || s.contains('"') {
@@ -19454,7 +20372,7 @@ fn bi_db_json_to_csv(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                         } else {
                             s.clone()
                         }
-                    },
+                    }
                     Some(v) => format!("{:?}", v),
                     None => "".to_string(),
                 })
@@ -19463,7 +20381,7 @@ fn bi_db_json_to_csv(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             csv.push('\n');
         }
     }
-    
+
     Ok(Value::Str(csv))
 }
 
@@ -19472,15 +20390,21 @@ fn bi_db_csv_to_json(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_db_memory_store(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Memory store requires persistent runtime state".to_string()))
+    Ok(Value::Str(
+        "Memory store requires persistent runtime state".to_string(),
+    ))
 }
 
 fn bi_db_memory_get(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Memory store requires persistent runtime state".to_string()))
+    Ok(Value::Str(
+        "Memory store requires persistent runtime state".to_string(),
+    ))
 }
 
 fn bi_db_memory_set(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Memory store requires persistent runtime state".to_string()))
+    Ok(Value::Str(
+        "Memory store requires persistent runtime state".to_string(),
+    ))
 }
 
 // ============================================================================
@@ -19488,18 +20412,25 @@ fn bi_db_memory_set(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // ============================================================================
 
 fn bi_clipboard_get_image(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Image clipboard access requires platform-specific APIs".to_string()))
+    Ok(Value::Str(
+        "Image clipboard access requires platform-specific APIs".to_string(),
+    ))
 }
 
 fn bi_clipboard_set_image(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Image clipboard access requires platform-specific APIs".to_string()))
+    Ok(Value::Str(
+        "Image clipboard access requires platform-specific APIs".to_string(),
+    ))
 }
 
 fn bi_clipboard_history(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
-            .args(["-Command", "Get-ClipboardHistory | Select-Object -First 10 | ForEach-Object { $_.Text }"])
+            .args([
+                "-Command",
+                "Get-ClipboardHistory | Select-Object -First 10 | ForEach-Object { $_.Text }",
+            ])
             .output()?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
@@ -19507,11 +20438,15 @@ fn bi_clipboard_history(_args: Vec<Value>, _input: Option<Value>) -> Result<Valu
             return Ok(Value::Array(items));
         }
     }
-    Ok(Value::Str("Clipboard history requires Windows 10+ with history enabled".to_string()))
+    Ok(Value::Str(
+        "Clipboard history requires Windows 10+ with history enabled".to_string(),
+    ))
 }
 
 fn bi_input_read_char(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Single character input requires raw terminal mode".to_string()))
+    Ok(Value::Str(
+        "Single character input requires raw terminal mode".to_string(),
+    ))
 }
 
 fn bi_input_multiselect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -19535,11 +20470,14 @@ fn bi_input_form(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_input_date(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let prompt = args.first().and_then(|v| match v {
-        Value::Str(s) => Some(s.clone()),
-        _ => None,
-    }).unwrap_or_else(|| "Enter date (YYYY-MM-DD): ".to_string());
-    
+    let prompt = args
+        .first()
+        .and_then(|v| match v {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| "Enter date (YYYY-MM-DD): ".to_string());
+
     bi_input_read_line(vec![Value::Str(prompt)], None)
 }
 
@@ -19552,7 +20490,7 @@ fn bi_crypto_cert_verify(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Bool(false)),
     };
-    
+
     #[cfg(unix)]
     {
         let output = std::process::Command::new("openssl")
@@ -19563,7 +20501,9 @@ fn bi_crypto_cert_verify(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
     #[cfg(not(unix))]
     {
         let _ = cert_path;
-        return Ok(Value::Str("Certificate verification requires OpenSSL".to_string()));
+        return Ok(Value::Str(
+            "Certificate verification requires OpenSSL".to_string(),
+        ));
     }
 }
 
@@ -19572,7 +20512,9 @@ fn bi_crypto_generate_key(args: Vec<Value>, _input: Option<Value>) -> Result<Val
 }
 
 fn bi_crypto_verify_signature(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Signature verification requires key management - use openssl directly".to_string()))
+    Ok(Value::Str(
+        "Signature verification requires key management - use openssl directly".to_string(),
+    ))
 }
 
 fn bi_crypto_jwt_decode(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -19580,7 +20522,7 @@ fn bi_crypto_jwt_decode(args: Vec<Value>, _input: Option<Value>) -> Result<Value
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
-    
+
     // Simple JWT decode (no verification)
     let parts: Vec<&str> = token.split('.').collect();
     if parts.len() >= 2 {
@@ -19592,12 +20534,15 @@ fn bi_crypto_jwt_decode(args: Vec<Value>, _input: Option<Value>) -> Result<Value
             3 => format!("{}=", payload),
             _ => payload.to_string(),
         };
-        
+
         #[cfg(target_os = "windows")]
         {
-            let ps_script = format!(r#"
+            let ps_script = format!(
+                r#"
 [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("{}"))
-"#, padded.replace('-', "+").replace('_', "/"));
+"#,
+                padded.replace('-', "+").replace('_', "/")
+            );
             let output = std::process::Command::new("powershell")
                 .args(["-Command", &ps_script])
                 .output()?;
@@ -19653,17 +20598,31 @@ fn bi_db_sqlite_insert(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         Some(Value::Record(r)) => r.clone(),
         _ => return Ok(Value::Bool(false)),
     };
-    
+
     let columns: Vec<String> = values.keys().cloned().collect();
-    let vals: Vec<String> = values.values().map(|v| match v {
-        Value::Str(s) => format!("'{}'", s.replace("'", "''")),
-        Value::Int(n) => n.to_string(),
-        Value::Float(f) => f.to_string(),
-        Value::Bool(b) => if *b { "1".to_string() } else { "0".to_string() },
-        _ => "NULL".to_string(),
-    }).collect();
-    
-    let sql = format!("INSERT INTO {} ({}) VALUES ({})", table, columns.join(", "), vals.join(", "));
+    let vals: Vec<String> = values
+        .values()
+        .map(|v| match v {
+            Value::Str(s) => format!("'{}'", s.replace("'", "''")),
+            Value::Int(n) => n.to_string(),
+            Value::Float(f) => f.to_string(),
+            Value::Bool(b) => {
+                if *b {
+                    "1".to_string()
+                } else {
+                    "0".to_string()
+                }
+            }
+            _ => "NULL".to_string(),
+        })
+        .collect();
+
+    let sql = format!(
+        "INSERT INTO {} ({}) VALUES ({})",
+        table,
+        columns.join(", "),
+        vals.join(", ")
+    );
     bi_db_sqlite_exec(vec![Value::Str(db_path), Value::Str(sql)], None)
 }
 
@@ -19684,19 +20643,33 @@ fn bi_db_sqlite_update(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Bool(false)),
     };
-    
-    let sets: Vec<String> = values.iter().map(|(k, v)| {
-        let val = match v {
-            Value::Str(s) => format!("'{}'", s.replace("'", "''")),
-            Value::Int(n) => n.to_string(),
-            Value::Float(f) => f.to_string(),
-            Value::Bool(b) => if *b { "1".to_string() } else { "0".to_string() },
-            _ => "NULL".to_string(),
-        };
-        format!("{} = {}", k, val)
-    }).collect();
-    
-    let sql = format!("UPDATE {} SET {} WHERE {}", table, sets.join(", "), where_clause);
+
+    let sets: Vec<String> = values
+        .iter()
+        .map(|(k, v)| {
+            let val = match v {
+                Value::Str(s) => format!("'{}'", s.replace("'", "''")),
+                Value::Int(n) => n.to_string(),
+                Value::Float(f) => f.to_string(),
+                Value::Bool(b) => {
+                    if *b {
+                        "1".to_string()
+                    } else {
+                        "0".to_string()
+                    }
+                }
+                _ => "NULL".to_string(),
+            };
+            format!("{} = {}", k, val)
+        })
+        .collect();
+
+    let sql = format!(
+        "UPDATE {} SET {} WHERE {}",
+        table,
+        sets.join(", "),
+        where_clause
+    );
     bi_db_sqlite_exec(vec![Value::Str(db_path), Value::Str(sql)], None)
 }
 
@@ -19713,7 +20686,7 @@ fn bi_db_sqlite_delete(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         Some(Value::Str(s)) => s.clone(),
         _ => "1=0".to_string(), // Safety: don't delete all by default
     };
-    
+
     let sql = format!("DELETE FROM {} WHERE {}", table, where_clause);
     bi_db_sqlite_exec(vec![Value::Str(db_path), Value::Str(sql)], None)
 }
@@ -19731,13 +20704,13 @@ fn bi_db_sqlite_count(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
         Value::Str(s) => Some(s.clone()),
         _ => None,
     });
-    
+
     let sql = if let Some(w) = where_clause {
         format!("SELECT COUNT(*) as count FROM {} WHERE {}", table, w)
     } else {
         format!("SELECT COUNT(*) as count FROM {}", table)
     };
-    
+
     match bi_db_sqlite_query(vec![Value::Str(db_path), Value::Str(sql)], None)? {
         Value::Array(arr) if !arr.is_empty() => {
             if let Value::Record(rec) = &arr[0] {
@@ -19745,7 +20718,7 @@ fn bi_db_sqlite_count(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
                     return Ok(Value::Int(s.parse().unwrap_or(0)));
                 }
             }
-        },
+        }
         _ => {}
     }
     Ok(Value::Int(0))
@@ -19766,19 +20739,26 @@ fn bi_db_sqlite_create_table(args: Vec<Value>, _input: Option<Value>) -> Result<
             // Allow raw column definition
             let sql = format!("CREATE TABLE IF NOT EXISTS {} ({})", table, s);
             return bi_db_sqlite_exec(vec![Value::Str(db_path), Value::Str(sql)], None);
-        },
+        }
         _ => return Ok(Value::Bool(false)),
     };
-    
-    let col_defs: Vec<String> = columns.iter().map(|(name, typ)| {
-        let type_str = match typ {
-            Value::Str(s) => s.clone(),
-            _ => "TEXT".to_string(),
-        };
-        format!("{} {}", name, type_str)
-    }).collect();
-    
-    let sql = format!("CREATE TABLE IF NOT EXISTS {} ({})", table, col_defs.join(", "));
+
+    let col_defs: Vec<String> = columns
+        .iter()
+        .map(|(name, typ)| {
+            let type_str = match typ {
+                Value::Str(s) => s.clone(),
+                _ => "TEXT".to_string(),
+            };
+            format!("{} {}", name, type_str)
+        })
+        .collect();
+
+    let sql = format!(
+        "CREATE TABLE IF NOT EXISTS {} ({})",
+        table,
+        col_defs.join(", ")
+    );
     bi_db_sqlite_exec(vec![Value::Str(db_path), Value::Str(sql)], None)
 }
 
@@ -19791,7 +20771,7 @@ fn bi_db_sqlite_drop_table(args: Vec<Value>, _input: Option<Value>) -> Result<Va
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Bool(false)),
     };
-    
+
     let sql = format!("DROP TABLE IF EXISTS {}", table);
     bi_db_sqlite_exec(vec![Value::Str(db_path), Value::Str(sql)], None)
 }
@@ -19801,8 +20781,11 @@ fn bi_db_sqlite_vacuum(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Bool(false)),
     };
-    
-    bi_db_sqlite_exec(vec![Value::Str(db_path), Value::Str("VACUUM".to_string())], None)
+
+    bi_db_sqlite_exec(
+        vec![Value::Str(db_path), Value::Str("VACUUM".to_string())],
+        None,
+    )
 }
 
 fn bi_db_sqlite_dump(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -19810,13 +20793,15 @@ fn bi_db_sqlite_dump(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
-    
+
     let output = std::process::Command::new("sqlite3")
         .args([&db_path, ".dump"])
         .output()?;
-    
+
     if output.status.success() {
-        return Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()));
+        return Ok(Value::Str(
+            String::from_utf8_lossy(&output.stdout).to_string(),
+        ));
     }
     Ok(Value::Null)
 }
@@ -19830,7 +20815,7 @@ fn bi_db_sqlite_import(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Bool(false)),
     };
-    
+
     let sql = std::fs::read_to_string(&sql_file)?;
     bi_db_sqlite_exec(vec![Value::Str(db_path), Value::Str(sql)], None)
 }
@@ -19856,7 +20841,7 @@ fn bi_db_json_to_sqlite(args: Vec<Value>, _input: Option<Value>) -> Result<Value
         Some(Value::Str(s)) => s.clone(),
         _ => "imported".to_string(),
     };
-    
+
     // Read JSON
     let content = std::fs::read_to_string(&json_path)?;
     if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
@@ -19864,26 +20849,48 @@ fn bi_db_json_to_sqlite(args: Vec<Value>, _input: Option<Value>) -> Result<Value
             if let Some(first) = arr.first() {
                 if let serde_json::Value::Object(obj) = first {
                     // Create table
-                    let columns: Vec<String> = obj.keys()
-                        .map(|k| format!("{} TEXT", k))
-                        .collect();
-                    let create_sql = format!("CREATE TABLE IF NOT EXISTS {} ({})", table_name, columns.join(", "));
-                    bi_db_sqlite_exec(vec![Value::Str(db_path.clone()), Value::Str(create_sql)], None)?;
-                    
+                    let columns: Vec<String> = obj.keys().map(|k| format!("{} TEXT", k)).collect();
+                    let create_sql = format!(
+                        "CREATE TABLE IF NOT EXISTS {} ({})",
+                        table_name,
+                        columns.join(", ")
+                    );
+                    bi_db_sqlite_exec(
+                        vec![Value::Str(db_path.clone()), Value::Str(create_sql)],
+                        None,
+                    )?;
+
                     // Insert rows
                     for row in arr {
                         if let serde_json::Value::Object(obj) = row {
                             let cols: Vec<String> = obj.keys().cloned().collect();
-                            let vals: Vec<String> = obj.values().map(|v| {
-                                match v {
-                                    serde_json::Value::String(s) => format!("'{}'", s.replace("'", "''")),
+                            let vals: Vec<String> = obj
+                                .values()
+                                .map(|v| match v {
+                                    serde_json::Value::String(s) => {
+                                        format!("'{}'", s.replace("'", "''"))
+                                    }
                                     serde_json::Value::Number(n) => n.to_string(),
-                                    serde_json::Value::Bool(b) => if *b { "1".to_string() } else { "0".to_string() },
+                                    serde_json::Value::Bool(b) => {
+                                        if *b {
+                                            "1".to_string()
+                                        } else {
+                                            "0".to_string()
+                                        }
+                                    }
                                     _ => "NULL".to_string(),
-                                }
-                            }).collect();
-                            let insert_sql = format!("INSERT INTO {} ({}) VALUES ({})", table_name, cols.join(", "), vals.join(", "));
-                            bi_db_sqlite_exec(vec![Value::Str(db_path.clone()), Value::Str(insert_sql)], None)?;
+                                })
+                                .collect();
+                            let insert_sql = format!(
+                                "INSERT INTO {} ({}) VALUES ({})",
+                                table_name,
+                                cols.join(", "),
+                                vals.join(", ")
+                            );
+                            bi_db_sqlite_exec(
+                                vec![Value::Str(db_path.clone()), Value::Str(insert_sql)],
+                                None,
+                            )?;
                         }
                     }
                     return Ok(Value::Bool(true));
@@ -19903,25 +20910,36 @@ fn bi_db_sqlite_to_json(args: Vec<Value>, _input: Option<Value>) -> Result<Value
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
-    
-    bi_db_sqlite_query(vec![
-        Value::Str(db_path),
-        Value::Str(format!("SELECT * FROM {}", table))
-    ], None)
+
+    bi_db_sqlite_query(
+        vec![
+            Value::Str(db_path),
+            Value::Str(format!("SELECT * FROM {}", table)),
+        ],
+        None,
+    )
 }
 
 fn bi_db_kv_store(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // Initialize KV store
-    let store_path = args.first().and_then(|v| match v {
-        Value::Str(s) => Some(s.clone()),
-        _ => None,
-    }).unwrap_or_else(|| ".aether_kv.db".to_string());
-    
-    let _ = bi_db_sqlite_exec(vec![
-        Value::Str(store_path.clone()),
-        Value::Str("CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT)".to_string())
-    ], None);
-    
+    let store_path = args
+        .first()
+        .and_then(|v| match v {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| ".aether_kv.db".to_string());
+
+    let _ = bi_db_sqlite_exec(
+        vec![
+            Value::Str(store_path.clone()),
+            Value::Str(
+                "CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT)".to_string(),
+            ),
+        ],
+        None,
+    );
+
     Ok(Value::Str(store_path))
 }
 
@@ -19993,17 +21011,22 @@ fn bi_file_write(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         .with_context(|| format!("file_write: failed to write temp file '{}'", temp_path))?;
 
     // Rename to final destination (atomic on most filesystems)
-    fs::rename(&temp_path, &path).or_else(|_| {
-        // Fallback: copy and delete (for cross-device moves)
-        fs::copy(&temp_path, &path)?;
-        fs::remove_file(&temp_path)?;
-        Ok::<(), std::io::Error>(())
-    }).with_context(|| format!("file_write: failed to write to '{}'", path))?;
+    fs::rename(&temp_path, &path)
+        .or_else(|_| {
+            // Fallback: copy and delete (for cross-device moves)
+            fs::copy(&temp_path, &path)?;
+            fs::remove_file(&temp_path)?;
+            Ok::<(), std::io::Error>(())
+        })
+        .with_context(|| format!("file_write: failed to write to '{}'", path))?;
 
     let mut result = BTreeMap::new();
     result.insert("path".to_string(), Value::Str(path));
     result.insert("bytes".to_string(), Value::Int(content.len() as i64));
-    result.insert("lines".to_string(), Value::Int(content.lines().count() as i64));
+    result.insert(
+        "lines".to_string(),
+        Value::Int(content.lines().count() as i64),
+    );
     result.insert("success".to_string(), Value::Bool(true));
 
     Ok(Value::Record(result))
@@ -20064,7 +21087,10 @@ fn bi_file_append(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     let mut result = BTreeMap::new();
     result.insert("path".to_string(), Value::Str(path));
-    result.insert("bytes_appended".to_string(), Value::Int(content.len() as i64));
+    result.insert(
+        "bytes_appended".to_string(),
+        Value::Int(content.len() as i64),
+    );
     result.insert("success".to_string(), Value::Bool(true));
 
     Ok(Value::Record(result))
@@ -20113,7 +21139,11 @@ fn bi_file_patch(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             }
         };
 
-        let find_str = match record.get("find").or(record.get("old")).or(record.get("search")) {
+        let find_str = match record
+            .get("find")
+            .or(record.get("old"))
+            .or(record.get("search"))
+        {
             Some(Value::Str(s)) => s.clone(),
             _ => {
                 failed.push(Value::Str(format!("patch {}: missing 'find' string", i)));
@@ -20121,7 +21151,11 @@ fn bi_file_patch(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             }
         };
 
-        let replace_str = match record.get("replace").or(record.get("new")).or(record.get("with")) {
+        let replace_str = match record
+            .get("replace")
+            .or(record.get("new"))
+            .or(record.get("with"))
+        {
             Some(Value::Str(s)) => s.clone(),
             _ => {
                 failed.push(Value::Str(format!("patch {}: missing 'replace' string", i)));
@@ -20139,8 +21173,15 @@ fn bi_file_patch(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             patch_result.insert("count".to_string(), Value::Int(count as i64));
             applied.push(Value::Record(patch_result));
         } else {
-            failed.push(Value::Str(format!("patch {}: '{}' not found", i,
-                if find_str.len() > 40 { format!("{}...", &find_str[..40]) } else { find_str })));
+            failed.push(Value::Str(format!(
+                "patch {}: '{}' not found",
+                i,
+                if find_str.len() > 40 {
+                    format!("{}...", &find_str[..40])
+                } else {
+                    find_str
+                }
+            )));
         }
     }
 
@@ -20154,8 +21195,14 @@ fn bi_file_patch(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     result.insert("applied".to_string(), Value::Array(applied.clone()));
     result.insert("failed".to_string(), Value::Array(failed.clone()));
     result.insert("success".to_string(), Value::Bool(failed.is_empty()));
-    result.insert("patches_applied".to_string(), Value::Int(applied.len() as i64));
-    result.insert("patches_failed".to_string(), Value::Int(failed.len() as i64));
+    result.insert(
+        "patches_applied".to_string(),
+        Value::Int(applied.len() as i64),
+    );
+    result.insert(
+        "patches_failed".to_string(),
+        Value::Int(failed.len() as i64),
+    );
 
     Ok(Value::Record(result))
 }
@@ -20164,7 +21211,9 @@ fn bi_file_patch(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 /// Usage: file_replace("config.txt", "old_value", "new_value")
 fn bi_file_replace(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.len() < 3 {
-        return Err(anyhow!("file_replace requires path, old_text, and new_text"));
+        return Err(anyhow!(
+            "file_replace requires path, old_text, and new_text"
+        ));
     }
 
     let path = match &args[0] {
@@ -20186,7 +21235,10 @@ fn bi_file_replace(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     patch.insert("find".to_string(), Value::Str(old_text));
     patch.insert("replace".to_string(), Value::Str(new_text));
 
-    bi_file_patch(vec![Value::Str(path), Value::Array(vec![Value::Record(patch)])], None)
+    bi_file_patch(
+        vec![Value::Str(path), Value::Array(vec![Value::Record(patch)])],
+        None,
+    )
 }
 
 /// file_insert(path, position, content) - Insert content at a specific position
@@ -20242,20 +21294,18 @@ fn bi_file_insert(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             let line = (*line_num).max(1) as usize;
             insert_pos = (line - 1).min(lines.len());
         }
-        Value::Str(pos) => {
-            match pos.as_str() {
-                "start" | "beginning" | "top" => insert_pos = 0,
-                "end" | "bottom" | "append" => insert_pos = lines.len(),
-                _ => {
-                    if let Some(idx) = lines.iter().position(|l| l.contains(pos)) {
-                        insert_pos = idx + 1;
-                    } else {
-                        pattern_found = false;
-                        insert_pos = lines.len();
-                    }
+        Value::Str(pos) => match pos.as_str() {
+            "start" | "beginning" | "top" => insert_pos = 0,
+            "end" | "bottom" | "append" => insert_pos = lines.len(),
+            _ => {
+                if let Some(idx) = lines.iter().position(|l| l.contains(pos)) {
+                    insert_pos = idx + 1;
+                } else {
+                    pattern_found = false;
+                    insert_pos = lines.len();
                 }
             }
-        }
+        },
         Value::Record(r) => {
             if let Some(Value::Str(after_pattern)) = r.get("after") {
                 if let Some(idx) = lines.iter().position(|l| l.contains(after_pattern)) {
@@ -20274,10 +21324,16 @@ fn bi_file_insert(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             } else if let Some(Value::Int(line)) = r.get("line") {
                 insert_pos = ((*line).max(1) as usize - 1).min(lines.len());
             } else {
-                return Err(anyhow!("file_insert: position record must have 'after', 'before', or 'line' key"));
+                return Err(anyhow!(
+                    "file_insert: position record must have 'after', 'before', or 'line' key"
+                ));
             }
         }
-        _ => return Err(anyhow!("file_insert: position must be a line number, string, or record")),
+        _ => {
+            return Err(anyhow!(
+                "file_insert: position must be a line number, string, or record"
+            ))
+        }
     }
 
     for (i, line) in insert_lines.iter().enumerate() {
@@ -20295,7 +21351,10 @@ fn bi_file_insert(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     let mut result = BTreeMap::new();
     result.insert("path".to_string(), Value::Str(path));
-    result.insert("lines_inserted".to_string(), Value::Int(insert_lines.len() as i64));
+    result.insert(
+        "lines_inserted".to_string(),
+        Value::Int(insert_lines.len() as i64),
+    );
     result.insert("at_line".to_string(), Value::Int((insert_pos + 1) as i64));
     result.insert("pattern_found".to_string(), Value::Bool(pattern_found));
     result.insert("success".to_string(), Value::Bool(true));
@@ -20306,7 +21365,9 @@ fn bi_file_insert(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 /// file_delete_lines(path, start, end?) - Delete lines from a file
 fn bi_file_delete_lines(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.len() < 2 {
-        return Err(anyhow!("file_delete_lines requires path and line specification"));
+        return Err(anyhow!(
+            "file_delete_lines requires path and line specification"
+        ));
     }
 
     let path = match &args[0] {
@@ -20338,7 +21399,9 @@ fn bi_file_delete_lines(args: Vec<Value>, _input: Option<Value>) -> Result<Value
             }
         }
         Value::Record(r) => {
-            if let Some(Value::Str(pattern)) = r.get("matching").or(r.get("contains")).or(r.get("pattern")) {
+            if let Some(Value::Str(pattern)) =
+                r.get("matching").or(r.get("contains")).or(r.get("pattern"))
+            {
                 for (i, line) in lines.iter().enumerate() {
                     if line.contains(pattern) {
                         keep[i] = false;
@@ -20351,13 +21414,20 @@ fn bi_file_delete_lines(args: Vec<Value>, _input: Option<Value>) -> Result<Value
                     }
                 }
             } else {
-                return Err(anyhow!("file_delete_lines: record must have 'matching', 'contains', or 'exact' key"));
+                return Err(anyhow!(
+                    "file_delete_lines: record must have 'matching', 'contains', or 'exact' key"
+                ));
             }
         }
-        _ => return Err(anyhow!("file_delete_lines: second argument must be line number or record")),
+        _ => {
+            return Err(anyhow!(
+                "file_delete_lines: second argument must be line number or record"
+            ))
+        }
     }
 
-    let new_lines: Vec<&str> = lines.into_iter()
+    let new_lines: Vec<&str> = lines
+        .into_iter()
         .enumerate()
         .filter(|(i, _)| keep[*i])
         .map(|(_, line)| line)
@@ -20375,8 +21445,14 @@ fn bi_file_delete_lines(args: Vec<Value>, _input: Option<Value>) -> Result<Value
 
     let mut result = BTreeMap::new();
     result.insert("path".to_string(), Value::Str(path));
-    result.insert("lines_deleted".to_string(), Value::Int(deleted_count as i64));
-    result.insert("lines_remaining".to_string(), Value::Int(new_lines.len() as i64));
+    result.insert(
+        "lines_deleted".to_string(),
+        Value::Int(deleted_count as i64),
+    );
+    result.insert(
+        "lines_remaining".to_string(),
+        Value::Int(new_lines.len() as i64),
+    );
     result.insert("success".to_string(), Value::Bool(true));
 
     Ok(Value::Record(result))
@@ -20397,7 +21473,11 @@ fn bi_file_edit(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         match &args[1] {
             Value::Array(arr) => arr.clone(),
             Value::Record(r) => vec![Value::Record(r.clone())],
-            _ => return Err(anyhow!("file_edit: edits must be an array of edit operations")),
+            _ => {
+                return Err(anyhow!(
+                    "file_edit: edits must be an array of edit operations"
+                ))
+            }
         }
     } else {
         match input {
@@ -20419,10 +21499,13 @@ fn bi_file_edit(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     sorted_edits.sort_by(|a, b| {
         let get_line = |v: &Value| -> i64 {
             if let Value::Record(r) = v {
-                r.get("start_line").or(r.get("line")).and_then(|v| match v {
-                    Value::Int(n) => Some(*n),
-                    _ => None,
-                }).unwrap_or(0)
+                r.get("start_line")
+                    .or(r.get("line"))
+                    .and_then(|v| match v {
+                        Value::Int(n) => Some(*n),
+                        _ => None,
+                    })
+                    .unwrap_or(0)
             } else {
                 0
             }
@@ -20467,7 +21550,8 @@ fn bi_file_edit(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
                 if start_line < lines.len() {
                     let end = end_line.min(lines.len() - 1);
-                    let new_lines: Vec<String> = new_content.lines().map(|s| s.to_string()).collect();
+                    let new_lines: Vec<String> =
+                        new_content.lines().map(|s| s.to_string()).collect();
 
                     lines.drain(start_line..=end);
                     for (i, line) in new_lines.into_iter().enumerate() {
@@ -20476,11 +21560,18 @@ fn bi_file_edit(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
                     let mut result = BTreeMap::new();
                     result.insert("op".to_string(), Value::Str("replace_range".to_string()));
-                    result.insert("start_line".to_string(), Value::Int((start_line + 1) as i64));
+                    result.insert(
+                        "start_line".to_string(),
+                        Value::Int((start_line + 1) as i64),
+                    );
                     result.insert("end_line".to_string(), Value::Int((end + 1) as i64));
                     applied.push(Value::Record(result));
                 } else {
-                    failed.push(Value::Str(format!("edit {}: line {} out of range", idx, start_line + 1)));
+                    failed.push(Value::Str(format!(
+                        "edit {}: line {} out of range",
+                        idx,
+                        start_line + 1
+                    )));
                 }
             }
             "insert_at" | "insert" => {
@@ -20506,7 +21597,10 @@ fn bi_file_edit(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                 let mut result = BTreeMap::new();
                 result.insert("op".to_string(), Value::Str("insert_at".to_string()));
                 result.insert("line".to_string(), Value::Int((insert_pos + 1) as i64));
-                result.insert("lines_inserted".to_string(), Value::Int(new_lines.len() as i64));
+                result.insert(
+                    "lines_inserted".to_string(),
+                    Value::Int(new_lines.len() as i64),
+                );
                 applied.push(Value::Record(result));
             }
             "delete_range" | "delete" => {
@@ -20529,15 +21623,28 @@ fn bi_file_edit(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
                     let mut result = BTreeMap::new();
                     result.insert("op".to_string(), Value::Str("delete_range".to_string()));
-                    result.insert("start_line".to_string(), Value::Int((start_line + 1) as i64));
-                    result.insert("lines_deleted".to_string(), Value::Int(deleted_count as i64));
+                    result.insert(
+                        "start_line".to_string(),
+                        Value::Int((start_line + 1) as i64),
+                    );
+                    result.insert(
+                        "lines_deleted".to_string(),
+                        Value::Int(deleted_count as i64),
+                    );
                     applied.push(Value::Record(result));
                 } else {
-                    failed.push(Value::Str(format!("edit {}: line {} out of range", idx, start_line + 1)));
+                    failed.push(Value::Str(format!(
+                        "edit {}: line {} out of range",
+                        idx,
+                        start_line + 1
+                    )));
                 }
             }
             _ => {
-                failed.push(Value::Str(format!("edit {}: unknown operation '{}'", idx, op)));
+                failed.push(Value::Str(format!(
+                    "edit {}: unknown operation '{}'",
+                    idx, op
+                )));
             }
         }
     }
@@ -20557,7 +21664,10 @@ fn bi_file_edit(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     result.insert("applied".to_string(), Value::Array(applied.clone()));
     result.insert("failed".to_string(), Value::Array(failed.clone()));
     result.insert("success".to_string(), Value::Bool(failed.is_empty()));
-    result.insert("edits_applied".to_string(), Value::Int(applied.len() as i64));
+    result.insert(
+        "edits_applied".to_string(),
+        Value::Int(applied.len() as i64),
+    );
     result.insert("edits_failed".to_string(), Value::Int(failed.len() as i64));
     result.insert("final_lines".to_string(), Value::Int(lines.len() as i64));
 
@@ -20650,11 +21760,18 @@ pub fn bi_file_backup(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let backup_path = format!("{}{}", path, suffix);
 
     if !std::path::Path::new(&path).exists() {
-        return Err(anyhow!("file_backup: source file '{}' does not exist", path));
+        return Err(anyhow!(
+            "file_backup: source file '{}' does not exist",
+            path
+        ));
     }
 
-    let bytes_copied = fs::copy(&path, &backup_path)
-        .with_context(|| format!("file_backup: failed to copy '{}' to '{}'", path, backup_path))?;
+    let bytes_copied = fs::copy(&path, &backup_path).with_context(|| {
+        format!(
+            "file_backup: failed to copy '{}' to '{}'",
+            path, backup_path
+        )
+    })?;
 
     let mut result = BTreeMap::new();
     result.insert("path".to_string(), Value::Str(path));
@@ -20682,7 +21799,7 @@ pub fn bi_file_copy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     };
 
     let source_path = std::path::Path::new(&source);
-    
+
     if !source_path.exists() {
         return Err(anyhow!("file_copy: source '{}' does not exist", source));
     }
@@ -20706,17 +21823,17 @@ pub fn bi_file_copy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn copy_dir_recursive(src: &str, dst: &str) -> Result<u64> {
     let src_path = std::path::Path::new(src);
     let dst_path = std::path::Path::new(dst);
-    
+
     fs::create_dir_all(dst_path)?;
-    
+
     let mut total_bytes = 0u64;
-    
+
     for entry in WalkDir::new(src_path).min_depth(1) {
         let entry = entry?;
         let src_file = entry.path();
         let relative = src_file.strip_prefix(src_path)?;
         let dst_file = dst_path.join(relative);
-        
+
         if entry.file_type().is_dir() {
             fs::create_dir_all(&dst_file)?;
         } else {
@@ -20726,7 +21843,7 @@ fn copy_dir_recursive(src: &str, dst: &str) -> Result<u64> {
             total_bytes += fs::copy(src_file, &dst_file)?;
         }
     }
-    
+
     Ok(total_bytes)
 }
 
@@ -20824,17 +21941,25 @@ fn bi_a2a_send(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.len() < 2 {
         return Err(anyhow!("a2a.send: requires target and message arguments"));
     }
-    let target = args[0].as_str().context("a2a.send: target must be a string")?;
+    let target = args[0]
+        .as_str()
+        .context("a2a.send: target must be a string")?;
     let message = args[1].clone();
 
     let registry = A2A_REGISTRY.read().unwrap();
     if !registry.contains_key(target) {
-        return Err(anyhow!("a2a.send: agent '{}' not found in registry", target));
+        return Err(anyhow!(
+            "a2a.send: agent '{}' not found in registry",
+            target
+        ));
     }
     drop(registry);
 
     let mut messages = A2A_MESSAGES.write().unwrap();
-    messages.entry(target.to_string()).or_default().push(message);
+    messages
+        .entry(target.to_string())
+        .or_default()
+        .push(message);
 
     let mut result = BTreeMap::new();
     result.insert("sent".to_string(), Value::Bool(true));
@@ -20844,7 +21969,11 @@ fn bi_a2a_send(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 /// a2a.receive(agent_name?) - Receive pending messages
 fn bi_a2a_receive(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let agent_name = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).unwrap_or_else(|| "default".to_string());
+    let agent_name = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "default".to_string());
     let mut messages = A2A_MESSAGES.write().unwrap();
     let pending = messages.remove(&agent_name).unwrap_or_default();
     Ok(Value::Array(pending))
@@ -20852,13 +21981,20 @@ fn bi_a2a_receive(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 /// a2a.broadcast(message) - Broadcast to all agents
 fn bi_a2a_broadcast(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    if args.is_empty() { return Err(anyhow!("a2a.broadcast: requires a message")); }
+    if args.is_empty() {
+        return Err(anyhow!("a2a.broadcast: requires a message"));
+    }
     let message = args[0].clone();
     let registry = A2A_REGISTRY.read().unwrap();
     let agents: Vec<String> = registry.keys().cloned().collect();
     drop(registry);
     let mut messages = A2A_MESSAGES.write().unwrap();
-    for agent in &agents { messages.entry(agent.clone()).or_default().push(message.clone()); }
+    for agent in &agents {
+        messages
+            .entry(agent.clone())
+            .or_default()
+            .push(message.clone());
+    }
     let mut result = BTreeMap::new();
     result.insert("broadcast".to_string(), Value::Bool(true));
     result.insert("recipients".to_string(), Value::Int(agents.len() as i64));
@@ -20868,19 +22004,30 @@ fn bi_a2a_broadcast(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 /// a2a.discover() - Discover available agents
 fn bi_a2a_discover(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let registry = A2A_REGISTRY.read().unwrap();
-    let agents: Vec<Value> = registry.iter().map(|(name, info)| {
-        let mut agent = info.clone();
-        agent.insert("name".to_string(), Value::Str(name.clone()));
-        Value::Record(agent)
-    }).collect();
+    let agents: Vec<Value> = registry
+        .iter()
+        .map(|(name, info)| {
+            let mut agent = info.clone();
+            agent.insert("name".to_string(), Value::Str(name.clone()));
+            Value::Record(agent)
+        })
+        .collect();
     Ok(Value::Array(agents))
 }
 
 /// a2a.register(name, info?) - Register an agent
 fn bi_a2a_register(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    if args.is_empty() { return Err(anyhow!("a2a.register: requires agent name")); }
-    let name = args[0].as_str().context("a2a.register: name must be a string")?;
-    let info = args.get(1).and_then(|v| v.as_record().ok()).cloned().unwrap_or_default();
+    if args.is_empty() {
+        return Err(anyhow!("a2a.register: requires agent name"));
+    }
+    let name = args[0]
+        .as_str()
+        .context("a2a.register: name must be a string")?;
+    let info = args
+        .get(1)
+        .and_then(|v| v.as_record().ok())
+        .cloned()
+        .unwrap_or_default();
     let mut registry = A2A_REGISTRY.write().unwrap();
     registry.insert(name.to_string(), info);
     let mut result = BTreeMap::new();
@@ -20891,8 +22038,12 @@ fn bi_a2a_register(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 /// a2a.unregister(name) - Unregister an agent
 fn bi_a2a_unregister(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    if args.is_empty() { return Err(anyhow!("a2a.unregister: requires agent name")); }
-    let name = args[0].as_str().context("a2a.unregister: name must be a string")?;
+    if args.is_empty() {
+        return Err(anyhow!("a2a.unregister: requires agent name"));
+    }
+    let name = args[0]
+        .as_str()
+        .context("a2a.unregister: name must be a string")?;
     let mut registry = A2A_REGISTRY.write().unwrap();
     let removed = registry.remove(name).is_some();
     let mut messages = A2A_MESSAGES.write().unwrap();
@@ -20911,14 +22062,20 @@ fn bi_a2a_status(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut result = BTreeMap::new();
     result.insert("active".to_string(), Value::Bool(true));
     result.insert("agents".to_string(), Value::Int(registry.len() as i64));
-    result.insert("pending_messages".to_string(), Value::Int(pending_count as i64));
+    result.insert(
+        "pending_messages".to_string(),
+        Value::Int(pending_count as i64),
+    );
     Ok(Value::Record(result))
 }
 
 /// a2a.agents() - List all registered agents
 fn bi_a2a_agents(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let registry = A2A_REGISTRY.read().unwrap();
-    let agents: Vec<Value> = registry.keys().map(|name| Value::Str(name.clone())).collect();
+    let agents: Vec<Value> = registry
+        .keys()
+        .map(|name| Value::Str(name.clone()))
+        .collect();
     Ok(Value::Array(agents))
 }
 
@@ -20937,21 +22094,34 @@ fn nanda_uuid() -> String {
     use rand::Rng;
     let mut rng = rand::thread_rng();
     let bytes: [u8; 16] = rng.gen();
-    format!("{:08x}-{:04x}-4{:03x}-{:04x}-{:012x}",
+    format!(
+        "{:08x}-{:04x}-4{:03x}-{:04x}-{:012x}",
         u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]),
         u16::from_be_bytes([bytes[4], bytes[5]]),
         u16::from_be_bytes([bytes[6], bytes[7]]) & 0x0fff,
         (u16::from_be_bytes([bytes[8], bytes[9]]) & 0x3fff) | 0x8000,
-        u64::from_be_bytes([0, 0, bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]]))
+        u64::from_be_bytes([
+            0, 0, bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]
+        ])
+    )
 }
 
 /// nanda.propose(name, data) - Create a consensus proposal
 fn bi_nanda_propose(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    if args.len() < 2 { return Err(anyhow!("nanda.propose: requires name and data arguments")); }
-    let name = args[0].as_str().context("nanda.propose: name must be a string")?;
-    let data = args[1].as_record().context("nanda.propose: data must be a record")?;
+    if args.len() < 2 {
+        return Err(anyhow!("nanda.propose: requires name and data arguments"));
+    }
+    let name = args[0]
+        .as_str()
+        .context("nanda.propose: name must be a string")?;
+    let data = args[1]
+        .as_record()
+        .context("nanda.propose: data must be a record")?;
     let proposal_id = format!("prop_{}", nanda_uuid());
-    let threshold = data.get("threshold").and_then(|v| v.as_float().ok()).unwrap_or(0.5);
+    let threshold = data
+        .get("threshold")
+        .and_then(|v| v.as_float().ok())
+        .unwrap_or(0.5);
     let mut proposal = data.clone();
     proposal.insert("id".to_string(), Value::Str(proposal_id.clone()));
     proposal.insert("name".to_string(), Value::Str(name.to_string()));
@@ -20964,18 +22134,34 @@ fn bi_nanda_propose(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 /// nanda.vote(proposal_id, approve) - Vote on a proposal
 fn bi_nanda_vote(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    if args.len() < 2 { return Err(anyhow!("nanda.vote: requires proposal_id and approve arguments")); }
-    let proposal_id = args[0].as_str().context("nanda.vote: proposal_id must be a string")?;
-    let approve = args[1].as_bool().context("nanda.vote: approve must be a boolean")?;
+    if args.len() < 2 {
+        return Err(anyhow!(
+            "nanda.vote: requires proposal_id and approve arguments"
+        ));
+    }
+    let proposal_id = args[0]
+        .as_str()
+        .context("nanda.vote: proposal_id must be a string")?;
+    let approve = args[1]
+        .as_bool()
+        .context("nanda.vote: approve must be a boolean")?;
     let proposals = NANDA_PROPOSALS.read().unwrap();
-    if !proposals.contains_key(proposal_id) { return Err(anyhow!("nanda.vote: proposal '{}' not found", proposal_id)); }
+    if !proposals.contains_key(proposal_id) {
+        return Err(anyhow!("nanda.vote: proposal '{}' not found", proposal_id));
+    }
     drop(proposals);
     let voter = format!("voter_{}", rand::random::<u32>() % 1000);
     let mut votes = NANDA_VOTES.write().unwrap();
-    votes.entry(proposal_id.to_string()).or_default().push((voter.clone(), approve));
+    votes
+        .entry(proposal_id.to_string())
+        .or_default()
+        .push((voter.clone(), approve));
     let mut result = BTreeMap::new();
     result.insert("voted".to_string(), Value::Bool(true));
-    result.insert("proposal_id".to_string(), Value::Str(proposal_id.to_string()));
+    result.insert(
+        "proposal_id".to_string(),
+        Value::Str(proposal_id.to_string()),
+    );
     result.insert("voter".to_string(), Value::Str(voter));
     result.insert("approve".to_string(), Value::Bool(approve));
     Ok(Value::Record(result))
@@ -20983,38 +22169,67 @@ fn bi_nanda_vote(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 /// nanda.commit(proposal_id) - Commit a proposal if consensus reached
 fn bi_nanda_commit(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    if args.is_empty() { return Err(anyhow!("nanda.commit: requires proposal_id")); }
-    let proposal_id = args[0].as_str().context("nanda.commit: proposal_id must be a string")?;
+    if args.is_empty() {
+        return Err(anyhow!("nanda.commit: requires proposal_id"));
+    }
+    let proposal_id = args[0]
+        .as_str()
+        .context("nanda.commit: proposal_id must be a string")?;
     let mut proposals = NANDA_PROPOSALS.write().unwrap();
-    let proposal = proposals.get_mut(proposal_id).ok_or_else(|| anyhow!("nanda.commit: proposal '{}' not found", proposal_id))?;
-    let threshold = proposal.get("threshold").and_then(|v| v.as_float().ok()).unwrap_or(0.5);
+    let proposal = proposals
+        .get_mut(proposal_id)
+        .ok_or_else(|| anyhow!("nanda.commit: proposal '{}' not found", proposal_id))?;
+    let threshold = proposal
+        .get("threshold")
+        .and_then(|v| v.as_float().ok())
+        .unwrap_or(0.5);
     let votes = NANDA_VOTES.read().unwrap();
     let proposal_votes = votes.get(proposal_id).map(|v| v.as_slice()).unwrap_or(&[]);
     let total = proposal_votes.len();
     let approvals = proposal_votes.iter().filter(|(_, v)| *v).count();
-    let approval_ratio = if total > 0 { approvals as f64 / total as f64 } else { 0.0 };
+    let approval_ratio = if total > 0 {
+        approvals as f64 / total as f64
+    } else {
+        0.0
+    };
     if approval_ratio >= threshold {
         proposal.insert("status".to_string(), Value::Str("committed".to_string()));
         let mut result = BTreeMap::new();
         result.insert("committed".to_string(), Value::Bool(true));
-        result.insert("proposal_id".to_string(), Value::Str(proposal_id.to_string()));
+        result.insert(
+            "proposal_id".to_string(),
+            Value::Str(proposal_id.to_string()),
+        );
         result.insert("approval_ratio".to_string(), Value::Float(approval_ratio));
         Ok(Value::Record(result))
     } else {
-        Err(anyhow!("nanda.commit: consensus not reached ({}% < {}%)", (approval_ratio * 100.0) as i64, (threshold * 100.0) as i64))
+        Err(anyhow!(
+            "nanda.commit: consensus not reached ({}% < {}%)",
+            (approval_ratio * 100.0) as i64,
+            (threshold * 100.0) as i64
+        ))
     }
 }
 
 /// nanda.abort(proposal_id) - Abort a proposal
 fn bi_nanda_abort(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    if args.is_empty() { return Err(anyhow!("nanda.abort: requires proposal_id")); }
-    let proposal_id = args[0].as_str().context("nanda.abort: proposal_id must be a string")?;
+    if args.is_empty() {
+        return Err(anyhow!("nanda.abort: requires proposal_id"));
+    }
+    let proposal_id = args[0]
+        .as_str()
+        .context("nanda.abort: proposal_id must be a string")?;
     let mut proposals = NANDA_PROPOSALS.write().unwrap();
-    let proposal = proposals.get_mut(proposal_id).ok_or_else(|| anyhow!("nanda.abort: proposal '{}' not found", proposal_id))?;
+    let proposal = proposals
+        .get_mut(proposal_id)
+        .ok_or_else(|| anyhow!("nanda.abort: proposal '{}' not found", proposal_id))?;
     proposal.insert("status".to_string(), Value::Str("aborted".to_string()));
     let mut result = BTreeMap::new();
     result.insert("aborted".to_string(), Value::Bool(true));
-    result.insert("proposal_id".to_string(), Value::Str(proposal_id.to_string()));
+    result.insert(
+        "proposal_id".to_string(),
+        Value::Str(proposal_id.to_string()),
+    );
     Ok(Value::Record(result))
 }
 
@@ -21022,29 +22237,50 @@ fn bi_nanda_abort(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_nanda_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if let Some(proposal_id) = args.first().and_then(|v| v.as_str().ok()) {
         let proposals = NANDA_PROPOSALS.read().unwrap();
-        let proposal = proposals.get(proposal_id).ok_or_else(|| anyhow!("nanda.status: proposal '{}' not found", proposal_id))?;
+        let proposal = proposals
+            .get(proposal_id)
+            .ok_or_else(|| anyhow!("nanda.status: proposal '{}' not found", proposal_id))?;
         Ok(Value::Record(proposal.clone()))
     } else {
         let proposals = NANDA_PROPOSALS.read().unwrap();
-        let summary: Vec<Value> = proposals.iter().map(|(_, p)| Value::Record(p.clone())).collect();
+        let summary: Vec<Value> = proposals
+            .iter()
+            .map(|(_, p)| Value::Record(p.clone()))
+            .collect();
         Ok(Value::Array(summary))
     }
 }
 
 /// nanda.consensus(proposal_id) - Check if consensus has been reached
 fn bi_nanda_consensus(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    if args.is_empty() { return Err(anyhow!("nanda.consensus: requires proposal_id")); }
-    let proposal_id = args[0].as_str().context("nanda.consensus: proposal_id must be a string")?;
+    if args.is_empty() {
+        return Err(anyhow!("nanda.consensus: requires proposal_id"));
+    }
+    let proposal_id = args[0]
+        .as_str()
+        .context("nanda.consensus: proposal_id must be a string")?;
     let proposals = NANDA_PROPOSALS.read().unwrap();
-    let proposal = proposals.get(proposal_id).ok_or_else(|| anyhow!("nanda.consensus: proposal '{}' not found", proposal_id))?;
-    let threshold = proposal.get("threshold").and_then(|v| v.as_float().ok()).unwrap_or(0.5);
+    let proposal = proposals
+        .get(proposal_id)
+        .ok_or_else(|| anyhow!("nanda.consensus: proposal '{}' not found", proposal_id))?;
+    let threshold = proposal
+        .get("threshold")
+        .and_then(|v| v.as_float().ok())
+        .unwrap_or(0.5);
     let votes = NANDA_VOTES.read().unwrap();
     let proposal_votes = votes.get(proposal_id).map(|v| v.as_slice()).unwrap_or(&[]);
     let total = proposal_votes.len();
     let approvals = proposal_votes.iter().filter(|(_, v)| *v).count();
-    let approval_ratio = if total > 0 { approvals as f64 / total as f64 } else { 0.0 };
+    let approval_ratio = if total > 0 {
+        approvals as f64 / total as f64
+    } else {
+        0.0
+    };
     let mut result = BTreeMap::new();
-    result.insert("reached".to_string(), Value::Bool(approval_ratio >= threshold));
+    result.insert(
+        "reached".to_string(),
+        Value::Bool(approval_ratio >= threshold),
+    );
     result.insert("approval_ratio".to_string(), Value::Float(approval_ratio));
     result.insert("threshold".to_string(), Value::Float(threshold));
     result.insert("total_votes".to_string(), Value::Int(total as i64));
@@ -21054,10 +22290,19 @@ fn bi_nanda_consensus(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 
 /// nanda.quorum(proposal_id) - Get quorum status
 fn bi_nanda_quorum(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    if args.is_empty() { return Err(anyhow!("nanda.quorum: requires proposal_id")); }
-    let proposal_id = args[0].as_str().context("nanda.quorum: proposal_id must be a string")?;
+    if args.is_empty() {
+        return Err(anyhow!("nanda.quorum: requires proposal_id"));
+    }
+    let proposal_id = args[0]
+        .as_str()
+        .context("nanda.quorum: proposal_id must be a string")?;
     let proposals = NANDA_PROPOSALS.read().unwrap();
-    if !proposals.contains_key(proposal_id) { return Err(anyhow!("nanda.quorum: proposal '{}' not found", proposal_id)); }
+    if !proposals.contains_key(proposal_id) {
+        return Err(anyhow!(
+            "nanda.quorum: proposal '{}' not found",
+            proposal_id
+        ));
+    }
     let registry = A2A_REGISTRY.read().unwrap();
     let total_agents = registry.len().max(1);
     let votes = NANDA_VOTES.read().unwrap();
@@ -21072,12 +22317,15 @@ fn bi_nanda_quorum(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Record(result))
 }
 
-
 // ============== AI CODING ASSISTANT BUILTINS ==============
 
 // Git module implementations
 fn bi_git_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let path = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).unwrap_or(".".to_string());
+    let path = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .map(|s| s.to_string())
+        .unwrap_or(".".to_string());
     let output = std::process::Command::new("git")
         .args(["status", "--porcelain", "-b"])
         .current_dir(&path)
@@ -21088,21 +22336,33 @@ fn bi_git_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_git_diff(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let path = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).unwrap_or(".".to_string());
+    let path = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .map(|s| s.to_string())
+        .unwrap_or(".".to_string());
     let output = std::process::Command::new("git")
         .args(["diff"])
         .current_dir(&path)
         .output()?;
-    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()))
+    Ok(Value::Str(
+        String::from_utf8_lossy(&output.stdout).to_string(),
+    ))
 }
 
 fn bi_git_diff_staged(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let path = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).unwrap_or(".".to_string());
+    let path = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .map(|s| s.to_string())
+        .unwrap_or(".".to_string());
     let output = std::process::Command::new("git")
         .args(["diff", "--staged"])
         .current_dir(&path)
         .output()?;
-    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()))
+    Ok(Value::Str(
+        String::from_utf8_lossy(&output.stdout).to_string(),
+    ))
 }
 
 fn bi_git_log(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -21118,18 +22378,26 @@ fn bi_git_log(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_git_blame(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let file = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("file path required"))?;
+    let file = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .map(|s| s.to_string())
+        .ok_or_else(|| anyhow::anyhow!("file path required"))?;
     let output = std::process::Command::new("git")
         .args(["blame", &file])
         .output()?;
-    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()))
+    Ok(Value::Str(
+        String::from_utf8_lossy(&output.stdout).to_string(),
+    ))
 }
 
 fn bi_git_branch(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("git")
         .args(["branch", "--show-current"])
         .output()?;
-    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()))
+    Ok(Value::Str(
+        String::from_utf8_lossy(&output.stdout).trim().to_string(),
+    ))
 }
 
 fn bi_git_branches(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -21144,7 +22412,11 @@ fn bi_git_branches(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_git_checkout(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let branch = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("branch name required"))?;
+    let branch = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .map(|s| s.to_string())
+        .ok_or_else(|| anyhow::anyhow!("branch name required"))?;
     let output = std::process::Command::new("git")
         .args(["checkout", &branch])
         .output()?;
@@ -21152,7 +22424,11 @@ fn bi_git_checkout(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_git_commit(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let msg = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("commit message required"))?;
+    let msg = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .map(|s| s.to_string())
+        .ok_or_else(|| anyhow::anyhow!("commit message required"))?;
     let output = std::process::Command::new("git")
         .args(["commit", "-m", &msg])
         .output()?;
@@ -21160,7 +22436,11 @@ fn bi_git_commit(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_git_add(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let files: Vec<String> = args.iter().filter_map(|v| v.as_str().ok()).map(|s| s.to_string()).collect();
+    let files: Vec<String> = args
+        .iter()
+        .filter_map(|v| v.as_str().ok())
+        .map(|s| s.to_string())
+        .collect();
     let mut cmd = std::process::Command::new("git");
     cmd.arg("add");
     for f in &files {
@@ -21171,7 +22451,11 @@ fn bi_git_add(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_git_reset(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mode = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).unwrap_or("--mixed".to_string());
+    let mode = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .map(|s| s.to_string())
+        .unwrap_or("--mixed".to_string());
     let output = std::process::Command::new("git")
         .args(["reset", &mode])
         .output()?;
@@ -21179,9 +22463,7 @@ fn bi_git_reset(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_git_stash(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("git")
-        .args(["stash"])
-        .output()?;
+    let output = std::process::Command::new("git").args(["stash"]).output()?;
     Ok(Value::Bool(output.status.success()))
 }
 
@@ -21207,32 +22489,32 @@ fn bi_git_remote(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("git")
         .args(["remote", "-v"])
         .output()?;
-    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()))
+    Ok(Value::Str(
+        String::from_utf8_lossy(&output.stdout).to_string(),
+    ))
 }
 
 fn bi_git_fetch(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("git")
-        .args(["fetch"])
-        .output()?;
+    let output = std::process::Command::new("git").args(["fetch"]).output()?;
     Ok(Value::Bool(output.status.success()))
 }
 
 fn bi_git_pull(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("git")
-        .args(["pull"])
-        .output()?;
+    let output = std::process::Command::new("git").args(["pull"]).output()?;
     Ok(Value::Bool(output.status.success()))
 }
 
 fn bi_git_push(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("git")
-        .args(["push"])
-        .output()?;
+    let output = std::process::Command::new("git").args(["push"]).output()?;
     Ok(Value::Bool(output.status.success()))
 }
 
 fn bi_git_merge(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let branch = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("branch name required"))?;
+    let branch = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .map(|s| s.to_string())
+        .ok_or_else(|| anyhow::anyhow!("branch name required"))?;
     let output = std::process::Command::new("git")
         .args(["merge", &branch])
         .output()?;
@@ -21240,7 +22522,11 @@ fn bi_git_merge(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_git_rebase(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let branch = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("branch name required"))?;
+    let branch = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .map(|s| s.to_string())
+        .ok_or_else(|| anyhow::anyhow!("branch name required"))?;
     let output = std::process::Command::new("git")
         .args(["rebase", &branch])
         .output()?;
@@ -21248,7 +22534,11 @@ fn bi_git_rebase(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_git_cherry_pick(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let commit = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("commit hash required"))?;
+    let commit = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .map(|s| s.to_string())
+        .ok_or_else(|| anyhow::anyhow!("commit hash required"))?;
     let output = std::process::Command::new("git")
         .args(["cherry-pick", &commit])
         .output()?;
@@ -21267,30 +22557,48 @@ fn bi_git_tags(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_git_show(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let commit = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).unwrap_or("HEAD".to_string());
+    let commit = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .map(|s| s.to_string())
+        .unwrap_or("HEAD".to_string());
     let output = std::process::Command::new("git")
         .args(["show", &commit])
         .output()?;
-    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()))
+    Ok(Value::Str(
+        String::from_utf8_lossy(&output.stdout).to_string(),
+    ))
 }
 
 fn bi_git_rev_parse(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let rev = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).unwrap_or("HEAD".to_string());
+    let rev = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .map(|s| s.to_string())
+        .unwrap_or("HEAD".to_string());
     let output = std::process::Command::new("git")
         .args(["rev-parse", &rev])
         .output()?;
-    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()))
+    Ok(Value::Str(
+        String::from_utf8_lossy(&output.stdout).trim().to_string(),
+    ))
 }
 
 fn bi_git_root(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("git")
         .args(["rev-parse", "--show-toplevel"])
         .output()?;
-    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()))
+    Ok(Value::Str(
+        String::from_utf8_lossy(&output.stdout).trim().to_string(),
+    ))
 }
 
 fn bi_git_ignore(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let pattern = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("pattern required"))?;
+    let pattern = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .map(|s| s.to_string())
+        .ok_or_else(|| anyhow::anyhow!("pattern required"))?;
     use std::io::Write;
     let mut file = std::fs::OpenOptions::new()
         .create(true)
@@ -21315,7 +22623,11 @@ fn bi_git_clean(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 // Code module implementations
 fn bi_code_parse(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let file = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("file path required"))?;
+    let file = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .map(|s| s.to_string())
+        .ok_or_else(|| anyhow::anyhow!("file path required"))?;
     let content = std::fs::read_to_string(&file)?;
     let lines = content.lines().count();
     let mut result = BTreeMap::new();
@@ -21326,17 +22638,28 @@ fn bi_code_parse(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_code_symbols(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let file = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("file path required"))?;
+    let file = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .map(|s| s.to_string())
+        .ok_or_else(|| anyhow::anyhow!("file path required"))?;
     let content = std::fs::read_to_string(&file)?;
     let mut symbols = Vec::new();
     for (i, line) in content.lines().enumerate() {
         let trimmed = line.trim();
-        if trimmed.starts_with("fn ") || trimmed.starts_with("pub fn ") ||
-           trimmed.starts_with("struct ") || trimmed.starts_with("pub struct ") ||
-           trimmed.starts_with("enum ") || trimmed.starts_with("pub enum ") ||
-           trimmed.starts_with("impl ") || trimmed.starts_with("trait ") ||
-           trimmed.starts_with("def ") || trimmed.starts_with("class ") ||
-           trimmed.starts_with("function ") || trimmed.starts_with("const ") {
+        if trimmed.starts_with("fn ")
+            || trimmed.starts_with("pub fn ")
+            || trimmed.starts_with("struct ")
+            || trimmed.starts_with("pub struct ")
+            || trimmed.starts_with("enum ")
+            || trimmed.starts_with("pub enum ")
+            || trimmed.starts_with("impl ")
+            || trimmed.starts_with("trait ")
+            || trimmed.starts_with("def ")
+            || trimmed.starts_with("class ")
+            || trimmed.starts_with("function ")
+            || trimmed.starts_with("const ")
+        {
             let mut sym = BTreeMap::new();
             sym.insert("line".to_string(), Value::Int((i + 1) as i64));
             sym.insert("text".to_string(), Value::Str(trimmed.to_string()));
@@ -21359,20 +22682,34 @@ fn bi_code_definition(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 }
 
 fn bi_code_imports(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let file = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("file path required"))?;
+    let file = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .map(|s| s.to_string())
+        .ok_or_else(|| anyhow::anyhow!("file path required"))?;
     let content = std::fs::read_to_string(&file)?;
-    let imports: Vec<Value> = content.lines()
-        .filter(|l| l.trim().starts_with("use ") || l.trim().starts_with("import ") || 
-                   l.trim().starts_with("from ") || l.trim().starts_with("#include"))
+    let imports: Vec<Value> = content
+        .lines()
+        .filter(|l| {
+            l.trim().starts_with("use ")
+                || l.trim().starts_with("import ")
+                || l.trim().starts_with("from ")
+                || l.trim().starts_with("#include")
+        })
         .map(|l| Value::Str(l.trim().to_string()))
         .collect();
     Ok(Value::Array(imports))
 }
 
 fn bi_code_exports(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let file = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("file path required"))?;
+    let file = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .map(|s| s.to_string())
+        .ok_or_else(|| anyhow::anyhow!("file path required"))?;
     let content = std::fs::read_to_string(&file)?;
-    let exports: Vec<Value> = content.lines()
+    let exports: Vec<Value> = content
+        .lines()
         .filter(|l| l.trim().starts_with("pub ") || l.trim().starts_with("export "))
         .map(|l| Value::Str(l.trim().to_string()))
         .collect();
@@ -21404,20 +22741,38 @@ fn bi_code_completions(_args: Vec<Value>, _input: Option<Value>) -> Result<Value
 }
 
 fn bi_code_format(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let file = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("file path required"))?;
-    let ext = std::path::Path::new(&file).extension().and_then(|s| s.to_str()).unwrap_or("");
+    let file = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .map(|s| s.to_string())
+        .ok_or_else(|| anyhow::anyhow!("file path required"))?;
+    let ext = std::path::Path::new(&file)
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
     let result = match ext {
         "rs" => std::process::Command::new("rustfmt").arg(&file).output(),
         "py" => std::process::Command::new("black").arg(&file).output(),
-        "js" | "ts" => std::process::Command::new("prettier").args(["--write", &file]).output(),
+        "js" | "ts" => std::process::Command::new("prettier")
+            .args(["--write", &file])
+            .output(),
         _ => return Ok(Value::Bool(false)),
     };
-    Ok(Value::Bool(result.map(|o| o.status.success()).unwrap_or(false)))
+    Ok(Value::Bool(
+        result.map(|o| o.status.success()).unwrap_or(false),
+    ))
 }
 
 fn bi_code_language(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let file = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("file path required"))?;
-    let ext = std::path::Path::new(&file).extension().and_then(|s| s.to_str()).unwrap_or("");
+    let file = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .map(|s| s.to_string())
+        .ok_or_else(|| anyhow::anyhow!("file path required"))?;
+    let ext = std::path::Path::new(&file)
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
     let lang = match ext {
         "rs" => "rust",
         "py" => "python",
@@ -21439,9 +22794,14 @@ fn bi_code_language(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_code_comments(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let file = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("file path required"))?;
+    let file = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .map(|s| s.to_string())
+        .ok_or_else(|| anyhow::anyhow!("file path required"))?;
     let content = std::fs::read_to_string(&file)?;
-    let comments: Vec<Value> = content.lines()
+    let comments: Vec<Value> = content
+        .lines()
         .enumerate()
         .filter(|(_, l)| {
             let t = l.trim();
@@ -21458,9 +22818,14 @@ fn bi_code_comments(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_code_todos(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let file = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("file path required"))?;
+    let file = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .map(|s| s.to_string())
+        .ok_or_else(|| anyhow::anyhow!("file path required"))?;
     let content = std::fs::read_to_string(&file)?;
-    let todos: Vec<Value> = content.lines()
+    let todos: Vec<Value> = content
+        .lines()
         .enumerate()
         .filter(|(_, l)| l.to_uppercase().contains("TODO") || l.to_uppercase().contains("FIXME"))
         .map(|(i, l)| {
@@ -21475,13 +22840,22 @@ fn bi_code_todos(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 // Project module implementations
 fn bi_project_type(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    if std::path::Path::new("Cargo.toml").exists() { return Ok(Value::Str("rust".to_string())); }
-    if std::path::Path::new("package.json").exists() { return Ok(Value::Str("node".to_string())); }
-    if std::path::Path::new("pyproject.toml").exists() || std::path::Path::new("setup.py").exists() { 
-        return Ok(Value::Str("python".to_string())); 
+    if std::path::Path::new("Cargo.toml").exists() {
+        return Ok(Value::Str("rust".to_string()));
     }
-    if std::path::Path::new("go.mod").exists() { return Ok(Value::Str("go".to_string())); }
-    if std::path::Path::new("pom.xml").exists() { return Ok(Value::Str("java".to_string())); }
+    if std::path::Path::new("package.json").exists() {
+        return Ok(Value::Str("node".to_string()));
+    }
+    if std::path::Path::new("pyproject.toml").exists() || std::path::Path::new("setup.py").exists()
+    {
+        return Ok(Value::Str("python".to_string()));
+    }
+    if std::path::Path::new("go.mod").exists() {
+        return Ok(Value::Str("go".to_string()));
+    }
+    if std::path::Path::new("pom.xml").exists() {
+        return Ok(Value::Str("java".to_string()));
+    }
     Ok(Value::Str("unknown".to_string()))
 }
 
@@ -21491,17 +22865,23 @@ fn bi_project_root(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .output();
     if let Ok(o) = output {
         if o.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&o.stdout).trim().to_string(),
+            ));
         }
     }
-    Ok(Value::Str(std::env::current_dir()?.to_string_lossy().to_string()))
+    Ok(Value::Str(
+        std::env::current_dir()?.to_string_lossy().to_string(),
+    ))
 }
 
 fn bi_project_name(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if let Ok(content) = std::fs::read_to_string("Cargo.toml") {
         for line in content.lines() {
             if line.starts_with("name = ") {
-                return Ok(Value::Str(line.split('"').nth(1).unwrap_or("unknown").to_string()));
+                return Ok(Value::Str(
+                    line.split('"').nth(1).unwrap_or("unknown").to_string(),
+                ));
             }
         }
     }
@@ -21520,7 +22900,9 @@ fn bi_project_version(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     if let Ok(content) = std::fs::read_to_string("Cargo.toml") {
         for line in content.lines() {
             if line.starts_with("version = ") {
-                return Ok(Value::Str(line.split('"').nth(1).unwrap_or("0.0.0").to_string()));
+                return Ok(Value::Str(
+                    line.split('"').nth(1).unwrap_or("0.0.0").to_string(),
+                ));
             }
         }
     }
@@ -21532,10 +22914,17 @@ fn bi_project_dependencies(_args: Vec<Value>, _input: Option<Value>) -> Result<V
     if let Ok(content) = std::fs::read_to_string("Cargo.toml") {
         let mut in_deps = false;
         for line in content.lines() {
-            if line.starts_with("[dependencies]") { in_deps = true; continue; }
-            if line.starts_with("[") { in_deps = false; }
+            if line.starts_with("[dependencies]") {
+                in_deps = true;
+                continue;
+            }
+            if line.starts_with("[") {
+                in_deps = false;
+            }
             if in_deps && line.contains("=") {
-                deps.push(Value::Str(line.split('=').next().unwrap_or("").trim().to_string()));
+                deps.push(Value::Str(
+                    line.split('=').next().unwrap_or("").trim().to_string(),
+                ));
             }
         }
     }
@@ -21547,10 +22936,17 @@ fn bi_project_dev_dependencies(_args: Vec<Value>, _input: Option<Value>) -> Resu
     if let Ok(content) = std::fs::read_to_string("Cargo.toml") {
         let mut in_deps = false;
         for line in content.lines() {
-            if line.starts_with("[dev-dependencies]") { in_deps = true; continue; }
-            if line.starts_with("[") { in_deps = false; }
+            if line.starts_with("[dev-dependencies]") {
+                in_deps = true;
+                continue;
+            }
+            if line.starts_with("[") {
+                in_deps = false;
+            }
             if in_deps && line.contains("=") {
-                deps.push(Value::Str(line.split('=').next().unwrap_or("").trim().to_string()));
+                deps.push(Value::Str(
+                    line.split('=').next().unwrap_or("").trim().to_string(),
+                ));
             }
         }
     }
@@ -21564,14 +22960,23 @@ fn bi_project_scripts(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 fn bi_project_structure(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut files = Vec::new();
     fn walk(dir: &std::path::Path, files: &mut Vec<Value>, depth: usize) {
-        if depth > 3 { return; }
+        if depth > 3 {
+            return;
+        }
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-                if name.starts_with(".") || name == "target" || name == "node_modules" { continue; }
+                let name = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                if name.starts_with(".") || name == "target" || name == "node_modules" {
+                    continue;
+                }
                 files.push(Value::Str(path.to_string_lossy().to_string()));
-                if path.is_dir() { walk(&path, files, depth + 1); }
+                if path.is_dir() {
+                    walk(&path, files, depth + 1);
+                }
             }
         }
     }
@@ -21581,10 +22986,18 @@ fn bi_project_structure(_args: Vec<Value>, _input: Option<Value>) -> Result<Valu
 
 fn bi_project_entry_points(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut entries = Vec::new();
-    if std::path::Path::new("src/main.rs").exists() { entries.push(Value::Str("src/main.rs".to_string())); }
-    if std::path::Path::new("src/lib.rs").exists() { entries.push(Value::Str("src/lib.rs".to_string())); }
-    if std::path::Path::new("index.js").exists() { entries.push(Value::Str("index.js".to_string())); }
-    if std::path::Path::new("main.py").exists() { entries.push(Value::Str("main.py".to_string())); }
+    if std::path::Path::new("src/main.rs").exists() {
+        entries.push(Value::Str("src/main.rs".to_string()));
+    }
+    if std::path::Path::new("src/lib.rs").exists() {
+        entries.push(Value::Str("src/lib.rs".to_string()));
+    }
+    if std::path::Path::new("index.js").exists() {
+        entries.push(Value::Str("index.js".to_string()));
+    }
+    if std::path::Path::new("main.py").exists() {
+        entries.push(Value::Str("main.py".to_string()));
+    }
     Ok(Value::Array(entries))
 }
 
@@ -21601,8 +23014,16 @@ fn bi_project_test_files(_args: Vec<Value>, _input: Option<Value>) -> Result<Val
 }
 
 fn bi_project_config_files(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let configs = ["Cargo.toml", "package.json", "pyproject.toml", "tsconfig.json", ".eslintrc.json", "rustfmt.toml"];
-    let found: Vec<Value> = configs.iter()
+    let configs = [
+        "Cargo.toml",
+        "package.json",
+        "pyproject.toml",
+        "tsconfig.json",
+        ".eslintrc.json",
+        "rustfmt.toml",
+    ];
+    let found: Vec<Value> = configs
+        .iter()
         .filter(|c| std::path::Path::new(c).exists())
         .map(|c| Value::Str(c.to_string()))
         .collect();
@@ -21639,22 +23060,40 @@ fn bi_project_languages(_args: Vec<Value>, _input: Option<Value>) -> Result<Valu
     fn check_ext(path: &std::path::Path, langs: &mut std::collections::HashSet<String>) {
         if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
             let lang = match ext {
-                "rs" => "Rust", "py" => "Python", "js" => "JavaScript", "ts" => "TypeScript",
-                "go" => "Go", "java" => "Java", "rb" => "Ruby", "c" | "h" => "C",
-                "cpp" | "hpp" => "C++", "sh" => "Shell", _ => return,
+                "rs" => "Rust",
+                "py" => "Python",
+                "js" => "JavaScript",
+                "ts" => "TypeScript",
+                "go" => "Go",
+                "java" => "Java",
+                "rb" => "Ruby",
+                "c" | "h" => "C",
+                "cpp" | "hpp" => "C++",
+                "sh" => "Shell",
+                _ => return,
             };
             langs.insert(lang.to_string());
         }
     }
     fn walk(dir: &std::path::Path, langs: &mut std::collections::HashSet<String>, depth: usize) {
-        if depth > 3 { return; }
+        if depth > 3 {
+            return;
+        }
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-                if name.starts_with(".") || name == "target" || name == "node_modules" { continue; }
-                if path.is_file() { check_ext(&path, langs); }
-                else if path.is_dir() { walk(&path, langs, depth + 1); }
+                let name = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                if name.starts_with(".") || name == "target" || name == "node_modules" {
+                    continue;
+                }
+                if path.is_file() {
+                    check_ext(&path, langs);
+                } else if path.is_dir() {
+                    walk(&path, langs, depth + 1);
+                }
             }
         }
     }
@@ -21682,14 +23121,23 @@ fn bi_project_loc(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_project_size(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut total: u64 = 0;
     fn walk(dir: &std::path::Path, total: &mut u64, depth: usize) {
-        if depth > 5 { return; }
+        if depth > 5 {
+            return;
+        }
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-                if name.starts_with(".") || name == "target" || name == "node_modules" { continue; }
+                let name = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                if name.starts_with(".") || name == "target" || name == "node_modules" {
+                    continue;
+                }
                 if path.is_file() {
-                    if let Ok(meta) = path.metadata() { *total += meta.len(); }
+                    if let Ok(meta) = path.metadata() {
+                        *total += meta.len();
+                    }
                 } else if path.is_dir() {
                     walk(&path, total, depth + 1);
                 }
@@ -21702,7 +23150,11 @@ fn bi_project_size(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 // Search module implementations
 fn bi_search_code(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let pattern = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("pattern required"))?;
+    let pattern = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .map(|s| s.to_string())
+        .ok_or_else(|| anyhow::anyhow!("pattern required"))?;
     let output = std::process::Command::new("grep")
         .args(["-rn", &pattern, "."])
         .output()?;
@@ -21723,9 +23175,20 @@ fn bi_search_regex(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_search_symbols(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let pattern = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("pattern required"))?;
+    let pattern = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .map(|s| s.to_string())
+        .ok_or_else(|| anyhow::anyhow!("pattern required"))?;
     let output = std::process::Command::new("grep")
-        .args(["-rn", &format!("fn {}|struct {}|class {}|def {}", pattern, pattern, pattern, pattern), "."])
+        .args([
+            "-rn",
+            &format!(
+                "fn {}|struct {}|class {}|def {}",
+                pattern, pattern, pattern, pattern
+            ),
+            ".",
+        ])
         .output()?;
     let matches: Vec<Value> = String::from_utf8_lossy(&output.stdout)
         .lines()
@@ -21736,7 +23199,11 @@ fn bi_search_symbols(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_search_files(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let pattern = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("pattern required"))?;
+    let pattern = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .map(|s| s.to_string())
+        .ok_or_else(|| anyhow::anyhow!("pattern required"))?;
     let output = std::process::Command::new("find")
         .args([".", "-name", &pattern])
         .output()?;
@@ -21773,7 +23240,11 @@ fn bi_search_modified(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 }
 
 fn bi_search_by_type(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let ext = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("extension required"))?;
+    let ext = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .map(|s| s.to_string())
+        .ok_or_else(|| anyhow::anyhow!("extension required"))?;
     let output = std::process::Command::new("find")
         .args([".", "-name", &format!("*.{}", ext)])
         .output()?;
@@ -21785,7 +23256,11 @@ fn bi_search_by_type(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_search_by_size(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let size = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).unwrap_or("+1M".to_string());
+    let size = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .map(|s| s.to_string())
+        .unwrap_or("+1M".to_string());
     let output = std::process::Command::new("find")
         .args([".", "-type", "f", "-size", &size])
         .output()?;
@@ -21837,23 +23312,37 @@ fn bi_test_run(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("cargo")
         .args(["test"])
         .output()?;
-    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()))
+    Ok(Value::Str(
+        String::from_utf8_lossy(&output.stdout).to_string(),
+    ))
 }
 
 fn bi_test_run_file(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let file = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("file required"))?;
+    let file = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .map(|s| s.to_string())
+        .ok_or_else(|| anyhow::anyhow!("file required"))?;
     let output = std::process::Command::new("cargo")
         .args(["test", "--test", &file])
         .output()?;
-    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()))
+    Ok(Value::Str(
+        String::from_utf8_lossy(&output.stdout).to_string(),
+    ))
 }
 
 fn bi_test_run_function(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let func = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("function name required"))?;
+    let func = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .map(|s| s.to_string())
+        .ok_or_else(|| anyhow::anyhow!("function name required"))?;
     let output = std::process::Command::new("cargo")
         .args(["test", &func])
         .output()?;
-    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()))
+    Ok(Value::Str(
+        String::from_utf8_lossy(&output.stdout).to_string(),
+    ))
 }
 
 fn bi_test_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -21892,7 +23381,9 @@ fn bi_test_bench(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("cargo")
         .args(["bench"])
         .output()?;
-    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()))
+    Ok(Value::Str(
+        String::from_utf8_lossy(&output.stdout).to_string(),
+    ))
 }
 
 fn bi_test_snapshot(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -21908,14 +23399,18 @@ fn bi_diag_check(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("cargo")
         .args(["check", "--message-format=short"])
         .output()?;
-    Ok(Value::Str(String::from_utf8_lossy(&output.stderr).to_string()))
+    Ok(Value::Str(
+        String::from_utf8_lossy(&output.stderr).to_string(),
+    ))
 }
 
 fn bi_diag_lint(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("cargo")
         .args(["clippy", "--message-format=short"])
         .output()?;
-    Ok(Value::Str(String::from_utf8_lossy(&output.stderr).to_string()))
+    Ok(Value::Str(
+        String::from_utf8_lossy(&output.stderr).to_string(),
+    ))
 }
 
 fn bi_diag_errors(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -21954,11 +23449,17 @@ fn bi_diag_fix(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_diag_explain(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let code = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("error code required"))?;
+    let code = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .map(|s| s.to_string())
+        .ok_or_else(|| anyhow::anyhow!("error code required"))?;
     let output = std::process::Command::new("rustc")
         .args(["--explain", &code])
         .output()?;
-    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()))
+    Ok(Value::Str(
+        String::from_utf8_lossy(&output.stdout).to_string(),
+    ))
 }
 
 fn bi_diag_suppress(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -22023,11 +23524,20 @@ fn bi_refactor_remove_parameter(_args: Vec<Value>, _input: Option<Value>) -> Res
 }
 
 fn bi_refactor_organize_imports(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let file = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("file required"))?;
+    let file = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .map(|s| s.to_string())
+        .ok_or_else(|| anyhow::anyhow!("file required"))?;
     let content = std::fs::read_to_string(&file)?;
     let mut imports: Vec<&str> = content.lines().filter(|l| l.starts_with("use ")).collect();
     imports.sort();
-    Ok(Value::Array(imports.into_iter().map(|s| Value::Str(s.to_string())).collect()))
+    Ok(Value::Array(
+        imports
+            .into_iter()
+            .map(|s| Value::Str(s.to_string()))
+            .collect(),
+    ))
 }
 
 fn bi_refactor_remove_unused(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -22067,7 +23577,11 @@ fn bi_session_redo(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_session_checkpoint(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let name = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).unwrap_or("checkpoint".to_string());
+    let name = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .map(|s| s.to_string())
+        .unwrap_or("checkpoint".to_string());
     let output = std::process::Command::new("git")
         .args(["stash", "push", "-m", &name])
         .output()?;
@@ -22087,11 +23601,17 @@ fn bi_session_checkpoints(_args: Vec<Value>, _input: Option<Value>) -> Result<Va
 }
 
 fn bi_session_diff_since(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let commit = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).unwrap_or("HEAD~1".to_string());
+    let commit = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .map(|s| s.to_string())
+        .unwrap_or("HEAD~1".to_string());
     let output = std::process::Command::new("git")
         .args(["diff", &commit])
         .output()?;
-    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).to_string()))
+    Ok(Value::Str(
+        String::from_utf8_lossy(&output.stdout).to_string(),
+    ))
 }
 
 fn bi_session_changes(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -22099,7 +23619,11 @@ fn bi_session_changes(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 }
 
 fn bi_session_rollback(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let commit = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).unwrap_or("HEAD".to_string());
+    let commit = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .map(|s| s.to_string())
+        .unwrap_or("HEAD".to_string());
     let output = std::process::Command::new("git")
         .args(["reset", "--hard", &commit])
         .output()?;
@@ -22107,10 +23631,12 @@ fn bi_session_rollback(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 }
 
 fn bi_session_export(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let file = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).unwrap_or("session.patch".to_string());
-    let output = std::process::Command::new("git")
-        .args(["diff"])
-        .output()?;
+    let file = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .map(|s| s.to_string())
+        .unwrap_or("session.patch".to_string());
+    let output = std::process::Command::new("git").args(["diff"]).output()?;
     std::fs::write(&file, &output.stdout)?;
     Ok(Value::Str(file))
 }
@@ -22124,7 +23650,11 @@ fn bi_docs_generate(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_docs_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let query = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("query required"))?;
+    let query = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .map(|s| s.to_string())
+        .ok_or_else(|| anyhow::anyhow!("query required"))?;
     let output = std::process::Command::new("grep")
         .args(["-rn", &query, "target/doc"])
         .output()?;
@@ -22176,9 +23706,18 @@ fn bi_docs_signatures(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 // Environment module implementations
 fn bi_env_detect(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut env = BTreeMap::new();
-    env.insert("os".to_string(), Value::Str(std::env::consts::OS.to_string()));
-    env.insert("arch".to_string(), Value::Str(std::env::consts::ARCH.to_string()));
-    env.insert("family".to_string(), Value::Str(std::env::consts::FAMILY.to_string()));
+    env.insert(
+        "os".to_string(),
+        Value::Str(std::env::consts::OS.to_string()),
+    );
+    env.insert(
+        "arch".to_string(),
+        Value::Str(std::env::consts::ARCH.to_string()),
+    );
+    env.insert(
+        "family".to_string(),
+        Value::Str(std::env::consts::FAMILY.to_string()),
+    );
     Ok(Value::Record(env))
 }
 
@@ -22186,72 +23725,95 @@ fn bi_env_python(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("python")
         .args(["--version"])
         .output()?;
-    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()))
+    Ok(Value::Str(
+        String::from_utf8_lossy(&output.stdout).trim().to_string(),
+    ))
 }
 
 fn bi_env_node(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("node")
         .args(["--version"])
         .output()?;
-    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()))
+    Ok(Value::Str(
+        String::from_utf8_lossy(&output.stdout).trim().to_string(),
+    ))
 }
 
 fn bi_env_rust(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("rustc")
         .args(["--version"])
         .output()?;
-    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()))
+    Ok(Value::Str(
+        String::from_utf8_lossy(&output.stdout).trim().to_string(),
+    ))
 }
 
 fn bi_env_go(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("go")
         .args(["version"])
         .output()?;
-    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()))
+    Ok(Value::Str(
+        String::from_utf8_lossy(&output.stdout).trim().to_string(),
+    ))
 }
 
 fn bi_env_java(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("java")
         .args(["--version"])
         .output()?;
-    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).lines().next().unwrap_or("").to_string()))
+    Ok(Value::Str(
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .next()
+            .unwrap_or("")
+            .to_string(),
+    ))
 }
 
 fn bi_env_dotnet(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("dotnet")
         .args(["--version"])
         .output()?;
-    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()))
+    Ok(Value::Str(
+        String::from_utf8_lossy(&output.stdout).trim().to_string(),
+    ))
 }
 
 fn bi_env_ruby(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("ruby")
         .args(["--version"])
         .output()?;
-    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()))
+    Ok(Value::Str(
+        String::from_utf8_lossy(&output.stdout).trim().to_string(),
+    ))
 }
 
 fn bi_env_shell(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str(std::env::var("SHELL").unwrap_or_else(|_| std::env::var("COMSPEC").unwrap_or_default())))
+    Ok(Value::Str(std::env::var("SHELL").unwrap_or_else(|_| {
+        std::env::var("COMSPEC").unwrap_or_default()
+    })))
 }
 
 fn bi_env_path(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let path = std::env::var("PATH").unwrap_or_default();
-    let parts: Vec<Value> = path.split(if cfg!(windows) { ";" } else { ":" })
+    let parts: Vec<Value> = path
+        .split(if cfg!(windows) { ";" } else { ":" })
         .map(|p| Value::Str(p.to_string()))
         .collect();
     Ok(Value::Array(parts))
 }
 
 fn bi_env_var(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let name = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("variable name required"))?;
+    let name = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .map(|s| s.to_string())
+        .ok_or_else(|| anyhow::anyhow!("variable name required"))?;
     Ok(Value::Str(std::env::var(&name).unwrap_or_default()))
 }
 
 fn bi_env_vars(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let vars: BTreeMap<String, Value> = std::env::vars()
-        .map(|(k, v)| (k, Value::Str(v)))
-        .collect();
+    let vars: BTreeMap<String, Value> = std::env::vars().map(|(k, v)| (k, Value::Str(v))).collect();
     Ok(Value::Record(vars))
 }
 
@@ -22266,7 +23828,11 @@ fn bi_env_set(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_env_unset(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let name = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("variable name required"))?;
+    let name = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .map(|s| s.to_string())
+        .ok_or_else(|| anyhow::anyhow!("variable name required"))?;
     std::env::remove_var(&name);
     Ok(Value::Bool(true))
 }
@@ -22275,7 +23841,9 @@ fn bi_env_docker(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("docker")
         .args(["--version"])
         .output()?;
-    Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()))
+    Ok(Value::Str(
+        String::from_utf8_lossy(&output.stdout).trim().to_string(),
+    ))
 }
 
 fn bi_env_container(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -22289,7 +23857,11 @@ fn bi_env_venv(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_env_activate(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let venv = args.first().and_then(|v| v.as_str().ok()).map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("venv path required"))?;
+    let venv = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .map(|s| s.to_string())
+        .ok_or_else(|| anyhow::anyhow!("venv path required"))?;
     let activate = if cfg!(windows) {
         format!("{}\\Scripts\\activate", venv)
     } else {
@@ -22307,7 +23879,9 @@ fn platform_db_path() -> std::path::PathBuf {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .unwrap_or_else(|_| ".".to_string());
-    std::path::Path::new(&home).join(".aether").join("platform_db.json")
+    std::path::Path::new(&home)
+        .join(".aether")
+        .join("platform_db.json")
 }
 
 /// Get tool version by running command with --version
@@ -22317,7 +23891,7 @@ fn get_tool_version(tool: &str) -> Option<String> {
         "go" | "docker" | "kubectl" => &["version"],
         _ => &["--version"],
     };
-    
+
     std::process::Command::new(tool)
         .args(version_args)
         .output()
@@ -22333,42 +23907,68 @@ fn get_tool_version(tool: &str) -> Option<String> {
 /// Complete system snapshot with all versioning info
 fn bi_platform_snapshot(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut snapshot = std::collections::BTreeMap::new();
-    
+
     // Timestamp
-    snapshot.insert("timestamp".to_string(), Value::Str(
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs().to_string())
-            .unwrap_or_else(|_| "0".to_string())
-    ));
-    
+    snapshot.insert(
+        "timestamp".to_string(),
+        Value::Str(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs().to_string())
+                .unwrap_or_else(|_| "0".to_string()),
+        ),
+    );
+
     // OS info
-    snapshot.insert("os".to_string(), Value::Str(std::env::consts::OS.to_string()));
-    snapshot.insert("arch".to_string(), Value::Str(std::env::consts::ARCH.to_string()));
-    snapshot.insert("family".to_string(), Value::Str(std::env::consts::FAMILY.to_string()));
-    
+    snapshot.insert(
+        "os".to_string(),
+        Value::Str(std::env::consts::OS.to_string()),
+    );
+    snapshot.insert(
+        "arch".to_string(),
+        Value::Str(std::env::consts::ARCH.to_string()),
+    );
+    snapshot.insert(
+        "family".to_string(),
+        Value::Str(std::env::consts::FAMILY.to_string()),
+    );
+
     // Hostname
-    if let Ok(hostname) = std::process::Command::new(if cfg!(windows) { "hostname" } else { "hostname" })
-        .output()
+    if let Ok(hostname) = std::process::Command::new(if cfg!(windows) {
+        "hostname"
+    } else {
+        "hostname"
+    })
+    .output()
     {
         let h = String::from_utf8_lossy(&hostname.stdout).trim().to_string();
         snapshot.insert("hostname".to_string(), Value::Str(h));
     }
-    
+
     // OS version
     #[cfg(target_os = "windows")]
     {
-        if let Ok(out) = std::process::Command::new("cmd").args(["/c", "ver"]).output() {
+        if let Ok(out) = std::process::Command::new("cmd")
+            .args(["/c", "ver"])
+            .output()
+        {
             let ver = String::from_utf8_lossy(&out.stdout).trim().to_string();
             snapshot.insert("os_version".to_string(), Value::Str(ver));
         }
-        if let Ok(out) = std::process::Command::new("wmic").args(["os", "get", "BuildNumber"]).output() {
+        if let Ok(out) = std::process::Command::new("wmic")
+            .args(["os", "get", "BuildNumber"])
+            .output()
+        {
             let build = String::from_utf8_lossy(&out.stdout)
-                .lines().nth(1).unwrap_or("").trim().to_string();
+                .lines()
+                .nth(1)
+                .unwrap_or("")
+                .trim()
+                .to_string();
             snapshot.insert("build".to_string(), Value::Str(build));
         }
     }
-    
+
     #[cfg(not(target_os = "windows"))]
     {
         if let Ok(out) = std::process::Command::new("uname").arg("-r").output() {
@@ -22392,10 +23992,25 @@ fn bi_platform_snapshot(_args: Vec<Value>, _input: Option<Value>) -> Result<Valu
             }
         }
     }
-    
+
     // Tool versions
-    let tools = ["git", "python", "python3", "node", "npm", "cargo", "rustc", 
-                 "go", "java", "docker", "kubectl", "terraform", "aws", "az", "gcloud"];
+    let tools = [
+        "git",
+        "python",
+        "python3",
+        "node",
+        "npm",
+        "cargo",
+        "rustc",
+        "go",
+        "java",
+        "docker",
+        "kubectl",
+        "terraform",
+        "aws",
+        "az",
+        "gcloud",
+    ];
     let mut tool_versions = std::collections::BTreeMap::new();
     for tool in tools {
         if let Some(ver) = get_tool_version(tool) {
@@ -22403,10 +24018,22 @@ fn bi_platform_snapshot(_args: Vec<Value>, _input: Option<Value>) -> Result<Valu
         }
     }
     snapshot.insert("tools".to_string(), Value::Record(tool_versions));
-    
+
     // Environment variables that affect behavior
-    let env_vars = ["PATH", "HOME", "USER", "SHELL", "TERM", "LANG", "LC_ALL",
-                    "CARGO_HOME", "RUSTUP_HOME", "GOPATH", "JAVA_HOME", "PYTHONPATH"];
+    let env_vars = [
+        "PATH",
+        "HOME",
+        "USER",
+        "SHELL",
+        "TERM",
+        "LANG",
+        "LC_ALL",
+        "CARGO_HOME",
+        "RUSTUP_HOME",
+        "GOPATH",
+        "JAVA_HOME",
+        "PYTHONPATH",
+    ];
     let mut env_map = std::collections::BTreeMap::new();
     for var in env_vars {
         if let Ok(val) = std::env::var(var) {
@@ -22414,12 +24041,12 @@ fn bi_platform_snapshot(_args: Vec<Value>, _input: Option<Value>) -> Result<Valu
         }
     }
     snapshot.insert("env".to_string(), Value::Record(env_map));
-    
+
     // Generate fingerprint hash
     let fp = format!("{:?}", snapshot);
     let hash = format!("{:x}", md5_simple(&fp));
     snapshot.insert("fingerprint".to_string(), Value::Str(hash));
-    
+
     Ok(Value::Record(snapshot))
 }
 
@@ -22436,14 +24063,24 @@ fn md5_simple(s: &str) -> u64 {
 fn bi_platform_os_version(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
-        if let Ok(out) = std::process::Command::new("cmd").args(["/c", "ver"]).output() {
-            return Ok(Value::Str(String::from_utf8_lossy(&out.stdout).trim().to_string()));
+        if let Ok(out) = std::process::Command::new("cmd")
+            .args(["/c", "ver"])
+            .output()
+        {
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&out.stdout).trim().to_string(),
+            ));
         }
     }
     #[cfg(target_os = "macos")]
     {
-        if let Ok(out) = std::process::Command::new("sw_vers").arg("-productVersion").output() {
-            return Ok(Value::Str(String::from_utf8_lossy(&out.stdout).trim().to_string()));
+        if let Ok(out) = std::process::Command::new("sw_vers")
+            .arg("-productVersion")
+            .output()
+        {
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&out.stdout).trim().to_string(),
+            ));
         }
     }
     #[cfg(target_os = "linux")]
@@ -22452,13 +24089,19 @@ fn bi_platform_os_version(_args: Vec<Value>, _input: Option<Value>) -> Result<Va
             if let Ok(content) = std::fs::read_to_string("/etc/os-release") {
                 for line in content.lines() {
                     if line.starts_with("VERSION=") {
-                        return Ok(Value::Str(line.trim_start_matches("VERSION=").trim_matches('"').to_string()));
+                        return Ok(Value::Str(
+                            line.trim_start_matches("VERSION=")
+                                .trim_matches('"')
+                                .to_string(),
+                        ));
                     }
                 }
             }
         }
         if let Ok(out) = std::process::Command::new("uname").arg("-r").output() {
-            return Ok(Value::Str(String::from_utf8_lossy(&out.stdout).trim().to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&out.stdout).trim().to_string(),
+            ));
         }
     }
     Ok(Value::Str("unknown".to_string()))
@@ -22467,15 +24110,25 @@ fn bi_platform_os_version(_args: Vec<Value>, _input: Option<Value>) -> Result<Va
 fn bi_platform_kernel(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
-        if let Ok(out) = std::process::Command::new("wmic").args(["os", "get", "Version"]).output() {
-            let ver = String::from_utf8_lossy(&out.stdout).lines().nth(1).unwrap_or("").trim().to_string();
+        if let Ok(out) = std::process::Command::new("wmic")
+            .args(["os", "get", "Version"])
+            .output()
+        {
+            let ver = String::from_utf8_lossy(&out.stdout)
+                .lines()
+                .nth(1)
+                .unwrap_or("")
+                .trim()
+                .to_string();
             return Ok(Value::Str(ver));
         }
     }
     #[cfg(not(target_os = "windows"))]
     {
         if let Ok(out) = std::process::Command::new("uname").arg("-r").output() {
-            return Ok(Value::Str(String::from_utf8_lossy(&out.stdout).trim().to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&out.stdout).trim().to_string(),
+            ));
         }
     }
     Ok(Value::Str("unknown".to_string()))
@@ -22484,21 +24137,36 @@ fn bi_platform_kernel(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 fn bi_platform_build(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
-        if let Ok(out) = std::process::Command::new("wmic").args(["os", "get", "BuildNumber"]).output() {
-            let build = String::from_utf8_lossy(&out.stdout).lines().nth(1).unwrap_or("").trim().to_string();
+        if let Ok(out) = std::process::Command::new("wmic")
+            .args(["os", "get", "BuildNumber"])
+            .output()
+        {
+            let build = String::from_utf8_lossy(&out.stdout)
+                .lines()
+                .nth(1)
+                .unwrap_or("")
+                .trim()
+                .to_string();
             return Ok(Value::Str(build));
         }
     }
     #[cfg(target_os = "macos")]
     {
-        if let Ok(out) = std::process::Command::new("sw_vers").arg("-buildVersion").output() {
-            return Ok(Value::Str(String::from_utf8_lossy(&out.stdout).trim().to_string()));
+        if let Ok(out) = std::process::Command::new("sw_vers")
+            .arg("-buildVersion")
+            .output()
+        {
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&out.stdout).trim().to_string(),
+            ));
         }
     }
     #[cfg(target_os = "linux")]
     {
         if let Ok(out) = std::process::Command::new("uname").arg("-v").output() {
-            return Ok(Value::Str(String::from_utf8_lossy(&out.stdout).trim().to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&out.stdout).trim().to_string(),
+            ));
         }
     }
     Ok(Value::Str("unknown".to_string()))
@@ -22510,7 +24178,9 @@ fn bi_platform_arch(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 fn bi_platform_hostname(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if let Ok(out) = std::process::Command::new("hostname").output() {
-        Ok(Value::Str(String::from_utf8_lossy(&out.stdout).trim().to_string()))
+        Ok(Value::Str(
+            String::from_utf8_lossy(&out.stdout).trim().to_string(),
+        ))
     } else {
         Ok(Value::Str("unknown".to_string()))
     }
@@ -22545,7 +24215,12 @@ fn bi_platform_machine_id(_args: Vec<Value>, _input: Option<Value>) -> Result<Va
             .args(["csproduct", "get", "UUID"])
             .output()
         {
-            let uuid = String::from_utf8_lossy(&out.stdout).lines().nth(1).unwrap_or("").trim().to_string();
+            let uuid = String::from_utf8_lossy(&out.stdout)
+                .lines()
+                .nth(1)
+                .unwrap_or("")
+                .trim()
+                .to_string();
             return Ok(Value::Str(uuid));
         }
     }
@@ -22553,7 +24228,10 @@ fn bi_platform_machine_id(_args: Vec<Value>, _input: Option<Value>) -> Result<Va
 }
 
 fn bi_platform_tool_version(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let tool = args.first().and_then(|v| v.as_str().ok()).unwrap_or("unknown");
+    let tool = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .unwrap_or("unknown");
     match get_tool_version(tool) {
         Some(ver) => Ok(Value::Str(ver)),
         None => Ok(Value::Null),
@@ -22562,27 +24240,30 @@ fn bi_platform_tool_version(args: Vec<Value>, _input: Option<Value>) -> Result<V
 
 fn bi_platform_tool_versions(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut versions = std::collections::BTreeMap::new();
-    
+
     // Compilers & Build Tools
-    let compilers = ["gcc", "g++", "clang", "clang++", "rustc", "go", "javac", 
-                     "swift", "kotlinc", "scalac", "ghc", "ocaml", "fpc", "gfortran",
-                     "nvcc", "hipcc", "dmd", "ldc2", "gdc", "zig", "nim", "crystal"];
+    let compilers = [
+        "gcc", "g++", "clang", "clang++", "rustc", "go", "javac", "swift", "kotlinc", "scalac",
+        "ghc", "ocaml", "fpc", "gfortran", "nvcc", "hipcc", "dmd", "ldc2", "gdc", "zig", "nim",
+        "crystal",
+    ];
     for tool in compilers {
         if let Some(ver) = get_tool_version(tool) {
             versions.insert(format!("compiler.{}", tool), Value::Str(ver));
         }
     }
-    
+
     // Build Systems
-    let build_systems = ["make", "cmake", "ninja", "meson", "bazel", "buck2", "scons",
-                         "gradle", "maven", "ant", "cargo", "cabal", "stack", "mix",
-                         "dune", "zig", "xmake", "premake5", "waf"];
+    let build_systems = [
+        "make", "cmake", "ninja", "meson", "bazel", "buck2", "scons", "gradle", "maven", "ant",
+        "cargo", "cabal", "stack", "mix", "dune", "zig", "xmake", "premake5", "waf",
+    ];
     for tool in build_systems {
         if let Some(ver) = get_tool_version(tool) {
             versions.insert(format!("build.{}", tool), Value::Str(ver));
         }
     }
-    
+
     // Linkers
     let linkers = ["ld", "lld", "gold", "mold", "link"];
     for tool in linkers {
@@ -22590,38 +24271,41 @@ fn bi_platform_tool_versions(_args: Vec<Value>, _input: Option<Value>) -> Result
             versions.insert(format!("linker.{}", tool), Value::Str(ver));
         }
     }
-    
+
     // Language Runtimes
-    let runtimes = ["python", "python3", "node", "deno", "bun", "ruby", "php", 
-                    "perl", "lua", "luajit", "julia", "R", "java", "dotnet", "mono",
-                    "erlang", "elixir", "racket", "sbcl", "clisp"];
+    let runtimes = [
+        "python", "python3", "node", "deno", "bun", "ruby", "php", "perl", "lua", "luajit",
+        "julia", "R", "java", "dotnet", "mono", "erlang", "elixir", "racket", "sbcl", "clisp",
+    ];
     for tool in runtimes {
         if let Some(ver) = get_tool_version(tool) {
             versions.insert(format!("runtime.{}", tool), Value::Str(ver));
         }
     }
-    
+
     // Package Managers (Language)
-    let pkg_lang = ["pip", "pip3", "pipx", "poetry", "pdm", "uv", "conda", "mamba",
-                    "npm", "yarn", "pnpm", "bun", "gem", "bundler", "composer",
-                    "cargo", "go", "nuget", "dotnet", "maven", "gradle",
-                    "cabal", "stack", "opam", "mix", "hex", "rebar3", "cpan", "luarocks"];
+    let pkg_lang = [
+        "pip", "pip3", "pipx", "poetry", "pdm", "uv", "conda", "mamba", "npm", "yarn", "pnpm",
+        "bun", "gem", "bundler", "composer", "cargo", "go", "nuget", "dotnet", "maven", "gradle",
+        "cabal", "stack", "opam", "mix", "hex", "rebar3", "cpan", "luarocks",
+    ];
     for tool in pkg_lang {
         if let Some(ver) = get_tool_version(tool) {
             versions.insert(format!("pkg.{}", tool), Value::Str(ver));
         }
     }
-    
+
     // Package Managers (System)
-    let pkg_sys = ["apt", "apt-get", "dnf", "yum", "pacman", "zypper", "apk",
-                   "brew", "port", "nix", "guix", "snap", "flatpak",
-                   "choco", "winget", "scoop", "vcpkg", "conan"];
+    let pkg_sys = [
+        "apt", "apt-get", "dnf", "yum", "pacman", "zypper", "apk", "brew", "port", "nix", "guix",
+        "snap", "flatpak", "choco", "winget", "scoop", "vcpkg", "conan",
+    ];
     for tool in pkg_sys {
         if let Some(ver) = get_tool_version(tool) {
             versions.insert(format!("syspkg.{}", tool), Value::Str(ver));
         }
     }
-    
+
     // Version Control
     let vcs = ["git", "hg", "svn", "fossil", "darcs", "bzr", "cvs"];
     for tool in vcs {
@@ -22629,117 +24313,280 @@ fn bi_platform_tool_versions(_args: Vec<Value>, _input: Option<Value>) -> Result
             versions.insert(format!("vcs.{}", tool), Value::Str(ver));
         }
     }
-    
+
     // Containers & Virtualization
-    let containers = ["docker", "podman", "buildah", "skopeo", "containerd", "runc",
-                      "nerdctl", "crictl", "ctr", "lxc", "lxd", "vagrant", "packer",
-                      "qemu-system-x86_64", "vboxmanage", "multipass"];
+    let containers = [
+        "docker",
+        "podman",
+        "buildah",
+        "skopeo",
+        "containerd",
+        "runc",
+        "nerdctl",
+        "crictl",
+        "ctr",
+        "lxc",
+        "lxd",
+        "vagrant",
+        "packer",
+        "qemu-system-x86_64",
+        "vboxmanage",
+        "multipass",
+    ];
     for tool in containers {
         if let Some(ver) = get_tool_version(tool) {
             versions.insert(format!("container.{}", tool), Value::Str(ver));
         }
     }
-    
+
     // Orchestration & IaC
-    let orchestration = ["kubectl", "helm", "kustomize", "k3s", "k3d", "kind", "minikube",
-                         "terraform", "terragrunt", "pulumi", "cdktf", "crossplane",
-                         "ansible", "ansible-playbook", "chef", "puppet", "salt"];
+    let orchestration = [
+        "kubectl",
+        "helm",
+        "kustomize",
+        "k3s",
+        "k3d",
+        "kind",
+        "minikube",
+        "terraform",
+        "terragrunt",
+        "pulumi",
+        "cdktf",
+        "crossplane",
+        "ansible",
+        "ansible-playbook",
+        "chef",
+        "puppet",
+        "salt",
+    ];
     for tool in orchestration {
         if let Some(ver) = get_tool_version(tool) {
             versions.insert(format!("iac.{}", tool), Value::Str(ver));
         }
     }
-    
+
     // Cloud CLIs
-    let cloud = ["aws", "az", "gcloud", "doctl", "linode-cli", "vultr-cli",
-                 "oci", "ibmcloud", "hcloud", "exo", "scaleway", "flyctl"];
+    let cloud = [
+        "aws",
+        "az",
+        "gcloud",
+        "doctl",
+        "linode-cli",
+        "vultr-cli",
+        "oci",
+        "ibmcloud",
+        "hcloud",
+        "exo",
+        "scaleway",
+        "flyctl",
+    ];
     for tool in cloud {
         if let Some(ver) = get_tool_version(tool) {
             versions.insert(format!("cloud.{}", tool), Value::Str(ver));
         }
     }
-    
+
     // Databases
-    let databases = ["psql", "mysql", "sqlite3", "mongosh", "redis-cli", "mongod",
-                     "pg_dump", "mysqldump", "cqlsh", "influx", "clickhouse-client"];
+    let databases = [
+        "psql",
+        "mysql",
+        "sqlite3",
+        "mongosh",
+        "redis-cli",
+        "mongod",
+        "pg_dump",
+        "mysqldump",
+        "cqlsh",
+        "influx",
+        "clickhouse-client",
+    ];
     for tool in databases {
         if let Some(ver) = get_tool_version(tool) {
             versions.insert(format!("db.{}", tool), Value::Str(ver));
         }
     }
-    
+
     // Testing & Quality
-    let testing = ["pytest", "jest", "mocha", "rspec", "phpunit", "go", "cargo",
-                   "valgrind", "gdb", "lldb", "strace", "dtrace", "perf"];
+    let testing = [
+        "pytest", "jest", "mocha", "rspec", "phpunit", "go", "cargo", "valgrind", "gdb", "lldb",
+        "strace", "dtrace", "perf",
+    ];
     for tool in testing {
         if let Some(ver) = get_tool_version(tool) {
             versions.insert(format!("test.{}", tool), Value::Str(ver));
         }
     }
-    
+
     // Linters & Formatters
-    let linters = ["eslint", "prettier", "black", "ruff", "mypy", "pylint", "flake8",
-                   "rubocop", "clippy", "rustfmt", "gofmt", "golangci-lint",
-                   "shellcheck", "hadolint", "yamllint", "jsonlint", "tflint"];
+    let linters = [
+        "eslint",
+        "prettier",
+        "black",
+        "ruff",
+        "mypy",
+        "pylint",
+        "flake8",
+        "rubocop",
+        "clippy",
+        "rustfmt",
+        "gofmt",
+        "golangci-lint",
+        "shellcheck",
+        "hadolint",
+        "yamllint",
+        "jsonlint",
+        "tflint",
+    ];
     for tool in linters {
         if let Some(ver) = get_tool_version(tool) {
             versions.insert(format!("lint.{}", tool), Value::Str(ver));
         }
     }
-    
+
     // Documentation
-    let docs = ["sphinx-build", "mkdocs", "hugo", "jekyll", "doxygen", "typedoc",
-                "rustdoc", "godoc", "javadoc", "pdoc"];
+    let docs = [
+        "sphinx-build",
+        "mkdocs",
+        "hugo",
+        "jekyll",
+        "doxygen",
+        "typedoc",
+        "rustdoc",
+        "godoc",
+        "javadoc",
+        "pdoc",
+    ];
     for tool in docs {
         if let Some(ver) = get_tool_version(tool) {
             versions.insert(format!("docs.{}", tool), Value::Str(ver));
         }
     }
-    
+
     // CI/CD & DevOps
-    let cicd = ["gh", "gitlab-runner", "circleci", "drone", "act", "jenkins-cli",
-                "argocd", "flux", "tekton", "skaffold", "tilt", "devspace"];
+    let cicd = [
+        "gh",
+        "gitlab-runner",
+        "circleci",
+        "drone",
+        "act",
+        "jenkins-cli",
+        "argocd",
+        "flux",
+        "tekton",
+        "skaffold",
+        "tilt",
+        "devspace",
+    ];
     for tool in cicd {
         if let Some(ver) = get_tool_version(tool) {
             versions.insert(format!("cicd.{}", tool), Value::Str(ver));
         }
     }
-    
+
     // Security
-    let security = ["gpg", "openssl", "ssh", "ssh-keygen", "age", "sops",
-                    "vault", "trivy", "grype", "syft", "cosign", "sigstore"];
+    let security = [
+        "gpg",
+        "openssl",
+        "ssh",
+        "ssh-keygen",
+        "age",
+        "sops",
+        "vault",
+        "trivy",
+        "grype",
+        "syft",
+        "cosign",
+        "sigstore",
+    ];
     for tool in security {
         if let Some(ver) = get_tool_version(tool) {
             versions.insert(format!("security.{}", tool), Value::Str(ver));
         }
     }
-    
+
     // Network Tools
-    let network = ["curl", "wget", "httpie", "jq", "yq", "fx", "grpcurl",
-                   "nmap", "netcat", "socat", "tcpdump", "wireshark"];
+    let network = [
+        "curl",
+        "wget",
+        "httpie",
+        "jq",
+        "yq",
+        "fx",
+        "grpcurl",
+        "nmap",
+        "netcat",
+        "socat",
+        "tcpdump",
+        "wireshark",
+    ];
     for tool in network {
         if let Some(ver) = get_tool_version(tool) {
             versions.insert(format!("net.{}", tool), Value::Str(ver));
         }
     }
-    
+
     Ok(Value::Record(versions))
 }
 
 fn bi_platform_detect_tools(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let tools = ["git", "python", "python3", "node", "npm", "yarn", "pnpm",
-                 "cargo", "rustc", "go", "java", "javac", "docker", "podman",
-                 "kubectl", "helm", "terraform", "ansible", "aws", "az", "gcloud",
-                 "ruby", "gem", "php", "composer", "dotnet", "swift", "gcc", "g++",
-                 "clang", "make", "cmake", "ninja", "meson", "gradle", "maven",
-                 "pip", "pip3", "pipenv", "poetry", "conda", "mamba", "uv",
-                 "nvcc", "sqlite3", "psql", "mysql", "mongod", "redis-cli"];
-    
-    let available: Vec<Value> = tools.iter()
+    let tools = [
+        "git",
+        "python",
+        "python3",
+        "node",
+        "npm",
+        "yarn",
+        "pnpm",
+        "cargo",
+        "rustc",
+        "go",
+        "java",
+        "javac",
+        "docker",
+        "podman",
+        "kubectl",
+        "helm",
+        "terraform",
+        "ansible",
+        "aws",
+        "az",
+        "gcloud",
+        "ruby",
+        "gem",
+        "php",
+        "composer",
+        "dotnet",
+        "swift",
+        "gcc",
+        "g++",
+        "clang",
+        "make",
+        "cmake",
+        "ninja",
+        "meson",
+        "gradle",
+        "maven",
+        "pip",
+        "pip3",
+        "pipenv",
+        "poetry",
+        "conda",
+        "mamba",
+        "uv",
+        "nvcc",
+        "sqlite3",
+        "psql",
+        "mysql",
+        "mongod",
+        "redis-cli",
+    ];
+
+    let available: Vec<Value> = tools
+        .iter()
         .filter(|t| which::which(t).is_ok())
         .map(|t| Value::Str(t.to_string()))
         .collect();
-    
+
     Ok(Value::Array(available))
 }
 
@@ -22750,7 +24597,7 @@ fn bi_platform_has_tool(args: Vec<Value>, _input: Option<Value>) -> Result<Value
 
 fn bi_platform_capabilities(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut caps = std::collections::BTreeMap::new();
-    
+
     // Admin/sudo
     #[cfg(target_os = "windows")]
     {
@@ -22765,10 +24612,16 @@ fn bi_platform_capabilities(_args: Vec<Value>, _input: Option<Value>) -> Result<
     }
     #[cfg(not(target_os = "windows"))]
     {
-        caps.insert("has_admin".to_string(), Value::Bool(unsafe { libc::geteuid() } == 0));
-        caps.insert("has_sudo".to_string(), Value::Bool(which::which("sudo").is_ok()));
+        caps.insert(
+            "has_admin".to_string(),
+            Value::Bool(unsafe { libc::geteuid() } == 0),
+        );
+        caps.insert(
+            "has_sudo".to_string(),
+            Value::Bool(which::which("sudo").is_ok()),
+        );
     }
-    
+
     // GUI
     #[cfg(target_os = "windows")]
     {
@@ -22780,36 +24633,70 @@ fn bi_platform_capabilities(_args: Vec<Value>, _input: Option<Value>) -> Result<
     }
     #[cfg(target_os = "linux")]
     {
-        let has_display = std::env::var("DISPLAY").is_ok() || std::env::var("WAYLAND_DISPLAY").is_ok();
+        let has_display =
+            std::env::var("DISPLAY").is_ok() || std::env::var("WAYLAND_DISPLAY").is_ok();
         caps.insert("has_gui".to_string(), Value::Bool(has_display));
     }
-    
+
     // Network - try to connect to localhost
     caps.insert("has_network".to_string(), Value::Bool(true)); // Basic assumption
-    
+
     // Container runtimes
-    caps.insert("has_docker".to_string(), Value::Bool(which::which("docker").is_ok()));
-    caps.insert("has_podman".to_string(), Value::Bool(which::which("podman").is_ok()));
-    caps.insert("has_container".to_string(), Value::Bool(
-        which::which("docker").is_ok() || which::which("podman").is_ok()
-    ));
-    
+    caps.insert(
+        "has_docker".to_string(),
+        Value::Bool(which::which("docker").is_ok()),
+    );
+    caps.insert(
+        "has_podman".to_string(),
+        Value::Bool(which::which("podman").is_ok()),
+    );
+    caps.insert(
+        "has_container".to_string(),
+        Value::Bool(which::which("docker").is_ok() || which::which("podman").is_ok()),
+    );
+
     // Package managers
     let mut pkg_mgrs = Vec::new();
-    if which::which("apt").is_ok() { pkg_mgrs.push("apt"); }
-    if which::which("dnf").is_ok() { pkg_mgrs.push("dnf"); }
-    if which::which("yum").is_ok() { pkg_mgrs.push("yum"); }
-    if which::which("pacman").is_ok() { pkg_mgrs.push("pacman"); }
-    if which::which("brew").is_ok() { pkg_mgrs.push("brew"); }
-    if which::which("choco").is_ok() { pkg_mgrs.push("choco"); }
-    if which::which("winget").is_ok() { pkg_mgrs.push("winget"); }
-    if which::which("scoop").is_ok() { pkg_mgrs.push("scoop"); }
-    if which::which("snap").is_ok() { pkg_mgrs.push("snap"); }
-    if which::which("flatpak").is_ok() { pkg_mgrs.push("flatpak"); }
-    caps.insert("pkg_managers".to_string(), Value::Array(
-        pkg_mgrs.into_iter().map(|s| Value::Str(s.to_string())).collect()
-    ));
-    
+    if which::which("apt").is_ok() {
+        pkg_mgrs.push("apt");
+    }
+    if which::which("dnf").is_ok() {
+        pkg_mgrs.push("dnf");
+    }
+    if which::which("yum").is_ok() {
+        pkg_mgrs.push("yum");
+    }
+    if which::which("pacman").is_ok() {
+        pkg_mgrs.push("pacman");
+    }
+    if which::which("brew").is_ok() {
+        pkg_mgrs.push("brew");
+    }
+    if which::which("choco").is_ok() {
+        pkg_mgrs.push("choco");
+    }
+    if which::which("winget").is_ok() {
+        pkg_mgrs.push("winget");
+    }
+    if which::which("scoop").is_ok() {
+        pkg_mgrs.push("scoop");
+    }
+    if which::which("snap").is_ok() {
+        pkg_mgrs.push("snap");
+    }
+    if which::which("flatpak").is_ok() {
+        pkg_mgrs.push("flatpak");
+    }
+    caps.insert(
+        "pkg_managers".to_string(),
+        Value::Array(
+            pkg_mgrs
+                .into_iter()
+                .map(|s| Value::Str(s.to_string()))
+                .collect(),
+        ),
+    );
+
     Ok(Value::Record(caps))
 }
 
@@ -22844,7 +24731,8 @@ fn bi_platform_has_gui(_args: Vec<Value>, _input: Option<Value>) -> Result<Value
     }
     #[cfg(target_os = "linux")]
     {
-        let has_display = std::env::var("DISPLAY").is_ok() || std::env::var("WAYLAND_DISPLAY").is_ok();
+        let has_display =
+            std::env::var("DISPLAY").is_ok() || std::env::var("WAYLAND_DISPLAY").is_ok();
         return Ok(Value::Bool(has_display));
     }
     #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
@@ -22855,11 +24743,15 @@ fn bi_platform_has_gui(_args: Vec<Value>, _input: Option<Value>) -> Result<Value
 
 fn bi_platform_has_network(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // Simple check - try to resolve localhost
-    Ok(Value::Bool(std::net::TcpListener::bind("127.0.0.1:0").is_ok()))
+    Ok(Value::Bool(
+        std::net::TcpListener::bind("127.0.0.1:0").is_ok(),
+    ))
 }
 
 fn bi_platform_has_container(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Bool(which::which("docker").is_ok() || which::which("podman").is_ok()))
+    Ok(Value::Bool(
+        which::which("docker").is_ok() || which::which("podman").is_ok(),
+    ))
 }
 
 fn bi_platform_pkg_managers(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -22880,12 +24772,13 @@ fn bi_platform_pkg_managers(_args: Vec<Value>, _input: Option<Value>) -> Result<
         ("nix", "nix"),
         ("guix", "guix"),
     ];
-    
-    let available: Vec<Value> = managers.iter()
+
+    let available: Vec<Value> = managers
+        .iter()
         .filter(|(_, cmd)| which::which(cmd).is_ok())
         .map(|(name, _)| Value::Str(name.to_string()))
         .collect();
-    
+
     Ok(Value::Array(available))
 }
 
@@ -22943,17 +24836,19 @@ fn bi_platform_require(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     // Expect a record like {os: "linux|windows", python: ">=3.10", docker: true}
     let spec = match args.first() {
         Some(Value::Record(r)) => r.clone(),
-        _ => return Ok(Value::Record({
-            let mut m = std::collections::BTreeMap::new();
-            m.insert("satisfied".to_string(), Value::Bool(true));
-            m.insert("missing".to_string(), Value::Array(vec![]));
-            m
-        })),
+        _ => {
+            return Ok(Value::Record({
+                let mut m = std::collections::BTreeMap::new();
+                m.insert("satisfied".to_string(), Value::Bool(true));
+                m.insert("missing".to_string(), Value::Array(vec![]));
+                m
+            }))
+        }
     };
-    
+
     let mut missing = Vec::new();
     let mut satisfied = true;
-    
+
     for (key, val) in &spec {
         match key.as_str() {
             "os" => {
@@ -22962,7 +24857,10 @@ fn bi_platform_require(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
                 let matches = required_os.split('|').any(|o| o.trim() == current_os);
                 if !matches {
                     satisfied = false;
-                    missing.push(Value::Str(format!("os: need {}, have {}", required_os, current_os)));
+                    missing.push(Value::Str(format!(
+                        "os: need {}, have {}",
+                        required_os, current_os
+                    )));
                 }
             }
             "arch" => {
@@ -22970,7 +24868,10 @@ fn bi_platform_require(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
                 let current = std::env::consts::ARCH;
                 if !required.split('|').any(|a| a.trim() == current) {
                     satisfied = false;
-                    missing.push(Value::Str(format!("arch: need {}, have {}", required, current)));
+                    missing.push(Value::Str(format!(
+                        "arch: need {}, have {}",
+                        required, current
+                    )));
                 }
             }
             _ => {
@@ -22990,7 +24891,7 @@ fn bi_platform_require(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
             }
         }
     }
-    
+
     let mut result = std::collections::BTreeMap::new();
     result.insert("satisfied".to_string(), Value::Bool(satisfied));
     result.insert("missing".to_string(), Value::Array(missing));
@@ -23021,12 +24922,12 @@ fn bi_platform_diff(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Record(r)) => r.clone(),
         _ => return Ok(Value::Null),
     };
-    
+
     let mut diff = std::collections::BTreeMap::new();
     let mut added = Vec::new();
     let mut removed = Vec::new();
     let mut changed = Vec::new();
-    
+
     // Find added/changed in snap2
     for (key, val2) in &snap2 {
         match snap1.get(key) {
@@ -23041,18 +24942,18 @@ fn bi_platform_diff(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             _ => {}
         }
     }
-    
+
     // Find removed in snap2
     for key in snap1.keys() {
         if !snap2.contains_key(key) {
             removed.push(Value::Str(key.clone()));
         }
     }
-    
+
     diff.insert("added".to_string(), Value::Array(added));
     diff.insert("removed".to_string(), Value::Array(removed));
     diff.insert("changed".to_string(), Value::Array(changed));
-    
+
     Ok(Value::Record(diff))
 }
 
@@ -23066,11 +24967,11 @@ fn bi_platform_compatible(args: Vec<Value>, _input: Option<Value>) -> Result<Val
         Some(Value::Record(r)) => r,
         _ => return Ok(Value::Bool(false)),
     };
-    
+
     let os_match = snap1.get("os") == snap2.get("os");
     let arch_match = snap1.get("arch") == snap2.get("arch");
     let family_match = snap1.get("family") == snap2.get("family");
-    
+
     Ok(Value::Bool(os_match && arch_match && family_match))
 }
 
@@ -23086,39 +24987,45 @@ fn bi_platform_db_init(_args: Vec<Value>, _input: Option<Value>) -> Result<Value
 }
 
 fn bi_platform_db_store(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let key = args.first().and_then(|v| v.as_str().ok()).unwrap_or("default");
+    let key = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .unwrap_or("default");
     let snapshot = match args.get(1) {
         Some(v) => v.clone(),
         None => bi_platform_snapshot(vec![], None)?,
     };
-    
+
     let db_path = platform_db_path();
     bi_platform_db_init(vec![], None)?;
-    
+
     let content = std::fs::read_to_string(&db_path).unwrap_or_else(|_| "{}".to_string());
-    let mut db: serde_json::Map<String, serde_json::Value> = 
+    let mut db: serde_json::Map<String, serde_json::Value> =
         serde_json::from_str(&content).unwrap_or_default();
-    
+
     // Convert Value to serde_json::Value
     let json_val = value_to_json(snapshot.clone());
     db.insert(key.to_string(), json_val);
-    
+
     std::fs::write(&db_path, serde_json::to_string_pretty(&db)?)?;
     Ok(Value::Bool(true))
 }
 
 fn bi_platform_db_load(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let key = args.first().and_then(|v| v.as_str().ok()).unwrap_or("default");
-    
+    let key = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .unwrap_or("default");
+
     let db_path = platform_db_path();
     if !db_path.exists() {
         return Ok(Value::Null);
     }
-    
+
     let content = std::fs::read_to_string(&db_path)?;
-    let db: serde_json::Map<String, serde_json::Value> = 
+    let db: serde_json::Map<String, serde_json::Value> =
         serde_json::from_str(&content).unwrap_or_default();
-    
+
     match db.get(key) {
         Some(val) => Ok(json_to_value(val.clone())),
         None => Ok(Value::Null),
@@ -23130,53 +25037,53 @@ fn bi_platform_db_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value
     if !db_path.exists() {
         return Ok(Value::Array(vec![]));
     }
-    
+
     let content = std::fs::read_to_string(&db_path)?;
-    let db: serde_json::Map<String, serde_json::Value> = 
+    let db: serde_json::Map<String, serde_json::Value> =
         serde_json::from_str(&content).unwrap_or_default();
-    
+
     let keys: Vec<Value> = db.keys().map(|k| Value::Str(k.clone())).collect();
     Ok(Value::Array(keys))
 }
 
 fn bi_platform_db_delete(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let key = args.first().and_then(|v| v.as_str().ok()).unwrap_or("");
-    
+
     let db_path = platform_db_path();
     if !db_path.exists() {
         return Ok(Value::Bool(false));
     }
-    
+
     let content = std::fs::read_to_string(&db_path)?;
-    let mut db: serde_json::Map<String, serde_json::Value> = 
+    let mut db: serde_json::Map<String, serde_json::Value> =
         serde_json::from_str(&content).unwrap_or_default();
-    
+
     let existed = db.remove(key).is_some();
     std::fs::write(&db_path, serde_json::to_string_pretty(&db)?)?;
-    
+
     Ok(Value::Bool(existed))
 }
 
 fn bi_platform_db_compare(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let key1 = args.first().and_then(|v| v.as_str().ok()).unwrap_or("");
     let key2 = args.get(1).and_then(|v| v.as_str().ok()).unwrap_or("");
-    
+
     let snap1 = bi_platform_db_load(vec![Value::Str(key1.to_string())], None)?;
     let snap2 = bi_platform_db_load(vec![Value::Str(key2.to_string())], None)?;
-    
+
     bi_platform_diff(vec![snap1, snap2], None)
 }
 
 fn bi_platform_db_export(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let file_path = args.first().and_then(|v| v.as_str().ok());
-    
+
     let db_path = platform_db_path();
     if !db_path.exists() {
         return Ok(Value::Str("{}".to_string()));
     }
-    
+
     let content = std::fs::read_to_string(&db_path)?;
-    
+
     if let Some(path) = file_path {
         std::fs::write(path, &content)?;
         Ok(Value::Str(path.to_string()))
@@ -23187,30 +25094,29 @@ fn bi_platform_db_export(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
 
 fn bi_platform_db_import(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let source = args.first().and_then(|v| v.as_str().ok()).unwrap_or("");
-    
+
     // Check if it's a file path or JSON string
     let content = if std::path::Path::new(source).exists() {
         std::fs::read_to_string(source)?
     } else {
         source.to_string()
     };
-    
+
     // Validate JSON
-    let imported: serde_json::Map<String, serde_json::Value> = 
-        serde_json::from_str(&content)?;
-    
+    let imported: serde_json::Map<String, serde_json::Value> = serde_json::from_str(&content)?;
+
     let db_path = platform_db_path();
     bi_platform_db_init(vec![], None)?;
-    
+
     // Merge with existing
     let existing = std::fs::read_to_string(&db_path).unwrap_or_else(|_| "{}".to_string());
-    let mut db: serde_json::Map<String, serde_json::Value> = 
+    let mut db: serde_json::Map<String, serde_json::Value> =
         serde_json::from_str(&existing).unwrap_or_default();
-    
+
     for (k, v) in imported {
         db.insert(k, v);
     }
-    
+
     std::fs::write(&db_path, serde_json::to_string_pretty(&db)?)?;
     Ok(Value::Int(db.len() as i64))
 }
@@ -23240,10 +25146,11 @@ fn bi_platform_hash(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // ============================================================================
 
 fn bi_platform_compilers(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let compilers = ["gcc", "g++", "clang", "clang++", "rustc", "go", "javac", 
-                     "swift", "kotlinc", "scalac", "ghc", "ocaml", "fpc", "gfortran",
-                     "nvcc", "hipcc", "dmd", "ldc2", "gdc", "zig", "nim", "crystal",
-                     "tcc", "pcc", "icc", "icx", "nvc", "nvc++", "emcc", "wasm-ld"];
+    let compilers = [
+        "gcc", "g++", "clang", "clang++", "rustc", "go", "javac", "swift", "kotlinc", "scalac",
+        "ghc", "ocaml", "fpc", "gfortran", "nvcc", "hipcc", "dmd", "ldc2", "gdc", "zig", "nim",
+        "crystal", "tcc", "pcc", "icc", "icx", "nvc", "nvc++", "emcc", "wasm-ld",
+    ];
     let mut versions = std::collections::BTreeMap::new();
     for tool in compilers {
         if let Some(ver) = get_tool_version(tool) {
@@ -23254,10 +25161,11 @@ fn bi_platform_compilers(_args: Vec<Value>, _input: Option<Value>) -> Result<Val
 }
 
 fn bi_platform_build_systems(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let build_systems = ["make", "cmake", "ninja", "meson", "bazel", "buck2", "scons",
-                         "gradle", "maven", "ant", "cargo", "cabal", "stack", "mix",
-                         "dune", "xmake", "premake5", "waf", "rake", "shake",
-                         "tup", "gn", "gyp", "qmake", "autoconf", "automake", "libtool"];
+    let build_systems = [
+        "make", "cmake", "ninja", "meson", "bazel", "buck2", "scons", "gradle", "maven", "ant",
+        "cargo", "cabal", "stack", "mix", "dune", "xmake", "premake5", "waf", "rake", "shake",
+        "tup", "gn", "gyp", "qmake", "autoconf", "automake", "libtool",
+    ];
     let mut versions = std::collections::BTreeMap::new();
     for tool in build_systems {
         if let Some(ver) = get_tool_version(tool) {
@@ -23268,10 +25176,11 @@ fn bi_platform_build_systems(_args: Vec<Value>, _input: Option<Value>) -> Result
 }
 
 fn bi_platform_runtimes(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let runtimes = ["python", "python3", "node", "deno", "bun", "ruby", "php", 
-                    "perl", "lua", "luajit", "julia", "R", "java", "dotnet", "mono",
-                    "erlang", "elixir", "racket", "sbcl", "clisp", "guile",
-                    "tcl", "tk", "groovy", "scala", "kotlin", "clojure"];
+    let runtimes = [
+        "python", "python3", "node", "deno", "bun", "ruby", "php", "perl", "lua", "luajit",
+        "julia", "R", "java", "dotnet", "mono", "erlang", "elixir", "racket", "sbcl", "clisp",
+        "guile", "tcl", "tk", "groovy", "scala", "kotlin", "clojure",
+    ];
     let mut versions = std::collections::BTreeMap::new();
     for tool in runtimes {
         if let Some(ver) = get_tool_version(tool) {
@@ -23282,11 +25191,12 @@ fn bi_platform_runtimes(_args: Vec<Value>, _input: Option<Value>) -> Result<Valu
 }
 
 fn bi_platform_pkg_lang(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let pkg_lang = ["pip", "pip3", "pipx", "poetry", "pdm", "uv", "conda", "mamba",
-                    "npm", "yarn", "pnpm", "bun", "gem", "bundler", "composer",
-                    "cargo", "go", "nuget", "dotnet", "maven", "gradle",
-                    "cabal", "stack", "opam", "mix", "hex", "rebar3", "cpan", "luarocks",
-                    "pub", "swift", "spm", "vcpkg", "conan", "hunter", "cpm"];
+    let pkg_lang = [
+        "pip", "pip3", "pipx", "poetry", "pdm", "uv", "conda", "mamba", "npm", "yarn", "pnpm",
+        "bun", "gem", "bundler", "composer", "cargo", "go", "nuget", "dotnet", "maven", "gradle",
+        "cabal", "stack", "opam", "mix", "hex", "rebar3", "cpan", "luarocks", "pub", "swift",
+        "spm", "vcpkg", "conan", "hunter", "cpm",
+    ];
     let mut versions = std::collections::BTreeMap::new();
     for tool in pkg_lang {
         if let Some(ver) = get_tool_version(tool) {
@@ -23297,10 +25207,31 @@ fn bi_platform_pkg_lang(_args: Vec<Value>, _input: Option<Value>) -> Result<Valu
 }
 
 fn bi_platform_containers(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let containers = ["docker", "podman", "buildah", "skopeo", "containerd", "runc",
-                      "nerdctl", "crictl", "ctr", "lxc", "lxd", "vagrant", "packer",
-                      "qemu-system-x86_64", "vboxmanage", "multipass", "lima",
-                      "colima", "rancher", "k3d", "kind", "minikube", "microk8s"];
+    let containers = [
+        "docker",
+        "podman",
+        "buildah",
+        "skopeo",
+        "containerd",
+        "runc",
+        "nerdctl",
+        "crictl",
+        "ctr",
+        "lxc",
+        "lxd",
+        "vagrant",
+        "packer",
+        "qemu-system-x86_64",
+        "vboxmanage",
+        "multipass",
+        "lima",
+        "colima",
+        "rancher",
+        "k3d",
+        "kind",
+        "minikube",
+        "microk8s",
+    ];
     let mut versions = std::collections::BTreeMap::new();
     for tool in containers {
         if let Some(ver) = get_tool_version(tool) {
@@ -23311,10 +25242,30 @@ fn bi_platform_containers(_args: Vec<Value>, _input: Option<Value>) -> Result<Va
 }
 
 fn bi_platform_cloud_clis(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let cloud = ["aws", "az", "gcloud", "doctl", "linode-cli", "vultr-cli",
-                 "oci", "ibmcloud", "hcloud", "exo", "scaleway", "flyctl",
-                 "netlify", "vercel", "heroku", "railway", "render",
-                 "cf", "wrangler", "supabase", "firebase", "amplify"];
+    let cloud = [
+        "aws",
+        "az",
+        "gcloud",
+        "doctl",
+        "linode-cli",
+        "vultr-cli",
+        "oci",
+        "ibmcloud",
+        "hcloud",
+        "exo",
+        "scaleway",
+        "flyctl",
+        "netlify",
+        "vercel",
+        "heroku",
+        "railway",
+        "render",
+        "cf",
+        "wrangler",
+        "supabase",
+        "firebase",
+        "amplify",
+    ];
     let mut versions = std::collections::BTreeMap::new();
     for tool in cloud {
         if let Some(ver) = get_tool_version(tool) {
@@ -23325,10 +25276,29 @@ fn bi_platform_cloud_clis(_args: Vec<Value>, _input: Option<Value>) -> Result<Va
 }
 
 fn bi_platform_databases(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let databases = ["psql", "mysql", "sqlite3", "mongosh", "redis-cli", "mongod",
-                     "pg_dump", "mysqldump", "cqlsh", "influx", "clickhouse-client",
-                     "cockroach", "tiup", "vitess", "pgcli", "mycli", "litecli",
-                     "duckdb", "questdb", "timescaledb", "surreal"];
+    let databases = [
+        "psql",
+        "mysql",
+        "sqlite3",
+        "mongosh",
+        "redis-cli",
+        "mongod",
+        "pg_dump",
+        "mysqldump",
+        "cqlsh",
+        "influx",
+        "clickhouse-client",
+        "cockroach",
+        "tiup",
+        "vitess",
+        "pgcli",
+        "mycli",
+        "litecli",
+        "duckdb",
+        "questdb",
+        "timescaledb",
+        "surreal",
+    ];
     let mut versions = std::collections::BTreeMap::new();
     for tool in databases {
         if let Some(ver) = get_tool_version(tool) {
@@ -23339,11 +25309,34 @@ fn bi_platform_databases(_args: Vec<Value>, _input: Option<Value>) -> Result<Val
 }
 
 fn bi_platform_linters(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let linters = ["eslint", "prettier", "black", "ruff", "mypy", "pylint", "flake8",
-                   "rubocop", "clippy", "rustfmt", "gofmt", "golangci-lint",
-                   "shellcheck", "hadolint", "yamllint", "jsonlint", "tflint",
-                   "stylelint", "htmlhint", "markdownlint", "actionlint",
-                   "cppcheck", "clang-tidy", "clang-format", "astyle", "uncrustify"];
+    let linters = [
+        "eslint",
+        "prettier",
+        "black",
+        "ruff",
+        "mypy",
+        "pylint",
+        "flake8",
+        "rubocop",
+        "clippy",
+        "rustfmt",
+        "gofmt",
+        "golangci-lint",
+        "shellcheck",
+        "hadolint",
+        "yamllint",
+        "jsonlint",
+        "tflint",
+        "stylelint",
+        "htmlhint",
+        "markdownlint",
+        "actionlint",
+        "cppcheck",
+        "clang-tidy",
+        "clang-format",
+        "astyle",
+        "uncrustify",
+    ];
     let mut versions = std::collections::BTreeMap::new();
     for tool in linters {
         if let Some(ver) = get_tool_version(tool) {
@@ -23354,8 +25347,21 @@ fn bi_platform_linters(_args: Vec<Value>, _input: Option<Value>) -> Result<Value
 }
 
 fn bi_platform_vcs(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let vcs = ["git", "hg", "svn", "fossil", "darcs", "bzr", "cvs",
-               "git-lfs", "git-annex", "dvc", "gh", "glab", "hub"];
+    let vcs = [
+        "git",
+        "hg",
+        "svn",
+        "fossil",
+        "darcs",
+        "bzr",
+        "cvs",
+        "git-lfs",
+        "git-annex",
+        "dvc",
+        "gh",
+        "glab",
+        "hub",
+    ];
     let mut versions = std::collections::BTreeMap::new();
     for tool in vcs {
         if let Some(ver) = get_tool_version(tool) {
@@ -23366,11 +25372,36 @@ fn bi_platform_vcs(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_platform_iac_tools(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let iac = ["kubectl", "helm", "kustomize", "k3s", "k3d", "kind", "minikube",
-               "terraform", "terragrunt", "pulumi", "cdktf", "crossplane",
-               "ansible", "ansible-playbook", "chef", "puppet", "salt",
-               "vagrant", "packer", "nomad", "consul", "vault",
-               "argocd", "flux", "tekton", "skaffold", "tilt", "devspace"];
+    let iac = [
+        "kubectl",
+        "helm",
+        "kustomize",
+        "k3s",
+        "k3d",
+        "kind",
+        "minikube",
+        "terraform",
+        "terragrunt",
+        "pulumi",
+        "cdktf",
+        "crossplane",
+        "ansible",
+        "ansible-playbook",
+        "chef",
+        "puppet",
+        "salt",
+        "vagrant",
+        "packer",
+        "nomad",
+        "consul",
+        "vault",
+        "argocd",
+        "flux",
+        "tekton",
+        "skaffold",
+        "tilt",
+        "devspace",
+    ];
     let mut versions = std::collections::BTreeMap::new();
     for tool in iac {
         if let Some(ver) = get_tool_version(tool) {
@@ -23382,13 +25413,34 @@ fn bi_platform_iac_tools(_args: Vec<Value>, _input: Option<Value>) -> Result<Val
 
 fn bi_platform_libs(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut libs = std::collections::BTreeMap::new();
-    
+
     // Check pkg-config for common libraries
-    let check_libs = ["openssl", "libssl", "libcrypto", "zlib", "libpng", "libjpeg",
-                      "libcurl", "sqlite3", "libxml-2.0", "libffi", "glib-2.0",
-                      "gtk+-3.0", "qt5", "sdl2", "glfw3", "vulkan", "opencv4",
-                      "protobuf", "grpc", "boost", "eigen3", "fmt", "spdlog"];
-    
+    let check_libs = [
+        "openssl",
+        "libssl",
+        "libcrypto",
+        "zlib",
+        "libpng",
+        "libjpeg",
+        "libcurl",
+        "sqlite3",
+        "libxml-2.0",
+        "libffi",
+        "glib-2.0",
+        "gtk+-3.0",
+        "qt5",
+        "sdl2",
+        "glfw3",
+        "vulkan",
+        "opencv4",
+        "protobuf",
+        "grpc",
+        "boost",
+        "eigen3",
+        "fmt",
+        "spdlog",
+    ];
+
     for lib in check_libs {
         if let Ok(out) = std::process::Command::new("pkg-config")
             .args(["--modversion", lib])
@@ -23400,19 +25452,21 @@ fn bi_platform_libs(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             }
         }
     }
-    
+
     Ok(Value::Record(libs))
 }
 
 fn bi_platform_lib_version(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let lib = args.first().and_then(|v| v.as_str().ok()).unwrap_or("");
-    
+
     if let Ok(out) = std::process::Command::new("pkg-config")
         .args(["--modversion", lib])
         .output()
     {
         if out.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&out.stdout).trim().to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&out.stdout).trim().to_string(),
+            ));
         }
     }
     Ok(Value::Null)
@@ -23420,7 +25474,7 @@ fn bi_platform_lib_version(args: Vec<Value>, _input: Option<Value>) -> Result<Va
 
 fn bi_platform_system_libs(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut info = std::collections::BTreeMap::new();
-    
+
     #[cfg(target_os = "linux")]
     {
         // Get glibc version
@@ -23436,7 +25490,8 @@ fn bi_platform_system_libs(_args: Vec<Value>, _input: Option<Value>) -> Result<V
             .output()
         {
             let output = String::from_utf8_lossy(&out.stdout);
-            let glibcxx: Vec<&str> = output.lines()
+            let glibcxx: Vec<&str> = output
+                .lines()
                 .filter(|l| l.starts_with("GLIBCXX_"))
                 .collect();
             if let Some(last) = glibcxx.last() {
@@ -23444,7 +25499,7 @@ fn bi_platform_system_libs(_args: Vec<Value>, _input: Option<Value>) -> Result<V
             }
         }
     }
-    
+
     #[cfg(target_os = "macos")]
     {
         // Get macOS SDK version
@@ -23466,7 +25521,7 @@ fn bi_platform_system_libs(_args: Vec<Value>, _input: Option<Value>) -> Result<V
             }
         }
     }
-    
+
     #[cfg(target_os = "windows")]
     {
         // Get Windows SDK version
@@ -23488,16 +25543,18 @@ fn bi_platform_system_libs(_args: Vec<Value>, _input: Option<Value>) -> Result<V
             }
         }
     }
-    
+
     Ok(Value::Record(info))
 }
 
 fn bi_platform_sdk_version(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let sdk = args.first().and_then(|v| v.as_str().ok()).unwrap_or("");
-    
+
     match sdk {
         "android" => {
-            if let Ok(home) = std::env::var("ANDROID_HOME").or_else(|_| std::env::var("ANDROID_SDK_ROOT")) {
+            if let Ok(home) =
+                std::env::var("ANDROID_HOME").or_else(|_| std::env::var("ANDROID_SDK_ROOT"))
+            {
                 // Try to read build-tools version
                 let bt_path = std::path::Path::new(&home).join("build-tools");
                 if bt_path.exists() {
@@ -23512,8 +25569,13 @@ fn bi_platform_sdk_version(args: Vec<Value>, _input: Option<Value>) -> Result<Va
             }
         }
         "ios" | "macos" | "xcode" => {
-            if let Ok(out) = std::process::Command::new("xcrun").args(["--show-sdk-version"]).output() {
-                return Ok(Value::Str(String::from_utf8_lossy(&out.stdout).trim().to_string()));
+            if let Ok(out) = std::process::Command::new("xcrun")
+                .args(["--show-sdk-version"])
+                .output()
+            {
+                return Ok(Value::Str(
+                    String::from_utf8_lossy(&out.stdout).trim().to_string(),
+                ));
             }
         }
         "windows" => {
@@ -23522,7 +25584,10 @@ fn bi_platform_sdk_version(args: Vec<Value>, _input: Option<Value>) -> Result<Va
             }
         }
         "dotnet" => {
-            if let Ok(out) = std::process::Command::new("dotnet").args(["--list-sdks"]).output() {
+            if let Ok(out) = std::process::Command::new("dotnet")
+                .args(["--list-sdks"])
+                .output()
+            {
                 let sdks: Vec<Value> = String::from_utf8_lossy(&out.stdout)
                     .lines()
                     .map(|l| Value::Str(l.to_string()))
@@ -23537,7 +25602,7 @@ fn bi_platform_sdk_version(args: Vec<Value>, _input: Option<Value>) -> Result<Va
         }
         _ => {}
     }
-    
+
     Ok(Value::Null)
 }
 
@@ -23567,7 +25632,10 @@ fn bi_platform_libc(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
         // MSVC runtime
-        if let Ok(out) = std::process::Command::new("where").arg("ucrtbase.dll").output() {
+        if let Ok(out) = std::process::Command::new("where")
+            .arg("ucrtbase.dll")
+            .output()
+        {
             if out.status.success() {
                 return Ok(Value::Str("ucrt (Universal CRT)".to_string()));
             }
@@ -23584,13 +25652,14 @@ fn bi_platform_libcpp(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         let paths = [
             "/usr/lib/x86_64-linux-gnu/libstdc++.so.6",
             "/usr/lib64/libstdc++.so.6",
-            "/lib/x86_64-linux-gnu/libstdc++.so.6"
+            "/lib/x86_64-linux-gnu/libstdc++.so.6",
         ];
         for path in paths {
             if std::path::Path::new(path).exists() {
                 if let Ok(out) = std::process::Command::new("strings").arg(path).output() {
                     let output = String::from_utf8_lossy(&out.stdout);
-                    let glibcxx: Vec<&str> = output.lines()
+                    let glibcxx: Vec<&str> = output
+                        .lines()
                         .filter(|l| l.starts_with("GLIBCXX_") || l.starts_with("CXXABI_"))
                         .collect();
                     if !glibcxx.is_empty() {
@@ -23626,9 +25695,14 @@ fn bi_platform_libcpp(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 
 fn bi_platform_ssl_version(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // Try openssl first
-    if let Ok(out) = std::process::Command::new("openssl").arg("version").output() {
+    if let Ok(out) = std::process::Command::new("openssl")
+        .arg("version")
+        .output()
+    {
         if out.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&out.stdout).trim().to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&out.stdout).trim().to_string(),
+            ));
         }
     }
     // Try pkg-config
@@ -23637,7 +25711,9 @@ fn bi_platform_ssl_version(_args: Vec<Value>, _input: Option<Value>) -> Result<V
         .output()
     {
         if out.status.success() {
-            return Ok(Value::Str(String::from_utf8_lossy(&out.stdout).trim().to_string()));
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&out.stdout).trim().to_string(),
+            ));
         }
     }
     Ok(Value::Null)
@@ -23645,18 +25721,21 @@ fn bi_platform_ssl_version(_args: Vec<Value>, _input: Option<Value>) -> Result<V
 
 fn bi_platform_cuda_version(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut info = std::collections::BTreeMap::new();
-    
+
     // CUDA Toolkit version
     if let Ok(out) = std::process::Command::new("nvcc").arg("--version").output() {
         let output = String::from_utf8_lossy(&out.stdout);
         for line in output.lines() {
             if line.contains("release") {
-                info.insert("cuda_toolkit".to_string(), Value::Str(line.trim().to_string()));
+                info.insert(
+                    "cuda_toolkit".to_string(),
+                    Value::Str(line.trim().to_string()),
+                );
                 break;
             }
         }
     }
-    
+
     // NVIDIA driver version
     #[cfg(target_os = "linux")]
     {
@@ -23676,26 +25755,32 @@ fn bi_platform_cuda_version(_args: Vec<Value>, _input: Option<Value>) -> Result<
             let output = String::from_utf8_lossy(&out.stdout);
             for line in output.lines() {
                 if line.contains("Driver Version") {
-                    info.insert("nvidia_driver".to_string(), Value::Str(line.trim().to_string()));
+                    info.insert(
+                        "nvidia_driver".to_string(),
+                        Value::Str(line.trim().to_string()),
+                    );
                     break;
                 }
             }
         }
     }
-    
+
     // cuDNN version
     if let Ok(cudnn_path) = std::env::var("CUDNN_PATH") {
         info.insert("cudnn_path".to_string(), Value::Str(cudnn_path));
     }
-    
+
     // Check for ROCm/HIP as alternative
-    if let Ok(out) = std::process::Command::new("hipcc").arg("--version").output() {
+    if let Ok(out) = std::process::Command::new("hipcc")
+        .arg("--version")
+        .output()
+    {
         let ver = String::from_utf8_lossy(&out.stdout);
         if let Some(line) = ver.lines().next() {
             info.insert("hip".to_string(), Value::Str(line.to_string()));
         }
     }
-    
+
     if info.is_empty() {
         Ok(Value::Null)
     } else {
@@ -23703,14 +25788,13 @@ fn bi_platform_cuda_version(_args: Vec<Value>, _input: Option<Value>) -> Result<
     }
 }
 
-
 // ============================================================================
 // Platform Hardware Detection
 // ============================================================================
 
 fn bi_platform_cpu(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut info = std::collections::BTreeMap::new();
-    
+
     #[cfg(target_os = "windows")]
     {
         // Get CPU info from PowerShell (more reliable than WMIC which may not be available)
@@ -23741,7 +25825,7 @@ fn bi_platform_cpu(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             info.insert("arch".to_string(), Value::Str(arch));
         }
     }
-    
+
     #[cfg(target_os = "linux")]
     {
         if let Ok(cpuinfo) = std::fs::read_to_string("/proc/cpuinfo") {
@@ -23750,7 +25834,9 @@ fn bi_platform_cpu(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     let key = key.trim();
                     let val = val.trim();
                     match key {
-                        "model name" => { info.insert("name".to_string(), Value::Str(val.to_string())); }
+                        "model name" => {
+                            info.insert("name".to_string(), Value::Str(val.to_string()));
+                        }
                         "cpu cores" => {
                             if let Ok(n) = val.parse::<i64>() {
                                 info.insert("cores".to_string(), Value::Int(n));
@@ -23771,16 +25857,22 @@ fn bi_platform_cpu(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 }
             }
         }
-        info.insert("arch".to_string(), Value::Str(std::env::consts::ARCH.to_string()));
+        info.insert(
+            "arch".to_string(),
+            Value::Str(std::env::consts::ARCH.to_string()),
+        );
     }
-    
+
     #[cfg(target_os = "macos")]
     {
         if let Ok(out) = std::process::Command::new("sysctl")
             .args(["-n", "machdep.cpu.brand_string"])
             .output()
         {
-            info.insert("name".to_string(), Value::Str(String::from_utf8_lossy(&out.stdout).trim().to_string()));
+            info.insert(
+                "name".to_string(),
+                Value::Str(String::from_utf8_lossy(&out.stdout).trim().to_string()),
+            );
         }
         if let Ok(out) = std::process::Command::new("sysctl")
             .args(["-n", "hw.physicalcpu"])
@@ -23798,9 +25890,12 @@ fn bi_platform_cpu(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 info.insert("logical_processors".to_string(), Value::Int(n));
             }
         }
-        info.insert("arch".to_string(), Value::Str(std::env::consts::ARCH.to_string()));
+        info.insert(
+            "arch".to_string(),
+            Value::Str(std::env::consts::ARCH.to_string()),
+        );
     }
-    
+
     Ok(Value::Record(info))
 }
 
@@ -23818,7 +25913,10 @@ fn bi_platform_cpu_freq(_args: Vec<Value>, _input: Option<Value>) -> Result<Valu
     {
         // Use PowerShell instead of WMIC (more reliable)
         if let Ok(out) = std::process::Command::new("powershell")
-            .args(["-Command", "(Get-CimInstance Win32_Processor).MaxClockSpeed"])
+            .args([
+                "-Command",
+                "(Get-CimInstance Win32_Processor).MaxClockSpeed",
+            ])
             .output()
         {
             if out.status.success() {
@@ -23858,7 +25956,7 @@ fn bi_platform_cpu_freq(_args: Vec<Value>, _input: Option<Value>) -> Result<Valu
 
 fn bi_platform_memory(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut info = std::collections::BTreeMap::new();
-    
+
     #[cfg(target_os = "windows")]
     {
         // Use PowerShell instead of WMIC
@@ -23881,7 +25979,7 @@ fn bi_platform_memory(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
             }
         }
     }
-    
+
     #[cfg(target_os = "linux")]
     {
         if let Ok(meminfo) = std::fs::read_to_string("/proc/meminfo") {
@@ -23893,19 +25991,33 @@ fn bi_platform_memory(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
                         match key {
                             "MemTotal" => {
                                 info.insert("total_kb".to_string(), Value::Int(kb));
-                                info.insert("total_gb".to_string(), Value::Float(kb as f64 / 1024.0 / 1024.0));
+                                info.insert(
+                                    "total_gb".to_string(),
+                                    Value::Float(kb as f64 / 1024.0 / 1024.0),
+                                );
                             }
                             "MemFree" => {
                                 info.insert("free_kb".to_string(), Value::Int(kb));
                             }
                             "MemAvailable" => {
                                 info.insert("available_kb".to_string(), Value::Int(kb));
-                                info.insert("available_gb".to_string(), Value::Float(kb as f64 / 1024.0 / 1024.0));
+                                info.insert(
+                                    "available_gb".to_string(),
+                                    Value::Float(kb as f64 / 1024.0 / 1024.0),
+                                );
                             }
-                            "Buffers" => { info.insert("buffers_kb".to_string(), Value::Int(kb)); }
-                            "Cached" => { info.insert("cached_kb".to_string(), Value::Int(kb)); }
-                            "SwapTotal" => { info.insert("swap_total_kb".to_string(), Value::Int(kb)); }
-                            "SwapFree" => { info.insert("swap_free_kb".to_string(), Value::Int(kb)); }
+                            "Buffers" => {
+                                info.insert("buffers_kb".to_string(), Value::Int(kb));
+                            }
+                            "Cached" => {
+                                info.insert("cached_kb".to_string(), Value::Int(kb));
+                            }
+                            "SwapTotal" => {
+                                info.insert("swap_total_kb".to_string(), Value::Int(kb));
+                            }
+                            "SwapFree" => {
+                                info.insert("swap_free_kb".to_string(), Value::Int(kb));
+                            }
                             _ => {}
                         }
                     }
@@ -23913,7 +26025,7 @@ fn bi_platform_memory(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
             }
         }
     }
-    
+
     #[cfg(target_os = "macos")]
     {
         if let Ok(out) = std::process::Command::new("sysctl")
@@ -23922,11 +26034,14 @@ fn bi_platform_memory(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         {
             if let Ok(bytes) = String::from_utf8_lossy(&out.stdout).trim().parse::<i64>() {
                 info.insert("total_bytes".to_string(), Value::Int(bytes));
-                info.insert("total_gb".to_string(), Value::Float(bytes as f64 / 1024.0 / 1024.0 / 1024.0));
+                info.insert(
+                    "total_gb".to_string(),
+                    Value::Float(bytes as f64 / 1024.0 / 1024.0 / 1024.0),
+                );
             }
         }
     }
-    
+
     Ok(Value::Record(info))
 }
 
@@ -23935,7 +26050,10 @@ fn bi_platform_memory_total(_args: Vec<Value>, _input: Option<Value>) -> Result<
     {
         // Use PowerShell instead of WMIC
         if let Ok(out) = std::process::Command::new("powershell")
-            .args(["-Command", "(Get-CimInstance Win32_OperatingSystem).TotalVisibleMemorySize"])
+            .args([
+                "-Command",
+                "(Get-CimInstance Win32_OperatingSystem).TotalVisibleMemorySize",
+            ])
             .output()
         {
             if out.status.success() {
@@ -23977,7 +26095,10 @@ fn bi_platform_memory_free(_args: Vec<Value>, _input: Option<Value>) -> Result<V
     {
         // Use PowerShell instead of WMIC
         if let Ok(out) = std::process::Command::new("powershell")
-            .args(["-Command", "(Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory"])
+            .args([
+                "-Command",
+                "(Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory",
+            ])
             .output()
         {
             if out.status.success() {
@@ -24023,7 +26144,7 @@ fn bi_platform_memory_free(_args: Vec<Value>, _input: Option<Value>) -> Result<V
 
 fn bi_platform_disks(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut disks = Vec::new();
-    
+
     #[cfg(target_os = "windows")]
     {
         // Use PowerShell instead of WMIC
@@ -24067,7 +26188,7 @@ fn bi_platform_disks(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
             }
         }
     }
-    
+
     #[cfg(target_os = "linux")]
     {
         if let Ok(out) = std::process::Command::new("df")
@@ -24077,31 +26198,37 @@ fn bi_platform_disks(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
             let output = String::from_utf8_lossy(&out.stdout);
             for line in output.lines().skip(1) {
                 let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 5 && !parts[0].starts_with("tmpfs") && !parts[0].starts_with("devtmpfs") {
+                if parts.len() >= 5
+                    && !parts[0].starts_with("tmpfs")
+                    && !parts[0].starts_with("devtmpfs")
+                {
                     let mut disk = std::collections::BTreeMap::new();
                     disk.insert("device".to_string(), Value::Str(parts[0].to_string()));
                     disk.insert("mount".to_string(), Value::Str(parts[1].to_string()));
                     disk.insert("filesystem".to_string(), Value::Str(parts[2].to_string()));
                     if let Ok(n) = parts[3].parse::<i64>() {
                         disk.insert("size_bytes".to_string(), Value::Int(n));
-                        disk.insert("size_gb".to_string(), Value::Float(n as f64 / 1024.0 / 1024.0 / 1024.0));
+                        disk.insert(
+                            "size_gb".to_string(),
+                            Value::Float(n as f64 / 1024.0 / 1024.0 / 1024.0),
+                        );
                     }
                     if let Ok(n) = parts[4].parse::<i64>() {
                         disk.insert("free_bytes".to_string(), Value::Int(n));
-                        disk.insert("free_gb".to_string(), Value::Float(n as f64 / 1024.0 / 1024.0 / 1024.0));
+                        disk.insert(
+                            "free_gb".to_string(),
+                            Value::Float(n as f64 / 1024.0 / 1024.0 / 1024.0),
+                        );
                     }
                     disks.push(Value::Record(disk));
                 }
             }
         }
     }
-    
+
     #[cfg(target_os = "macos")]
     {
-        if let Ok(out) = std::process::Command::new("df")
-            .args(["-b"])
-            .output()
-        {
+        if let Ok(out) = std::process::Command::new("df").args(["-b"]).output() {
             let output = String::from_utf8_lossy(&out.stdout);
             for line in output.lines().skip(1) {
                 let parts: Vec<&str> = line.split_whitespace().collect();
@@ -24112,25 +26239,31 @@ fn bi_platform_disks(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
                     if let Ok(n) = parts[1].parse::<i64>() {
                         let bytes = n * 512;
                         disk.insert("size_bytes".to_string(), Value::Int(bytes));
-                        disk.insert("size_gb".to_string(), Value::Float(bytes as f64 / 1024.0 / 1024.0 / 1024.0));
+                        disk.insert(
+                            "size_gb".to_string(),
+                            Value::Float(bytes as f64 / 1024.0 / 1024.0 / 1024.0),
+                        );
                     }
                     if let Ok(n) = parts[3].parse::<i64>() {
                         let bytes = n * 512;
                         disk.insert("free_bytes".to_string(), Value::Int(bytes));
-                        disk.insert("free_gb".to_string(), Value::Float(bytes as f64 / 1024.0 / 1024.0 / 1024.0));
+                        disk.insert(
+                            "free_gb".to_string(),
+                            Value::Float(bytes as f64 / 1024.0 / 1024.0 / 1024.0),
+                        );
                     }
                     disks.push(Value::Record(disk));
                 }
             }
         }
     }
-    
+
     Ok(Value::Array(disks))
 }
 
 fn bi_platform_disk_usage(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let path = args.first().and_then(|v| v.as_str().ok()).unwrap_or(".");
-    
+
     #[cfg(target_os = "windows")]
     {
         // Get drive letter from path
@@ -24155,23 +26288,42 @@ fn bi_platform_disk_usage(args: Vec<Value>, _input: Option<Value>) -> Result<Val
                     let key = key.trim().to_lowercase();
                     if let Ok(n) = val.trim().parse::<i64>() {
                         match key.as_str() {
-                            "size" => { info.insert("total_bytes".to_string(), Value::Int(n)); }
-                            "freespace" => { info.insert("free_bytes".to_string(), Value::Int(n)); }
+                            "size" => {
+                                info.insert("total_bytes".to_string(), Value::Int(n));
+                            }
+                            "freespace" => {
+                                info.insert("free_bytes".to_string(), Value::Int(n));
+                            }
                             _ => {}
                         }
                     }
                 }
             }
-            let tot = info.get("total_bytes").and_then(|v| if let Value::Int(n) = v { Some(*n) } else { None });
-            let fre = info.get("free_bytes").and_then(|v| if let Value::Int(n) = v { Some(*n) } else { None });
+            let tot = info.get("total_bytes").and_then(|v| {
+                if let Value::Int(n) = v {
+                    Some(*n)
+                } else {
+                    None
+                }
+            });
+            let fre = info.get("free_bytes").and_then(|v| {
+                if let Value::Int(n) = v {
+                    Some(*n)
+                } else {
+                    None
+                }
+            });
             if let (Some(total), Some(free)) = (tot, fre) {
                 info.insert("used_bytes".to_string(), Value::Int(total - free));
-                info.insert("usage_percent".to_string(), Value::Float(((total - free) as f64 / total as f64) * 100.0));
+                info.insert(
+                    "usage_percent".to_string(),
+                    Value::Float(((total - free) as f64 / total as f64) * 100.0),
+                );
             }
             return Ok(Value::Record(info));
         }
     }
-    
+
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
         if let Ok(out) = std::process::Command::new("df")
@@ -24203,13 +26355,13 @@ fn bi_platform_disk_usage(args: Vec<Value>, _input: Option<Value>) -> Result<Val
             }
         }
     }
-    
+
     Ok(Value::Null)
 }
 
 fn bi_platform_gpus(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut gpus = Vec::new();
-    
+
     // NVIDIA GPUs via nvidia-smi
     if let Ok(out) = std::process::Command::new("nvidia-smi")
         .args(["--query-gpu=index,name,memory.total,memory.free,driver_version,temperature.gpu,utilization.gpu", 
@@ -24245,12 +26397,18 @@ fn bi_platform_gpus(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             }
         }
     }
-    
+
     // AMD GPUs via rocm-smi (Linux)
     #[cfg(target_os = "linux")]
     if gpus.is_empty() {
         if let Ok(out) = std::process::Command::new("rocm-smi")
-            .args(["--showproductname", "--showmeminfo", "vram", "--showtemp", "--showuse"])
+            .args([
+                "--showproductname",
+                "--showmeminfo",
+                "vram",
+                "--showtemp",
+                "--showuse",
+            ])
             .output()
         {
             if out.status.success() {
@@ -24262,12 +26420,18 @@ fn bi_platform_gpus(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             }
         }
     }
-    
+
     // Fallback: Windows DirectX
     #[cfg(target_os = "windows")]
     if gpus.is_empty() {
         if let Ok(out) = std::process::Command::new("wmic")
-            .args(["path", "win32_VideoController", "get", "Name,AdapterRAM,DriverVersion", "/format:list"])
+            .args([
+                "path",
+                "win32_VideoController",
+                "get",
+                "Name,AdapterRAM,DriverVersion",
+                "/format:list",
+            ])
             .output()
         {
             let output = String::from_utf8_lossy(&out.stdout);
@@ -24281,14 +26445,21 @@ fn bi_platform_gpus(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     let val = val.trim();
                     if !val.is_empty() {
                         match key.as_str() {
-                            "name" => { current.insert("name".to_string(), Value::Str(val.to_string())); }
+                            "name" => {
+                                current.insert("name".to_string(), Value::Str(val.to_string()));
+                            }
                             "adapterram" => {
                                 if let Ok(n) = val.parse::<i64>() {
                                     current.insert("memory_bytes".to_string(), Value::Int(n));
-                                    current.insert("memory_mb".to_string(), Value::Int(n / 1024 / 1024));
+                                    current.insert(
+                                        "memory_mb".to_string(),
+                                        Value::Int(n / 1024 / 1024),
+                                    );
                                 }
                             }
-                            "driverversion" => { current.insert("driver".to_string(), Value::Str(val.to_string())); }
+                            "driverversion" => {
+                                current.insert("driver".to_string(), Value::Str(val.to_string()));
+                            }
                             _ => {}
                         }
                     }
@@ -24299,15 +26470,18 @@ fn bi_platform_gpus(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             }
         }
     }
-    
+
     Ok(Value::Array(gpus))
 }
 
 fn bi_platform_gpu_memory(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut info = std::collections::BTreeMap::new();
-    
+
     if let Ok(out) = std::process::Command::new("nvidia-smi")
-        .args(["--query-gpu=memory.total,memory.used,memory.free", "--format=csv,noheader,nounits"])
+        .args([
+            "--query-gpu=memory.total,memory.used,memory.free",
+            "--format=csv,noheader,nounits",
+        ])
         .output()
     {
         if out.status.success() {
@@ -24328,7 +26502,7 @@ fn bi_platform_gpu_memory(_args: Vec<Value>, _input: Option<Value>) -> Result<Va
             }
         }
     }
-    
+
     if info.is_empty() {
         Ok(Value::Null)
     } else {
@@ -24338,11 +26512,18 @@ fn bi_platform_gpu_memory(_args: Vec<Value>, _input: Option<Value>) -> Result<Va
 
 fn bi_platform_network_interfaces(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut interfaces = Vec::new();
-    
+
     #[cfg(target_os = "windows")]
     {
         if let Ok(out) = std::process::Command::new("wmic")
-            .args(["nic", "where", "NetEnabled=true", "get", "Name,MACAddress,Speed", "/format:list"])
+            .args([
+                "nic",
+                "where",
+                "NetEnabled=true",
+                "get",
+                "Name,MACAddress,Speed",
+                "/format:list",
+            ])
             .output()
         {
             let output = String::from_utf8_lossy(&out.stdout);
@@ -24356,12 +26537,19 @@ fn bi_platform_network_interfaces(_args: Vec<Value>, _input: Option<Value>) -> R
                     let val = val.trim();
                     if !val.is_empty() {
                         match key.as_str() {
-                            "name" => { current.insert("name".to_string(), Value::Str(val.to_string())); }
-                            "macaddress" => { current.insert("mac".to_string(), Value::Str(val.to_string())); }
+                            "name" => {
+                                current.insert("name".to_string(), Value::Str(val.to_string()));
+                            }
+                            "macaddress" => {
+                                current.insert("mac".to_string(), Value::Str(val.to_string()));
+                            }
                             "speed" => {
                                 if let Ok(n) = val.parse::<i64>() {
                                     current.insert("speed_bps".to_string(), Value::Int(n));
-                                    current.insert("speed_mbps".to_string(), Value::Int(n / 1_000_000));
+                                    current.insert(
+                                        "speed_mbps".to_string(),
+                                        Value::Int(n / 1_000_000),
+                                    );
                                 }
                             }
                             _ => {}
@@ -24384,7 +26572,7 @@ fn bi_platform_network_interfaces(_args: Vec<Value>, _input: Option<Value>) -> R
             }
         }
     }
-    
+
     #[cfg(target_os = "linux")]
     {
         if let Ok(out) = std::process::Command::new("ip")
@@ -24406,7 +26594,8 @@ fn bi_platform_network_interfaces(_args: Vec<Value>, _input: Option<Value>) -> R
                                 nic.insert("mac".to_string(), Value::Str(mac.to_string()));
                             }
                             if let Some(addrs) = iface.get("addr_info").and_then(|v| v.as_array()) {
-                                let ips: Vec<Value> = addrs.iter()
+                                let ips: Vec<Value> = addrs
+                                    .iter()
                                     .filter_map(|a| a.get("local").and_then(|v| v.as_str()))
                                     .map(|s| Value::Str(s.to_string()))
                                     .collect();
@@ -24421,14 +26610,14 @@ fn bi_platform_network_interfaces(_args: Vec<Value>, _input: Option<Value>) -> R
             }
         }
     }
-    
+
     #[cfg(target_os = "macos")]
     {
         if let Ok(out) = std::process::Command::new("ifconfig").output() {
             let output = String::from_utf8_lossy(&out.stdout);
             let mut current_name = String::new();
             let mut current = std::collections::BTreeMap::new();
-            
+
             for line in output.lines() {
                 if !line.starts_with('\t') && !line.starts_with(' ') && line.contains(':') {
                     if !current_name.is_empty() && !current.is_empty() {
@@ -24438,10 +26627,22 @@ fn bi_platform_network_interfaces(_args: Vec<Value>, _input: Option<Value>) -> R
                     current.clear();
                     current_name = line.split(':').next().unwrap_or("").to_string();
                 } else if line.contains("ether ") {
-                    let mac = line.split("ether ").nth(1).unwrap_or("").split_whitespace().next().unwrap_or("");
+                    let mac = line
+                        .split("ether ")
+                        .nth(1)
+                        .unwrap_or("")
+                        .split_whitespace()
+                        .next()
+                        .unwrap_or("");
                     current.insert("mac".to_string(), Value::Str(mac.to_string()));
                 } else if line.contains("inet ") && !line.contains("inet6") {
-                    let ip = line.split("inet ").nth(1).unwrap_or("").split_whitespace().next().unwrap_or("");
+                    let ip = line
+                        .split("inet ")
+                        .nth(1)
+                        .unwrap_or("")
+                        .split_whitespace()
+                        .next()
+                        .unwrap_or("");
                     current.insert("ipv4".to_string(), Value::Str(ip.to_string()));
                 }
             }
@@ -24451,46 +26652,52 @@ fn bi_platform_network_interfaces(_args: Vec<Value>, _input: Option<Value>) -> R
             }
         }
     }
-    
+
     Ok(Value::Array(interfaces))
 }
 
 fn bi_platform_hardware_summary(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut summary = std::collections::BTreeMap::new();
-    
+
     // CPU info
     if let Ok(Value::Record(cpu)) = bi_platform_cpu(vec![], None) {
         summary.insert("cpu".to_string(), Value::Record(cpu));
     }
-    
+
     // Memory info
     if let Ok(Value::Record(mem)) = bi_platform_memory(vec![], None) {
         summary.insert("memory".to_string(), Value::Record(mem));
     }
-    
+
     // Disk info
     if let Ok(Value::Array(disks)) = bi_platform_disks(vec![], None) {
         summary.insert("disks".to_string(), Value::Array(disks));
     }
-    
+
     // GPU info
     if let Ok(Value::Array(gpus)) = bi_platform_gpus(vec![], None) {
         if !gpus.is_empty() {
             summary.insert("gpus".to_string(), Value::Array(gpus));
         }
     }
-    
+
     // Network info
     if let Ok(Value::Array(nics)) = bi_platform_network_interfaces(vec![], None) {
         if !nics.is_empty() {
             summary.insert("network".to_string(), Value::Array(nics));
         }
     }
-    
+
     // Add architecture and OS
-    summary.insert("arch".to_string(), Value::Str(std::env::consts::ARCH.to_string()));
-    summary.insert("os".to_string(), Value::Str(std::env::consts::OS.to_string()));
-    
+    summary.insert(
+        "arch".to_string(),
+        Value::Str(std::env::consts::ARCH.to_string()),
+    );
+    summary.insert(
+        "os".to_string(),
+        Value::Str(std::env::consts::OS.to_string()),
+    );
+
     Ok(Value::Record(summary))
 }
 

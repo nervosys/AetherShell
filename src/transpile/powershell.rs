@@ -25,7 +25,7 @@ pub fn transpile_powershell_to_ae(src: &str) -> Result<String> {
 
     for raw_line in src.lines() {
         let line = raw_line.trim();
-        
+
         // Handle here-strings @" ... "@
         if in_multiline_string {
             if line == "\"@" || line == "'@" {
@@ -59,7 +59,10 @@ pub fn transpile_powershell_to_ae(src: &str) -> Result<String> {
 
         // Block comments <# ... #>
         if line.starts_with("<#") {
-            out.push_str(&format!("// {}\n", line.trim_start_matches("<#").trim_end_matches("#>").trim()));
+            out.push_str(&format!(
+                "// {}\n",
+                line.trim_start_matches("<#").trim_end_matches("#>").trim()
+            ));
             continue;
         }
 
@@ -101,8 +104,8 @@ Representation
 
 #[derive(Debug, Clone)]
 struct PsCommand {
-    cmdlet: Token,     // The cmdlet or command name
-    args: Vec<Token>,  // Arguments (may include -Parameters)
+    cmdlet: Token,    // The cmdlet or command name
+    args: Vec<Token>, // Arguments (may include -Parameters)
 }
 
 #[derive(Debug, Clone)]
@@ -174,7 +177,7 @@ Assignment parsing
 fn parse_ps_assignment(line: &str) -> Option<String> {
     // Match: $VarName = expression
     let trimmed = line.trim();
-    
+
     // Must start with $
     if !trimmed.starts_with('$') {
         return None;
@@ -182,11 +185,14 @@ fn parse_ps_assignment(line: &str) -> Option<String> {
 
     // Find the = sign
     let eq_pos = trimmed.find('=')?;
-    
+
     // Check for compound assignment operators
     let before_eq = &trimmed[..eq_pos];
-    if before_eq.ends_with('+') || before_eq.ends_with('-') || 
-       before_eq.ends_with('*') || before_eq.ends_with('/') {
+    if before_eq.ends_with('+')
+        || before_eq.ends_with('-')
+        || before_eq.ends_with('*')
+        || before_eq.ends_with('/')
+    {
         return None; // +=, -=, etc. - fallback
     }
 
@@ -226,9 +232,7 @@ fn parse_ps_assignment(line: &str) -> Option<String> {
         if let Some(end) = val_part.rfind(')') {
             let inner = &val_part[2..end];
             let elements: Vec<&str> = inner.split(',').map(|s| s.trim()).collect();
-            let ae_elements: Vec<String> = elements.iter()
-                .map(|e| parse_simple_value(e))
-                .collect();
+            let ae_elements: Vec<String> = elements.iter().map(|e| parse_simple_value(e)).collect();
             return Some(format!("let {} = [{}];", var_part, ae_elements.join(", ")));
         }
     } else if val_part.starts_with("@{") {
@@ -244,7 +248,11 @@ fn parse_ps_assignment(line: &str) -> Option<String> {
         return Some(format!("let {} = null;", var_part));
     } else {
         // Treat as bare string
-        return Some(format!("let {} = \"{}\";", var_part, escape_string(val_part)));
+        return Some(format!(
+            "let {} = \"{}\";",
+            var_part,
+            escape_string(val_part)
+        ));
     }
 
     None
@@ -255,7 +263,7 @@ fn parse_simple_value(s: &str) -> String {
     if s.starts_with('"') && s.ends_with('"') {
         s.to_string()
     } else if s.starts_with('\'') && s.ends_with('\'') {
-        format!("\"{}\"", &s[1..s.len()-1])
+        format!("\"{}\"", &s[1..s.len() - 1])
     } else if s.starts_with('$') {
         s[1..].to_string()
     } else if is_ps_number(s) {
@@ -272,7 +280,7 @@ Pipeline parsing
 fn parse_ps_pipeline(s: &str) -> Result<Vec<PsCommand>> {
     let parts = split_ps_pipes(s)?;
     let mut cmds = Vec::new();
-    
+
     for p in parts {
         let toks = split_ps_words(&p)?;
         if toks.is_empty() {
@@ -282,7 +290,7 @@ fn parse_ps_pipeline(s: &str) -> Result<Vec<PsCommand>> {
         let args = toks[1..].to_vec();
         cmds.push(PsCommand { cmdlet, args });
     }
-    
+
     Ok(cmds)
 }
 
@@ -298,7 +306,7 @@ fn split_ps_pipes(s: &str) -> Result<Vec<String>> {
 
     while i < chars.len() {
         let ch = chars[i];
-        
+
         // Handle escape character
         if ch == '`' && i + 1 < chars.len() {
             cur.push(ch);
@@ -325,7 +333,7 @@ fn split_ps_pipes(s: &str) -> Result<Vec<String>> {
         } else {
             cur.push(ch);
         }
-        
+
         i += 1;
     }
 
@@ -391,7 +399,7 @@ fn split_ps_words(s: &str) -> Result<Vec<Token>> {
         } else {
             cur.push(ch);
         }
-        
+
         i += 1;
     }
 
@@ -404,7 +412,7 @@ fn split_ps_words(s: &str) -> Result<Vec<Token>> {
 
 fn parse_ps_token(s: &str) -> Result<Token> {
     let s = s.trim();
-    
+
     if s.is_empty() {
         return Ok(Token::Single(String::new()));
     }
@@ -427,13 +435,13 @@ fn parse_ps_token(s: &str) -> Result<Token> {
 
     // Single-quoted string
     if s.starts_with('\'') && s.ends_with('\'') && s.len() >= 2 {
-        let inner = &s[1..s.len()-1];
+        let inner = &s[1..s.len() - 1];
         return Ok(Token::Single(inner.to_string()));
     }
 
     // Double-quoted string with variable interpolation
     if s.starts_with('"') && s.ends_with('"') && s.len() >= 2 {
-        let inner = &s[1..s.len()-1];
+        let inner = &s[1..s.len() - 1];
         let pieces = parse_ps_interpolation(inner)?;
         return Ok(Token::Interp(pieces));
     }
@@ -500,12 +508,12 @@ fn parse_ps_interpolation(s: &str) -> Result<Vec<Piece>> {
                     continue;
                 }
             }
-            
+
             cur_text.push(ch);
         } else {
             cur_text.push(ch);
         }
-        
+
         i += 1;
     }
 
@@ -569,7 +577,7 @@ fn render_ps_args(args: &[Token]) -> String {
     // Convert PowerShell args to Aether function args
     let mut result = Vec::new();
     let mut i = 0;
-    
+
     while i < args.len() {
         match &args[i] {
             Token::Parameter(param) => {
@@ -598,7 +606,7 @@ fn render_ps_args(args: &[Token]) -> String {
         }
         i += 1;
     }
-    
+
     result.join(", ")
 }
 
@@ -738,17 +746,17 @@ fn is_ps_number(s: &str) -> bool {
     if s.is_empty() {
         return false;
     }
-    
+
     let s = s.trim();
-    
+
     // Handle negative numbers
     let s = if s.starts_with('-') { &s[1..] } else { s };
-    
+
     // Integer
     if s.chars().all(|c| c.is_ascii_digit()) {
         return true;
     }
-    
+
     // Float
     if s.contains('.') {
         let parts: Vec<&str> = s.split('.').collect();
@@ -757,7 +765,7 @@ fn is_ps_number(s: &str) -> bool {
                 && parts[1].chars().all(|c| c.is_ascii_digit());
         }
     }
-    
+
     false
 }
 
@@ -817,10 +825,14 @@ mod tests {
 
     #[test]
     fn test_pipeline() {
-        let result = transpile_powershell_to_ae("Get-Process | Where-Object { $_.CPU -gt 10 }").unwrap();
+        let result =
+            transpile_powershell_to_ae("Get-Process | Where-Object { $_.CPU -gt 10 }").unwrap();
         // Should transpile to Aether pipeline or fall back if script blocks not supported
-        assert!(result.contains("where") || result.contains("sh(") || result.contains("pwsh"),
-                "Expected pipeline transpilation or fallback, got: {}", result);
+        assert!(
+            result.contains("where") || result.contains("sh(") || result.contains("pwsh"),
+            "Expected pipeline transpilation or fallback, got: {}",
+            result
+        );
     }
 
     #[test]
