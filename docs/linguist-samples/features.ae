@@ -1,0 +1,25 @@
+# Option-like demo + pattern matching with guard clauses
+value = Some(42)
+
+match value {
+  None() => print("no value"),
+  Some(x) if x > 40 => print("big: ${x}"),
+  Some(x) => print("small: ${x}")
+}
+
+# URI type inference — Aether distinguishes URIs from Strings at type level
+let a = "https://example.com"   # Uri
+let b = "s3://bucket/key"       # Uri
+let c = "not a uri"             # String
+
+print(type_of(a))  # => Uri
+print(type_of(b))  # => Uri
+print(type_of(c))  # => String
+
+# AI integration — provider-agnostic model URIs
+let answer = ai("What is 2+2?")
+print(answer)
+
+# Agent framework with tool use
+let result = agent "find large files" ["ls", "!du"] 5
+print(result)

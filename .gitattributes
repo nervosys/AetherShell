@@ -1,0 +1,9 @@
+# Syntax highlighting for .ae files on GitHub
+# Map to JavaScript highlighting as the closest match for AetherShell's syntax
+# (lambdas, let bindings, string interpolation, curly-brace records)
+*.ae linguist-language=JavaScript
+
+# Linguist overrides
+*.rs linguist-detectable=true
+*.tsx linguist-detectable=true
+*.ts linguist-detectable=true
