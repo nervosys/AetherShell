@@ -187,6 +187,21 @@
                 "title": "AI: Generate Documentation",
                 "category": "AetherShell",
                 "icon": "$(book)"
+            },
+            {
+                "command": "aethershell.convertToPipeline",
+                "title": "Convert to Pipeline",
+                "category": "AetherShell"
+            },
+            {
+                "command": "aethershell.addTypeAnnotation",
+                "title": "Add Type Annotation",
+                "category": "AetherShell"
+            },
+            {
+                "command": "aethershell.convertToFormat",
+                "title": "Convert to format()",
+                "category": "AetherShell"
             }
         ],
         "keybindings": [
