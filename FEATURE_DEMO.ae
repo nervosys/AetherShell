@@ -50,7 +50,7 @@ double = multiply(2)
 print("\n🎯 4. PATTERN MATCHING")
 print("-" * 30)
 
-classify_number = fn(n) => match n {
+classify_number = fn(n) => match {
   0 => "zero",
   1 => "small", 
   2 => "small",
@@ -63,7 +63,7 @@ print("Pattern matching examples:")
 [0, 1, 5, 15] | map(classify_number)
 
 print("\nDestructuring:")
-process_record = fn(r) => match r {
+process_record = fn(r) => match {
   {name: n, score: s} if s > 90 => n + " (excellent)",
   {name: n, score: s} if s > 70 => n + " (good)",
   {name: n} => n + " (needs improvement)"

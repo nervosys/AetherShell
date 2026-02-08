@@ -39,7 +39,7 @@ pub let is_some = fn(x) => x != null
 pub let is_none = fn(x) => x == null
 
 # Get value or default
-pub let get_or = fn(x, default) => match x {
+pub let get_or = fn(x, default) => match {
     null => default,
     _ => x
 }

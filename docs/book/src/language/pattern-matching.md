@@ -196,12 +196,46 @@ print label
 
 ## Practical Examples
 
+### Implicit scrutinee in lambdas
+
+When `match` is used inside a lambda body, the scrutinee can be omitted — it defaults to the lambda's first parameter:
+
+```ae
+# Explicit scrutinee (always works)
+let grade = fn(score) => match score {
+    90..100 => "A",
+    80..89  => "B",
+    _       => "C"
+}
+
+# Implicit scrutinee (same result, cleaner)
+let grade = fn(score) => match {
+    90..100 => "A",
+    80..89  => "B",
+    _       => "C"
+}
+
+grade(85)  # "B"
+```
+
+This works with any single-parameter lambda, including in pipelines:
+
+```ae
+[1, 2, 3, 100] | map fn(x) => match {
+    _ if x > 50 => "big",
+    _            => "small"
+}
+# => ["small", "small", "small", "big"]
+```
+
+> **Note**: `match expr { ... }` with an explicit scrutinee is always supported. The implicit form only applies inside lambdas and uses the first parameter.
+
 ### Processing command output
 
 ```ae
 let files = ls "."
 
-files | map fn(f) => match f {
+files | map fn(f) => match {
     {is_dir: true, name} => "📁 ${name}/",
     {ext: "rs", name} => "🦀 ${name}",
     {ext: "md", name} => "📝 ${name}",
