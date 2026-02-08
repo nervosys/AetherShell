@@ -76,7 +76,7 @@ ls "src"
 ### Pattern Matching
 
 ```aethershell
-let describe = fn(x) => match x {
+let describe = fn(x) => match {
     0 => "zero",
     n if n < 0 => "negative",
     n if n > 100 => "large",

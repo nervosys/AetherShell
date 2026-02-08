@@ -177,7 +177,7 @@ let now = fn() => timestamp()
 
 ```aethershell
 # Define a named function (syntax sugar)
-let factorial = fn(n) => match n {
+let factorial = fn(n) => match {
     0 => 1,
     1 => 1,
     n => n * factorial(n - 1)

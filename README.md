@@ -76,7 +76,7 @@ add = fn(a, b) => a + b
   | reduce(fn(a, b) => a + b, 0)        # 24
 
 # Pattern matching
-grade = fn(score) => match score {
+grade = fn(score) => match {
     90..100 => "A",
     80..89 => "B",
     _ => "C"

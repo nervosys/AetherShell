@@ -33,7 +33,7 @@ pub let is_negative = fn(n) => n < 0
 pub let is_zero = fn(n) => n == 0
 
 # Sign of a number: -1, 0, or 1
-pub let sign = fn(n) => match n {
+pub let sign = fn(n) => match {
     _ if n < 0 => -1,
     _ if n > 0 => 1,
     _ => 0
@@ -66,13 +66,13 @@ pub let gcd = fn(a, b) => match b {
 pub let lcm = fn(a, b) => abs(a * b) / gcd(a, b)
 
 # Factorial
-pub let factorial = fn(n) => match n {
+pub let factorial = fn(n) => match {
     _ if n <= 1 => 1,
     _ => n * factorial(n - 1)
 }
 
 # Fibonacci
-pub let fib = fn(n) => match n {
+pub let fib = fn(n) => match {
     0 => 0,
     1 => 1,
     _ => fib(n - 1) + fib(n - 2)

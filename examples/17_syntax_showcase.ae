@@ -17,14 +17,14 @@ print("Created by ${author}")
 # ============================================
 
 numbers = [1, 2, 3, 4, 5]
-user = {
+person = {
   name: "Alice",
   age: 30,
   email: "alice@example.com"
 }
 
 print("\nNumbers: ${numbers}")
-print("User: ${user}")
+print("User: ${person}")
 
 # ============================================
 # FUNCTIONS - First-class values

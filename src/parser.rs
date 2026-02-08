@@ -76,6 +76,10 @@ pub struct Parser {
     // nested expression bodies like lambda bodies to avoid greedy consumption
     // of trailing atoms that belong to an outer call.
     allow_word_call: bool,
+    // Stack of lambda parameter lists for implicit match scrutinee.
+    // When `match { ... }` appears inside a lambda body, the first parameter
+    // of the innermost enclosing lambda is used as the implicit scrutinee.
+    lambda_param_stack: Vec<Vec<String>>,
 }
 
 /// Parse a program, returning statements and any errors encountered.
@@ -86,6 +90,7 @@ pub fn parse_program(src: &str) -> Result<Vec<Stmt>> {
         toks,
         i: 0,
         allow_word_call: false,
+        lambda_param_stack: Vec::new(),
     };
 
     let mut stmts = Vec::new();
@@ -128,6 +133,7 @@ pub fn parse_program_strict(src: &str) -> Result<Vec<Stmt>> {
         toks,
         i: 0,
         allow_word_call: false,
+        lambda_param_stack: Vec::new(),
     };
     let mut stmts = Vec::new();
     while !p.check(Tok::Eof) {
@@ -1447,7 +1453,10 @@ impl Parser {
         // trailing atoms that belong to an outer call (e.g. `fn(a,b)=> a+b 0`).
         let prev_allow = self.allow_word_call;
         self.allow_word_call = false;
+        // Push lambda params so `match { ... }` can use implicit scrutinee
+        self.lambda_param_stack.push(params.clone());
         let body = self.parse_pipe()?; // Changed from parse_logic_or() to parse_pipe()
+        self.lambda_param_stack.pop();
         self.allow_word_call = prev_allow;
         if is_async {
             Ok(Expr::AsyncLambda {
@@ -1463,12 +1472,28 @@ impl Parser {
     }
 
     fn parse_match(&mut self) -> Result<Expr> {
-        // match expr { arms }
-        // Disable word-call to prevent consuming the '{' as a record argument
-        let prev_allow = self.allow_word_call;
-        self.allow_word_call = false;
-        let scrutinee = Box::new(self.parse_pipe()?); // parse just the scrutinee, no word-call
-        self.allow_word_call = prev_allow;
+        // match expr { arms }         — explicit scrutinee
+        // match { arms }              — implicit scrutinee (first param of enclosing lambda)
+        let scrutinee = if self.check(Tok::LBrace) {
+            // No explicit scrutinee — use first param of enclosing lambda
+            let param = self
+                .lambda_param_stack
+                .last()
+                .and_then(|params| params.first().cloned())
+                .ok_or_else(|| {
+                    self.error_at_current(
+                        "`match { ... }` without scrutinee requires an enclosing lambda parameter",
+                    )
+                })?;
+            Box::new(Expr::Ident(param))
+        } else {
+            // Explicit scrutinee expression
+            let prev_allow = self.allow_word_call;
+            self.allow_word_call = false;
+            let expr = self.parse_pipe()?;
+            self.allow_word_call = prev_allow;
+            Box::new(expr)
+        };
 
         self.need(Tok::LBrace, "expected '{' after match expression")?;
 
