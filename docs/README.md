@@ -119,7 +119,7 @@ We especially appreciate:
 
 ## 📜 License
 
-All documentation is licensed under MIT License - same as the main project.
+All documentation is licensed under the AGPL-3.0-or-later — same as the main project.
 
 ---
 

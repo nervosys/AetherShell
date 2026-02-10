@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://crates.io/crates/aethershell"><img src="https://img.shields.io/crates/v/aethershell.svg?style=flat-square&logo=rust&color=orange" alt="Crates.io"></a>
-  <a href="https://github.com/nervosys/AetherShell/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg?style=flat-square" alt="License"></a>
+  <a href="https://github.com/nervosys/AetherShell/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg?style=flat-square" alt="License"></a>
   <a href="https://github.com/nervosys/AetherShell/stargazers"><img src="https://img.shields.io/github/stars/nervosys/AetherShell?style=flat-square&color=yellow" alt="Stars"></a>
 </p>
 
@@ -534,7 +534,7 @@ src/
 
 ## License
 
-Apache 2.0 - see [LICENSE](LICENSE)
+Dual-licensed under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0-or-later) for open source use, with a [commercial license](https://nervosys.ai) available for proprietary and enterprise use. All contributions require a [CLA](CLA.md). See [LICENSE](LICENSE) for details.
 
 ---
 

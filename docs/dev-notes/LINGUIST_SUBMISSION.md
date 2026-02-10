@@ -9,7 +9,7 @@ syntax highlighting for `.ae` files on GitHub.
 - [x] **Extension `.ae` is unclaimed** — verified against `languages.yml` (9277 lines, ~700 languages)
 - [x] **TextMate grammar exists** — `editors/vscode/syntaxes/aethershell.tmLanguage.json` (388 lines)
 - [x] **Grammar scope**: `source.aethershell`
-- [x] **License**: Apache 2.0 (approved by Linguist)
+- [x] **License**: AGPL-3.0-or-later with commercial dual-license (FSF/OSI-approved)
 - [x] **Sample files available**: 12+ example `.ae` files in `examples/`
 - [x] **Markdown injection grammar**: `aethershell.markdown.tmLanguage.json` (fenced code blocks: ae, aether, aethershell)
 - [ ] **Usage threshold**: Linguist requires notable usage on GitHub (guideline: ≥200 unique repos with `.ae` files)

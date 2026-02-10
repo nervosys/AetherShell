@@ -4,7 +4,7 @@
     "description": "Language support for AetherShell - a typed, functional shell with AI capabilities",
     "version": "0.3.0",
     "publisher": "admercs",
-    "license": "MIT",
+    "license": "AGPL-3.0-or-later",
     "engines": {
         "vscode": "^1.85.0"
     },
