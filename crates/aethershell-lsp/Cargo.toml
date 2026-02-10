@@ -3,7 +3,7 @@ name = "aethershell-lsp"
 version = "0.2.0"
 edition = "2021"
 description = "Language Server Protocol implementation for AetherShell"
-license = "Apache-2.0"
+license = "AGPL-3.0-or-later"
 authors = ["Nervosys"]
 repository = "https://github.com/nervosys/AetherShell"
 

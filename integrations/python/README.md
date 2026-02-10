@@ -277,4 +277,4 @@ python -m build
 
 ## License
 
-MIT License - see [LICENSE](../../LICENSE) for details.
+AGPL-3.0-or-later with commercial dual-license option — see [LICENSE](../../LICENSE) for details.

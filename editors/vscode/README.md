@@ -88,4 +88,4 @@ Contributions are welcome! Please visit the [AetherShell repository](https://git
 
 ## License
 
-Apache License 2.0 - see the [LICENSE](https://github.com/nervosys/AetherShell/blob/master/LICENSE) file.
+AGPL-3.0-or-later with commercial dual-license option — see the [LICENSE](https://github.com/nervosys/AetherShell/blob/master/LICENSE) file.

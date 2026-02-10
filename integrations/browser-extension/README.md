@@ -132,4 +132,4 @@ cd integrations/browser-extension
 
 ## License
 
-MIT License - See the main AetherShell LICENSE file
+AGPL-3.0-or-later with commercial dual-license option — see the main AetherShell [LICENSE](https://github.com/nervosys/AetherShell/blob/master/LICENSE) file.
