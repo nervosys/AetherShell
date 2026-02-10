@@ -23,11 +23,9 @@
 //!
 //! Security: CVSS 9.8 → 2.5 (CRIT-002 FIXED)
 
-use crate::providers::tools::{ToolResult, AETHER_TOOLS};
 use crate::security::{check_rate_limit, validate_ai_prompt, validate_command};
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use std::io::Read;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};

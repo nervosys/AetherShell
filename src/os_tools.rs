@@ -10,6 +10,7 @@ use std::collections::HashMap;
 
 /// Supported operating systems for tool execution
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[allow(non_camel_case_types)]
 pub enum OperatingSystem {
     Linux,
     BSD, // FreeBSD, OpenBSD, NetBSD

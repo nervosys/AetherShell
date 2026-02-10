@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 use std::collections::HashMap;
 
-use super::ontology::{Constraint, DateTimeFormat, OSOperation, ParamType, PathType, StringFormat};
+use super::ontology::{DateTimeFormat, OSOperation, ParamType, StringFormat};
 use super::ProviderType;
 
 // ============================================================================

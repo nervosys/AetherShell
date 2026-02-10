@@ -834,7 +834,7 @@ fn get_type_definitions() -> Vec<TypeDefinition> {
 /// Get builtin definitions from documentation
 fn get_builtin_definitions() -> Vec<BuiltinDefinition> {
     // Core builtins with full definitions
-    let mut builtins = vec![
+    let builtins = vec![
         // File System
         BuiltinDefinition {
             name: "ls".to_string(),
@@ -1411,6 +1411,7 @@ fn get_builtin_definitions() -> Vec<BuiltinDefinition> {
 }
 
 /// Categorize a builtin by name
+#[allow(dead_code)]
 fn categorize_builtin(name: &str) -> String {
     match name {
         n if n.starts_with("mcp_") => "MCP".to_string(),

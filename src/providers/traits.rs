@@ -658,7 +658,7 @@ impl ProviderFactory {
     /// Create a provider from type and config
     pub fn from_config(
         provider_type: ProviderType,
-        config: ProviderConfig,
+        _config: ProviderConfig,
     ) -> Result<Box<dyn LLMProvider>, ProviderError> {
         match provider_type {
             ProviderType::OpenAI => Err(ProviderError::Unknown {

@@ -38,12 +38,10 @@
 //! ```
 
 use super::ontology::{
-    CapabilityDomain, OSOperation, OSOperationRegistry, ParamType, PermissionLevel,
+    CapabilityDomain, OSOperation, ParamType, PermissionLevel,
     SupportedPlatform, OS_ONTOLOGY,
 };
-use super::platform::{ExecutionResult, PlatformExecutor, PLATFORM_EXECUTOR};
-use super::schema::ToolSchema;
-use anyhow::{anyhow, Result};
+use super::platform::{PlatformExecutor, PLATFORM_EXECUTOR};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 use std::collections::HashMap;
@@ -375,7 +373,7 @@ fn params_to_json_schema(params: &[super::ontology::OperationParameter]) -> Json
 fn param_type_to_json_schema(param_type: &ParamType) -> JsonValue {
     match param_type {
         ParamType::String {
-            format,
+            format: _,
             min_length,
             max_length,
             pattern,

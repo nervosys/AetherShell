@@ -1144,7 +1144,7 @@ impl PersistenceManager {
         let backend = Arc::clone(&self.backend);
         let running = Arc::clone(&self.running);
         let interval = Duration::from_secs(self.checkpoint_config.interval_secs);
-        let max_checkpoints = self.checkpoint_config.max_checkpoints;
+        let _max_checkpoints = self.checkpoint_config.max_checkpoints;
 
         tokio::spawn(async move {
             let mut ticker = tokio::time::interval(interval);

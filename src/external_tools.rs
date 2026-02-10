@@ -458,7 +458,7 @@ impl ExternalToolRegistry {
     }
 
     /// Infer capabilities from a tool (via --help or common patterns)
-    fn infer_capabilities(tool_path: &Path, name: &str) -> Vec<ToolCapability> {
+    fn infer_capabilities(_tool_path: &Path, name: &str) -> Vec<ToolCapability> {
         let mut capabilities = Vec::new();
 
         // Default capability: run the tool with arguments
@@ -770,7 +770,7 @@ impl ExternalToolRegistry {
         }
 
         // Execute with timeout
-        let timeout = Duration::from_secs(tool.manifest.agent.timeout_secs);
+        let _timeout = Duration::from_secs(tool.manifest.agent.timeout_secs);
         let output = cmd
             .output()
             .with_context(|| format!("Failed to execute {}", tool_name))?;

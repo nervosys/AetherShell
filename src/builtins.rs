@@ -1,4 +1,5 @@
 // src/builtins.rs
+#![allow(dead_code, unreachable_code, unused_variables)]
 use anyhow::{anyhow, Context, Result};
 use serde_json;
 use std::collections::{BTreeMap, HashMap};
