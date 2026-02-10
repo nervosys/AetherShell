@@ -1612,8 +1612,8 @@ impl LeaderElection {
         current_term: &Arc<RwLock<u64>>,
         voted_for: &Arc<RwLock<Option<Uuid>>>,
         current_leader: &Arc<RwLock<Option<Uuid>>>,
-        node_id: Uuid,
-        event_tx: &broadcast::Sender<ClusterEvent>,
+        _node_id: Uuid,
+        _event_tx: &broadcast::Sender<ClusterEvent>,
     ) -> Option<ElectionMessage> {
         match msg {
             ElectionMessage::RequestVote {
@@ -1654,7 +1654,10 @@ impl LeaderElection {
                     success: term >= *my_term,
                 })
             }
-            ElectionMessage::VoteResponse { term, vote_granted } => {
+            ElectionMessage::VoteResponse {
+                term,
+                vote_granted: _,
+            } => {
                 let my_term = *current_term.read().await;
 
                 if term > my_term {

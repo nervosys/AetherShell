@@ -961,7 +961,7 @@ impl WorkflowEngine {
 
         for step in steps {
             let step_clone = step.clone();
-            let ctx_clone = Arc::clone(&context_arc);
+            let _ctx_clone = Arc::clone(&context_arc);
             let event_tx = self.event_tx.clone();
             let workflow_id = context.workflow_id.clone();
 
@@ -1178,7 +1178,11 @@ impl WorkflowEngine {
                     agent_id, prompt
                 )))
             }
-            StepType::Http { method, url, body } => {
+            StepType::Http {
+                method,
+                url,
+                body: _,
+            } => {
                 // Would make HTTP request
                 Ok(Value::Record(BTreeMap::from([
                     ("method".to_string(), Value::Str(method.clone())),
@@ -1204,14 +1208,14 @@ impl WorkflowEngine {
             }
             StepType::WaitForEvent {
                 event_type,
-                timeout_ms,
+                timeout_ms: _,
             } => {
                 // Would wait for an event
                 Ok(Value::Str(format!("Received event: {}", event_type)))
             }
             StepType::EmitEvent {
                 event_type,
-                payload,
+                payload: _,
             } => {
                 // Would emit an event
                 Ok(Value::Record(BTreeMap::from([
@@ -1225,7 +1229,7 @@ impl WorkflowEngine {
             }
             StepType::SubWorkflow {
                 template_id,
-                inputs,
+                inputs: _,
             } => {
                 // Would execute sub-workflow
                 Ok(Value::Str(format!(

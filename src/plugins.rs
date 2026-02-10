@@ -236,6 +236,7 @@ pub struct PluginVTable {
 }
 
 /// A loaded dynamic library plugin
+#[allow(dead_code)]
 pub struct DynamicPlugin {
     metadata: PluginMetadata,
     library: libloading::Library,

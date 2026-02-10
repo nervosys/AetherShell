@@ -2184,7 +2184,7 @@ impl OSOperationRegistry {
     }
 }
 
-/// Global ontology registry instance
+// Global ontology registry instance
 lazy_static::lazy_static! {
     pub static ref OS_ONTOLOGY: OSOperationRegistry = OSOperationRegistry::new();
 }

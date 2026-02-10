@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-use super::traits::{ChatRequest, ChatResponse, LLMProvider, ModelInfo, ProviderError};
+use super::traits::{ChatRequest, LLMProvider, ModelInfo, ProviderError};
 use super::{ModelUri, ProviderConfig, ProviderType};
 
 // ============================================================================
@@ -27,6 +27,7 @@ pub struct ProviderRegistry {
 }
 
 /// Entry for a registered provider
+#[allow(dead_code)]
 struct ProviderEntry {
     /// Provider configuration
     config: ProviderConfig,

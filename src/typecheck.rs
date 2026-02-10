@@ -300,7 +300,7 @@ pub fn type_of_expr(expr: &Expr, env: &mut TypeEnv) -> Result<Type, TypeError> {
             for p in params {
                 local.insert(p.clone(), Type::Any);
             }
-            let ret = type_of_expr(body, &mut local)?;
+            let _ret = type_of_expr(body, &mut local)?;
             // AsyncLambda returns a Future type (which we model as Any for now)
             Ok(Type::Lambda(param_types, Box::new(Type::Any)))
         }

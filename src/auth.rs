@@ -390,6 +390,7 @@ impl AuditEntry {
 // ============================================================================
 
 /// Role-Based Access Control Manager
+#[allow(dead_code)]
 pub struct RbacManager {
     users: RwLock<HashMap<String, User>>,
     roles: RwLock<HashMap<String, Role>>,

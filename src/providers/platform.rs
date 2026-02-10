@@ -1,4 +1,5 @@
 //! Cross-Platform Execution Layer
+#![allow(unexpected_cfgs)]
 //!
 //! Provides a unified interface for executing OS operations across all supported platforms:
 //! - Windows, macOS, Linux (desktop)
