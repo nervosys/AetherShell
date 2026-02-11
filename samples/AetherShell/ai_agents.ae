@@ -1,0 +1,30 @@
+# AetherShell — AI Integration & Autonomous Agents
+# Native multi-modal AI with model URIs and agent framework
+
+# Simple AI prompt
+response = ai("Explain the concept of recursion in one sentence.")
+print(response)
+
+# Model-specific inference via URI scheme
+# Supports: openai:gpt-4o, ollama:llama3, compat:mixtral
+detailed = ai("What are typed pipelines?", {model: "openai:gpt-4o-mini"})
+print(detailed)
+
+# Multi-modal: image analysis
+# description = ai("Describe this architecture diagram", {
+#   images: ["diagram.png"]
+# })
+
+# Multi-modal: audio transcription
+# transcript = ai("Transcribe this meeting", {
+#   audio: ["meeting.mp3"]
+# })
+
+# Autonomous agent with tool use
+# Agents reason, plan, and execute using whitelisted tools
+goal = "Find the three largest Rust source files and summarize their purpose."
+agent goal ["ls", "cat"] 5
+  | print
+
+# Agent with external command access (requires AGENT_ALLOW_CMDS env)
+# deploy_agent = agent "Check git status and list recent commits" ["ls", "!git"] 4

@@ -1,0 +1,39 @@
+# AetherShell — Typed Functional Pipelines
+# Data flows as structured values, not raw text
+
+# Array transforms with first-class lambdas
+numbers = [1, 2, 3, 4, 5]
+doubled = numbers | map(fn(x) => x * 2)
+total = doubled | reduce(fn(a, b) => a + b, 0)
+print("Sum of doubled: ${total}")  # => 20
+
+# Chained filter + take
+top = [10, 3, 8, 1, 7, 5] | where(fn(x) => x > 4) | take(3)
+print(top)  # => [10, 8, 7]
+
+# Higher-order function factory
+scale = fn(factor) => fn(x) => x * factor
+triple = scale(3)
+print([1, 2, 3] | map(triple))  # => [3, 6, 9]
+
+# Structured records through pipelines
+employees = [
+  {name: "Alice", dept: "Eng", salary: 95000},
+  {name: "Bob", dept: "Sales", salary: 72000},
+  {name: "Charlie", dept: "Eng", salary: 88000},
+  {name: "Diana", dept: "Eng", salary: 105000}
+]
+
+eng_salaries = employees
+  | where(fn(e) => e.dept == "Eng")
+  | map(fn(e) => e.salary)
+  | reduce(fn(a, b) => a + b, 0)
+
+print("Engineering payroll: ${eng_salaries}")
+
+# File system as typed table
+files = ls(".")
+large_files = files
+  | where(fn(f) => f.size > 1000)
+  | map(fn(f) => {name: f.name, kb: f.size / 1024})
+print(large_files | take(5))

@@ -1,0 +1,47 @@
+# AetherShell — Pattern Matching & Control Flow
+# Expression-oriented: everything returns a value
+
+# Basic pattern matching
+status = "ok"
+message = match status {
+  "ok" => "All systems operational",
+  "warn" => "Check logs",
+  "error" => "Immediate attention required",
+  _ => "Unknown status: ${status}"
+}
+print(message)
+
+# Option-like algebraic types with guards
+value = Some(42)
+
+match value {
+  None() => print("no value"),
+  Some(x) if x > 100 => print("large: ${x}"),
+  Some(x) if x > 10 => print("medium: ${x}"),
+  Some(x) => print("small: ${x}")
+}
+
+# Numeric pattern matching
+classify = fn(n) => match true {
+  n < 0 => "negative",
+  n == 0 => "zero",
+  n <= 10 => "small",
+  n <= 100 => "medium",
+  _ => "large"
+}
+
+results = [42, -3, 0, 7, 256] | map(fn(x) => {
+  val: x,
+  class: classify(x)
+})
+print(results)
+
+# String interpolation in expressions
+greeting = fn(name, role) =>
+  "Hello ${name}, you are a ${role}!"
+
+print(greeting("Alice", "developer"))
+
+# If-else as expression
+max_val = fn(a, b) => if a > b { a } else { b }
+print("Max of 10, 25: ${max_val(10, 25)}")
