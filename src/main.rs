@@ -436,7 +436,7 @@ async fn handle_mcp_command(command: McpCommands) -> Result<()> {
 }
 
 fn handle_agent_api_command(command: AgentApiCommands) -> Result<()> {
-    use aethershell::agent_api::{self, AgentRequest, SchemaFormat};
+    use aethershell::agent_api::{self, AgentRequest};
     use std::io::{BufRead, Write};
 
     match command {
