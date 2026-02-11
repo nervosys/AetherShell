@@ -16,6 +16,37 @@ keywords = ["shell", "ai", "multi-agent", "functional", "multimodal"]
 categories = ["command-line-utilities", "development-tools"]
 readme = "README.md"
 rust-version = "1.75"
+exclude = [
+    "assets/",
+    "demos/",
+    "docs/",
+    "editors/",
+    "Formula/",
+    "infra/",
+    "integrations/",
+    "samples/",
+    "scripts/",
+    "temp/",
+    "test-scripts/",
+    "website/",
+    "web/",
+    "/FEATURE_DEMO.ae",
+    "/demo_all_features.ae",
+    "/demo_new_features.ae",
+    "/temp_test.ae",
+    "/test_assignment.ae",
+    "/temp_section.md",
+    "Dockerfile",
+    "deny.toml",
+    "DIRECTORY_OVERVIEW.md",
+    "PROJECT_STRUCTURE.md",
+    "ROADMAP.md",
+    "TESTING.md",
+    "CHANGELOG.md",
+    "CLA.md",
+    "CONTRIBUTING.md",
+    ".github/",
+]
 
 [features]
 default = ["native"]
