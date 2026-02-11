@@ -2,7 +2,7 @@
     "name": "aethershell",
     "displayName": "AetherShell",
     "description": "Language support for AetherShell - a typed, functional shell with AI capabilities",
-    "version": "0.3.0",
+    "version": "0.3.1",
     "publisher": "admercs",
     "license": "AGPL-3.0-or-later",
     "engines": {
