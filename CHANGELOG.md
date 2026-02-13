@@ -7,21 +7,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added - Security & Compliance
-- **FIPS 140-2 Compliance**: Full compliance with Federal Information Processing Standard Publication 140-2 for cryptographic operations
-  - Uses FIPS-approved algorithms (SHA-256, AES, ECDHE)
-  - rustls-tls for FIPS-compliant TLS/SSL
-  - No custom cryptographic implementations
-  - Comprehensive compliance documentation and verification script
-- Automated FIPS compliance verification script (`verify_fips_compliance.ps1`)
+## [0.3.1] - 2026-02-10
 
-### Changed - Breaking Changes
-- **Immutable by Default**: Variables are now immutable by default. Use `let mut x = value` or `mut x = value` to create mutable variables. Simple assignment `x = value` creates an immutable binding that can be shadowed but not reassigned. This improves safety and aligns with modern functional programming practices.
+### Changed
+- License changed to AGPL-3.0-or-later with commercial dual-license
+- Crate package size optimized from 10.1 MiB to 733 KiB compressed
 
 ### Added
-- Comprehensive immutability enforcement with 6 dedicated tests
-- Mutability tracking in environment to prevent reassignment of immutable variables
-- Clear error messages guiding users to use `let mut` for mutable variables
+- Contributor License Agreement (CLA) with CI enforcement
+- GitHub Linguist submission package (samples, grammar, guide)
+- README badges for CI, downloads, VS Code marketplace
+- Windows Terminal profile fragment (`editors/windows-terminal/`)
+
+### Fixed
+- All 88 compiler warnings resolved (zero-warning build)
+- Python SDK license corrected to AGPL-3.0
+- Unused `SchemaFormat` import in binary crate
+
+## [0.3.0] - 2026-01-30
+
+### Added
+- Implicit match scrutinee in lambda bodies
+- Python SDK (`integrations/python/`)
+- GitHub Actions CI/CD (ci.yml, release.yml, docker.yml, security-audit.yml)
+- CLA check workflow
+- Bash transpiler improvements
+
+## [0.2.0] - 2026-01-15
+
+### Added - Plugin System
+- Plugin architecture with dynamic TOML manifest loading
+- 7 plugin builtins: `plugins()`, `plugin_info()`, `plugin_enable()`, `plugin_disable()`, `plugin_load()`, `plugin_unload()`, `plugin_categories()`
+- Example plugins (hello-plugin, math-utils, string-utils)
+- Built-in file handlers (JSON, CSV, TOML)
+
+### Added - Language Features
+- Async/await syntax (`async fn(x) => expr`, `await expr`)
+- Try/catch/throw error handling
+- Conditional compilation (`#[cfg(platform)]`, `#[cfg(feature = "name")]`)
+- Module visibility (pub/private, export, re-export)
+- Package management (import syntax, aether.toml, registry)
+- N-ary lambda support (3+ parameters)
+- Zero-parameter lambdas
+- Standard library (7 modules in lib/)
+- Platform detection builtins
+- Runtime feature flags
+- Debugging tools (debug, trace, assert, inspect)
+- Error recovery with multi-error reporting
+
+### Added - Enterprise
+- RBAC (role_create, role_grant, check_permission)
+- Audit logging (audit_log, audit_query, audit_export)
+- SSO integration (sso_init, sso_auth, sso_validate)
+- Compliance reporting
+
+### Added - AI
+- RAG (Retrieval-Augmented Generation)
+- Knowledge graphs
+- Semantic caching
+- Fine-tuning management
+
+### Added - Infrastructure
+- LSP server (aethershell-lsp crate with tower-lsp)
+- VS Code extension v0.2.0 (hover, symbols, folding)
+- Distributed computing builtins (cluster, job scheduling)
+- 5 benchmark suites (parser, eval, pipeline, builtin, MCP)
+- WASM support with browser REPL
+- Distribution: Homebrew, Docker, npm, browser extension
 
 ## [0.1.0] - 2025-10-22
 
@@ -163,13 +215,10 @@ N/A - Initial release
 
 ## Future Plans
 
-See [Roadmap](README.md#🛣️-roadmap) for upcoming features.
+See [ROADMAP.md](ROADMAP.md) for upcoming features.
 
----
-
-## Version History
-
-- **0.1.0** (2025-10-22): Initial public release
-
-[Unreleased]: https://github.com/nervosys/AetherShell/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/nervosys/AetherShell/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/nervosys/AetherShell/compare/v0.3.0...v0.3.1
+[0.3.0]: https://github.com/nervosys/AetherShell/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/nervosys/AetherShell/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/nervosys/AetherShell/releases/tag/v0.1.0
