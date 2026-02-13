@@ -8,31 +8,31 @@ This document tracks the development progress of AetherShell, the world's first 
 
 ## Progress Overview
 
-| Category         | Status      | Details                    |
-| ---------------- | ----------- | -------------------------- |
-| Core Language    | ✅ Complete  | AST-based, Hindley-Milner  |
-| Type System      | ✅ Complete  | Full inference             |
-| Builtins Library | ✅ Complete  | 215+ functions, 38 modules |
-| AI Integration   | ✅ Complete  | Multi-provider, multi-modal|
-| Agent Framework  | ✅ Complete  | Single + swarm + A2A       |
-| TUI Interface    | ✅ Complete  | Tabs, chat, dashboard      |
-| Theme System     | ✅ Complete  | 38 themes                  |
-| Config System    | ✅ Complete  | XDG-compliant              |
-| Plugin System    | ✅ Complete  | Dynamic loading, TOML      |
-| Standard Library | ✅ Complete  | 7 modules (lib/)           |
-| Performance      | ✅ Complete  | 5 benchmark suites         |
-| Test Coverage    | ✅ Complete  | 1,169 tests, 100% pass     |
-| Documentation    | ✅ Complete  | Comprehensive              |
-| Publishing       | ✅ Complete  | crates.io v0.3.1           |
-| WASM Support     | ✅ Complete  | Browser REPL ready         |
-| Enterprise       | ✅ Complete  | RBAC, Audit, SSO           |
-| LSP Server       | ✅ Complete  | tower-lsp, crates.io       |
-| VS Code Extension| ✅ Complete  | Marketplace published      |
-| MCP Protocol     | ✅ Complete  | 130+ tools, HTTP server    |
-| Agent API        | ✅ Complete  | OpenAI/Claude/Gemini schemas|
-| Distribution     | ✅ Complete  | Homebrew, Docker, npm      |
-| CI/CD            | ✅ Complete  | GitHub Actions, CLA check  |
-| Licensing        | ✅ Complete  | AGPL-3.0 + commercial      |
+| Category          | Status     | Details                      |
+| ----------------- | ---------- | ---------------------------- |
+| Core Language     | ✅ Complete | AST-based, Hindley-Milner    |
+| Type System       | ✅ Complete | Full inference               |
+| Builtins Library  | ✅ Complete | 215+ functions, 38 modules   |
+| AI Integration    | ✅ Complete | Multi-provider, multi-modal  |
+| Agent Framework   | ✅ Complete | Single + swarm + A2A         |
+| TUI Interface     | ✅ Complete | Tabs, chat, dashboard        |
+| Theme System      | ✅ Complete | 38 themes                    |
+| Config System     | ✅ Complete | XDG-compliant                |
+| Plugin System     | ✅ Complete | Dynamic loading, TOML        |
+| Standard Library  | ✅ Complete | 7 modules (lib/)             |
+| Performance       | ✅ Complete | 5 benchmark suites           |
+| Test Coverage     | ✅ Complete | 1,169 tests, 100% pass       |
+| Documentation     | ✅ Complete | Comprehensive                |
+| Publishing        | ✅ Complete | crates.io v0.3.1             |
+| WASM Support      | ✅ Complete | Browser REPL ready           |
+| Enterprise        | ✅ Complete | RBAC, Audit, SSO             |
+| LSP Server        | ✅ Complete | tower-lsp, crates.io         |
+| VS Code Extension | ✅ Complete | Marketplace published        |
+| MCP Protocol      | ✅ Complete | 130+ tools, HTTP server      |
+| Agent API         | ✅ Complete | OpenAI/Claude/Gemini schemas |
+| Distribution      | ✅ Complete | Homebrew, Docker, npm        |
+| CI/CD             | ✅ Complete | GitHub Actions, CLA check    |
+| Licensing         | ✅ Complete | AGPL-3.0 + commercial        |
 
 ---
 
