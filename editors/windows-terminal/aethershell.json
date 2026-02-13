@@ -1,0 +1,34 @@
+{
+    "$help": "https://aka.ms/terminal-documentation",
+    "$schema": "https://aka.ms/terminal-profiles-schema",
+    "profiles": [
+        {
+            "name": "AetherShell",
+            "commandline": "ae",
+            "icon": "https://raw.githubusercontent.com/nervosys/AetherShell/master/assets/logo.svg",
+            "startingDirectory": "%USERPROFILE%",
+            "tabTitle": "AetherShell",
+            "colorScheme": "One Half Dark",
+            "font": {
+                "face": "Cascadia Code",
+                "size": 12
+            },
+            "cursorShape": "bar",
+            "padding": "8, 8, 8, 8"
+        },
+        {
+            "name": "AetherShell TUI",
+            "commandline": "ae tui",
+            "icon": "https://raw.githubusercontent.com/nervosys/AetherShell/master/assets/logo.svg",
+            "startingDirectory": "%USERPROFILE%",
+            "tabTitle": "AetherShell TUI",
+            "colorScheme": "One Half Dark",
+            "font": {
+                "face": "Cascadia Code",
+                "size": 12
+            },
+            "cursorShape": "bar",
+            "padding": "8, 8, 8, 8"
+        }
+    ]
+}

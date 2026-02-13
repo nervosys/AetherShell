@@ -5,6 +5,8 @@ src/**
 tsconfig.json
 **/*.ts
 **/*.map
+*.vsix
+package-lock.json
 node_modules/**
 !node_modules/vscode-languageclient/**
 !node_modules/vscode-languageserver-protocol/**
