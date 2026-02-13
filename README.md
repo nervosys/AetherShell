@@ -3,7 +3,10 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/nervosys/AetherShell/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/nervosys/AetherShell/ci.yml?style=flat-square&logo=github&label=CI" alt="CI"></a>
   <a href="https://crates.io/crates/aethershell"><img src="https://img.shields.io/crates/v/aethershell.svg?style=flat-square&logo=rust&color=orange" alt="Crates.io"></a>
+  <a href="https://crates.io/crates/aethershell"><img src="https://img.shields.io/crates/d/aethershell?style=flat-square&color=orange&label=downloads" alt="Downloads"></a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=admercs.aethershell"><img src="https://img.shields.io/visual-studio-marketplace/v/admercs.aethershell?style=flat-square&logo=visual-studio-code&label=VS%20Code" alt="VS Code"></a>
   <a href="https://github.com/nervosys/AetherShell/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg?style=flat-square" alt="License"></a>
   <a href="https://github.com/nervosys/AetherShell/stargazers"><img src="https://img.shields.io/github/stars/nervosys/AetherShell?style=flat-square&color=yellow" alt="Stars"></a>
 </p>
@@ -186,14 +189,14 @@ proc.list() | where(fn(p) => p.cpu > 10) # => High CPU processes
 
 ### Benefits for AI Coding Tools
 
-| Capability | Without AetherShell | With AetherShell |
-|------------|---------------------|------------------|
-| **Cross-platform** | Generate 3+ variants | Single command |
-| **File editing** | Escape hell (`sed`, heredocs) | `file.replace()`, `file.patch()` |
-| **Structured output** | Parse text with regex | Native records/arrays |
-| **Error handling** | Exit codes only | `{success, error, details}` |
-| **Safe execution** | Shell injection risks | Typed parameters |
-| **Batch operations** | Script multiple commands | Atomic operations |
+| Capability            | Without AetherShell           | With AetherShell                 |
+| --------------------- | ----------------------------- | -------------------------------- |
+| **Cross-platform**    | Generate 3+ variants          | Single command                   |
+| **File editing**      | Escape hell (`sed`, heredocs) | `file.replace()`, `file.patch()` |
+| **Structured output** | Parse text with regex         | Native records/arrays            |
+| **Error handling**    | Exit codes only               | `{success, error, details}`      |
+| **Safe execution**    | Shell injection risks         | Typed parameters                 |
+| **Batch operations**  | Script multiple commands      | Atomic operations                |
 
 ### Integration Example
 
@@ -330,13 +333,13 @@ file.replace("template.html",
 
 ### Why This Matters for AI Agents
 
-| Operation | Bash/PowerShell | AetherShell |
-|-----------|-----------------|-------------|
-| Multi-line insert | ❌ Escape hell | ✅ Native strings |
-| Special chars (`$`, `"`, `\`) | ❌ Breaks commands | ✅ Just works |
-| Atomic batch edits | ❌ Manual rollback | ✅ Built-in |
-| Structured results | ❌ Exit codes only | ✅ `{success, applied, failed}` |
-| Unicode/encoding | ❌ Platform-dependent | ✅ UTF-8 always |
+| Operation                     | Bash/PowerShell      | AetherShell                    |
+| ----------------------------- | -------------------- | ------------------------------ |
+| Multi-line insert             | ❌ Escape hell        | ✅ Native strings               |
+| Special chars (`$`, `"`, `\`) | ❌ Breaks commands    | ✅ Just works                   |
+| Atomic batch edits            | ❌ Manual rollback    | ✅ Built-in                     |
+| Structured results            | ❌ Exit codes only    | ✅ `{success, applied, failed}` |
+| Unicode/encoding              | ❌ Platform-dependent | ✅ UTF-8 always                 |
 
 ```ae
 # AI agent can safely edit any file
@@ -450,15 +453,15 @@ agent.with_mcp("Check system health", monitor.tools, "http://localhost:3006")
 
 ### Environment Variables
 
-| Variable | Description |
-|----------|-------------|
-| `OPENAI_API_KEY` | OpenAI API key |
-| `ANTHROPIC_API_KEY` | Anthropic Claude API key |
-| `AETHER_AI` | Default AI provider (`openai`, `ollama`) |
-| `OLLAMA_HOST` | Ollama server URL (default: localhost) |
-| `VLLM_API_BASE` | vLLM server endpoint |
-| `COMPAT_API_BASE` | Custom OpenAI-compatible endpoint |
-| `AGENT_ALLOW_CMDS` | Whitelist of allowed shell commands |
+| Variable            | Description                              |
+| ------------------- | ---------------------------------------- |
+| `OPENAI_API_KEY`    | OpenAI API key                           |
+| `ANTHROPIC_API_KEY` | Anthropic Claude API key                 |
+| `AETHER_AI`         | Default AI provider (`openai`, `ollama`) |
+| `OLLAMA_HOST`       | Ollama server URL (default: localhost)   |
+| `VLLM_API_BASE`     | vLLM server endpoint                     |
+| `COMPAT_API_BASE`   | Custom OpenAI-compatible endpoint        |
+| `AGENT_ALLOW_CMDS`  | Whitelist of allowed shell commands      |
 
 ---
 
