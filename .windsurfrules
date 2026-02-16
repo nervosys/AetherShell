@@ -1,0 +1,22 @@
+﻿# AetherShell - Windsurf Rules
+
+## Project
+AetherShell (`ae`) is a typed functional shell in Rust (v0.3.1, AGPL-3.0-or-later).
+Data flows as typed Values (Int, Float, String, Array, Record, Lambda), not text.
+215+ builtins in 38 modules. Multi-provider AI. MCP/A2A/A2UI/NANDA protocols.
+
+## Architecture
+- Language: `ast.rs` -> `parser.rs` -> `eval.rs` -> `typecheck.rs` (Hindley-Milner)
+- Runtime values: `value.rs` - Value enum with Int, Float, String, Bool, Array, Record, Lambda
+- Builtins: `builtins.rs` - always return structured Value types
+- AI: `ai.rs` - model URIs like `openai:gpt-4o`, `ollama:llama3`
+- Agent API: `agent_api.rs` - HTTP/WS/SSE on port 3002, 25+ provider schemas
+
+## Conventions
+- `anyhow::Result<Value>` for evaluator functions
+- Builtins return `Value::Record` or `Value::Array`, never raw strings
+- Lambda: `fn(x) => x * 2`
+- Pipeline: `data | transform | filter | aggregate`
+
+## Full Context
+See `llms-full.txt` for complete reference. See `.well-known/openapi.yaml` for Agent API spec.

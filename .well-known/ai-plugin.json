@@ -1,0 +1,17 @@
+﻿{
+  "schema_version": "v1",
+  "name_for_human": "AetherShell",
+  "name_for_model": "aethershell",
+  "description_for_human": "The world's first multi-agent shell with typed functional pipelines and multi-modal AI. Execute shell commands, manage files, run AI agents, and build data pipelines - all with structured, typed output.",
+  "description_for_model": "AetherShell is a typed functional shell (binary: ae) that replaces text-based pipelines with structured data flows. Use it for cross-platform system operations, file editing, AI agent orchestration, and data pipelines. All operations return typed values (Int, Float, String, Array, Record) not raw text. Start the Agent API with 'ae agent serve' on port 3002. Send JSON requests to /api/v1/execute with actions: call (invoke a builtin), pipeline (chain operations), eval (run AetherShell code), schema (get function calling definitions), list_builtins (discover available operations). 215+ builtins across 38 modules including file, sys, net, http, crypto, db, ai, agent, mcp.",
+  "auth": {
+    "type": "none"
+  },
+  "api": {
+    "type": "openapi",
+    "url": "https://raw.githubusercontent.com/nervosys/AetherShell/master/.well-known/openapi.yaml"
+  },
+  "logo_url": "https://raw.githubusercontent.com/nervosys/AetherShell/master/assets/icon.png",
+  "contact_email": "contact@nervosys.ai",
+  "legal_info_url": "https://github.com/nervosys/AetherShell/blob/master/LICENSE"
+}

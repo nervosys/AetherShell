@@ -1,0 +1,507 @@
+# AetherShell - Complete AI Context
+
+> The world's first multi-agent shell with typed functional pipelines and multi-modal AI.
+> Version: 0.3.1 | License: AGPL-3.0-or-later | Language: Rust
+> Repository: https://github.com/nervosys/AetherShell
+> Crate: https://crates.io/crates/aethershell (733 KiB compressed)
+
+This file contains everything an AI model needs to understand, use, and generate AetherShell code.
+
+---
+
+## 1. What Is AetherShell?
+
+AetherShell (`ae`) is a shell and scripting language that replaces traditional text-stream pipelines with typed, structured data flows. Written in Rust with Hindley-Milner type inference, it provides 215+ builtins across 38 modules, native AI agent support, and the MCP/A2A/A2UI/NANDA agentic protocols.
+
+**Key differentiators from bash/zsh/PowerShell:**
+- Data flows as typed `Value` (Int, Float, String, Bool, Array, Record, Lambda, Table) - not raw text
+- Cross-platform: identical commands on Windows, macOS, Linux
+- AI agents are first-class citizens with multi-modal support
+- Structured JSON Agent API for external tool integration
+- Expression-oriented: everything returns a value
+
+---
+
+## 2. Installation
+
+```bash
+# From crates.io
+cargo install aethershell
+
+# From source
+git clone https://github.com/nervosys/AetherShell && cd AetherShell
+cargo install --path . --bin ae
+
+# Verify
+ae --version
+```
+
+Binaries: `ae` (shell) and `aimodel` (AI model management CLI).
+
+---
+
+## 3. CLI Usage
+
+```bash
+ae                             # Interactive REPL
+ae tui                         # Terminal UI with tabs, chat, agents
+ae script.ae                   # Execute a script file
+ae -c 'expression'             # Evaluate inline expression
+ae -e 'expression' --json      # Evaluate and output JSON
+ae assist "query"              # AI assistant (natural language to AetherShell)
+ae assist -i                   # Interactive AI assistant mode
+ae assist -x "query"           # Generate and execute AI suggestion
+ae ai "prompt"                 # Direct AI query
+ae agent serve                 # Start Agent API server (port 3002)
+ae agent serve --port 8080     # Custom port
+```
+
+---
+
+## 4. Language Syntax
+
+### 4.1 Variables and Types
+
+```ae
+# Type inference (preferred)
+name = "AetherShell"           # String
+count = 42                     # Int
+pi = 3.14159                   # Float
+active = true                  # Bool
+items = [1, 2, 3]              # Array<Int>
+config = {host: "localhost"}   # Record
+
+# Explicit annotation
+config: Record = {host: "localhost", port: 8080}
+
+# Mutable
+mut counter = 0
+counter = counter + 1
+```
+
+### 4.2 Lambdas and Functions
+
+```ae
+# Lambda syntax
+double = fn(x) => x * 2
+add = fn(a, b) => a + b
+greet = fn() => "hello"
+
+# Multi-parameter
+transform = fn(x, y, z) => x * y + z
+```
+
+### 4.3 Pipelines
+
+```ae
+# Typed pipeline operations
+[1, 2, 3, 4, 5]
+  | where(fn(x) => x > 2)
+  | map(fn(x) => x * 2)
+  | reduce(fn(a, b) => a + b, 0)
+
+# File system pipeline
+ls("./src")
+  | where(fn(f) => f.size > 1024)
+  | map(fn(f) => {name: f.name, kb: f.size / 1024})
+  | take(10)
+```
+
+### 4.4 Pattern Matching
+
+```ae
+grade = fn(score) => match {
+    90..100 => "A",
+    80..89 => "B",
+    70..79 => "C",
+    _ => "F"
+}
+```
+
+### 4.5 Error Handling
+
+```ae
+result = try { risky_operation() } catch e { "fallback" }
+```
+
+### 4.6 String Interpolation
+
+```ae
+greeting = "Hello, ${name}! You have ${count} items."
+```
+
+### 4.7 Async/Await
+
+```ae
+data = await http.get("https://api.example.com/data")
+```
+
+---
+
+## 5. Module System (38 Modules, 215+ Builtins)
+
+All builtins return structured `Value` types, not raw text.
+
+### 5.1 File Operations (`file`)
+```ae
+file.read("config.toml")                    # => String
+file.write("out.txt", "hello")              # => {success: true, bytes: 5}
+file.exists("path")                         # => {exists: bool, is_file: bool, is_dir: bool}
+file.copy("src", "dst")                     # Copy file or directory
+file.move("old", "new")                     # Move/rename
+file.backup("file.txt")                     # Create .bak
+file.patch("file", 10, 20, "new content")   # Replace lines 10-20
+file.replace("file", "old str", "new str")  # String replacement
+file.insert("file", {after: "line"}, "new") # Insert after match
+file.mkdir("path/to/dir")                   # Create directories
+```
+
+### 5.2 System (`sys`, `proc`, `platform`)
+```ae
+sys.hostname()          # => "my-machine"
+sys.uptime()            # => {days: 5, hours: 3, minutes: 42}
+sys.cpu_info()          # => {cores: 8, model: "...", ...}
+sys.mem_info()          # => {total: 16384, used: 8192, free: 8192}
+proc.list()             # => [{pid, name, cpu, memory}, ...]
+proc.kill(1234)         # Kill process
+platform.os()           # => "windows" | "linux" | "macos"
+platform.arch()         # => "x86_64" | "aarch64"
+platform.gpus()         # => [{name: "...", memory_mb: ...}, ...]
+platform.hardware_summary()  # Full system info
+```
+
+### 5.3 Network (`net`, `http`)
+```ae
+net.ping("google.com")          # => {success: true, latency_ms: 12}
+net.dns_lookup("github.com")    # => {ips: [...], ...}
+net.interfaces()                # List network interfaces
+http.get("https://api.example.com")
+http.post("url", {body: data})
+```
+
+### 5.4 Crypto (`crypto`)
+```ae
+crypto.uuid()                            # Generate UUID v4
+crypto.hash("sha256", "hello")           # => "2cf24dba5fb0..."
+crypto.jwt_decode(token)                 # Decode JWT
+```
+
+### 5.5 Database (`db`)
+```ae
+db.sqlite_open("app.db")
+db.sqlite_query(conn, "SELECT * FROM users")
+```
+
+### 5.6 Math, String, Array (`math`, `str`, `arr`)
+```ae
+math.sqrt(16)              # => 4.0
+math.pow(2, 10)            # => 1024
+str.upper("hello")         # => "HELLO"
+str.split("a,b,c", ",")   # => ["a", "b", "c"]
+arr.range(5)               # => [0, 1, 2, 3, 4]
+arr.flatten([[1,2],[3,4]]) # => [1, 2, 3, 4]
+arr.unique([1, 2, 2, 3])   # => [1, 2, 3]
+```
+
+### 5.7 AI (`ai`, `agent`)
+```ae
+ai("Explain recursion")
+ai("Summarize", {context: file.read("README.md")})
+ai("What's this?", {images: ["photo.jpg"]})
+agent("Find TODOs", ["file.read", "grep", "ls"])
+swarm({
+    coordinator: "Security audit",
+    agents: [
+        {role: "scanner", goal: "Find vulnerable deps"},
+        {role: "reviewer", goal: "Check for injections"}
+    ],
+    tools: ["file.read", "grep", "http.get"]
+})
+```
+
+### 5.8 Protocols (`mcp`, `a2a`, `a2ui`, `nanda`)
+```ae
+mcp.tools()                              # List 130+ MCP tools
+mcp.call("git", {command: "status"})
+mcp.connect("http://localhost:3001")
+a2a.send("analyzer", {task: "review"})
+a2ui.notify("Complete", "success")
+a2ui.progress("Processing", 0.75)
+nanda.propose("deployment", {threshold: 0.7})
+```
+
+### 5.9 Enterprise (`rbac`, `audit`, `sso`)
+```ae
+rbac.create("admin", ["read", "write", "delete"])
+rbac.grant("alice", "admin")
+audit.log("file_modified", "config.toml", {user: "alice"})
+sso.init("okta", {client_id: "..."})
+```
+
+### 5.10 ML (`nn`, `evo`, `rl`)
+```ae
+net = nn.create("policy", [8, 16, 4])
+output = nn.forward(net, [0.1, 0.2, ...])
+pop = evo.population(100, "nn", {layers: [4, 8, 2]})
+agent = rl.agent("q-learner", 16, 4, {epsilon: 0.1})
+```
+
+### 5.11 All Module Names
+`file`, `sys`, `proc`, `fs`, `net`, `http`, `gui`, `web`, `crypto`, `db`, `svc`, `cron`, `archive`, `user`, `perm`, `pkg`, `hw`, `clip`, `input`, `ai`, `agent`, `math`, `str`, `arr`, `json`, `mcp`, `shell`, `platform`, `a2ui`, `a2a`, `nanda`, `rbac`, `audit`, `sso`, `cluster`, `nn`, `evo`, `rl`
+
+---
+
+## 6. AI Model URIs
+
+AetherShell uses URI-style model identifiers:
+
+```ae
+ai("openai:gpt-4o", "prompt")            # OpenAI
+ai("openai:gpt-4o-mini", "prompt")       # OpenAI (cost-effective)
+ai("anthropic:claude-3-opus", "prompt")   # Anthropic
+ai("ollama:llama3.2:3b", "prompt")        # Local Ollama
+ai("ollama:codellama:7b", "prompt")       # Local code model
+ai("vllm:mistral-7b", "prompt")           # vLLM
+ai("compat:local-model", "prompt")        # Any OpenAI-compatible
+```
+
+### Environment Variables
+
+| Variable | Description |
+|---|---|
+| `OPENAI_API_KEY` | OpenAI API key |
+| `ANTHROPIC_API_KEY` | Anthropic Claude API key |
+| `AETHER_AI` | Default AI provider (`openai`, `ollama`, `compat`, `tgi`) |
+| `OLLAMA_HOST` | Ollama server URL |
+| `VLLM_API_BASE` | vLLM server endpoint |
+| `COMPAT_API_BASE` | Custom OpenAI-compatible endpoint |
+| `AGENT_ALLOW_CMDS` | Whitelist of shell commands for agents |
+
+---
+
+## 7. Agent API Server
+
+Start with `ae agent serve` (default port 3002). The Agent API provides structured JSON endpoints for AI agents to interact with AetherShell without generating code.
+
+### 7.1 Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/v1/execute` | Execute any AgentRequest |
+| POST | `/api/v1/call/:builtin` | Call a single builtin |
+| POST | `/api/v1/pipeline` | Execute a pipeline |
+| POST | `/api/v1/eval` | Evaluate raw AetherShell code |
+| POST | `/api/v1/stream/execute` | Stream execution (SSE) |
+| POST | `/api/v1/stream/pipeline` | Stream pipeline (SSE) |
+| POST | `/api/v1/stream/eval` | Stream eval (SSE) |
+| GET | `/api/v1/ws` | WebSocket (bidirectional) |
+| GET | `/api/v1/schema` | Full JSON Schema ontology |
+| GET | `/api/v1/schema/:format` | Schema for specific AI provider |
+| GET | `/api/v1/builtins` | List all builtins |
+| GET | `/api/v1/builtins/:name` | Describe a builtin |
+| GET | `/api/v1/types` | Type information |
+| GET | `/health` | Health check |
+| GET/POST | `/api/v1/orchestration/*` | Agent orchestration APIs |
+| GET/POST | `/api/v1/marketplace/*` | Agent marketplace APIs |
+
+### 7.2 Request Format (AgentRequest)
+
+```json
+// Call a builtin
+{"action": "call", "builtin": "ls", "args": {"path": "."}}
+
+// Execute a pipeline
+{"action": "pipeline", "steps": [
+  {"builtin": "ls", "args": {"path": "./src"}},
+  {"builtin": "where", "predicate": "size > 1024"},
+  {"builtin": "select", "args": ["name", "size"]}
+]}
+
+// Evaluate code
+{"action": "eval", "code": "[1,2,3] | map(fn(x) => x * 2)"}
+
+// Get schema
+{"action": "schema", "format": "openai"}
+
+// List builtins
+{"action": "list_builtins", "category": "file"}
+
+// Describe a builtin
+{"action": "describe", "builtin": "file.read"}
+
+// Get type info
+{"action": "type_info", "type_name": "Record"}
+```
+
+### 7.3 Response Format
+
+```json
+{
+  "success": true,
+  "result": [...],
+  "result_type": "Array",
+  "metadata": {"duration_ms": 5}
+}
+```
+
+### 7.4 Schema Formats
+
+The `/api/v1/schema/:format` endpoint supports 25+ AI providers:
+
+`json_schema`, `openai`, `claude`, `gemini`, `llama`, `mistral`, `cohere`, `grok`, `deepseek`, `bedrock`, `azure_openai`, `qwen`, `ollama`, `vllm`, `huggingface`, `openrouter`, `kimi`, `yi`, `glm`, `reka`, `ai21`, `perplexity`, `together`, `groq`, `fireworks`, `ontology`
+
+---
+
+## 8. Python SDK
+
+```bash
+pip install aethershell            # Core
+pip install aethershell[langchain]  # With LangChain tools
+pip install aethershell[all]        # Everything
+```
+
+### 8.1 Basic Usage
+
+```python
+from aethershell import AetherRuntime, Agent, Swarm
+
+runtime = AetherRuntime()
+result = runtime.eval('[1, 2, 3] | map(fn(x) => x * 2)')
+
+agent = Agent(name="helper", model="openai:gpt-4o", runtime=runtime)
+swarm = Swarm(agents=[agent])
+```
+
+### 8.2 LangChain Integration
+
+```python
+from aethershell.langchain import get_aethershell_tools, get_agent_api_tools
+
+# Subprocess-based (requires ae binary)
+tools = get_aethershell_tools()
+
+# HTTP-based (connects to ae agent serve)
+tools = get_agent_api_tools("http://localhost:3002")
+
+# Use with LangChain agent
+from langchain.agents import initialize_agent, AgentType
+agent = initialize_agent(tools, llm, agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION)
+```
+
+### 8.3 HTTP Client
+
+```python
+from aethershell.langchain import AgentAPIClient
+
+client = AgentAPIClient("http://localhost:3002")
+result = client.eval('[1,2,3] | map(fn(x) => x * 2)')
+builtins = client.list_builtins(category="file")
+schema = client.get_schema(fmt="openai")
+client.ping()  # => True if server is reachable
+```
+
+---
+
+## 9. Architecture (for developers)
+
+### 9.1 Source Layout
+
+```
+src/
+  main.rs          # CLI entry point (ae binary)
+  ast.rs           # AST definitions (Stmt, Expr, BinOp)
+  parser.rs        # AetherShell syntax to AST
+  lexer.rs         # Tokenizer
+  tokens.rs        # Token types
+  eval.rs          # Expression evaluator (runtime semantics)
+  value.rs         # Value types (Int, Float, String, Array, Record, Lambda)
+  typecheck.rs     # Hindley-Milner type inference
+  types.rs         # Type definitions
+  builtins.rs      # 215+ builtin functions
+  env.rs           # Environment (variable bindings)
+  ai.rs            # AI provider router (2000+ lines)
+  agent.rs         # Agent framework
+  agent_api.rs     # Agent API (3900+ lines, HTTP server, schemas)
+  repl.rs          # Interactive REPL
+  shell_features.rs
+  os_tools.rs      # OS-level operations
+  ai_api/          # AI model management
+  tui/             # Terminal UI (app, chat, events, media, agents)
+  transpile/       # Bash transpiler
+  bin/aimodel.rs   # AI model CLI
+```
+
+### 9.2 Value System
+
+All operations return typed `Value` variants:
+- `Value::Int(i64)`
+- `Value::Float(f64)`
+- `Value::String(String)`
+- `Value::Bool(bool)`
+- `Value::Array(Vec<Value>)`
+- `Value::Record(BTreeMap<String, Value>)`
+- `Value::Lambda(params, body, env)`
+- `Value::Null`
+
+### 9.3 Pipeline Execution
+
+Pipelines pass typed values between stages:
+```
+Input -> Stage 1 (transform) -> Stage 2 (filter) -> Stage 3 (aggregate) -> Output
+```
+Each stage receives a `Value` and returns a `Value`.
+
+---
+
+## 10. Why AetherShell for AI Agents?
+
+### 10.1 Cross-Platform Consistency
+```ae
+# Same command everywhere - no platform detection needed
+ls("./src")          # Windows, macOS, Linux
+file.read("f.txt")   # No encoding issues
+sys.hostname()       # No command differences
+```
+
+### 10.2 Structured Output
+```ae
+# Returns typed records, not text to parse
+ls(".")     # => [{name: "file.rs", size: 1234, modified: "...", type: "file"}, ...]
+sys.cpu_info()  # => {cores: 8, model: "...", ...}
+```
+
+### 10.3 Safe File Editing
+```ae
+# No escaping issues - handles any content safely
+file.replace("config.rs", "old text", "new text")
+file.patch("Cargo.toml", [{find: "v1", replace: "v2"}])
+# => {success: true, patches_applied: 1}
+```
+
+### 10.4 Discoverable API
+```ae
+mcp.tools()        # List all available tools
+help("file")       # Module documentation
+file               # => {read, write, exists, copy, move, patch, ...}
+```
+
+---
+
+## 11. Project Metadata
+
+- **Name**: AetherShell
+- **Binary**: `ae`
+- **Language**: Rust (2021 edition, MSRV 1.75)
+- **Version**: 0.3.1
+- **License**: AGPL-3.0-or-later (commercial dual-license available)
+- **Author**: Nervosys <contact@nervosys.ai>
+- **Repository**: https://github.com/nervosys/AetherShell
+- **Crate**: https://crates.io/crates/aethershell
+- **VS Code**: https://marketplace.visualstudio.com/items?itemName=admercs.aethershell
+- **Keywords**: shell, ai, multi-agent, functional, multimodal, typed-pipelines, mcp
+- **Categories**: command-line-utilities, development-tools
+- **Tests**: 1,169 passing (100% pass rate)
+- **Source**: ~86,000 lines
+- **Builtins**: 215+ across 38 modules
+- **File Extension**: `.ae`
+- **MIME Type**: `text/x-aethershell`
