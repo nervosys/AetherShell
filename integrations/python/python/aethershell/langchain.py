@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import urllib.request
+import urllib.error
 from typing import Any, Dict, List, Optional, Type, Union
 
 try:
@@ -68,6 +70,12 @@ __all__ = [
     "get_aethershell_tools",
     "get_all_aethershell_tools",
     "create_workflow_agent",
+    # HTTP Agent API tools
+    "AgentAPIClient",
+    "AetherAgentAPITool",
+    "AetherAgentAPIEvalTool",
+    "AetherAgentAPIBuiltinsTool",
+    "get_agent_api_tools",
 ]
 
 
@@ -78,6 +86,84 @@ def _check_langchain():
             "Install with: pip install aethershell[langchain]"
         )
 
+
+
+# ============================================================================
+# HTTP Agent API Client
+# ============================================================================
+
+
+class AgentAPIClient:
+    """
+    HTTP client for the AetherShell Agent API server.
+
+    Connects to a running ``ae agent serve`` instance (default port 3002)
+    and sends structured JSON requests for code evaluation, builtin listing,
+    and schema retrieval.
+
+    Usage::
+
+        client = AgentAPIClient()
+        client = AgentAPIClient("http://myhost:3002")
+
+        result = client.eval('[1,2,3] | map(fn(x) => x * 2)')
+        builtins = client.list_builtins()
+    """
+
+    def __init__(self, base_url: str = "http://127.0.0.1:3002", timeout: int = 30):
+        self.base_url = base_url.rstrip("/")
+        self.timeout = timeout
+
+    def _post(self, payload: dict) -> dict:
+        """Send a JSON POST to the Agent API /request endpoint."""
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            f"{self.base_url}/request",
+            data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.URLError as exc:
+            raise ConnectionError(
+                f"Cannot reach Agent API at {self.base_url}. "
+                f"Start the server with: ae agent serve  -- {exc}"
+            ) from exc
+
+    def eval(self, code: str) -> Any:
+        """Evaluate AetherShell code via the Agent API."""
+        resp = self._post({"action": "eval", "code": code})
+        if resp.get("success"):
+            return resp.get("result")
+        raise RuntimeError(resp.get("error", "Unknown Agent API error"))
+
+    def list_builtins(self, category: Optional[str] = None) -> List[Dict[str, Any]]:
+        """List available AetherShell builtins, optionally filtered by category."""
+        payload: Dict[str, Any] = {"action": "list_builtins"}
+        if category:
+            payload["category"] = category
+        resp = self._post(payload)
+        if resp.get("success"):
+            result = resp.get("result", {})
+            return result.get("builtins", [])
+        raise RuntimeError(resp.get("error", "Unknown Agent API error"))
+
+    def get_schema(self, fmt: str = "compact") -> str:
+        """Get the AetherShell language schema for AI agents."""
+        resp = self._post({"action": "schema", "format": fmt})
+        if resp.get("success"):
+            return json.dumps(resp.get("result", {}), indent=2)
+        raise RuntimeError(resp.get("error", "Unknown Agent API error"))
+
+    def ping(self) -> bool:
+        """Check if the Agent API server is reachable."""
+        try:
+            self._post({"action": "list_builtins"})
+            return True
+        except (ConnectionError, Exception):
+            return False
 
 # ============================================================================
 # Core Tools (Enhanced)
@@ -769,6 +855,103 @@ if LANGCHAIN_AVAILABLE:
             return json.dumps({"error": f"Unknown operation: {operation}"})
 
 
+
+# ============================================================================
+# HTTP Agent API LangChain Tools
+# ============================================================================
+
+if LANGCHAIN_AVAILABLE:
+
+    class AetherAgentAPIEvalTool(BaseTool):
+        """LangChain tool for evaluating AetherShell code via the HTTP Agent API."""
+
+        name: str = "aethershell_agent_api_eval"
+        description: str = (
+            "Evaluate AetherShell code on a remote Agent API server. "
+            "Use this to run shell commands, data pipelines, or AI queries "
+            "via a running ae agent serve instance."
+        )
+        client: Any = None
+
+        def __init__(self, client: Optional[AgentAPIClient] = None, **kwargs):
+            super().__init__(**kwargs)
+            self.client = client or AgentAPIClient()
+
+        def _run(self, code: str) -> str:
+            try:
+                result = self.client.eval(code)
+                return json.dumps(result) if not isinstance(result, str) else result
+            except Exception as e:
+                return f"Error: {e}"
+
+        async def _arun(self, code: str) -> str:
+            return self._run(code)
+
+
+    class AetherAgentAPITool(BaseTool):
+        """LangChain tool for interacting with the AetherShell Agent API.
+
+        Supports eval, list_builtins, and schema actions.
+        """
+
+        name: str = "aethershell_agent_api"
+        description: str = (
+            "Interact with an AetherShell Agent API server. "
+            "Actions: eval (run code), list_builtins (show available builtins), "
+            'schema (get language schema). Input is JSON: {"action": "eval", "code": "..."}'
+        )
+        client: Any = None
+
+        def __init__(self, client: Optional[AgentAPIClient] = None, **kwargs):
+            super().__init__(**kwargs)
+            self.client = client or AgentAPIClient()
+
+        def _run(self, input_str: str) -> str:
+            try:
+                params = json.loads(input_str) if isinstance(input_str, str) else input_str
+                action = params.get("action", "eval")
+                if action == "eval":
+                    result = self.client.eval(params.get("code", ""))
+                    return json.dumps(result) if not isinstance(result, str) else result
+                elif action == "list_builtins":
+                    builtins = self.client.list_builtins(params.get("category"))
+                    return json.dumps(builtins)
+                elif action == "schema":
+                    return self.client.get_schema(params.get("format", "compact"))
+                else:
+                    return json.dumps({"error": f"Unknown action: {action}"})
+            except Exception as e:
+                return f"Error: {e}"
+
+        async def _arun(self, input_str: str) -> str:
+            return self._run(input_str)
+
+
+    class AetherAgentAPIBuiltinsTool(BaseTool):
+        """LangChain tool for listing AetherShell builtins via the Agent API."""
+
+        name: str = "aethershell_agent_api_builtins"
+        description: str = (
+            "List available AetherShell builtins from the Agent API server. "
+            "Optionally filter by category (e.g., 'io', 'data', 'ai')."
+        )
+        client: Any = None
+
+        def __init__(self, client: Optional[AgentAPIClient] = None, **kwargs):
+            super().__init__(**kwargs)
+            self.client = client or AgentAPIClient()
+
+        def _run(self, category: str = "") -> str:
+            try:
+                cat = category.strip() if category else None
+                builtins = self.client.list_builtins(cat)
+                return json.dumps(builtins)
+            except Exception as e:
+                return f"Error: {e}"
+
+        async def _arun(self, category: str = "") -> str:
+            return self._run(category)
+
 # ============================================================================
 # Factory Functions
 # ============================================================================
@@ -853,3 +1036,32 @@ def create_workflow_agent(model: str = "openai:gpt-4o-mini", runtime: Optional[A
         Prefer pipelines for sequential transformations, MapReduce for large parallel processing.""",
         runtime=runtime,
     )
+
+
+def get_agent_api_tools(base_url: str = "http://127.0.0.1:3002") -> List:
+    """
+    Get LangChain tools that connect to a running AetherShell Agent API server.
+
+    These tools use HTTP to communicate with ``ae agent serve`` and do not
+    require a local AetherShell binary or Python subprocess.
+
+    Args:
+        base_url: Agent API server URL (default: http://127.0.0.1:3002)
+
+    Returns:
+        List of LangChain tools for the Agent API
+
+    Example::
+
+        from aethershell.langchain import get_agent_api_tools
+        tools = get_agent_api_tools("http://localhost:3002")
+        # Use with a LangChain agent
+        agent = initialize_agent(tools, llm, agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION)
+    """
+    _check_langchain()
+    client = AgentAPIClient(base_url=base_url)
+    return [
+        AetherAgentAPIEvalTool(client=client),
+        AetherAgentAPITool(client=client),
+        AetherAgentAPIBuiltinsTool(client=client),
+    ]

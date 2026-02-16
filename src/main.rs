@@ -62,8 +62,23 @@ enum Commands {
         #[command(subcommand)]
         command: AgentApiCommands,
     },
-}
 
+    /// AI assistant - natural language to AetherShell transpilation
+    #[command(visible_alias = "ai-assist")]
+    Assist {
+        /// Natural language query (reads from stdin if not provided)
+        query: Option<String>,
+
+        /// Execute the generated code immediately (default: show only)
+        #[arg(long, short = 'x')]
+        execute: bool,
+
+        /// Interactive mode - continuous assistant session
+        #[arg(long, short = 'i')]
+        interactive: bool,
+    },
+
+}
 #[derive(Subcommand)]
 enum AiCommands {
     /// Start the AI model API server
@@ -217,6 +232,11 @@ fn main() -> Result<()> {
                 tokio::runtime::Runtime::new()?.block_on(handle_mcp_command(command))
             }
             Commands::Agent { command } => handle_agent_api_command(command),
+            Commands::Assist {
+                query,
+                execute,
+                interactive,
+            } => handle_assist(query, execute, interactive),
         };
     }
 
@@ -552,6 +572,112 @@ fn handle_agent_api_command(command: AgentApiCommands) -> Result<()> {
         }
     }
 }
+fn handle_assist(query: Option<String>, execute: bool, interactive: bool) -> Result<()> {
+    // AI is used in assist_once below
+    use std::io::{BufRead, Write};
+
+    let system_prompt = "You are an AetherShell assistant. Convert natural language into AetherShell code.\n\n\
+AetherShell is a typed functional shell. Key syntax:\n\
+- Typed pipelines: [1,2,3] | map(fn(x) => x * 2) | reduce(fn(a,b) => a + b, 0)\n\
+- Records: {name: \"John\", age: 30}\n\
+- Tables from ls: ls \".\" | where(fn(r) => r.size > 1000) | select(\"name\", \"size\")\n\
+- Lambdas: fn(x) => x * 2\n\
+- Let bindings: let x = 42\n\
+- HTTP: http_get(\"https://api.example.com\") | parse_json | get(\"items\")\n\
+- File I/O: read_file(\"path\") / write_file(\"path\", content)\n\
+- AI: ai(\"explain quantum computing\")\n\
+- Agent: agent(\"openai:gpt-4o-mini\", \"find large files\", [\"ls\", \"du\"])\n\
+- Builtins: ls, cd, pwd, cat, echo, print, println, env, which, mkdir, rm, \
+map, filter, reduce, sort, reverse, unique, flatten, zip, enumerate, \
+head, tail, skip, take, length, range, split, join, trim, replace, \
+contains, starts_with, ends_with, to_upper, to_lower, \
+parse_json, to_json, parse_csv, http_get, http_post, \
+type_of, to_int, to_float, to_string, append, keys, values, get, set\n\n\
+RULES:\n\
+1. Output ONLY valid AetherShell code - no markdown fences, no explanations.\n\
+2. Use pipelines for data transformation chains.\n\
+3. Prefer builtins over shelling out.\n\
+4. One complete program per response.";
+
+    if interactive {
+        println!("Æther Assist — natural language → AetherShell");
+        println!("Type your request, press Enter. Type 'exit' or Ctrl-D to quit.\n");
+
+        let stdin = io::stdin();
+        let mut stdout = io::stdout();
+
+        loop {
+            print!("assist> ");
+            stdout.flush().ok();
+
+            let mut line = String::new();
+            if stdin.lock().read_line(&mut line)? == 0 {
+                println!();
+                break;
+            }
+
+            let input = line.trim();
+            if input.is_empty() {
+                continue;
+            }
+            if input == "exit" || input == "quit" {
+                break;
+            }
+
+            match assist_once(system_prompt, input, execute) {
+                Ok(_) => {}
+                Err(e) => eprintln!("error: {e}"),
+            }
+            println!();
+        }
+        return Ok(());
+    }
+
+    // Single query mode
+    let input = if let Some(q) = query {
+        q
+    } else {
+        let mut buf = String::new();
+        io::stdin().read_to_string(&mut buf)?;
+        buf
+    };
+
+    assist_once(system_prompt, input.trim(), execute)
+}
+
+fn assist_once(system_prompt: &str, query: &str, execute: bool) -> Result<()> {
+    use aethershell::ai;
+
+    let prompt = format!("{}\n\nUser request: {}", system_prompt, query);
+    let code = ai::complete_sync_router(&prompt)
+        .context("AI completion failed — is AETHER_AI configured?")?;
+
+    // Clean up: strip markdown fences if the model wrapped them anyway
+    let cleaned = code.trim();
+    let cleaned = cleaned
+        .strip_prefix("``
+`aethershell")
+        .or_else(|| cleaned.strip_prefix("``
+`ae"))
+        .or_else(|| cleaned.strip_prefix("``
+`"))
+        .unwrap_or(cleaned);
+    let cleaned = cleaned.strip_suffix("``
+`").unwrap_or(cleaned).trim();
+
+    if execute {
+        println!("# Generated code:");
+        for line in cleaned.lines() {
+            println!("  {}", line);
+        }
+        println!("# Running...\n");
+        run_code(cleaned)?;
+    } else {
+        println!("{}", cleaned);
+    }
+    Ok(())
+}
+
 
 fn repl() -> Result<()> {
     // Simple REPL; keep it lean and rely on your existing `repl.rs` if you have one.

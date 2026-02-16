@@ -198,3 +198,34 @@ harness = false
 [[bench]]
 name = "pipeline_performance"
 harness = false
+
+# ============================================================================
+# Linux Package Metadata
+# ============================================================================
+
+[package.metadata.deb]
+maintainer = "Nervosys <contact@nervosys.ai>"
+copyright = "2024-2026 Nervosys"
+license-file = ["LICENSE", "0"]
+section = "utils"
+priority = "optional"
+extended-description = """\
+AetherShell is a next-generation shell combining typed functional pipelines \
+with multi-modal AI agents. Features include Hindley-Milner type inference, \
+structured data pipelines, multi-provider LLM support, agent swarms, \
+TUI interface, MCP server, and bash compatibility."""
+depends = "$auto"
+assets = [
+    ["target/release/ae", "usr/bin/ae", "755"],
+    ["target/release/aimodel", "usr/bin/aimodel", "755"],
+    ["README.md", "usr/share/doc/aethershell/README.md", "644"],
+    ["LICENSE", "usr/share/doc/aethershell/LICENSE", "644"],
+]
+
+[package.metadata.generate-rpm]
+assets = [
+    { source = "target/release/ae", dest = "/usr/bin/ae", mode = "755" },
+    { source = "target/release/aimodel", dest = "/usr/bin/aimodel", mode = "755" },
+    { source = "README.md", dest = "/usr/share/doc/aethershell/README.md", mode = "644" },
+    { source = "LICENSE", dest = "/usr/share/doc/aethershell/LICENSE", mode = "644" },
+]
