@@ -91,3 +91,17 @@ Set these for full AI functionality:
 - `AETHER_AI=openai` (default AI provider)
 - `OPENAI_API_KEY=...` (or other provider keys)
 - `AGENT_ALLOW_CMDS=ls,git,cat` (whitelist for agent tool use)
+## AI Discoverability Files
+
+AetherShell includes structured metadata files for AI model discovery:
+
+- **`llms.txt`**: Short AI-readable summary following the [llms.txt standard](https://llmstxt.org)
+- **`llms-full.txt`**: Complete AI context with syntax, modules, API, and architecture
+- **`AGENTS.md`**: Agent discovery file for GitHub Copilot and AI assistants
+- **`.well-known/ai-plugin.json`**: OpenAI ChatGPT/Codex plugin manifest
+- **`.well-known/openapi.yaml`**: OpenAPI 3.1 specification for the Agent API
+- **`.cursor/rules`**: Cursor IDE AI context
+- **`.clinerules`**: Cline/Roo AI assistant context
+- **`.windsurfrules`**: Windsurf IDE AI context
+
+When modifying builtins, modules, or API endpoints, keep these files in sync.

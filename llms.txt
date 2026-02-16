@@ -1,0 +1,75 @@
+﻿# AetherShell
+
+> The world's first multi-agent shell with typed functional pipelines and multi-modal AI.
+
+AetherShell (ae) is a next-generation shell and scripting language written in Rust. It replaces traditional text-based shell pipelines with typed, structured data flows using Hindley-Milner type inference. It integrates AI agents, multi-modal content (images, audio, video), and multiple agentic protocols (MCP, A2A, A2UI, NANDA) as first-class features.
+
+## Quick Links
+
+- Repository: https://github.com/nervosys/AetherShell
+- Crate: https://crates.io/crates/aethershell
+- VS Code: https://marketplace.visualstudio.com/items?itemName=admercs.aethershell
+- License: AGPL-3.0-or-later (commercial license available)
+- Full AI context: https://raw.githubusercontent.com/nervosys/AetherShell/master/llms-full.txt
+- Agent API spec: https://raw.githubusercontent.com/nervosys/AetherShell/master/.well-known/openapi.yaml
+
+## Core Concepts
+
+- Language: [README.md](https://github.com/nervosys/AetherShell/blob/master/README.md)
+- Specification: [docs/specs/SPEC.md](https://github.com/nervosys/AetherShell/blob/master/docs/specs/SPEC.md)
+- TUI Guide: [docs/TUI_GUIDE.md](https://github.com/nervosys/AetherShell/blob/master/docs/TUI_GUIDE.md)
+- Agent API: [AGENTS.md](https://github.com/nervosys/AetherShell/blob/master/AGENTS.md)
+- Roadmap: [ROADMAP.md](https://github.com/nervosys/AetherShell/blob/master/ROADMAP.md)
+- Contributing: [CONTRIBUTING.md](https://github.com/nervosys/AetherShell/blob/master/CONTRIBUTING.md)
+
+## Key Capabilities
+
+- **Typed Pipelines**: Data flows as Int, Float, String, Array, Record, Lambda - not raw text
+- **215+ Builtins**: Organized in 38 namespaced modules (file, sys, net, ai, agent, crypto, db, ...)
+- **AI Integration**: Multi-provider (OpenAI, Anthropic, Ollama, vLLM), multi-modal (images/audio/video)
+- **Agent Framework**: Autonomous agents with tool access, swarms with coordinator patterns
+- **Agentic Protocols**: MCP (130+ tools), A2A, A2UI, NANDA
+- **Agent API Server**: HTTP/WebSocket/SSE server with function calling schemas for 25+ AI providers
+- **TUI**: Interactive terminal UI with chat, agents dashboard, media viewer, 38 themes
+- **Cross-Platform**: Same commands on Windows, macOS, Linux - no platform-specific escaping
+- **Enterprise**: RBAC, audit logging, SSO, compliance reporting
+- **ML Builtins**: Neural networks, evolutionary algorithms, reinforcement learning
+
+## Installation
+
+```bash
+cargo install aethershell
+```
+
+## Usage
+
+```bash
+ae                           # REPL
+ae tui                       # Interactive TUI
+ae script.ae                 # Run script
+ae -c 'expr'                 # Evaluate expression
+ae assist "query"            # AI assistant
+ae agent serve               # Start Agent API server on :3002
+```
+
+## For AI Agents
+
+AI agents should use the structured Agent API instead of generating shell code:
+
+```
+POST http://localhost:3002/api/v1/execute
+Content-Type: application/json
+
+{"action": "call", "builtin": "ls", "args": {"path": "."}}
+```
+
+Schema endpoints provide function calling definitions for any AI provider:
+
+```
+GET /api/v1/schema/openai     - OpenAI function calling format
+GET /api/v1/schema/claude     - Anthropic Claude tool use format
+GET /api/v1/schema/gemini     - Google Gemini function declarations
+GET /api/v1/schema/llama      - Meta Llama format
+GET /api/v1/schema/ollama     - Ollama local format
+GET /api/v1/schema            - Full JSON Schema ontology
+```

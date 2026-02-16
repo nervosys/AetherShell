@@ -1,0 +1,569 @@
+openapi: 3.1.0
+info:
+  title: AetherShell Agent API
+  version: 0.3.1
+  description: >
+    Structured JSON API for AI agents to interact with AetherShell, a typed
+    functional shell with 215+ builtins across 38 modules. Start the server
+    with `ae agent serve` (default port 3002).
+  license:
+    name: AGPL-3.0-or-later
+    url: https://www.gnu.org/licenses/agpl-3.0.html
+  contact:
+    name: Nervosys
+    url: https://github.com/nervosys/AetherShell
+    email: contact@nervosys.ai
+
+servers:
+  - url: http://localhost:3002
+    description: Local development server
+
+paths:
+  /api/v1/execute:
+    post:
+      operationId: executeAction
+      summary: Execute any AgentRequest action
+      description: >
+        Central dispatch endpoint. The `action` field determines what happens:
+        call, pipeline, eval, schema, list_builtins, describe, type_info.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentRequest'
+            examples:
+              callBuiltin:
+                summary: Call a builtin function
+                value:
+                  action: call
+                  builtin: ls
+                  args:
+                    path: "."
+              evalCode:
+                summary: Evaluate AetherShell code
+                value:
+                  action: eval
+                  code: "[1,2,3] | map(fn(x) => x * 2)"
+              pipeline:
+                summary: Run a multi-step pipeline
+                value:
+                  action: pipeline
+                  steps:
+                    - builtin: ls
+                      args:
+                        path: "./src"
+                    - builtin: where
+                      predicate: "size > 1024"
+                    - builtin: select
+                      args:
+                        - name
+                        - size
+              getSchema:
+                summary: Get schema for a specific AI provider
+                value:
+                  action: schema
+                  format: openai
+              listBuiltins:
+                summary: List builtins in a category
+                value:
+                  action: list_builtins
+                  category: file
+      responses:
+        '200':
+          description: Successful execution
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentResponse'
+
+  /api/v1/call/{builtin}:
+    post:
+      operationId: callBuiltin
+      summary: Call a specific builtin function by name
+      parameters:
+        - name: builtin
+          in: path
+          required: true
+          schema:
+            type: string
+          description: >
+            Builtin name, optionally module-qualified (e.g., "ls", "file.read",
+            "sys.hostname", "crypto.uuid")
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+              description: Arguments to pass to the builtin
+      responses:
+        '200':
+          description: Builtin result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentResponse'
+
+  /api/v1/pipeline:
+    post:
+      operationId: executePipeline
+      summary: Execute a multi-step typed pipeline
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - steps
+              properties:
+                steps:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/PipelineStep'
+                  description: Ordered pipeline stages
+      responses:
+        '200':
+          description: Pipeline result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentResponse'
+
+  /api/v1/eval:
+    post:
+      operationId: evalCode
+      summary: Evaluate raw AetherShell code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - code
+              properties:
+                code:
+                  type: string
+                  description: AetherShell code to evaluate
+      responses:
+        '200':
+          description: Evaluation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentResponse'
+
+  /api/v1/stream/execute:
+    post:
+      operationId: streamExecute
+      summary: Stream execution results via SSE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentRequest'
+      responses:
+        '200':
+          description: SSE event stream
+          content:
+            text/event-stream: {}
+
+  /api/v1/stream/pipeline:
+    post:
+      operationId: streamPipeline
+      summary: Stream pipeline results via SSE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - steps
+              properties:
+                steps:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/PipelineStep'
+      responses:
+        '200':
+          description: SSE event stream
+          content:
+            text/event-stream: {}
+
+  /api/v1/stream/eval:
+    post:
+      operationId: streamEval
+      summary: Stream eval results via SSE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - code
+              properties:
+                code:
+                  type: string
+      responses:
+        '200':
+          description: SSE event stream
+          content:
+            text/event-stream: {}
+
+  /api/v1/ws:
+    get:
+      operationId: websocketConnect
+      summary: Bidirectional WebSocket for real-time interaction
+      description: >
+        WebSocket endpoint for streaming, multi-turn conversations, and
+        real-time pipeline monitoring. Send AgentRequest JSON messages and
+        receive AgentResponse JSON messages.
+      responses:
+        '101':
+          description: WebSocket upgrade
+
+  /api/v1/schema:
+    get:
+      operationId: getFullSchema
+      summary: Get the complete JSON Schema ontology
+      description: Returns all builtins, types, and capabilities as JSON Schema
+      responses:
+        '200':
+          description: Full schema
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /api/v1/schema/{format}:
+    get:
+      operationId: getSchemaForProvider
+      summary: Get schema formatted for a specific AI provider
+      parameters:
+        - name: format
+          in: path
+          required: true
+          schema:
+            type: string
+            enum:
+              - json_schema
+              - openai
+              - claude
+              - gemini
+              - llama
+              - mistral
+              - cohere
+              - grok
+              - deepseek
+              - bedrock
+              - azure_openai
+              - qwen
+              - ollama
+              - vllm
+              - huggingface
+              - openrouter
+              - kimi
+              - yi
+              - glm
+              - reka
+              - ai21
+              - perplexity
+              - together
+              - groq
+              - fireworks
+              - ontology
+          description: Target AI provider format
+      responses:
+        '200':
+          description: Provider-specific schema
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /api/v1/builtins:
+    get:
+      operationId: listBuiltins
+      summary: List all available builtins
+      parameters:
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by module category (e.g., "file", "sys", "ai")
+      responses:
+        '200':
+          description: List of builtins with descriptions
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /api/v1/builtins/{name}:
+    get:
+      operationId: describeBuiltin
+      summary: Get detailed description of a specific builtin
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Builtin name (e.g., "file.read", "ls", "sys.hostname")
+      responses:
+        '200':
+          description: Builtin details
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /api/v1/types:
+    get:
+      operationId: getTypes
+      summary: Get type system information
+      responses:
+        '200':
+          description: Type definitions and relationships
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /health:
+    get:
+      operationId: healthCheck
+      summary: Health check endpoint
+      responses:
+        '200':
+          description: Server is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  version:
+                    type: string
+                    example: 0.3.1
+
+  /api/v1/orchestration/agents:
+    get:
+      operationId: listAgents
+      summary: List registered agents
+      responses:
+        '200':
+          description: Agent list
+          content:
+            application/json:
+              schema:
+                type: object
+    post:
+      operationId: registerAgent
+      summary: Register a new agent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: Agent registered
+
+  /api/v1/orchestration/tasks:
+    post:
+      operationId: createTask
+      summary: Create a new task for agent execution
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: Task created
+
+  /api/v1/orchestration/workflows:
+    post:
+      operationId: createWorkflow
+      summary: Create a multi-agent workflow
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: Workflow created
+
+  /api/v1/marketplace/publish:
+    post:
+      operationId: publishAgent
+      summary: Publish an agent to the marketplace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: Agent published
+
+  /api/v1/marketplace/search:
+    get:
+      operationId: searchMarketplace
+      summary: Search the agent marketplace
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+          description: Search query
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /api/v1/marketplace/agents:
+    get:
+      operationId: listMarketplaceAgents
+      summary: List all marketplace agents
+      responses:
+        '200':
+          description: Agent catalog
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /api/v1/marketplace/install:
+    post:
+      operationId: installAgent
+      summary: Install an agent from the marketplace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Agent installed
+
+  /api/v1/marketplace/uninstall:
+    post:
+      operationId: uninstallAgent
+      summary: Uninstall a marketplace agent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Agent uninstalled
+
+components:
+  schemas:
+    AgentRequest:
+      type: object
+      required:
+        - action
+      properties:
+        action:
+          type: string
+          enum:
+            - call
+            - pipeline
+            - eval
+            - schema
+            - list_builtins
+            - describe
+            - type_info
+          description: The action to perform
+        builtin:
+          type: string
+          description: Builtin name (for call, describe actions)
+        args:
+          oneOf:
+            - type: object
+              additionalProperties: true
+            - type: array
+              items:
+                type: string
+          description: Arguments for the builtin
+        code:
+          type: string
+          description: AetherShell code (for eval action)
+        steps:
+          type: array
+          items:
+            $ref: '#/components/schemas/PipelineStep'
+          description: Pipeline steps (for pipeline action)
+        format:
+          type: string
+          description: Schema format (for schema action)
+        category:
+          type: string
+          description: Module category (for list_builtins)
+        type_name:
+          type: string
+          description: Type name (for type_info)
+
+    PipelineStep:
+      type: object
+      required:
+        - builtin
+      properties:
+        builtin:
+          type: string
+          description: Builtin function to call
+        args:
+          oneOf:
+            - type: object
+              additionalProperties: true
+            - type: array
+              items:
+                type: string
+          description: Step arguments
+        predicate:
+          type: string
+          description: Filter predicate expression
+
+    AgentResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the action succeeded
+        result:
+          description: The result value (type depends on the action)
+        result_type:
+          type: string
+          description: AetherShell type of the result (Int, String, Array, Record, etc.)
+        error:
+          type: string
+          description: Error message if success is false
+        metadata:
+          type: object
+          properties:
+            duration_ms:
+              type: number
+              description: Execution time in milliseconds
