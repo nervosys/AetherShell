@@ -212,3 +212,45 @@ jobs:
                   # 1. Calculate SHA256 of the release tarball
                   # 2. Update the formula in nervosys/homebrew-tap
                   # 3. Create a PR or push directly
+
+    build-linux-packages:
+        name: Linux Packages (.deb/.rpm)
+        needs: [create-release, build-binaries]
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: dtolnay/rust-toolchain@stable
+
+            - uses: Swatinem/rust-cache@v2
+              with:
+                  key: linux-packages
+
+            - name: Install system dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y libasound2-dev libssl-dev pkg-config
+
+            - name: Install packaging tools
+              run: cargo install cargo-deb cargo-generate-rpm
+
+            - name: Build release binary
+              run: cargo build --release --features native
+
+            - name: Build .deb package
+              run: cargo deb --no-build
+
+            - name: Build .rpm package
+              run: cargo generate-rpm
+
+            - name: Upload .deb package
+              uses: softprops/action-gh-release@v1
+              with:
+                  tag_name: v${{ needs.create-release.outputs.version }}
+                  files: target/debian/*.deb
+
+            - name: Upload .rpm package
+              uses: softprops/action-gh-release@v1
+              with:
+                  tag_name: v${{ needs.create-release.outputs.version }}
+                  files: target/generate-rpm/*.rpm
