@@ -49,6 +49,13 @@ This document tracks the development progress of AetherShell, the world's first 
 - [x] Linguist submission package prepared (samples, grammar, guide)
 - [x] Crate package optimized (10.1 MiB → 733 KiB compressed)
 - [x] README badges: CI, crates.io version, downloads, VS Code, license, stars
+- [x] Linux packages (.deb/.rpm) — Cargo.toml metadata + CI job
+- [x] LangChain HTTP Agent API tools (`AgentAPIClient` + 3 tool classes)
+- [x] System AI assistant (`ae assist`) — interactive/execute/context/suggest modes
+- [x] AI discoverability metadata (llms.txt, AGENTS.md, OpenAPI, plugin manifest)
+- [x] PyPI distribution for Python SDK (pyproject.toml, CI workflow)
+- [x] Context-aware command suggestions and NL transpilation
+- [x] Windows Terminal custom profile
 
 ### v0.3.0 — January 2026
 - [x] Implicit match scrutinee in lambda bodies
@@ -182,19 +189,21 @@ This document tracks the development progress of AetherShell, the world's first 
 ## Planned Features
 
 ### Q2 2026 — Polish & Ecosystem
-- [ ] Linux packages (.deb, .rpm)
-- [ ] Windows Terminal integration (custom profile)
+- [x] Linux packages (.deb, .rpm)
+- [x] Windows Terminal integration (custom profile)
 - [ ] VS Code Web extension
 - [ ] PyPI distribution for Python SDK
-- [ ] LangChain tool integration
+- [x] LangChain tool integration
 - [ ] JupyterLab extension
 - [ ] Publish Linguist PR (pending ecosystem growth)
+- [x] AI discoverability (llms.txt, AGENTS.md, ai-plugin.json, OpenAPI, IDE rules)
+- [x] PyPI distribution for Python SDK
 
 ### Q3 2026 — System AI Assistant
-- [ ] System AI assistant mode (`ae assist`)
-- [ ] Context-aware command suggestions
-- [ ] Natural language → AetherShell transpilation
-- [ ] Conversation memory and session persistence
+- [x] System AI assistant mode (`ae assist`)
+- [x] Context-aware command suggestions
+- [x] Natural language → AetherShell transpilation
+- [x] Conversation memory and session persistence
 - [ ] Proactive monitoring and alerting
 
 ### Q4 2026 — Cloud & Scale

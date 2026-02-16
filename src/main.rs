@@ -76,6 +76,14 @@ enum Commands {
         /// Interactive mode - continuous assistant session
         #[arg(long, short = 'i')]
         interactive: bool,
+
+        /// Context-aware mode - include system info in prompts
+        #[arg(long, short = 'c')]
+        context: bool,
+
+        /// Suggest useful commands based on current directory
+        #[arg(long, short = 's')]
+        suggest: bool,
     },
 
 }
@@ -236,7 +244,9 @@ fn main() -> Result<()> {
                 query,
                 execute,
                 interactive,
-            } => handle_assist(query, execute, interactive),
+                context,
+                suggest,
+            } => handle_assist(query, execute, interactive, context, suggest),
         };
     }
 
@@ -572,39 +582,37 @@ fn handle_agent_api_command(command: AgentApiCommands) -> Result<()> {
         }
     }
 }
-fn handle_assist(query: Option<String>, execute: bool, interactive: bool) -> Result<()> {
-    // AI is used in assist_once below
+fn handle_assist(query: Option<String>, execute: bool, interactive: bool, context: bool, suggest: bool) -> Result<()> {
     use std::io::{BufRead, Write};
 
-    let system_prompt = "You are an AetherShell assistant. Convert natural language into AetherShell code.\n\n\
-AetherShell is a typed functional shell. Key syntax:\n\
-- Typed pipelines: [1,2,3] | map(fn(x) => x * 2) | reduce(fn(a,b) => a + b, 0)\n\
-- Records: {name: \"John\", age: 30}\n\
-- Tables from ls: ls \".\" | where(fn(r) => r.size > 1000) | select(\"name\", \"size\")\n\
-- Lambdas: fn(x) => x * 2\n\
-- Let bindings: let x = 42\n\
-- HTTP: http_get(\"https://api.example.com\") | parse_json | get(\"items\")\n\
-- File I/O: read_file(\"path\") / write_file(\"path\", content)\n\
-- AI: ai(\"explain quantum computing\")\n\
-- Agent: agent(\"openai:gpt-4o-mini\", \"find large files\", [\"ls\", \"du\"])\n\
-- Builtins: ls, cd, pwd, cat, echo, print, println, env, which, mkdir, rm, \
-map, filter, reduce, sort, reverse, unique, flatten, zip, enumerate, \
-head, tail, skip, take, length, range, split, join, trim, replace, \
-contains, starts_with, ends_with, to_upper, to_lower, \
-parse_json, to_json, parse_csv, http_get, http_post, \
-type_of, to_int, to_float, to_string, append, keys, values, get, set\n\n\
-RULES:\n\
-1. Output ONLY valid AetherShell code - no markdown fences, no explanations.\n\
-2. Use pipelines for data transformation chains.\n\
-3. Prefer builtins over shelling out.\n\
-4. One complete program per response.";
+    let system_prompt = build_assist_prompt();
+    let ctx = if context { gather_system_context() } else { String::new() };
+
+    // Suggest mode: analyze cwd and suggest useful commands
+    if suggest {
+        let suggest_prompt = format!(
+            "{}\n\n{}\n\nBased on the context above, suggest 3-5 useful AetherShell commands \
+             the user could run in this directory. Format each as a one-line comment explaining \
+             what it does, followed by the code on the next line. Separate suggestions with blank lines.",
+            system_prompt, ctx
+        );
+        let suggestions = aethershell::ai::complete_sync_router(&suggest_prompt)
+            .context("AI completion failed — is AETHER_AI configured?")?;
+        println!("{}", clean_ai_output(&suggestions));
+        return Ok(());
+    }
 
     if interactive {
         println!("Æther Assist — natural language → AetherShell");
-        println!("Type your request, press Enter. Type 'exit' or Ctrl-D to quit.\n");
+        println!("Type your request, press Enter. Type 'exit' or Ctrl-D to quit.");
+        if context {
+            println!("Context-aware mode: system info included in prompts.");
+        }
+        println!();
 
         let stdin = io::stdin();
         let mut stdout = io::stdout();
+        let mut history: Vec<String> = Vec::new();
 
         loop {
             print!("assist> ");
@@ -624,8 +632,19 @@ RULES:\n\
                 break;
             }
 
-            match assist_once(system_prompt, input, execute) {
-                Ok(_) => {}
+            // Build context-aware prompt with conversation history
+            let history_context = if !history.is_empty() {
+                let recent: Vec<String> = history.iter().rev().take(5).cloned().collect::<Vec<_>>().into_iter().rev().collect();
+                format!("\nRecent conversation:\n{}\n", recent.join("\n"))
+            } else {
+                String::new()
+            };
+
+            match assist_once(&system_prompt, &ctx, &history_context, input, execute) {
+                Ok(code) => {
+                    history.push(format!("User: {}", input));
+                    history.push(format!("Assistant: {}", code));
+                }
                 Err(e) => eprintln!("error: {e}"),
             }
             println!();
@@ -642,28 +661,162 @@ RULES:\n\
         buf
     };
 
-    assist_once(system_prompt, input.trim(), execute)
+    assist_once(&system_prompt, &ctx, "", input.trim(), execute)?;
+    Ok(())
+}
+/// Build the comprehensive system prompt for NL -> AetherShell transpilation
+fn build_assist_prompt() -> String {
+    "You are an AetherShell assistant. Convert natural language into AetherShell code.\n\n\
+AetherShell is a typed functional shell where data flows as structured values through pipelines.\n\n\
+## Core Syntax\n\
+- Variables: x = 42, name = \"hello\", items = [1,2,3], config = {key: \"val\"}\n\
+- Lambdas: fn(x) => x * 2, fn(a, b) => a + b\n\
+- Pipelines: data | where(fn(x) => x > 0) | map(fn(x) => x * 2) | take(5)\n\
+- Pattern matching: match val { 1 => \"one\", 2 => \"two\", _ => \"other\" }\n\
+- Error handling: try { risky() } catch e { fallback }\n\
+- String interpolation: \"Hello ${name}, you have ${count} items\"\n\
+- Async: await http.get(url)\n\n\
+## Module System (38 modules, 215+ builtins)\n\
+### File & System\n\
+- file.read(path), file.write(path, data), file.exists(path), file.copy(src, dst)\n\
+- file.replace(path, old, new), file.patch(path, line_start, line_end, content)\n\
+- file.insert(path, {after: pattern}, content), file.backup(path)\n\
+- ls(path), cd(path), pwd(), cat(path), mkdir(path), rm(path)\n\
+- sys.hostname(), sys.uptime(), sys.cpu_info(), sys.mem_info()\n\
+- proc.list(), proc.kill(pid)\n\
+- platform.os(), platform.arch(), platform.gpus(), platform.hardware_summary()\n\n\
+### Data & Text\n\
+- str.upper(s), str.lower(s), str.split(s, delim), str.trim(s), str.replace(s, old, new)\n\
+- arr.range(n), arr.flatten(a), arr.unique(a), arr.sort(a), arr.reverse(a)\n\
+- json.parse(s), json.stringify(v)\n\
+- math.sqrt(x), math.pow(a, b), math.abs(x), math.ceil(x), math.floor(x)\n\n\
+### Pipeline Operations\n\
+- map(fn), where(fn), reduce(fn, init), sort(fn), reverse()\n\
+- take(n), skip(n), head(n), tail(n), flatten(), unique()\n\
+- select(field1, field2), get(key), keys(), values()\n\
+- length(), enumerate(), zip(other)\n\n\
+### Network & HTTP\n\
+- net.ping(host), net.dns_lookup(host), net.interfaces()\n\
+- http.get(url), http.post(url, body), http.put(url, body), http.delete(url)\n\n\
+### Crypto & Database\n\
+- crypto.uuid(), crypto.hash(algo, data), crypto.jwt_decode(token)\n\
+- db.sqlite_open(path), db.sqlite_query(conn, sql)\n\n\
+### AI & Agents\n\
+- ai(prompt), ai(prompt, {context: data}), ai(prompt, {images: [path]})\n\
+- agent(goal, tools), agent(goal, tools, {model: \"openai:gpt-4o\", max_steps: 10})\n\
+- swarm({coordinator: goal, agents: [...], tools: [...]})\n\n\
+### Protocols\n\
+- mcp.tools(), mcp.call(tool, args)\n\
+- a2a.send(agent, msg)\n\
+- a2ui.notify(msg, level), a2ui.progress(label, fraction)\n\n\
+### Enterprise\n\
+- rbac.create(role, perms), rbac.grant(user, role)\n\
+- audit.log(action, target, meta)\n\
+- sso.init(provider, config)\n\n\
+### Other Modules\n\
+- shell.exec(cmd), env(key), which(cmd)\n\
+- clip.read(), clip.write(text)\n\
+- archive.compress(path, format), archive.extract(path)\n\
+- cron.schedule(expr, cmd), svc.list(), pkg.list()\n\n\
+## AI Model URIs\n\
+- openai:gpt-4o, openai:gpt-4o-mini\n\
+- ollama:llama3, ollama:codellama\n\
+- anthropic:claude-3-opus\n\n\
+RULES:\n\
+1. Output ONLY valid AetherShell code — no markdown fences, no explanations.\n\
+2. Use pipelines for data transformation chains.\n\
+3. Prefer module builtins (file.read, sys.hostname) over raw shell commands.\n\
+4. One complete program per response.\n\
+5. Use the most appropriate module for each task.".to_string()
+}
+/// Gather system context for context-aware suggestions
+fn gather_system_context() -> String {
+    let mut ctx = String::from("## System Context\n");
+
+    // Working directory
+    if let Ok(cwd) = std::env::current_dir() {
+        ctx.push_str(&format!("- Working directory: {}\n", cwd.display()));
+
+        // List files in cwd (first 20)
+        if let Ok(entries) = std::fs::read_dir(&cwd) {
+            let mut files: Vec<String> = Vec::new();
+            for entry in entries.flatten().take(20) {
+                let name = entry.file_name().to_string_lossy().to_string();
+                let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+                if is_dir {
+                    files.push(format!("{}/", name));
+                } else {
+                    files.push(name);
+                }
+            }
+            ctx.push_str(&format!("- Directory contents: {}\n", files.join(", ")));
+        }
+    }
+
+    // OS and platform
+    ctx.push_str(&format!("- OS: {}\n", std::env::consts::OS));
+    ctx.push_str(&format!("- Arch: {}\n", std::env::consts::ARCH));
+
+    // Detect project type from files
+    let project_indicators = [
+        ("Cargo.toml", "Rust project"),
+        ("package.json", "Node.js project"),
+        ("pyproject.toml", "Python project"),
+        ("go.mod", "Go project"),
+        ("pom.xml", "Java/Maven project"),
+        ("build.gradle", "Java/Gradle project"),
+        ("Makefile", "Make-based project"),
+        ("Dockerfile", "Docker containerized"),
+        (".git", "Git repository"),
+        ("docker-compose.yml", "Docker Compose setup"),
+    ];
+
+    let mut detected: Vec<&str> = Vec::new();
+    for (file, label) in &project_indicators {
+        if std::path::Path::new(file).exists() {
+            detected.push(label);
+        }
+    }
+    if !detected.is_empty() {
+        ctx.push_str(&format!("- Project type: {}\n", detected.join(", ")));
+    }
+
+    // Relevant env vars (without values for security)
+    let relevant_vars = [
+        "AETHER_AI", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
+        "OLLAMA_HOST", "EDITOR", "SHELL", "TERM",
+    ];
+    let set_vars: Vec<&str> = relevant_vars
+        .iter()
+        .filter(|v| std::env::var(v).is_ok())
+        .copied()
+        .collect();
+    if !set_vars.is_empty() {
+        ctx.push_str(&format!("- Available env vars: {}\n", set_vars.join(", ")));
+    }
+
+    ctx
+}
+/// Clean AI output: strip markdown fences and whitespace
+fn clean_ai_output(raw: &str) -> String {
+    let cleaned = raw.trim();
+    let cleaned = cleaned
+        .strip_prefix("```aethershell")
+        .or_else(|| cleaned.strip_prefix("```ae"))
+        .or_else(|| cleaned.strip_prefix("```"))
+        .unwrap_or(cleaned);
+    let cleaned = cleaned.strip_suffix("```").unwrap_or(cleaned).trim();
+    cleaned.to_string()
 }
 
-fn assist_once(system_prompt: &str, query: &str, execute: bool) -> Result<()> {
+fn assist_once(system_prompt: &str, system_context: &str, history: &str, query: &str, execute: bool) -> Result<String> {
     use aethershell::ai;
 
-    let prompt = format!("{}\n\nUser request: {}", system_prompt, query);
+    let prompt = format!("{}\n\n{}{}\nUser request: {}", system_prompt, system_context, history, query);
     let code = ai::complete_sync_router(&prompt)
         .context("AI completion failed — is AETHER_AI configured?")?;
 
-    // Clean up: strip markdown fences if the model wrapped them anyway
-    let cleaned = code.trim();
-    let cleaned = cleaned
-        .strip_prefix("``
-`aethershell")
-        .or_else(|| cleaned.strip_prefix("``
-`ae"))
-        .or_else(|| cleaned.strip_prefix("``
-`"))
-        .unwrap_or(cleaned);
-    let cleaned = cleaned.strip_suffix("``
-`").unwrap_or(cleaned).trim();
+    let cleaned = clean_ai_output(&code);
 
     if execute {
         println!("# Generated code:");
@@ -671,14 +824,12 @@ fn assist_once(system_prompt: &str, query: &str, execute: bool) -> Result<()> {
             println!("  {}", line);
         }
         println!("# Running...\n");
-        run_code(cleaned)?;
+        run_code(&cleaned)?;
     } else {
         println!("{}", cleaned);
     }
-    Ok(())
+    Ok(cleaned.to_string())
 }
-
-
 fn repl() -> Result<()> {
     // Simple REPL; keep it lean and rely on your existing `repl.rs` if you have one.
     // Here we do a tiny inline REPL to avoid extra wires.

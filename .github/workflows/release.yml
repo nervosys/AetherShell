@@ -213,6 +213,32 @@ jobs:
                   # 2. Update the formula in nervosys/homebrew-tap
                   # 3. Create a PR or push directly
 
+    publish-pypi:
+        name: Publish Python SDK to PyPI
+        needs: [create-release]
+        runs-on: ubuntu-latest
+        permissions:
+            id-token: write
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: actions/setup-python@v5
+              with:
+                  python-version: "3.12"
+
+            - name: Install build tools
+              run: pip install build twine
+
+            - name: Build package
+              working-directory: integrations/python
+              run: python -m build
+
+            - name: Publish to PyPI
+              uses: pypa/gh-action-pypi-publish@release/v1
+              with:
+                  packages-dir: integrations/python/dist/
+              continue-on-error: true
+
     build-linux-packages:
         name: Linux Packages (.deb/.rpm)
         needs: [create-release, build-binaries]
