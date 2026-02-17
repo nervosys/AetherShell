@@ -5,6 +5,9 @@ use serde_json;
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::process::Command;
+use chrono::{Datelike, Local, NaiveDate, Timelike};
+use sha2::{Sha256, Digest as Sha2Digest};
+use sysinfo::{System, Disks, Networks};
 use walkdir::WalkDir;
 
 use crate::{
@@ -29545,182 +29548,128 @@ pub fn bi_touch(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Str(format!("touched: {}", path)))
 }
 
-/// 953: bi_file_type - Detect MIME type. Args: path.
+/// 953: bi_file_type - Detect file MIME type (cross-platform, no shell-out).
 pub fn bi_file_type(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(anyhow!("file_type: expected path string")),
     };
-    #[cfg(not(target_os = "windows"))]
-    {
-        let out = Command::new("file").args(&["--mime-type", "-b", &path]).output()
-            .map_err(|e| anyhow!("file_type: {}", e))?;
-        let mime = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        Ok(Value::Str(mime))
-    }
-    #[cfg(target_os = "windows")]
-    {
-        let ext = std::path::Path::new(&path).extension()
-            .and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
-        let mime = match ext.as_str() {
-            "txt" => "text/plain", "html" | "htm" => "text/html",
-            "json" => "application/json", "xml" => "application/xml",
-            "jpg" | "jpeg" => "image/jpeg", "png" => "image/png",
-            "gif" => "image/gif", "pdf" => "application/pdf",
-            "zip" => "application/zip", "gz" => "application/gzip",
-            "rs" => "text/x-rust", "py" => "text/x-python",
-            "js" => "text/javascript", "css" => "text/css",
-            "md" => "text/markdown", "toml" => "application/toml",
-            "yaml" | "yml" => "application/yaml", "csv" => "text/csv",
-            _ => "application/octet-stream",
-        };
-        Ok(Value::Str(mime.to_string()))
-    }
+    let ext = std::path::Path::new(&path).extension()
+        .and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+    let mime = match ext.as_str() {
+        "txt" | "text" | "log" => "text/plain",
+        "html" | "htm" => "text/html", "css" => "text/css",
+        "js" | "mjs" | "cjs" => "text/javascript",
+        "json" => "application/json", "xml" => "application/xml",
+        "csv" => "text/csv", "md" | "markdown" => "text/markdown",
+        "yaml" | "yml" => "application/yaml", "toml" => "application/toml",
+        "rs" => "text/x-rust", "py" => "text/x-python",
+        "rb" => "text/x-ruby", "java" => "text/x-java",
+        "c" | "h" => "text/x-c", "cpp" | "cxx" | "cc" | "hpp" => "text/x-c++",
+        "go" => "text/x-go", "ts" | "tsx" => "text/typescript",
+        "sh" | "bash" | "zsh" => "text/x-shellscript",
+        "ps1" => "text/x-powershell", "bat" | "cmd" => "text/x-batch",
+        "sql" => "text/x-sql",
+        "jpg" | "jpeg" => "image/jpeg", "png" => "image/png",
+        "gif" => "image/gif", "bmp" => "image/bmp",
+        "svg" => "image/svg+xml", "webp" => "image/webp",
+        "mp3" => "audio/mpeg", "wav" => "audio/wav",
+        "mp4" | "m4v" => "video/mp4", "webm" => "video/webm",
+        "avi" => "video/x-msvideo", "mkv" => "video/x-matroska",
+        "pdf" => "application/pdf", "zip" => "application/zip",
+        "gz" | "gzip" => "application/gzip", "tar" => "application/x-tar",
+        "exe" => "application/x-executable",
+        "dll" | "so" | "dylib" => "application/x-sharedlib",
+        "wasm" => "application/wasm",
+        _ => "application/octet-stream",
+    };
+    Ok(Value::Str(mime.to_string()))
 }
 
-/// 954: bi_id_info - User/group identity info.
+/// 954: bi_id_info - User/group identity info (cross-platform, no shell-out).
 pub fn bi_id_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    #[cfg(not(target_os = "windows"))]
-    {
-        let out = Command::new("id").output()
-            .map_err(|e| anyhow!("id_info: {}", e))?;
-        let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        let mut rec = BTreeMap::new();
-        rec.insert("raw".to_string(), Value::Str(text.clone()));
-        // Parse uid=N(name) gid=N(name)
-        for part in text.split_whitespace() {
-            if let Some(rest) = part.strip_prefix("uid=") {
-                if let Some(i) = rest.find('(') {
-                    rec.insert("uid".to_string(), Value::Int(rest[..i].parse().unwrap_or(0)));
-                    rec.insert("user".to_string(), Value::Str(rest[i+1..].trim_end_matches(')').to_string()));
-                }
-            } else if let Some(rest) = part.strip_prefix("gid=") {
-                if let Some(i) = rest.find('(') {
-                    rec.insert("gid".to_string(), Value::Int(rest[..i].parse().unwrap_or(0)));
-                    rec.insert("group".to_string(), Value::Str(rest[i+1..].trim_end_matches(')').to_string()));
-                }
-            }
-        }
-        Ok(Value::Record(rec))
-    }
-    #[cfg(target_os = "windows")]
-    {
-        let out = Command::new("whoami").output()
-            .map_err(|e| anyhow!("id_info: {}", e))?;
-        let user = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        let mut rec = BTreeMap::new();
-        rec.insert("user".to_string(), Value::Str(user));
-        Ok(Value::Record(rec))
-    }
-}
-
-/// 955: bi_date_now - Current date/time as Record.
-pub fn bi_date_now(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let ts = SystemTime::now().duration_since(UNIX_EPOCH)
-        .map_err(|e| anyhow!("date_now: {}", e))?.as_secs() as i64;
+    let _ = args;
     let mut rec = BTreeMap::new();
-    rec.insert("timestamp".to_string(), Value::Int(ts));
-    // Shell out to get formatted components
-    #[cfg(not(target_os = "windows"))]
+    let user = std::env::var("USER")
+        .or_else(|_| std::env::var("USERNAME"))
+        .unwrap_or_else(|_| "unknown".to_string());
+    rec.insert("user".to_string(), Value::Str(user));
+    #[cfg(unix)]
     {
-        let out = Command::new("date").arg("+%Y %m %d %H %M %S").output()
-            .map_err(|e| anyhow!("date_now: {}", e))?;
-        let parts: Vec<&str> = String::from_utf8_lossy(&out.stdout).trim().to_string()
-            .split_whitespace().map(|s| s.to_string()).collect::<Vec<_>>()
-            .iter().map(|s| s.as_str()).collect::<Vec<_>>()
-            .into_iter().collect();
-        // Workaround: re-parse
-        let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        let parts: Vec<&str> = text.split_whitespace().collect();
-        if parts.len() >= 6 {
-            rec.insert("year".to_string(), Value::Int(parts[0].parse().unwrap_or(0)));
-            rec.insert("month".to_string(), Value::Int(parts[1].parse().unwrap_or(0)));
-            rec.insert("day".to_string(), Value::Int(parts[2].parse().unwrap_or(0)));
-            rec.insert("hour".to_string(), Value::Int(parts[3].parse().unwrap_or(0)));
-            rec.insert("minute".to_string(), Value::Int(parts[4].parse().unwrap_or(0)));
-            rec.insert("second".to_string(), Value::Int(parts[5].parse().unwrap_or(0)));
-        }
+        rec.insert("uid".to_string(), Value::Int(unsafe { libc::getuid() } as i64));
+        rec.insert("gid".to_string(), Value::Int(unsafe { libc::getgid() } as i64));
     }
-    #[cfg(target_os = "windows")]
+    #[cfg(not(unix))]
     {
-        let out = Command::new("powershell").args(&["-NoProfile", "-Command",
-            "Get-Date -Format 'yyyy MM dd HH mm ss'"]).output()
-            .map_err(|e| anyhow!("date_now: {}", e))?;
-        let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        let parts: Vec<&str> = text.split_whitespace().collect();
-        if parts.len() >= 6 {
-            rec.insert("year".to_string(), Value::Int(parts[0].parse().unwrap_or(0)));
-            rec.insert("month".to_string(), Value::Int(parts[1].parse().unwrap_or(0)));
-            rec.insert("day".to_string(), Value::Int(parts[2].parse().unwrap_or(0)));
-            rec.insert("hour".to_string(), Value::Int(parts[3].parse().unwrap_or(0)));
-            rec.insert("minute".to_string(), Value::Int(parts[4].parse().unwrap_or(0)));
-            rec.insert("second".to_string(), Value::Int(parts[5].parse().unwrap_or(0)));
-        }
+        rec.insert("uid".to_string(), Value::Int(-1));
+        rec.insert("gid".to_string(), Value::Int(-1));
     }
     Ok(Value::Record(rec))
 }
 
-/// 956: bi_cal - Calendar for current or specified month.
-pub fn bi_cal(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let month = match args.first() {
-        Some(Value::Int(m)) => Some(*m),
-        _ => None,
-    };
-    let year = match args.get(1) {
-        Some(Value::Int(y)) => Some(*y),
-        _ => None,
-    };
-    #[cfg(not(target_os = "windows"))]
-    {
-        let mut cmd = Command::new("cal");
-        if let (Some(m), Some(y)) = (month, year) {
-            cmd.arg(m.to_string()).arg(y.to_string());
-        } else if let Some(m) = month {
-            cmd.arg(m.to_string());
-        }
-        let out = cmd.output().map_err(|e| anyhow!("cal: {}", e))?;
-        Ok(Value::Str(String::from_utf8_lossy(&out.stdout).to_string()))
-    }
-    #[cfg(target_os = "windows")]
-    {
-        // Generate simple calendar text via PowerShell
-        let ps_cmd = if let (Some(m), Some(y)) = (month, year) {
-            format!("$d=[DateTime]::new({},{},1); 0..([DateTime]::DaysInMonth({},{})-1) | ForEach-Object {{ $d.AddDays($_).ToString('ddd dd') }}", y, m, y, m)
-        } else {
-            "$d=Get-Date -Day 1; 0..([DateTime]::DaysInMonth($d.Year,$d.Month)-1) | ForEach-Object { $d.AddDays($_).ToString('ddd dd') }".to_string()
-        };
-        let out = Command::new("powershell").args(&["-NoProfile", "-Command", &ps_cmd]).output()
-            .map_err(|e| anyhow!("cal: {}", e))?;
-        Ok(Value::Str(String::from_utf8_lossy(&out.stdout).to_string()))
-    }
+/// 955: bi_date_now - Current date/time as Record (cross-platform via chrono).
+pub fn bi_date_now(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let _ = args;
+    let now = Local::now();
+    let mut rec = BTreeMap::new();
+    rec.insert("year".to_string(), Value::Int(now.year() as i64));
+    rec.insert("month".to_string(), Value::Int(now.month() as i64));
+    rec.insert("day".to_string(), Value::Int(now.day() as i64));
+    rec.insert("hour".to_string(), Value::Int(now.hour() as i64));
+    rec.insert("minute".to_string(), Value::Int(now.minute() as i64));
+    rec.insert("second".to_string(), Value::Int(now.second() as i64));
+    rec.insert("timestamp".to_string(), Value::Int(now.timestamp()));
+    rec.insert("iso8601".to_string(), Value::Str(now.to_rfc3339()));
+    Ok(Value::Record(rec))
 }
 
-/// 957: bi_lsblk - List block devices.
+/// 956: bi_cal - Calendar for current or specified month (pure Rust via chrono).
+pub fn bi_cal(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let now = Local::now();
+    let month = match args.first() {
+        Some(Value::Int(m)) => *m as u32,
+        _ => now.month(),
+    };
+    let year = match args.get(1) {
+        Some(Value::Int(y)) => *y as i32,
+        _ => now.year(),
+    };
+    let first = NaiveDate::from_ymd_opt(year, month, 1)
+        .ok_or_else(|| anyhow!("cal: invalid month/year: {}/{}", month, year))?;
+    let days_in_month = if month == 12 {
+        NaiveDate::from_ymd_opt(year + 1, 1, 1)
+    } else {
+        NaiveDate::from_ymd_opt(year, month + 1, 1)
+    }.unwrap().signed_duration_since(first).num_days() as u32;
+    let weekday_offset = first.weekday().num_days_from_sunday();
+    let month_names = ["", "January", "February", "March", "April", "May", "June",
+        "July", "August", "September", "October", "November", "December"];
+    let mut cal = format!("    {} {}\n", month_names[month as usize], year);
+    cal.push_str("Su Mo Tu We Th Fr Sa\n");
+    for _ in 0..weekday_offset { cal.push_str("   "); }
+    for d in 1..=days_in_month {
+        cal.push_str(&format!("{:2} ", d));
+        if (weekday_offset + d) % 7 == 0 { cal.push_str("\n"); }
+    }
+    if (weekday_offset + days_in_month) % 7 != 0 { cal.push_str("\n"); }
+    Ok(Value::Str(cal))
+}
+
+/// 957: bi_lsblk - List block devices (cross-platform via sysinfo::Disks).
 pub fn bi_lsblk(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    #[cfg(target_os = "linux")]
-    {
-        let out = Command::new("lsblk").args(&["-J"]).output()
-            .map_err(|e| anyhow!("lsblk: {}", e))?;
-        let json: serde_json::Value = serde_json::from_slice(&out.stdout)
-            .map_err(|e| anyhow!("lsblk: parse error: {}", e))?;
-        Ok(json_to_value(json))
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let out = Command::new("diskutil").args(&["list"]).output()
-            .map_err(|e| anyhow!("lsblk: {}", e))?;
-        Ok(Value::Str(String::from_utf8_lossy(&out.stdout).trim().to_string()))
-    }
-    #[cfg(target_os = "windows")]
-    {
-        let out = Command::new("powershell").args(&["-NoProfile", "-Command",
-            "Get-Disk | Select-Object Number,FriendlyName,Size,PartitionStyle,OperationalStatus | ConvertTo-Json"])
-            .output().map_err(|e| anyhow!("lsblk: {}", e))?;
-        let json: serde_json::Value = serde_json::from_slice(&out.stdout)
-            .map_err(|e| anyhow!("lsblk: parse error: {}", e))?;
-        Ok(json_to_value(json))
-    }
+    let _ = args;
+    let disks = Disks::new_with_refreshed_list();
+    let entries: Vec<Value> = disks.iter().map(|d| {
+        let mut rec = BTreeMap::new();
+        rec.insert("name".to_string(), Value::Str(d.name().to_string_lossy().to_string()));
+        rec.insert("mount_point".to_string(), Value::Str(d.mount_point().to_string_lossy().to_string()));
+        rec.insert("total_space".to_string(), Value::Int(d.total_space() as i64));
+        rec.insert("available_space".to_string(), Value::Int(d.available_space() as i64));
+        rec.insert("file_system".to_string(), Value::Str(String::from_utf8_lossy(d.file_system().as_encoded_bytes()).to_string()));
+        rec.insert("is_removable".to_string(), Value::Bool(d.is_removable()));
+        Value::Record(rec)
+    }).collect();
+    Ok(Value::Array(entries))
 }
 
 /// 958: bi_blkid - Block device attributes (Linux only).
@@ -29877,75 +29826,44 @@ pub fn bi_strace_cmd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
 }
 
-/// 963: bi_vmstat - Virtual memory stats.
+/// 963: bi_vmstat - Virtual memory stats (cross-platform via sysinfo).
 pub fn bi_vmstat(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    #[cfg(target_os = "linux")]
-    {
-        let out = Command::new("vmstat").args(&["1", "1"]).output()
-            .map_err(|e| anyhow!("vmstat: {}", e))?;
-        let text = String::from_utf8_lossy(&out.stdout);
-        let lines: Vec<&str> = text.lines().collect();
-        if lines.len() >= 3 {
-            let headers: Vec<&str> = lines[1].split_whitespace().collect();
-            let values: Vec<&str> = lines[2].split_whitespace().collect();
-            let mut rec = BTreeMap::new();
-            for (i, h) in headers.iter().enumerate() {
-                let v = values.get(i).unwrap_or(&"0");
-                rec.insert(h.to_string(), Value::Int(v.parse().unwrap_or(0)));
-            }
-            Ok(Value::Record(rec))
-        } else {
-            Ok(Value::Str(text.to_string()))
-        }
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let out = Command::new("vm_stat").output()
-            .map_err(|e| anyhow!("vmstat: {}", e))?;
-        let text = String::from_utf8_lossy(&out.stdout);
-        let mut rec = BTreeMap::new();
-        for line in text.lines().skip(1) {
-            if let Some((k, v)) = line.split_once(':') {
-                let val = v.trim().trim_end_matches('.').trim();
-                rec.insert(k.trim().to_string(), Value::Int(val.parse().unwrap_or(0)));
-            }
-        }
-        Ok(Value::Record(rec))
-    }
-    #[cfg(target_os = "windows")]
-    {
-        let out = Command::new("powershell").args(&["-NoProfile", "-Command",
-            "Get-CimInstance Win32_OperatingSystem | Select-Object TotalVisibleMemorySize,FreePhysicalMemory,TotalVirtualMemorySize,FreeVirtualMemory | ConvertTo-Json"])
-            .output().map_err(|e| anyhow!("vmstat: {}", e))?;
-        let json: serde_json::Value = serde_json::from_slice(&out.stdout)
-            .map_err(|e| anyhow!("vmstat: parse error: {}", e))?;
-        Ok(json_to_value(json))
-    }
+    let _ = args;
+    let mut sys = System::new_all();
+    sys.refresh_all();
+    let mut rec = BTreeMap::new();
+    rec.insert("total_memory".to_string(), Value::Int(sys.total_memory() as i64));
+    rec.insert("used_memory".to_string(), Value::Int(sys.used_memory() as i64));
+    rec.insert("free_memory".to_string(), Value::Int((sys.total_memory() - sys.used_memory()) as i64));
+    rec.insert("available_memory".to_string(), Value::Int(sys.available_memory() as i64));
+    rec.insert("total_swap".to_string(), Value::Int(sys.total_swap() as i64));
+    rec.insert("used_swap".to_string(), Value::Int(sys.used_swap() as i64));
+    rec.insert("free_swap".to_string(), Value::Int((sys.total_swap() - sys.used_swap()) as i64));
+    let cpu_usage: f64 = sys.cpus().iter().map(|c| c.cpu_usage() as f64).sum::<f64>() / sys.cpus().len().max(1) as f64;
+    rec.insert("cpu_usage_avg".to_string(), Value::Float(cpu_usage));
+    rec.insert("cpu_count".to_string(), Value::Int(sys.cpus().len() as i64));
+    Ok(Value::Record(rec))
 }
 
-/// 964: bi_iostat - I/O statistics.
+/// 964: bi_iostat - I/O statistics (cross-platform via sysinfo::Disks).
 pub fn bi_iostat(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    #[cfg(target_os = "linux")]
-    {
-        let out = Command::new("iostat").args(&["-x", "1", "1"]).output()
-            .map_err(|e| anyhow!("iostat: {}", e))?;
-        Ok(Value::Str(String::from_utf8_lossy(&out.stdout).to_string()))
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let out = Command::new("iostat").output()
-            .map_err(|e| anyhow!("iostat: {}", e))?;
-        Ok(Value::Str(String::from_utf8_lossy(&out.stdout).to_string()))
-    }
-    #[cfg(target_os = "windows")]
-    {
-        let out = Command::new("powershell").args(&["-NoProfile", "-Command",
-            "Get-CimInstance Win32_PerfFormattedData_PerfDisk_PhysicalDisk | Select-Object Name,DiskReadBytesPersec,DiskWriteBytesPersec,PercentDiskTime | ConvertTo-Json"])
-            .output().map_err(|e| anyhow!("iostat: {}", e))?;
-        let json: serde_json::Value = serde_json::from_slice(&out.stdout)
-            .map_err(|e| anyhow!("iostat: parse error: {}", e))?;
-        Ok(json_to_value(json))
-    }
+    let _ = args;
+    let disks = Disks::new_with_refreshed_list();
+    let entries: Vec<Value> = disks.iter().map(|d| {
+        let mut rec = BTreeMap::new();
+        let total = d.total_space();
+        let avail = d.available_space();
+        let used = total.saturating_sub(avail);
+        rec.insert("name".to_string(), Value::Str(d.name().to_string_lossy().to_string()));
+        rec.insert("mount_point".to_string(), Value::Str(d.mount_point().to_string_lossy().to_string()));
+        rec.insert("total_bytes".to_string(), Value::Int(total as i64));
+        rec.insert("used_bytes".to_string(), Value::Int(used as i64));
+        rec.insert("available_bytes".to_string(), Value::Int(avail as i64));
+        let usage_pct = if total > 0 { (used as f64 / total as f64) * 100.0 } else { 0.0 };
+        rec.insert("usage_percent".to_string(), Value::Float(usage_pct));
+        Value::Record(rec)
+    }).collect();
+    Ok(Value::Array(entries))
 }
 
 /// 965: bi_sar - System activity report (Linux only).
@@ -29964,153 +29882,83 @@ pub fn bi_sar(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
 }
 
-/// 966: bi_top_snapshot - Process snapshot (one-shot top).
+/// 966: bi_top_snapshot - Process snapshot (cross-platform via sysinfo).
 pub fn bi_top_snapshot(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    {
-        let out = Command::new("ps").args(&["aux", "--sort=-%mem"]).output()
-            .or_else(|_| Command::new("ps").args(&["aux"]).output())
-            .map_err(|e| anyhow!("top_snapshot: {}", e))?;
-        let text = String::from_utf8_lossy(&out.stdout);
-        let lines: Vec<&str> = text.lines().collect();
-        if lines.is_empty() {
-            return Ok(Value::Array(vec![]));
-        }
-        let entries: Vec<Value> = lines[1..].iter().take(30).map(|line| {
-            let cols: Vec<&str> = line.split_whitespace().collect();
-            let mut rec = BTreeMap::new();
-            if cols.len() >= 11 {
-                rec.insert("user".to_string(), Value::Str(cols[0].to_string()));
-                rec.insert("pid".to_string(), Value::Int(cols[1].parse().unwrap_or(0)));
-                rec.insert("cpu".to_string(), Value::Float(cols[2].parse().unwrap_or(0.0)));
-                rec.insert("mem".to_string(), Value::Float(cols[3].parse().unwrap_or(0.0)));
-                rec.insert("vsz".to_string(), Value::Int(cols[4].parse().unwrap_or(0)));
-                rec.insert("rss".to_string(), Value::Int(cols[5].parse().unwrap_or(0)));
-                rec.insert("command".to_string(), Value::Str(cols[10..].join(" ")));
-            }
-            Value::Record(rec)
-        }).collect();
-        Ok(Value::Array(entries))
-    }
-    #[cfg(target_os = "windows")]
-    {
-        let out = Command::new("powershell").args(&["-NoProfile", "-Command",
-            "Get-Process | Sort-Object WorkingSet64 -Descending | Select-Object -First 30 Id,ProcessName,CPU,WorkingSet64 | ConvertTo-Json"])
-            .output().map_err(|e| anyhow!("top_snapshot: {}", e))?;
-        let json: serde_json::Value = serde_json::from_slice(&out.stdout)
-            .map_err(|e| anyhow!("top_snapshot: parse error: {}", e))?;
-        Ok(json_to_value(json))
-    }
+    let count = match args.first() {
+        Some(Value::Int(n)) => *n as usize,
+        _ => 30,
+    };
+    let mut sys = System::new_all();
+    sys.refresh_all();
+    let mut procs: Vec<_> = sys.processes().iter().collect();
+    procs.sort_by(|a, b| b.1.memory().cmp(&a.1.memory()));
+    let entries: Vec<Value> = procs.iter().take(count).map(|(pid, p)| {
+        let mut rec = BTreeMap::new();
+        rec.insert("pid".to_string(), Value::Int(pid.as_u32() as i64));
+        rec.insert("name".to_string(), Value::Str(p.name().to_string_lossy().to_string()));
+        rec.insert("cpu_percent".to_string(), Value::Float(p.cpu_usage() as f64));
+        rec.insert("memory_bytes".to_string(), Value::Int(p.memory() as i64));
+        rec.insert("memory_mb".to_string(), Value::Float(p.memory() as f64 / 1_048_576.0));
+        Value::Record(rec)
+    }).collect();
+    Ok(Value::Array(entries))
 }
 
-/// 967: bi_nohup_run - Run command immune to hangup.
+/// 967: bi_nohup_run - Run command immune to hangup (cross-platform).
 pub fn bi_nohup_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let command = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(anyhow!("nohup_run: expected command string")),
     };
-    #[cfg(not(target_os = "windows"))]
-    {
-        let child = Command::new("nohup").arg("sh").arg("-c").arg(&command)
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn().map_err(|e| anyhow!("nohup_run: {}", e))?;
-        let mut rec = BTreeMap::new();
-        rec.insert("pid".to_string(), Value::Int(child.id() as i64));
-        rec.insert("command".to_string(), Value::Str(command));
-        rec.insert("status".to_string(), Value::Str("launched".to_string()));
-        Ok(Value::Record(rec))
-    }
-    #[cfg(target_os = "windows")]
-    {
-        let child = Command::new("cmd").args(&["/C", "start", "/B", &command])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn().map_err(|e| anyhow!("nohup_run: {}", e))?;
-        let mut rec = BTreeMap::new();
-        rec.insert("pid".to_string(), Value::Int(child.id() as i64));
-        rec.insert("command".to_string(), Value::Str(command));
-        rec.insert("status".to_string(), Value::Str("launched".to_string()));
-        Ok(Value::Record(rec))
-    }
+    let (shell, flag) = if cfg!(windows) { ("cmd", "/C") } else { ("sh", "-c") };
+    let child = Command::new(shell).args(&[flag, &command])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn().map_err(|e| anyhow!("nohup_run: {}", e))?;
+    let mut rec = BTreeMap::new();
+    rec.insert("pid".to_string(), Value::Int(child.id() as i64));
+    rec.insert("command".to_string(), Value::Str(command));
+    rec.insert("status".to_string(), Value::Str("launched".to_string()));
+    Ok(Value::Record(rec))
 }
 
-/// 968: bi_which_cmd - Find command path.
+/// 968: bi_which_cmd - Find command path (cross-platform via which crate).
 pub fn bi_which_cmd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(anyhow!("which_cmd: expected command name")),
     };
-    #[cfg(not(target_os = "windows"))]
-    {
-        let out = Command::new("which").arg(&name).output()
-            .map_err(|e| anyhow!("which_cmd: {}", e))?;
-        if out.status.success() {
-            Ok(Value::Str(String::from_utf8_lossy(&out.stdout).trim().to_string()))
-        } else {
-            Err(anyhow!("which_cmd: '{}' not found", name))
-        }
-    }
-    #[cfg(target_os = "windows")]
-    {
-        let out = Command::new("powershell").args(&["-NoProfile", "-Command",
-            &format!("(Get-Command '{}' -ErrorAction SilentlyContinue).Source", name)])
-            .output().map_err(|e| anyhow!("which_cmd: {}", e))?;
-        let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        if path.is_empty() {
-            Err(anyhow!("which_cmd: '{}' not found", name))
-        } else {
-            Ok(Value::Str(path))
-        }
+    match which::which(&name) {
+        Ok(path) => Ok(Value::Str(path.to_string_lossy().to_string())),
+        Err(_) => Err(anyhow!("which_cmd: '{}' not found in PATH", name)),
     }
 }
 
-/// 969: bi_file_checksum - File checksum. Args: algorithm, path.
+/// 969: bi_file_checksum - File checksum (cross-platform via sha2/md5 crates).
 pub fn bi_file_checksum(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let algo = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("file_checksum: expected algorithm (md5/sha1/sha256)")),
+        _ => return Err(anyhow!("file_checksum: expected algorithm (md5/sha256)")),
     };
     let path = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(anyhow!("file_checksum: expected file path")),
     };
-    #[cfg(not(target_os = "windows"))]
-    {
-        let cmd_name = match algo.as_str() {
-            "md5" => "md5sum",
-            "sha1" => "sha1sum",
-            "sha256" => "sha256sum",
-            _ => return Err(anyhow!("file_checksum: unsupported algorithm '{}'", algo)),
-        };
-        let out = Command::new(cmd_name).arg(&path).output()
-            .map_err(|e| anyhow!("file_checksum: {}", e))?;
-        let text = String::from_utf8_lossy(&out.stdout);
-        let hash = text.split_whitespace().next().unwrap_or("").to_string();
-        let mut rec = BTreeMap::new();
-        rec.insert("algorithm".to_string(), Value::Str(algo));
-        rec.insert("hash".to_string(), Value::Str(hash));
-        rec.insert("path".to_string(), Value::Str(path));
-        Ok(Value::Record(rec))
-    }
-    #[cfg(target_os = "windows")]
-    {
-        let ps_algo = match algo.as_str() {
-            "md5" => "MD5",
-            "sha1" => "SHA1",
-            "sha256" => "SHA256",
-            _ => return Err(anyhow!("file_checksum: unsupported algorithm '{}'", algo)),
-        };
-        let out = Command::new("powershell").args(&["-NoProfile", "-Command",
-            &format!("(Get-FileHash '{}' -Algorithm {}).Hash", path, ps_algo)])
-            .output().map_err(|e| anyhow!("file_checksum: {}", e))?;
-        let hash = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        let mut rec = BTreeMap::new();
-        rec.insert("algorithm".to_string(), Value::Str(algo));
-        rec.insert("hash".to_string(), Value::Str(hash));
-        rec.insert("path".to_string(), Value::Str(path));
-        Ok(Value::Record(rec))
-    }
+    let data = std::fs::read(&path).map_err(|e| anyhow!("file_checksum: {}", e))?;
+    let hash = match algo.to_lowercase().as_str() {
+        "sha256" => {
+            let mut hasher = Sha256::new();
+            hasher.update(&data);
+            format!("{:x}", hasher.finalize())
+        }
+        "md5" => format!("{:x}", md5::compute(&data)),
+        _ => return Err(anyhow!("file_checksum: unsupported algorithm '{}' (use md5 or sha256)", algo)),
+    };
+    let mut rec = BTreeMap::new();
+    rec.insert("algorithm".to_string(), Value::Str(algo));
+    rec.insert("hash".to_string(), Value::Str(hash));
+    rec.insert("path".to_string(), Value::Str(path));
+    Ok(Value::Record(rec))
 }
 
 /// 970: bi_dd_copy - Disk copy (Linux only).
@@ -30259,45 +30107,21 @@ pub fn bi_swap_off(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
 }
 
-/// 975: bi_mount_info - Detailed mount info.
+/// 975: bi_mount_info - Detailed mount info (cross-platform via sysinfo::Disks).
 pub fn bi_mount_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    #[cfg(target_os = "linux")]
-    {
-        let out = Command::new("findmnt").args(&["-J"]).output()
-            .map_err(|e| anyhow!("mount_info: {}", e))?;
-        let json: serde_json::Value = serde_json::from_slice(&out.stdout)
-            .map_err(|e| anyhow!("mount_info: parse error: {}", e))?;
-        Ok(json_to_value(json))
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let out = Command::new("mount").output()
-            .map_err(|e| anyhow!("mount_info: {}", e))?;
-        let text = String::from_utf8_lossy(&out.stdout);
-        let entries: Vec<Value> = text.lines().filter_map(|line| {
-            // Format: /dev/disk1s1 on / (apfs, local, journaled)
-            let parts: Vec<&str> = line.splitn(4, ' ').collect();
-            if parts.len() >= 4 {
-                let mut rec = BTreeMap::new();
-                rec.insert("device".to_string(), Value::Str(parts[0].to_string()));
-                rec.insert("mountpoint".to_string(), Value::Str(parts[2].to_string()));
-                rec.insert("options".to_string(), Value::Str(parts[3].trim_matches(|c| c == '(' || c == ')').to_string()));
-                Some(Value::Record(rec))
-            } else {
-                None
-            }
-        }).collect();
-        Ok(Value::Array(entries))
-    }
-    #[cfg(target_os = "windows")]
-    {
-        let out = Command::new("powershell").args(&["-NoProfile", "-Command",
-            "Get-Volume | Select-Object DriveLetter,FileSystemLabel,FileSystem,SizeRemaining,Size | ConvertTo-Json"])
-            .output().map_err(|e| anyhow!("mount_info: {}", e))?;
-        let json: serde_json::Value = serde_json::from_slice(&out.stdout)
-            .map_err(|e| anyhow!("mount_info: parse error: {}", e))?;
-        Ok(json_to_value(json))
-    }
+    let _ = args;
+    let disks = Disks::new_with_refreshed_list();
+    let entries: Vec<Value> = disks.iter().map(|d| {
+        let mut rec = BTreeMap::new();
+        rec.insert("device".to_string(), Value::Str(d.name().to_string_lossy().to_string()));
+        rec.insert("mount_point".to_string(), Value::Str(d.mount_point().to_string_lossy().to_string()));
+        rec.insert("file_system".to_string(), Value::Str(String::from_utf8_lossy(d.file_system().as_encoded_bytes()).to_string()));
+        rec.insert("total_space".to_string(), Value::Int(d.total_space() as i64));
+        rec.insert("available_space".to_string(), Value::Int(d.available_space() as i64));
+        rec.insert("is_removable".to_string(), Value::Bool(d.is_removable()));
+        Value::Record(rec)
+    }).collect();
+    Ok(Value::Array(entries))
 }
 
 /// 976: bi_chroot - Change root (Linux only).
@@ -32122,159 +31946,59 @@ pub fn bi_gpg_decrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 // ---------------------------------------------------------------------------
 // 1015: bi_htop_snapshot — Process monitor snapshot (top 20 by memory)
 // ---------------------------------------------------------------------------
+// 1015: bi_htop_snapshot - Interactive-style process monitor (cross-platform via sysinfo)
+// ---------------------------------------------------------------------------
 pub fn bi_htop_snapshot(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let count = if args.is_empty() { 20usize } else {
-        match &args[0] {
-            Value::Int(n) => *n as usize,
-            _ => 20,
-        }
+    let count = match args.first() {
+        Some(Value::Int(n)) => *n as usize,
+        _ => 20,
     };
-
-    #[cfg(target_os = "windows")]
-    {
-        let ps_cmd = format!(
-            "Get-Process | Sort-Object -Property WorkingSet64 -Descending | Select-Object -First {} | Select-Object Id, ProcessName, @{{Name='CPU';Expression={{$_.CPU}}}}, @{{Name='MemoryMB';Expression={{[math]::Round($_.WorkingSet64/1MB,2)}}}}, @{{Name='WorkingSet64';Expression={{$_.WorkingSet64}}}} | ConvertTo-Json -Depth 3",
-            count
-        );
-        let output = Command::new("powershell")
-            .args(["-NoProfile", "-Command", &ps_cmd])
-            .output()
-            .map_err(|e| anyhow!("htop_snapshot: failed to run powershell: {}", e))?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(anyhow!("htop_snapshot: command failed: {}", stderr));
-        }
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let json_val: serde_json::Value = serde_json::from_str(stdout.trim())
-            .map_err(|e| anyhow!("htop_snapshot: JSON parse error: {}", e))?;
-        Ok(json_to_value(json_val))
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        let output = Command::new("ps")
-            .args(["aux", "--sort=-%mem"])
-            .output()
-            .map_err(|e| anyhow!("htop_snapshot: failed to run ps: {}", e))?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(anyhow!("htop_snapshot: ps failed: {}", stderr));
-        }
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let lines: Vec<&str> = stdout.lines().collect();
-        let mut records = Vec::new();
-        for line in lines.iter().skip(1).take(count) {
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() >= 11 {
-                let mut rec = BTreeMap::new();
-                rec.insert("user".to_string(), Value::Str(parts[0].to_string()));
-                rec.insert("pid".to_string(), Value::Int(parts[1].parse::<i64>().unwrap_or(0)));
-                rec.insert("cpu_pct".to_string(), Value::Float(parts[2].parse::<f64>().unwrap_or(0.0)));
-                rec.insert("mem_pct".to_string(), Value::Float(parts[3].parse::<f64>().unwrap_or(0.0)));
-                rec.insert("vsz".to_string(), Value::Int(parts[4].parse::<i64>().unwrap_or(0)));
-                rec.insert("rss".to_string(), Value::Int(parts[5].parse::<i64>().unwrap_or(0)));
-                rec.insert("stat".to_string(), Value::Str(parts[7].to_string()));
-                rec.insert("command".to_string(), Value::Str(parts[10..].join(" ")));
-                records.push(Value::Record(rec));
-            }
-        }
-        Ok(Value::Array(records))
-    }
+    let mut sys = System::new_all();
+    sys.refresh_all();
+    let mut procs: Vec<_> = sys.processes().iter().collect();
+    procs.sort_by(|a, b| b.1.memory().cmp(&a.1.memory()));
+    let entries: Vec<Value> = procs.iter().take(count).map(|(pid, p)| {
+        let mut rec = BTreeMap::new();
+        rec.insert("pid".to_string(), Value::Int(pid.as_u32() as i64));
+        rec.insert("name".to_string(), Value::Str(p.name().to_string_lossy().to_string()));
+        rec.insert("cpu_percent".to_string(), Value::Float(p.cpu_usage() as f64));
+        rec.insert("memory_bytes".to_string(), Value::Int(p.memory() as i64));
+        rec.insert("memory_mb".to_string(), Value::Float(p.memory() as f64 / 1_048_576.0));
+        Value::Record(rec)
+    }).collect();
+    Ok(Value::Array(entries))
 }
 
 // ---------------------------------------------------------------------------
 // 1016: bi_iotop_snapshot — I/O monitor snapshot
 // ---------------------------------------------------------------------------
+// 1016: bi_iotop_snapshot - I/O monitor snapshot (cross-platform via sysinfo)
+// ---------------------------------------------------------------------------
 pub fn bi_iotop_snapshot(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let _ = args;
-
-    #[cfg(target_os = "windows")]
-    {
-        let ps_cmd = r#"Get-Counter '\Process(*)\IO Read Bytes/sec', '\Process(*)\IO Write Bytes/sec' -ErrorAction SilentlyContinue | ForEach-Object { $_.CounterSamples | Select-Object InstanceName, Path, CookedValue } | Where-Object { $_.InstanceName -ne '_total' -and $_.InstanceName -ne 'idle' } | Select-Object -First 40 | ConvertTo-Json -Depth 3"#;
-        let output = Command::new("powershell")
-            .args(["-NoProfile", "-Command", ps_cmd])
-            .output()
-            .map_err(|e| anyhow!("iotop_snapshot: failed to run powershell: {}", e))?;
-        if !output.status.success() {
-            // Fallback: return basic process IO info
-            let fallback_cmd = "Get-Process | Where-Object { $_.Id -ne 0 } | Sort-Object -Property WorkingSet64 -Descending | Select-Object -First 20 | Select-Object Id, ProcessName, @{Name='ReadBytes';Expression={try{$_.IO.ReadTransferCount}catch{0}}}, @{Name='WriteBytes';Expression={try{$_.IO.WriteTransferCount}catch{0}}} | ConvertTo-Json -Depth 3";
-            let fb_out = Command::new("powershell")
-                .args(["-NoProfile", "-Command", fallback_cmd])
-                .output()
-                .map_err(|e| anyhow!("iotop_snapshot fallback: {}", e))?;
-            let stdout = String::from_utf8_lossy(&fb_out.stdout);
-            if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(stdout.trim()) {
-                return Ok(json_to_value(json_val));
-            }
-            let mut rec = BTreeMap::new();
-            rec.insert("available".to_string(), Value::Bool(false));
-            rec.insert("reason".to_string(), Value::Str("Performance counter query failed".to_string()));
-            return Ok(Value::Record(rec));
-        }
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let json_val: serde_json::Value = serde_json::from_str(stdout.trim())
-            .map_err(|e| anyhow!("iotop_snapshot: JSON parse error: {}", e))?;
-        Ok(json_to_value(json_val))
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        // Try iotop first
-        let output = Command::new("iotop")
-            .args(["-b", "-n", "1", "-P", "-o"])
-            .output();
-
-        match output {
-            Ok(out) if out.status.success() => {
-                let stdout = String::from_utf8_lossy(&out.stdout);
-                let lines: Vec<&str> = stdout.lines().collect();
-                let mut records = Vec::new();
-                for line in lines.iter().skip(1) {
-                    let parts: Vec<&str> = line.split_whitespace().collect();
-                    if parts.len() >= 10 {
-                        let mut rec = BTreeMap::new();
-                        rec.insert("pid".to_string(), Value::Int(parts[0].parse::<i64>().unwrap_or(0)));
-                        rec.insert("disk_read".to_string(), Value::Str(format!("{} {}", parts[3], parts[4])));
-                        rec.insert("disk_write".to_string(), Value::Str(format!("{} {}", parts[5], parts[6])));
-                        rec.insert("command".to_string(), Value::Str(parts[9..].join(" ")));
-                        records.push(Value::Record(rec));
-                    }
-                }
-                Ok(Value::Array(records))
-            }
-            _ => {
-                // Fallback: use /proc/diskstats on Linux
-                let output = Command::new("cat")
-                    .arg("/proc/diskstats")
-                    .output();
-                match output {
-                    Ok(out) if out.status.success() => {
-                        let stdout = String::from_utf8_lossy(&out.stdout);
-                        let mut records = Vec::new();
-                        for line in stdout.lines() {
-                            let parts: Vec<&str> = line.split_whitespace().collect();
-                            if parts.len() >= 14 {
-                                let mut rec = BTreeMap::new();
-                                rec.insert("device".to_string(), Value::Str(parts[2].to_string()));
-                                rec.insert("reads_completed".to_string(), Value::Int(parts[3].parse::<i64>().unwrap_or(0)));
-                                rec.insert("writes_completed".to_string(), Value::Int(parts[7].parse::<i64>().unwrap_or(0)));
-                                rec.insert("sectors_read".to_string(), Value::Int(parts[5].parse::<i64>().unwrap_or(0)));
-                                rec.insert("sectors_written".to_string(), Value::Int(parts[9].parse::<i64>().unwrap_or(0)));
-                                records.push(Value::Record(rec));
-                            }
-                        }
-                        Ok(Value::Array(records))
-                    }
-                    _ => {
-                        let mut rec = BTreeMap::new();
-                        rec.insert("available".to_string(), Value::Bool(false));
-                        rec.insert("reason".to_string(), Value::Str("iotop not available and /proc/diskstats unreadable".to_string()));
-                        Ok(Value::Record(rec))
-                    }
-                }
-            }
-        }
-    }
+    let count = match args.first() {
+        Some(Value::Int(n)) => *n as usize,
+        _ => 20,
+    };
+    let mut sys = System::new_all();
+    sys.refresh_all();
+    let mut procs: Vec<_> = sys.processes().iter().collect();
+    procs.sort_by(|a, b| {
+        let a_io = a.1.disk_usage().total_read_bytes + a.1.disk_usage().total_written_bytes;
+        let b_io = b.1.disk_usage().total_read_bytes + b.1.disk_usage().total_written_bytes;
+        b_io.cmp(&a_io)
+    });
+    let entries: Vec<Value> = procs.iter().take(count).map(|(pid, p)| {
+        let du = p.disk_usage();
+        let mut rec = BTreeMap::new();
+        rec.insert("pid".to_string(), Value::Int(pid.as_u32() as i64));
+        rec.insert("name".to_string(), Value::Str(p.name().to_string_lossy().to_string()));
+        rec.insert("total_read_bytes".to_string(), Value::Int(du.total_read_bytes as i64));
+        rec.insert("total_written_bytes".to_string(), Value::Int(du.total_written_bytes as i64));
+        rec.insert("read_bytes".to_string(), Value::Int(du.read_bytes as i64));
+        rec.insert("written_bytes".to_string(), Value::Int(du.written_bytes as i64));
+        Value::Record(rec)
+    }).collect();
+    Ok(Value::Array(entries))
 }
 
 // ---------------------------------------------------------------------------
@@ -32425,261 +32149,95 @@ pub fn bi_iftop_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Ok(Value::Record(rec))
     }
 }
-
 // ---------------------------------------------------------------------------
-// 1019: bi_nmon_snapshot — System performance snapshot (aggregate)
+// 1017: bi_nmon_snapshot - System performance snapshot (cross-platform via sysinfo)
 // ---------------------------------------------------------------------------
 pub fn bi_nmon_snapshot(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let _ = args;
-    let mut snapshot = BTreeMap::new();
-
-    #[cfg(target_os = "windows")]
-    {
-        // CPU usage
-        let cpu_out = Command::new("powershell")
-            .args(["-NoProfile", "-Command",
-                "(Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average"])
-            .output();
-        if let Ok(out) = cpu_out {
-            let s = String::from_utf8_lossy(&out.stdout);
-            snapshot.insert("cpu_percent".to_string(), Value::Float(s.trim().parse::<f64>().unwrap_or(0.0)));
-        }
-
-        // Memory
-        let mem_out = Command::new("powershell")
-            .args(["-NoProfile", "-Command",
-                "$os = Get-CimInstance Win32_OperatingSystem; @{total=$os.TotalVisibleMemorySize*1024; free=$os.FreePhysicalMemory*1024; used=($os.TotalVisibleMemorySize-$os.FreePhysicalMemory)*1024} | ConvertTo-Json"])
-            .output();
-        if let Ok(out) = mem_out {
-            let s = String::from_utf8_lossy(&out.stdout);
-            if let Ok(jv) = serde_json::from_str::<serde_json::Value>(s.trim()) {
-                snapshot.insert("memory".to_string(), json_to_value(jv));
-            }
-        }
-
-        // Disk
-        let disk_out = Command::new("powershell")
-            .args(["-NoProfile", "-Command",
-                "Get-CimInstance Win32_LogicalDisk | Where-Object { $_.DriveType -eq 3 } | Select-Object DeviceID, @{Name='TotalGB';Expression={[math]::Round($_.Size/1GB,2)}}, @{Name='FreeGB';Expression={[math]::Round($_.FreeSpace/1GB,2)}} | ConvertTo-Json -Depth 3"])
-            .output();
-        if let Ok(out) = disk_out {
-            let s = String::from_utf8_lossy(&out.stdout);
-            if let Ok(jv) = serde_json::from_str::<serde_json::Value>(s.trim()) {
-                snapshot.insert("disk".to_string(), json_to_value(jv));
-            }
-        }
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        // CPU usage from /proc/stat or top
-        let cpu_out = Command::new("sh")
-            .args(["-c", "top -bn1 | head -5"])
-            .output();
-        if let Ok(out) = cpu_out {
-            let s = String::from_utf8_lossy(&out.stdout);
-            for line in s.lines() {
-                if line.contains("Cpu") || line.contains("cpu") {
-                    snapshot.insert("cpu_summary".to_string(), Value::Str(line.trim().to_string()));
-                    break;
-                }
-            }
-        }
-
-        // Memory from free
-        let mem_out = Command::new("free")
-            .args(["-b"])
-            .output();
-        if let Ok(out) = mem_out {
-            let s = String::from_utf8_lossy(&out.stdout);
-            for line in s.lines() {
-                if line.starts_with("Mem:") {
-                    let parts: Vec<&str> = line.split_whitespace().collect();
-                    if parts.len() >= 4 {
-                        let mut mem = BTreeMap::new();
-                        mem.insert("total".to_string(), Value::Int(parts[1].parse::<i64>().unwrap_or(0)));
-                        mem.insert("used".to_string(), Value::Int(parts[2].parse::<i64>().unwrap_or(0)));
-                        mem.insert("free".to_string(), Value::Int(parts[3].parse::<i64>().unwrap_or(0)));
-                        if parts.len() >= 7 {
-                            mem.insert("available".to_string(), Value::Int(parts[6].parse::<i64>().unwrap_or(0)));
-                        }
-                        snapshot.insert("memory".to_string(), Value::Record(mem));
-                    }
-                    break;
-                }
-            }
-        }
-
-        // Disk usage
-        let disk_out = Command::new("df")
-            .args(["-B1", "--output=source,size,used,avail,pcent,target"])
-            .output();
-        if let Ok(out) = disk_out {
-            let s = String::from_utf8_lossy(&out.stdout);
-            let mut disks = Vec::new();
-            for line in s.lines().skip(1) {
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 6 && parts[0].starts_with('/') {
-                    let mut d = BTreeMap::new();
-                    d.insert("filesystem".to_string(), Value::Str(parts[0].to_string()));
-                    d.insert("size".to_string(), Value::Int(parts[1].parse::<i64>().unwrap_or(0)));
-                    d.insert("used".to_string(), Value::Int(parts[2].parse::<i64>().unwrap_or(0)));
-                    d.insert("available".to_string(), Value::Int(parts[3].parse::<i64>().unwrap_or(0)));
-                    d.insert("use_percent".to_string(), Value::Str(parts[4].to_string()));
-                    d.insert("mount".to_string(), Value::Str(parts[5].to_string()));
-                    disks.push(Value::Record(d));
-                }
-            }
-            snapshot.insert("disk".to_string(), Value::Array(disks));
-        }
-    }
-
-    snapshot.insert("timestamp".to_string(), Value::Str(chrono_timestamp()));
-    Ok(Value::Record(snapshot))
+    let mut sys = System::new_all();
+    sys.refresh_all();
+    let load = System::load_average();
+    let total_mem = sys.total_memory();
+    let used_mem = sys.used_memory();
+    let disks = Disks::new_with_refreshed_list();
+    let total_disk: u64 = disks.iter().map(|d| d.total_space()).sum();
+    let avail_disk: u64 = disks.iter().map(|d| d.available_space()).sum();
+    let mut rec = BTreeMap::new();
+    rec.insert("cpu_count".to_string(), Value::Int(sys.cpus().len() as i64));
+    rec.insert("cpu_percent".to_string(), Value::Float(sys.global_cpu_usage() as f64));
+    rec.insert("load_1".to_string(), Value::Float(load.one));
+    rec.insert("load_5".to_string(), Value::Float(load.five));
+    rec.insert("load_15".to_string(), Value::Float(load.fifteen));
+    rec.insert("memory_total".to_string(), Value::Int(total_mem as i64));
+    rec.insert("memory_used".to_string(), Value::Int(used_mem as i64));
+    rec.insert("memory_free".to_string(), Value::Int((total_mem - used_mem) as i64));
+    rec.insert("disk_total".to_string(), Value::Int(total_disk as i64));
+    rec.insert("disk_available".to_string(), Value::Int(avail_disk as i64));
+    rec.insert("timestamp".to_string(), Value::Str(chrono::Local::now().to_rfc3339()));
+    Ok(Value::Record(rec))
 }
-
 // ---------------------------------------------------------------------------
-// 1020: bi_glances_info — Comprehensive system monitoring
+// 1018: bi_glances_info - Comprehensive system info (cross-platform via sysinfo)
 // ---------------------------------------------------------------------------
 pub fn bi_glances_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let _ = args;
-    let mut info = BTreeMap::new();
-
-    #[cfg(target_os = "windows")]
-    {
-        let ps_cmd = r#"
-$cpu = (Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average
-$os = Get-CimInstance Win32_OperatingSystem
-$memTotal = $os.TotalVisibleMemorySize * 1024
-$memFree = $os.FreePhysicalMemory * 1024
-$memUsed = $memTotal - $memFree
-$memPct = [math]::Round(($memUsed / $memTotal) * 100, 2)
-$disks = Get-CimInstance Win32_LogicalDisk | Where-Object { $_.DriveType -eq 3 } | ForEach-Object {
-    @{Device=$_.DeviceID; TotalGB=[math]::Round($_.Size/1GB,2); FreeGB=[math]::Round($_.FreeSpace/1GB,2); UsePct=[math]::Round((($_.Size-$_.FreeSpace)/$_.Size)*100,2)}
+    let mut sys = System::new_all();
+    sys.refresh_all();
+    let total_mem = sys.total_memory();
+    let used_mem = sys.used_memory();
+    let total_swap = sys.total_swap();
+    let used_swap = sys.used_swap();
+    let cpus: Vec<Value> = sys.cpus().iter().map(|c| {
+        let mut m = BTreeMap::new();
+        m.insert("name".to_string(), Value::Str(c.name().to_string()));
+        m.insert("usage_percent".to_string(), Value::Float(c.cpu_usage() as f64));
+        m.insert("frequency_mhz".to_string(), Value::Int(c.frequency() as i64));
+        Value::Record(m)
+    }).collect();
+    let disks_list = Disks::new_with_refreshed_list();
+    let disk_entries: Vec<Value> = disks_list.iter().map(|d| {
+        let mut m = BTreeMap::new();
+        m.insert("name".to_string(), Value::Str(d.name().to_string_lossy().to_string()));
+        m.insert("mount".to_string(), Value::Str(d.mount_point().to_string_lossy().to_string()));
+        m.insert("fs_type".to_string(), Value::Str(d.file_system().to_string_lossy().to_string()));
+        m.insert("total_bytes".to_string(), Value::Int(d.total_space() as i64));
+        m.insert("available_bytes".to_string(), Value::Int(d.available_space() as i64));
+        let used = d.total_space().saturating_sub(d.available_space());
+        let pct = if d.total_space() > 0 { used as f64 / d.total_space() as f64 * 100.0 } else { 0.0 };
+        m.insert("use_percent".to_string(), Value::Float(pct));
+        Value::Record(m)
+    }).collect();
+    let nets = Networks::new_with_refreshed_list();
+    let net_entries: Vec<Value> = nets.iter().map(|(name, data)| {
+        let mut m = BTreeMap::new();
+        m.insert("interface".to_string(), Value::Str(name.clone()));
+        m.insert("rx_bytes".to_string(), Value::Int(data.total_received() as i64));
+        m.insert("tx_bytes".to_string(), Value::Int(data.total_transmitted() as i64));
+        m.insert("rx_packets".to_string(), Value::Int(data.total_packets_received() as i64));
+        m.insert("tx_packets".to_string(), Value::Int(data.total_packets_transmitted() as i64));
+        Value::Record(m)
+    }).collect();
+    let load = System::load_average();
+    let mut rec = BTreeMap::new();
+    rec.insert("hostname".to_string(), Value::Str(System::host_name().unwrap_or_default()));
+    rec.insert("uptime_seconds".to_string(), Value::Int(System::uptime() as i64));
+    rec.insert("cpu_count".to_string(), Value::Int(sys.cpus().len() as i64));
+    rec.insert("cpus".to_string(), Value::Array(cpus));
+    rec.insert("memory_total".to_string(), Value::Int(total_mem as i64));
+    rec.insert("memory_used".to_string(), Value::Int(used_mem as i64));
+    rec.insert("memory_percent".to_string(), Value::Float(if total_mem > 0 { used_mem as f64 / total_mem as f64 * 100.0 } else { 0.0 }));
+    rec.insert("swap_total".to_string(), Value::Int(total_swap as i64));
+    rec.insert("swap_used".to_string(), Value::Int(used_swap as i64));
+    rec.insert("disks".to_string(), Value::Array(disk_entries));
+    rec.insert("networks".to_string(), Value::Array(net_entries));
+    rec.insert("load_1".to_string(), Value::Float(load.one));
+    rec.insert("load_5".to_string(), Value::Float(load.five));
+    rec.insert("load_15".to_string(), Value::Float(load.fifteen));
+    Ok(Value::Record(rec))
 }
-$net = Get-NetAdapterStatistics -ErrorAction SilentlyContinue | Select-Object Name, ReceivedBytes, SentBytes
-@{
-    cpu_percent = $cpu
-    mem_percent = $memPct
-    mem_total = $memTotal
-    mem_used = $memUsed
-    mem_free = $memFree
-    disks = $disks
-    net = $net
-    hostname = $env:COMPUTERNAME
-    uptime_seconds = (New-TimeSpan -Start $os.LastBootUpTime -End (Get-Date)).TotalSeconds
-} | ConvertTo-Json -Depth 4
-"#;
-        let output = Command::new("powershell")
-            .args(["-NoProfile", "-Command", ps_cmd])
-            .output()
-            .map_err(|e| anyhow!("glances_info: failed to run powershell: {}", e))?;
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        if let Ok(jv) = serde_json::from_str::<serde_json::Value>(stdout.trim()) {
-            return Ok(json_to_value(jv));
-        }
-        info.insert("error".to_string(), Value::Str("Failed to parse system info".to_string()));
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        // CPU
-        if let Ok(out) = Command::new("sh").args(["-c", "grep 'cpu ' /proc/stat"]).output() {
-            let s = String::from_utf8_lossy(&out.stdout);
-            info.insert("cpu_stat".to_string(), Value::Str(s.trim().to_string()));
-        }
-
-        // Load average
-        if let Ok(out) = Command::new("cat").arg("/proc/loadavg").output() {
-            let s = String::from_utf8_lossy(&out.stdout);
-            let parts: Vec<&str> = s.trim().split_whitespace().collect();
-            if parts.len() >= 3 {
-                let mut load = BTreeMap::new();
-                load.insert("1min".to_string(), Value::Float(parts[0].parse::<f64>().unwrap_or(0.0)));
-                load.insert("5min".to_string(), Value::Float(parts[1].parse::<f64>().unwrap_or(0.0)));
-                load.insert("15min".to_string(), Value::Float(parts[2].parse::<f64>().unwrap_or(0.0)));
-                info.insert("load_average".to_string(), Value::Record(load));
-            }
-        }
-
-        // Memory
-        if let Ok(out) = Command::new("free").args(["-b"]).output() {
-            let s = String::from_utf8_lossy(&out.stdout);
-            for line in s.lines() {
-                if line.starts_with("Mem:") {
-                    let parts: Vec<&str> = line.split_whitespace().collect();
-                    if parts.len() >= 4 {
-                        let total = parts[1].parse::<f64>().unwrap_or(1.0);
-                        let used = parts[2].parse::<f64>().unwrap_or(0.0);
-                        info.insert("mem_percent".to_string(), Value::Float((used / total * 100.0).round()));
-                        info.insert("mem_total".to_string(), Value::Int(total as i64));
-                        info.insert("mem_used".to_string(), Value::Int(used as i64));
-                        info.insert("mem_free".to_string(), Value::Int(parts[3].parse::<i64>().unwrap_or(0)));
-                    }
-                    break;
-                }
-            }
-        }
-
-        // Disk usage
-        if let Ok(out) = Command::new("df").args(["-B1", "--total"]).output() {
-            let s = String::from_utf8_lossy(&out.stdout);
-            for line in s.lines() {
-                if line.starts_with("total") {
-                    let parts: Vec<&str> = line.split_whitespace().collect();
-                    if parts.len() >= 5 {
-                        info.insert("disk_total".to_string(), Value::Int(parts[1].parse::<i64>().unwrap_or(0)));
-                        info.insert("disk_used".to_string(), Value::Int(parts[2].parse::<i64>().unwrap_or(0)));
-                        info.insert("disk_free".to_string(), Value::Int(parts[3].parse::<i64>().unwrap_or(0)));
-                        info.insert("disk_percent".to_string(), Value::Str(parts[4].to_string()));
-                    }
-                    break;
-                }
-            }
-        }
-
-        // Network rx/tx
-        if let Ok(out) = Command::new("cat").arg("/proc/net/dev").output() {
-            let s = String::from_utf8_lossy(&out.stdout);
-            let mut net_devices = Vec::new();
-            for line in s.lines().skip(2) {
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 10 {
-                    let mut n = BTreeMap::new();
-                    n.insert("interface".to_string(), Value::Str(parts[0].trim_end_matches(':').to_string()));
-                    n.insert("rx_bytes".to_string(), Value::Int(parts[1].parse::<i64>().unwrap_or(0)));
-                    n.insert("tx_bytes".to_string(), Value::Int(parts[9].parse::<i64>().unwrap_or(0)));
-                    net_devices.push(Value::Record(n));
-                }
-            }
-            info.insert("network".to_string(), Value::Array(net_devices));
-        }
-
-        // Hostname
-        if let Ok(out) = Command::new("hostname").output() {
-            info.insert("hostname".to_string(), Value::Str(String::from_utf8_lossy(&out.stdout).trim().to_string()));
-        }
-    }
-
-    info.insert("timestamp".to_string(), Value::Str(chrono_timestamp()));
-    Ok(Value::Record(info))
-}
-
-/// Helper: generate ISO-8601 timestamp string
+// chrono_timestamp helper - returns RFC3339 timestamp
 fn chrono_timestamp() -> String {
-    let output = Command::new("date")
-        .args(["--iso-8601=seconds"])
-        .output()
-        .or_else(|_| {
-            // Windows fallback
-            Command::new("powershell")
-                .args(["-NoProfile", "-Command", "(Get-Date -Format o)"])
-                .output()
-        });
-    match output {
-        Ok(out) => String::from_utf8_lossy(&out.stdout).trim().to_string(),
-        Err(_) => "unknown".to_string(),
-    }
+    chrono::Local::now().to_rfc3339()
 }
 
 // ---------------------------------------------------------------------------
@@ -33269,200 +32827,54 @@ pub fn bi_perf_record(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
         Ok(Value::Record(rec))
     }
 }
-
 // ---------------------------------------------------------------------------
-// 1029: bi_free_mem — Memory usage (cross-platform)
+// 1019: bi_free_mem - Memory usage (cross-platform via sysinfo)
 // ---------------------------------------------------------------------------
 pub fn bi_free_mem(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let _ = args;
-
-    #[cfg(target_os = "windows")]
-    {
-        let ps_cmd = r#"
-$os = Get-CimInstance Win32_OperatingSystem
-$total = $os.TotalVisibleMemorySize * 1024
-$free = $os.FreePhysicalMemory * 1024
-$used = $total - $free
-$swapTotal = $os.TotalVirtualMemorySize * 1024
-$swapFree = $os.FreeVirtualMemory * 1024
-$swapUsed = $swapTotal - $swapFree
-@{
-    total = $total
-    used = $used
-    free = $free
-    available = $free
-    use_percent = [math]::Round(($used / $total) * 100, 2)
-    swap_total = $swapTotal
-    swap_used = $swapUsed
-    swap_free = $swapFree
-} | ConvertTo-Json
-"#;
-        let output = Command::new("powershell")
-            .args(["-NoProfile", "-Command", ps_cmd])
-            .output()
-            .map_err(|e| anyhow!("free_mem: failed to run powershell: {}", e))?;
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let json_val: serde_json::Value = serde_json::from_str(stdout.trim())
-            .map_err(|e| anyhow!("free_mem: JSON parse error: {}", e))?;
-        Ok(json_to_value(json_val))
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        let output = Command::new("free")
-            .args(["-b"])
-            .output()
-            .map_err(|e| anyhow!("free_mem: failed to run free: {}", e))?;
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let mut rec = BTreeMap::new();
-        for line in stdout.lines() {
-            if line.starts_with("Mem:") {
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 4 {
-                    let total = parts[1].parse::<i64>().unwrap_or(0);
-                    let used = parts[2].parse::<i64>().unwrap_or(0);
-                    let free = parts[3].parse::<i64>().unwrap_or(0);
-                    rec.insert("total".to_string(), Value::Int(total));
-                    rec.insert("used".to_string(), Value::Int(used));
-                    rec.insert("free".to_string(), Value::Int(free));
-                    if parts.len() >= 7 {
-                        let available = parts[6].parse::<i64>().unwrap_or(0);
-                        rec.insert("available".to_string(), Value::Int(available));
-                    }
-                    if total > 0 {
-                        rec.insert("use_percent".to_string(), Value::Float((used as f64 / total as f64) * 100.0));
-                    }
-                    if parts.len() >= 5 {
-                        rec.insert("shared".to_string(), Value::Int(parts[4].parse::<i64>().unwrap_or(0)));
-                    }
-                    if parts.len() >= 6 {
-                        rec.insert("buff_cache".to_string(), Value::Int(parts[5].parse::<i64>().unwrap_or(0)));
-                    }
-                }
-            } else if line.starts_with("Swap:") {
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 4 {
-                    rec.insert("swap_total".to_string(), Value::Int(parts[1].parse::<i64>().unwrap_or(0)));
-                    rec.insert("swap_used".to_string(), Value::Int(parts[2].parse::<i64>().unwrap_or(0)));
-                    rec.insert("swap_free".to_string(), Value::Int(parts[3].parse::<i64>().unwrap_or(0)));
-                }
-            }
-        }
-        Ok(Value::Record(rec))
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        let output = Command::new("vm_stat")
-            .output()
-            .map_err(|e| anyhow!("free_mem: failed to run vm_stat: {}", e))?;
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let mut rec = BTreeMap::new();
-        let page_size: i64 = 4096; // macOS default page size
-        for line in stdout.lines() {
-            let trimmed = line.trim().trim_end_matches('.');
-            if let Some((key, val)) = trimmed.split_once(':') {
-                let k = key.trim().to_lowercase().replace(' ', "_").replace('\"', "");
-                let v = val.trim().replace(",", "").parse::<i64>().unwrap_or(0);
-                let bytes = v * page_size;
-                rec.insert(k, Value::Int(bytes));
-            }
-        }
-
-        // Also get total memory via sysctl
-        let sysctl_out = Command::new("sysctl")
-            .args(["-n", "hw.memsize"])
-            .output();
-        if let Ok(out) = sysctl_out {
-            let s = String::from_utf8_lossy(&out.stdout);
-            rec.insert("total".to_string(), Value::Int(s.trim().parse::<i64>().unwrap_or(0)));
-        }
-
-        Ok(Value::Record(rec))
-    }
+    let mut sys = System::new_all();
+    sys.refresh_all();
+    let total = sys.total_memory();
+    let used = sys.used_memory();
+    let free = sys.free_memory();
+    let available = sys.available_memory();
+    let swap_total = sys.total_swap();
+    let swap_used = sys.used_swap();
+    let swap_free = swap_total.saturating_sub(swap_used);
+    let mut rec = BTreeMap::new();
+    rec.insert("total".to_string(), Value::Int(total as i64));
+    rec.insert("used".to_string(), Value::Int(used as i64));
+    rec.insert("free".to_string(), Value::Int(free as i64));
+    rec.insert("available".to_string(), Value::Int(available as i64));
+    rec.insert("use_percent".to_string(), Value::Float(if total > 0 { used as f64 / total as f64 * 100.0 } else { 0.0 }));
+    rec.insert("swap_total".to_string(), Value::Int(swap_total as i64));
+    rec.insert("swap_used".to_string(), Value::Int(swap_used as i64));
+    rec.insert("swap_free".to_string(), Value::Int(swap_free as i64));
+    Ok(Value::Record(rec))
 }
-
 // ---------------------------------------------------------------------------
-// 1030: bi_uptime_extended — Extended uptime info
+// 1020: bi_uptime_extended - Extended uptime info (cross-platform via sysinfo)
 // ---------------------------------------------------------------------------
 pub fn bi_uptime_extended(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let _ = args;
+    let secs = System::uptime();
+    let days = secs / 86400;
+    let hours = (secs % 86400) / 3600;
+    let minutes = (secs % 3600) / 60;
+    let seconds = secs % 60;
+    let human = format!("{}d {}h {}m {}s", days, hours, minutes, seconds);
+    let load = System::load_average();
     let mut rec = BTreeMap::new();
-
-    #[cfg(target_os = "windows")]
-    {
-        let ps_cmd = r#"
-$os = Get-CimInstance Win32_OperatingSystem
-$boot = $os.LastBootUpTime
-$uptime = (New-TimeSpan -Start $boot -End (Get-Date))
-$users = (query user 2>$null | Measure-Object).Count - 1
-@{
-    boot_time = $boot.ToString("o")
-    uptime_seconds = [math]::Round($uptime.TotalSeconds)
-    uptime_days = [math]::Round($uptime.TotalDays, 2)
-    uptime_human = "$([math]::Floor($uptime.TotalDays))d $($uptime.Hours)h $($uptime.Minutes)m"
-    users = [math]::Max(0, $users)
-    hostname = $env:COMPUTERNAME
-} | ConvertTo-Json
-"#;
-        let output = Command::new("powershell")
-            .args(["-NoProfile", "-Command", ps_cmd])
-            .output()
-            .map_err(|e| anyhow!("uptime_extended: failed to run powershell: {}", e))?;
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        if let Ok(jv) = serde_json::from_str::<serde_json::Value>(stdout.trim()) {
-            return Ok(json_to_value(jv));
-        }
-        rec.insert("error".to_string(), Value::Str("Failed to parse uptime info".to_string()));
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        // Uptime
-        let output = Command::new("uptime")
-            .output()
-            .map_err(|e| anyhow!("uptime_extended: failed to run uptime: {}", e))?;
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        rec.insert("uptime_raw".to_string(), Value::Str(stdout.trim().to_string()));
-
-        // Parse /proc/uptime on Linux
-        if let Ok(out) = Command::new("cat").arg("/proc/uptime").output() {
-            let s = String::from_utf8_lossy(&out.stdout);
-            let parts: Vec<&str> = s.trim().split_whitespace().collect();
-            if parts.len() >= 1 {
-                let secs = parts[0].parse::<f64>().unwrap_or(0.0);
-                rec.insert("uptime_seconds".to_string(), Value::Float(secs));
-                rec.insert("uptime_days".to_string(), Value::Float(secs / 86400.0));
-            }
-        }
-
-        // Load average
-        if let Ok(out) = Command::new("cat").arg("/proc/loadavg").output() {
-            let s = String::from_utf8_lossy(&out.stdout);
-            let parts: Vec<&str> = s.trim().split_whitespace().collect();
-            if parts.len() >= 3 {
-                let mut load = BTreeMap::new();
-                load.insert("1min".to_string(), Value::Float(parts[0].parse::<f64>().unwrap_or(0.0)));
-                load.insert("5min".to_string(), Value::Float(parts[1].parse::<f64>().unwrap_or(0.0)));
-                load.insert("15min".to_string(), Value::Float(parts[2].parse::<f64>().unwrap_or(0.0)));
-                rec.insert("load_average".to_string(), Value::Record(load));
-            }
-        }
-
-        // Users
-        if let Ok(out) = Command::new("who").output() {
-            let s = String::from_utf8_lossy(&out.stdout);
-            let user_count = s.lines().count();
-            rec.insert("users".to_string(), Value::Int(user_count as i64));
-        }
-
-        // Hostname
-        if let Ok(out) = Command::new("hostname").output() {
-            rec.insert("hostname".to_string(), Value::Str(String::from_utf8_lossy(&out.stdout).trim().to_string()));
-        }
-    }
-
-    rec.insert("timestamp".to_string(), Value::Str(chrono_timestamp()));
+    rec.insert("uptime_seconds".to_string(), Value::Int(secs as i64));
+    rec.insert("uptime_human".to_string(), Value::Str(human));
+    rec.insert("days".to_string(), Value::Int(days as i64));
+    rec.insert("hours".to_string(), Value::Int(hours as i64));
+    rec.insert("minutes".to_string(), Value::Int(minutes as i64));
+    rec.insert("seconds".to_string(), Value::Int(seconds as i64));
+    rec.insert("load_1".to_string(), Value::Float(load.one));
+    rec.insert("load_5".to_string(), Value::Float(load.five));
+    rec.insert("load_15".to_string(), Value::Float(load.fifteen));
+    rec.insert("hostname".to_string(), Value::Str(System::host_name().unwrap_or_default()));
     Ok(Value::Record(rec))
 }
 
@@ -33718,141 +33130,53 @@ pub fn bi_syslog_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value
 // ---------------------------------------------------------------------------
 // 1034: bi_dstat_info — System resource stats (aggregate)
 // ---------------------------------------------------------------------------
+// 1034: bi_dstat_info - System resource stats (cross-platform via sysinfo)
+// ---------------------------------------------------------------------------
 pub fn bi_dstat_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let _ = args;
+    let mut sys = System::new_all();
+    sys.refresh_all();
     let mut stats = BTreeMap::new();
-
-    #[cfg(target_os = "windows")]
-    {
-        let ps_cmd = r#"
-$cpu = (Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average
-$os = Get-CimInstance Win32_OperatingSystem
-$memTotal = $os.TotalVisibleMemorySize * 1024
-$memFree = $os.FreePhysicalMemory * 1024
-$memUsed = $memTotal - $memFree
-
-$diskIO = Get-CimInstance Win32_PerfFormattedData_PerfDisk_PhysicalDisk -ErrorAction SilentlyContinue |
-    Where-Object { $_.Name -eq '_Total' } |
-    Select-Object DiskReadBytesPersec, DiskWriteBytesPersec, DiskTransfersPersec
-
-$netAdapters = Get-NetAdapterStatistics -ErrorAction SilentlyContinue |
-    Measure-Object -Property ReceivedBytes, SentBytes -Sum
-
-@{
-    cpu_percent = $cpu
-    mem_total = $memTotal
-    mem_used = $memUsed
-    mem_free = $memFree
-    disk_read_bps = if($diskIO) { $diskIO.DiskReadBytesPersec } else { 0 }
-    disk_write_bps = if($diskIO) { $diskIO.DiskWriteBytesPersec } else { 0 }
-    disk_transfers_ps = if($diskIO) { $diskIO.DiskTransfersPersec } else { 0 }
-    net_rx_bytes = ($netAdapters | Where-Object Property -eq 'ReceivedBytes').Sum
-    net_tx_bytes = ($netAdapters | Where-Object Property -eq 'SentBytes').Sum
-} | ConvertTo-Json -Depth 3
-"#;
-        let output = Command::new("powershell")
-            .args(["-NoProfile", "-Command", ps_cmd])
-            .output()
-            .map_err(|e| anyhow!("dstat_info: failed to run powershell: {}", e))?;
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        if let Ok(jv) = serde_json::from_str::<serde_json::Value>(stdout.trim()) {
-            return Ok(json_to_value(jv));
-        }
-        stats.insert("error".to_string(), Value::Str("Failed to parse dstat info".to_string()));
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        // CPU from /proc/stat
-        if let Ok(out) = Command::new("cat").arg("/proc/stat").output() {
-            let s = String::from_utf8_lossy(&out.stdout);
-            if let Some(line) = s.lines().find(|l| l.starts_with("cpu ")) {
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 5 {
-                    let mut cpu = BTreeMap::new();
-                    cpu.insert("user".to_string(), Value::Int(parts[1].parse::<i64>().unwrap_or(0)));
-                    cpu.insert("nice".to_string(), Value::Int(parts[2].parse::<i64>().unwrap_or(0)));
-                    cpu.insert("system".to_string(), Value::Int(parts[3].parse::<i64>().unwrap_or(0)));
-                    cpu.insert("idle".to_string(), Value::Int(parts[4].parse::<i64>().unwrap_or(0)));
-                    if parts.len() >= 8 {
-                        cpu.insert("iowait".to_string(), Value::Int(parts[5].parse::<i64>().unwrap_or(0)));
-                        cpu.insert("irq".to_string(), Value::Int(parts[6].parse::<i64>().unwrap_or(0)));
-                        cpu.insert("softirq".to_string(), Value::Int(parts[7].parse::<i64>().unwrap_or(0)));
-                    }
-                    stats.insert("cpu".to_string(), Value::Record(cpu));
-                }
-            }
-        }
-
-        // Disk I/O from /proc/diskstats
-        if let Ok(out) = Command::new("cat").arg("/proc/diskstats").output() {
-            let s = String::from_utf8_lossy(&out.stdout);
-            let mut disk_devices = Vec::new();
-            for line in s.lines() {
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 14 {
-                    let name = parts[2];
-                    // Skip partitions (only show whole disks like sda, nvme0n1)
-                    if name.starts_with("sd") && name.len() == 3
-                        || name.starts_with("nvme") && name.contains("n") && !name.contains("p")
-                        || name.starts_with("vd") && name.len() == 3
-                    {
-                        let mut d = BTreeMap::new();
-                        d.insert("device".to_string(), Value::Str(name.to_string()));
-                        d.insert("reads".to_string(), Value::Int(parts[3].parse::<i64>().unwrap_or(0)));
-                        d.insert("read_sectors".to_string(), Value::Int(parts[5].parse::<i64>().unwrap_or(0)));
-                        d.insert("writes".to_string(), Value::Int(parts[7].parse::<i64>().unwrap_or(0)));
-                        d.insert("write_sectors".to_string(), Value::Int(parts[9].parse::<i64>().unwrap_or(0)));
-                        d.insert("io_in_progress".to_string(), Value::Int(parts[11].parse::<i64>().unwrap_or(0)));
-                        disk_devices.push(Value::Record(d));
-                    }
-                }
-            }
-            stats.insert("disk".to_string(), Value::Array(disk_devices));
-        }
-
-        // Network from /proc/net/dev
-        if let Ok(out) = Command::new("cat").arg("/proc/net/dev").output() {
-            let s = String::from_utf8_lossy(&out.stdout);
-            let mut net_devices = Vec::new();
-            for line in s.lines().skip(2) {
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 10 {
-                    let iface = parts[0].trim_end_matches(':');
-                    if iface != "lo" {
-                        let mut n = BTreeMap::new();
-                        n.insert("interface".to_string(), Value::Str(iface.to_string()));
-                        n.insert("rx_bytes".to_string(), Value::Int(parts[1].parse::<i64>().unwrap_or(0)));
-                        n.insert("rx_packets".to_string(), Value::Int(parts[2].parse::<i64>().unwrap_or(0)));
-                        n.insert("tx_bytes".to_string(), Value::Int(parts[9].parse::<i64>().unwrap_or(0)));
-                        n.insert("tx_packets".to_string(), Value::Int(parts[10].parse::<i64>().unwrap_or(0)));
-                        net_devices.push(Value::Record(n));
-                    }
-                }
-            }
-            stats.insert("network".to_string(), Value::Array(net_devices));
-        }
-
-        // Memory
-        if let Ok(out) = Command::new("free").args(["-b"]).output() {
-            let s = String::from_utf8_lossy(&out.stdout);
-            for line in s.lines() {
-                if line.starts_with("Mem:") {
-                    let parts: Vec<&str> = line.split_whitespace().collect();
-                    if parts.len() >= 4 {
-                        let mut mem = BTreeMap::new();
-                        mem.insert("total".to_string(), Value::Int(parts[1].parse::<i64>().unwrap_or(0)));
-                        mem.insert("used".to_string(), Value::Int(parts[2].parse::<i64>().unwrap_or(0)));
-                        mem.insert("free".to_string(), Value::Int(parts[3].parse::<i64>().unwrap_or(0)));
-                        stats.insert("memory".to_string(), Value::Record(mem));
-                    }
-                    break;
-                }
-            }
-        }
-    }
-
-    stats.insert("timestamp".to_string(), Value::Str(chrono_timestamp()));
+    // Per-CPU usage
+    let cpus: Vec<Value> = sys.cpus().iter().map(|c| {
+        let mut m = BTreeMap::new();
+        m.insert("name".to_string(), Value::Str(c.name().to_string()));
+        m.insert("usage_percent".to_string(), Value::Float(c.cpu_usage() as f64));
+        Value::Record(m)
+    }).collect();
+    stats.insert("cpus".to_string(), Value::Array(cpus));
+    stats.insert("cpu_percent".to_string(), Value::Float(sys.global_cpu_usage() as f64));
+    // Memory
+    let total_mem = sys.total_memory();
+    let used_mem = sys.used_memory();
+    let mut mem = BTreeMap::new();
+    mem.insert("total".to_string(), Value::Int(total_mem as i64));
+    mem.insert("used".to_string(), Value::Int(used_mem as i64));
+    mem.insert("free".to_string(), Value::Int((total_mem - used_mem) as i64));
+    stats.insert("memory".to_string(), Value::Record(mem));
+    // Disks
+    let disks = Disks::new_with_refreshed_list();
+    let disk_entries: Vec<Value> = disks.iter().map(|d| {
+        let mut m = BTreeMap::new();
+        m.insert("name".to_string(), Value::Str(d.name().to_string_lossy().to_string()));
+        m.insert("total_bytes".to_string(), Value::Int(d.total_space() as i64));
+        m.insert("available_bytes".to_string(), Value::Int(d.available_space() as i64));
+        Value::Record(m)
+    }).collect();
+    stats.insert("disk".to_string(), Value::Array(disk_entries));
+    // Networks
+    let nets = Networks::new_with_refreshed_list();
+    let net_entries: Vec<Value> = nets.iter().map(|(name, data)| {
+        let mut m = BTreeMap::new();
+        m.insert("interface".to_string(), Value::Str(name.clone()));
+        m.insert("rx_bytes".to_string(), Value::Int(data.total_received() as i64));
+        m.insert("tx_bytes".to_string(), Value::Int(data.total_transmitted() as i64));
+        m.insert("rx_packets".to_string(), Value::Int(data.total_packets_received() as i64));
+        m.insert("tx_packets".to_string(), Value::Int(data.total_packets_transmitted() as i64));
+        Value::Record(m)
+    }).collect();
+    stats.insert("network".to_string(), Value::Array(net_entries));
+    stats.insert("timestamp".to_string(), Value::Str(chrono::Local::now().to_rfc3339()));
     Ok(Value::Record(stats))
 }
 
