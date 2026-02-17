@@ -1,6 +1,6 @@
 # Copilot Instructions for AetherShell
 
-AetherShell is a next-generation shell written in Rust that combines typed programming with multimodal AI capabilities. Understanding its architecture and patterns is crucial for effective development.
+AetherShell is a shell built for AI agents. Traditional shells (Bash, PowerShell, Zsh) produce unstructured text that varies across OS versions, locales, and tool installations — making agent workflows fundamentally brittle. AetherShell eliminates this by providing a single cross-platform language where every command returns deterministic, typed output. An ontology built into the shell makes commands, arguments, and return types machine-discoverable without documentation scraping or prompt engineering. Written in Rust, it combines typed functional pipelines with multimodal AI capabilities.
 
 ## Core Architecture
 

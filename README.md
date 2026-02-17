@@ -541,14 +541,14 @@ src/
 
 AetherShell ships AI-readable metadata for discovery by Claude, ChatGPT, Copilot, and other AI assistants:
 
-| File | Standard | Purpose |
-|------|----------|---------|
-| [`llms.txt`](llms.txt) | [llms.txt](https://llmstxt.org) | Short AI-readable summary |
-| [`llms-full.txt`](llms-full.txt) | llms.txt | Complete context (syntax, modules, API) |
-| [`AGENTS.md`](AGENTS.md) | GitHub Copilot | Agent discovery with module directory |
-| [`.github/copilot-instructions.md`](.github/copilot-instructions.md) | GitHub Copilot | Development instructions |
-| [`.well-known/ai-plugin.json`](.well-known/ai-plugin.json) | OpenAI | ChatGPT plugin manifest |
-| [`.well-known/openapi.yaml`](.well-known/openapi.yaml) | OpenAPI 3.1 | Agent API specification |
+| File                                                                 | Standard                        | Purpose                                 |
+| -------------------------------------------------------------------- | ------------------------------- | --------------------------------------- |
+| [`llms.txt`](llms.txt)                                               | [llms.txt](https://llmstxt.org) | Short AI-readable summary               |
+| [`llms-full.txt`](llms-full.txt)                                     | llms.txt                        | Complete context (syntax, modules, API) |
+| [`AGENTS.md`](AGENTS.md)                                             | GitHub Copilot                  | Agent discovery with module directory   |
+| [`.github/copilot-instructions.md`](.github/copilot-instructions.md) | GitHub Copilot                  | Development instructions                |
+| [`.well-known/ai-plugin.json`](.well-known/ai-plugin.json)           | OpenAI                          | ChatGPT plugin manifest                 |
+| [`.well-known/openapi.yaml`](.well-known/openapi.yaml)               | OpenAPI 3.1                     | Agent API specification                 |
 
 ---
 

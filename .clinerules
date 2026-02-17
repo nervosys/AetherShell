@@ -1,11 +1,15 @@
 ﻿# AetherShell - Cline/Roo Rules
 
 ## Project Identity
-AetherShell (`ae`) is a typed functional shell written in Rust. Version 0.3.1, AGPL-3.0-or-later.
+AetherShell (`ae`) — the shell built for AI agents. One language, every platform, deterministic typed output. Written in Rust, version 0.3.1, AGPL-3.0-or-later.
+
+## Why It Exists
+Traditional shells (Bash, PowerShell, Zsh) produce unstructured text that varies by OS version, locale, and tool installation — making agent workflows fundamentally brittle. AetherShell eliminates this: every command returns deterministic, typed data. A built-in ontology makes commands, arguments, and return types machine-discoverable.
 
 ## Key Facts
-- Data flows as typed `Value` (Int, Float, String, Array, Record, Lambda) - not text
-- 215+ builtins across 38 namespaced modules (file, sys, net, ai, agent, crypto, db, ...)
+- Data flows as typed `Value` (Int, Float, String, Array, Record, Lambda) — not text
+- Same command, same typed result on Windows, macOS, Linux — no parsing differences
+- 430+ builtins across 50 namespaced modules (file, sys, net, ai, agent, crypto, db, ...)
 - AI integration: multi-provider (OpenAI, Anthropic, Ollama, vLLM), multi-modal (images/audio/video)
 - Agent API server on port 3002 with schemas for 25+ AI providers
 - Protocols: MCP (130+ tools), A2A, A2UI, NANDA
