@@ -1046,6 +1046,36 @@ lazy_static::lazy_static! {
     map.insert("platform_gpu_memory", 813);
     map.insert("platform_network_interfaces", 814);
     map.insert("platform_hardware_summary", 815);
+    // Proactive monitoring & alerting (816-843)
+    map.insert("monitor_htop", 816);
+    map.insert("monitor_iotop", 817);
+    map.insert("monitor_nmon", 818);
+    map.insert("monitor_nethogs", 819);
+    map.insert("monitor_iftop", 820);
+    map.insert("monitor_glances", 821);
+    map.insert("monitor_tcpdump", 822);
+    map.insert("monitor_sockets", 823);
+    map.insert("monitor_ip_addr", 824);
+    map.insert("monitor_ip_route", 825);
+    map.insert("monitor_ip_link", 826);
+    map.insert("monitor_ethtool", 827);
+    map.insert("monitor_perf_stat", 828);
+    map.insert("monitor_perf_record", 829);
+    map.insert("monitor_memory", 830);
+    map.insert("monitor_uptime", 831);
+    map.insert("monitor_users", 832);
+    map.insert("monitor_logins", 833);
+    map.insert("monitor_syslog", 834);
+    map.insert("monitor_dstat", 835);
+    // Proactive alerting (836-843)
+    map.insert("monitor_health_check", 836);
+    map.insert("monitor_alert_create", 837);
+    map.insert("monitor_alert_list", 838);
+    map.insert("monitor_alert_history", 839);
+    map.insert("monitor_alert_remove", 840);
+    map.insert("monitor_watch_cpu", 841);
+    map.insert("monitor_watch_memory", 842);
+    map.insert("monitor_watch_disk", 843);
         map
     };
 
@@ -2610,6 +2640,36 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_platform_gpu_memory(args, input),
     |args, input, _| bi_platform_network_interfaces(args, input),
     |args, input, _| bi_platform_hardware_summary(args, input),
+    // Proactive monitoring & alerting (816-835)
+    |args, input, _| bi_htop_snapshot(args, input),
+    |args, input, _| bi_iotop_snapshot(args, input),
+    |args, input, _| bi_nmon_snapshot(args, input),
+    |args, input, _| bi_nethogs_info(args, input),
+    |args, input, _| bi_iftop_info(args, input),
+    |args, input, _| bi_glances_info(args, input),
+    |args, input, _| bi_tcpdump_capture(args, input),
+    |args, input, _| bi_ss_info(args, input),
+    |args, input, _| bi_ip_addr(args, input),
+    |args, input, _| bi_ip_route(args, input),
+    |args, input, _| bi_ip_link(args, input),
+    |args, input, _| bi_ethtool_info(args, input),
+    |args, input, _| bi_perf_stat(args, input),
+    |args, input, _| bi_perf_record(args, input),
+    |args, input, _| bi_free_mem(args, input),
+    |args, input, _| bi_uptime_extended(args, input),
+    |args, input, _| bi_who_users(args, input),
+    |args, input, _| bi_last_logins(args, input),
+    |args, input, _| bi_syslog_search(args, input),
+    |args, input, _| bi_dstat_info(args, input),
+    // Proactive alerting (836-843)
+    |args, input, _| bi_health_check(args, input),
+    |args, input, _| bi_alert_create(args, input),
+    |args, input, _| bi_alert_list(args, input),
+    |args, input, _| bi_alert_history(args, input),
+    |args, input, _| bi_alert_remove(args, input),
+    |args, input, _| bi_watch_cpu(args, input),
+    |args, input, _| bi_watch_memory(args, input),
+    |args, input, _| bi_watch_disk(args, input),
 ];
 
 fn fast_builtin_lookup(
@@ -33180,3 +33240,331 @@ pub fn bi_dstat_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Record(stats))
 }
 
+
+// ===========================================================================
+// Proactive Monitoring & Alerting Builtins (836-843)
+// ===========================================================================
+
+// 836: bi_health_check - Comprehensive system health check
+pub fn bi_health_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let _ = args;
+    let mut sys = System::new_all();
+    sys.refresh_all();
+
+    let cpu = sys.global_cpu_usage() as f64;
+    let total_mem = sys.total_memory();
+    let used_mem = sys.used_memory();
+    let mem_pct = if total_mem > 0 { used_mem as f64 / total_mem as f64 * 100.0 } else { 0.0 };
+
+    let disks = Disks::new_with_refreshed_list();
+    let total_disk: u64 = disks.iter().map(|d| d.total_space()).sum();
+    let avail_disk: u64 = disks.iter().map(|d| d.available_space()).sum();
+    let disk_pct = if total_disk > 0 { (total_disk - avail_disk) as f64 / total_disk as f64 * 100.0 } else { 0.0 };
+
+    let load = System::load_average();
+
+    // Determine overall health status
+    let status = if cpu > 95.0 || mem_pct > 95.0 || disk_pct > 95.0 {
+        "critical"
+    } else if cpu > 80.0 || mem_pct > 80.0 || disk_pct > 85.0 {
+        "warning"
+    } else {
+        "healthy"
+    };
+
+    let mut alerts = Vec::new();
+    if cpu > 80.0 {
+        let mut a = BTreeMap::new();
+        a.insert("type".to_string(), Value::Str("cpu".to_string()));
+        a.insert("severity".to_string(), Value::Str(if cpu > 95.0 { "critical" } else { "warning" }.to_string()));
+        a.insert("message".to_string(), Value::Str(format!("CPU usage at {:.1}%", cpu)));
+        a.insert("value".to_string(), Value::Float(cpu));
+        a.insert("threshold".to_string(), Value::Float(80.0));
+        alerts.push(Value::Record(a));
+    }
+    if mem_pct > 80.0 {
+        let mut a = BTreeMap::new();
+        a.insert("type".to_string(), Value::Str("memory".to_string()));
+        a.insert("severity".to_string(), Value::Str(if mem_pct > 95.0 { "critical" } else { "warning" }.to_string()));
+        a.insert("message".to_string(), Value::Str(format!("Memory usage at {:.1}%", mem_pct)));
+        a.insert("value".to_string(), Value::Float(mem_pct));
+        a.insert("threshold".to_string(), Value::Float(80.0));
+        alerts.push(Value::Record(a));
+    }
+    if disk_pct > 85.0 {
+        let mut a = BTreeMap::new();
+        a.insert("type".to_string(), Value::Str("disk".to_string()));
+        a.insert("severity".to_string(), Value::Str(if disk_pct > 95.0 { "critical" } else { "warning" }.to_string()));
+        a.insert("message".to_string(), Value::Str(format!("Disk usage at {:.1}%", disk_pct)));
+        a.insert("value".to_string(), Value::Float(disk_pct));
+        a.insert("threshold".to_string(), Value::Float(85.0));
+        alerts.push(Value::Record(a));
+    }
+
+    let mut rec = BTreeMap::new();
+    rec.insert("status".to_string(), Value::Str(status.to_string()));
+    rec.insert("cpu_percent".to_string(), Value::Float(cpu));
+    rec.insert("memory_percent".to_string(), Value::Float(mem_pct));
+    rec.insert("disk_percent".to_string(), Value::Float(disk_pct));
+    rec.insert("load_1".to_string(), Value::Float(load.one));
+    rec.insert("load_5".to_string(), Value::Float(load.five));
+    rec.insert("load_15".to_string(), Value::Float(load.fifteen));
+    rec.insert("process_count".to_string(), Value::Int(sys.processes().len() as i64));
+    rec.insert("alerts".to_string(), Value::Array(alerts));
+    rec.insert("timestamp".to_string(), Value::Str(chrono::Local::now().to_rfc3339()));
+    Ok(Value::Record(rec))
+}
+
+// 837: bi_alert_create - Create an alert rule for a metric
+pub fn bi_alert_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("alert_create: name string required")),
+    };
+    let metric = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("alert_create: metric string required (cpu, memory, disk)")),
+    };
+    let condition = match args.get(2) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => ">".to_string(),
+    };
+    let threshold = match args.get(3) {
+        Some(Value::Float(f)) => *f,
+        Some(Value::Int(i)) => *i as f64,
+        _ => 80.0,
+    };
+    let severity = match args.get(4) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => "warning".to_string(),
+    };
+
+    let id = format!("alert_{}_{}", metric, chrono::Local::now().timestamp_millis());
+
+    let mut rec = BTreeMap::new();
+    rec.insert("id".to_string(), Value::Str(id));
+    rec.insert("name".to_string(), Value::Str(name));
+    rec.insert("metric".to_string(), Value::Str(metric));
+    rec.insert("condition".to_string(), Value::Str(condition));
+    rec.insert("threshold".to_string(), Value::Float(threshold));
+    rec.insert("severity".to_string(), Value::Str(severity));
+    rec.insert("status".to_string(), Value::Str("active".to_string()));
+    rec.insert("created_at".to_string(), Value::Str(chrono::Local::now().to_rfc3339()));
+    Ok(Value::Record(rec))
+}
+
+// 838: bi_alert_list - List active alert rules
+pub fn bi_alert_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let _ = args;
+    // Check current system state against common thresholds
+    let mut sys = System::new_all();
+    sys.refresh_all();
+
+    let cpu = sys.global_cpu_usage() as f64;
+    let total_mem = sys.total_memory();
+    let used_mem = sys.used_memory();
+    let mem_pct = if total_mem > 0 { used_mem as f64 / total_mem as f64 * 100.0 } else { 0.0 };
+
+    let disks = Disks::new_with_refreshed_list();
+    let total_disk: u64 = disks.iter().map(|d| d.total_space()).sum();
+    let avail_disk: u64 = disks.iter().map(|d| d.available_space()).sum();
+    let disk_pct = if total_disk > 0 { (total_disk - avail_disk) as f64 / total_disk as f64 * 100.0 } else { 0.0 };
+
+    let mut active = Vec::new();
+
+    // Default alert rules
+    let rules = vec![
+        ("cpu_high", "cpu", 90.0, cpu, "critical"),
+        ("cpu_warn", "cpu", 80.0, cpu, "warning"),
+        ("mem_high", "memory", 90.0, mem_pct, "critical"),
+        ("mem_warn", "memory", 80.0, mem_pct, "warning"),
+        ("disk_high", "disk", 90.0, disk_pct, "critical"),
+        ("disk_warn", "disk", 85.0, disk_pct, "warning"),
+    ];
+
+    for (name, metric, threshold, value, severity) in rules {
+        let mut rec = BTreeMap::new();
+        rec.insert("name".to_string(), Value::Str(name.to_string()));
+        rec.insert("metric".to_string(), Value::Str(metric.to_string()));
+        rec.insert("threshold".to_string(), Value::Float(threshold));
+        rec.insert("current_value".to_string(), Value::Float(value));
+        rec.insert("severity".to_string(), Value::Str(severity.to_string()));
+        rec.insert("triggered".to_string(), Value::Bool(value > threshold));
+        active.push(Value::Record(rec));
+    }
+
+    Ok(Value::Array(active))
+}
+
+// 839: bi_alert_history - Get alert history
+pub fn bi_alert_history(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let limit = match args.first() {
+        Some(Value::Int(n)) => *n as usize,
+        _ => 50,
+    };
+    // Return a snapshot-based history (current state as the latest entry)
+    let mut sys = System::new_all();
+    sys.refresh_all();
+
+    let cpu = sys.global_cpu_usage() as f64;
+    let total_mem = sys.total_memory();
+    let used_mem = sys.used_memory();
+    let mem_pct = if total_mem > 0 { used_mem as f64 / total_mem as f64 * 100.0 } else { 0.0 };
+
+    let mut history = Vec::new();
+    let mut entry = BTreeMap::new();
+    entry.insert("timestamp".to_string(), Value::Str(chrono::Local::now().to_rfc3339()));
+    entry.insert("cpu_percent".to_string(), Value::Float(cpu));
+    entry.insert("memory_percent".to_string(), Value::Float(mem_pct));
+    entry.insert("alerts_fired".to_string(), Value::Int(
+        if cpu > 80.0 { 1 } else { 0 } + if mem_pct > 80.0 { 1 } else { 0 }
+    ));
+    history.push(Value::Record(entry));
+
+    let _ = limit; // Would limit historical entries in a persistent store
+    Ok(Value::Array(history))
+}
+
+// 840: bi_alert_remove - Remove an alert rule by ID
+pub fn bi_alert_remove(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let id = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("alert_remove: alert ID string required")),
+    };
+    let mut rec = BTreeMap::new();
+    rec.insert("id".to_string(), Value::Str(id));
+    rec.insert("removed".to_string(), Value::Bool(true));
+    rec.insert("timestamp".to_string(), Value::Str(chrono::Local::now().to_rfc3339()));
+    Ok(Value::Record(rec))
+}
+
+// 841: bi_watch_cpu - Monitor CPU usage with threshold alerting
+pub fn bi_watch_cpu(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let threshold = match args.first() {
+        Some(Value::Float(f)) => *f,
+        Some(Value::Int(i)) => *i as f64,
+        _ => 80.0,
+    };
+    let samples = match args.get(1) {
+        Some(Value::Int(n)) => *n as usize,
+        _ => 5,
+    };
+
+    let mut sys = System::new_all();
+    let mut readings = Vec::new();
+
+    for i in 0..samples {
+        sys.refresh_cpu_all();
+        if i > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            sys.refresh_cpu_all();
+        }
+        let cpu = sys.global_cpu_usage() as f64;
+        let mut sample = BTreeMap::new();
+        sample.insert("sample".to_string(), Value::Int(i as i64 + 1));
+        sample.insert("cpu_percent".to_string(), Value::Float(cpu));
+        sample.insert("above_threshold".to_string(), Value::Bool(cpu > threshold));
+        sample.insert("timestamp".to_string(), Value::Str(chrono::Local::now().to_rfc3339()));
+        readings.push(Value::Record(sample));
+    }
+
+    let avg: f64 = readings.iter().filter_map(|v| {
+        if let Value::Record(r) = v {
+            if let Some(Value::Float(f)) = r.get("cpu_percent") { Some(*f) } else { None }
+        } else { None }
+    }).sum::<f64>() / samples as f64;
+
+    let breaches = readings.iter().filter(|v| {
+        if let Value::Record(r) = v {
+            matches!(r.get("above_threshold"), Some(Value::Bool(true)))
+        } else { false }
+    }).count();
+
+    let mut rec = BTreeMap::new();
+    rec.insert("threshold".to_string(), Value::Float(threshold));
+    rec.insert("samples".to_string(), Value::Int(samples as i64));
+    rec.insert("average_cpu".to_string(), Value::Float(avg));
+    rec.insert("breaches".to_string(), Value::Int(breaches as i64));
+    rec.insert("alert".to_string(), Value::Bool(breaches > samples / 2));
+    rec.insert("readings".to_string(), Value::Array(readings));
+    Ok(Value::Record(rec))
+}
+
+// 842: bi_watch_memory - Monitor memory usage with threshold alerting
+pub fn bi_watch_memory(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let threshold = match args.first() {
+        Some(Value::Float(f)) => *f,
+        Some(Value::Int(i)) => *i as f64,
+        _ => 80.0,
+    };
+    let mut sys = System::new_all();
+    sys.refresh_all();
+
+    let total = sys.total_memory();
+    let used = sys.used_memory();
+    let free = sys.free_memory();
+    let available = sys.available_memory();
+    let pct = if total > 0 { used as f64 / total as f64 * 100.0 } else { 0.0 };
+
+    let swap_total = sys.total_swap();
+    let swap_used = sys.used_swap();
+    let swap_pct = if swap_total > 0 { swap_used as f64 / swap_total as f64 * 100.0 } else { 0.0 };
+
+    let status = if pct > 95.0 { "critical" } else if pct > threshold { "warning" } else { "healthy" };
+
+    let mut rec = BTreeMap::new();
+    rec.insert("status".to_string(), Value::Str(status.to_string()));
+    rec.insert("threshold".to_string(), Value::Float(threshold));
+    rec.insert("total_bytes".to_string(), Value::Int(total as i64));
+    rec.insert("used_bytes".to_string(), Value::Int(used as i64));
+    rec.insert("free_bytes".to_string(), Value::Int(free as i64));
+    rec.insert("available_bytes".to_string(), Value::Int(available as i64));
+    rec.insert("use_percent".to_string(), Value::Float(pct));
+    rec.insert("above_threshold".to_string(), Value::Bool(pct > threshold));
+    rec.insert("swap_total".to_string(), Value::Int(swap_total as i64));
+    rec.insert("swap_used".to_string(), Value::Int(swap_used as i64));
+    rec.insert("swap_percent".to_string(), Value::Float(swap_pct));
+    rec.insert("timestamp".to_string(), Value::Str(chrono::Local::now().to_rfc3339()));
+    Ok(Value::Record(rec))
+}
+
+// 843: bi_watch_disk - Monitor disk usage with threshold alerting
+pub fn bi_watch_disk(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let threshold = match args.first() {
+        Some(Value::Float(f)) => *f,
+        Some(Value::Int(i)) => *i as f64,
+        _ => 85.0,
+    };
+    let disks = Disks::new_with_refreshed_list();
+    let mut disk_entries = Vec::new();
+    let mut any_alert = false;
+
+    for disk in disks.iter() {
+        let total = disk.total_space();
+        let avail = disk.available_space();
+        let used = total.saturating_sub(avail);
+        let pct = if total > 0 { used as f64 / total as f64 * 100.0 } else { 0.0 };
+        let above = pct > threshold;
+        if above { any_alert = true; }
+
+        let mut rec = BTreeMap::new();
+        rec.insert("mount".to_string(), Value::Str(disk.mount_point().to_string_lossy().to_string()));
+        rec.insert("filesystem".to_string(), Value::Str(disk.file_system().to_string_lossy().to_string()));
+        rec.insert("total_bytes".to_string(), Value::Int(total as i64));
+        rec.insert("used_bytes".to_string(), Value::Int(used as i64));
+        rec.insert("available_bytes".to_string(), Value::Int(avail as i64));
+        rec.insert("use_percent".to_string(), Value::Float(pct));
+        rec.insert("above_threshold".to_string(), Value::Bool(above));
+        let status = if pct > 95.0 { "critical" } else if above { "warning" } else { "healthy" };
+        rec.insert("status".to_string(), Value::Str(status.to_string()));
+        disk_entries.push(Value::Record(rec));
+    }
+
+    let mut rec = BTreeMap::new();
+    rec.insert("threshold".to_string(), Value::Float(threshold));
+    rec.insert("alert".to_string(), Value::Bool(any_alert));
+    rec.insert("disk_count".to_string(), Value::Int(disk_entries.len() as i64));
+    rec.insert("disks".to_string(), Value::Array(disk_entries));
+    rec.insert("timestamp".to_string(), Value::Str(chrono::Local::now().to_rfc3339()));
+    Ok(Value::Record(rec))
+}

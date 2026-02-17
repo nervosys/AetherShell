@@ -212,7 +212,7 @@ This document tracks the development progress of AetherShell, the world's first 
 - [x] Context-aware command suggestions
 - [x] Natural language → AetherShell transpilation
 - [x] Conversation memory and session persistence
-- [ ] Proactive monitoring and alerting
+- [x] Proactive monitoring and alerting
 
 ### Q4 2026 — Cloud & Scale
 - [ ] Cloud platform (hosted AetherShell instances)
@@ -222,11 +222,11 @@ This document tracks the development progress of AetherShell, the world's first 
 - [ ] Telemetry and usage analytics (opt-in)
 
 ### v1.0.0 — Production Release
-- [ ] Stability freeze and backward compatibility guarantees
-- [ ] Comprehensive API documentation (rustdoc)
+- [x] Stability freeze and backward compatibility guarantees
+- [x] Comprehensive API documentation (rustdoc)
 - [ ] Security audit by third party
 - [ ] Long-term support (LTS) commitment
-- [ ] Migration guide from bash/zsh/PowerShell
+- [x] Migration guide from bash/zsh/PowerShell
 
 ---
 

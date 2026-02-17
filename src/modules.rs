@@ -1052,6 +1052,43 @@ pub fn platform_module() -> Value {
 }
 
 /// Get all modules as a map for registering in the environment
+
+/// Monitor module: monitor.health(), monitor.htop(), monitor.alert_create(), etc.
+pub fn monitor_module() -> Value {
+    module(&[
+        // System monitoring
+        ("htop", "monitor_htop"),
+        ("iotop", "monitor_iotop"),
+        ("nmon", "monitor_nmon"),
+        ("nethogs", "monitor_nethogs"),
+        ("iftop", "monitor_iftop"),
+        ("glances", "monitor_glances"),
+        ("tcpdump", "monitor_tcpdump"),
+        ("sockets", "monitor_sockets"),
+        ("ip_addr", "monitor_ip_addr"),
+        ("ip_route", "monitor_ip_route"),
+        ("ip_link", "monitor_ip_link"),
+        ("ethtool", "monitor_ethtool"),
+        ("perf_stat", "monitor_perf_stat"),
+        ("perf_record", "monitor_perf_record"),
+        ("memory", "monitor_memory"),
+        ("uptime", "monitor_uptime"),
+        ("users", "monitor_users"),
+        ("logins", "monitor_logins"),
+        ("syslog", "monitor_syslog"),
+        ("dstat", "monitor_dstat"),
+        // Proactive alerting
+        ("health", "monitor_health_check"),
+        ("alert_create", "monitor_alert_create"),
+        ("alert_list", "monitor_alert_list"),
+        ("alert_history", "monitor_alert_history"),
+        ("alert_remove", "monitor_alert_remove"),
+        ("watch_cpu", "monitor_watch_cpu"),
+        ("watch_memory", "monitor_watch_memory"),
+        ("watch_disk", "monitor_watch_disk"),
+    ])
+}
+
 pub fn all_modules() -> Vec<(&'static str, Value)> {
     vec![
         ("sys", sys_module()),
@@ -1105,5 +1142,6 @@ pub fn all_modules() -> Vec<(&'static str, Value)> {
         ("nn", nn_module()),
         ("evo", evo_module()),
         ("rl", rl_module()),
+        ("monitor", monitor_module()),
     ]
 }
