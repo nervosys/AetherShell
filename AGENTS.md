@@ -1,4 +1,4 @@
-﻿# AGENTS.md - AetherShell Agent & AI Discovery
+# AGENTS.md - AetherShell Agent & AI Discovery
 
 > This file helps AI coding assistants (GitHub Copilot, Claude, ChatGPT, Cursor, Windsurf, Cody, local models) understand how to work with AetherShell.
 
@@ -14,7 +14,7 @@
 
 ## What Is AetherShell?
 
-AetherShell is a typed, functional shell where data flows as structured values (Int, Float, String, Array, Record, Lambda) through pipelines - not raw text. It has 215+ builtins in 38 modules, native AI agents with multi-modal support, and implements the MCP, A2A, A2UI, and NANDA agentic protocols.
+AetherShell is a typed, functional shell where data flows as structured values (Int, Float, String, Array, Record, Lambda) through pipelines - not raw text. It has 430+ builtins in 50 modules, native AI agents with multi-modal support, and implements the MCP, A2A, A2UI, and NANDA agentic protocols.
 
 ## How To Use AetherShell (for AI agents)
 
@@ -132,6 +132,18 @@ crypto.uuid()         math.sqrt(16)      arr.range(10)
 | `input` | Input | User input |
 | `shell` | Shell | Shell operations |
 | `cluster` | Cluster | Distributed computing |
+| `docker` | Docker | `docker.ps()`, `docker.run(image, args)` |
+| `podman` | Podman | `podman.ps()`, `podman.run(image, args)` |
+| `container` | Containers | `container.ps()`, `container.run(image)` |
+| `k8s` | Kubernetes | `k8s.pods()`, `k8s.apply(manifest)` |
+| `helm` | Helm | `helm.list()`, `helm.install(chart)` |
+| `vm` | VMs | `vm.list()`, `vm.start(name)` |
+| `hyperv` | Hyper-V | `hyperv.list()`, `hyperv.start(name)` |
+| `virsh` | libvirt | `virsh.list()`, `virsh.start(name)` |
+| `wsl` | WSL | `wsl.list()`, `wsl.exec(distro, cmd)` |
+| `terraform` | Terraform | `terraform.plan()`, `terraform.apply()` |
+| `ansible` | Ansible | `ansible.playbook(file)` |
+| `firewall` | Firewall | `firewall.rules()`, `firewall.allow(port)` |
 
 ## Agent API Server Endpoints
 

@@ -12,7 +12,7 @@ This document tracks the development progress of AetherShell, the world's first 
 | ----------------- | ---------- | ---------------------------- |
 | Core Language     | ✅ Complete | AST-based, Hindley-Milner    |
 | Type System       | ✅ Complete | Full inference               |
-| Builtins Library  | ✅ Complete | 215+ functions, 38 modules   |
+| Builtins Library  | ✅ Complete | 430+ functions, 50 modules   |
 | AI Integration    | ✅ Complete | Multi-provider, multi-modal  |
 | Agent Framework   | ✅ Complete | Single + swarm + A2A         |
 | TUI Interface     | ✅ Complete | Tabs, chat, dashboard        |
@@ -39,6 +39,7 @@ This document tracks the development progress of AetherShell, the world's first 
 ## Version History
 
 ### v0.3.1 (Current) — February 2026
+- [x] Cross-platform OS commands: 219 new builtins for containers, Kubernetes, VMs/hypervisors, cloud/IaC, remote access, security, and monitoring
 - [x] Published to crates.io as `aethershell v0.3.1`
 - [x] Published `aethershell-lsp v0.2.0` to crates.io
 - [x] VS Code extension v0.3.1 on Marketplace (`admercs.aethershell`)
@@ -86,7 +87,7 @@ This document tracks the development progress of AetherShell, the world's first 
 ### v0.1.x — December 2025
 - [x] Core language: AST evaluator, Hindley-Milner type inference
 - [x] Typed pipelines, first-class lambdas, pattern matching
-- [x] 215+ builtins across functional, string, array, math, file, OS categories
+- [x] 430+ builtins across functional, string, array, math, file, OS, container, VM, cloud, security categories
 - [x] AI integration: multi-provider, multi-modal (images, audio, video)
 - [x] Agent framework: autonomous agents with tool access
 - [x] Agent swarms with coordinator patterns
@@ -120,12 +121,19 @@ This document tracks the development progress of AetherShell, the world's first 
 - [x] Module cache with cycle detection
 - [x] Standard library (7 modules: prelude, math, string, collection, functional, io, test_stdlib)
 
-### Builtins (215+ functions in 38 modules)
+### Builtins (430+ functions in 50 modules)
 - [x] `file`, `sys`, `proc`, `fs`, `net`, `http`, `gui`, `web`
 - [x] `crypto`, `db`, `svc`, `cron`, `archive`, `user`, `perm`, `pkg`
 - [x] `hw`, `clip`, `input`, `ai`, `agent`, `math`, `str`, `arr`, `json`
 - [x] `mcp`, `shell`, `platform`, `a2ui`, `a2a`, `nanda`
 - [x] `rbac`, `audit`, `sso`, `cluster`, `nn`, `evo`, `rl`
+- [x] `docker`, `podman`, `container` — Container management
+- [x] `k8s`, `helm` — Kubernetes orchestration
+- [x] `vm`, `hyperv`, `virsh`, `wsl`, `qemu`, `lxc` — VM/hypervisor management
+- [x] `terraform`, `ansible`, `pulumi`, `vagrant`, `packer` — Cloud/IaC
+- [x] `ssh`, `scp`, `rsync`, `rdp` — Remote access
+- [x] `firewall`, `selinux`, `apparmor`, `ssl` — Security
+- [x] `monitor`, `perf`, `netstat` — System monitoring
 
 ### AI & Agents
 - [x] Multi-provider: OpenAI, Anthropic, Ollama, vLLM, compatible
@@ -250,8 +258,8 @@ This document tracks the development progress of AetherShell, the world's first 
 - **Language:** Rust
 - **Source Lines:** ~86,000 (src/)
 - **Test Lines:** ~14,000 (tests/)
-- **Builtins:** 215+
-- **Modules:** 38
+- **Builtins:** 430+
+- **Modules:** 50
 - **Themes:** 38
 
 ### Distribution

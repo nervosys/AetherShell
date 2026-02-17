@@ -11,7 +11,7 @@ This file contains everything an AI model needs to understand, use, and generate
 
 ## 1. What Is AetherShell?
 
-AetherShell (`ae`) is a shell and scripting language that replaces traditional text-stream pipelines with typed, structured data flows. Written in Rust with Hindley-Milner type inference, it provides 215+ builtins across 38 modules, native AI agent support, and the MCP/A2A/A2UI/NANDA agentic protocols.
+AetherShell (`ae`) is a shell and scripting language that replaces traditional text-stream pipelines with typed, structured data flows. Written in Rust with Hindley-Milner type inference, it provides 430+ builtins across 50 modules, native AI agent support, and the MCP/A2A/A2UI/NANDA agentic protocols.
 
 **Key differentiators from bash/zsh/PowerShell:**
 - Data flows as typed `Value` (Int, Float, String, Bool, Array, Record, Lambda, Table) - not raw text
@@ -138,7 +138,7 @@ data = await http.get("https://api.example.com/data")
 
 ---
 
-## 5. Module System (38 Modules, 215+ Builtins)
+## 5. Module System (50 Modules, 430+ Builtins)
 
 All builtins return structured `Value` types, not raw text.
 
