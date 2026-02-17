@@ -1,6 +1,8 @@
 # Æther Shell (æ) Design Spec
 
-*A modern, typed, memory‑safe, AI-first successor to Bash bringing PowerShell‑like structured pipelines, Rust‑like safety, Julia‑like macros, Go‑like clarity, and brain-like automation. Æther is pure command-line gold.*
+*The shell built for AI agents. One language, every platform, deterministic typed output.*
+
+*Traditional shells (Bash, PowerShell, Zsh) produce unstructured text that varies by OS version, locale, and tool installation — making agent workflows non-deterministic and brittle. Æther eliminates this with typed, structured pipelines where every command returns deterministic data, and a built-in ontology that makes commands machine-discoverable.*
 
 ## TL;DR
 

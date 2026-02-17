@@ -5,6 +5,7 @@
 ## Identity
 
 - **Project**: AetherShell
+- **Tagline**: One language, every platform, deterministic typed output
 - **Binary**: `ae`
 - **Language**: Rust
 - **Version**: 0.3.1
@@ -12,9 +13,13 @@
 - **License**: AGPL-3.0-or-later
 - **File Extension**: `.ae`
 
+## Why AetherShell Exists
+
+AI agents today are forced to interact with shells designed decades ago for humans — Bash on Linux, PowerShell on Windows, Zsh on macOS. Each has its own syntax, conventions, and quirks. Worse, their output is unstructured text that varies across OS versions, locales, and tool installations, creating non-deterministic results that make agent workflows fundamentally brittle. An agent that parses `df -h` output on Ubuntu will break on Alpine. A script that scrapes `Get-Process` output will fail when column widths change. Every shell command becomes a fragile integration point.
+
 ## What Is AetherShell?
 
-AetherShell is a typed, functional shell where data flows as structured values (Int, Float, String, Array, Record, Lambda) through pipelines - not raw text. It has 430+ builtins in 50 modules, native AI agents with multi-modal support, and implements the MCP, A2A, A2UI, and NANDA agentic protocols.
+AetherShell eliminates this entire class of failure. It provides a single cross-platform shell language with deterministic, typed output — every command returns structured data (Int, Float, String, Array, Record, Lambda), not raw text. An ontology built into the shell makes commands, their arguments, and their return types discoverable by AI agents without documentation scraping or prompt engineering. It has 430+ builtins in 50 modules, native AI agents with multi-modal support, and implements the MCP, A2A, A2UI, and NANDA agentic protocols.
 
 ## How To Use AetherShell (for AI agents)
 

@@ -1,6 +1,6 @@
 # AetherShell - Complete AI Context
 
-> The world's first multi-agent shell with typed functional pipelines and multi-modal AI.
+> One language, every platform, deterministic typed output — the shell built for AI agents.
 > Version: 0.3.1 | License: AGPL-3.0-or-later | Language: Rust
 > Repository: https://github.com/nervosys/AetherShell
 > Crate: https://crates.io/crates/aethershell (733 KiB compressed)
@@ -11,11 +11,15 @@ This file contains everything an AI model needs to understand, use, and generate
 
 ## 1. What Is AetherShell?
 
-AetherShell (`ae`) is a shell and scripting language that replaces traditional text-stream pipelines with typed, structured data flows. Written in Rust with Hindley-Milner type inference, it provides 430+ builtins across 50 modules, native AI agent support, and the MCP/A2A/A2UI/NANDA agentic protocols.
+AI agents today are forced to interact with shells designed decades ago for humans — Bash on Linux, PowerShell on Windows, Zsh on macOS. Their output is unstructured text that varies across OS versions, locales, and tool installations, creating non-deterministic results that make agent workflows fundamentally brittle. An agent that parses `df -h` on Ubuntu will break on Alpine. A script that scrapes `Get-Process` output will fail when column widths change.
+
+AetherShell (`ae`) eliminates this entire class of failure. It provides a single cross-platform shell language where every command returns deterministic, typed output. An ontology built into the shell makes commands, their arguments, and their return types machine-discoverable without documentation scraping or prompt engineering. Written in Rust with Hindley-Milner type inference, it provides 430+ builtins across 50 modules, native AI agent support, and the MCP/A2A/A2UI/NANDA agentic protocols.
 
 **Key differentiators from bash/zsh/PowerShell:**
+- Deterministic: same command produces the same typed structure on every OS, locale, and version
 - Data flows as typed `Value` (Int, Float, String, Bool, Array, Record, Lambda, Table) - not raw text
-- Cross-platform: identical commands on Windows, macOS, Linux
+- Built-in ontology: commands, arguments, and return types are machine-discoverable
+- Cross-platform: identical commands on Windows, macOS, Linux — no parsing or escaping differences
 - AI agents are first-class citizens with multi-modal support
 - Structured JSON Agent API for external tool integration
 - Expression-oriented: everything returns a value

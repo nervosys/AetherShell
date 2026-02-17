@@ -117,6 +117,7 @@ semver = "1.0"
 libloading = "0.8"
 notify = "6.1"
 md5 = "0.7"
+sysinfo = "0.33"
 
 # Native-only dependencies (terminal, TUI, system interaction)
 walkdir = { version = "2", optional = true }

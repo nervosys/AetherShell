@@ -1,14 +1,18 @@
 ﻿# AetherShell - Cursor Rules
 
 ## Project Identity
-- **Name**: AetherShell - the world's first multi-agent shell
+- **Name**: AetherShell — the shell built for AI agents
+- **Tagline**: One language, every platform, deterministic typed output
 - **Binary**: `ae`
 - **Language**: Rust (edition 2021, MSRV 1.75)
 - **Version**: 0.3.1
 - **License**: AGPL-3.0-or-later
 
+## Why AetherShell Exists
+Traditional shells (Bash, PowerShell, Zsh) produce unstructured text that varies by OS version, locale, and tool installation — making AI agent workflows fundamentally brittle. AetherShell eliminates this: every command returns deterministic, typed data. An ontology built into the shell makes commands, arguments, and return types machine-discoverable without documentation scraping.
+
 ## What Is AetherShell?
-A typed functional shell where data flows as structured `Value` types (Int, Float, String, Array, Record, Lambda) - not raw text. 215+ builtins in 38 modules, multi-provider AI agents, MCP/A2A/A2UI/NANDA protocols, TUI, Agent API server.
+A typed functional shell where data flows as structured `Value` types (Int, Float, String, Array, Record, Lambda) — not raw text. Same command, same result, every platform. 430+ builtins in 50 modules, multi-provider AI agents, MCP/A2A/A2UI/NANDA protocols, TUI, Agent API server.
 
 ## Architecture
 - `src/ast.rs` -> `src/parser.rs` -> `src/eval.rs` -> `src/typecheck.rs` (language pipeline)
