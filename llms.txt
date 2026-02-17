@@ -1,4 +1,4 @@
-﻿# AetherShell
+# AetherShell
 
 > The world's first multi-agent shell with typed functional pipelines and multi-modal AI.
 
@@ -25,7 +25,7 @@ AetherShell (ae) is a next-generation shell and scripting language written in Ru
 ## Key Capabilities
 
 - **Typed Pipelines**: Data flows as Int, Float, String, Array, Record, Lambda - not raw text
-- **215+ Builtins**: Organized in 38 namespaced modules (file, sys, net, ai, agent, crypto, db, ...)
+- **430+ Builtins**: Organized in 50 namespaced modules (file, sys, net, ai, agent, crypto, db, docker, k8s, vm, terraform, firewall, ...)
 - **AI Integration**: Multi-provider (OpenAI, Anthropic, Ollama, vLLM), multi-modal (images/audio/video)
 - **Agent Framework**: Autonomous agents with tool access, swarms with coordinator patterns
 - **Agentic Protocols**: MCP (130+ tools), A2A, A2UI, NANDA

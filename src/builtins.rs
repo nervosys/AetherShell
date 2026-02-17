@@ -4,6 +4,7 @@ use anyhow::{anyhow, Context, Result};
 use serde_json;
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
+use std::process::Command;
 use walkdir::WalkDir;
 
 use crate::{
@@ -26703,3 +26704,7155 @@ fn bi_platform_hardware_summary(_args: Vec<Value>, _input: Option<Value>) -> Res
 }
 
 // ============================================================================
+
+// ============================================================================
+// Container Management Builtins (816-849)
+// Docker, Podman, and runtime-agnostic container operations
+// ============================================================================
+
+// ---------------------------------------------------------------------------
+// Helper: run a container CLI command and parse JSON-per-line output
+// ---------------------------------------------------------------------------
+fn container_json_lines(program: &str, args: &[&str]) -> Result<Vec<Value>> {
+    let output = std::process::Command::new(program)
+        .args(args)
+        .output()
+        .map_err(|e| anyhow!("{} not found or failed to start: {}", program, e))?;
+    if !output.status.success() {
+        return Err(anyhow!(
+            "{} {} failed: {}",
+            program,
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut results = Vec::new();
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(trimmed) {
+            results.push(json_to_value(json));
+        }
+    }
+    Ok(results)
+}
+
+// Helper: run a container CLI command and return stdout as a string
+fn container_run_cmd(program: &str, args: &[&str]) -> Result<String> {
+    let output = std::process::Command::new(program)
+        .args(args)
+        .output()
+        .map_err(|e| anyhow!("{} not found or failed to start: {}", program, e))?;
+    if !output.status.success() {
+        return Err(anyhow!(
+            "{} {} failed: {}",
+            program,
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+// Helper: detect which container runtime is available
+fn detect_container_runtime() -> Result<String> {
+    for rt in &["docker", "podman", "nerdctl"] {
+        if std::process::Command::new(rt)
+            .arg("--version")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok()
+        {
+            return Ok(rt.to_string());
+        }
+    }
+    Err(anyhow!(
+        "No container runtime found. Install docker, podman, or nerdctl."
+    ))
+}
+
+// ---------------------------------------------------------------------------
+// 816: bi_docker_ps – List containers
+// ---------------------------------------------------------------------------
+fn bi_docker_ps(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let all = args
+        .first()
+        .map(|v| matches!(v, Value::Bool(true)))
+        .unwrap_or(false);
+    let mut cmd_args = vec!["ps", "--format", "{{json .}}"];
+    if all {
+        cmd_args.push("-a");
+    }
+    let containers = container_json_lines("docker", &cmd_args)?;
+    Ok(Value::Array(containers))
+}
+
+// ---------------------------------------------------------------------------
+// 817: bi_docker_images – List images
+// ---------------------------------------------------------------------------
+fn bi_docker_images(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let _ = args;
+    let images = container_json_lines("docker", &["images", "--format", "{{json .}}"])?;
+    Ok(Value::Array(images))
+}
+
+// ---------------------------------------------------------------------------
+// 818: bi_docker_run – Run a container
+// ---------------------------------------------------------------------------
+fn bi_docker_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let image = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("docker.run requires an image name as first argument")),
+    };
+    let command = match args.get(1) {
+        Some(Value::Str(s)) => Some(s.clone()),
+        _ => None,
+    };
+    let mut cmd = std::process::Command::new("docker");
+    cmd.arg("run");
+
+    // Optional flags record (e.g. {detach: true, name: "foo", port: "8080:80"})
+    if let Some(Value::Record(flags)) = args.get(2) {
+        for (k, v) in flags {
+            match (k.as_str(), v) {
+                ("detach", Value::Bool(true)) => {
+                    cmd.arg("-d");
+                }
+                ("rm", Value::Bool(true)) => {
+                    cmd.arg("--rm");
+                }
+                ("name", Value::Str(n)) => {
+                    cmd.args(["--name", n]);
+                }
+                ("port", Value::Str(p)) => {
+                    cmd.args(["-p", p]);
+                }
+                ("env", Value::Str(e)) => {
+                    cmd.args(["-e", e]);
+                }
+                ("volume", Value::Str(vol)) => {
+                    cmd.args(["-v", vol]);
+                }
+                (flag, Value::Str(val)) => {
+                    cmd.args([&format!("--{}", flag), val.as_str()]);
+                }
+                (flag, Value::Bool(true)) => {
+                    cmd.arg(format!("--{}", flag));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    cmd.arg(&image);
+    if let Some(c) = command {
+        // Split command string on whitespace for arguments
+        for part in c.split_whitespace() {
+            cmd.arg(part);
+        }
+    }
+
+    let output = cmd.output()?;
+    if !output.status.success() {
+        return Err(anyhow!(
+            "docker run failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    Ok(Value::Str(stdout))
+}
+
+// ---------------------------------------------------------------------------
+// 819: bi_docker_exec – Execute command in container
+// ---------------------------------------------------------------------------
+fn bi_docker_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let container_id = match args.first() {
+        Some(Value::Str(s)) => s.as_str(),
+        _ => return Err(anyhow!("docker.exec requires a container ID as first argument")),
+    };
+    let command = match args.get(1) {
+        Some(Value::Str(s)) => s.as_str(),
+        _ => return Err(anyhow!("docker.exec requires a command as second argument")),
+    };
+    let mut cmd = std::process::Command::new("docker");
+    cmd.args(["exec", container_id]);
+    for part in command.split_whitespace() {
+        cmd.arg(part);
+    }
+    let output = cmd.output()?;
+    if !output.status.success() {
+        return Err(anyhow!(
+            "docker exec failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    Ok(Value::Str(
+        String::from_utf8_lossy(&output.stdout).trim().to_string(),
+    ))
+}
+
+// ---------------------------------------------------------------------------
+// 820: bi_docker_logs – Get container logs
+// ---------------------------------------------------------------------------
+fn bi_docker_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let container_id = match args.first() {
+        Some(Value::Str(s)) => s.as_str(),
+        _ => return Err(anyhow!("docker.logs requires a container ID as first argument")),
+    };
+    let mut cmd_args = vec!["logs".to_string(), container_id.to_string()];
+    if let Some(Value::Int(n)) = args.get(1) {
+        cmd_args.push("--tail".to_string());
+        cmd_args.push(n.to_string());
+    }
+    let args_ref: Vec<&str> = cmd_args.iter().map(|s| s.as_str()).collect();
+    let text = container_run_cmd("docker", &args_ref)?;
+    Ok(Value::Str(text))
+}
+
+// ---------------------------------------------------------------------------
+// 821: bi_docker_stop – Stop a container
+// ---------------------------------------------------------------------------
+fn bi_docker_stop(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let container_id = match args.first() {
+        Some(Value::Str(s)) => s.as_str(),
+        _ => return Err(anyhow!("docker.stop requires a container ID")),
+    };
+    container_run_cmd("docker", &["stop", container_id])?;
+    Ok(Value::Str(format!("Stopped container {}", container_id)))
+}
+
+// ---------------------------------------------------------------------------
+// 822: bi_docker_rm – Remove a container
+// ---------------------------------------------------------------------------
+fn bi_docker_rm(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let container_id = match args.first() {
+        Some(Value::Str(s)) => s.as_str(),
+        _ => return Err(anyhow!("docker.rm requires a container ID")),
+    };
+    let force = args
+        .get(1)
+        .map(|v| matches!(v, Value::Bool(true)))
+        .unwrap_or(false);
+    let mut cmd_args = vec!["rm"];
+    if force {
+        cmd_args.push("-f");
+    }
+    cmd_args.push(container_id);
+    container_run_cmd("docker", &cmd_args)?;
+    Ok(Value::Str(format!("Removed container {}", container_id)))
+}
+
+// ---------------------------------------------------------------------------
+// 823: bi_docker_build – Build an image
+// ---------------------------------------------------------------------------
+fn bi_docker_build(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let tag = match args.first() {
+        Some(Value::Str(s)) => s.as_str(),
+        _ => return Err(anyhow!("docker.build requires a tag as first argument")),
+    };
+    let path = match args.get(1) {
+        Some(Value::Str(s)) => s.as_str(),
+        _ => ".",
+    };
+    let text = container_run_cmd("docker", &["build", "-t", tag, path])?;
+    Ok(Value::Str(text))
+}
+
+// ---------------------------------------------------------------------------
+// 824: bi_docker_pull – Pull an image
+// ---------------------------------------------------------------------------
+fn bi_docker_pull(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let image = match args.first() {
+        Some(Value::Str(s)) => s.as_str(),
+        _ => return Err(anyhow!("docker.pull requires an image name")),
+    };
+    let text = container_run_cmd("docker", &["pull", image])?;
+    Ok(Value::Str(text))
+}
+
+// ---------------------------------------------------------------------------
+// 825: bi_docker_push – Push an image
+// ---------------------------------------------------------------------------
+fn bi_docker_push(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let image = match args.first() {
+        Some(Value::Str(s)) => s.as_str(),
+        _ => return Err(anyhow!("docker.push requires an image name")),
+    };
+    let text = container_run_cmd("docker", &["push", image])?;
+    Ok(Value::Str(text))
+}
+
+// ---------------------------------------------------------------------------
+// 826: bi_docker_inspect – Inspect a container or image
+// ---------------------------------------------------------------------------
+fn bi_docker_inspect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = match args.first() {
+        Some(Value::Str(s)) => s.as_str(),
+        _ => return Err(anyhow!("docker.inspect requires a container/image name")),
+    };
+    let text = container_run_cmd("docker", &["inspect", name])?;
+    let json: serde_json::Value = serde_json::from_str(text.trim())
+        .map_err(|e| anyhow!("Failed to parse docker inspect output: {}", e))?;
+    Ok(json_to_value(json))
+}
+
+// ---------------------------------------------------------------------------
+// 827: bi_docker_volumes – List volumes
+// ---------------------------------------------------------------------------
+fn bi_docker_volumes(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let _ = args;
+    let volumes = container_json_lines("docker", &["volume", "ls", "--format", "{{json .}}"])?;
+    Ok(Value::Array(volumes))
+}
+
+// ---------------------------------------------------------------------------
+// 828: bi_docker_networks – List networks
+// ---------------------------------------------------------------------------
+fn bi_docker_networks(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let _ = args;
+    let networks =
+        container_json_lines("docker", &["network", "ls", "--format", "{{json .}}"])?;
+    Ok(Value::Array(networks))
+}
+
+// ---------------------------------------------------------------------------
+// 829: bi_docker_compose_up – Docker compose up
+// ---------------------------------------------------------------------------
+fn bi_docker_compose_up(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut cmd_args = vec!["compose", "up"];
+    let detach = args
+        .first()
+        .map(|v| matches!(v, Value::Bool(true)))
+        .unwrap_or(true);
+    if detach {
+        cmd_args.push("-d");
+    }
+    // Optional compose file
+    let file_arg;
+    if let Some(Value::Str(f)) = args.get(1) {
+        file_arg = f.clone();
+        cmd_args.insert(1, "-f");
+        cmd_args.insert(2, &file_arg);
+    }
+    let text = container_run_cmd("docker", &cmd_args)?;
+    Ok(Value::Str(text))
+}
+
+// ---------------------------------------------------------------------------
+// 830: bi_docker_compose_down – Docker compose down
+// ---------------------------------------------------------------------------
+fn bi_docker_compose_down(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut cmd_args = vec!["compose", "down"];
+    // Optional compose file
+    let file_arg;
+    if let Some(Value::Str(f)) = args.first() {
+        file_arg = f.clone();
+        cmd_args.insert(1, "-f");
+        cmd_args.insert(2, &file_arg);
+    }
+    let text = container_run_cmd("docker", &cmd_args)?;
+    Ok(Value::Str(text))
+}
+
+// ---------------------------------------------------------------------------
+// 831: bi_docker_compose_ps – Docker compose ps
+// ---------------------------------------------------------------------------
+fn bi_docker_compose_ps(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut cmd_args = vec!["compose", "ps", "--format", "json"];
+    let file_arg;
+    if let Some(Value::Str(f)) = args.first() {
+        file_arg = f.clone();
+        cmd_args.insert(1, "-f");
+        cmd_args.insert(2, &file_arg);
+    }
+    let text = container_run_cmd("docker", &cmd_args)?;
+    // compose ps --format json may return a JSON array or JSON-per-line
+    let trimmed = text.trim();
+    if trimmed.starts_with('[') {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(trimmed) {
+            return Ok(json_to_value(json));
+        }
+    }
+    let mut results = Vec::new();
+    for line in trimmed.lines() {
+        let l = line.trim();
+        if l.is_empty() {
+            continue;
+        }
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(l) {
+            results.push(json_to_value(json));
+        }
+    }
+    Ok(Value::Array(results))
+}
+
+// ---------------------------------------------------------------------------
+// 832: bi_docker_stats – Container stats (no-stream)
+// ---------------------------------------------------------------------------
+fn bi_docker_stats(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let _ = args;
+    let stats = container_json_lines(
+        "docker",
+        &["stats", "--no-stream", "--format", "{{json .}}"],
+    )?;
+    Ok(Value::Array(stats))
+}
+
+// ---------------------------------------------------------------------------
+// 833: bi_docker_top – Container processes
+// ---------------------------------------------------------------------------
+fn bi_docker_top(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let container_id = match args.first() {
+        Some(Value::Str(s)) => s.as_str(),
+        _ => return Err(anyhow!("docker.top requires a container ID")),
+    };
+    let text = container_run_cmd("docker", &["top", container_id])?;
+    // Parse the table output into records
+    let mut lines: Vec<&str> = text.lines().collect();
+    if lines.is_empty() {
+        return Ok(Value::Array(vec![]));
+    }
+    let header_line = lines.remove(0);
+    let headers: Vec<String> = header_line.split_whitespace().map(|h| h.to_lowercase()).collect();
+    let mut processes = Vec::new();
+    for line in lines {
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        let mut record = BTreeMap::new();
+        for (i, header) in headers.iter().enumerate() {
+            let val = fields.get(i).copied().unwrap_or("");
+            record.insert(header.clone(), Value::Str(val.to_string()));
+        }
+        processes.push(Value::Record(record));
+    }
+    Ok(Value::Array(processes))
+}
+
+// ---------------------------------------------------------------------------
+// 834: bi_docker_cp – Copy files to/from container
+// ---------------------------------------------------------------------------
+fn bi_docker_cp(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let src = match args.first() {
+        Some(Value::Str(s)) => s.as_str(),
+        _ => return Err(anyhow!("docker.cp requires source path as first argument")),
+    };
+    let dest = match args.get(1) {
+        Some(Value::Str(s)) => s.as_str(),
+        _ => return Err(anyhow!("docker.cp requires destination path as second argument")),
+    };
+    container_run_cmd("docker", &["cp", src, dest])?;
+    Ok(Value::Str(format!("Copied {} -> {}", src, dest)))
+}
+
+// ---------------------------------------------------------------------------
+// 835: bi_docker_tag – Tag an image
+// ---------------------------------------------------------------------------
+fn bi_docker_tag(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let source = match args.first() {
+        Some(Value::Str(s)) => s.as_str(),
+        _ => return Err(anyhow!("docker.tag requires source image as first argument")),
+    };
+    let target = match args.get(1) {
+        Some(Value::Str(s)) => s.as_str(),
+        _ => return Err(anyhow!("docker.tag requires target tag as second argument")),
+    };
+    container_run_cmd("docker", &["tag", source, target])?;
+    Ok(Value::Str(format!("Tagged {} as {}", source, target)))
+}
+
+// ===========================================================================
+// Podman Builtins (836-844) – Thin wrappers using "podman" runtime
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// Generic podman helper that mirrors docker patterns
+// ---------------------------------------------------------------------------
+fn podman_json_lines(args_list: &[&str]) -> Result<Vec<Value>> {
+    container_json_lines("podman", args_list)
+}
+
+fn podman_run_cmd(args_list: &[&str]) -> Result<String> {
+    container_run_cmd("podman", args_list)
+}
+
+// ---------------------------------------------------------------------------
+// 836: bi_podman_ps – List containers (podman)
+// ---------------------------------------------------------------------------
+fn bi_podman_ps(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let all = args
+        .first()
+        .map(|v| matches!(v, Value::Bool(true)))
+        .unwrap_or(false);
+    let mut cmd_args = vec!["ps", "--format", "json"];
+    if all {
+        cmd_args.push("-a");
+    }
+    // Podman's --format json returns a JSON array, not per-line
+    let text = podman_run_cmd(&cmd_args)?;
+    let trimmed = text.trim();
+    if trimmed.starts_with('[') {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(trimmed) {
+            return Ok(json_to_value(json));
+        }
+    }
+    // Fallback: JSON-per-line
+    let containers = podman_json_lines(&cmd_args)?;
+    Ok(Value::Array(containers))
+}
+
+// ---------------------------------------------------------------------------
+// 837: bi_podman_images – List images (podman)
+// ---------------------------------------------------------------------------
+fn bi_podman_images(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let _ = args;
+    let text = podman_run_cmd(&["images", "--format", "json"])?;
+    let trimmed = text.trim();
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(trimmed) {
+        return Ok(json_to_value(json));
+    }
+    let images = podman_json_lines(&["images", "--format", "json"])?;
+    Ok(Value::Array(images))
+}
+
+// ---------------------------------------------------------------------------
+// 838: bi_podman_run – Run a container (podman)
+// ---------------------------------------------------------------------------
+fn bi_podman_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let image = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("podman.run requires an image name as first argument")),
+    };
+    let command = match args.get(1) {
+        Some(Value::Str(s)) => Some(s.clone()),
+        _ => None,
+    };
+    let mut cmd = std::process::Command::new("podman");
+    cmd.arg("run");
+
+    if let Some(Value::Record(flags)) = args.get(2) {
+        for (k, v) in flags {
+            match (k.as_str(), v) {
+                ("detach", Value::Bool(true)) => {
+                    cmd.arg("-d");
+                }
+                ("rm", Value::Bool(true)) => {
+                    cmd.arg("--rm");
+                }
+                ("name", Value::Str(n)) => {
+                    cmd.args(["--name", n]);
+                }
+                ("port", Value::Str(p)) => {
+                    cmd.args(["-p", p]);
+                }
+                ("env", Value::Str(e)) => {
+                    cmd.args(["-e", e]);
+                }
+                ("volume", Value::Str(vol)) => {
+                    cmd.args(["-v", vol]);
+                }
+                (flag, Value::Str(val)) => {
+                    cmd.args([&format!("--{}", flag), val.as_str()]);
+                }
+                (flag, Value::Bool(true)) => {
+                    cmd.arg(format!("--{}", flag));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    cmd.arg(&image);
+    if let Some(c) = command {
+        for part in c.split_whitespace() {
+            cmd.arg(part);
+        }
+    }
+
+    let output = cmd.output()?;
+    if !output.status.success() {
+        return Err(anyhow!(
+            "podman run failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    Ok(Value::Str(stdout))
+}
+
+// ---------------------------------------------------------------------------
+// 839: bi_podman_exec – Execute command in container (podman)
+// ---------------------------------------------------------------------------
+fn bi_podman_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let container_id = match args.first() {
+        Some(Value::Str(s)) => s.as_str(),
+        _ => return Err(anyhow!("podman.exec requires a container ID as first argument")),
+    };
+    let command = match args.get(1) {
+        Some(Value::Str(s)) => s.as_str(),
+        _ => return Err(anyhow!("podman.exec requires a command as second argument")),
+    };
+    let mut cmd = std::process::Command::new("podman");
+    cmd.args(["exec", container_id]);
+    for part in command.split_whitespace() {
+        cmd.arg(part);
+    }
+    let output = cmd.output()?;
+    if !output.status.success() {
+        return Err(anyhow!(
+            "podman exec failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    Ok(Value::Str(
+        String::from_utf8_lossy(&output.stdout).trim().to_string(),
+    ))
+}
+
+// ---------------------------------------------------------------------------
+// 840: bi_podman_logs – Get container logs (podman)
+// ---------------------------------------------------------------------------
+fn bi_podman_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let container_id = match args.first() {
+        Some(Value::Str(s)) => s.as_str(),
+        _ => return Err(anyhow!("podman.logs requires a container ID as first argument")),
+    };
+    let mut cmd_args = vec!["logs".to_string(), container_id.to_string()];
+    if let Some(Value::Int(n)) = args.get(1) {
+        cmd_args.push("--tail".to_string());
+        cmd_args.push(n.to_string());
+    }
+    let args_ref: Vec<&str> = cmd_args.iter().map(|s| s.as_str()).collect();
+    let text = podman_run_cmd(&args_ref)?;
+    Ok(Value::Str(text))
+}
+
+// ---------------------------------------------------------------------------
+// 841: bi_podman_stop – Stop a container (podman)
+// ---------------------------------------------------------------------------
+fn bi_podman_stop(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let container_id = match args.first() {
+        Some(Value::Str(s)) => s.as_str(),
+        _ => return Err(anyhow!("podman.stop requires a container ID")),
+    };
+    podman_run_cmd(&["stop", container_id])?;
+    Ok(Value::Str(format!("Stopped container {}", container_id)))
+}
+
+// ---------------------------------------------------------------------------
+// 842: bi_podman_rm – Remove a container (podman)
+// ---------------------------------------------------------------------------
+fn bi_podman_rm(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let container_id = match args.first() {
+        Some(Value::Str(s)) => s.as_str(),
+        _ => return Err(anyhow!("podman.rm requires a container ID")),
+    };
+    let force = args
+        .get(1)
+        .map(|v| matches!(v, Value::Bool(true)))
+        .unwrap_or(false);
+    let mut cmd_args = vec!["rm"];
+    if force {
+        cmd_args.push("-f");
+    }
+    cmd_args.push(container_id);
+    podman_run_cmd(&cmd_args)?;
+    Ok(Value::Str(format!("Removed container {}", container_id)))
+}
+
+// ---------------------------------------------------------------------------
+// 843: bi_podman_build – Build an image (podman)
+// ---------------------------------------------------------------------------
+fn bi_podman_build(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let tag = match args.first() {
+        Some(Value::Str(s)) => s.as_str(),
+        _ => return Err(anyhow!("podman.build requires a tag as first argument")),
+    };
+    let path = match args.get(1) {
+        Some(Value::Str(s)) => s.as_str(),
+        _ => ".",
+    };
+    let text = podman_run_cmd(&["build", "-t", tag, path])?;
+    Ok(Value::Str(text))
+}
+
+// ---------------------------------------------------------------------------
+// 844: bi_podman_pull – Pull an image (podman)
+// ---------------------------------------------------------------------------
+fn bi_podman_pull(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let image = match args.first() {
+        Some(Value::Str(s)) => s.as_str(),
+        _ => return Err(anyhow!("podman.pull requires an image name")),
+    };
+    let text = podman_run_cmd(&["pull", image])?;
+    Ok(Value::Str(text))
+}
+
+// ===========================================================================
+// Runtime-Agnostic Container Builtins (845-849)
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// 845: bi_container_runtime – Detect container runtime
+// ---------------------------------------------------------------------------
+fn bi_container_runtime(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let _ = args;
+    let mut available = Vec::new();
+    for rt in &["docker", "podman", "nerdctl"] {
+        if let Ok(status) = std::process::Command::new(rt)
+            .arg("--version")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+        {
+            if status.success() {
+                // Get version string
+                if let Ok(output) = std::process::Command::new(rt)
+                    .arg("--version")
+                    .output()
+                {
+                    let version = String::from_utf8_lossy(&output.stdout)
+                        .trim()
+                        .to_string();
+                    let mut record = BTreeMap::new();
+                    record.insert("name".to_string(), Value::Str(rt.to_string()));
+                    record.insert("version".to_string(), Value::Str(version));
+                    record.insert("available".to_string(), Value::Bool(true));
+                    available.push(Value::Record(record));
+                }
+            }
+        }
+    }
+    if available.is_empty() {
+        return Err(anyhow!(
+            "No container runtime found. Install docker, podman, or nerdctl."
+        ));
+    }
+    Ok(Value::Array(available))
+}
+
+// ---------------------------------------------------------------------------
+// 846: bi_container_list – Runtime-agnostic list containers
+// ---------------------------------------------------------------------------
+fn bi_container_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let runtime = detect_container_runtime()?;
+    let all = args
+        .first()
+        .map(|v| matches!(v, Value::Bool(true)))
+        .unwrap_or(false);
+
+    match runtime.as_str() {
+        "podman" => {
+            // Podman returns JSON array with --format json
+            let mut cmd_args = vec!["ps", "--format", "json"];
+            if all {
+                cmd_args.push("-a");
+            }
+            let text = container_run_cmd(&runtime, &cmd_args)?;
+            let trimmed = text.trim();
+            if trimmed.starts_with('[') {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(trimmed) {
+                    return Ok(json_to_value(json));
+                }
+            }
+            let containers = container_json_lines(&runtime, &cmd_args)?;
+            Ok(Value::Array(containers))
+        }
+        _ => {
+            // Docker/nerdctl use {{json .}} per-line format
+            let mut cmd_args = vec!["ps", "--format", "{{json .}}"];
+            if all {
+                cmd_args.push("-a");
+            }
+            let containers = container_json_lines(&runtime, &cmd_args)?;
+            Ok(Value::Array(containers))
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 847: bi_container_inspect – Runtime-agnostic inspect
+// ---------------------------------------------------------------------------
+fn bi_container_inspect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let runtime = detect_container_runtime()?;
+    let name = match args.first() {
+        Some(Value::Str(s)) => s.as_str(),
+        _ => return Err(anyhow!("container.inspect requires a container/image name")),
+    };
+    let text = container_run_cmd(&runtime, &["inspect", name])?;
+    let json: serde_json::Value = serde_json::from_str(text.trim())
+        .map_err(|e| anyhow!("Failed to parse inspect output: {}", e))?;
+    Ok(json_to_value(json))
+}
+
+// ---------------------------------------------------------------------------
+// 848: bi_container_logs – Runtime-agnostic logs
+// ---------------------------------------------------------------------------
+fn bi_container_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let runtime = detect_container_runtime()?;
+    let container_id = match args.first() {
+        Some(Value::Str(s)) => s.as_str(),
+        _ => return Err(anyhow!("container.logs requires a container ID as first argument")),
+    };
+    let mut cmd_args = vec!["logs".to_string(), container_id.to_string()];
+    if let Some(Value::Int(n)) = args.get(1) {
+        cmd_args.push("--tail".to_string());
+        cmd_args.push(n.to_string());
+    }
+    let args_ref: Vec<&str> = cmd_args.iter().map(|s| s.as_str()).collect();
+    let text = container_run_cmd(&runtime, &args_ref)?;
+    Ok(Value::Str(text))
+}
+
+// ---------------------------------------------------------------------------
+// 849: bi_container_stats – Runtime-agnostic stats
+// ---------------------------------------------------------------------------
+fn bi_container_stats(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let runtime = detect_container_runtime()?;
+    let _ = args;
+
+    match runtime.as_str() {
+        "podman" => {
+            // Podman stats --format json returns a JSON array
+            let text = container_run_cmd(&runtime, &["stats", "--no-stream", "--format", "json"])?;
+            let trimmed = text.trim();
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(trimmed) {
+                return Ok(json_to_value(json));
+            }
+            Ok(Value::Array(vec![]))
+        }
+        _ => {
+            let stats = container_json_lines(
+                &runtime,
+                &["stats", "--no-stream", "--format", "{{json .}}"],
+            )?;
+            Ok(Value::Array(stats))
+        }
+    }
+}
+
+// ============================================================================
+// Kubernetes & Helm Builtins (850-879)
+// kubectl, helm operations with structured output
+// ============================================================================
+
+// ---------------------------------------------------------------------------
+// Helper: run kubectl with JSON output and parse the result
+// ---------------------------------------------------------------------------
+fn kubectl_json(args: &[&str]) -> Result<Value> {
+    let output = std::process::Command::new("kubectl")
+        .args(args)
+        .output()
+        .map_err(|e| anyhow!("kubectl not found or failed to start: {}", e))?;
+    if !output.status.success() {
+        return Err(anyhow!(
+            "kubectl {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    let json_str = String::from_utf8_lossy(&output.stdout);
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
+        Ok(json_to_value(json))
+    } else {
+        Ok(Value::Str(json_str.to_string()))
+    }
+}
+
+// Helper: run kubectl and return stdout as a plain string
+fn kubectl_text(args: &[&str]) -> Result<String> {
+    let output = std::process::Command::new("kubectl")
+        .args(args)
+        .output()
+        .map_err(|e| anyhow!("kubectl not found or failed to start: {}", e))?;
+    if !output.status.success() {
+        return Err(anyhow!(
+            "kubectl {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+// Helper: run helm with JSON output and parse the result
+fn helm_json(args: &[&str]) -> Result<Value> {
+    let output = std::process::Command::new("helm")
+        .args(args)
+        .output()
+        .map_err(|e| anyhow!("helm not found or failed to start: {}", e))?;
+    if !output.status.success() {
+        return Err(anyhow!(
+            "helm {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    let json_str = String::from_utf8_lossy(&output.stdout);
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
+        Ok(json_to_value(json))
+    } else {
+        Ok(Value::Str(json_str.to_string()))
+    }
+}
+
+// Helper: run helm and return stdout as a plain string
+fn helm_text(args: &[&str]) -> Result<String> {
+    let output = std::process::Command::new("helm")
+        .args(args)
+        .output()
+        .map_err(|e| anyhow!("helm not found or failed to start: {}", e))?;
+    if !output.status.success() {
+        return Err(anyhow!(
+            "helm {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+// Helper: parse tabular kubectl output (e.g. `kubectl top`) into Records
+fn parse_kubectl_table(text: &str) -> Vec<Value> {
+    let mut lines = text.lines();
+    let header_line = match lines.next() {
+        Some(h) => h,
+        None => return Vec::new(),
+    };
+    let headers: Vec<String> = header_line
+        .split_whitespace()
+        .map(|h| h.to_lowercase().replace('(', "_").replace(')', "").replace('%', "pct"))
+        .collect();
+    let mut rows = Vec::new();
+    for line in lines {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let cols: Vec<&str> = trimmed.split_whitespace().collect();
+        let mut record = std::collections::BTreeMap::new();
+        for (i, hdr) in headers.iter().enumerate() {
+            let val = cols.get(i).unwrap_or(&"").to_string();
+            record.insert(hdr.clone(), Value::Str(val));
+        }
+        rows.push(Value::Record(record));
+    }
+    rows
+}
+
+// ---------------------------------------------------------------------------
+// 850: bi_k8s_get - kubectl get <resource> [-n namespace] -o json
+// ---------------------------------------------------------------------------
+fn bi_k8s_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let resource = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("k8s.get requires resource type as first argument")),
+    };
+    let mut cmd_args = vec!["get", &resource, "-o", "json"];
+    let ns_owned;
+    if let Some(Value::Str(ns)) = args.get(1) {
+        ns_owned = ns.clone();
+        cmd_args.push("-n");
+        cmd_args.push(&ns_owned);
+    }
+    kubectl_json(&cmd_args)
+}
+
+// ---------------------------------------------------------------------------
+// 851: bi_k8s_apply - kubectl apply -f <file/url> [-n namespace]
+// ---------------------------------------------------------------------------
+fn bi_k8s_apply(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let file = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("k8s.apply requires a file or URL as first argument")),
+    };
+    let mut cmd_args = vec!["apply", "-f", &file];
+    let ns_owned;
+    if let Some(Value::Str(ns)) = args.get(1) {
+        ns_owned = ns.clone();
+        cmd_args.push("-n");
+        cmd_args.push(&ns_owned);
+    }
+    let text = kubectl_text(&cmd_args)?;
+    Ok(Value::Str(text.trim().to_string()))
+}
+
+// ---------------------------------------------------------------------------
+// 852: bi_k8s_delete - kubectl delete <resource> <name> [-n namespace]
+// ---------------------------------------------------------------------------
+fn bi_k8s_delete(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let resource = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("k8s.delete requires resource type as first argument")),
+    };
+    let name = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("k8s.delete requires resource name as second argument")),
+    };
+    let mut cmd_args = vec!["delete", &resource, &name];
+    let ns_owned;
+    if let Some(Value::Str(ns)) = args.get(2) {
+        ns_owned = ns.clone();
+        cmd_args.push("-n");
+        cmd_args.push(&ns_owned);
+    }
+    let text = kubectl_text(&cmd_args)?;
+    Ok(Value::Str(text.trim().to_string()))
+}
+
+// ---------------------------------------------------------------------------
+// 853: bi_k8s_describe - kubectl describe <resource> <name> [-n namespace]
+// ---------------------------------------------------------------------------
+fn bi_k8s_describe(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let resource = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("k8s.describe requires resource type as first argument")),
+    };
+    let name = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("k8s.describe requires resource name as second argument")),
+    };
+    let mut cmd_args = vec!["describe", &resource, &name];
+    let ns_owned;
+    if let Some(Value::Str(ns)) = args.get(2) {
+        ns_owned = ns.clone();
+        cmd_args.push("-n");
+        cmd_args.push(&ns_owned);
+    }
+    let text = kubectl_text(&cmd_args)?;
+    Ok(Value::Str(text.trim().to_string()))
+}
+
+// ---------------------------------------------------------------------------
+// 854: bi_k8s_logs - kubectl logs <pod> [-n namespace] [--tail N]
+// ---------------------------------------------------------------------------
+fn bi_k8s_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let pod = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("k8s.logs requires pod name as first argument")),
+    };
+    let mut cmd_args = vec!["logs".to_string(), pod];
+    if let Some(Value::Str(ns)) = args.get(1) {
+        cmd_args.push("-n".to_string());
+        cmd_args.push(ns.clone());
+    }
+    if let Some(Value::Int(n)) = args.get(2) {
+        cmd_args.push("--tail".to_string());
+        cmd_args.push(n.to_string());
+    }
+    let refs: Vec<&str> = cmd_args.iter().map(|s| s.as_str()).collect();
+    let text = kubectl_text(&refs)?;
+    Ok(Value::Str(text))
+}
+
+// ---------------------------------------------------------------------------
+// 855: bi_k8s_exec - kubectl exec <pod> [-n namespace] -- <command...>
+// ---------------------------------------------------------------------------
+fn bi_k8s_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let pod = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("k8s.exec requires pod name as first argument")),
+    };
+    let command = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("k8s.exec requires command as second argument")),
+    };
+    let mut cmd_args = vec!["exec".to_string(), pod];
+    if let Some(Value::Str(ns)) = args.get(2) {
+        cmd_args.push("-n".to_string());
+        cmd_args.push(ns.clone());
+    }
+    cmd_args.push("--".to_string());
+    for part in command.split_whitespace() {
+        cmd_args.push(part.to_string());
+    }
+    let refs: Vec<&str> = cmd_args.iter().map(|s| s.as_str()).collect();
+    let text = kubectl_text(&refs)?;
+    Ok(Value::Str(text))
+}
+
+// ---------------------------------------------------------------------------
+// 856: bi_k8s_pods - kubectl get pods [-n namespace] -o json (convenience)
+// ---------------------------------------------------------------------------
+fn bi_k8s_pods(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut cmd_args = vec!["get", "pods", "-o", "json"];
+    let ns_owned;
+    if let Some(Value::Str(ns)) = args.first() {
+        ns_owned = ns.clone();
+        cmd_args.push("-n");
+        cmd_args.push(&ns_owned);
+    }
+    kubectl_json(&cmd_args)
+}
+
+// ---------------------------------------------------------------------------
+// 857: bi_k8s_services - kubectl get services [-n namespace] -o json
+// ---------------------------------------------------------------------------
+fn bi_k8s_services(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut cmd_args = vec!["get", "services", "-o", "json"];
+    let ns_owned;
+    if let Some(Value::Str(ns)) = args.first() {
+        ns_owned = ns.clone();
+        cmd_args.push("-n");
+        cmd_args.push(&ns_owned);
+    }
+    kubectl_json(&cmd_args)
+}
+
+// ---------------------------------------------------------------------------
+// 858: bi_k8s_deployments - kubectl get deployments [-n namespace] -o json
+// ---------------------------------------------------------------------------
+fn bi_k8s_deployments(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut cmd_args = vec!["get", "deployments", "-o", "json"];
+    let ns_owned;
+    if let Some(Value::Str(ns)) = args.first() {
+        ns_owned = ns.clone();
+        cmd_args.push("-n");
+        cmd_args.push(&ns_owned);
+    }
+    kubectl_json(&cmd_args)
+}
+
+// ---------------------------------------------------------------------------
+// 859: bi_k8s_namespaces - kubectl get namespaces -o json
+// ---------------------------------------------------------------------------
+fn bi_k8s_namespaces(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let _ = args;
+    kubectl_json(&["get", "namespaces", "-o", "json"])
+}
+
+// ---------------------------------------------------------------------------
+// 860: bi_k8s_nodes - kubectl get nodes -o json
+// ---------------------------------------------------------------------------
+fn bi_k8s_nodes(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let _ = args;
+    kubectl_json(&["get", "nodes", "-o", "json"])
+}
+
+// ---------------------------------------------------------------------------
+// 861: bi_k8s_events - kubectl get events [-n namespace] -o json
+// ---------------------------------------------------------------------------
+fn bi_k8s_events(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut cmd_args = vec!["get", "events", "-o", "json"];
+    let ns_owned;
+    if let Some(Value::Str(ns)) = args.first() {
+        ns_owned = ns.clone();
+        cmd_args.push("-n");
+        cmd_args.push(&ns_owned);
+    }
+    kubectl_json(&cmd_args)
+}
+
+// ---------------------------------------------------------------------------
+// 862: bi_k8s_configmaps - kubectl get configmaps [-n namespace] -o json
+// ---------------------------------------------------------------------------
+fn bi_k8s_configmaps(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut cmd_args = vec!["get", "configmaps", "-o", "json"];
+    let ns_owned;
+    if let Some(Value::Str(ns)) = args.first() {
+        ns_owned = ns.clone();
+        cmd_args.push("-n");
+        cmd_args.push(&ns_owned);
+    }
+    kubectl_json(&cmd_args)
+}
+
+// ---------------------------------------------------------------------------
+// 863: bi_k8s_secrets - kubectl get secrets [-n namespace] -o json (names only)
+// ---------------------------------------------------------------------------
+fn bi_k8s_secrets(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    // Return only metadata (names/types), not secret data
+    let mut cmd_args = vec![
+        "get", "secrets",
+        "-o", "jsonpath={.items[*].metadata.name}",
+    ];
+    let ns_owned;
+    if let Some(Value::Str(ns)) = args.first() {
+        ns_owned = ns.clone();
+        cmd_args.push("-n");
+        cmd_args.push(&ns_owned);
+    }
+    let text = kubectl_text(&cmd_args)?;
+    let names: Vec<Value> = text
+        .split_whitespace()
+        .filter(|s| !s.is_empty())
+        .map(|s| Value::Str(s.to_string()))
+        .collect();
+    Ok(Value::Array(names))
+}
+
+// ---------------------------------------------------------------------------
+// 864: bi_k8s_ingresses - kubectl get ingresses [-n namespace] -o json
+// ---------------------------------------------------------------------------
+fn bi_k8s_ingresses(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut cmd_args = vec!["get", "ingresses", "-o", "json"];
+    let ns_owned;
+    if let Some(Value::Str(ns)) = args.first() {
+        ns_owned = ns.clone();
+        cmd_args.push("-n");
+        cmd_args.push(&ns_owned);
+    }
+    kubectl_json(&cmd_args)
+}
+
+// ---------------------------------------------------------------------------
+// 865: bi_k8s_rollout_status - kubectl rollout status deployment/<name> [-n ns]
+// ---------------------------------------------------------------------------
+fn bi_k8s_rollout_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("k8s.rollout_status requires deployment name")),
+    };
+    let resource = format!("deployment/{}", name);
+    let mut cmd_args = vec!["rollout", "status", &resource];
+    let ns_owned;
+    if let Some(Value::Str(ns)) = args.get(1) {
+        ns_owned = ns.clone();
+        cmd_args.push("-n");
+        cmd_args.push(&ns_owned);
+    }
+    let text = kubectl_text(&cmd_args)?;
+    Ok(Value::Str(text.trim().to_string()))
+}
+
+// ---------------------------------------------------------------------------
+// 866: bi_k8s_rollout_restart - kubectl rollout restart deployment/<name> [-n ns]
+// ---------------------------------------------------------------------------
+fn bi_k8s_rollout_restart(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("k8s.rollout_restart requires deployment name")),
+    };
+    let resource = format!("deployment/{}", name);
+    let mut cmd_args = vec!["rollout", "restart", &resource];
+    let ns_owned;
+    if let Some(Value::Str(ns)) = args.get(1) {
+        ns_owned = ns.clone();
+        cmd_args.push("-n");
+        cmd_args.push(&ns_owned);
+    }
+    let text = kubectl_text(&cmd_args)?;
+    Ok(Value::Str(text.trim().to_string()))
+}
+
+// ---------------------------------------------------------------------------
+// 867: bi_k8s_scale - kubectl scale deployment/<name> --replicas=N [-n ns]
+// ---------------------------------------------------------------------------
+fn bi_k8s_scale(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("k8s.scale requires deployment name as first argument")),
+    };
+    let replicas = match args.get(1) {
+        Some(Value::Int(n)) => *n,
+        _ => return Err(anyhow!("k8s.scale requires replica count (Int) as second argument")),
+    };
+    let resource = format!("deployment/{}", name);
+    let replicas_flag = format!("--replicas={}", replicas);
+    let mut cmd_args = vec!["scale", &resource, &replicas_flag];
+    let ns_owned;
+    if let Some(Value::Str(ns)) = args.get(2) {
+        ns_owned = ns.clone();
+        cmd_args.push("-n");
+        cmd_args.push(&ns_owned);
+    }
+    let text = kubectl_text(&cmd_args)?;
+    Ok(Value::Str(text.trim().to_string()))
+}
+
+// ---------------------------------------------------------------------------
+// 868: bi_k8s_top_pods - kubectl top pods [-n namespace] (parsed table)
+// ---------------------------------------------------------------------------
+fn bi_k8s_top_pods(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut cmd_args = vec!["top", "pods", "--no-headers=false"];
+    let ns_owned;
+    if let Some(Value::Str(ns)) = args.first() {
+        ns_owned = ns.clone();
+        cmd_args.push("-n");
+        cmd_args.push(&ns_owned);
+    }
+    let text = kubectl_text(&cmd_args)?;
+    let rows = parse_kubectl_table(&text);
+    Ok(Value::Array(rows))
+}
+
+// ---------------------------------------------------------------------------
+// 869: bi_k8s_top_nodes - kubectl top nodes (parsed table)
+// ---------------------------------------------------------------------------
+fn bi_k8s_top_nodes(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let _ = args;
+    let text = kubectl_text(&["top", "nodes", "--no-headers=false"])?;
+    let rows = parse_kubectl_table(&text);
+    Ok(Value::Array(rows))
+}
+
+// ---------------------------------------------------------------------------
+// 870: bi_k8s_context - current-context (no args) or use-context (with arg)
+// ---------------------------------------------------------------------------
+fn bi_k8s_context(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if let Some(Value::Str(ctx)) = args.first() {
+        let text = kubectl_text(&["config", "use-context", ctx])?;
+        Ok(Value::Str(text.trim().to_string()))
+    } else {
+        let text = kubectl_text(&["config", "current-context"])?;
+        Ok(Value::Str(text.trim().to_string()))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 871: bi_k8s_contexts - kubectl config get-contexts -o name
+// ---------------------------------------------------------------------------
+fn bi_k8s_contexts(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let _ = args;
+    let text = kubectl_text(&["config", "get-contexts", "-o", "name"])?;
+    let contexts: Vec<Value> = text
+        .lines()
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty())
+        .map(|l| Value::Str(l.to_string()))
+        .collect();
+    Ok(Value::Array(contexts))
+}
+
+// ---------------------------------------------------------------------------
+// 872: bi_k8s_cluster_info - kubectl cluster-info
+// ---------------------------------------------------------------------------
+fn bi_k8s_cluster_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let _ = args;
+    let text = kubectl_text(&["cluster-info"])?;
+    Ok(Value::Str(text.trim().to_string()))
+}
+
+// ---------------------------------------------------------------------------
+// 873: bi_helm_list - helm list [-n namespace] -o json
+// ---------------------------------------------------------------------------
+fn bi_helm_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut cmd_args = vec!["list", "-o", "json"];
+    let ns_owned;
+    if let Some(Value::Str(ns)) = args.first() {
+        ns_owned = ns.clone();
+        cmd_args.push("-n");
+        cmd_args.push(&ns_owned);
+    }
+    helm_json(&cmd_args)
+}
+
+// ---------------------------------------------------------------------------
+// 874: bi_helm_install - helm install <release> <chart> [-n ns] [--set from Record]
+// ---------------------------------------------------------------------------
+fn bi_helm_install(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let release = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("helm.install requires release name as first argument")),
+    };
+    let chart = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("helm.install requires chart name as second argument")),
+    };
+    let mut cmd_args = vec!["install".to_string(), release, chart];
+    if let Some(Value::Str(ns)) = args.get(2) {
+        cmd_args.push("-n".to_string());
+        cmd_args.push(ns.clone());
+    }
+    // If a Record is provided, convert entries to --set key=value
+    if let Some(Value::Record(overrides)) = args.get(3) {
+        for (k, v) in overrides {
+            cmd_args.push("--set".to_string());
+            let val_str = match v {
+                Value::Str(s) => s.clone(),
+                Value::Int(n) => n.to_string(),
+                Value::Float(f) => f.to_string(),
+                Value::Bool(b) => b.to_string(),
+                other => format!("{:?}", other),
+            };
+            cmd_args.push(format!("{}={}", k, val_str));
+        }
+    }
+    let refs: Vec<&str> = cmd_args.iter().map(|s| s.as_str()).collect();
+    let text = helm_text(&refs)?;
+    Ok(Value::Str(text.trim().to_string()))
+}
+
+// ---------------------------------------------------------------------------
+// 875: bi_helm_upgrade - helm upgrade <release> <chart> [-n namespace]
+// ---------------------------------------------------------------------------
+fn bi_helm_upgrade(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let release = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("helm.upgrade requires release name as first argument")),
+    };
+    let chart = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("helm.upgrade requires chart name as second argument")),
+    };
+    let mut cmd_args = vec!["upgrade".to_string(), release, chart];
+    if let Some(Value::Str(ns)) = args.get(2) {
+        cmd_args.push("-n".to_string());
+        cmd_args.push(ns.clone());
+    }
+    // Optional --set overrides from Record
+    if let Some(Value::Record(overrides)) = args.get(3) {
+        for (k, v) in overrides {
+            cmd_args.push("--set".to_string());
+            let val_str = match v {
+                Value::Str(s) => s.clone(),
+                Value::Int(n) => n.to_string(),
+                Value::Float(f) => f.to_string(),
+                Value::Bool(b) => b.to_string(),
+                other => format!("{:?}", other),
+            };
+            cmd_args.push(format!("{}={}", k, val_str));
+        }
+    }
+    let refs: Vec<&str> = cmd_args.iter().map(|s| s.as_str()).collect();
+    let text = helm_text(&refs)?;
+    Ok(Value::Str(text.trim().to_string()))
+}
+
+// ---------------------------------------------------------------------------
+// 876: bi_helm_uninstall - helm uninstall <release> [-n namespace]
+// ---------------------------------------------------------------------------
+fn bi_helm_uninstall(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let release = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("helm.uninstall requires release name")),
+    };
+    let mut cmd_args = vec!["uninstall", &release];
+    let ns_owned;
+    if let Some(Value::Str(ns)) = args.get(1) {
+        ns_owned = ns.clone();
+        cmd_args.push("-n");
+        cmd_args.push(&ns_owned);
+    }
+    let text = helm_text(&cmd_args)?;
+    Ok(Value::Str(text.trim().to_string()))
+}
+
+// ---------------------------------------------------------------------------
+// 877: bi_helm_repos - helm repo list -o json
+// ---------------------------------------------------------------------------
+fn bi_helm_repos(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let _ = args;
+    helm_json(&["repo", "list", "-o", "json"])
+}
+
+// ---------------------------------------------------------------------------
+// 878: bi_helm_search - helm search repo <keyword> -o json
+// ---------------------------------------------------------------------------
+fn bi_helm_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let keyword = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("helm.search requires a keyword")),
+    };
+    helm_json(&["search", "repo", &keyword, "-o", "json"])
+}
+
+// ---------------------------------------------------------------------------
+// 879: bi_helm_status - helm status <release> [-n namespace] -o json
+// ---------------------------------------------------------------------------
+fn bi_helm_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let release = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("helm.status requires release name")),
+    };
+    let mut cmd_args = vec!["status", &release, "-o", "json"];
+    let ns_owned;
+    if let Some(Value::Str(ns)) = args.get(1) {
+        ns_owned = ns.clone();
+        cmd_args.push("-n");
+        cmd_args.push(&ns_owned);
+    }
+    helm_json(&cmd_args)
+}
+
+// ============================================================================
+// VM & Hypervisor Management Builtins (880-919)
+// Cross-platform VM, Hyper-V, ESXi, libvirt, WSL, QEMU, LXC
+// ============================================================================
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Run a command, return stdout on success or an error with stderr.
+fn vm_run_cmd(program: &str, args: &[&str]) -> Result<String> {
+    let output = std::process::Command::new(program)
+        .args(args)
+        .output()
+        .map_err(|e| anyhow!("{} not found or failed to start: {}", program, e))?;
+    if !output.status.success() {
+        return Err(anyhow!(
+            "{} {} failed: {}",
+            program,
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+/// Run a command, parse stdout as JSON, and convert to Value.
+fn vm_run_cmd_json(program: &str, args: &[&str]) -> Result<Value> {
+    let text = vm_run_cmd(program, args)?;
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
+        Ok(json_to_value(json))
+    } else {
+        Ok(Value::Str(text.trim().to_string()))
+    }
+}
+
+/// Run a PowerShell command and return stdout.
+fn vm_run_powershell(script: &str) -> Result<String> {
+    vm_run_cmd("powershell", &["-NoProfile", "-Command", script])
+}
+
+/// Run a PowerShell command that produces JSON and parse it.
+fn vm_run_powershell_json(script: &str) -> Result<Value> {
+    let text = vm_run_powershell(script)?;
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
+        Ok(json_to_value(json))
+    } else {
+        Ok(Value::Str(text.trim().to_string()))
+    }
+}
+
+/// Parse virsh / tabular output into Vec<Value::Record>.
+fn parse_virsh_table(text: &str) -> Vec<Value> {
+    let mut lines: Vec<&str> = text.lines().collect();
+    // virsh usually has a header line, then a separator "---...", then data
+    if lines.len() < 2 {
+        return Vec::new();
+    }
+    // Find header
+    let header_line = lines.remove(0).trim();
+    let headers: Vec<String> = header_line
+        .split_whitespace()
+        .map(|h| h.to_lowercase())
+        .collect();
+    // Skip separator line(s) that start with dashes
+    while !lines.is_empty() && lines[0].trim().starts_with('-') {
+        lines.remove(0);
+    }
+    let mut rows = Vec::new();
+    for line in &lines {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let cols: Vec<&str> = trimmed.splitn(headers.len(), char::is_whitespace)
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .collect();
+        let mut record = std::collections::BTreeMap::new();
+        for (i, hdr) in headers.iter().enumerate() {
+            let val = cols.get(i).unwrap_or(&"").to_string();
+            record.insert(hdr.clone(), Value::Str(val));
+        }
+        rows.push(Value::Record(record));
+    }
+    rows
+}
+
+/// Parse WSL --list --verbose tabular output into Vec<Value::Record>.
+fn parse_wsl_list(text: &str) -> Vec<Value> {
+    let mut lines: Vec<&str> = text.lines().collect();
+    if lines.is_empty() {
+        return Vec::new();
+    }
+    // First line is header: "  NAME   STATE   VERSION"
+    lines.remove(0); // skip header
+    let mut rows = Vec::new();
+    for line in &lines {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        // Default distro has a leading '*'
+        let cleaned = trimmed.trim_start_matches('*').trim();
+        let cols: Vec<&str> = cleaned.split_whitespace().collect();
+        if cols.len() >= 3 {
+            let mut record = std::collections::BTreeMap::new();
+            record.insert("name".to_string(), Value::Str(cols[0].to_string()));
+            record.insert("state".to_string(), Value::Str(cols[1].to_string()));
+            record.insert("version".to_string(), Value::Str(cols[2].to_string()));
+            record.insert(
+                "default".to_string(),
+                Value::Bool(trimmed.starts_with('*')),
+            );
+            rows.push(Value::Record(record));
+        }
+    }
+    rows
+}
+
+/// Require a string argument at the given position.
+fn require_str(args: &[Value], idx: usize, name: &str) -> Result<String> {
+    match args.get(idx) {
+        Some(Value::Str(s)) => Ok(s.clone()),
+        _ => Err(anyhow!("{} requires a string argument", name)),
+    }
+}
+
+/// Detect available hypervisor on the current platform.
+/// Returns one of: "hyperv", "virsh", "vboxmanage", "none"
+fn detect_hypervisor() -> &'static str {
+    #[cfg(target_os = "windows")]
+    {
+        // On Windows, prefer Hyper-V
+        if std::process::Command::new("powershell")
+            .args(&["-NoProfile", "-Command", "Get-Command Get-VM -ErrorAction SilentlyContinue"])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+        {
+            return "hyperv";
+        }
+    }
+    // Try virsh (Linux / macOS with libvirt)
+    if std::process::Command::new("virsh")
+        .arg("version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+    {
+        return "virsh";
+    }
+    // Try VBoxManage
+    if std::process::Command::new("VBoxManage")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+    {
+        return "vboxmanage";
+    }
+    "none"
+}
+
+// ===========================================================================
+// Cross-platform VM abstraction (880-891)
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// 880: bi_vm_list - List VMs using detected hypervisor
+// ---------------------------------------------------------------------------
+fn bi_vm_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    match detect_hypervisor() {
+        "hyperv" => bi_hyperv_list(args, _input),
+        "virsh" => bi_virsh_list(args, _input),
+        "vboxmanage" => {
+            let text = vm_run_cmd("VBoxManage", &["list", "vms"])?;
+            let rows: Vec<Value> = text
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .map(|line| {
+                    let mut record = std::collections::BTreeMap::new();
+                    // Format: "name" {uuid}
+                    if let Some(start) = line.find('"') {
+                        if let Some(end) = line[start + 1..].find('"') {
+                            let name = &line[start + 1..start + 1 + end];
+                            record.insert("name".to_string(), Value::Str(name.to_string()));
+                        }
+                    }
+                    if let Some(start) = line.find('{') {
+                        if let Some(end) = line.find('}') {
+                            let uuid = &line[start + 1..end];
+                            record.insert("uuid".to_string(), Value::Str(uuid.to_string()));
+                        }
+                    }
+                    Value::Record(record)
+                })
+                .collect();
+            Ok(Value::Array(rows))
+        }
+        _ => Err(anyhow!("No supported hypervisor found (Hyper-V, libvirt, VirtualBox)")),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 881: bi_vm_start - Start VM by name
+// ---------------------------------------------------------------------------
+fn bi_vm_start(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = require_str(&args, 0, "vm.start")?;
+    match detect_hypervisor() {
+        "hyperv" => {
+            let script = format!("Start-VM -Name '{}'", name);
+            vm_run_powershell(&script)?;
+            Ok(Value::Str(format!("VM '{}' started (Hyper-V)", name)))
+        }
+        "virsh" => {
+            vm_run_cmd("virsh", &["start", &name])?;
+            Ok(Value::Str(format!("VM '{}' started (virsh)", name)))
+        }
+        "vboxmanage" => {
+            vm_run_cmd("VBoxManage", &["startvm", &name, "--type", "headless"])?;
+            Ok(Value::Str(format!("VM '{}' started (VirtualBox)", name)))
+        }
+        _ => Err(anyhow!("No supported hypervisor found")),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 882: bi_vm_stop - Stop VM by name
+// ---------------------------------------------------------------------------
+fn bi_vm_stop(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = require_str(&args, 0, "vm.stop")?;
+    match detect_hypervisor() {
+        "hyperv" => {
+            let script = format!("Stop-VM -Name '{}' -Force", name);
+            vm_run_powershell(&script)?;
+            Ok(Value::Str(format!("VM '{}' stopped (Hyper-V)", name)))
+        }
+        "virsh" => {
+            vm_run_cmd("virsh", &["shutdown", &name])?;
+            Ok(Value::Str(format!("VM '{}' stopped (virsh)", name)))
+        }
+        "vboxmanage" => {
+            vm_run_cmd("VBoxManage", &["controlvm", &name, "acpipowerbutton"])?;
+            Ok(Value::Str(format!("VM '{}' stopped (VirtualBox)", name)))
+        }
+        _ => Err(anyhow!("No supported hypervisor found")),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 883: bi_vm_restart - Restart VM by name
+// ---------------------------------------------------------------------------
+fn bi_vm_restart(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = require_str(&args, 0, "vm.restart")?;
+    match detect_hypervisor() {
+        "hyperv" => {
+            let script = format!("Restart-VM -Name '{}' -Force", name);
+            vm_run_powershell(&script)?;
+            Ok(Value::Str(format!("VM '{}' restarted (Hyper-V)", name)))
+        }
+        "virsh" => {
+            vm_run_cmd("virsh", &["reboot", &name])?;
+            Ok(Value::Str(format!("VM '{}' restarted (virsh)", name)))
+        }
+        "vboxmanage" => {
+            vm_run_cmd("VBoxManage", &["controlvm", &name, "reset"])?;
+            Ok(Value::Str(format!("VM '{}' restarted (VirtualBox)", name)))
+        }
+        _ => Err(anyhow!("No supported hypervisor found")),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 884: bi_vm_status - Get VM status
+// ---------------------------------------------------------------------------
+fn bi_vm_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = require_str(&args, 0, "vm.status")?;
+    match detect_hypervisor() {
+        "hyperv" => {
+            let script = format!("(Get-VM -Name '{}').State.ToString()", name);
+            let text = vm_run_powershell(&script)?;
+            Ok(Value::Str(text.trim().to_string()))
+        }
+        "virsh" => {
+            let text = vm_run_cmd("virsh", &["domstate", &name])?;
+            Ok(Value::Str(text.trim().to_string()))
+        }
+        "vboxmanage" => {
+            let text = vm_run_cmd("VBoxManage", &["showvminfo", &name, "--machinereadable"])?;
+            for line in text.lines() {
+                if line.starts_with("VMState=") {
+                    let state = line.trim_start_matches("VMState=").trim_matches('"');
+                    return Ok(Value::Str(state.to_string()));
+                }
+            }
+            Ok(Value::Str("unknown".to_string()))
+        }
+        _ => Err(anyhow!("No supported hypervisor found")),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 885: bi_vm_info - Detailed VM info
+// ---------------------------------------------------------------------------
+fn bi_vm_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = require_str(&args, 0, "vm.info")?;
+    match detect_hypervisor() {
+        "hyperv" => {
+            let script = format!("Get-VM -Name '{}' | Select-Object Name,State,CPUUsage,MemoryAssigned,MemoryDemand,Uptime,Status,Version | ConvertTo-Json", name);
+            vm_run_powershell_json(&script)
+        }
+        "virsh" => {
+            let text = vm_run_cmd("virsh", &["dominfo", &name])?;
+            let mut record = std::collections::BTreeMap::new();
+            for line in text.lines() {
+                if let Some(idx) = line.find(':') {
+                    let key = line[..idx].trim().to_lowercase().replace(' ', "_");
+                    let val = line[idx + 1..].trim().to_string();
+                    record.insert(key, Value::Str(val));
+                }
+            }
+            Ok(Value::Record(record))
+        }
+        "vboxmanage" => {
+            let text = vm_run_cmd("VBoxManage", &["showvminfo", &name, "--machinereadable"])?;
+            let mut record = std::collections::BTreeMap::new();
+            for line in text.lines() {
+                if let Some(idx) = line.find('=') {
+                    let key = line[..idx].trim().to_lowercase();
+                    let val = line[idx + 1..].trim().trim_matches('"').to_string();
+                    record.insert(key, Value::Str(val));
+                }
+            }
+            Ok(Value::Record(record))
+        }
+        _ => Err(anyhow!("No supported hypervisor found")),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 886: bi_vm_create - Create VM with optional config Record
+// ---------------------------------------------------------------------------
+fn bi_vm_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = require_str(&args, 0, "vm.create")?;
+    // Optional config record: {memory: "2GB", cpu: 2, disk: "40GB"}
+    let memory = match args.get(1) {
+        Some(Value::Record(cfg)) => cfg
+            .get("memory")
+            .and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None })
+            .unwrap_or_else(|| "1GB".to_string()),
+        _ => "1GB".to_string(),
+    };
+    let cpu: i64 = match args.get(1) {
+        Some(Value::Record(cfg)) => cfg
+            .get("cpu")
+            .and_then(|v| if let Value::Int(n) = v { Some(*n) } else { None })
+            .unwrap_or(1),
+        _ => 1,
+    };
+    let disk = match args.get(1) {
+        Some(Value::Record(cfg)) => cfg
+            .get("disk")
+            .and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None })
+            .unwrap_or_else(|| "20GB".to_string()),
+        _ => "20GB".to_string(),
+    };
+
+    match detect_hypervisor() {
+        "hyperv" => {
+            let script = format!(
+                "New-VM -Name '{}' -MemoryStartupBytes {} -NewVHDSizeBytes {} -Generation 2 | ConvertTo-Json",
+                name, memory, disk
+            );
+            vm_run_powershell_json(&script)
+        }
+        "virsh" => {
+            // Use virt-install if available, otherwise basic virsh define
+            let mem_mb = memory.trim_end_matches(|c: char| c.is_alphabetic())
+                .parse::<i64>().unwrap_or(1024);
+            let disk_gb = disk.trim_end_matches(|c: char| c.is_alphabetic())
+                .parse::<i64>().unwrap_or(20);
+            let text = vm_run_cmd("virt-install", &[
+                "--name", &name,
+                "--memory", &mem_mb.to_string(),
+                "--vcpus", &cpu.to_string(),
+                "--disk", &format!("size={}", disk_gb),
+                "--os-variant", "generic",
+                "--import",
+                "--noautoconsole",
+            ])?;
+            Ok(Value::Str(text.trim().to_string()))
+        }
+        "vboxmanage" => {
+            vm_run_cmd("VBoxManage", &["createvm", "--name", &name, "--register"])?;
+            vm_run_cmd("VBoxManage", &["modifyvm", &name, "--cpus", &cpu.to_string(), "--memory", &memory])?;
+            Ok(Value::Str(format!("VM '{}' created (VirtualBox)", name)))
+        }
+        _ => Err(anyhow!("No supported hypervisor found")),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 887: bi_vm_delete - Delete VM
+// ---------------------------------------------------------------------------
+fn bi_vm_delete(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = require_str(&args, 0, "vm.delete")?;
+    match detect_hypervisor() {
+        "hyperv" => {
+            let script = format!("Remove-VM -Name '{}' -Force", name);
+            vm_run_powershell(&script)?;
+            Ok(Value::Str(format!("VM '{}' deleted (Hyper-V)", name)))
+        }
+        "virsh" => {
+            // Try graceful shutdown first, then undefine
+            let _ = vm_run_cmd("virsh", &["destroy", &name]);
+            vm_run_cmd("virsh", &["undefine", &name, "--remove-all-storage"])?;
+            Ok(Value::Str(format!("VM '{}' deleted (virsh)", name)))
+        }
+        "vboxmanage" => {
+            vm_run_cmd("VBoxManage", &["unregistervm", &name, "--delete"])?;
+            Ok(Value::Str(format!("VM '{}' deleted (VirtualBox)", name)))
+        }
+        _ => Err(anyhow!("No supported hypervisor found")),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 888: bi_vm_snapshot - Create snapshot
+// ---------------------------------------------------------------------------
+fn bi_vm_snapshot(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let vm_name = require_str(&args, 0, "vm.snapshot")?;
+    let snap_name = require_str(&args, 1, "vm.snapshot")?;
+    match detect_hypervisor() {
+        "hyperv" => {
+            let script = format!("Checkpoint-VM -Name '{}' -SnapshotName '{}'", vm_name, snap_name);
+            vm_run_powershell(&script)?;
+            Ok(Value::Str(format!("Snapshot '{}' created for VM '{}' (Hyper-V)", snap_name, vm_name)))
+        }
+        "virsh" => {
+            vm_run_cmd("virsh", &["snapshot-create-as", &vm_name, "--name", &snap_name])?;
+            Ok(Value::Str(format!("Snapshot '{}' created for VM '{}' (virsh)", snap_name, vm_name)))
+        }
+        "vboxmanage" => {
+            vm_run_cmd("VBoxManage", &["snapshot", &vm_name, "take", &snap_name])?;
+            Ok(Value::Str(format!("Snapshot '{}' created for VM '{}' (VirtualBox)", snap_name, vm_name)))
+        }
+        _ => Err(anyhow!("No supported hypervisor found")),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 889: bi_vm_snapshot_list - List snapshots for a VM
+// ---------------------------------------------------------------------------
+fn bi_vm_snapshot_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let vm_name = require_str(&args, 0, "vm.snapshot_list")?;
+    match detect_hypervisor() {
+        "hyperv" => {
+            let script = format!("Get-VMSnapshot -VMName '{}' | Select-Object Name,CreationTime,SnapshotType | ConvertTo-Json", vm_name);
+            vm_run_powershell_json(&script)
+        }
+        "virsh" => {
+            let text = vm_run_cmd("virsh", &["snapshot-list", &vm_name])?;
+            let rows = parse_virsh_table(&text);
+            Ok(Value::Array(rows))
+        }
+        "vboxmanage" => {
+            let text = vm_run_cmd("VBoxManage", &["snapshot", &vm_name, "list"])?;
+            let rows: Vec<Value> = text
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .map(|l| Value::Str(l.trim().to_string()))
+                .collect();
+            Ok(Value::Array(rows))
+        }
+        _ => Err(anyhow!("No supported hypervisor found")),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 890: bi_vm_snapshot_restore - Restore a snapshot
+// ---------------------------------------------------------------------------
+fn bi_vm_snapshot_restore(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let vm_name = require_str(&args, 0, "vm.snapshot_restore")?;
+    let snap_name = require_str(&args, 1, "vm.snapshot_restore")?;
+    match detect_hypervisor() {
+        "hyperv" => {
+            let script = format!("Restore-VMSnapshot -VMName '{}' -Name '{}' -Confirm:$false", vm_name, snap_name);
+            vm_run_powershell(&script)?;
+            Ok(Value::Str(format!("Snapshot '{}' restored for VM '{}' (Hyper-V)", snap_name, vm_name)))
+        }
+        "virsh" => {
+            vm_run_cmd("virsh", &["snapshot-revert", &vm_name, &snap_name])?;
+            Ok(Value::Str(format!("Snapshot '{}' restored for VM '{}' (virsh)", snap_name, vm_name)))
+        }
+        "vboxmanage" => {
+            vm_run_cmd("VBoxManage", &["snapshot", &vm_name, "restore", &snap_name])?;
+            Ok(Value::Str(format!("Snapshot '{}' restored for VM '{}' (VirtualBox)", snap_name, vm_name)))
+        }
+        _ => Err(anyhow!("No supported hypervisor found")),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 891: bi_vm_clone - Clone a VM
+// ---------------------------------------------------------------------------
+fn bi_vm_clone(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let source = require_str(&args, 0, "vm.clone")?;
+    let new_name = require_str(&args, 1, "vm.clone")?;
+    match detect_hypervisor() {
+        "hyperv" => {
+            let script = format!(
+                "$vm = Get-VM -Name '{}'; Export-VM -Name '{}' -Path $env:TEMP; Import-VM -Path (Join-Path $env:TEMP '{}' 'Virtual Machines' '*.vmcx') -Copy -GenerateNewId | Rename-VM -NewName '{}' | ConvertTo-Json",
+                source, source, source, new_name
+            );
+            vm_run_powershell_json(&script)
+        }
+        "virsh" => {
+            vm_run_cmd("virt-clone", &["--original", &source, "--name", &new_name, "--auto-clone"])?;
+            Ok(Value::Str(format!("VM '{}' cloned to '{}' (virsh)", source, new_name)))
+        }
+        "vboxmanage" => {
+            vm_run_cmd("VBoxManage", &["clonevm", &source, "--name", &new_name, "--register"])?;
+            Ok(Value::Str(format!("VM '{}' cloned to '{}' (VirtualBox)", source, new_name)))
+        }
+        _ => Err(anyhow!("No supported hypervisor found")),
+    }
+}
+
+// ===========================================================================
+// Hyper-V specific (892-897)
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// 892: bi_hyperv_list - List Hyper-V VMs
+// ---------------------------------------------------------------------------
+fn bi_hyperv_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    vm_run_powershell_json("Get-VM | Select-Object Name,State,CPUUsage,MemoryAssigned,Uptime,Status,Version | ConvertTo-Json")
+}
+
+// ---------------------------------------------------------------------------
+// 893: bi_hyperv_start - Start a Hyper-V VM
+// ---------------------------------------------------------------------------
+fn bi_hyperv_start(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = require_str(&args, 0, "hyperv.start")?;
+    let script = format!("Start-VM -Name '{}'", name);
+    vm_run_powershell(&script)?;
+    Ok(Value::Str(format!("Hyper-V VM '{}' started", name)))
+}
+
+// ---------------------------------------------------------------------------
+// 894: bi_hyperv_stop - Stop a Hyper-V VM
+// ---------------------------------------------------------------------------
+fn bi_hyperv_stop(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = require_str(&args, 0, "hyperv.stop")?;
+    let script = format!("Stop-VM -Name '{}' -Force", name);
+    vm_run_powershell(&script)?;
+    Ok(Value::Str(format!("Hyper-V VM '{}' stopped", name)))
+}
+
+// ---------------------------------------------------------------------------
+// 895: bi_hyperv_status - Get Hyper-V VM status (detailed)
+// ---------------------------------------------------------------------------
+fn bi_hyperv_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = require_str(&args, 0, "hyperv.status")?;
+    let script = format!(
+        "Get-VM -Name '{}' | Select-Object Name,State,CPUUsage,MemoryAssigned,MemoryDemand,Uptime,Status,Version,Generation,ProcessorCount | ConvertTo-Json",
+        name
+    );
+    vm_run_powershell_json(&script)
+}
+
+// ---------------------------------------------------------------------------
+// 896: bi_hyperv_checkpoint - Create Hyper-V checkpoint (snapshot)
+// ---------------------------------------------------------------------------
+fn bi_hyperv_checkpoint(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = require_str(&args, 0, "hyperv.checkpoint")?;
+    let snap_name = require_str(&args, 1, "hyperv.checkpoint")?;
+    let script = format!("Checkpoint-VM -Name '{}' -SnapshotName '{}'", name, snap_name);
+    vm_run_powershell(&script)?;
+    Ok(Value::Str(format!(
+        "Checkpoint '{}' created for Hyper-V VM '{}'",
+        snap_name, name
+    )))
+}
+
+// ---------------------------------------------------------------------------
+// 897: bi_hyperv_switches - List Hyper-V virtual switches
+// ---------------------------------------------------------------------------
+fn bi_hyperv_switches(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    vm_run_powershell_json("Get-VMSwitch | Select-Object Name,SwitchType,NetAdapterInterfaceDescription,AllowManagementOS | ConvertTo-Json")
+}
+
+// ===========================================================================
+// ESXi/vSphere (898-901) - via govc or SSH
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// 898: bi_esxi_list - List ESXi VMs via govc
+// ---------------------------------------------------------------------------
+fn bi_esxi_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    // Try govc first
+    match vm_run_cmd_json("govc", &["vm.info", "-json", "*"]) {
+        Ok(val) => Ok(val),
+        Err(_) => {
+            // Fallback: try SSH if host provided
+            if let Some(Value::Str(host)) = args.first() {
+                let text = vm_run_cmd("ssh", &[host, "vim-cmd", "vmsvc/getallvms"])?;
+                let rows: Vec<Value> = text
+                    .lines()
+                    .skip(1) // skip header
+                    .filter(|l| !l.trim().is_empty())
+                    .map(|l| Value::Str(l.trim().to_string()))
+                    .collect();
+                Ok(Value::Array(rows))
+            } else {
+                Err(anyhow!("govc not found. Provide ESXi host as argument for SSH fallback"))
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 899: bi_esxi_status - Get ESXi VM status via govc
+// ---------------------------------------------------------------------------
+fn bi_esxi_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = require_str(&args, 0, "esxi.status")?;
+    vm_run_cmd_json("govc", &["vm.info", "-json", &name])
+}
+
+// ---------------------------------------------------------------------------
+// 900: bi_esxi_datastores - List ESXi datastores via govc
+// ---------------------------------------------------------------------------
+fn bi_esxi_datastores(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    vm_run_cmd_json("govc", &["datastore.info", "-json"])
+}
+
+// ---------------------------------------------------------------------------
+// 901: bi_esxi_networks - List ESXi networks via govc
+// ---------------------------------------------------------------------------
+fn bi_esxi_networks(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    vm_run_cmd_json("govc", &["network.info", "-json"])
+}
+
+// ===========================================================================
+// libvirt/virsh (902-906)
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// 902: bi_virsh_list - List all virsh VMs (parsed tabular output)
+// ---------------------------------------------------------------------------
+fn bi_virsh_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let text = vm_run_cmd("virsh", &["list", "--all"])?;
+    let rows = parse_virsh_table(&text);
+    Ok(Value::Array(rows))
+}
+
+// ---------------------------------------------------------------------------
+// 903: bi_virsh_start - Start a virsh domain
+// ---------------------------------------------------------------------------
+fn bi_virsh_start(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = require_str(&args, 0, "virsh.start")?;
+    let text = vm_run_cmd("virsh", &["start", &name])?;
+    Ok(Value::Str(text.trim().to_string()))
+}
+
+// ---------------------------------------------------------------------------
+// 904: bi_virsh_stop - Graceful shutdown of a virsh domain
+// ---------------------------------------------------------------------------
+fn bi_virsh_stop(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = require_str(&args, 0, "virsh.stop")?;
+    let text = vm_run_cmd("virsh", &["shutdown", &name])?;
+    Ok(Value::Str(text.trim().to_string()))
+}
+
+// ---------------------------------------------------------------------------
+// 905: bi_virsh_destroy - Force stop a virsh domain
+// ---------------------------------------------------------------------------
+fn bi_virsh_destroy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = require_str(&args, 0, "virsh.destroy")?;
+    let text = vm_run_cmd("virsh", &["destroy", &name])?;
+    Ok(Value::Str(text.trim().to_string()))
+}
+
+// ---------------------------------------------------------------------------
+// 906: bi_virsh_info - Get domain info (parsed key:value into Record)
+// ---------------------------------------------------------------------------
+fn bi_virsh_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = require_str(&args, 0, "virsh.info")?;
+    let text = vm_run_cmd("virsh", &["dominfo", &name])?;
+    let mut record = std::collections::BTreeMap::new();
+    for line in text.lines() {
+        if let Some(idx) = line.find(':') {
+            let key = line[..idx].trim().to_lowercase().replace(' ', "_");
+            let val = line[idx + 1..].trim().to_string();
+            record.insert(key, Value::Str(val));
+        }
+    }
+    Ok(Value::Record(record))
+}
+
+// ===========================================================================
+// WSL (907-912)
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// 907: bi_wsl_list - List WSL distributions (parsed tabular output)
+// ---------------------------------------------------------------------------
+fn bi_wsl_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let text = vm_run_cmd("wsl", &["--list", "--verbose"])?;
+    // WSL output may include UTF-16 BOM / null bytes on some systems
+    let cleaned: String = text.chars().filter(|c| *c != '\0' && *c != '\u{feff}').collect();
+    let rows = parse_wsl_list(&cleaned);
+    Ok(Value::Array(rows))
+}
+
+// ---------------------------------------------------------------------------
+// 908: bi_wsl_start - Launch a WSL distribution
+// ---------------------------------------------------------------------------
+fn bi_wsl_start(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let distro = require_str(&args, 0, "wsl.start")?;
+    // Start the distro in the background by running a no-op command
+    let text = vm_run_cmd("wsl", &["-d", &distro, "--", "echo", "started"])?;
+    Ok(Value::Str(format!("WSL distro '{}' started: {}", distro, text.trim())))
+}
+
+// ---------------------------------------------------------------------------
+// 909: bi_wsl_stop - Terminate a WSL distribution
+// ---------------------------------------------------------------------------
+fn bi_wsl_stop(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let distro = require_str(&args, 0, "wsl.stop")?;
+    vm_run_cmd("wsl", &["--terminate", &distro])?;
+    Ok(Value::Str(format!("WSL distro '{}' terminated", distro)))
+}
+
+// ---------------------------------------------------------------------------
+// 910: bi_wsl_exec - Execute a command inside a WSL distribution
+// ---------------------------------------------------------------------------
+fn bi_wsl_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let distro = require_str(&args, 0, "wsl.exec")?;
+    let command = require_str(&args, 1, "wsl.exec")?;
+    // Build argument list: wsl -d <distro> -- <command parts>
+    let mut cmd_args = vec!["-d", &distro as &str, "--"];
+    let parts: Vec<&str> = command.split_whitespace().collect();
+    cmd_args.extend(parts);
+    let text = vm_run_cmd("wsl", &cmd_args)?;
+    Ok(Value::Str(text.trim().to_string()))
+}
+
+// ---------------------------------------------------------------------------
+// 911: bi_wsl_import - Import a WSL distribution from tarball
+// ---------------------------------------------------------------------------
+fn bi_wsl_import(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = require_str(&args, 0, "wsl.import")?;
+    let install_path = require_str(&args, 1, "wsl.import")?;
+    let tarball = require_str(&args, 2, "wsl.import")?;
+    vm_run_cmd("wsl", &["--import", &name, &install_path, &tarball])?;
+    Ok(Value::Str(format!("WSL distro '{}' imported from '{}'", name, tarball)))
+}
+
+// ---------------------------------------------------------------------------
+// 912: bi_wsl_export - Export a WSL distribution to a file
+// ---------------------------------------------------------------------------
+fn bi_wsl_export(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let distro = require_str(&args, 0, "wsl.export")?;
+    let file = require_str(&args, 1, "wsl.export")?;
+    vm_run_cmd("wsl", &["--export", &distro, &file])?;
+    Ok(Value::Str(format!("WSL distro '{}' exported to '{}'", distro, file)))
+}
+
+// ===========================================================================
+// QEMU (913-915)
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// 913: bi_qemu_list - List QEMU VMs via virsh qemu:///system
+// ---------------------------------------------------------------------------
+fn bi_qemu_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let text = vm_run_cmd("virsh", &["-c", "qemu:///system", "list", "--all"])?;
+    let rows = parse_virsh_table(&text);
+    Ok(Value::Array(rows))
+}
+
+// ---------------------------------------------------------------------------
+// 914: bi_qemu_start - Start a QEMU VM via virsh
+// ---------------------------------------------------------------------------
+fn bi_qemu_start(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = require_str(&args, 0, "qemu.start")?;
+    let text = vm_run_cmd("virsh", &["-c", "qemu:///system", "start", &name])?;
+    Ok(Value::Str(text.trim().to_string()))
+}
+
+// ---------------------------------------------------------------------------
+// 915: bi_qemu_monitor - Send QEMU monitor command via virsh
+// ---------------------------------------------------------------------------
+fn bi_qemu_monitor(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = require_str(&args, 0, "qemu.monitor")?;
+    let command = require_str(&args, 1, "qemu.monitor")?;
+    let text = vm_run_cmd("virsh", &[
+        "-c", "qemu:///system",
+        "qemu-monitor-command", &name,
+        "--hmp", &command,
+    ])?;
+    Ok(Value::Str(text.trim().to_string()))
+}
+
+// ===========================================================================
+// LXC/LXD (916-919)
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// 916: bi_lxc_list - List LXC/LXD containers (JSON output)
+// ---------------------------------------------------------------------------
+fn bi_lxc_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    vm_run_cmd_json("lxc", &["list", "--format", "json"])
+}
+
+// ---------------------------------------------------------------------------
+// 917: bi_lxc_start - Start an LXC/LXD container
+// ---------------------------------------------------------------------------
+fn bi_lxc_start(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = require_str(&args, 0, "lxc.start")?;
+    vm_run_cmd("lxc", &["start", &name])?;
+    Ok(Value::Str(format!("LXC container '{}' started", name)))
+}
+
+// ---------------------------------------------------------------------------
+// 918: bi_lxc_stop - Stop an LXC/LXD container
+// ---------------------------------------------------------------------------
+fn bi_lxc_stop(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = require_str(&args, 0, "lxc.stop")?;
+    vm_run_cmd("lxc", &["stop", &name])?;
+    Ok(Value::Str(format!("LXC container '{}' stopped", name)))
+}
+
+// ---------------------------------------------------------------------------
+// 919: bi_lxc_exec - Execute a command in an LXC/LXD container
+// ---------------------------------------------------------------------------
+fn bi_lxc_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = require_str(&args, 0, "lxc.exec")?;
+    let command = require_str(&args, 1, "lxc.exec")?;
+    let mut cmd_args = vec!["exec", name.as_str(), "--"];
+    let parts: Vec<&str> = command.split_whitespace().collect();
+    cmd_args.extend(parts);
+    let text = vm_run_cmd("lxc", &cmd_args)?;
+    Ok(Value::Str(text.trim().to_string()))
+}
+
+// ============================================================================
+// Cloud & Infrastructure-as-Code Builtins (920-949)
+// Terraform, Ansible, Pulumi, Vagrant, Packer, AWS, Azure, GCloud
+// ============================================================================
+
+// [removed duplicate] use std::collections::BTreeMap;
+// [removed duplicate] use std::process::Command;
+// [removed duplicate] use anyhow::{anyhow, Result};
+
+// [removed duplicate] use crate::value::Value;
+// [removed duplicate] use crate::builtins::json_to_value;
+
+// ---------------------------------------------------------------------------
+// Helper: run a command, return stdout as String
+// ---------------------------------------------------------------------------
+fn cloud_run_cmd(program: &str, args: &[&str], dir: Option<&str>) -> Result<String> {
+    let mut cmd = Command::new(program);
+    cmd.args(args);
+    if let Some(d) = dir {
+        cmd.current_dir(d);
+    }
+    let output = cmd.output().map_err(|e| anyhow!("failed to run `{}`: {}", program, e))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(anyhow!("`{} {}` failed: {}", program, args.join(" "), stderr));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+// ---------------------------------------------------------------------------
+// Helper: run a command, parse stdout as JSON → Value
+// ---------------------------------------------------------------------------
+fn cloud_run_cmd_json(program: &str, args: &[&str], dir: Option<&str>) -> Result<Value> {
+    let stdout = cloud_run_cmd(program, args, dir)?;
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).map_err(|e| anyhow!("JSON parse error: {}", e))?;
+    Ok(json_to_value(json))
+}
+
+// ===========================================================================
+// Terraform (920-927)
+// ===========================================================================
+
+/// 920 – terraform init in optional directory
+pub fn bi_terraform_init(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let dir = args.first().and_then(|v| match v {
+        Value::Str(s) => Some(s.as_str()),
+        _ => None,
+    });
+    let out = cloud_run_cmd("terraform", &["init"], dir.map(|s| s))?;
+    Ok(Value::Str(out))
+}
+
+/// 921 – terraform plan with optional -var-file
+pub fn bi_terraform_plan(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut cmd_args: Vec<String> = vec!["plan".into()];
+    if let Some(Value::Str(var_file)) = args.first() {
+        cmd_args.push(format!("-var-file={}", var_file));
+    }
+    let refs: Vec<&str> = cmd_args.iter().map(|s| s.as_str()).collect();
+    let out = cloud_run_cmd("terraform", &refs, None)?;
+    Ok(Value::Str(out))
+}
+
+/// 922 – terraform apply -auto-approve with optional -var-file
+pub fn bi_terraform_apply(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut cmd_args: Vec<String> = vec!["apply".into(), "-auto-approve".into()];
+    if let Some(Value::Str(var_file)) = args.first() {
+        cmd_args.push(format!("-var-file={}", var_file));
+    }
+    let refs: Vec<&str> = cmd_args.iter().map(|s| s.as_str()).collect();
+    let out = cloud_run_cmd("terraform", &refs, None)?;
+    Ok(Value::Str(out))
+}
+
+/// 923 – terraform destroy -auto-approve
+pub fn bi_terraform_destroy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let dir = args.first().and_then(|v| match v {
+        Value::Str(s) => Some(s.as_str()),
+        _ => None,
+    });
+    let out = cloud_run_cmd("terraform", &["destroy", "-auto-approve"], dir.map(|s| s))?;
+    Ok(Value::Str(out))
+}
+
+/// 924 – terraform state list → array of strings
+pub fn bi_terraform_state(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let dir = args.first().and_then(|v| match v {
+        Value::Str(s) => Some(s.as_str()),
+        _ => None,
+    });
+    let out = cloud_run_cmd("terraform", &["state", "list"], dir.map(|s| s))?;
+    let items: Vec<Value> = out
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| Value::Str(l.trim().to_string()))
+        .collect();
+    Ok(Value::Array(items))
+}
+
+/// 925 – terraform output -json → parsed Value
+pub fn bi_terraform_output(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let dir = args.first().and_then(|v| match v {
+        Value::Str(s) => Some(s.as_str()),
+        _ => None,
+    });
+    cloud_run_cmd_json("terraform", &["output", "-json"], dir.map(|s| s))
+}
+
+/// 926 – terraform workspace: no args → show, with arg → select <name>
+pub fn bi_terraform_workspace(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    match args.first() {
+        Some(Value::Str(name)) => {
+            let out = cloud_run_cmd("terraform", &["workspace", "select", name.as_str()], None)?;
+            Ok(Value::Str(out))
+        }
+        _ => {
+            let out = cloud_run_cmd("terraform", &["workspace", "show"], None)?;
+            Ok(Value::Str(out.trim().to_string()))
+        }
+    }
+}
+
+/// 927 – terraform validate -json
+pub fn bi_terraform_validate(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let dir = args.first().and_then(|v| match v {
+        Value::Str(s) => Some(s.as_str()),
+        _ => None,
+    });
+    cloud_run_cmd_json("terraform", &["validate", "-json"], dir.map(|s| s))
+}
+
+// ===========================================================================
+// Ansible (928-931)
+// ===========================================================================
+
+/// 928 – ansible-playbook <playbook> with optional -i inventory, --extra-vars from Record
+pub fn bi_ansible_playbook(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let playbook = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("ansible_playbook requires a playbook path")),
+    };
+    let mut cmd_args: Vec<String> = vec![playbook];
+
+    // Optional inventory (2nd arg)
+    if let Some(Value::Str(inv)) = args.get(1) {
+        cmd_args.push("-i".into());
+        cmd_args.push(inv.clone());
+    }
+
+    // Optional extra-vars from Record (3rd arg)
+    if let Some(Value::Record(map)) = args.get(2) {
+        let mut extras = serde_json::Map::new();
+        for (k, v) in map.iter() {
+            let jv = match v {
+                Value::Str(s) => serde_json::Value::String(s.clone()),
+                Value::Int(i) => serde_json::Value::Number((*i).into()),
+                Value::Float(f) => serde_json::json!(*f),
+                Value::Bool(b) => serde_json::Value::Bool(*b),
+                _ => serde_json::Value::String(format!("{}", v)),
+            };
+            extras.insert(k.clone(), jv);
+        }
+        let json_str = serde_json::to_string(&serde_json::Value::Object(extras))
+            .map_err(|e| anyhow!("extra-vars serialization: {}", e))?;
+        cmd_args.push("--extra-vars".into());
+        cmd_args.push(json_str);
+    }
+
+    let refs: Vec<&str> = cmd_args.iter().map(|s| s.as_str()).collect();
+    let out = cloud_run_cmd("ansible-playbook", &refs, None)?;
+    Ok(Value::Str(out))
+}
+
+/// 929 – ansible-inventory --list -i <inventory> → JSON
+pub fn bi_ansible_inventory(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let inventory = match args.first() {
+        Some(Value::Str(s)) => s.as_str(),
+        _ => return Err(anyhow!("ansible_inventory requires an inventory path")),
+    };
+    cloud_run_cmd_json("ansible-inventory", &["--list", "-i", inventory], None)
+}
+
+/// 930 – ansible-galaxy install <role>
+pub fn bi_ansible_galaxy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let role = match args.first() {
+        Some(Value::Str(s)) => s.as_str(),
+        _ => return Err(anyhow!("ansible_galaxy requires a role name")),
+    };
+    let out = cloud_run_cmd("ansible-galaxy", &["install", role], None)?;
+    Ok(Value::Str(out))
+}
+
+/// 931 – ansible-vault view/encrypt/decrypt <file>
+pub fn bi_ansible_vault(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let action = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("ansible_vault requires action (view|encrypt|decrypt)")),
+    };
+    let file = match args.get(1) {
+        Some(Value::Str(s)) => s.as_str(),
+        _ => return Err(anyhow!("ansible_vault requires a file path")),
+    };
+    match action.as_str() {
+        "view" | "encrypt" | "decrypt" => {}
+        other => return Err(anyhow!("ansible_vault: unknown action '{}' (use view|encrypt|decrypt)", other)),
+    }
+    let out = cloud_run_cmd("ansible-vault", &[action.as_str(), file], None)?;
+    Ok(Value::Str(out))
+}
+
+// ===========================================================================
+// Pulumi (932-935)
+// ===========================================================================
+
+/// 932 – pulumi up --yes --json
+pub fn bi_pulumi_up(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let dir = args.first().and_then(|v| match v {
+        Value::Str(s) => Some(s.as_str()),
+        _ => None,
+    });
+    cloud_run_cmd_json("pulumi", &["up", "--yes", "--json"], dir.map(|s| s))
+}
+
+/// 933 – pulumi preview --json
+pub fn bi_pulumi_preview(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let dir = args.first().and_then(|v| match v {
+        Value::Str(s) => Some(s.as_str()),
+        _ => None,
+    });
+    cloud_run_cmd_json("pulumi", &["preview", "--json"], dir.map(|s| s))
+}
+
+/// 934 – pulumi destroy --yes
+pub fn bi_pulumi_destroy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let dir = args.first().and_then(|v| match v {
+        Value::Str(s) => Some(s.as_str()),
+        _ => None,
+    });
+    let out = cloud_run_cmd("pulumi", &["destroy", "--yes"], dir.map(|s| s))?;
+    Ok(Value::Str(out))
+}
+
+/// 935 – pulumi stack: no args → stack --json, with arg → stack select <name>
+pub fn bi_pulumi_stack(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    match args.first() {
+        Some(Value::Str(name)) => {
+            let out = cloud_run_cmd("pulumi", &["stack", "select", name.as_str()], None)?;
+            Ok(Value::Str(out))
+        }
+        _ => cloud_run_cmd_json("pulumi", &["stack", "--json"], None),
+    }
+}
+
+// ===========================================================================
+// Vagrant (936-941)
+// ===========================================================================
+
+/// 936 – vagrant up in optional dir
+pub fn bi_vagrant_up(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let dir = args.first().and_then(|v| match v {
+        Value::Str(s) => Some(s.as_str()),
+        _ => None,
+    });
+    let out = cloud_run_cmd("vagrant", &["up"], dir.map(|s| s))?;
+    Ok(Value::Str(out))
+}
+
+/// 937 – vagrant halt
+pub fn bi_vagrant_halt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let dir = args.first().and_then(|v| match v {
+        Value::Str(s) => Some(s.as_str()),
+        _ => None,
+    });
+    let out = cloud_run_cmd("vagrant", &["halt"], dir.map(|s| s))?;
+    Ok(Value::Str(out))
+}
+
+/// 938 – vagrant destroy -f
+pub fn bi_vagrant_destroy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let dir = args.first().and_then(|v| match v {
+        Value::Str(s) => Some(s.as_str()),
+        _ => None,
+    });
+    let out = cloud_run_cmd("vagrant", &["destroy", "-f"], dir.map(|s| s))?;
+    Ok(Value::Str(out))
+}
+
+/// 939 – vagrant status --machine-readable → parsed to Records
+pub fn bi_vagrant_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let dir = args.first().and_then(|v| match v {
+        Value::Str(s) => Some(s.as_str()),
+        _ => None,
+    });
+    let out = cloud_run_cmd("vagrant", &["status", "--machine-readable"], dir.map(|s| s))?;
+    // Machine-readable format: timestamp,target,type,data
+    let records: Vec<Value> = out
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .filter_map(|line| {
+            let parts: Vec<&str> = line.splitn(4, ',').collect();
+            if parts.len() >= 4 {
+                let mut map = BTreeMap::new();
+                map.insert("timestamp".to_string(), Value::Str(parts[0].to_string()));
+                map.insert("target".to_string(), Value::Str(parts[1].to_string()));
+                map.insert("type".to_string(), Value::Str(parts[2].to_string()));
+                map.insert("data".to_string(), Value::Str(parts[3].to_string()));
+                Some(Value::Record(map))
+            } else {
+                None
+            }
+        })
+        .collect();
+    Ok(Value::Array(records))
+}
+
+/// 940 – vagrant ssh -c <command>
+pub fn bi_vagrant_ssh(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let command = match args.first() {
+        Some(Value::Str(s)) => s.as_str(),
+        _ => return Err(anyhow!("vagrant_ssh requires a command string")),
+    };
+    let dir = args.get(1).and_then(|v| match v {
+        Value::Str(s) => Some(s.as_str()),
+        _ => None,
+    });
+    let out = cloud_run_cmd("vagrant", &["ssh", "-c", command], dir.map(|s| s))?;
+    Ok(Value::Str(out))
+}
+
+/// 941 – packer build <template>
+pub fn bi_packer_build(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let template = match args.first() {
+        Some(Value::Str(s)) => s.as_str(),
+        _ => return Err(anyhow!("packer_build requires a template path")),
+    };
+    let out = cloud_run_cmd("packer", &["build", template], None)?;
+    Ok(Value::Str(out))
+}
+
+// ===========================================================================
+// Packer (942-943)
+// ===========================================================================
+
+/// 942 – packer validate <template>
+pub fn bi_packer_validate(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let template = match args.first() {
+        Some(Value::Str(s)) => s.as_str(),
+        _ => return Err(anyhow!("packer_validate requires a template path")),
+    };
+    let out = cloud_run_cmd("packer", &["validate", template], None)?;
+    Ok(Value::Str(out))
+}
+
+/// 943 – packer inspect <template>
+pub fn bi_packer_inspect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let template = match args.first() {
+        Some(Value::Str(s)) => s.as_str(),
+        _ => return Err(anyhow!("packer_inspect requires a template path")),
+    };
+    let out = cloud_run_cmd("packer", &["inspect", template], None)?;
+    Ok(Value::Str(out))
+}
+
+// ===========================================================================
+// AWS CLI (944-945)
+// ===========================================================================
+
+/// 944 – aws s3 ls [bucket] → Records, or list-buckets → JSON
+pub fn bi_aws_s3_ls(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    match args.first() {
+        Some(Value::Str(bucket)) => {
+            // List objects in a bucket
+            let out = cloud_run_cmd("aws", &["s3", "ls", bucket.as_str()], None)?;
+            let items: Vec<Value> = out
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .map(|line| {
+                    // Format: "2024-01-01 12:00:00    1234 filename" or "PRE prefix/"
+                    let trimmed = line.trim();
+                    if trimmed.starts_with("PRE ") {
+                        let mut map = BTreeMap::new();
+                        map.insert("type".to_string(), Value::Str("prefix".to_string()));
+                        map.insert(
+                            "name".to_string(),
+                            Value::Str(trimmed.trim_start_matches("PRE ").to_string()),
+                        );
+                        Value::Record(map)
+                    } else {
+                        let parts: Vec<&str> = trimmed.splitn(4, char::is_whitespace).collect();
+                        let mut map = BTreeMap::new();
+                        map.insert("type".to_string(), Value::Str("object".to_string()));
+                        if parts.len() >= 4 {
+                            map.insert(
+                                "date".to_string(),
+                                Value::Str(format!("{} {}", parts[0], parts[1])),
+                            );
+                            map.insert(
+                                "size".to_string(),
+                                Value::Int(parts[2].trim().parse::<i64>().unwrap_or(0)),
+                            );
+                            map.insert("name".to_string(), Value::Str(parts[3].to_string()));
+                        } else {
+                            map.insert("raw".to_string(), Value::Str(trimmed.to_string()));
+                        }
+                        Value::Record(map)
+                    }
+                })
+                .collect();
+            Ok(Value::Array(items))
+        }
+        _ => {
+            // List all buckets
+            cloud_run_cmd_json("aws", &["s3api", "list-buckets", "--output", "json"], None)
+        }
+    }
+}
+
+/// 945 – aws ec2 describe-instances --output json
+pub fn bi_aws_ec2_instances(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut cmd_args: Vec<String> =
+        vec!["ec2".into(), "describe-instances".into(), "--output".into(), "json".into()];
+    // Optional --region
+    if let Some(Value::Str(region)) = args.first() {
+        cmd_args.push("--region".into());
+        cmd_args.push(region.clone());
+    }
+    let refs: Vec<&str> = cmd_args.iter().map(|s| s.as_str()).collect();
+    cloud_run_cmd_json("aws", &refs, None)
+}
+
+// ===========================================================================
+// Azure CLI (946-947)
+// ===========================================================================
+
+/// 946 – az vm list --output json
+pub fn bi_az_vm_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut cmd_args: Vec<String> = vec!["vm".into(), "list".into(), "--output".into(), "json".into()];
+    // Optional --resource-group
+    if let Some(Value::Str(rg)) = args.first() {
+        cmd_args.push("--resource-group".into());
+        cmd_args.push(rg.clone());
+    }
+    let refs: Vec<&str> = cmd_args.iter().map(|s| s.as_str()).collect();
+    cloud_run_cmd_json("az", &refs, None)
+}
+
+/// 947 – az group list --output json
+pub fn bi_az_group_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    cloud_run_cmd_json("az", &["group", "list", "--output", "json"], None)
+}
+
+// ===========================================================================
+// GCloud (948-949)
+// ===========================================================================
+
+/// 948 – gcloud compute instances list --format=json
+pub fn bi_gcloud_instances(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut cmd_args: Vec<String> =
+        vec!["compute".into(), "instances".into(), "list".into(), "--format=json".into()];
+    // Optional --project
+    if let Some(Value::Str(project)) = args.first() {
+        cmd_args.push(format!("--project={}", project));
+    }
+    let refs: Vec<&str> = cmd_args.iter().map(|s| s.as_str()).collect();
+    cloud_run_cmd_json("gcloud", &refs, None)
+}
+
+/// 949 – gcloud projects list --format=json
+pub fn bi_gcloud_projects(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    cloud_run_cmd_json("gcloud", &["projects", "list", "--format=json"], None)
+}
+
+// ============================================================================
+// Core OS Builtins (950-979)
+// File ops, block devices, kernel, system monitoring, diagnostics
+// ============================================================================
+
+// [removed duplicate] use std::collections::BTreeMap;
+// [removed duplicate] use std::process::Command;
+// [removed duplicate] use anyhow::{anyhow, Result};
+
+// Assumes these are defined elsewhere in the crate:
+// pub enum Value { Str(String), Int(i64), Float(f64), Bool(bool), Array(Vec<Value>), Record(BTreeMap<String,Value>), Null }
+// fn json_to_value(json: serde_json::Value) -> Value;
+
+/// 950: bi_rm - Remove file(s). Args: path (string), optional force bool.
+pub fn bi_rm(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let path = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("rm: expected path string")),
+    };
+    let force = matches!(args.get(1), Some(Value::Bool(true)));
+    match std::fs::remove_file(&path) {
+        Ok(()) => Ok(Value::Str(format!("removed: {}", path))),
+        Err(e) if force => Ok(Value::Str(format!("rm (forced): {}", e))),
+        Err(e) => Err(anyhow!("rm: {}: {}", path, e)),
+    }
+}
+
+/// 951: bi_rmdir - Remove directory. Args: path, optional recursive bool.
+pub fn bi_rmdir(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let path = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("rmdir: expected path string")),
+    };
+    let recursive = matches!(args.get(1), Some(Value::Bool(true)));
+    if recursive {
+        std::fs::remove_dir_all(&path).map_err(|e| anyhow!("rmdir -r: {}: {}", path, e))?;
+    } else {
+        std::fs::remove_dir(&path).map_err(|e| anyhow!("rmdir: {}: {}", path, e))?;
+    }
+    Ok(Value::Str(format!("removed directory: {}", path)))
+}
+
+/// 952: bi_touch - Create empty file or update timestamp. Args: path.
+pub fn bi_touch(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let path = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("touch: expected path string")),
+    };
+    std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .open(&path)
+        .map_err(|e| anyhow!("touch: {}: {}", path, e))?;
+    Ok(Value::Str(format!("touched: {}", path)))
+}
+
+/// 953: bi_file_type - Detect MIME type. Args: path.
+pub fn bi_file_type(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let path = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("file_type: expected path string")),
+    };
+    #[cfg(not(target_os = "windows"))]
+    {
+        let out = Command::new("file").args(&["--mime-type", "-b", &path]).output()
+            .map_err(|e| anyhow!("file_type: {}", e))?;
+        let mime = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        Ok(Value::Str(mime))
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let ext = std::path::Path::new(&path).extension()
+            .and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+        let mime = match ext.as_str() {
+            "txt" => "text/plain", "html" | "htm" => "text/html",
+            "json" => "application/json", "xml" => "application/xml",
+            "jpg" | "jpeg" => "image/jpeg", "png" => "image/png",
+            "gif" => "image/gif", "pdf" => "application/pdf",
+            "zip" => "application/zip", "gz" => "application/gzip",
+            "rs" => "text/x-rust", "py" => "text/x-python",
+            "js" => "text/javascript", "css" => "text/css",
+            "md" => "text/markdown", "toml" => "application/toml",
+            "yaml" | "yml" => "application/yaml", "csv" => "text/csv",
+            _ => "application/octet-stream",
+        };
+        Ok(Value::Str(mime.to_string()))
+    }
+}
+
+/// 954: bi_id_info - User/group identity info.
+pub fn bi_id_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    #[cfg(not(target_os = "windows"))]
+    {
+        let out = Command::new("id").output()
+            .map_err(|e| anyhow!("id_info: {}", e))?;
+        let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        let mut rec = BTreeMap::new();
+        rec.insert("raw".to_string(), Value::Str(text.clone()));
+        // Parse uid=N(name) gid=N(name)
+        for part in text.split_whitespace() {
+            if let Some(rest) = part.strip_prefix("uid=") {
+                if let Some(i) = rest.find('(') {
+                    rec.insert("uid".to_string(), Value::Int(rest[..i].parse().unwrap_or(0)));
+                    rec.insert("user".to_string(), Value::Str(rest[i+1..].trim_end_matches(')').to_string()));
+                }
+            } else if let Some(rest) = part.strip_prefix("gid=") {
+                if let Some(i) = rest.find('(') {
+                    rec.insert("gid".to_string(), Value::Int(rest[..i].parse().unwrap_or(0)));
+                    rec.insert("group".to_string(), Value::Str(rest[i+1..].trim_end_matches(')').to_string()));
+                }
+            }
+        }
+        Ok(Value::Record(rec))
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let out = Command::new("whoami").output()
+            .map_err(|e| anyhow!("id_info: {}", e))?;
+        let user = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        let mut rec = BTreeMap::new();
+        rec.insert("user".to_string(), Value::Str(user));
+        Ok(Value::Record(rec))
+    }
+}
+
+/// 955: bi_date_now - Current date/time as Record.
+pub fn bi_date_now(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let ts = SystemTime::now().duration_since(UNIX_EPOCH)
+        .map_err(|e| anyhow!("date_now: {}", e))?.as_secs() as i64;
+    let mut rec = BTreeMap::new();
+    rec.insert("timestamp".to_string(), Value::Int(ts));
+    // Shell out to get formatted components
+    #[cfg(not(target_os = "windows"))]
+    {
+        let out = Command::new("date").arg("+%Y %m %d %H %M %S").output()
+            .map_err(|e| anyhow!("date_now: {}", e))?;
+        let parts: Vec<&str> = String::from_utf8_lossy(&out.stdout).trim().to_string()
+            .split_whitespace().map(|s| s.to_string()).collect::<Vec<_>>()
+            .iter().map(|s| s.as_str()).collect::<Vec<_>>()
+            .into_iter().collect();
+        // Workaround: re-parse
+        let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        let parts: Vec<&str> = text.split_whitespace().collect();
+        if parts.len() >= 6 {
+            rec.insert("year".to_string(), Value::Int(parts[0].parse().unwrap_or(0)));
+            rec.insert("month".to_string(), Value::Int(parts[1].parse().unwrap_or(0)));
+            rec.insert("day".to_string(), Value::Int(parts[2].parse().unwrap_or(0)));
+            rec.insert("hour".to_string(), Value::Int(parts[3].parse().unwrap_or(0)));
+            rec.insert("minute".to_string(), Value::Int(parts[4].parse().unwrap_or(0)));
+            rec.insert("second".to_string(), Value::Int(parts[5].parse().unwrap_or(0)));
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let out = Command::new("powershell").args(&["-NoProfile", "-Command",
+            "Get-Date -Format 'yyyy MM dd HH mm ss'"]).output()
+            .map_err(|e| anyhow!("date_now: {}", e))?;
+        let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        let parts: Vec<&str> = text.split_whitespace().collect();
+        if parts.len() >= 6 {
+            rec.insert("year".to_string(), Value::Int(parts[0].parse().unwrap_or(0)));
+            rec.insert("month".to_string(), Value::Int(parts[1].parse().unwrap_or(0)));
+            rec.insert("day".to_string(), Value::Int(parts[2].parse().unwrap_or(0)));
+            rec.insert("hour".to_string(), Value::Int(parts[3].parse().unwrap_or(0)));
+            rec.insert("minute".to_string(), Value::Int(parts[4].parse().unwrap_or(0)));
+            rec.insert("second".to_string(), Value::Int(parts[5].parse().unwrap_or(0)));
+        }
+    }
+    Ok(Value::Record(rec))
+}
+
+/// 956: bi_cal - Calendar for current or specified month.
+pub fn bi_cal(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let month = match args.first() {
+        Some(Value::Int(m)) => Some(*m),
+        _ => None,
+    };
+    let year = match args.get(1) {
+        Some(Value::Int(y)) => Some(*y),
+        _ => None,
+    };
+    #[cfg(not(target_os = "windows"))]
+    {
+        let mut cmd = Command::new("cal");
+        if let (Some(m), Some(y)) = (month, year) {
+            cmd.arg(m.to_string()).arg(y.to_string());
+        } else if let Some(m) = month {
+            cmd.arg(m.to_string());
+        }
+        let out = cmd.output().map_err(|e| anyhow!("cal: {}", e))?;
+        Ok(Value::Str(String::from_utf8_lossy(&out.stdout).to_string()))
+    }
+    #[cfg(target_os = "windows")]
+    {
+        // Generate simple calendar text via PowerShell
+        let ps_cmd = if let (Some(m), Some(y)) = (month, year) {
+            format!("$d=[DateTime]::new({},{},1); 0..([DateTime]::DaysInMonth({},{})-1) | ForEach-Object {{ $d.AddDays($_).ToString('ddd dd') }}", y, m, y, m)
+        } else {
+            "$d=Get-Date -Day 1; 0..([DateTime]::DaysInMonth($d.Year,$d.Month)-1) | ForEach-Object { $d.AddDays($_).ToString('ddd dd') }".to_string()
+        };
+        let out = Command::new("powershell").args(&["-NoProfile", "-Command", &ps_cmd]).output()
+            .map_err(|e| anyhow!("cal: {}", e))?;
+        Ok(Value::Str(String::from_utf8_lossy(&out.stdout).to_string()))
+    }
+}
+
+/// 957: bi_lsblk - List block devices.
+pub fn bi_lsblk(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    #[cfg(target_os = "linux")]
+    {
+        let out = Command::new("lsblk").args(&["-J"]).output()
+            .map_err(|e| anyhow!("lsblk: {}", e))?;
+        let json: serde_json::Value = serde_json::from_slice(&out.stdout)
+            .map_err(|e| anyhow!("lsblk: parse error: {}", e))?;
+        Ok(json_to_value(json))
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let out = Command::new("diskutil").args(&["list"]).output()
+            .map_err(|e| anyhow!("lsblk: {}", e))?;
+        Ok(Value::Str(String::from_utf8_lossy(&out.stdout).trim().to_string()))
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let out = Command::new("powershell").args(&["-NoProfile", "-Command",
+            "Get-Disk | Select-Object Number,FriendlyName,Size,PartitionStyle,OperationalStatus | ConvertTo-Json"])
+            .output().map_err(|e| anyhow!("lsblk: {}", e))?;
+        let json: serde_json::Value = serde_json::from_slice(&out.stdout)
+            .map_err(|e| anyhow!("lsblk: parse error: {}", e))?;
+        Ok(json_to_value(json))
+    }
+}
+
+/// 958: bi_blkid - Block device attributes (Linux only).
+pub fn bi_blkid(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    #[cfg(target_os = "linux")]
+    {
+        let device = match args.first() {
+            Some(Value::Str(s)) => s.clone(),
+            _ => return Err(anyhow!("blkid: expected device path")),
+        };
+        let out = Command::new("blkid").args(&["-o", "export", &device]).output()
+            .map_err(|e| anyhow!("blkid: {}", e))?;
+        let text = String::from_utf8_lossy(&out.stdout);
+        let mut rec = BTreeMap::new();
+        for line in text.lines() {
+            if let Some((k, v)) = line.split_once('=') {
+                rec.insert(k.to_lowercase(), Value::Str(v.to_string()));
+            }
+        }
+        Ok(Value::Record(rec))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Err(anyhow!("blkid: only supported on Linux"))
+    }
+}
+
+/// 959: bi_dmesg - Kernel messages.
+pub fn bi_dmesg(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    #[cfg(target_os = "linux")]
+    {
+        let out = Command::new("dmesg").args(&["--json"]).output();
+        match out {
+            Ok(o) if o.status.success() => {
+                let json: serde_json::Value = serde_json::from_slice(&o.stdout)
+                    .unwrap_or(serde_json::Value::String(String::from_utf8_lossy(&o.stdout).to_string()));
+                Ok(json_to_value(json))
+            }
+            _ => {
+                let out = Command::new("dmesg").output()
+                    .map_err(|e| anyhow!("dmesg: {}", e))?;
+                Ok(Value::Str(String::from_utf8_lossy(&out.stdout).to_string()))
+            }
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let count = match args.first() {
+            Some(Value::Int(n)) => n.to_string(),
+            _ => "50".to_string(),
+        };
+        let out = Command::new("powershell").args(&["-NoProfile", "-Command",
+            &format!("Get-WinEvent -LogName System -MaxEvents {} | Select-Object TimeCreated,Id,LevelDisplayName,Message | ConvertTo-Json", count)])
+            .output().map_err(|e| anyhow!("dmesg: {}", e))?;
+        let json: serde_json::Value = serde_json::from_slice(&out.stdout)
+            .map_err(|e| anyhow!("dmesg: parse error: {}", e))?;
+        Ok(json_to_value(json))
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let out = Command::new("log").args(&["show", "--last", "5m", "--style", "compact"]).output()
+            .map_err(|e| anyhow!("dmesg: {}", e))?;
+        Ok(Value::Str(String::from_utf8_lossy(&out.stdout).to_string()))
+    }
+}
+
+/// 960: bi_journalctl - Systemd journal (Linux only).
+pub fn bi_journalctl(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    #[cfg(target_os = "linux")]
+    {
+        let count = match args.first() {
+            Some(Value::Int(n)) => n.to_string(),
+            _ => "50".to_string(),
+        };
+        let unit = match args.get(1) {
+            Some(Value::Str(u)) => Some(u.clone()),
+            _ => None,
+        };
+        let mut cmd = Command::new("journalctl");
+        cmd.args(&["-n", &count, "-o", "json"]);
+        if let Some(u) = &unit {
+            cmd.args(&["-u", u]);
+        }
+        let out = cmd.output().map_err(|e| anyhow!("journalctl: {}", e))?;
+        // journalctl -o json outputs one JSON object per line
+        let text = String::from_utf8_lossy(&out.stdout);
+        let entries: Vec<Value> = text.lines().filter_map(|line| {
+            serde_json::from_str::<serde_json::Value>(line).ok().map(|j| json_to_value(j))
+        }).collect();
+        Ok(Value::Array(entries))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Err(anyhow!("journalctl: only supported on Linux with systemd"))
+    }
+}
+
+/// 961: bi_lsof - List open files.
+pub fn bi_lsof(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
+        let out = Command::new("lsof").args(&["-i", "-P", "-n"]).output()
+            .map_err(|e| anyhow!("lsof: {}", e))?;
+        let text = String::from_utf8_lossy(&out.stdout);
+        let lines: Vec<&str> = text.lines().collect();
+        if lines.is_empty() {
+            return Ok(Value::Array(vec![]));
+        }
+        let headers: Vec<&str> = lines[0].split_whitespace().collect();
+        let entries: Vec<Value> = lines[1..].iter().map(|line| {
+            let cols: Vec<&str> = line.splitn(headers.len(), char::is_whitespace).collect();
+            let mut rec = BTreeMap::new();
+            for (i, h) in headers.iter().enumerate() {
+                rec.insert(h.to_lowercase(), Value::Str(cols.get(i).unwrap_or(&"").to_string()));
+            }
+            Value::Record(rec)
+        }).collect();
+        Ok(Value::Array(entries))
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let out = Command::new("powershell").args(&["-NoProfile", "-Command",
+            "Get-Process | Select-Object -First 50 Id,ProcessName,HandleCount | ConvertTo-Json"])
+            .output().map_err(|e| anyhow!("lsof: {}", e))?;
+        let json: serde_json::Value = serde_json::from_slice(&out.stdout)
+            .map_err(|e| anyhow!("lsof: parse error: {}", e))?;
+        Ok(json_to_value(json))
+    }
+}
+
+/// 962: bi_strace_cmd - Trace system calls.
+pub fn bi_strace_cmd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let command = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("strace_cmd: expected command string")),
+    };
+    #[cfg(target_os = "linux")]
+    {
+        let out = Command::new("strace").args(&["-c", "-e", "trace=all"]).arg(&command)
+            .output().map_err(|e| anyhow!("strace_cmd: {}", e))?;
+        // strace outputs to stderr
+        let text = String::from_utf8_lossy(&out.stderr).to_string();
+        Ok(Value::Str(text))
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let out = Command::new("dtruss").arg(&command).output()
+            .map_err(|e| anyhow!("strace_cmd: {}", e))?;
+        Ok(Value::Str(String::from_utf8_lossy(&out.stderr).to_string()))
+    }
+    #[cfg(target_os = "windows")]
+    {
+        Err(anyhow!("strace_cmd: not supported on Windows"))
+    }
+}
+
+/// 963: bi_vmstat - Virtual memory stats.
+pub fn bi_vmstat(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    #[cfg(target_os = "linux")]
+    {
+        let out = Command::new("vmstat").args(&["1", "1"]).output()
+            .map_err(|e| anyhow!("vmstat: {}", e))?;
+        let text = String::from_utf8_lossy(&out.stdout);
+        let lines: Vec<&str> = text.lines().collect();
+        if lines.len() >= 3 {
+            let headers: Vec<&str> = lines[1].split_whitespace().collect();
+            let values: Vec<&str> = lines[2].split_whitespace().collect();
+            let mut rec = BTreeMap::new();
+            for (i, h) in headers.iter().enumerate() {
+                let v = values.get(i).unwrap_or(&"0");
+                rec.insert(h.to_string(), Value::Int(v.parse().unwrap_or(0)));
+            }
+            Ok(Value::Record(rec))
+        } else {
+            Ok(Value::Str(text.to_string()))
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let out = Command::new("vm_stat").output()
+            .map_err(|e| anyhow!("vmstat: {}", e))?;
+        let text = String::from_utf8_lossy(&out.stdout);
+        let mut rec = BTreeMap::new();
+        for line in text.lines().skip(1) {
+            if let Some((k, v)) = line.split_once(':') {
+                let val = v.trim().trim_end_matches('.').trim();
+                rec.insert(k.trim().to_string(), Value::Int(val.parse().unwrap_or(0)));
+            }
+        }
+        Ok(Value::Record(rec))
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let out = Command::new("powershell").args(&["-NoProfile", "-Command",
+            "Get-CimInstance Win32_OperatingSystem | Select-Object TotalVisibleMemorySize,FreePhysicalMemory,TotalVirtualMemorySize,FreeVirtualMemory | ConvertTo-Json"])
+            .output().map_err(|e| anyhow!("vmstat: {}", e))?;
+        let json: serde_json::Value = serde_json::from_slice(&out.stdout)
+            .map_err(|e| anyhow!("vmstat: parse error: {}", e))?;
+        Ok(json_to_value(json))
+    }
+}
+
+/// 964: bi_iostat - I/O statistics.
+pub fn bi_iostat(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    #[cfg(target_os = "linux")]
+    {
+        let out = Command::new("iostat").args(&["-x", "1", "1"]).output()
+            .map_err(|e| anyhow!("iostat: {}", e))?;
+        Ok(Value::Str(String::from_utf8_lossy(&out.stdout).to_string()))
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let out = Command::new("iostat").output()
+            .map_err(|e| anyhow!("iostat: {}", e))?;
+        Ok(Value::Str(String::from_utf8_lossy(&out.stdout).to_string()))
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let out = Command::new("powershell").args(&["-NoProfile", "-Command",
+            "Get-CimInstance Win32_PerfFormattedData_PerfDisk_PhysicalDisk | Select-Object Name,DiskReadBytesPersec,DiskWriteBytesPersec,PercentDiskTime | ConvertTo-Json"])
+            .output().map_err(|e| anyhow!("iostat: {}", e))?;
+        let json: serde_json::Value = serde_json::from_slice(&out.stdout)
+            .map_err(|e| anyhow!("iostat: parse error: {}", e))?;
+        Ok(json_to_value(json))
+    }
+}
+
+/// 965: bi_sar - System activity report (Linux only).
+pub fn bi_sar(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    #[cfg(target_os = "linux")]
+    {
+        let out = Command::new("sar").args(&["1", "1"]).output()
+            .map_err(|e| anyhow!("sar: {}", e))?;
+        Ok(Value::Str(String::from_utf8_lossy(&out.stdout).to_string()))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let mut rec = BTreeMap::new();
+        rec.insert("error".to_string(), Value::Str("sar: not available on this platform".to_string()));
+        Ok(Value::Record(rec))
+    }
+}
+
+/// 966: bi_top_snapshot - Process snapshot (one-shot top).
+pub fn bi_top_snapshot(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
+        let out = Command::new("ps").args(&["aux", "--sort=-%mem"]).output()
+            .or_else(|_| Command::new("ps").args(&["aux"]).output())
+            .map_err(|e| anyhow!("top_snapshot: {}", e))?;
+        let text = String::from_utf8_lossy(&out.stdout);
+        let lines: Vec<&str> = text.lines().collect();
+        if lines.is_empty() {
+            return Ok(Value::Array(vec![]));
+        }
+        let entries: Vec<Value> = lines[1..].iter().take(30).map(|line| {
+            let cols: Vec<&str> = line.split_whitespace().collect();
+            let mut rec = BTreeMap::new();
+            if cols.len() >= 11 {
+                rec.insert("user".to_string(), Value::Str(cols[0].to_string()));
+                rec.insert("pid".to_string(), Value::Int(cols[1].parse().unwrap_or(0)));
+                rec.insert("cpu".to_string(), Value::Float(cols[2].parse().unwrap_or(0.0)));
+                rec.insert("mem".to_string(), Value::Float(cols[3].parse().unwrap_or(0.0)));
+                rec.insert("vsz".to_string(), Value::Int(cols[4].parse().unwrap_or(0)));
+                rec.insert("rss".to_string(), Value::Int(cols[5].parse().unwrap_or(0)));
+                rec.insert("command".to_string(), Value::Str(cols[10..].join(" ")));
+            }
+            Value::Record(rec)
+        }).collect();
+        Ok(Value::Array(entries))
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let out = Command::new("powershell").args(&["-NoProfile", "-Command",
+            "Get-Process | Sort-Object WorkingSet64 -Descending | Select-Object -First 30 Id,ProcessName,CPU,WorkingSet64 | ConvertTo-Json"])
+            .output().map_err(|e| anyhow!("top_snapshot: {}", e))?;
+        let json: serde_json::Value = serde_json::from_slice(&out.stdout)
+            .map_err(|e| anyhow!("top_snapshot: parse error: {}", e))?;
+        Ok(json_to_value(json))
+    }
+}
+
+/// 967: bi_nohup_run - Run command immune to hangup.
+pub fn bi_nohup_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let command = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("nohup_run: expected command string")),
+    };
+    #[cfg(not(target_os = "windows"))]
+    {
+        let child = Command::new("nohup").arg("sh").arg("-c").arg(&command)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn().map_err(|e| anyhow!("nohup_run: {}", e))?;
+        let mut rec = BTreeMap::new();
+        rec.insert("pid".to_string(), Value::Int(child.id() as i64));
+        rec.insert("command".to_string(), Value::Str(command));
+        rec.insert("status".to_string(), Value::Str("launched".to_string()));
+        Ok(Value::Record(rec))
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let child = Command::new("cmd").args(&["/C", "start", "/B", &command])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn().map_err(|e| anyhow!("nohup_run: {}", e))?;
+        let mut rec = BTreeMap::new();
+        rec.insert("pid".to_string(), Value::Int(child.id() as i64));
+        rec.insert("command".to_string(), Value::Str(command));
+        rec.insert("status".to_string(), Value::Str("launched".to_string()));
+        Ok(Value::Record(rec))
+    }
+}
+
+/// 968: bi_which_cmd - Find command path.
+pub fn bi_which_cmd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("which_cmd: expected command name")),
+    };
+    #[cfg(not(target_os = "windows"))]
+    {
+        let out = Command::new("which").arg(&name).output()
+            .map_err(|e| anyhow!("which_cmd: {}", e))?;
+        if out.status.success() {
+            Ok(Value::Str(String::from_utf8_lossy(&out.stdout).trim().to_string()))
+        } else {
+            Err(anyhow!("which_cmd: '{}' not found", name))
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let out = Command::new("powershell").args(&["-NoProfile", "-Command",
+            &format!("(Get-Command '{}' -ErrorAction SilentlyContinue).Source", name)])
+            .output().map_err(|e| anyhow!("which_cmd: {}", e))?;
+        let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if path.is_empty() {
+            Err(anyhow!("which_cmd: '{}' not found", name))
+        } else {
+            Ok(Value::Str(path))
+        }
+    }
+}
+
+/// 969: bi_file_checksum - File checksum. Args: algorithm, path.
+pub fn bi_file_checksum(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let algo = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("file_checksum: expected algorithm (md5/sha1/sha256)")),
+    };
+    let path = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("file_checksum: expected file path")),
+    };
+    #[cfg(not(target_os = "windows"))]
+    {
+        let cmd_name = match algo.as_str() {
+            "md5" => "md5sum",
+            "sha1" => "sha1sum",
+            "sha256" => "sha256sum",
+            _ => return Err(anyhow!("file_checksum: unsupported algorithm '{}'", algo)),
+        };
+        let out = Command::new(cmd_name).arg(&path).output()
+            .map_err(|e| anyhow!("file_checksum: {}", e))?;
+        let text = String::from_utf8_lossy(&out.stdout);
+        let hash = text.split_whitespace().next().unwrap_or("").to_string();
+        let mut rec = BTreeMap::new();
+        rec.insert("algorithm".to_string(), Value::Str(algo));
+        rec.insert("hash".to_string(), Value::Str(hash));
+        rec.insert("path".to_string(), Value::Str(path));
+        Ok(Value::Record(rec))
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let ps_algo = match algo.as_str() {
+            "md5" => "MD5",
+            "sha1" => "SHA1",
+            "sha256" => "SHA256",
+            _ => return Err(anyhow!("file_checksum: unsupported algorithm '{}'", algo)),
+        };
+        let out = Command::new("powershell").args(&["-NoProfile", "-Command",
+            &format!("(Get-FileHash '{}' -Algorithm {}).Hash", path, ps_algo)])
+            .output().map_err(|e| anyhow!("file_checksum: {}", e))?;
+        let hash = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        let mut rec = BTreeMap::new();
+        rec.insert("algorithm".to_string(), Value::Str(algo));
+        rec.insert("hash".to_string(), Value::Str(hash));
+        rec.insert("path".to_string(), Value::Str(path));
+        Ok(Value::Record(rec))
+    }
+}
+
+/// 970: bi_dd_copy - Disk copy (Linux only).
+pub fn bi_dd_copy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    #[cfg(target_os = "linux")]
+    {
+        let src = match args.first() {
+            Some(Value::Str(s)) => s.clone(),
+            _ => return Err(anyhow!("dd_copy: expected source path (if)")),
+        };
+        let dst = match args.get(1) {
+            Some(Value::Str(s)) => s.clone(),
+            _ => return Err(anyhow!("dd_copy: expected destination path (of)")),
+        };
+        let mut cmd = Command::new("dd");
+        cmd.arg(format!("if={}", src)).arg(format!("of={}", dst));
+        // Optional bs and count from third arg Record
+        if let Some(Value::Record(opts)) = args.get(2) {
+            if let Some(Value::Str(bs)) = opts.get("bs") {
+                cmd.arg(format!("bs={}", bs));
+            }
+            if let Some(Value::Int(count)) = opts.get("count") {
+                cmd.arg(format!("count={}", count));
+            }
+        }
+        let out = cmd.output().map_err(|e| anyhow!("dd_copy: {}", e))?;
+        let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+        let mut rec = BTreeMap::new();
+        rec.insert("success".to_string(), Value::Bool(out.status.success()));
+        rec.insert("output".to_string(), Value::Str(stderr));
+        Ok(Value::Record(rec))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Err(anyhow!("dd_copy: only supported on Linux"))
+    }
+}
+
+/// 971: bi_mkfs - Create filesystem (Linux only).
+pub fn bi_mkfs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    #[cfg(target_os = "linux")]
+    {
+        let fs_type = match args.first() {
+            Some(Value::Str(s)) => s.clone(),
+            _ => return Err(anyhow!("mkfs: expected filesystem type (ext4, xfs, etc)")),
+        };
+        let device = match args.get(1) {
+            Some(Value::Str(s)) => s.clone(),
+            _ => return Err(anyhow!("mkfs: expected device path")),
+        };
+        let out = Command::new("mkfs").args(&["-t", &fs_type, &device]).output()
+            .map_err(|e| anyhow!("mkfs: {}", e))?;
+        let mut rec = BTreeMap::new();
+        rec.insert("success".to_string(), Value::Bool(out.status.success()));
+        rec.insert("output".to_string(), Value::Str(String::from_utf8_lossy(&out.stdout).to_string()));
+        if !out.status.success() {
+            rec.insert("error".to_string(), Value::Str(String::from_utf8_lossy(&out.stderr).to_string()));
+        }
+        Ok(Value::Record(rec))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Err(anyhow!("mkfs: only supported on Linux"))
+    }
+}
+
+/// 972: bi_fdisk_list - Partition table listing.
+pub fn bi_fdisk_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    #[cfg(target_os = "linux")]
+    {
+        let device = match args.first() {
+            Some(Value::Str(s)) => s.clone(),
+            _ => "".to_string(),
+        };
+        let out = if device.is_empty() {
+            Command::new("sfdisk").args(&["-J"]).output()
+                .or_else(|_| Command::new("fdisk").args(&["-l"]).output())
+        } else {
+            Command::new("sfdisk").args(&["-J", &device]).output()
+                .or_else(|_| Command::new("fdisk").args(&["-l", &device]).output())
+        }.map_err(|e| anyhow!("fdisk_list: {}", e))?;
+        if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&out.stdout) {
+            Ok(json_to_value(json))
+        } else {
+            Ok(Value::Str(String::from_utf8_lossy(&out.stdout).to_string()))
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let out = Command::new("powershell").args(&["-NoProfile", "-Command",
+            "Get-Partition | Select-Object DiskNumber,PartitionNumber,Size,Type,DriveLetter | ConvertTo-Json"])
+            .output().map_err(|e| anyhow!("fdisk_list: {}", e))?;
+        let json: serde_json::Value = serde_json::from_slice(&out.stdout)
+            .map_err(|e| anyhow!("fdisk_list: parse error: {}", e))?;
+        Ok(json_to_value(json))
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let out = Command::new("diskutil").arg("list").output()
+            .map_err(|e| anyhow!("fdisk_list: {}", e))?;
+        Ok(Value::Str(String::from_utf8_lossy(&out.stdout).to_string()))
+    }
+}
+
+/// 973: bi_swap_on - Enable swap (Linux only).
+pub fn bi_swap_on(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    #[cfg(target_os = "linux")]
+    {
+        let device = match args.first() {
+            Some(Value::Str(s)) => s.clone(),
+            _ => return Err(anyhow!("swap_on: expected device path")),
+        };
+        let out = Command::new("swapon").arg(&device).output()
+            .map_err(|e| anyhow!("swap_on: {}", e))?;
+        if out.status.success() {
+            Ok(Value::Str(format!("swap enabled: {}", device)))
+        } else {
+            Err(anyhow!("swap_on: {}", String::from_utf8_lossy(&out.stderr)))
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Err(anyhow!("swap_on: only supported on Linux"))
+    }
+}
+
+/// 974: bi_swap_off - Disable swap (Linux only).
+pub fn bi_swap_off(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    #[cfg(target_os = "linux")]
+    {
+        let device = match args.first() {
+            Some(Value::Str(s)) => s.clone(),
+            _ => return Err(anyhow!("swap_off: expected device path")),
+        };
+        let out = Command::new("swapoff").arg(&device).output()
+            .map_err(|e| anyhow!("swap_off: {}", e))?;
+        if out.status.success() {
+            Ok(Value::Str(format!("swap disabled: {}", device)))
+        } else {
+            Err(anyhow!("swap_off: {}", String::from_utf8_lossy(&out.stderr)))
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Err(anyhow!("swap_off: only supported on Linux"))
+    }
+}
+
+/// 975: bi_mount_info - Detailed mount info.
+pub fn bi_mount_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    #[cfg(target_os = "linux")]
+    {
+        let out = Command::new("findmnt").args(&["-J"]).output()
+            .map_err(|e| anyhow!("mount_info: {}", e))?;
+        let json: serde_json::Value = serde_json::from_slice(&out.stdout)
+            .map_err(|e| anyhow!("mount_info: parse error: {}", e))?;
+        Ok(json_to_value(json))
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let out = Command::new("mount").output()
+            .map_err(|e| anyhow!("mount_info: {}", e))?;
+        let text = String::from_utf8_lossy(&out.stdout);
+        let entries: Vec<Value> = text.lines().filter_map(|line| {
+            // Format: /dev/disk1s1 on / (apfs, local, journaled)
+            let parts: Vec<&str> = line.splitn(4, ' ').collect();
+            if parts.len() >= 4 {
+                let mut rec = BTreeMap::new();
+                rec.insert("device".to_string(), Value::Str(parts[0].to_string()));
+                rec.insert("mountpoint".to_string(), Value::Str(parts[2].to_string()));
+                rec.insert("options".to_string(), Value::Str(parts[3].trim_matches(|c| c == '(' || c == ')').to_string()));
+                Some(Value::Record(rec))
+            } else {
+                None
+            }
+        }).collect();
+        Ok(Value::Array(entries))
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let out = Command::new("powershell").args(&["-NoProfile", "-Command",
+            "Get-Volume | Select-Object DriveLetter,FileSystemLabel,FileSystem,SizeRemaining,Size | ConvertTo-Json"])
+            .output().map_err(|e| anyhow!("mount_info: {}", e))?;
+        let json: serde_json::Value = serde_json::from_slice(&out.stdout)
+            .map_err(|e| anyhow!("mount_info: parse error: {}", e))?;
+        Ok(json_to_value(json))
+    }
+}
+
+/// 976: bi_chroot - Change root (Linux only).
+pub fn bi_chroot(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    #[cfg(target_os = "linux")]
+    {
+        let dir = match args.first() {
+            Some(Value::Str(s)) => s.clone(),
+            _ => return Err(anyhow!("chroot: expected directory path")),
+        };
+        let cmd = match args.get(1) {
+            Some(Value::Str(s)) => s.clone(),
+            _ => "/bin/sh".to_string(),
+        };
+        let out = Command::new("chroot").arg(&dir).arg(&cmd).output()
+            .map_err(|e| anyhow!("chroot: {}", e))?;
+        let mut rec = BTreeMap::new();
+        rec.insert("success".to_string(), Value::Bool(out.status.success()));
+        rec.insert("stdout".to_string(), Value::Str(String::from_utf8_lossy(&out.stdout).to_string()));
+        rec.insert("stderr".to_string(), Value::Str(String::from_utf8_lossy(&out.stderr).to_string()));
+        Ok(Value::Record(rec))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Err(anyhow!("chroot: only supported on Linux"))
+    }
+}
+
+/// 977: bi_ulimit_info - Resource limits (Unix only).
+pub fn bi_ulimit_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    #[cfg(not(target_os = "windows"))]
+    {
+        let out = Command::new("sh").args(&["-c", "ulimit -a"]).output()
+            .map_err(|e| anyhow!("ulimit_info: {}", e))?;
+        let text = String::from_utf8_lossy(&out.stdout);
+        let mut rec = BTreeMap::new();
+        for line in text.lines() {
+            // Format: "core file size          (blocks, -c) 0"
+            if let Some(paren_pos) = line.rfind(')') {
+                let key_part = line[..line.find('(').unwrap_or(0)].trim();
+                let value_part = line[paren_pos + 1..].trim();
+                let key = key_part.to_lowercase().replace(' ', "_");
+                if !key.is_empty() {
+                    if value_part == "unlimited" {
+                        rec.insert(key, Value::Str("unlimited".to_string()));
+                    } else {
+                        rec.insert(key, Value::Int(value_part.parse().unwrap_or(-1)));
+                    }
+                }
+            }
+        }
+        Ok(Value::Record(rec))
+    }
+    #[cfg(target_os = "windows")]
+    {
+        Err(anyhow!("ulimit_info: not applicable on Windows"))
+    }
+}
+
+/// 978: bi_sysctl_get - Kernel parameters.
+pub fn bi_sysctl_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
+        let key = match args.first() {
+            Some(Value::Str(s)) => s.clone(),
+            _ => "".to_string(),
+        };
+        let out = if key.is_empty() {
+            Command::new("sysctl").arg("-a").output()
+        } else {
+            Command::new("sysctl").arg(&key).output()
+        }.map_err(|e| anyhow!("sysctl_get: {}", e))?;
+        let text = String::from_utf8_lossy(&out.stdout);
+        if !key.is_empty() {
+            // Single value: "key = value" or "key: value"
+            let val = text.splitn(2, |c| c == '=' || c == ':')
+                .nth(1).unwrap_or("").trim().to_string();
+            Ok(Value::Str(val))
+        } else {
+            let mut rec = BTreeMap::new();
+            for line in text.lines().take(200) {
+                if let Some((k, v)) = line.split_once('=').or_else(|| line.split_once(':')) {
+                    rec.insert(k.trim().to_string(), Value::Str(v.trim().to_string()));
+                }
+            }
+            Ok(Value::Record(rec))
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        // On Windows, read a registry key as a rough equivalent
+        let key = match args.first() {
+            Some(Value::Str(s)) => s.clone(),
+            _ => return Err(anyhow!("sysctl_get: expected registry key path on Windows")),
+        };
+        let out = Command::new("powershell").args(&["-NoProfile", "-Command",
+            &format!("Get-ItemProperty '{}' | ConvertTo-Json", key)])
+            .output().map_err(|e| anyhow!("sysctl_get: {}", e))?;
+        if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&out.stdout) {
+            Ok(json_to_value(json))
+        } else {
+            Ok(Value::Str(String::from_utf8_lossy(&out.stdout).trim().to_string()))
+        }
+    }
+}
+
+/// 979: bi_modprobe - Kernel module management (Linux only).
+pub fn bi_modprobe(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    #[cfg(target_os = "linux")]
+    {
+        let module = match args.first() {
+            Some(Value::Str(s)) => s.clone(),
+            _ => {
+                // No arg: list loaded modules via lsmod
+                let out = Command::new("lsmod").output()
+                    .map_err(|e| anyhow!("modprobe: {}", e))?;
+                let text = String::from_utf8_lossy(&out.stdout);
+                let lines: Vec<&str> = text.lines().collect();
+                let entries: Vec<Value> = lines[1..].iter().map(|line| {
+                    let cols: Vec<&str> = line.split_whitespace().collect();
+                    let mut rec = BTreeMap::new();
+                    if cols.len() >= 3 {
+                        rec.insert("module".to_string(), Value::Str(cols[0].to_string()));
+                        rec.insert("size".to_string(), Value::Int(cols[1].parse().unwrap_or(0)));
+                        rec.insert("used_by".to_string(), Value::Int(cols[2].parse().unwrap_or(0)));
+                    }
+                    Value::Record(rec)
+                }).collect();
+                return Ok(Value::Array(entries));
+            }
+        };
+        let out = Command::new("modprobe").arg(&module).output()
+            .map_err(|e| anyhow!("modprobe: {}", e))?;
+        if out.status.success() {
+            Ok(Value::Str(format!("module loaded: {}", module)))
+        } else {
+            Err(anyhow!("modprobe: {}", String::from_utf8_lossy(&out.stderr)))
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Err(anyhow!("modprobe: only supported on Linux"))
+    }
+}
+
+// ============================================================================
+// Remote Access Builtins (980-994)
+// SSH, SCP, Rsync, SFTP, RDP, VNC, Telnet, Curl
+// ============================================================================
+
+// [removed duplicate] use std::collections::BTreeMap;
+// [removed duplicate] use std::process::Command;
+// [removed duplicate] use anyhow::{anyhow, Result};
+// [removed duplicate] use crate::value::Value;
+
+// 980: bi_ssh_exec - Execute command on remote host via SSH
+pub fn bi_ssh_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let host = match args.get(0) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("ssh_exec: first argument must be host string (user@host)")),
+    };
+    let command = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("ssh_exec: second argument must be command string")),
+    };
+    let port = match args.get(2) {
+        Some(Value::Int(p)) => Some(*p),
+        _ => None,
+    };
+    let mut cmd = Command::new("ssh");
+    if let Some(p) = port {
+        cmd.arg("-p").arg(p.to_string());
+    }
+    cmd.arg(&host).arg(&command);
+    let output = cmd.output().map_err(|e| anyhow!("ssh_exec: failed to run ssh: {}", e))?;
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let mut map = BTreeMap::new();
+    map.insert("stdout".to_string(), Value::Str(stdout));
+    map.insert("stderr".to_string(), Value::Str(stderr));
+    map.insert("exit_code".to_string(), Value::Int(output.status.code().unwrap_or(-1) as i64));
+    map.insert("success".to_string(), Value::Bool(output.status.success()));
+    Ok(Value::Record(map))
+}
+
+// 981: bi_ssh_tunnel - Create SSH tunnel
+pub fn bi_ssh_tunnel(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let local_port = match args.get(0) {
+        Some(Value::Int(p)) => *p,
+        _ => return Err(anyhow!("ssh_tunnel: first argument must be local_port (Int)")),
+    };
+    let remote_host = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("ssh_tunnel: second argument must be remote_host string")),
+    };
+    let remote_port = match args.get(2) {
+        Some(Value::Int(p)) => *p,
+        _ => return Err(anyhow!("ssh_tunnel: third argument must be remote_port (Int)")),
+    };
+    let ssh_host = match args.get(3) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("ssh_tunnel: fourth argument must be ssh_host string")),
+    };
+    let tunnel_spec = format!("{}:{}:{}", local_port, remote_host, remote_port);
+    let output = Command::new("ssh")
+        .args(&["-f", "-N", "-L", &tunnel_spec, &ssh_host])
+        .output()
+        .map_err(|e| anyhow!("ssh_tunnel: failed to create tunnel: {}", e))?;
+    let mut map = BTreeMap::new();
+    map.insert("success".to_string(), Value::Bool(output.status.success()));
+    map.insert("local_port".to_string(), Value::Int(local_port));
+    map.insert("remote_host".to_string(), Value::Str(remote_host));
+    map.insert("remote_port".to_string(), Value::Int(remote_port));
+    map.insert("ssh_host".to_string(), Value::Str(ssh_host));
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        map.insert("error".to_string(), Value::Str(stderr));
+    }
+    Ok(Value::Record(map))
+}
+
+// 982: bi_ssh_keygen - Generate SSH key pair
+pub fn bi_ssh_keygen(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let key_type = match args.get(0) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => "ed25519".to_string(),
+    };
+    let filename = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => {
+            let home = std::env::var("HOME")
+                .or_else(|_| std::env::var("USERPROFILE"))
+                .unwrap_or_else(|_| ".".to_string());
+            format!("{}/.ssh/id_{}", home, key_type)
+        }
+    };
+    let output = Command::new("ssh-keygen")
+        .args(&["-t", &key_type, "-f", &filename, "-N", ""])
+        .output()
+        .map_err(|e| anyhow!("ssh_keygen: failed to run ssh-keygen: {}", e))?;
+    let mut map = BTreeMap::new();
+    map.insert("success".to_string(), Value::Bool(output.status.success()));
+    map.insert("type".to_string(), Value::Str(key_type));
+    map.insert("private_key".to_string(), Value::Str(filename.clone()));
+    map.insert("public_key".to_string(), Value::Str(format!("{}.pub", filename)));
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        map.insert("error".to_string(), Value::Str(stderr));
+    } else {
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        map.insert("output".to_string(), Value::Str(stdout));
+    }
+    Ok(Value::Record(map))
+}
+
+// 983: bi_ssh_copy_id - Copy SSH key to remote host
+pub fn bi_ssh_copy_id(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let host = match args.get(0) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("ssh_copy_id: first argument must be host string (user@host)")),
+    };
+    let key_file = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => {
+            let home = std::env::var("HOME")
+                .or_else(|_| std::env::var("USERPROFILE"))
+                .unwrap_or_else(|_| ".".to_string());
+            format!("{}/.ssh/id_ed25519.pub", home)
+        }
+    };
+    // On Windows, ssh-copy-id may not exist; use manual approach
+    if cfg!(target_os = "windows") {
+        let key_content = std::fs::read_to_string(&key_file)
+            .map_err(|e| anyhow!("ssh_copy_id: cannot read key file {}: {}", key_file, e))?;
+        let remote_cmd = format!(
+            "mkdir -p ~/.ssh && echo '{}' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys",
+            key_content.trim()
+        );
+        let output = Command::new("ssh")
+            .arg(&host)
+            .arg(&remote_cmd)
+            .output()
+            .map_err(|e| anyhow!("ssh_copy_id: failed: {}", e))?;
+        let mut map = BTreeMap::new();
+        map.insert("success".to_string(), Value::Bool(output.status.success()));
+        map.insert("method".to_string(), Value::Str("manual".to_string()));
+        map.insert("host".to_string(), Value::Str(host));
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            map.insert("error".to_string(), Value::Str(stderr));
+        }
+        Ok(Value::Record(map))
+    } else {
+        let output = Command::new("ssh-copy-id")
+            .args(&["-i", &key_file, &host])
+            .output()
+            .map_err(|e| anyhow!("ssh_copy_id: failed to run ssh-copy-id: {}", e))?;
+        let mut map = BTreeMap::new();
+        map.insert("success".to_string(), Value::Bool(output.status.success()));
+        map.insert("method".to_string(), Value::Str("ssh-copy-id".to_string()));
+        map.insert("host".to_string(), Value::Str(host));
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            map.insert("error".to_string(), Value::Str(stderr));
+        }
+        Ok(Value::Record(map))
+    }
+}
+
+// 984: bi_ssh_config - Read and parse SSH config file
+pub fn bi_ssh_config(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let config_path = match args.get(0) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => {
+            let home = std::env::var("HOME")
+                .or_else(|_| std::env::var("USERPROFILE"))
+                .unwrap_or_else(|_| ".".to_string());
+            format!("{}/.ssh/config", home)
+        }
+    };
+    let content = std::fs::read_to_string(&config_path)
+        .map_err(|e| anyhow!("ssh_config: cannot read {}: {}", config_path, e))?;
+    let mut hosts: Vec<Value> = Vec::new();
+    let mut current: Option<BTreeMap<String, Value>> = None;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let parts: Vec<&str> = trimmed.splitn(2, char::is_whitespace).collect();
+        if parts.len() < 2 {
+            continue;
+        }
+        let key = parts[0].to_lowercase();
+        let val = parts[1].trim().to_string();
+        if key == "host" {
+            if let Some(entry) = current.take() {
+                hosts.push(Value::Record(entry));
+            }
+            let mut entry = BTreeMap::new();
+            entry.insert("Host".to_string(), Value::Str(val));
+            current = Some(entry);
+        } else if let Some(ref mut entry) = current {
+            match key.as_str() {
+                "hostname" => { entry.insert("HostName".to_string(), Value::Str(val)); }
+                "user" => { entry.insert("User".to_string(), Value::Str(val)); }
+                "port" => {
+                    let port = val.parse::<i64>().unwrap_or(22);
+                    entry.insert("Port".to_string(), Value::Int(port));
+                }
+                "identityfile" => { entry.insert("IdentityFile".to_string(), Value::Str(val)); }
+                other => { entry.insert(other.to_string(), Value::Str(val)); }
+            }
+        }
+    }
+    if let Some(entry) = current {
+        hosts.push(Value::Record(entry));
+    }
+    Ok(Value::Array(hosts))
+}
+
+// 985: bi_scp_upload - SCP upload file to remote
+pub fn bi_scp_upload(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let local_path = match args.get(0) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("scp_upload: first argument must be local_path string")),
+    };
+    let remote = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("scp_upload: second argument must be remote string (user@host:path)")),
+    };
+    let port = match args.get(2) {
+        Some(Value::Int(p)) => Some(*p),
+        _ => None,
+    };
+    let mut cmd = Command::new("scp");
+    if let Some(p) = port {
+        cmd.arg("-P").arg(p.to_string());
+    }
+    cmd.arg(&local_path).arg(&remote);
+    let output = cmd.output().map_err(|e| anyhow!("scp_upload: failed: {}", e))?;
+    let mut map = BTreeMap::new();
+    map.insert("success".to_string(), Value::Bool(output.status.success()));
+    map.insert("local_path".to_string(), Value::Str(local_path));
+    map.insert("remote".to_string(), Value::Str(remote));
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        map.insert("error".to_string(), Value::Str(stderr));
+    }
+    Ok(Value::Record(map))
+}
+
+// 986: bi_scp_download - SCP download file from remote
+pub fn bi_scp_download(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let remote = match args.get(0) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("scp_download: first argument must be remote string (user@host:path)")),
+    };
+    let local_path = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("scp_download: second argument must be local_path string")),
+    };
+    let port = match args.get(2) {
+        Some(Value::Int(p)) => Some(*p),
+        _ => None,
+    };
+    let mut cmd = Command::new("scp");
+    if let Some(p) = port {
+        cmd.arg("-P").arg(p.to_string());
+    }
+    cmd.arg(&remote).arg(&local_path);
+    let output = cmd.output().map_err(|e| anyhow!("scp_download: failed: {}", e))?;
+    let mut map = BTreeMap::new();
+    map.insert("success".to_string(), Value::Bool(output.status.success()));
+    map.insert("remote".to_string(), Value::Str(remote));
+    map.insert("local_path".to_string(), Value::Str(local_path));
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        map.insert("error".to_string(), Value::Str(stderr));
+    }
+    Ok(Value::Record(map))
+}
+
+// 987: bi_rsync_sync - Rsync synchronization
+pub fn bi_rsync_sync(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let source = match args.get(0) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("rsync_sync: first argument must be source string")),
+    };
+    let destination = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("rsync_sync: second argument must be destination string")),
+    };
+    let flags = args.get(2);
+    let mut cmd = Command::new("rsync");
+    if let Some(Value::Record(opts)) = flags {
+        if matches!(opts.get("archive"), Some(Value::Bool(true))) {
+            cmd.arg("-a");
+        }
+        if matches!(opts.get("compress"), Some(Value::Bool(true))) {
+            cmd.arg("-z");
+        }
+        if matches!(opts.get("delete"), Some(Value::Bool(true))) {
+            cmd.arg("--delete");
+        }
+        if matches!(opts.get("verbose"), Some(Value::Bool(true))) {
+            cmd.arg("-v");
+        }
+        if matches!(opts.get("progress"), Some(Value::Bool(true))) {
+            cmd.arg("--progress");
+        }
+        if let Some(Value::Str(exclude)) = opts.get("exclude") {
+            cmd.arg("--exclude").arg(exclude);
+        }
+    } else {
+        // Default: archive mode with compression
+        cmd.arg("-az");
+    }
+    cmd.arg(&source).arg(&destination);
+    let output = cmd.output().map_err(|e| anyhow!("rsync_sync: failed: {}", e))?;
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let mut map = BTreeMap::new();
+    map.insert("success".to_string(), Value::Bool(output.status.success()));
+    map.insert("source".to_string(), Value::Str(source));
+    map.insert("destination".to_string(), Value::Str(destination));
+    map.insert("stdout".to_string(), Value::Str(stdout));
+    if !output.status.success() {
+        map.insert("error".to_string(), Value::Str(stderr));
+    }
+    Ok(Value::Record(map))
+}
+
+// 988: bi_sftp_list - SFTP list remote directory
+pub fn bi_sftp_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let host = match args.get(0) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("sftp_list: first argument must be host string (user@host)")),
+    };
+    let remote_path = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => ".".to_string(),
+    };
+    let sftp_cmd = format!("ls -la {}", remote_path);
+    let output = Command::new("sftp")
+        .arg("-b")
+        .arg("-")
+        .arg(&host)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            if let Some(ref mut stdin) = child.stdin {
+                stdin.write_all(sftp_cmd.as_bytes())?;
+                stdin.write_all(b"\nbye\n")?;
+            }
+            child.wait_with_output()
+        })
+        .map_err(|e| anyhow!("sftp_list: failed: {}", e))?;
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let entries: Vec<Value> = stdout
+        .lines()
+        .filter(|l| !l.trim().is_empty() && !l.starts_with("sftp>"))
+        .map(|l| Value::Str(l.trim().to_string()))
+        .collect();
+    let mut map = BTreeMap::new();
+    map.insert("success".to_string(), Value::Bool(output.status.success()));
+    map.insert("host".to_string(), Value::Str(host));
+    map.insert("path".to_string(), Value::Str(remote_path));
+    map.insert("entries".to_string(), Value::Array(entries));
+    Ok(Value::Record(map))
+}
+
+// 989: bi_sftp_get - SFTP download file
+pub fn bi_sftp_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let host = match args.get(0) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("sftp_get: first argument must be host string (user@host)")),
+    };
+    let remote_path = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("sftp_get: second argument must be remote_path string")),
+    };
+    let local_path = match args.get(2) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("sftp_get: third argument must be local_path string")),
+    };
+    let sftp_cmd = format!("get {} {}", remote_path, local_path);
+    let output = Command::new("sftp")
+        .arg("-b")
+        .arg("-")
+        .arg(&host)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            if let Some(ref mut stdin) = child.stdin {
+                stdin.write_all(sftp_cmd.as_bytes())?;
+                stdin.write_all(b"\nbye\n")?;
+            }
+            child.wait_with_output()
+        })
+        .map_err(|e| anyhow!("sftp_get: failed: {}", e))?;
+    let mut map = BTreeMap::new();
+    map.insert("success".to_string(), Value::Bool(output.status.success()));
+    map.insert("host".to_string(), Value::Str(host));
+    map.insert("remote_path".to_string(), Value::Str(remote_path));
+    map.insert("local_path".to_string(), Value::Str(local_path));
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        map.insert("error".to_string(), Value::Str(stderr));
+    }
+    Ok(Value::Record(map))
+}
+
+// 990: bi_sftp_put - SFTP upload file
+pub fn bi_sftp_put(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let host = match args.get(0) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("sftp_put: first argument must be host string (user@host)")),
+    };
+    let local_path = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("sftp_put: second argument must be local_path string")),
+    };
+    let remote_path = match args.get(2) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("sftp_put: third argument must be remote_path string")),
+    };
+    let sftp_cmd = format!("put {} {}", local_path, remote_path);
+    let output = Command::new("sftp")
+        .arg("-b")
+        .arg("-")
+        .arg(&host)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            if let Some(ref mut stdin) = child.stdin {
+                stdin.write_all(sftp_cmd.as_bytes())?;
+                stdin.write_all(b"\nbye\n")?;
+            }
+            child.wait_with_output()
+        })
+        .map_err(|e| anyhow!("sftp_put: failed: {}", e))?;
+    let mut map = BTreeMap::new();
+    map.insert("success".to_string(), Value::Bool(output.status.success()));
+    map.insert("host".to_string(), Value::Str(host));
+    map.insert("local_path".to_string(), Value::Str(local_path));
+    map.insert("remote_path".to_string(), Value::Str(remote_path));
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        map.insert("error".to_string(), Value::Str(stderr));
+    }
+    Ok(Value::Record(map))
+}
+
+// 991: bi_rdp_connect - RDP connection info/launch
+pub fn bi_rdp_connect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let host = match args.get(0) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("rdp_connect: first argument must be host string")),
+    };
+    let username = match args.get(1) {
+        Some(Value::Str(s)) => Some(s.clone()),
+        _ => None,
+    };
+    let mut map = BTreeMap::new();
+    map.insert("host".to_string(), Value::Str(host.clone()));
+    map.insert("protocol".to_string(), Value::Str("rdp".to_string()));
+    if let Some(ref user) = username {
+        map.insert("username".to_string(), Value::Str(user.clone()));
+    }
+    if cfg!(target_os = "windows") {
+        let mut cmd = Command::new("mstsc");
+        cmd.arg(format!("/v:{}", host));
+        let result = cmd.spawn();
+        match result {
+            Ok(_) => {
+                map.insert("success".to_string(), Value::Bool(true));
+                map.insert("method".to_string(), Value::Str("mstsc".to_string()));
+                map.insert("command".to_string(), Value::Str(format!("mstsc /v:{}", host)));
+            }
+            Err(e) => {
+                map.insert("success".to_string(), Value::Bool(false));
+                map.insert("error".to_string(), Value::Str(e.to_string()));
+            }
+        }
+    } else if cfg!(target_os = "linux") {
+        let mut cmd_str = format!("xfreerdp /v:{}", host);
+        if let Some(ref user) = username {
+            cmd_str.push_str(&format!(" /u:{}", user));
+        }
+        map.insert("success".to_string(), Value::Bool(true));
+        map.insert("method".to_string(), Value::Str("xfreerdp".to_string()));
+        map.insert("command".to_string(), Value::Str(cmd_str));
+    } else if cfg!(target_os = "macos") {
+        map.insert("success".to_string(), Value::Bool(true));
+        map.insert("method".to_string(), Value::Str("open".to_string()));
+        map.insert("command".to_string(), Value::Str(format!("open rdp://full%20address=s:{}:3389", host)));
+    } else {
+        map.insert("success".to_string(), Value::Bool(false));
+        map.insert("error".to_string(), Value::Str("unsupported platform".to_string()));
+    }
+    Ok(Value::Record(map))
+}
+
+// 992: bi_vnc_connect - VNC connection info
+pub fn bi_vnc_connect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let host = match args.get(0) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("vnc_connect: first argument must be host string")),
+    };
+    let port = match args.get(1) {
+        Some(Value::Int(p)) => *p,
+        _ => 5900,
+    };
+    let mut map = BTreeMap::new();
+    map.insert("host".to_string(), Value::Str(host.clone()));
+    map.insert("port".to_string(), Value::Int(port));
+    map.insert("protocol".to_string(), Value::Str("vnc".to_string()));
+    if cfg!(target_os = "windows") {
+        map.insert("command".to_string(), Value::Str(format!("vncviewer {}:{}", host, port)));
+        map.insert("method".to_string(), Value::Str("vncviewer".to_string()));
+    } else if cfg!(target_os = "macos") {
+        map.insert("command".to_string(), Value::Str(format!("open vnc://{}:{}", host, port)));
+        map.insert("method".to_string(), Value::Str("open".to_string()));
+    } else {
+        map.insert("command".to_string(), Value::Str(format!("vncviewer {}:{}", host, port)));
+        map.insert("method".to_string(), Value::Str("vncviewer".to_string()));
+    }
+    map.insert("success".to_string(), Value::Bool(true));
+    Ok(Value::Record(map))
+}
+
+// 993: bi_telnet_connect - Telnet connection info
+pub fn bi_telnet_connect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let host = match args.get(0) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("telnet_connect: first argument must be host string")),
+    };
+    let port = match args.get(1) {
+        Some(Value::Int(p)) => *p,
+        _ => 23,
+    };
+    let mut map = BTreeMap::new();
+    map.insert("host".to_string(), Value::Str(host.clone()));
+    map.insert("port".to_string(), Value::Int(port));
+    map.insert("protocol".to_string(), Value::Str("telnet".to_string()));
+    map.insert("command".to_string(), Value::Str(format!("telnet {} {}", host, port)));
+    map.insert("warning".to_string(), Value::Str("Telnet is unencrypted. Use SSH when possible.".to_string()));
+    // Attempt to check if telnet is available
+    let check = Command::new("telnet")
+        .arg("--help")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+    map.insert("available".to_string(), Value::Bool(check.is_ok()));
+    map.insert("success".to_string(), Value::Bool(true));
+    Ok(Value::Record(map))
+}
+
+// 994: bi_curl_exec - Execute curl command
+pub fn bi_curl_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let url = match args.get(0) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("curl_exec: first argument must be url string")),
+    };
+    let method = match args.get(1) {
+        Some(Value::Str(s)) => s.to_uppercase(),
+        _ => "GET".to_string(),
+    };
+    let data = match args.get(2) {
+        Some(Value::Str(s)) => Some(s.clone()),
+        _ => None,
+    };
+    let headers = match args.get(3) {
+        Some(Value::Record(h)) => Some(h.clone()),
+        _ => None,
+    };
+    let mut cmd = Command::new("curl");
+    cmd.arg("-s"); // silent mode
+    cmd.arg("-w").arg("\n%{http_code}"); // append status code
+    cmd.arg("-X").arg(&method);
+    if let Some(ref hdrs) = headers {
+        for (key, val) in hdrs {
+            if let Value::Str(v) = val {
+                cmd.arg("-H").arg(format!("{}: {}", key, v));
+            }
+        }
+    }
+    if let Some(ref body) = data {
+        cmd.arg("-d").arg(body);
+    }
+    cmd.arg(&url);
+    let output = cmd.output().map_err(|e| anyhow!("curl_exec: failed to run curl: {}", e))?;
+    let raw_stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    // Parse status code from the last line
+    let (body, status_code) = if let Some(last_newline) = raw_stdout.rfind('\n') {
+        let body = raw_stdout[..last_newline].to_string();
+        let code_str = raw_stdout[last_newline + 1..].trim();
+        let code = code_str.parse::<i64>().unwrap_or(0);
+        (body, code)
+    } else {
+        (raw_stdout, 0)
+    };
+    let mut map = BTreeMap::new();
+    map.insert("success".to_string(), Value::Bool(output.status.success()));
+    map.insert("url".to_string(), Value::Str(url));
+    map.insert("method".to_string(), Value::Str(method));
+    map.insert("status_code".to_string(), Value::Int(status_code));
+    map.insert("body".to_string(), Value::Str(body));
+    if !stderr.is_empty() {
+        map.insert("stderr".to_string(), Value::Str(stderr));
+    }
+    map.insert("exit_code".to_string(), Value::Int(output.status.code().unwrap_or(-1) as i64));
+    Ok(Value::Record(map))
+}
+
+// ============================================================================
+// Security & Firewall Builtins (995-1014)
+// Firewall, SELinux, AppArmor, auditd, fail2ban, OpenSSL, GPG
+// ============================================================================
+
+// [removed duplicate] use std::collections::BTreeMap;
+// [removed duplicate] use std::process::Command;
+// [removed duplicate] use anyhow::{anyhow, Result};
+
+// Assuming Value is defined in the crate root or a value module
+// [removed duplicate] use crate::value::Value;
+
+// ---------------------------------------------------------------------------
+// Helper: run a command, return stdout or error
+// ---------------------------------------------------------------------------
+fn sec_run_cmd(program: &str, args: &[&str]) -> Result<String> {
+    let output = Command::new(program)
+        .args(args)
+        .output()
+        .map_err(|e| anyhow!("failed to run `{}`: {}", program, e))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(anyhow!("`{} {}` failed: {}", program, args.join(" "), stderr.trim()));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+fn sec_run_cmd_ok(program: &str, args: &[&str]) -> Option<String> {
+    sec_run_cmd(program, args).ok()
+}
+
+fn cmd_exists(program: &str) -> bool {
+    Command::new(program).arg("--version").output().is_ok()
+        || Command::new("which")
+            .arg(program)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+}
+
+fn rec(pairs: Vec<(&str, Value)>) -> Value {
+    let mut m = BTreeMap::new();
+    for (k, v) in pairs {
+        m.insert(k.to_string(), v);
+    }
+    Value::Record(m)
+}
+
+fn s(v: &str) -> Value {
+    Value::Str(v.to_string())
+}
+
+// ============================================================================
+// 995: bi_firewall_status
+// ============================================================================
+pub fn bi_firewall_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let _ = &args;
+
+    #[cfg(target_os = "windows")]
+    {
+        let out = sec_run_cmd("powershell", &[
+            "-NoProfile", "-Command",
+            "Get-NetFirewallProfile | Select-Object Name,Enabled | ConvertTo-Json",
+        ])?;
+        Ok(rec(vec![
+            ("platform", s("windows")),
+            ("tool", s("NetFirewallProfile")),
+            ("raw", s(out.trim())),
+        ]))
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let out = sec_run_cmd("pfctl", &["-s", "info"])?;
+        Ok(rec(vec![
+            ("platform", s("macos")),
+            ("tool", s("pfctl")),
+            ("raw", s(out.trim())),
+        ]))
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        if let Some(out) = sec_run_cmd_ok("ufw", &["status"]) {
+            return Ok(rec(vec![
+                ("platform", s("linux")),
+                ("tool", s("ufw")),
+                ("raw", s(out.trim())),
+            ]));
+        }
+        if let Some(out) = sec_run_cmd_ok("firewall-cmd", &["--state"]) {
+            return Ok(rec(vec![
+                ("platform", s("linux")),
+                ("tool", s("firewalld")),
+                ("raw", s(out.trim())),
+            ]));
+        }
+        if let Some(out) = sec_run_cmd_ok("iptables", &["-L", "-n"]) {
+            return Ok(rec(vec![
+                ("platform", s("linux")),
+                ("tool", s("iptables")),
+                ("raw", s(out.trim())),
+            ]));
+        }
+        Err(anyhow!("no supported firewall tool found (tried ufw, firewalld, iptables)"))
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    {
+        Err(anyhow!("firewall_status is not supported on this platform"))
+    }
+}
+
+// ============================================================================
+// 996: bi_firewall_rules
+// ============================================================================
+pub fn bi_firewall_rules(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let _ = &args;
+
+    #[cfg(target_os = "windows")]
+    {
+        let out = sec_run_cmd("powershell", &[
+            "-NoProfile", "-Command",
+            "Get-NetFirewallRule | Select-Object Name,DisplayName,Direction,Action,Enabled | ConvertTo-Json",
+        ])?;
+        // Return raw JSON as string; caller can json.parse it
+        Ok(rec(vec![
+            ("platform", s("windows")),
+            ("tool", s("Get-NetFirewallRule")),
+            ("raw", s(out.trim())),
+        ]))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        // Try ufw first
+        if let Some(out) = sec_run_cmd_ok("ufw", &["status", "numbered"]) {
+            let rules: Vec<Value> = out
+                .lines()
+                .filter(|l| l.starts_with('['))
+                .map(|l| s(l.trim()))
+                .collect();
+            return Ok(rec(vec![
+                ("platform", s("linux")),
+                ("tool", s("ufw")),
+                ("rules", Value::Array(rules)),
+            ]));
+        }
+        // Fallback: iptables
+        if let Some(out) = sec_run_cmd_ok("iptables", &["-L", "-n", "--line-numbers"]) {
+            let rules: Vec<Value> = out
+                .lines()
+                .filter(|l| {
+                    !l.is_empty()
+                        && !l.starts_with("Chain")
+                        && !l.starts_with("num")
+                        && !l.starts_with("target")
+                })
+                .map(|l| s(l.trim()))
+                .collect();
+            return Ok(rec(vec![
+                ("platform", s("linux")),
+                ("tool", s("iptables")),
+                ("rules", Value::Array(rules)),
+            ]));
+        }
+        Err(anyhow!("no supported firewall tool found for listing rules"))
+    }
+}
+
+// ============================================================================
+// 997: bi_firewall_allow
+// ============================================================================
+pub fn bi_firewall_allow(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if args.is_empty() {
+        return Err(anyhow!("firewall_allow requires a port argument (e.g. 80 or \"80/tcp\")"));
+    }
+    let port_str = match &args[0] {
+        Value::Int(n) => n.to_string(),
+        Value::Str(s) => s.clone(),
+        other => return Err(anyhow!("firewall_allow: expected Int or String port, got {:?}", other)),
+    };
+
+    #[cfg(target_os = "windows")]
+    {
+        let name = format!("AetherAllow_{}", port_str);
+        let port_only = port_str.split('/').next().unwrap_or(&port_str);
+        let out = sec_run_cmd("powershell", &[
+            "-NoProfile", "-Command",
+            &format!(
+                "New-NetFirewallRule -DisplayName '{}' -Direction Inbound -LocalPort {} -Protocol TCP -Action Allow | Select-Object Name,DisplayName | ConvertTo-Json",
+                name, port_only
+            ),
+        ])?;
+        Ok(rec(vec![
+            ("action", s("allow")),
+            ("port", s(&port_str)),
+            ("tool", s("New-NetFirewallRule")),
+            ("raw", s(out.trim())),
+        ]))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        if cmd_exists("ufw") {
+            let out = sec_run_cmd("ufw", &["allow", &port_str])?;
+            return Ok(rec(vec![
+                ("action", s("allow")),
+                ("port", s(&port_str)),
+                ("tool", s("ufw")),
+                ("raw", s(out.trim())),
+            ]));
+        }
+        // iptables fallback
+        let port_only = port_str.split('/').next().unwrap_or(&port_str);
+        let proto = if port_str.contains('/') {
+            port_str.split('/').nth(1).unwrap_or("tcp")
+        } else {
+            "tcp"
+        };
+        let out = sec_run_cmd("iptables", &[
+            "-A", "INPUT", "-p", proto, "--dport", port_only, "-j", "ACCEPT",
+        ])?;
+        Ok(rec(vec![
+            ("action", s("allow")),
+            ("port", s(&port_str)),
+            ("tool", s("iptables")),
+            ("raw", s(out.trim())),
+        ]))
+    }
+}
+
+// ============================================================================
+// 998: bi_firewall_deny
+// ============================================================================
+pub fn bi_firewall_deny(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if args.is_empty() {
+        return Err(anyhow!("firewall_deny requires a port argument (e.g. 80 or \"80/tcp\")"));
+    }
+    let port_str = match &args[0] {
+        Value::Int(n) => n.to_string(),
+        Value::Str(s) => s.clone(),
+        other => return Err(anyhow!("firewall_deny: expected Int or String port, got {:?}", other)),
+    };
+
+    #[cfg(target_os = "windows")]
+    {
+        let name = format!("AetherDeny_{}", port_str);
+        let port_only = port_str.split('/').next().unwrap_or(&port_str);
+        let out = sec_run_cmd("powershell", &[
+            "-NoProfile", "-Command",
+            &format!(
+                "New-NetFirewallRule -DisplayName '{}' -Direction Inbound -LocalPort {} -Protocol TCP -Action Block | Select-Object Name,DisplayName | ConvertTo-Json",
+                name, port_only
+            ),
+        ])?;
+        Ok(rec(vec![
+            ("action", s("deny")),
+            ("port", s(&port_str)),
+            ("tool", s("New-NetFirewallRule")),
+            ("raw", s(out.trim())),
+        ]))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        if cmd_exists("ufw") {
+            let out = sec_run_cmd("ufw", &["deny", &port_str])?;
+            return Ok(rec(vec![
+                ("action", s("deny")),
+                ("port", s(&port_str)),
+                ("tool", s("ufw")),
+                ("raw", s(out.trim())),
+            ]));
+        }
+        let port_only = port_str.split('/').next().unwrap_or(&port_str);
+        let proto = if port_str.contains('/') {
+            port_str.split('/').nth(1).unwrap_or("tcp")
+        } else {
+            "tcp"
+        };
+        let out = sec_run_cmd("iptables", &[
+            "-A", "INPUT", "-p", proto, "--dport", port_only, "-j", "DROP",
+        ])?;
+        Ok(rec(vec![
+            ("action", s("deny")),
+            ("port", s(&port_str)),
+            ("tool", s("iptables")),
+            ("raw", s(out.trim())),
+        ]))
+    }
+}
+
+// ============================================================================
+// 999: bi_firewall_delete
+// ============================================================================
+pub fn bi_firewall_delete(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if args.is_empty() {
+        return Err(anyhow!("firewall_delete requires a rule id or name argument"));
+    }
+    let rule_id = match &args[0] {
+        Value::Int(n) => n.to_string(),
+        Value::Str(s) => s.clone(),
+        other => return Err(anyhow!("firewall_delete: expected Int or String rule id, got {:?}", other)),
+    };
+
+    #[cfg(target_os = "windows")]
+    {
+        let out = sec_run_cmd("powershell", &[
+            "-NoProfile", "-Command",
+            &format!(
+                "Remove-NetFirewallRule -DisplayName '{}' -ErrorAction Stop; Write-Output 'deleted'",
+                rule_id
+            ),
+        ])?;
+        Ok(rec(vec![
+            ("action", s("delete")),
+            ("rule", s(&rule_id)),
+            ("tool", s("Remove-NetFirewallRule")),
+            ("raw", s(out.trim())),
+        ]))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        if cmd_exists("ufw") {
+            // Try numeric delete first
+            if rule_id.chars().all(|c| c.is_ascii_digit()) {
+                let out = sec_run_cmd("ufw", &["--force", "delete", &rule_id])?;
+                return Ok(rec(vec![
+                    ("action", s("delete")),
+                    ("rule", s(&rule_id)),
+                    ("tool", s("ufw")),
+                    ("raw", s(out.trim())),
+                ]));
+            }
+            let out = sec_run_cmd("ufw", &["--force", "delete", "allow", &rule_id])?;
+            return Ok(rec(vec![
+                ("action", s("delete")),
+                ("rule", s(&rule_id)),
+                ("tool", s("ufw")),
+                ("raw", s(out.trim())),
+            ]));
+        }
+        // iptables: rule_id should be like "INPUT 3"
+        let parts: Vec<&str> = rule_id.split_whitespace().collect();
+        if parts.len() == 2 {
+            let out = sec_run_cmd("iptables", &["-D", parts[0], parts[1]])?;
+            return Ok(rec(vec![
+                ("action", s("delete")),
+                ("rule", s(&rule_id)),
+                ("tool", s("iptables")),
+                ("raw", s(out.trim())),
+            ]));
+        }
+        Err(anyhow!("firewall_delete: for iptables, provide rule as \"CHAIN NUM\" (e.g. \"INPUT 3\")"))
+    }
+}
+
+// ============================================================================
+// 1000: bi_firewall_enable
+// ============================================================================
+pub fn bi_firewall_enable(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let _ = &args;
+
+    #[cfg(target_os = "windows")]
+    {
+        let out = sec_run_cmd("powershell", &[
+            "-NoProfile", "-Command",
+            "Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled True; Write-Output 'enabled'",
+        ])?;
+        Ok(rec(vec![
+            ("action", s("enable")),
+            ("tool", s("Set-NetFirewallProfile")),
+            ("raw", s(out.trim())),
+        ]))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        if cmd_exists("ufw") {
+            let out = sec_run_cmd("ufw", &["--force", "enable"])?;
+            return Ok(rec(vec![
+                ("action", s("enable")),
+                ("tool", s("ufw")),
+                ("raw", s(out.trim())),
+            ]));
+        }
+        if cmd_exists("firewall-cmd") {
+            let out = sec_run_cmd("systemctl", &["start", "firewalld"])?;
+            return Ok(rec(vec![
+                ("action", s("enable")),
+                ("tool", s("firewalld")),
+                ("raw", s(out.trim())),
+            ]));
+        }
+        Err(anyhow!("no supported firewall tool found to enable"))
+    }
+}
+
+// ============================================================================
+// 1001: bi_firewall_disable
+// ============================================================================
+pub fn bi_firewall_disable(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let _ = &args;
+
+    eprintln!("WARNING: Disabling the firewall reduces system security. Proceed with caution.");
+
+    #[cfg(target_os = "windows")]
+    {
+        let out = sec_run_cmd("powershell", &[
+            "-NoProfile", "-Command",
+            "Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False; Write-Output 'disabled'",
+        ])?;
+        Ok(rec(vec![
+            ("action", s("disable")),
+            ("warning", s("firewall has been disabled")),
+            ("tool", s("Set-NetFirewallProfile")),
+            ("raw", s(out.trim())),
+        ]))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        if cmd_exists("ufw") {
+            let out = sec_run_cmd("ufw", &["--force", "disable"])?;
+            return Ok(rec(vec![
+                ("action", s("disable")),
+                ("warning", s("firewall has been disabled")),
+                ("tool", s("ufw")),
+                ("raw", s(out.trim())),
+            ]));
+        }
+        if cmd_exists("firewall-cmd") {
+            let out = sec_run_cmd("systemctl", &["stop", "firewalld"])?;
+            return Ok(rec(vec![
+                ("action", s("disable")),
+                ("warning", s("firewall has been disabled")),
+                ("tool", s("firewalld")),
+                ("raw", s(out.trim())),
+            ]));
+        }
+        Err(anyhow!("no supported firewall tool found to disable"))
+    }
+}
+
+// ============================================================================
+// 1002: bi_selinux_status
+// ============================================================================
+pub fn bi_selinux_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let _ = &args;
+
+    #[cfg(target_os = "linux")]
+    {
+        if let Some(mode) = sec_run_cmd_ok("getenforce", &[]) {
+            let detail = sec_run_cmd_ok("sestatus", &[]).unwrap_or_default();
+            let mut m = BTreeMap::new();
+            m.insert("available".to_string(), Value::Bool(true));
+            m.insert("mode".to_string(), s(mode.trim()));
+            // Parse sestatus lines
+            for line in detail.lines() {
+                if let Some((k, v)) = line.split_once(':') {
+                    let key = k.trim().to_lowercase().replace(' ', "_");
+                    m.insert(key, s(v.trim()));
+                }
+            }
+            return Ok(Value::Record(m));
+        }
+        Ok(rec(vec![
+            ("available", Value::Bool(false)),
+            ("reason", s("getenforce not found; SELinux may not be installed")),
+        ]))
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        Ok(rec(vec![
+            ("available", Value::Bool(false)),
+            ("reason", s("SELinux is only available on Linux")),
+        ]))
+    }
+}
+
+// ============================================================================
+// 1003: bi_selinux_mode
+// ============================================================================
+pub fn bi_selinux_mode(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    #[cfg(target_os = "linux")]
+    {
+        if args.is_empty() {
+            // Get current mode
+            let out = sec_run_cmd("getenforce", &[])?;
+            return Ok(rec(vec![
+                ("mode", s(out.trim())),
+                ("action", s("get")),
+            ]));
+        }
+        let new_mode = match &args[0] {
+            Value::Str(s) => s.clone(),
+            other => return Err(anyhow!("selinux_mode: expected String mode (Enforcing/Permissive/Disabled), got {:?}", other)),
+        };
+        let mode_lower = new_mode.to_lowercase();
+        if !["enforcing", "permissive", "0", "1"].contains(&mode_lower.as_str()) {
+            return Err(anyhow!("selinux_mode: invalid mode '{}'. Use Enforcing, Permissive, 0, or 1", new_mode));
+        }
+        let out = sec_run_cmd("setenforce", &[&new_mode])?;
+        Ok(rec(vec![
+            ("mode", s(&new_mode)),
+            ("action", s("set")),
+            ("raw", s(out.trim())),
+        ]))
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = &args;
+        Err(anyhow!("selinux_mode is only available on Linux"))
+    }
+}
+
+// ============================================================================
+// 1004: bi_apparmor_status
+// ============================================================================
+pub fn bi_apparmor_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let _ = &args;
+
+    #[cfg(target_os = "linux")]
+    {
+        // Try aa-status first, then apparmor_status
+        let out = sec_run_cmd_ok("aa-status", &[])
+            .or_else(|| sec_run_cmd_ok("apparmor_status", &[]));
+        match out {
+            Some(text) => {
+                let mut m = BTreeMap::new();
+                m.insert("available".to_string(), Value::Bool(true));
+                m.insert("raw".to_string(), s(text.trim()));
+                // Parse key lines
+                for line in text.lines() {
+                    let trimmed = line.trim();
+                    if trimmed.contains("profiles are loaded") {
+                        if let Some(n) = trimmed.split_whitespace().next() {
+                            m.insert("profiles_loaded".to_string(), s(n));
+                        }
+                    } else if trimmed.contains("profiles are in enforce mode") {
+                        if let Some(n) = trimmed.split_whitespace().next() {
+                            m.insert("profiles_enforce".to_string(), s(n));
+                        }
+                    } else if trimmed.contains("profiles are in complain mode") {
+                        if let Some(n) = trimmed.split_whitespace().next() {
+                            m.insert("profiles_complain".to_string(), s(n));
+                        }
+                    } else if trimmed.contains("processes are in enforce mode") {
+                        if let Some(n) = trimmed.split_whitespace().next() {
+                            m.insert("processes_enforce".to_string(), s(n));
+                        }
+                    }
+                }
+                Ok(Value::Record(m))
+            }
+            None => Ok(rec(vec![
+                ("available", Value::Bool(false)),
+                ("reason", s("aa-status / apparmor_status not found")),
+            ])),
+        }
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        Ok(rec(vec![
+            ("available", Value::Bool(false)),
+            ("reason", s("AppArmor is only available on Linux")),
+        ]))
+    }
+}
+
+// ============================================================================
+// 1005: bi_apparmor_profiles
+// ============================================================================
+pub fn bi_apparmor_profiles(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let _ = &args;
+
+    #[cfg(target_os = "linux")]
+    {
+        let text = sec_run_cmd_ok("aa-status", &[])
+            .or_else(|| sec_run_cmd_ok("apparmor_status", &[]));
+        match text {
+            Some(output) => {
+                let mut profiles = Vec::new();
+                let mut current_mode = String::new();
+                for line in output.lines() {
+                    let trimmed = line.trim();
+                    if trimmed.contains("profiles are in enforce mode") {
+                        current_mode = "enforce".to_string();
+                    } else if trimmed.contains("profiles are in complain mode") {
+                        current_mode = "complain".to_string();
+                    } else if trimmed.contains("profiles are in kill mode") {
+                        current_mode = "kill".to_string();
+                    } else if !current_mode.is_empty()
+                        && !trimmed.is_empty()
+                        && !trimmed.contains("processes")
+                        && !trimmed.contains("profiles")
+                        && !trimmed.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false)
+                    {
+                        // Lines under a mode section are profile names
+                        let name = trimmed.trim_start_matches("   ").to_string();
+                        if !name.is_empty() {
+                            profiles.push(rec(vec![
+                                ("name", s(&name)),
+                                ("mode", s(&current_mode)),
+                            ]));
+                        }
+                    }
+                }
+                Ok(Value::Array(profiles))
+            }
+            None => Ok(rec(vec![
+                ("available", Value::Bool(false)),
+                ("reason", s("aa-status not found")),
+            ])),
+        }
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        Ok(rec(vec![
+            ("available", Value::Bool(false)),
+            ("reason", s("AppArmor is only available on Linux")),
+        ]))
+    }
+}
+
+// ============================================================================
+// 1006: bi_auditd_rules
+// ============================================================================
+pub fn bi_auditd_rules(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let _ = &args;
+
+    #[cfg(target_os = "linux")]
+    {
+        let out = sec_run_cmd("auditctl", &["-l"])?;
+        let rules: Vec<Value> = out
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| {
+                let mut m = BTreeMap::new();
+                m.insert("rule".to_string(), s(l.trim()));
+                // Try to extract key fields
+                if l.contains("-k ") {
+                    if let Some(key) = l.split("-k ").nth(1) {
+                        m.insert("key".to_string(), s(key.split_whitespace().next().unwrap_or("")));
+                    }
+                }
+                if l.contains("-w ") {
+                    if let Some(path) = l.split("-w ").nth(1) {
+                        m.insert("watch".to_string(), s(path.split_whitespace().next().unwrap_or("")));
+                    }
+                }
+                if l.contains("-S ") {
+                    if let Some(syscall) = l.split("-S ").nth(1) {
+                        m.insert("syscall".to_string(), s(syscall.split_whitespace().next().unwrap_or("")));
+                    }
+                }
+                Value::Record(m)
+            })
+            .collect();
+        Ok(Value::Array(rules))
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        Ok(rec(vec![
+            ("available", Value::Bool(false)),
+            ("reason", s("auditd is only available on Linux")),
+        ]))
+    }
+}
+
+// ============================================================================
+// 1007: bi_auditd_search
+// ============================================================================
+pub fn bi_auditd_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if args.is_empty() {
+        return Err(anyhow!("auditd_search requires a key or type argument"));
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let query = match &args[0] {
+            Value::Str(s) => s.clone(),
+            other => return Err(anyhow!("auditd_search: expected String, got {:?}", other)),
+        };
+        // Detect if it looks like a message type (all uppercase) or a key
+        let out = if query.chars().all(|c| c.is_uppercase() || c == '_') {
+            sec_run_cmd("ausearch", &["-m", &query])?
+        } else {
+            sec_run_cmd("ausearch", &["-k", &query])?
+        };
+        let entries: Vec<Value> = out
+            .split("----")
+            .filter(|s| !s.trim().is_empty())
+            .map(|entry| s(entry.trim()))
+            .collect();
+        Ok(rec(vec![
+            ("query", s(&query)),
+            ("count", Value::Int(entries.len() as i64)),
+            ("entries", Value::Array(entries)),
+        ]))
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        Err(anyhow!("auditd_search is only available on Linux"))
+    }
+}
+
+// ============================================================================
+// 1008: bi_fail2ban_status
+// ============================================================================
+pub fn bi_fail2ban_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let _ = &args;
+
+    #[cfg(target_os = "linux")]
+    {
+        let out = sec_run_cmd("fail2ban-client", &["status"])?;
+        let mut m = BTreeMap::new();
+        m.insert("available".to_string(), Value::Bool(true));
+        // Parse "Number of jail:" and "Jail list:" lines
+        for line in out.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("Number of jail:") {
+                if let Some(n) = trimmed.split(':').nth(1) {
+                    if let Ok(count) = n.trim().parse::<i64>() {
+                        m.insert("jail_count".to_string(), Value::Int(count));
+                    }
+                }
+            } else if trimmed.starts_with("Jail list:") {
+                if let Some(list) = trimmed.split(':').nth(1) {
+                    let jails: Vec<Value> = list
+                        .split(',')
+                        .map(|j| s(j.trim()))
+                        .filter(|v| {
+                            if let Value::Str(val) = v { !val.is_empty() } else { false }
+                        })
+                        .collect();
+                    m.insert("jails".to_string(), Value::Array(jails));
+                }
+            }
+        }
+        m.insert("raw".to_string(), s(out.trim()));
+        Ok(Value::Record(m))
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        Ok(rec(vec![
+            ("available", Value::Bool(false)),
+            ("reason", s("fail2ban is typically only available on Linux")),
+        ]))
+    }
+}
+
+// ============================================================================
+// 1009: bi_fail2ban_jails
+// ============================================================================
+pub fn bi_fail2ban_jails(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    #[cfg(target_os = "linux")]
+    {
+        if !args.is_empty() {
+            // Get details for a specific jail
+            let jail_name = match &args[0] {
+                Value::Str(s) => s.clone(),
+                other => return Err(anyhow!("fail2ban_jails: expected String jail name, got {:?}", other)),
+            };
+            let out = sec_run_cmd("fail2ban-client", &["status", &jail_name])?;
+            let mut m = BTreeMap::new();
+            m.insert("jail".to_string(), s(&jail_name));
+            for line in out.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with("Currently failed:") {
+                    if let Some(n) = trimmed.split(':').nth(1) {
+                        if let Ok(count) = n.trim().parse::<i64>() {
+                            m.insert("currently_failed".to_string(), Value::Int(count));
+                        }
+                    }
+                } else if trimmed.starts_with("Total failed:") {
+                    if let Some(n) = trimmed.split(':').nth(1) {
+                        if let Ok(count) = n.trim().parse::<i64>() {
+                            m.insert("total_failed".to_string(), Value::Int(count));
+                        }
+                    }
+                } else if trimmed.starts_with("Currently banned:") {
+                    if let Some(n) = trimmed.split(':').nth(1) {
+                        if let Ok(count) = n.trim().parse::<i64>() {
+                            m.insert("currently_banned".to_string(), Value::Int(count));
+                        }
+                    }
+                } else if trimmed.starts_with("Total banned:") {
+                    if let Some(n) = trimmed.split(':').nth(1) {
+                        if let Ok(count) = n.trim().parse::<i64>() {
+                            m.insert("total_banned".to_string(), Value::Int(count));
+                        }
+                    }
+                } else if trimmed.starts_with("Banned IP list:") {
+                    if let Some(list) = trimmed.split(':').nth(1) {
+                        let ips: Vec<Value> = list
+                            .split_whitespace()
+                            .map(|ip| s(ip))
+                            .collect();
+                        m.insert("banned_ips".to_string(), Value::Array(ips));
+                    }
+                }
+            }
+            m.insert("raw".to_string(), s(out.trim()));
+            return Ok(Value::Record(m));
+        }
+        // No args: list all jails
+        let out = sec_run_cmd("fail2ban-client", &["status"])?;
+        let mut jails = Vec::new();
+        for line in out.lines() {
+            if line.trim().starts_with("Jail list:") {
+                if let Some(list) = line.split(':').nth(1) {
+                    for jail in list.split(',') {
+                        let name = jail.trim();
+                        if !name.is_empty() {
+                            jails.push(s(name));
+                        }
+                    }
+                }
+            }
+        }
+        Ok(Value::Array(jails))
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = &args;
+        Ok(rec(vec![
+            ("available", Value::Bool(false)),
+            ("reason", s("fail2ban is typically only available on Linux")),
+        ]))
+    }
+}
+
+// ============================================================================
+// 1010: bi_openssl_cert_info
+// ============================================================================
+pub fn bi_openssl_cert_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if args.is_empty() {
+        return Err(anyhow!("openssl_cert_info requires a certificate file path argument"));
+    }
+    let file_path = match &args[0] {
+        Value::Str(s) => s.clone(),
+        other => return Err(anyhow!("openssl_cert_info: expected String file path, got {:?}", other)),
+    };
+
+    let out = sec_run_cmd("openssl", &["x509", "-in", &file_path, "-text", "-noout"])?;
+    let mut m = BTreeMap::new();
+    m.insert("file".to_string(), s(&file_path));
+
+    for line in out.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("Issuer:") {
+            m.insert("issuer".to_string(), s(trimmed.strip_prefix("Issuer:").unwrap_or("").trim()));
+        } else if trimmed.starts_with("Subject:") {
+            m.insert("subject".to_string(), s(trimmed.strip_prefix("Subject:").unwrap_or("").trim()));
+        } else if trimmed.starts_with("Not Before:") {
+            m.insert("not_before".to_string(), s(trimmed.strip_prefix("Not Before:").unwrap_or("").trim()));
+        } else if trimmed.starts_with("Not After :") || trimmed.starts_with("Not After:") {
+            let val = trimmed
+                .strip_prefix("Not After :")
+                .or_else(|| trimmed.strip_prefix("Not After:"))
+                .unwrap_or("")
+                .trim();
+            m.insert("not_after".to_string(), s(val));
+        } else if trimmed.starts_with("Serial Number:") {
+            m.insert("serial_number".to_string(), s(trimmed.strip_prefix("Serial Number:").unwrap_or("").trim()));
+        } else if trimmed.starts_with("Signature Algorithm:") {
+            m.insert("signature_algorithm".to_string(), s(trimmed.strip_prefix("Signature Algorithm:").unwrap_or("").trim()));
+        } else if trimmed.starts_with("Public Key Algorithm:") {
+            m.insert("public_key_algorithm".to_string(), s(trimmed.strip_prefix("Public Key Algorithm:").unwrap_or("").trim()));
+        }
+    }
+    m.insert("raw".to_string(), s(out.trim()));
+    Ok(Value::Record(m))
+}
+
+// ============================================================================
+// 1011: bi_openssl_genrsa
+// ============================================================================
+pub fn bi_openssl_genrsa(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if args.is_empty() {
+        return Err(anyhow!("openssl_genrsa requires at least a file path argument"));
+    }
+    let file_path = match &args[0] {
+        Value::Str(s) => s.clone(),
+        other => return Err(anyhow!("openssl_genrsa: expected String file path, got {:?}", other)),
+    };
+    let bits = if args.len() > 1 {
+        match &args[1] {
+            Value::Int(n) => *n,
+            Value::Str(s) => s.parse::<i64>().map_err(|_| anyhow!("openssl_genrsa: invalid bits '{}'", s))?,
+            other => return Err(anyhow!("openssl_genrsa: expected Int bits, got {:?}", other)),
+        }
+    } else {
+        4096
+    };
+
+    let bits_str = bits.to_string();
+    let out = sec_run_cmd("openssl", &["genrsa", "-out", &file_path, &bits_str])?;
+    Ok(rec(vec![
+        ("action", s("genrsa")),
+        ("file", s(&file_path)),
+        ("bits", Value::Int(bits)),
+        ("raw", s(out.trim())),
+    ]))
+}
+
+// ============================================================================
+// 1012: bi_gpg_list_keys
+// ============================================================================
+pub fn bi_gpg_list_keys(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let _ = &args;
+
+    let out = sec_run_cmd("gpg", &["--list-keys", "--with-colons"])?;
+    let mut keys = Vec::new();
+    let mut current: Option<BTreeMap<String, Value>> = None;
+
+    for line in out.lines() {
+        let fields: Vec<&str> = line.split(':').collect();
+        if fields.is_empty() {
+            continue;
+        }
+        match fields[0] {
+            "pub" => {
+                // Save previous key if any
+                if let Some(k) = current.take() {
+                    keys.push(Value::Record(k));
+                }
+                let mut m = BTreeMap::new();
+                m.insert("type".to_string(), s("pub"));
+                if fields.len() > 1 { m.insert("validity".to_string(), s(fields[1])); }
+                if fields.len() > 2 { m.insert("key_length".to_string(), s(fields[2])); }
+                if fields.len() > 3 { m.insert("algorithm".to_string(), s(fields[3])); }
+                if fields.len() > 4 { m.insert("key_id".to_string(), s(fields[4])); }
+                if fields.len() > 5 { m.insert("creation_date".to_string(), s(fields[5])); }
+                if fields.len() > 6 { m.insert("expiration_date".to_string(), s(fields[6])); }
+                current = Some(m);
+            }
+            "uid" => {
+                if let Some(ref mut m) = current {
+                    if fields.len() > 9 {
+                        m.insert("uid".to_string(), s(fields[9]));
+                    }
+                }
+            }
+            "sub" => {
+                if let Some(ref mut m) = current {
+                    let mut sub_info = String::new();
+                    if fields.len() > 2 { sub_info.push_str(fields[2]); sub_info.push('/'); }
+                    if fields.len() > 4 { sub_info.push_str(fields[4]); }
+                    // Append to existing subkeys or create
+                    let existing = m.entry("subkeys".to_string())
+                        .or_insert_with(|| Value::Array(Vec::new()));
+                    if let Value::Array(ref mut arr) = existing {
+                        arr.push(s(&sub_info));
+                    }
+                }
+            }
+            "fpr" => {
+                if let Some(ref mut m) = current {
+                    if fields.len() > 9 {
+                        m.insert("fingerprint".to_string(), s(fields[9]));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    // Push last key
+    if let Some(k) = current {
+        keys.push(Value::Record(k));
+    }
+
+    Ok(Value::Array(keys))
+}
+
+// ============================================================================
+// 1013: bi_gpg_encrypt
+// ============================================================================
+pub fn bi_gpg_encrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if args.len() < 2 {
+        return Err(anyhow!("gpg_encrypt requires two arguments: file and recipient"));
+    }
+    let file_path = match &args[0] {
+        Value::Str(s) => s.clone(),
+        other => return Err(anyhow!("gpg_encrypt: expected String file path, got {:?}", other)),
+    };
+    let recipient = match &args[1] {
+        Value::Str(s) => s.clone(),
+        other => return Err(anyhow!("gpg_encrypt: expected String recipient, got {:?}", other)),
+    };
+
+    let out = sec_run_cmd("gpg", &["--batch", "--yes", "--encrypt", "--recipient", &recipient, &file_path])?;
+    let output_file = format!("{}.gpg", file_path);
+    Ok(rec(vec![
+        ("action", s("encrypt")),
+        ("input_file", s(&file_path)),
+        ("output_file", s(&output_file)),
+        ("recipient", s(&recipient)),
+        ("raw", s(out.trim())),
+    ]))
+}
+
+// ============================================================================
+// 1014: bi_gpg_decrypt
+// ============================================================================
+pub fn bi_gpg_decrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if args.is_empty() {
+        return Err(anyhow!("gpg_decrypt requires a file path argument"));
+    }
+    let file_path = match &args[0] {
+        Value::Str(s) => s.clone(),
+        other => return Err(anyhow!("gpg_decrypt: expected String file path, got {:?}", other)),
+    };
+
+    // Determine output file (strip .gpg or .asc extension if present)
+    let output_file = if file_path.ends_with(".gpg") {
+        file_path.trim_end_matches(".gpg").to_string()
+    } else if file_path.ends_with(".asc") {
+        file_path.trim_end_matches(".asc").to_string()
+    } else {
+        format!("{}.decrypted", file_path)
+    };
+
+    let out = sec_run_cmd("gpg", &["--batch", "--yes", "--output", &output_file, "--decrypt", &file_path])?;
+    Ok(rec(vec![
+        ("action", s("decrypt")),
+        ("input_file", s(&file_path)),
+        ("output_file", s(&output_file)),
+        ("raw", s(out.trim())),
+    ]))
+}
+
+// ============================================================================
+// Monitoring & Diagnostics Builtins (1015-1034)
+// System monitoring, network diagnostics, performance counters
+// ============================================================================
+
+// [removed duplicate] use std::collections::BTreeMap;
+// [removed duplicate] use std::process::Command;
+// [removed duplicate] use anyhow::anyhow;
+
+// [removed duplicate] use crate::value::Value;
+// [removed duplicate] use crate::builtins::json_to_value;
+
+// ---------------------------------------------------------------------------
+// 1015: bi_htop_snapshot — Process monitor snapshot (top 20 by memory)
+// ---------------------------------------------------------------------------
+pub fn bi_htop_snapshot(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let count = if args.is_empty() { 20usize } else {
+        match &args[0] {
+            Value::Int(n) => *n as usize,
+            _ => 20,
+        }
+    };
+
+    #[cfg(target_os = "windows")]
+    {
+        let ps_cmd = format!(
+            "Get-Process | Sort-Object -Property WorkingSet64 -Descending | Select-Object -First {} | Select-Object Id, ProcessName, @{{Name='CPU';Expression={{$_.CPU}}}}, @{{Name='MemoryMB';Expression={{[math]::Round($_.WorkingSet64/1MB,2)}}}}, @{{Name='WorkingSet64';Expression={{$_.WorkingSet64}}}} | ConvertTo-Json -Depth 3",
+            count
+        );
+        let output = Command::new("powershell")
+            .args(["-NoProfile", "-Command", &ps_cmd])
+            .output()
+            .map_err(|e| anyhow!("htop_snapshot: failed to run powershell: {}", e))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(anyhow!("htop_snapshot: command failed: {}", stderr));
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let json_val: serde_json::Value = serde_json::from_str(stdout.trim())
+            .map_err(|e| anyhow!("htop_snapshot: JSON parse error: {}", e))?;
+        Ok(json_to_value(json_val))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let output = Command::new("ps")
+            .args(["aux", "--sort=-%mem"])
+            .output()
+            .map_err(|e| anyhow!("htop_snapshot: failed to run ps: {}", e))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(anyhow!("htop_snapshot: ps failed: {}", stderr));
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let lines: Vec<&str> = stdout.lines().collect();
+        let mut records = Vec::new();
+        for line in lines.iter().skip(1).take(count) {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 11 {
+                let mut rec = BTreeMap::new();
+                rec.insert("user".to_string(), Value::Str(parts[0].to_string()));
+                rec.insert("pid".to_string(), Value::Int(parts[1].parse::<i64>().unwrap_or(0)));
+                rec.insert("cpu_pct".to_string(), Value::Float(parts[2].parse::<f64>().unwrap_or(0.0)));
+                rec.insert("mem_pct".to_string(), Value::Float(parts[3].parse::<f64>().unwrap_or(0.0)));
+                rec.insert("vsz".to_string(), Value::Int(parts[4].parse::<i64>().unwrap_or(0)));
+                rec.insert("rss".to_string(), Value::Int(parts[5].parse::<i64>().unwrap_or(0)));
+                rec.insert("stat".to_string(), Value::Str(parts[7].to_string()));
+                rec.insert("command".to_string(), Value::Str(parts[10..].join(" ")));
+                records.push(Value::Record(rec));
+            }
+        }
+        Ok(Value::Array(records))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 1016: bi_iotop_snapshot — I/O monitor snapshot
+// ---------------------------------------------------------------------------
+pub fn bi_iotop_snapshot(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let _ = args;
+
+    #[cfg(target_os = "windows")]
+    {
+        let ps_cmd = r#"Get-Counter '\Process(*)\IO Read Bytes/sec', '\Process(*)\IO Write Bytes/sec' -ErrorAction SilentlyContinue | ForEach-Object { $_.CounterSamples | Select-Object InstanceName, Path, CookedValue } | Where-Object { $_.InstanceName -ne '_total' -and $_.InstanceName -ne 'idle' } | Select-Object -First 40 | ConvertTo-Json -Depth 3"#;
+        let output = Command::new("powershell")
+            .args(["-NoProfile", "-Command", ps_cmd])
+            .output()
+            .map_err(|e| anyhow!("iotop_snapshot: failed to run powershell: {}", e))?;
+        if !output.status.success() {
+            // Fallback: return basic process IO info
+            let fallback_cmd = "Get-Process | Where-Object { $_.Id -ne 0 } | Sort-Object -Property WorkingSet64 -Descending | Select-Object -First 20 | Select-Object Id, ProcessName, @{Name='ReadBytes';Expression={try{$_.IO.ReadTransferCount}catch{0}}}, @{Name='WriteBytes';Expression={try{$_.IO.WriteTransferCount}catch{0}}} | ConvertTo-Json -Depth 3";
+            let fb_out = Command::new("powershell")
+                .args(["-NoProfile", "-Command", fallback_cmd])
+                .output()
+                .map_err(|e| anyhow!("iotop_snapshot fallback: {}", e))?;
+            let stdout = String::from_utf8_lossy(&fb_out.stdout);
+            if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(stdout.trim()) {
+                return Ok(json_to_value(json_val));
+            }
+            let mut rec = BTreeMap::new();
+            rec.insert("available".to_string(), Value::Bool(false));
+            rec.insert("reason".to_string(), Value::Str("Performance counter query failed".to_string()));
+            return Ok(Value::Record(rec));
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let json_val: serde_json::Value = serde_json::from_str(stdout.trim())
+            .map_err(|e| anyhow!("iotop_snapshot: JSON parse error: {}", e))?;
+        Ok(json_to_value(json_val))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        // Try iotop first
+        let output = Command::new("iotop")
+            .args(["-b", "-n", "1", "-P", "-o"])
+            .output();
+
+        match output {
+            Ok(out) if out.status.success() => {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                let lines: Vec<&str> = stdout.lines().collect();
+                let mut records = Vec::new();
+                for line in lines.iter().skip(1) {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() >= 10 {
+                        let mut rec = BTreeMap::new();
+                        rec.insert("pid".to_string(), Value::Int(parts[0].parse::<i64>().unwrap_or(0)));
+                        rec.insert("disk_read".to_string(), Value::Str(format!("{} {}", parts[3], parts[4])));
+                        rec.insert("disk_write".to_string(), Value::Str(format!("{} {}", parts[5], parts[6])));
+                        rec.insert("command".to_string(), Value::Str(parts[9..].join(" ")));
+                        records.push(Value::Record(rec));
+                    }
+                }
+                Ok(Value::Array(records))
+            }
+            _ => {
+                // Fallback: use /proc/diskstats on Linux
+                let output = Command::new("cat")
+                    .arg("/proc/diskstats")
+                    .output();
+                match output {
+                    Ok(out) if out.status.success() => {
+                        let stdout = String::from_utf8_lossy(&out.stdout);
+                        let mut records = Vec::new();
+                        for line in stdout.lines() {
+                            let parts: Vec<&str> = line.split_whitespace().collect();
+                            if parts.len() >= 14 {
+                                let mut rec = BTreeMap::new();
+                                rec.insert("device".to_string(), Value::Str(parts[2].to_string()));
+                                rec.insert("reads_completed".to_string(), Value::Int(parts[3].parse::<i64>().unwrap_or(0)));
+                                rec.insert("writes_completed".to_string(), Value::Int(parts[7].parse::<i64>().unwrap_or(0)));
+                                rec.insert("sectors_read".to_string(), Value::Int(parts[5].parse::<i64>().unwrap_or(0)));
+                                rec.insert("sectors_written".to_string(), Value::Int(parts[9].parse::<i64>().unwrap_or(0)));
+                                records.push(Value::Record(rec));
+                            }
+                        }
+                        Ok(Value::Array(records))
+                    }
+                    _ => {
+                        let mut rec = BTreeMap::new();
+                        rec.insert("available".to_string(), Value::Bool(false));
+                        rec.insert("reason".to_string(), Value::Str("iotop not available and /proc/diskstats unreadable".to_string()));
+                        Ok(Value::Record(rec))
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 1017: bi_nethogs_info — Network traffic per process
+// ---------------------------------------------------------------------------
+pub fn bi_nethogs_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let _ = args;
+
+    #[cfg(target_os = "windows")]
+    {
+        let ps_cmd = "Get-NetTCPConnection | Where-Object { $_.State -eq 'Established' } | Select-Object OwningProcess, LocalAddress, LocalPort, RemoteAddress, RemotePort, State | ForEach-Object { $proc = Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue; $_ | Add-Member -NotePropertyName ProcessName -NotePropertyValue $(if($proc){$proc.ProcessName}else{'unknown'}) -PassThru } | Select-Object -First 30 | ConvertTo-Json -Depth 3";
+        let output = Command::new("powershell")
+            .args(["-NoProfile", "-Command", ps_cmd])
+            .output()
+            .map_err(|e| anyhow!("nethogs_info: failed to run powershell: {}", e))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(anyhow!("nethogs_info: command failed: {}", stderr));
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if stdout.trim().is_empty() {
+            return Ok(Value::Array(vec![]));
+        }
+        let json_val: serde_json::Value = serde_json::from_str(stdout.trim())
+            .map_err(|e| anyhow!("nethogs_info: JSON parse error: {}", e))?;
+        Ok(json_to_value(json_val))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        // Try nethogs first, fall back to ss/netstat
+        let output = Command::new("nethogs")
+            .args(["-t", "-c", "1"])
+            .output();
+
+        match output {
+            Ok(out) if out.status.success() => {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                let mut records = Vec::new();
+                for line in stdout.lines() {
+                    let parts: Vec<&str> = line.split('\t').collect();
+                    if parts.len() >= 3 {
+                        let mut rec = BTreeMap::new();
+                        rec.insert("program".to_string(), Value::Str(parts[0].to_string()));
+                        rec.insert("sent_kbps".to_string(), Value::Float(parts[1].parse::<f64>().unwrap_or(0.0)));
+                        rec.insert("received_kbps".to_string(), Value::Float(parts[2].parse::<f64>().unwrap_or(0.0)));
+                        records.push(Value::Record(rec));
+                    }
+                }
+                Ok(Value::Array(records))
+            }
+            _ => {
+                // Fallback: netstat with process info
+                let output = Command::new("ss")
+                    .args(["-tunp"])
+                    .output()
+                    .or_else(|_| Command::new("netstat").args(["-tunp"]).output())
+                    .map_err(|e| anyhow!("nethogs_info: fallback failed: {}", e))?;
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let mut records = Vec::new();
+                for line in stdout.lines().skip(1) {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() >= 5 {
+                        let mut rec = BTreeMap::new();
+                        rec.insert("protocol".to_string(), Value::Str(parts[0].to_string()));
+                        rec.insert("recv_q".to_string(), Value::Int(parts[1].parse::<i64>().unwrap_or(0)));
+                        rec.insert("send_q".to_string(), Value::Int(parts[2].parse::<i64>().unwrap_or(0)));
+                        rec.insert("local_address".to_string(), Value::Str(parts[3].to_string()));
+                        rec.insert("peer_address".to_string(), Value::Str(parts[4].to_string()));
+                        if parts.len() >= 6 {
+                            rec.insert("process".to_string(), Value::Str(parts[5..].join(" ")));
+                        }
+                        records.push(Value::Record(rec));
+                    }
+                }
+                Ok(Value::Array(records))
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 1018: bi_iftop_info — Network bandwidth info
+// ---------------------------------------------------------------------------
+pub fn bi_iftop_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let _ = args;
+
+    #[cfg(target_os = "windows")]
+    {
+        let ps_cmd = "netstat -s | Out-String";
+        let output = Command::new("powershell")
+            .args(["-NoProfile", "-Command", ps_cmd])
+            .output()
+            .map_err(|e| anyhow!("iftop_info: failed to run powershell: {}", e))?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut rec = BTreeMap::new();
+        rec.insert("source".to_string(), Value::Str("netstat -s".to_string()));
+        // Parse key statistics from netstat -s
+        for line in stdout.lines() {
+            let trimmed = line.trim();
+            if trimmed.contains("Segments Sent") || trimmed.contains("Segments sent") {
+                if let Some(val) = trimmed.split('=').last().or_else(|| trimmed.split_whitespace().next()) {
+                    rec.insert("tcp_segments_sent".to_string(), Value::Int(val.trim().replace(",", "").parse::<i64>().unwrap_or(0)));
+                }
+            }
+            if trimmed.contains("Segments Received") || trimmed.contains("Segments received") {
+                if let Some(val) = trimmed.split('=').last().or_else(|| trimmed.split_whitespace().next()) {
+                    rec.insert("tcp_segments_received".to_string(), Value::Int(val.trim().replace(",", "").parse::<i64>().unwrap_or(0)));
+                }
+            }
+            if trimmed.contains("Datagrams Sent") || trimmed.contains("Datagrams sent") {
+                if let Some(val) = trimmed.split('=').last().or_else(|| trimmed.split_whitespace().next()) {
+                    rec.insert("udp_datagrams_sent".to_string(), Value::Int(val.trim().replace(",", "").parse::<i64>().unwrap_or(0)));
+                }
+            }
+            if trimmed.contains("Datagrams Received") || trimmed.contains("Datagrams received") {
+                if let Some(val) = trimmed.split('=').last().or_else(|| trimmed.split_whitespace().next()) {
+                    rec.insert("udp_datagrams_received".to_string(), Value::Int(val.trim().replace(",", "").parse::<i64>().unwrap_or(0)));
+                }
+            }
+        }
+        rec.insert("raw_output".to_string(), Value::Str(stdout.to_string()));
+        Ok(Value::Record(rec))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        // Use ss -s for socket summary statistics
+        let output = Command::new("ss")
+            .args(["-s"])
+            .output()
+            .or_else(|_| Command::new("netstat").args(["-s"]).output())
+            .map_err(|e| anyhow!("iftop_info: failed to run ss/netstat: {}", e))?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut rec = BTreeMap::new();
+        rec.insert("source".to_string(), Value::Str("ss -s".to_string()));
+        for line in stdout.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("TCP:") {
+                rec.insert("tcp_summary".to_string(), Value::Str(trimmed.to_string()));
+            } else if trimmed.starts_with("UDP:") {
+                rec.insert("udp_summary".to_string(), Value::Str(trimmed.to_string()));
+            } else if trimmed.starts_with("Total:") || trimmed.starts_with("Transport") {
+                rec.insert("total_summary".to_string(), Value::Str(trimmed.to_string()));
+            }
+        }
+        rec.insert("raw_output".to_string(), Value::Str(stdout.to_string()));
+        Ok(Value::Record(rec))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 1019: bi_nmon_snapshot — System performance snapshot (aggregate)
+// ---------------------------------------------------------------------------
+pub fn bi_nmon_snapshot(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let _ = args;
+    let mut snapshot = BTreeMap::new();
+
+    #[cfg(target_os = "windows")]
+    {
+        // CPU usage
+        let cpu_out = Command::new("powershell")
+            .args(["-NoProfile", "-Command",
+                "(Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average"])
+            .output();
+        if let Ok(out) = cpu_out {
+            let s = String::from_utf8_lossy(&out.stdout);
+            snapshot.insert("cpu_percent".to_string(), Value::Float(s.trim().parse::<f64>().unwrap_or(0.0)));
+        }
+
+        // Memory
+        let mem_out = Command::new("powershell")
+            .args(["-NoProfile", "-Command",
+                "$os = Get-CimInstance Win32_OperatingSystem; @{total=$os.TotalVisibleMemorySize*1024; free=$os.FreePhysicalMemory*1024; used=($os.TotalVisibleMemorySize-$os.FreePhysicalMemory)*1024} | ConvertTo-Json"])
+            .output();
+        if let Ok(out) = mem_out {
+            let s = String::from_utf8_lossy(&out.stdout);
+            if let Ok(jv) = serde_json::from_str::<serde_json::Value>(s.trim()) {
+                snapshot.insert("memory".to_string(), json_to_value(jv));
+            }
+        }
+
+        // Disk
+        let disk_out = Command::new("powershell")
+            .args(["-NoProfile", "-Command",
+                "Get-CimInstance Win32_LogicalDisk | Where-Object { $_.DriveType -eq 3 } | Select-Object DeviceID, @{Name='TotalGB';Expression={[math]::Round($_.Size/1GB,2)}}, @{Name='FreeGB';Expression={[math]::Round($_.FreeSpace/1GB,2)}} | ConvertTo-Json -Depth 3"])
+            .output();
+        if let Ok(out) = disk_out {
+            let s = String::from_utf8_lossy(&out.stdout);
+            if let Ok(jv) = serde_json::from_str::<serde_json::Value>(s.trim()) {
+                snapshot.insert("disk".to_string(), json_to_value(jv));
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        // CPU usage from /proc/stat or top
+        let cpu_out = Command::new("sh")
+            .args(["-c", "top -bn1 | head -5"])
+            .output();
+        if let Ok(out) = cpu_out {
+            let s = String::from_utf8_lossy(&out.stdout);
+            for line in s.lines() {
+                if line.contains("Cpu") || line.contains("cpu") {
+                    snapshot.insert("cpu_summary".to_string(), Value::Str(line.trim().to_string()));
+                    break;
+                }
+            }
+        }
+
+        // Memory from free
+        let mem_out = Command::new("free")
+            .args(["-b"])
+            .output();
+        if let Ok(out) = mem_out {
+            let s = String::from_utf8_lossy(&out.stdout);
+            for line in s.lines() {
+                if line.starts_with("Mem:") {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() >= 4 {
+                        let mut mem = BTreeMap::new();
+                        mem.insert("total".to_string(), Value::Int(parts[1].parse::<i64>().unwrap_or(0)));
+                        mem.insert("used".to_string(), Value::Int(parts[2].parse::<i64>().unwrap_or(0)));
+                        mem.insert("free".to_string(), Value::Int(parts[3].parse::<i64>().unwrap_or(0)));
+                        if parts.len() >= 7 {
+                            mem.insert("available".to_string(), Value::Int(parts[6].parse::<i64>().unwrap_or(0)));
+                        }
+                        snapshot.insert("memory".to_string(), Value::Record(mem));
+                    }
+                    break;
+                }
+            }
+        }
+
+        // Disk usage
+        let disk_out = Command::new("df")
+            .args(["-B1", "--output=source,size,used,avail,pcent,target"])
+            .output();
+        if let Ok(out) = disk_out {
+            let s = String::from_utf8_lossy(&out.stdout);
+            let mut disks = Vec::new();
+            for line in s.lines().skip(1) {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 6 && parts[0].starts_with('/') {
+                    let mut d = BTreeMap::new();
+                    d.insert("filesystem".to_string(), Value::Str(parts[0].to_string()));
+                    d.insert("size".to_string(), Value::Int(parts[1].parse::<i64>().unwrap_or(0)));
+                    d.insert("used".to_string(), Value::Int(parts[2].parse::<i64>().unwrap_or(0)));
+                    d.insert("available".to_string(), Value::Int(parts[3].parse::<i64>().unwrap_or(0)));
+                    d.insert("use_percent".to_string(), Value::Str(parts[4].to_string()));
+                    d.insert("mount".to_string(), Value::Str(parts[5].to_string()));
+                    disks.push(Value::Record(d));
+                }
+            }
+            snapshot.insert("disk".to_string(), Value::Array(disks));
+        }
+    }
+
+    snapshot.insert("timestamp".to_string(), Value::Str(chrono_timestamp()));
+    Ok(Value::Record(snapshot))
+}
+
+// ---------------------------------------------------------------------------
+// 1020: bi_glances_info — Comprehensive system monitoring
+// ---------------------------------------------------------------------------
+pub fn bi_glances_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let _ = args;
+    let mut info = BTreeMap::new();
+
+    #[cfg(target_os = "windows")]
+    {
+        let ps_cmd = r#"
+$cpu = (Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average
+$os = Get-CimInstance Win32_OperatingSystem
+$memTotal = $os.TotalVisibleMemorySize * 1024
+$memFree = $os.FreePhysicalMemory * 1024
+$memUsed = $memTotal - $memFree
+$memPct = [math]::Round(($memUsed / $memTotal) * 100, 2)
+$disks = Get-CimInstance Win32_LogicalDisk | Where-Object { $_.DriveType -eq 3 } | ForEach-Object {
+    @{Device=$_.DeviceID; TotalGB=[math]::Round($_.Size/1GB,2); FreeGB=[math]::Round($_.FreeSpace/1GB,2); UsePct=[math]::Round((($_.Size-$_.FreeSpace)/$_.Size)*100,2)}
+}
+$net = Get-NetAdapterStatistics -ErrorAction SilentlyContinue | Select-Object Name, ReceivedBytes, SentBytes
+@{
+    cpu_percent = $cpu
+    mem_percent = $memPct
+    mem_total = $memTotal
+    mem_used = $memUsed
+    mem_free = $memFree
+    disks = $disks
+    net = $net
+    hostname = $env:COMPUTERNAME
+    uptime_seconds = (New-TimeSpan -Start $os.LastBootUpTime -End (Get-Date)).TotalSeconds
+} | ConvertTo-Json -Depth 4
+"#;
+        let output = Command::new("powershell")
+            .args(["-NoProfile", "-Command", ps_cmd])
+            .output()
+            .map_err(|e| anyhow!("glances_info: failed to run powershell: {}", e))?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if let Ok(jv) = serde_json::from_str::<serde_json::Value>(stdout.trim()) {
+            return Ok(json_to_value(jv));
+        }
+        info.insert("error".to_string(), Value::Str("Failed to parse system info".to_string()));
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        // CPU
+        if let Ok(out) = Command::new("sh").args(["-c", "grep 'cpu ' /proc/stat"]).output() {
+            let s = String::from_utf8_lossy(&out.stdout);
+            info.insert("cpu_stat".to_string(), Value::Str(s.trim().to_string()));
+        }
+
+        // Load average
+        if let Ok(out) = Command::new("cat").arg("/proc/loadavg").output() {
+            let s = String::from_utf8_lossy(&out.stdout);
+            let parts: Vec<&str> = s.trim().split_whitespace().collect();
+            if parts.len() >= 3 {
+                let mut load = BTreeMap::new();
+                load.insert("1min".to_string(), Value::Float(parts[0].parse::<f64>().unwrap_or(0.0)));
+                load.insert("5min".to_string(), Value::Float(parts[1].parse::<f64>().unwrap_or(0.0)));
+                load.insert("15min".to_string(), Value::Float(parts[2].parse::<f64>().unwrap_or(0.0)));
+                info.insert("load_average".to_string(), Value::Record(load));
+            }
+        }
+
+        // Memory
+        if let Ok(out) = Command::new("free").args(["-b"]).output() {
+            let s = String::from_utf8_lossy(&out.stdout);
+            for line in s.lines() {
+                if line.starts_with("Mem:") {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() >= 4 {
+                        let total = parts[1].parse::<f64>().unwrap_or(1.0);
+                        let used = parts[2].parse::<f64>().unwrap_or(0.0);
+                        info.insert("mem_percent".to_string(), Value::Float((used / total * 100.0).round()));
+                        info.insert("mem_total".to_string(), Value::Int(total as i64));
+                        info.insert("mem_used".to_string(), Value::Int(used as i64));
+                        info.insert("mem_free".to_string(), Value::Int(parts[3].parse::<i64>().unwrap_or(0)));
+                    }
+                    break;
+                }
+            }
+        }
+
+        // Disk usage
+        if let Ok(out) = Command::new("df").args(["-B1", "--total"]).output() {
+            let s = String::from_utf8_lossy(&out.stdout);
+            for line in s.lines() {
+                if line.starts_with("total") {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() >= 5 {
+                        info.insert("disk_total".to_string(), Value::Int(parts[1].parse::<i64>().unwrap_or(0)));
+                        info.insert("disk_used".to_string(), Value::Int(parts[2].parse::<i64>().unwrap_or(0)));
+                        info.insert("disk_free".to_string(), Value::Int(parts[3].parse::<i64>().unwrap_or(0)));
+                        info.insert("disk_percent".to_string(), Value::Str(parts[4].to_string()));
+                    }
+                    break;
+                }
+            }
+        }
+
+        // Network rx/tx
+        if let Ok(out) = Command::new("cat").arg("/proc/net/dev").output() {
+            let s = String::from_utf8_lossy(&out.stdout);
+            let mut net_devices = Vec::new();
+            for line in s.lines().skip(2) {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 10 {
+                    let mut n = BTreeMap::new();
+                    n.insert("interface".to_string(), Value::Str(parts[0].trim_end_matches(':').to_string()));
+                    n.insert("rx_bytes".to_string(), Value::Int(parts[1].parse::<i64>().unwrap_or(0)));
+                    n.insert("tx_bytes".to_string(), Value::Int(parts[9].parse::<i64>().unwrap_or(0)));
+                    net_devices.push(Value::Record(n));
+                }
+            }
+            info.insert("network".to_string(), Value::Array(net_devices));
+        }
+
+        // Hostname
+        if let Ok(out) = Command::new("hostname").output() {
+            info.insert("hostname".to_string(), Value::Str(String::from_utf8_lossy(&out.stdout).trim().to_string()));
+        }
+    }
+
+    info.insert("timestamp".to_string(), Value::Str(chrono_timestamp()));
+    Ok(Value::Record(info))
+}
+
+/// Helper: generate ISO-8601 timestamp string
+fn chrono_timestamp() -> String {
+    let output = Command::new("date")
+        .args(["--iso-8601=seconds"])
+        .output()
+        .or_else(|_| {
+            // Windows fallback
+            Command::new("powershell")
+                .args(["-NoProfile", "-Command", "(Get-Date -Format o)"])
+                .output()
+        });
+    match output {
+        Ok(out) => String::from_utf8_lossy(&out.stdout).trim().to_string(),
+        Err(_) => "unknown".to_string(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 1021: bi_tcpdump_capture — Packet capture
+// ---------------------------------------------------------------------------
+pub fn bi_tcpdump_capture(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let iface = if !args.is_empty() {
+        match &args[0] {
+            Value::Str(s) => s.clone(),
+            _ => "any".to_string(),
+        }
+    } else {
+        "any".to_string()
+    };
+    let count = if args.len() > 1 {
+        match &args[1] {
+            Value::Int(n) => *n,
+            _ => 10,
+        }
+    } else {
+        10
+    };
+
+    #[cfg(target_os = "linux")]
+    {
+        let output = Command::new("tcpdump")
+            .args(["-c", &count.to_string(), "-i", &iface, "-nn", "-q"])
+            .output();
+        match output {
+            Ok(out) if out.status.success() => {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                let mut records = Vec::new();
+                let text = if stdout.trim().is_empty() { stderr.to_string() } else { stdout.to_string() };
+                for line in text.lines() {
+                    if !line.trim().is_empty() && !line.contains("listening on") && !line.contains("packets captured") {
+                        let mut rec = BTreeMap::new();
+                        rec.insert("line".to_string(), Value::Str(line.trim().to_string()));
+                        records.push(Value::Record(rec));
+                    }
+                }
+                let mut result = BTreeMap::new();
+                result.insert("interface".to_string(), Value::Str(iface));
+                result.insert("count".to_string(), Value::Int(count));
+                result.insert("packets".to_string(), Value::Array(records));
+                Ok(Value::Record(result))
+            }
+            Ok(out) => {
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                Err(anyhow!("tcpdump_capture: tcpdump failed: {}", stderr))
+            }
+            Err(e) => {
+                let mut rec = BTreeMap::new();
+                rec.insert("available".to_string(), Value::Bool(false));
+                rec.insert("reason".to_string(), Value::Str(format!("tcpdump not found: {}", e)));
+                Ok(Value::Record(rec))
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (iface, count);
+        let mut rec = BTreeMap::new();
+        rec.insert("available".to_string(), Value::Bool(false));
+        rec.insert("reason".to_string(), Value::Str("tcpdump_capture is only available on Linux".to_string()));
+        rec.insert("hint".to_string(), Value::Str("Use Wireshark or pktmon on Windows".to_string()));
+        Ok(Value::Record(rec))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 1022: bi_ss_info — Socket statistics
+// ---------------------------------------------------------------------------
+pub fn bi_ss_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let filter = if !args.is_empty() {
+        match &args[0] {
+            Value::Str(s) => s.clone(),
+            _ => "all".to_string(),
+        }
+    } else {
+        "all".to_string()
+    };
+
+    #[cfg(target_os = "windows")]
+    {
+        let _ = filter;
+        let ps_cmd = "netstat -an | Select-String -Pattern 'TCP|UDP' | ForEach-Object { $_.Line.Trim() }";
+        let output = Command::new("powershell")
+            .args(["-NoProfile", "-Command", ps_cmd])
+            .output()
+            .map_err(|e| anyhow!("ss_info: failed to run powershell: {}", e))?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut records = Vec::new();
+        for line in stdout.lines() {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 4 {
+                let mut rec = BTreeMap::new();
+                rec.insert("protocol".to_string(), Value::Str(parts[0].to_string()));
+                rec.insert("local_address".to_string(), Value::Str(parts[1].to_string()));
+                rec.insert("foreign_address".to_string(), Value::Str(parts[2].to_string()));
+                rec.insert("state".to_string(), Value::Str(parts.get(3).unwrap_or(&"").to_string()));
+                records.push(Value::Record(rec));
+            }
+        }
+        Ok(Value::Array(records))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let ss_args = match filter.as_str() {
+            "tcp" => vec!["-tln"],
+            "udp" => vec!["-uln"],
+            "listening" => vec!["-tuln"],
+            _ => vec!["-tuln"],
+        };
+        let output = Command::new("ss")
+            .args(&ss_args)
+            .output()
+            .map_err(|e| anyhow!("ss_info: failed to run ss: {}", e))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(anyhow!("ss_info: ss failed: {}", stderr));
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut records = Vec::new();
+        let lines: Vec<&str> = stdout.lines().collect();
+        for line in lines.iter().skip(1) {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 5 {
+                let mut rec = BTreeMap::new();
+                rec.insert("state".to_string(), Value::Str(parts[0].to_string()));
+                rec.insert("recv_q".to_string(), Value::Int(parts[1].parse::<i64>().unwrap_or(0)));
+                rec.insert("send_q".to_string(), Value::Int(parts[2].parse::<i64>().unwrap_or(0)));
+                rec.insert("local_address".to_string(), Value::Str(parts[3].to_string()));
+                rec.insert("peer_address".to_string(), Value::Str(parts[4].to_string()));
+                if parts.len() >= 6 {
+                    rec.insert("process".to_string(), Value::Str(parts[5..].join(" ")));
+                }
+                records.push(Value::Record(rec));
+            }
+        }
+        Ok(Value::Array(records))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 1023: bi_ip_addr — IP address management
+// ---------------------------------------------------------------------------
+pub fn bi_ip_addr(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let iface = if !args.is_empty() {
+        match &args[0] {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        }
+    } else {
+        None
+    };
+
+    #[cfg(target_os = "windows")]
+    {
+        let ps_cmd = if let Some(ref iface_name) = iface {
+            format!("Get-NetIPAddress | Where-Object {{ $_.InterfaceAlias -like '*{}*' }} | Select-Object InterfaceAlias, IPAddress, PrefixLength, AddressFamily, Type | ConvertTo-Json -Depth 3", iface_name)
+        } else {
+            "Get-NetIPAddress | Select-Object InterfaceAlias, IPAddress, PrefixLength, AddressFamily, Type | ConvertTo-Json -Depth 3".to_string()
+        };
+        let output = Command::new("powershell")
+            .args(["-NoProfile", "-Command", &ps_cmd])
+            .output()
+            .map_err(|e| anyhow!("ip_addr: failed to run powershell: {}", e))?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if stdout.trim().is_empty() {
+            return Ok(Value::Array(vec![]));
+        }
+        let json_val: serde_json::Value = serde_json::from_str(stdout.trim())
+            .map_err(|e| anyhow!("ip_addr: JSON parse error: {}", e))?;
+        Ok(json_to_value(json_val))
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let mut cmd = Command::new("ip");
+        cmd.args(["-j", "addr", "show"]);
+        if let Some(ref iface_name) = iface {
+            cmd.arg(iface_name);
+        }
+        let output = cmd.output()
+            .map_err(|e| anyhow!("ip_addr: failed to run ip: {}", e))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(anyhow!("ip_addr: ip command failed: {}", stderr));
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let json_val: serde_json::Value = serde_json::from_str(stdout.trim())
+            .map_err(|e| anyhow!("ip_addr: JSON parse error: {}", e))?;
+        Ok(json_to_value(json_val))
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let mut cmd = Command::new("ifconfig");
+        if let Some(ref iface_name) = iface {
+            cmd.arg(iface_name);
+        }
+        let output = cmd.output()
+            .map_err(|e| anyhow!("ip_addr: failed to run ifconfig: {}", e))?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut records = Vec::new();
+        let mut current_iface = String::new();
+        for line in stdout.lines() {
+            if !line.starts_with('\t') && !line.starts_with(' ') && line.contains(':') {
+                current_iface = line.split(':').next().unwrap_or("").to_string();
+            } else if line.trim().starts_with("inet ") {
+                let parts: Vec<&str> = line.trim().split_whitespace().collect();
+                if parts.len() >= 2 {
+                    let mut rec = BTreeMap::new();
+                    rec.insert("interface".to_string(), Value::Str(current_iface.clone()));
+                    rec.insert("address".to_string(), Value::Str(parts[1].to_string()));
+                    rec.insert("family".to_string(), Value::Str("inet".to_string()));
+                    if let Some(pos) = parts.iter().position(|&x| x == "netmask") {
+                        if parts.len() > pos + 1 {
+                            rec.insert("netmask".to_string(), Value::Str(parts[pos + 1].to_string()));
+                        }
+                    }
+                    records.push(Value::Record(rec));
+                }
+            } else if line.trim().starts_with("inet6 ") {
+                let parts: Vec<&str> = line.trim().split_whitespace().collect();
+                if parts.len() >= 2 {
+                    let mut rec = BTreeMap::new();
+                    rec.insert("interface".to_string(), Value::Str(current_iface.clone()));
+                    rec.insert("address".to_string(), Value::Str(parts[1].to_string()));
+                    rec.insert("family".to_string(), Value::Str("inet6".to_string()));
+                    records.push(Value::Record(rec));
+                }
+            }
+        }
+        Ok(Value::Array(records))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 1024: bi_ip_route — IP route table
+// ---------------------------------------------------------------------------
+pub fn bi_ip_route(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let _ = args;
+
+    #[cfg(target_os = "windows")]
+    {
+        let ps_cmd = "Get-NetRoute | Select-Object DestinationPrefix, NextHop, InterfaceAlias, RouteMetric, InterfaceMetric | ConvertTo-Json -Depth 3";
+        let output = Command::new("powershell")
+            .args(["-NoProfile", "-Command", ps_cmd])
+            .output()
+            .map_err(|e| anyhow!("ip_route: failed to run powershell: {}", e))?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if stdout.trim().is_empty() {
+            return Ok(Value::Array(vec![]));
+        }
+        let json_val: serde_json::Value = serde_json::from_str(stdout.trim())
+            .map_err(|e| anyhow!("ip_route: JSON parse error: {}", e))?;
+        Ok(json_to_value(json_val))
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let output = Command::new("ip")
+            .args(["-j", "route", "show"])
+            .output()
+            .map_err(|e| anyhow!("ip_route: failed to run ip: {}", e))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(anyhow!("ip_route: ip command failed: {}", stderr));
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let json_val: serde_json::Value = serde_json::from_str(stdout.trim())
+            .map_err(|e| anyhow!("ip_route: JSON parse error: {}", e))?;
+        Ok(json_to_value(json_val))
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let output = Command::new("netstat")
+            .args(["-rn"])
+            .output()
+            .map_err(|e| anyhow!("ip_route: failed to run netstat: {}", e))?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut records = Vec::new();
+        let mut header_seen = false;
+        for line in stdout.lines() {
+            if line.starts_with("Destination") {
+                header_seen = true;
+                continue;
+            }
+            if header_seen {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 4 {
+                    let mut rec = BTreeMap::new();
+                    rec.insert("destination".to_string(), Value::Str(parts[0].to_string()));
+                    rec.insert("gateway".to_string(), Value::Str(parts[1].to_string()));
+                    rec.insert("flags".to_string(), Value::Str(parts[2].to_string()));
+                    rec.insert("interface".to_string(), Value::Str(parts.last().unwrap_or(&"").to_string()));
+                    records.push(Value::Record(rec));
+                }
+            }
+        }
+        Ok(Value::Array(records))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 1025: bi_ip_link — Network link info
+// ---------------------------------------------------------------------------
+pub fn bi_ip_link(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let iface = if !args.is_empty() {
+        match &args[0] {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        }
+    } else {
+        None
+    };
+
+    #[cfg(target_os = "windows")]
+    {
+        let ps_cmd = if let Some(ref iface_name) = iface {
+            format!("Get-NetAdapter | Where-Object {{ $_.Name -like '*{}*' }} | Select-Object Name, InterfaceDescription, Status, MacAddress, LinkSpeed, MediaType | ConvertTo-Json -Depth 3", iface_name)
+        } else {
+            "Get-NetAdapter | Select-Object Name, InterfaceDescription, Status, MacAddress, LinkSpeed, MediaType | ConvertTo-Json -Depth 3".to_string()
+        };
+        let output = Command::new("powershell")
+            .args(["-NoProfile", "-Command", &ps_cmd])
+            .output()
+            .map_err(|e| anyhow!("ip_link: failed to run powershell: {}", e))?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if stdout.trim().is_empty() {
+            return Ok(Value::Array(vec![]));
+        }
+        let json_val: serde_json::Value = serde_json::from_str(stdout.trim())
+            .map_err(|e| anyhow!("ip_link: JSON parse error: {}", e))?;
+        Ok(json_to_value(json_val))
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let mut cmd = Command::new("ip");
+        cmd.args(["-j", "link", "show"]);
+        if let Some(ref iface_name) = iface {
+            cmd.arg(iface_name);
+        }
+        let output = cmd.output()
+            .map_err(|e| anyhow!("ip_link: failed to run ip: {}", e))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(anyhow!("ip_link: ip command failed: {}", stderr));
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let json_val: serde_json::Value = serde_json::from_str(stdout.trim())
+            .map_err(|e| anyhow!("ip_link: JSON parse error: {}", e))?;
+        Ok(json_to_value(json_val))
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let mut cmd = Command::new("ifconfig");
+        if let Some(ref iface_name) = iface {
+            cmd.arg(iface_name);
+        }
+        let output = cmd.output()
+            .map_err(|e| anyhow!("ip_link: failed to run ifconfig: {}", e))?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut records = Vec::new();
+        let mut current_iface = String::new();
+        let mut current_rec = BTreeMap::new();
+        for line in stdout.lines() {
+            if !line.starts_with('\t') && !line.starts_with(' ') && line.contains(':') {
+                if !current_iface.is_empty() {
+                    current_rec.insert("interface".to_string(), Value::Str(current_iface.clone()));
+                    records.push(Value::Record(current_rec.clone()));
+                }
+                current_iface = line.split(':').next().unwrap_or("").to_string();
+                current_rec = BTreeMap::new();
+                let flags_part = line.split('<').nth(1).and_then(|s| s.split('>').next());
+                if let Some(flags) = flags_part {
+                    current_rec.insert("flags".to_string(), Value::Str(flags.to_string()));
+                }
+            } else if line.trim().starts_with("ether ") {
+                let parts: Vec<&str> = line.trim().split_whitespace().collect();
+                if parts.len() >= 2 {
+                    current_rec.insert("mac_address".to_string(), Value::Str(parts[1].to_string()));
+                }
+            } else if line.trim().starts_with("status:") {
+                let parts: Vec<&str> = line.trim().split_whitespace().collect();
+                if parts.len() >= 2 {
+                    current_rec.insert("status".to_string(), Value::Str(parts[1].to_string()));
+                }
+            }
+        }
+        if !current_iface.is_empty() {
+            current_rec.insert("interface".to_string(), Value::Str(current_iface));
+            records.push(Value::Record(current_rec));
+        }
+        Ok(Value::Array(records))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 1026: bi_ethtool_info — Ethernet device info (Linux only)
+// ---------------------------------------------------------------------------
+pub fn bi_ethtool_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let device = if !args.is_empty() {
+        match &args[0] {
+            Value::Str(s) => s.clone(),
+            _ => return Err(anyhow!("ethtool_info: device name required as string argument")),
+        }
+    } else {
+        return Err(anyhow!("ethtool_info: device name required (e.g., \"eth0\")"));
+    };
+
+    #[cfg(target_os = "linux")]
+    {
+        let output = Command::new("ethtool")
+            .arg(&device)
+            .output();
+        match output {
+            Ok(out) if out.status.success() => {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                let mut rec = BTreeMap::new();
+                rec.insert("device".to_string(), Value::Str(device));
+                for line in stdout.lines() {
+                    let trimmed = line.trim();
+                    if let Some((key, val)) = trimmed.split_once(':') {
+                        let k = key.trim().to_lowercase().replace(' ', "_").replace('-', "_");
+                        let v = val.trim();
+                        if !k.is_empty() && !v.is_empty() {
+                            rec.insert(k, Value::Str(v.to_string()));
+                        }
+                    }
+                }
+                Ok(Value::Record(rec))
+            }
+            Ok(out) => {
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                Err(anyhow!("ethtool_info: ethtool failed for {}: {}", device, stderr))
+            }
+            Err(e) => {
+                let mut rec = BTreeMap::new();
+                rec.insert("available".to_string(), Value::Bool(false));
+                rec.insert("reason".to_string(), Value::Str(format!("ethtool not found: {}", e)));
+                Ok(Value::Record(rec))
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = device;
+        let mut rec = BTreeMap::new();
+        rec.insert("available".to_string(), Value::Bool(false));
+        rec.insert("reason".to_string(), Value::Str("ethtool is only available on Linux".to_string()));
+        Ok(Value::Record(rec))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 1027: bi_perf_stat — Performance counters (Linux only)
+// ---------------------------------------------------------------------------
+pub fn bi_perf_stat(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let command = if !args.is_empty() {
+        match &args[0] {
+            Value::Str(s) => s.clone(),
+            _ => return Err(anyhow!("perf_stat: command string required")),
+        }
+    } else {
+        return Err(anyhow!("perf_stat: command string required (e.g., \"sleep 1\")"));
+    };
+    let events = if args.len() > 1 {
+        match &args[1] {
+            Value::Str(s) => s.clone(),
+            _ => "cycles,instructions,cache-misses".to_string(),
+        }
+    } else {
+        "cycles,instructions,cache-misses".to_string()
+    };
+
+    #[cfg(target_os = "linux")]
+    {
+        let output = Command::new("perf")
+            .args(["stat", "-e", &events, "--", "sh", "-c", &command])
+            .output();
+        match output {
+            Ok(out) => {
+                // perf stat outputs to stderr
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                let mut rec = BTreeMap::new();
+                rec.insert("command".to_string(), Value::Str(command));
+                rec.insert("events".to_string(), Value::Str(events));
+                let mut counters = Vec::new();
+                for line in stderr.lines() {
+                    let trimmed = line.trim();
+                    if trimmed.is_empty() || trimmed.starts_with("Performance") || trimmed.starts_with("#") {
+                        continue;
+                    }
+                    // Parse lines like "  1,234,567      cycles"
+                    let parts: Vec<&str> = trimmed.split_whitespace().collect();
+                    if parts.len() >= 2 {
+                        let mut counter = BTreeMap::new();
+                        counter.insert("value".to_string(), Value::Str(parts[0].to_string()));
+                        counter.insert("name".to_string(), Value::Str(parts[1..].join(" ")));
+                        counters.push(Value::Record(counter));
+                    }
+                }
+                rec.insert("counters".to_string(), Value::Array(counters));
+                rec.insert("raw_output".to_string(), Value::Str(stderr.to_string()));
+                Ok(Value::Record(rec))
+            }
+            Err(e) => {
+                let mut rec = BTreeMap::new();
+                rec.insert("available".to_string(), Value::Bool(false));
+                rec.insert("reason".to_string(), Value::Str(format!("perf not found: {}", e)));
+                Ok(Value::Record(rec))
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (command, events);
+        let mut rec = BTreeMap::new();
+        rec.insert("available".to_string(), Value::Bool(false));
+        rec.insert("reason".to_string(), Value::Str("perf stat is only available on Linux".to_string()));
+        Ok(Value::Record(rec))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 1028: bi_perf_record — Performance recording info (Linux only)
+// ---------------------------------------------------------------------------
+pub fn bi_perf_record(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let command = if !args.is_empty() {
+        match &args[0] {
+            Value::Str(s) => s.clone(),
+            _ => return Err(anyhow!("perf_record: command string required")),
+        }
+    } else {
+        return Err(anyhow!("perf_record: command string required (e.g., \"sleep 1\")"));
+    };
+    let output_file = if args.len() > 1 {
+        match &args[1] {
+            Value::Str(s) => s.clone(),
+            _ => "perf.data".to_string(),
+        }
+    } else {
+        "perf.data".to_string()
+    };
+
+    #[cfg(target_os = "linux")]
+    {
+        let output = Command::new("perf")
+            .args(["record", "-o", &output_file, "--", "sh", "-c", &command])
+            .output();
+        match output {
+            Ok(out) => {
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                let mut rec = BTreeMap::new();
+                rec.insert("command".to_string(), Value::Str(command));
+                rec.insert("output_file".to_string(), Value::Str(output_file));
+                rec.insert("success".to_string(), Value::Bool(out.status.success()));
+                rec.insert("details".to_string(), Value::Str(stderr.trim().to_string()));
+                rec.insert("hint".to_string(), Value::Str("Use 'perf report' to analyze the recorded data".to_string()));
+                Ok(Value::Record(rec))
+            }
+            Err(e) => {
+                let mut rec = BTreeMap::new();
+                rec.insert("available".to_string(), Value::Bool(false));
+                rec.insert("reason".to_string(), Value::Str(format!("perf not found: {}", e)));
+                Ok(Value::Record(rec))
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (command, output_file);
+        let mut rec = BTreeMap::new();
+        rec.insert("available".to_string(), Value::Bool(false));
+        rec.insert("reason".to_string(), Value::Str("perf record is only available on Linux".to_string()));
+        Ok(Value::Record(rec))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 1029: bi_free_mem — Memory usage (cross-platform)
+// ---------------------------------------------------------------------------
+pub fn bi_free_mem(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let _ = args;
+
+    #[cfg(target_os = "windows")]
+    {
+        let ps_cmd = r#"
+$os = Get-CimInstance Win32_OperatingSystem
+$total = $os.TotalVisibleMemorySize * 1024
+$free = $os.FreePhysicalMemory * 1024
+$used = $total - $free
+$swapTotal = $os.TotalVirtualMemorySize * 1024
+$swapFree = $os.FreeVirtualMemory * 1024
+$swapUsed = $swapTotal - $swapFree
+@{
+    total = $total
+    used = $used
+    free = $free
+    available = $free
+    use_percent = [math]::Round(($used / $total) * 100, 2)
+    swap_total = $swapTotal
+    swap_used = $swapUsed
+    swap_free = $swapFree
+} | ConvertTo-Json
+"#;
+        let output = Command::new("powershell")
+            .args(["-NoProfile", "-Command", ps_cmd])
+            .output()
+            .map_err(|e| anyhow!("free_mem: failed to run powershell: {}", e))?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let json_val: serde_json::Value = serde_json::from_str(stdout.trim())
+            .map_err(|e| anyhow!("free_mem: JSON parse error: {}", e))?;
+        Ok(json_to_value(json_val))
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let output = Command::new("free")
+            .args(["-b"])
+            .output()
+            .map_err(|e| anyhow!("free_mem: failed to run free: {}", e))?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut rec = BTreeMap::new();
+        for line in stdout.lines() {
+            if line.starts_with("Mem:") {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 4 {
+                    let total = parts[1].parse::<i64>().unwrap_or(0);
+                    let used = parts[2].parse::<i64>().unwrap_or(0);
+                    let free = parts[3].parse::<i64>().unwrap_or(0);
+                    rec.insert("total".to_string(), Value::Int(total));
+                    rec.insert("used".to_string(), Value::Int(used));
+                    rec.insert("free".to_string(), Value::Int(free));
+                    if parts.len() >= 7 {
+                        let available = parts[6].parse::<i64>().unwrap_or(0);
+                        rec.insert("available".to_string(), Value::Int(available));
+                    }
+                    if total > 0 {
+                        rec.insert("use_percent".to_string(), Value::Float((used as f64 / total as f64) * 100.0));
+                    }
+                    if parts.len() >= 5 {
+                        rec.insert("shared".to_string(), Value::Int(parts[4].parse::<i64>().unwrap_or(0)));
+                    }
+                    if parts.len() >= 6 {
+                        rec.insert("buff_cache".to_string(), Value::Int(parts[5].parse::<i64>().unwrap_or(0)));
+                    }
+                }
+            } else if line.starts_with("Swap:") {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 4 {
+                    rec.insert("swap_total".to_string(), Value::Int(parts[1].parse::<i64>().unwrap_or(0)));
+                    rec.insert("swap_used".to_string(), Value::Int(parts[2].parse::<i64>().unwrap_or(0)));
+                    rec.insert("swap_free".to_string(), Value::Int(parts[3].parse::<i64>().unwrap_or(0)));
+                }
+            }
+        }
+        Ok(Value::Record(rec))
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let output = Command::new("vm_stat")
+            .output()
+            .map_err(|e| anyhow!("free_mem: failed to run vm_stat: {}", e))?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut rec = BTreeMap::new();
+        let page_size: i64 = 4096; // macOS default page size
+        for line in stdout.lines() {
+            let trimmed = line.trim().trim_end_matches('.');
+            if let Some((key, val)) = trimmed.split_once(':') {
+                let k = key.trim().to_lowercase().replace(' ', "_").replace('\"', "");
+                let v = val.trim().replace(",", "").parse::<i64>().unwrap_or(0);
+                let bytes = v * page_size;
+                rec.insert(k, Value::Int(bytes));
+            }
+        }
+
+        // Also get total memory via sysctl
+        let sysctl_out = Command::new("sysctl")
+            .args(["-n", "hw.memsize"])
+            .output();
+        if let Ok(out) = sysctl_out {
+            let s = String::from_utf8_lossy(&out.stdout);
+            rec.insert("total".to_string(), Value::Int(s.trim().parse::<i64>().unwrap_or(0)));
+        }
+
+        Ok(Value::Record(rec))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 1030: bi_uptime_extended — Extended uptime info
+// ---------------------------------------------------------------------------
+pub fn bi_uptime_extended(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let _ = args;
+    let mut rec = BTreeMap::new();
+
+    #[cfg(target_os = "windows")]
+    {
+        let ps_cmd = r#"
+$os = Get-CimInstance Win32_OperatingSystem
+$boot = $os.LastBootUpTime
+$uptime = (New-TimeSpan -Start $boot -End (Get-Date))
+$users = (query user 2>$null | Measure-Object).Count - 1
+@{
+    boot_time = $boot.ToString("o")
+    uptime_seconds = [math]::Round($uptime.TotalSeconds)
+    uptime_days = [math]::Round($uptime.TotalDays, 2)
+    uptime_human = "$([math]::Floor($uptime.TotalDays))d $($uptime.Hours)h $($uptime.Minutes)m"
+    users = [math]::Max(0, $users)
+    hostname = $env:COMPUTERNAME
+} | ConvertTo-Json
+"#;
+        let output = Command::new("powershell")
+            .args(["-NoProfile", "-Command", ps_cmd])
+            .output()
+            .map_err(|e| anyhow!("uptime_extended: failed to run powershell: {}", e))?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if let Ok(jv) = serde_json::from_str::<serde_json::Value>(stdout.trim()) {
+            return Ok(json_to_value(jv));
+        }
+        rec.insert("error".to_string(), Value::Str("Failed to parse uptime info".to_string()));
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        // Uptime
+        let output = Command::new("uptime")
+            .output()
+            .map_err(|e| anyhow!("uptime_extended: failed to run uptime: {}", e))?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        rec.insert("uptime_raw".to_string(), Value::Str(stdout.trim().to_string()));
+
+        // Parse /proc/uptime on Linux
+        if let Ok(out) = Command::new("cat").arg("/proc/uptime").output() {
+            let s = String::from_utf8_lossy(&out.stdout);
+            let parts: Vec<&str> = s.trim().split_whitespace().collect();
+            if parts.len() >= 1 {
+                let secs = parts[0].parse::<f64>().unwrap_or(0.0);
+                rec.insert("uptime_seconds".to_string(), Value::Float(secs));
+                rec.insert("uptime_days".to_string(), Value::Float(secs / 86400.0));
+            }
+        }
+
+        // Load average
+        if let Ok(out) = Command::new("cat").arg("/proc/loadavg").output() {
+            let s = String::from_utf8_lossy(&out.stdout);
+            let parts: Vec<&str> = s.trim().split_whitespace().collect();
+            if parts.len() >= 3 {
+                let mut load = BTreeMap::new();
+                load.insert("1min".to_string(), Value::Float(parts[0].parse::<f64>().unwrap_or(0.0)));
+                load.insert("5min".to_string(), Value::Float(parts[1].parse::<f64>().unwrap_or(0.0)));
+                load.insert("15min".to_string(), Value::Float(parts[2].parse::<f64>().unwrap_or(0.0)));
+                rec.insert("load_average".to_string(), Value::Record(load));
+            }
+        }
+
+        // Users
+        if let Ok(out) = Command::new("who").output() {
+            let s = String::from_utf8_lossy(&out.stdout);
+            let user_count = s.lines().count();
+            rec.insert("users".to_string(), Value::Int(user_count as i64));
+        }
+
+        // Hostname
+        if let Ok(out) = Command::new("hostname").output() {
+            rec.insert("hostname".to_string(), Value::Str(String::from_utf8_lossy(&out.stdout).trim().to_string()));
+        }
+    }
+
+    rec.insert("timestamp".to_string(), Value::Str(chrono_timestamp()));
+    Ok(Value::Record(rec))
+}
+
+// ---------------------------------------------------------------------------
+// 1031: bi_who_users — Currently logged in users
+// ---------------------------------------------------------------------------
+pub fn bi_who_users(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let _ = args;
+
+    #[cfg(target_os = "windows")]
+    {
+        let output = Command::new("powershell")
+            .args(["-NoProfile", "-Command", "query user 2>$null | Out-String"])
+            .output()
+            .map_err(|e| anyhow!("who_users: failed to run query user: {}", e))?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut records = Vec::new();
+        for line in stdout.lines().skip(1) {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let parts: Vec<&str> = trimmed.split_whitespace().collect();
+            if parts.len() >= 4 {
+                let mut rec = BTreeMap::new();
+                rec.insert("username".to_string(), Value::Str(parts[0].trim_start_matches('>').to_string()));
+                rec.insert("session_name".to_string(), Value::Str(parts[1].to_string()));
+                rec.insert("id".to_string(), Value::Str(parts[2].to_string()));
+                rec.insert("state".to_string(), Value::Str(parts[3].to_string()));
+                if parts.len() >= 5 {
+                    rec.insert("idle_time".to_string(), Value::Str(parts[4].to_string()));
+                }
+                if parts.len() >= 6 {
+                    rec.insert("logon_time".to_string(), Value::Str(parts[5..].join(" ")));
+                }
+                records.push(Value::Record(rec));
+            }
+        }
+        Ok(Value::Array(records))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let output = Command::new("who")
+            .output()
+            .map_err(|e| anyhow!("who_users: failed to run who: {}", e))?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut records = Vec::new();
+        for line in stdout.lines() {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 3 {
+                let mut rec = BTreeMap::new();
+                rec.insert("username".to_string(), Value::Str(parts[0].to_string()));
+                rec.insert("terminal".to_string(), Value::Str(parts[1].to_string()));
+                rec.insert("login_time".to_string(), Value::Str(parts[2..].join(" ")));
+                records.push(Value::Record(rec));
+            }
+        }
+        Ok(Value::Array(records))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 1032: bi_last_logins — Recent login history
+// ---------------------------------------------------------------------------
+pub fn bi_last_logins(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let count = if !args.is_empty() {
+        match &args[0] {
+            Value::Int(n) => *n,
+            _ => 20,
+        }
+    } else {
+        20
+    };
+
+    #[cfg(target_os = "windows")]
+    {
+        let ps_cmd = format!(
+            r#"try {{
+    Get-WinEvent -FilterHashtable @{{LogName='Security'; Id=4624}} -MaxEvents {} -ErrorAction Stop |
+        Select-Object TimeCreated, Id, @{{Name='User';Expression={{$_.Properties[5].Value}}}}, @{{Name='LogonType';Expression={{$_.Properties[8].Value}}}}, @{{Name='SourceIP';Expression={{$_.Properties[18].Value}}}} |
+        ConvertTo-Json -Depth 3
+}} catch {{
+    @{{available = $false; reason = $_.Exception.Message}} | ConvertTo-Json
+}}"#,
+            count
+        );
+        let output = Command::new("powershell")
+            .args(["-NoProfile", "-Command", &ps_cmd])
+            .output()
+            .map_err(|e| anyhow!("last_logins: failed to run powershell: {}", e))?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if stdout.trim().is_empty() {
+            let mut rec = BTreeMap::new();
+            rec.insert("available".to_string(), Value::Bool(false));
+            rec.insert("reason".to_string(), Value::Str("No login events found or access denied".to_string()));
+            return Ok(Value::Record(rec));
+        }
+        let json_val: serde_json::Value = serde_json::from_str(stdout.trim())
+            .map_err(|e| anyhow!("last_logins: JSON parse error: {}", e))?;
+        Ok(json_to_value(json_val))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let output = Command::new("last")
+            .args(["-n", &count.to_string()])
+            .output()
+            .map_err(|e| anyhow!("last_logins: failed to run last: {}", e))?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut records = Vec::new();
+        for line in stdout.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with("wtmp") || trimmed.starts_with("btmp") {
+                continue;
+            }
+            let parts: Vec<&str> = trimmed.split_whitespace().collect();
+            if parts.len() >= 4 {
+                let mut rec = BTreeMap::new();
+                rec.insert("user".to_string(), Value::Str(parts[0].to_string()));
+                rec.insert("terminal".to_string(), Value::Str(parts[1].to_string()));
+                // Handle host field (may be absent)
+                let time_start = if parts.len() > 5 {
+                    rec.insert("host".to_string(), Value::Str(parts[2].to_string()));
+                    3
+                } else {
+                    2
+                };
+                if parts.len() > time_start {
+                    rec.insert("login_time".to_string(), Value::Str(parts[time_start..].join(" ")));
+                }
+                records.push(Value::Record(rec));
+            }
+        }
+        Ok(Value::Array(records))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 1033: bi_syslog_search — System log search
+// ---------------------------------------------------------------------------
+pub fn bi_syslog_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let keyword = if !args.is_empty() {
+        match &args[0] {
+            Value::Str(s) => s.clone(),
+            _ => return Err(anyhow!("syslog_search: keyword string required")),
+        }
+    } else {
+        return Err(anyhow!("syslog_search: keyword string required"));
+    };
+    let count = if args.len() > 1 {
+        match &args[1] {
+            Value::Int(n) => *n,
+            _ => 50,
+        }
+    } else {
+        50
+    };
+
+    #[cfg(target_os = "windows")]
+    {
+        let ps_cmd = format!(
+            r#"try {{
+    Get-WinEvent -FilterHashtable @{{LogName='System'}} -MaxEvents 500 -ErrorAction Stop |
+        Where-Object {{ $_.Message -like '*{}*' }} |
+        Select-Object -First {} |
+        Select-Object TimeCreated, Id, LevelDisplayName, ProviderName, Message |
+        ConvertTo-Json -Depth 3
+}} catch {{
+    @{{available = $false; reason = $_.Exception.Message}} | ConvertTo-Json
+}}"#,
+            keyword.replace("'", "''"),
+            count
+        );
+        let output = Command::new("powershell")
+            .args(["-NoProfile", "-Command", &ps_cmd])
+            .output()
+            .map_err(|e| anyhow!("syslog_search: failed to run powershell: {}", e))?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if stdout.trim().is_empty() {
+            return Ok(Value::Array(vec![]));
+        }
+        let json_val: serde_json::Value = serde_json::from_str(stdout.trim())
+            .map_err(|e| anyhow!("syslog_search: JSON parse error: {}", e))?;
+        Ok(json_to_value(json_val))
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        // Try journalctl first, fall back to grep in /var/log/syslog
+        let output = Command::new("journalctl")
+            .args(["-g", &keyword, "-n", &count.to_string(), "--no-pager", "-o", "json"])
+            .output();
+
+        match output {
+            Ok(out) if out.status.success() => {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                let mut records = Vec::new();
+                for line in stdout.lines() {
+                    if let Ok(jv) = serde_json::from_str::<serde_json::Value>(line) {
+                        records.push(json_to_value(jv));
+                    }
+                }
+                Ok(Value::Array(records))
+            }
+            _ => {
+                // Fallback: grep syslog
+                let output = Command::new("grep")
+                    .args(["-i", &keyword, "/var/log/syslog"])
+                    .output()
+                    .or_else(|_| Command::new("grep").args(["-i", &keyword, "/var/log/messages"]).output())
+                    .map_err(|e| anyhow!("syslog_search: fallback grep failed: {}", e))?;
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let mut records = Vec::new();
+                for line in stdout.lines().rev().take(count as usize) {
+                    let mut rec = BTreeMap::new();
+                    rec.insert("line".to_string(), Value::Str(line.to_string()));
+                    records.push(Value::Record(rec));
+                }
+                records.reverse();
+                Ok(Value::Array(records))
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let predicate = format!("eventMessage contains \"{}\"", keyword.replace('"', "\\\""));
+        let output = Command::new("log")
+            .args(["show", "--predicate", &predicate, "--last", "1h", "--style", "json"])
+            .output()
+            .map_err(|e| anyhow!("syslog_search: failed to run log: {}", e))?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if let Ok(jv) = serde_json::from_str::<serde_json::Value>(stdout.trim()) {
+            // Limit results
+            if let Some(arr) = jv.as_array() {
+                let limited: Vec<serde_json::Value> = arr.iter().take(count as usize).cloned().collect();
+                return Ok(json_to_value(serde_json::Value::Array(limited)));
+            }
+            return Ok(json_to_value(jv));
+        }
+        // Plain text fallback
+        let mut records = Vec::new();
+        for line in stdout.lines().take(count as usize) {
+            let mut rec = BTreeMap::new();
+            rec.insert("line".to_string(), Value::Str(line.to_string()));
+            records.push(Value::Record(rec));
+        }
+        Ok(Value::Array(records))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 1034: bi_dstat_info — System resource stats (aggregate)
+// ---------------------------------------------------------------------------
+pub fn bi_dstat_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let _ = args;
+    let mut stats = BTreeMap::new();
+
+    #[cfg(target_os = "windows")]
+    {
+        let ps_cmd = r#"
+$cpu = (Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average
+$os = Get-CimInstance Win32_OperatingSystem
+$memTotal = $os.TotalVisibleMemorySize * 1024
+$memFree = $os.FreePhysicalMemory * 1024
+$memUsed = $memTotal - $memFree
+
+$diskIO = Get-CimInstance Win32_PerfFormattedData_PerfDisk_PhysicalDisk -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -eq '_Total' } |
+    Select-Object DiskReadBytesPersec, DiskWriteBytesPersec, DiskTransfersPersec
+
+$netAdapters = Get-NetAdapterStatistics -ErrorAction SilentlyContinue |
+    Measure-Object -Property ReceivedBytes, SentBytes -Sum
+
+@{
+    cpu_percent = $cpu
+    mem_total = $memTotal
+    mem_used = $memUsed
+    mem_free = $memFree
+    disk_read_bps = if($diskIO) { $diskIO.DiskReadBytesPersec } else { 0 }
+    disk_write_bps = if($diskIO) { $diskIO.DiskWriteBytesPersec } else { 0 }
+    disk_transfers_ps = if($diskIO) { $diskIO.DiskTransfersPersec } else { 0 }
+    net_rx_bytes = ($netAdapters | Where-Object Property -eq 'ReceivedBytes').Sum
+    net_tx_bytes = ($netAdapters | Where-Object Property -eq 'SentBytes').Sum
+} | ConvertTo-Json -Depth 3
+"#;
+        let output = Command::new("powershell")
+            .args(["-NoProfile", "-Command", ps_cmd])
+            .output()
+            .map_err(|e| anyhow!("dstat_info: failed to run powershell: {}", e))?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if let Ok(jv) = serde_json::from_str::<serde_json::Value>(stdout.trim()) {
+            return Ok(json_to_value(jv));
+        }
+        stats.insert("error".to_string(), Value::Str("Failed to parse dstat info".to_string()));
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        // CPU from /proc/stat
+        if let Ok(out) = Command::new("cat").arg("/proc/stat").output() {
+            let s = String::from_utf8_lossy(&out.stdout);
+            if let Some(line) = s.lines().find(|l| l.starts_with("cpu ")) {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 5 {
+                    let mut cpu = BTreeMap::new();
+                    cpu.insert("user".to_string(), Value::Int(parts[1].parse::<i64>().unwrap_or(0)));
+                    cpu.insert("nice".to_string(), Value::Int(parts[2].parse::<i64>().unwrap_or(0)));
+                    cpu.insert("system".to_string(), Value::Int(parts[3].parse::<i64>().unwrap_or(0)));
+                    cpu.insert("idle".to_string(), Value::Int(parts[4].parse::<i64>().unwrap_or(0)));
+                    if parts.len() >= 8 {
+                        cpu.insert("iowait".to_string(), Value::Int(parts[5].parse::<i64>().unwrap_or(0)));
+                        cpu.insert("irq".to_string(), Value::Int(parts[6].parse::<i64>().unwrap_or(0)));
+                        cpu.insert("softirq".to_string(), Value::Int(parts[7].parse::<i64>().unwrap_or(0)));
+                    }
+                    stats.insert("cpu".to_string(), Value::Record(cpu));
+                }
+            }
+        }
+
+        // Disk I/O from /proc/diskstats
+        if let Ok(out) = Command::new("cat").arg("/proc/diskstats").output() {
+            let s = String::from_utf8_lossy(&out.stdout);
+            let mut disk_devices = Vec::new();
+            for line in s.lines() {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 14 {
+                    let name = parts[2];
+                    // Skip partitions (only show whole disks like sda, nvme0n1)
+                    if name.starts_with("sd") && name.len() == 3
+                        || name.starts_with("nvme") && name.contains("n") && !name.contains("p")
+                        || name.starts_with("vd") && name.len() == 3
+                    {
+                        let mut d = BTreeMap::new();
+                        d.insert("device".to_string(), Value::Str(name.to_string()));
+                        d.insert("reads".to_string(), Value::Int(parts[3].parse::<i64>().unwrap_or(0)));
+                        d.insert("read_sectors".to_string(), Value::Int(parts[5].parse::<i64>().unwrap_or(0)));
+                        d.insert("writes".to_string(), Value::Int(parts[7].parse::<i64>().unwrap_or(0)));
+                        d.insert("write_sectors".to_string(), Value::Int(parts[9].parse::<i64>().unwrap_or(0)));
+                        d.insert("io_in_progress".to_string(), Value::Int(parts[11].parse::<i64>().unwrap_or(0)));
+                        disk_devices.push(Value::Record(d));
+                    }
+                }
+            }
+            stats.insert("disk".to_string(), Value::Array(disk_devices));
+        }
+
+        // Network from /proc/net/dev
+        if let Ok(out) = Command::new("cat").arg("/proc/net/dev").output() {
+            let s = String::from_utf8_lossy(&out.stdout);
+            let mut net_devices = Vec::new();
+            for line in s.lines().skip(2) {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 10 {
+                    let iface = parts[0].trim_end_matches(':');
+                    if iface != "lo" {
+                        let mut n = BTreeMap::new();
+                        n.insert("interface".to_string(), Value::Str(iface.to_string()));
+                        n.insert("rx_bytes".to_string(), Value::Int(parts[1].parse::<i64>().unwrap_or(0)));
+                        n.insert("rx_packets".to_string(), Value::Int(parts[2].parse::<i64>().unwrap_or(0)));
+                        n.insert("tx_bytes".to_string(), Value::Int(parts[9].parse::<i64>().unwrap_or(0)));
+                        n.insert("tx_packets".to_string(), Value::Int(parts[10].parse::<i64>().unwrap_or(0)));
+                        net_devices.push(Value::Record(n));
+                    }
+                }
+            }
+            stats.insert("network".to_string(), Value::Array(net_devices));
+        }
+
+        // Memory
+        if let Ok(out) = Command::new("free").args(["-b"]).output() {
+            let s = String::from_utf8_lossy(&out.stdout);
+            for line in s.lines() {
+                if line.starts_with("Mem:") {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() >= 4 {
+                        let mut mem = BTreeMap::new();
+                        mem.insert("total".to_string(), Value::Int(parts[1].parse::<i64>().unwrap_or(0)));
+                        mem.insert("used".to_string(), Value::Int(parts[2].parse::<i64>().unwrap_or(0)));
+                        mem.insert("free".to_string(), Value::Int(parts[3].parse::<i64>().unwrap_or(0)));
+                        stats.insert("memory".to_string(), Value::Record(mem));
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    stats.insert("timestamp".to_string(), Value::Str(chrono_timestamp()));
+    Ok(Value::Record(stats))
+}
+
