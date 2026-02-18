@@ -84,6 +84,8 @@ builtin_bad() -> Value::String("raw text output")
 - **AI provider integration**: `ai_api/providers.rs`
 - **TUI features**: `tui/app.rs` and corresponding UI modules
 - **Bash compatibility**: `transpile/bash.rs` (keep separate from native features)
+- **Zsh compatibility**: `transpile/zsh.rs` (Zsh-specific constructs, 100+ builtins)
+- **PowerShell compatibility**: `transpile/powershell.rs` (cmdlet mappings, brace-based blocks)
 
 ## Environment Setup
 

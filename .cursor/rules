@@ -21,6 +21,7 @@ A typed functional shell where data flows as structured `Value` types (Int, Floa
 - `src/agent.rs` - autonomous agents with tool access
 - `src/agent_api.rs` - HTTP/WS/SSE server (port 3002), 25+ AI provider schema formats
 - `src/tui/` - terminal UI (app, chat, events, media, agents)
+- `src/transpile/` - shell transpilers (Bash, Zsh, PowerShell → AetherShell)
 - `src/value.rs` - `Value` enum: Int, Float, String, Bool, Array, Record, Lambda, Null
 
 ## Key Patterns

@@ -55,6 +55,10 @@ ae -e 'expression' --json      # Evaluate and output JSON
 ae assist "query"              # AI assistant (natural language to AetherShell)
 ae assist -i                   # Interactive AI assistant mode
 ae assist -x "query"           # Generate and execute AI suggestion
+ae --bash script.sh            # Transpile Bash → AetherShell and run
+ae --zsh  script.zsh           # Transpile Zsh  → AetherShell and run
+ae --pwsh script.ps1           # Transpile PowerShell → AetherShell and run
+ae script.sh                   # Auto-detect transpile mode by extension
 ae ai "prompt"                 # Direct AI query
 ae agent serve                 # Start Agent API server (port 3002)
 ae agent serve --port 8080     # Custom port
@@ -431,7 +435,7 @@ src/
   os_tools.rs      # OS-level operations
   ai_api/          # AI model management
   tui/             # Terminal UI (app, chat, events, media, agents)
-  transpile/       # Bash transpiler
+  transpile/       # Shell transpilers (Bash, Zsh, PowerShell)
   bin/aimodel.rs   # AI model CLI
 ```
 

@@ -21,6 +21,7 @@ Traditional shells (Bash, PowerShell, Zsh) produce unstructured text that varies
 - `src/builtins.rs` - builtins return `Value` types, not raw strings
 - `src/ai.rs` - AI provider router (model URIs: `openai:gpt-4o`, `ollama:llama3`)
 - `src/agent_api.rs` - Agent API HTTP server with function calling schemas
+- `src/transpile/` - shell transpilers (Bash, Zsh, PowerShell → AetherShell)
 - `src/tui/` - terminal UI components
 
 ## Build
