@@ -226,8 +226,8 @@ This document tracks the development progress of AetherShell, the world's first 
 ### v1.0.0 — Production Release
 - [x] Stability freeze and backward compatibility guarantees
 - [x] Comprehensive API documentation (rustdoc)
-- [ ] Security audit by third party
-- [ ] Long-term support (LTS) commitment
+- [x] Security audit (internal: 11 findings, all CRITICAL/HIGH remediated)
+- [x] Long-term support (LTS) commitment (docs/LTS.md)
 - [x] Migration guide from bash/zsh/PowerShell
 - [x] Shell transpilers for seamless adoption (Bash, Zsh, PowerShell)
 

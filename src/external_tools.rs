@@ -769,11 +769,54 @@ impl ExternalToolRegistry {
             cmd.stderr(Stdio::piped());
         }
 
-        // Execute with timeout
-        let _timeout = Duration::from_secs(tool.manifest.agent.timeout_secs);
-        let output = cmd
-            .output()
+        // Execute with timeout enforcement
+        let timeout = Duration::from_secs(tool.manifest.agent.timeout_secs);
+        let child = cmd
+            .spawn()
+            .with_context(|| format!("Failed to spawn {}", tool_name))?;
+
+        // Watchdog thread enforces timeout by killing the process
+        let child_id = child.id();
+        let timed_out = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let timed_out_clone = timed_out.clone();
+        let timeout_secs = tool.manifest.agent.timeout_secs;
+
+        let _watchdog = std::thread::spawn(move || {
+            std::thread::sleep(timeout);
+            timed_out_clone.store(true, std::sync::atomic::Ordering::SeqCst);
+            #[cfg(windows)]
+            {
+                let _ = Command::new("taskkill")
+                    .args(["/F", "/PID", &child_id.to_string()])
+                    .output();
+            }
+            #[cfg(unix)]
+            {
+                unsafe {
+                    libc::kill(child_id as i32, libc::SIGKILL);
+                }
+            }
+        });
+
+        let output = child
+            .wait_with_output()
             .with_context(|| format!("Failed to execute {}", tool_name))?;
+
+        // Check if watchdog killed it
+        if timed_out.load(std::sync::atomic::Ordering::SeqCst) {
+            return Ok(ExternalToolResult {
+                tool: tool_name.to_string(),
+                capability: capability_name.to_string(),
+                success: false,
+                output: None,
+                error: Some(format!(
+                    "External tool '{}' timed out after {}s",
+                    tool_name, timeout_secs
+                )),
+                duration_ms: timeout.as_millis() as u64,
+                exit_code: None,
+            });
+        }
 
         let duration_ms = start.elapsed().as_millis() as u64;
 

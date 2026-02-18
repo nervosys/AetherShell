@@ -88,12 +88,12 @@ AetherShell follows [Semantic Versioning 2.0](https://semver.org/):
 | Migration guide | ✅ | Bash/Zsh/PowerShell → AetherShell |
 | Stability policy | ✅ | This document |
 | Test coverage > 95% intent | ✅ | 1,237+ tests, 100% pass rate |
-| Security audit | ⬜ | Third-party audit planned |
+| Security audit | ✅ | Internal audit completed June 2025 (see docs/security/SECURITY_AUDIT_V1.md) |
 | Performance benchmarks | ✅ | 5 benchmark suites |
 | Cross-platform CI | ✅ | Linux + Windows + macOS |
 | API documentation | ✅ | rustdoc on all public modules |
 | Deprecation policy defined | ✅ | See above |
-| LTS commitment | ⬜ | Post-1.0 |
+| LTS commitment | ✅ | LTS policy defined (see docs/LTS.md) |
 
 ---
 
