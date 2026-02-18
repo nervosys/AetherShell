@@ -65,6 +65,27 @@ result = runtime.eval('sys.hostname()')
 tools = get_agent_api_tools("http://localhost:3002")
 ```
 
+### Option 4: Migrate Existing Shell Scripts
+
+Run Bash, Zsh, or PowerShell scripts directly — AetherShell transpiles them on the fly:
+
+```bash
+# Auto-detected by file extension
+ae deploy.sh           # Bash → AetherShell
+ae setup.zsh           # Zsh  → AetherShell
+ae provision.ps1       # PowerShell → AetherShell
+
+# Explicit mode flags
+ae --bash -c 'ls -la | grep .rs | wc -l'
+ae --zsh  -c 'setopt extended_glob; ls **/*.txt'
+ae --pwsh -c 'Get-ChildItem -Recurse | Select-Object Name, Length'
+
+# Pipe via stdin
+echo 'cat /etc/hosts' | ae --bash
+```
+
+Transpilers map 100+ commands per shell to native AetherShell builtins, with block accumulation for multi-line constructs (`if`/`for`/`while`/`case`/`function`).
+
 ## AetherShell Syntax Quick Reference
 
 ```
@@ -192,6 +213,7 @@ cargo run -- -c 'expr'      # Quick eval
 | `src/agent.rs` | Agent framework |
 | `src/agent_api.rs` | Agent API + HTTP server |
 | `src/typecheck.rs` | Hindley-Milner inference |
+| `src/transpile/` | Shell transpilers (Bash, Zsh, PowerShell) |
 | `src/tui/` | Terminal UI |
 
 ## Context Files

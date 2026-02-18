@@ -18,6 +18,7 @@
   <a href="#-modules">Modules</a> •
   <a href="#-ai-agents">AI Agents</a> •
   <a href="#reliable-file-editing-for-llms">File Editing</a> •
+  <a href="#shell-migration-transpilers">Migration</a> •
   <a href="#-protocols">Protocols</a> •
   <a href="#external-integrations">External Integrations</a> •
   <a href="#ai-context--discoverability">AI Context</a> •
@@ -41,6 +42,10 @@ ae              # REPL
 ae tui          # Interactive TUI
 ae script.ae    # Run script
 ae -c 'expr'    # Evaluate expression
+ae --bash script.sh   # Transpile & run Bash
+ae --zsh  script.zsh  # Transpile & run Zsh
+ae --pwsh script.ps1  # Transpile & run PowerShell
+ae script.sh          # Auto-detect by extension
 ```
 
 ```ae
@@ -353,6 +358,45 @@ agent({
 
 ---
 
+## Shell Migration (Transpilers)
+
+AetherShell includes built-in transpilers for **Bash**, **Zsh**, and **PowerShell** — making adoption seamless. Run existing scripts directly or pipe shell code through `ae`:
+
+```bash
+# Run legacy scripts directly (auto-detected by extension)
+ae deploy.sh              # Bash → AetherShell
+ae setup.zsh              # Zsh  → AetherShell
+ae provision.ps1          # PowerShell → AetherShell
+
+# Explicit mode flags
+ae --bash -c 'ls -la | grep .rs | wc -l'
+ae --zsh  -c 'typeset -A config; config=(host localhost port 8080)'
+ae --pwsh -c 'Get-ChildItem -Recurse | Where-Object {\$_.Length -gt 1MB}'
+
+# Pipe shell code via stdin
+echo 'for f in *.log; do wc -l \$f; done' | ae --bash
+```
+
+### What Gets Transpiled
+
+| Shell Construct | AetherShell Output |
+|---|---|
+| `ls -la` | `ls("-la")` |
+| `grep "pattern" file` | `str.grep("pattern", "file")` |
+| `cat file.txt` | `file.read("file.txt")` |
+| `X=42` | `let X = 42;` |
+| `echo \$HOME` | `print(HOME);` |
+| `cmd1 \| cmd2` | `cmd1() \| cmd2()` |
+| Multi-line `if/for/while/case` | Single `sh([...])` block |
+| `setopt`, `autoload`, `compdef` (Zsh) | `# (zsh-only: ...)` |
+| `typeset -A arr` (Zsh) | `let arr = {};` |
+| `Get-ChildItem` (PS) | `ls()` |
+| `Write-Host` (PS) | `print()` |
+
+The transpilers map **100+ commands** per shell to native AetherShell builtins, with block accumulation for multi-line constructs and fallback to `sh()` for anything unsupported.
+
+---
+
 ## Protocols
 
 AetherShell implements four agentic protocols:
@@ -532,6 +576,7 @@ src/
   ai.rs            # AI provider integration
   agent.rs         # Autonomous agent framework
   tui/             # Terminal UI components
+  transpile/       # Shell transpilers (Bash, Zsh, PowerShell)
 ```
 
 ---

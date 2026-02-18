@@ -34,6 +34,7 @@ AetherShell (`ae`) is a shell and scripting language written in Rust that elimin
 - **Agent API Server**: HTTP/WebSocket/SSE server with function calling schemas for 25+ AI providers
 - **TUI**: Interactive terminal UI with chat, agents dashboard, media viewer, 38 themes
 - **Cross-Platform**: Same commands on Windows, macOS, Linux - no platform-specific escaping
+- **Shell Migration**: Built-in transpilers for Bash, Zsh, and PowerShell with 100+ command mappings per shell
 - **Enterprise**: RBAC, audit logging, SSO, compliance reporting
 - **ML Builtins**: Neural networks, evolutionary algorithms, reinforcement learning
 
@@ -52,6 +53,14 @@ ae script.ae                 # Run script
 ae -c 'expr'                 # Evaluate expression
 ae assist "query"            # AI assistant
 ae agent serve               # Start Agent API server on :3002
+ae --bash script.sh          # Transpile Bash → AetherShell
+ae --zsh  script.zsh         # Transpile Zsh  → AetherShell
+ae --pwsh script.ps1         # Transpile PowerShell → AetherShell
+ae script.sh                 # Auto-detect shell by extension
+ae --bash script.sh          # Transpile Bash → AetherShell
+ae --zsh  script.zsh         # Transpile Zsh  → AetherShell
+ae --pwsh script.ps1         # Transpile PowerShell → AetherShell
+ae script.sh                 # Auto-detect shell by extension
 ```
 
 ## For AI Agents

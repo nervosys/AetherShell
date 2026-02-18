@@ -213,6 +213,8 @@ This document tracks the development progress of AetherShell, the world's first 
 - [x] Natural language → AetherShell transpilation
 - [x] Conversation memory and session persistence
 - [x] Proactive monitoring and alerting
+- [x] Shell transpilers: Bash, Zsh, PowerShell → AetherShell with block accumulation
+- [x] CLI flags `--zsh`/`-z`, `--pwsh`/`-p` and auto-detection by file extension
 
 ### Q4 2026 — Cloud & Scale
 - [ ] Cloud platform (hosted AetherShell instances)
@@ -227,6 +229,7 @@ This document tracks the development progress of AetherShell, the world's first 
 - [ ] Security audit by third party
 - [ ] Long-term support (LTS) commitment
 - [x] Migration guide from bash/zsh/PowerShell
+- [x] Shell transpilers for seamless adoption (Bash, Zsh, PowerShell)
 
 ---
 
