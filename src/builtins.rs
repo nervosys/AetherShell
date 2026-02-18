@@ -27,7 +27,8 @@ use crate::{
     rlm::{run_recursive, run_recursive_with_model, RlmConfig},
     security::{
         check_file_size_limit, check_rate_limit, create_secure_http_client, validate_ai_prompt,
-        validate_http_url, validate_read_path,
+        validate_hostname_or_ip, validate_http_url, validate_integer_param, validate_read_path,
+        validate_safe_path, validate_sh_allowed,
     },
     shell_features::{Parameter, ParameterSet, ParameterType, PipelineInputType},
     value::{Lambda, Value},
@@ -12077,8 +12078,13 @@ fn parse_rlm_config(value: &Value) -> Result<RlmConfig> {
 
 /// sh(args) - Execute a shell command directly
 /// Usage: sh(["echo", "hello"]) or sh("echo hello")
+///
+/// SECURITY: Gated behind AETHER_ALLOW_SH=true environment variable.
 fn bi_sh(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     use std::process::Command;
+
+    // Security gate: require explicit opt-in
+    validate_sh_allowed()?;
 
     if args.is_empty() {
         return Err(anyhow!("sh requires command arguments"));
@@ -12122,6 +12128,9 @@ fn bi_sh(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .args(&cmd_args)
         .output()
         .with_context(|| format!("sh: failed to execute '{}'", program))?;
+
+    // Audit log the execution
+    eprintln!("[SECURITY] sh() executed: program='{}', args={:?}", program, cmd_args);
 
     let mut record = BTreeMap::new();
     record.insert(
@@ -13696,6 +13705,15 @@ fn bi_proc_spawn(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
+
+    // Security: reject null bytes and validate command length
+    if cmd.contains('\0') {
+        return Err(anyhow!("proc.spawn: command contains null byte - potential attack"));
+    }
+    if cmd.len() > 4096 {
+        return Err(anyhow!("proc.spawn: command too long ({} chars, max 4096)", cmd.len()));
+    }
+
     let spawn_args: Vec<String> = args
         .iter()
         .skip(1)
@@ -13705,21 +13723,28 @@ fn bi_proc_spawn(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         })
         .collect();
 
-    #[cfg(target_os = "windows")]
-    {
-        let child = std::process::Command::new("cmd")
-            .args(["/C", &cmd])
-            .args(&spawn_args)
-            .spawn()?;
-        return Ok(Value::Int(child.id() as i64));
+    // Security: validate args for null bytes
+    for (i, arg) in spawn_args.iter().enumerate() {
+        if arg.contains('\0') {
+            return Err(anyhow!(
+                "proc.spawn: argument {} contains null byte - potential attack",
+                i
+            ));
+        }
     }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let child = std::process::Command::new("sh")
-            .args(["-c", &format!("{} {}", cmd, spawn_args.join(" "))])
-            .spawn()?;
-        return Ok(Value::Int(child.id() as i64));
-    }
+
+    // Security: log the spawn attempt
+    eprintln!(
+        "[SECURITY] proc.spawn: cmd='{}', args={:?}",
+        cmd, spawn_args
+    );
+
+    // FIXED: Execute command directly without shell interpolation (CWE-78)
+    let child = std::process::Command::new(&cmd)
+        .args(&spawn_args)
+        .spawn()
+        .with_context(|| format!("proc.spawn: failed to execute '{}'", cmd))?;
+    Ok(Value::Int(child.id() as i64))
 }
 
 fn bi_proc_wait(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -13912,6 +13937,10 @@ fn bi_proc_set_priority(args: Vec<Value>, _input: Option<Value>) -> Result<Value
         Some(Value::Str(s)) => s.parse().unwrap_or(0),
         _ => return Ok(Value::Bool(false)),
     };
+
+    // Security: validate integer parameters before shell interpolation
+    validate_integer_param(pid, "PID")?;
+    validate_integer_param(priority, "priority")?;
 
     #[cfg(target_os = "windows")]
     {
@@ -14357,6 +14386,12 @@ fn bi_fs_chown(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Int(g)) => *g,
         _ => uid,
     };
+
+    // Security: validate path to prevent traversal attacks
+    let _validated_path = validate_safe_path(&path)?;
+    // Security: validate UID/GID integers
+    validate_integer_param(uid, "UID")?;
+    validate_integer_param(gid, "GID")?;
 
     #[cfg(unix)]
     {
@@ -14818,13 +14853,16 @@ fn bi_net_dns_lookup(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         _ => return Ok(Value::Array(vec![])),
     };
 
+    // Security: validate hostname to prevent command injection
+    let hostname = validate_hostname_or_ip(&hostname)?;
+
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
             .args([
                 "-Command",
                 &format!(
-                    "Resolve-DnsName {} | Select-Object IPAddress | ConvertTo-Json",
+                    "Resolve-DnsName '{}' | Select-Object IPAddress | ConvertTo-Json",
                     hostname
                 ),
             ])
@@ -14858,13 +14896,16 @@ fn bi_net_dns_reverse(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
         _ => return Ok(Value::Null),
     };
 
+    // Security: validate IP to prevent command injection
+    let ip = validate_hostname_or_ip(&ip)?;
+
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
             .args([
                 "-Command",
                 &format!(
-                    "Resolve-DnsName {} | Select-Object NameHost | ConvertTo-Json",
+                    "Resolve-DnsName '{}' | Select-Object NameHost | ConvertTo-Json",
                     ip
                 ),
             ])
@@ -14895,6 +14936,10 @@ fn bi_net_ping(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
+
+    // Security: validate host to prevent command injection
+    let host = validate_hostname_or_ip(&host)?;
+
     let count = args
         .get(1)
         .and_then(|v| match v {
@@ -14928,6 +14973,9 @@ fn bi_net_traceroute(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
+
+    // Security: validate host to prevent command injection
+    let host = validate_hostname_or_ip(&host)?;
 
     #[cfg(target_os = "windows")]
     {
@@ -15078,6 +15126,9 @@ fn bi_net_latency(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         _ => return Ok(Value::Null),
     };
 
+    // Security: validate host to prevent command injection
+    let host = validate_hostname_or_ip(&host)?;
+
     let start = std::time::Instant::now();
     #[cfg(target_os = "windows")]
     {
@@ -15114,6 +15165,9 @@ fn bi_net_whois(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
+
+    // Security: validate domain to prevent command injection
+    let domain = validate_hostname_or_ip(&domain)?;
 
     let output = std::process::Command::new("whois").arg(&domain).output();
 

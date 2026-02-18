@@ -4,9 +4,14 @@
 
 We release patches for security vulnerabilities in the following versions:
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 0.1.x   | :white_check_mark: |
+| Version | Supported          | Type     | EOL        |
+| ------- | ------------------ | -------- | ---------- |
+| 1.0.x   | :white_check_mark: | LTS      | 2028 Q1    |
+| 0.3.x   | :white_check_mark: | Current  | 1.0.0 + 90 days |
+| 0.2.x   | :x:                | EOL      | —          |
+| 0.1.x   | :x:                | EOL      | —          |
+
+See [LTS.md](../LTS.md) for the full Long-Term Support policy.
 
 ## Reporting a Vulnerability
 
@@ -98,6 +103,8 @@ AetherShell implements multiple layers of security:
 
 AetherShell has undergone comprehensive security auditing:
 
+- **v1.0.0 Internal Audit**: Completed June 2025 — 11 findings (3 CRITICAL, 6 HIGH), all remediated. See [SECURITY_AUDIT_V1.md](SECURITY_AUDIT_V1.md).
+- **v1.0.0 Internal Audit**: Completed June 2025 — 11 findings (3 CRITICAL, 6 HIGH), all remediated. See [SECURITY_AUDIT_V1.md](SECURITY_AUDIT_V1.md).
 - **Red Team Assessment**: Completed October 2025
 - **DOD Cybersecurity Standards**: NIST SP 800-53, DISA STIG
 - **Risk Score**: 3.3/10 (51% reduction from 6.8/10)

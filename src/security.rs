@@ -719,6 +719,73 @@ pub fn validate_ai_prompt(prompt: &str) -> Result<String> {
     Ok(sanitized)
 }
 
+/// Validate a hostname or IP address to prevent injection in network commands.
+///
+/// Accepts: valid hostnames (RFC 952/1123), IPv4, IPv6
+/// Rejects: shell metacharacters, whitespace, control characters
+///
+/// # Security Notes
+/// - CWE-78: OS Command Injection prevention for network builtins
+pub fn validate_hostname_or_ip(input: &str) -> Result<String> {
+    if input.is_empty() {
+        return Err(anyhow!("Hostname/IP cannot be empty"));
+    }
+    if input.len() > 253 {
+        return Err(anyhow!(
+            "Hostname/IP too long: {} characters (max 253)",
+            input.len()
+        ));
+    }
+    if input.contains('\0') {
+        return Err(anyhow!("Hostname/IP contains null byte"));
+    }
+    // Only allow characters valid in hostnames, IPv4, and IPv6
+    for ch in input.chars() {
+        if !(ch.is_ascii_alphanumeric()
+            || ch == '.'
+            || ch == '-'
+            || ch == ':'
+            || ch == '['
+            || ch == ']'
+            || ch == '%')
+        {
+            return Err(anyhow!(
+                "Invalid character '{}' in hostname/IP '{}' - potential injection",
+                ch,
+                input
+            ));
+        }
+    }
+    if input.starts_with('-') || input.starts_with('.') || input.ends_with('-') {
+        return Err(anyhow!("Hostname/IP '{}' has invalid format", input));
+    }
+    Ok(input.to_string())
+}
+
+/// Validate an integer parameter for safe use in shell commands.
+pub fn validate_integer_param(value: i64, field_name: &str) -> Result<i64> {
+    if value < -20 || value > 4_294_967_295 {
+        return Err(anyhow!(
+            "{} value {} is out of valid range",
+            field_name,
+            value
+        ));
+    }
+    Ok(value)
+}
+
+/// Check whether shell command execution is allowed.
+///
+/// The sh() builtin is gated behind AETHER_ALLOW_SH=true.
+pub fn validate_sh_allowed() -> Result<()> {
+    match std::env::var("AETHER_ALLOW_SH") {
+        Ok(val) if val == "true" || val == "1" || val == "yes" => Ok(()),
+        _ => Err(anyhow!(
+            "sh() is disabled for security. Set AETHER_ALLOW_SH=true to enable.\n             WARNING: sh() executes arbitrary system commands with no sandboxing.\n             Prefer typed builtins (file.read, proc.list, net.ping, etc.) for safe operations."
+        )),
+    }
+}
+
 /// Validate generic string input
 pub fn validate_string_input(input: &str, max_length: usize, field_name: &str) -> Result<String> {
     if input.len() > max_length {
