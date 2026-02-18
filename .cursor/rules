@@ -34,7 +34,7 @@ A typed functional shell where data flows as structured `Value` types (Int, Floa
 ## Build & Test
 ```bash
 cargo build --bins    # Build ae + aimodel
-cargo test           # 1,169 tests
+cargo test           # 1,237 tests
 ```
 
 ## Full AI Context

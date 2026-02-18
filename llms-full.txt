@@ -508,7 +508,7 @@ file               # => {read, write, exists, copy, move, patch, ...}
 - **VS Code**: https://marketplace.visualstudio.com/items?itemName=admercs.aethershell
 - **Keywords**: shell, ai, multi-agent, functional, multimodal, typed-pipelines, mcp
 - **Categories**: command-line-utilities, development-tools
-- **Tests**: 1,169 passing (100% pass rate)
+- **Tests**: 1,237 passing (100% pass rate)
 - **Source**: ~86,000 lines
 - **Builtins**: 215+ across 38 modules
 - **File Extension**: `.ae`

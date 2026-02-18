@@ -194,7 +194,7 @@ Schema formats: `openai`, `claude`, `gemini`, `llama`, `mistral`, `cohere`, `gro
 
 ```bash
 cargo build --bins          # Build ae + aimodel
-cargo test                  # Run 1,169 tests
+cargo test                  # Run 1,237 tests
 cargo run -- --tui          # TUI mode
 cargo run -- -c 'expr'      # Quick eval
 ```
