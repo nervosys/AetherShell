@@ -209,13 +209,26 @@ fn detect_linux_package_manager() -> PackageManagerType {
 }
 
 fn detect_container_runtime() -> Option<ContainerType> {
-    if std::path::Path::new("/usr/bin/docker").exists() {
-        Some(ContainerType::Docker)
-    } else if std::path::Path::new("/usr/bin/podman").exists() {
-        Some(ContainerType::Podman)
-    } else {
-        None
+    // Use PATH-based lookup for cross-platform compatibility (macOS installs to /usr/local/bin/)
+    if std::process::Command::new("docker")
+        .arg("--version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok()
+    {
+        return Some(ContainerType::Docker);
     }
+    if std::process::Command::new("podman")
+        .arg("--version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok()
+    {
+        return Some(ContainerType::Podman);
+    }
+    None
 }
 
 fn detect_windows_container() -> Option<ContainerType> {

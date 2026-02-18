@@ -1,13 +1,13 @@
 // src/builtins.rs
 #![allow(dead_code, unreachable_code, unused_variables)]
 use anyhow::{anyhow, Context, Result};
+use chrono::{Datelike, Local, NaiveDate, Timelike};
 use serde_json;
+use sha2::{Digest as Sha2Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::process::Command;
-use chrono::{Datelike, Local, NaiveDate, Timelike};
-use sha2::{Sha256, Digest as Sha2Digest};
-use sysinfo::{System, Disks, Networks};
+use sysinfo::{Disks, Networks, System};
 use walkdir::WalkDir;
 
 use crate::{
@@ -6658,6 +6658,20 @@ fn bi_to_json(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     Ok(Value::Str(json_str))
 }
 
+/// Format bytes into a human-readable string (e.g. "1.5G", "100M", "4.0K")
+fn format_bytes(bytes: i64) -> String {
+    let abs = bytes.unsigned_abs();
+    if abs >= 1_073_741_824 {
+        format!("{:.1}G", bytes as f64 / 1_073_741_824.0)
+    } else if abs >= 1_048_576 {
+        format!("{:.1}M", bytes as f64 / 1_048_576.0)
+    } else if abs >= 1024 {
+        format!("{:.1}K", bytes as f64 / 1024.0)
+    } else {
+        format!("{}B", bytes)
+    }
+}
+
 fn json_to_value(json: serde_json::Value) -> Value {
     match json {
         serde_json::Value::Null => Value::Str("null".to_string()),
@@ -12130,7 +12144,10 @@ fn bi_sh(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .with_context(|| format!("sh: failed to execute '{}'", program))?;
 
     // Audit log the execution
-    eprintln!("[SECURITY] sh() executed: program='{}', args={:?}", program, cmd_args);
+    eprintln!(
+        "[SECURITY] sh() executed: program='{}', args={:?}",
+        program, cmd_args
+    );
 
     let mut record = BTreeMap::new();
     record.insert(
@@ -13569,29 +13586,80 @@ fn bi_proc_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
-            .args(["-Command", "Get-Process | Select-Object Id,ProcessName,CPU,WorkingSet64,StartTime | ConvertTo-Json"])
+            .args([
+                "-Command",
+                "Get-Process | Select-Object Id,ProcessName,CPU,WorkingSet64 | ConvertTo-Json",
+            ])
             .output()?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                return Ok(json_to_value(json));
+                // Normalize PascalCase keys to canonical lowercase field names
+                if let serde_json::Value::Array(arr) = json {
+                    let procs: Vec<Value> = arr
+                        .into_iter()
+                        .map(|item| {
+                            let mut rec = std::collections::BTreeMap::new();
+                            if let serde_json::Value::Object(obj) = item {
+                                rec.insert(
+                                    "pid".to_string(),
+                                    Value::Int(obj.get("Id").and_then(|v| v.as_i64()).unwrap_or(0)),
+                                );
+                                rec.insert(
+                                    "name".to_string(),
+                                    Value::Str(
+                                        obj.get("ProcessName")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("")
+                                            .to_string(),
+                                    ),
+                                );
+                                rec.insert(
+                                    "cpu".to_string(),
+                                    Value::Float(
+                                        obj.get("CPU").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                                    ),
+                                );
+                                rec.insert(
+                                    "mem".to_string(),
+                                    Value::Float(
+                                        obj.get("WorkingSet64")
+                                            .and_then(|v| v.as_f64())
+                                            .unwrap_or(0.0),
+                                    ),
+                                );
+                                rec.insert(
+                                    "command".to_string(),
+                                    Value::Str(
+                                        obj.get("ProcessName")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("")
+                                            .to_string(),
+                                    ),
+                                );
+                            }
+                            Value::Record(rec)
+                        })
+                        .collect();
+                    return Ok(Value::Array(procs));
+                }
+                return Ok(json_to_value(serde_json::Value::Array(vec![])));
             }
         }
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let output = std::process::Command::new("ps")
-            .args(["aux", "--no-headers"])
-            .output()?;
+        // ps aux works on both Linux and macOS
+        let output = std::process::Command::new("ps").args(["aux"]).output()?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
             let mut procs = Vec::new();
-            for line in text.lines() {
+            for line in text.lines().skip(1) {
                 let parts: Vec<&str> = line.split_whitespace().collect();
                 if parts.len() >= 11 {
                     let mut rec = std::collections::BTreeMap::new();
-                    rec.insert("user".to_string(), Value::Str(parts[0].to_string()));
                     rec.insert("pid".to_string(), Value::Int(parts[1].parse().unwrap_or(0)));
+                    rec.insert("name".to_string(), Value::Str(parts[10..].join(" ")));
                     rec.insert(
                         "cpu".to_string(),
                         Value::Float(parts[2].parse().unwrap_or(0.0)),
@@ -13672,7 +13740,25 @@ fn bi_proc_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                return Ok(json_to_value(json));
+                if let serde_json::Value::Object(obj) = json {
+                    let mut rec = std::collections::BTreeMap::new();
+                    rec.insert(
+                        "pid".to_string(),
+                        Value::Int(obj.get("Id").and_then(|v| v.as_i64()).unwrap_or(0)),
+                    );
+                    rec.insert(
+                        "name".to_string(),
+                        Value::Str(
+                            obj.get("ProcessName")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                        ),
+                    );
+                    rec.insert("state".to_string(), Value::Str("running".to_string()));
+                    rec.insert("ppid".to_string(), Value::Int(0)); // Windows Get-Process doesn't expose PPID directly
+                    return Ok(Value::Record(rec));
+                }
             }
         }
     }
@@ -13697,6 +13783,27 @@ fn bi_proc_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             }
         }
     }
+    #[cfg(target_os = "macos")]
+    {
+        let output = std::process::Command::new("ps")
+            .args(["-p", &pid.to_string(), "-o", "pid=,comm=,stat=,ppid="])
+            .output()?;
+        if output.status.success() {
+            let text = String::from_utf8_lossy(&output.stdout);
+            let parts: Vec<&str> = text.trim().split_whitespace().collect();
+            if parts.len() >= 4 {
+                let mut rec = std::collections::BTreeMap::new();
+                rec.insert("pid".to_string(), Value::Int(pid));
+                rec.insert("name".to_string(), Value::Str(parts[1].to_string()));
+                rec.insert("state".to_string(), Value::Str(parts[2].to_string()));
+                rec.insert(
+                    "ppid".to_string(),
+                    Value::Int(parts[3].parse().unwrap_or(0)),
+                );
+                return Ok(Value::Record(rec));
+            }
+        }
+    }
     Ok(Value::Null)
 }
 
@@ -13708,10 +13815,15 @@ fn bi_proc_spawn(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     // Security: reject null bytes and validate command length
     if cmd.contains('\0') {
-        return Err(anyhow!("proc.spawn: command contains null byte - potential attack"));
+        return Err(anyhow!(
+            "proc.spawn: command contains null byte - potential attack"
+        ));
     }
     if cmd.len() > 4096 {
-        return Err(anyhow!("proc.spawn: command too long ({} chars, max 4096)", cmd.len()));
+        return Err(anyhow!(
+            "proc.spawn: command too long ({} chars, max 4096)",
+            cmd.len()
+        ));
     }
 
     let spawn_args: Vec<String> = args
@@ -13890,6 +14002,19 @@ fn bi_proc_parent(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             }
         }
     }
+    #[cfg(target_os = "macos")]
+    {
+        let output = std::process::Command::new("ps")
+            .args(["-p", &pid.to_string(), "-o", "ppid="])
+            .output()?;
+        if output.status.success() {
+            let ppid: i64 = String::from_utf8_lossy(&output.stdout)
+                .trim()
+                .parse()
+                .unwrap_or(0);
+            return Ok(Value::Int(ppid));
+        }
+    }
     Ok(Value::Null)
 }
 
@@ -13899,6 +14024,7 @@ fn bi_proc_priority(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         _ => return Ok(Value::Null),
     };
 
+    // Returns a consistent Record {nice: Int, class: String} on all platforms
     #[cfg(target_os = "windows")]
     {
         let cmd = format!("(Get-Process -Id {}).PriorityClass", pid);
@@ -13906,9 +14032,20 @@ fn bi_proc_priority(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args(["-Command", &cmd])
             .output()?;
         if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).trim().to_string(),
-            ));
+            let class = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let nice: i64 = match class.as_str() {
+                "Idle" => 19,
+                "BelowNormal" => 10,
+                "Normal" => 0,
+                "AboveNormal" => -5,
+                "High" => -10,
+                "RealTime" => -20,
+                _ => 0,
+            };
+            let mut rec = std::collections::BTreeMap::new();
+            rec.insert("nice".to_string(), Value::Int(nice));
+            rec.insert("class".to_string(), Value::Str(class));
+            return Ok(Value::Record(rec));
         }
     }
     #[cfg(not(target_os = "windows"))]
@@ -13921,7 +14058,18 @@ fn bi_proc_priority(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 .trim()
                 .parse()
                 .unwrap_or(0);
-            return Ok(Value::Int(nice));
+            let class = match nice {
+                n if n >= 15 => "Idle",
+                n if n >= 5 => "BelowNormal",
+                n if n > -5 => "Normal",
+                n if n > -10 => "AboveNormal",
+                n if n > -15 => "High",
+                _ => "RealTime",
+            };
+            let mut rec = std::collections::BTreeMap::new();
+            rec.insert("nice".to_string(), Value::Int(nice));
+            rec.insert("class".to_string(), Value::Str(class.to_string()));
+            return Ok(Value::Record(rec));
         }
     }
     Ok(Value::Null)
@@ -14068,6 +14216,18 @@ fn bi_proc_threads(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             return Ok(Value::Int(entries.count() as i64));
         }
     }
+    #[cfg(target_os = "macos")]
+    {
+        let output = std::process::Command::new("ps")
+            .args(["-M", "-p", &pid.to_string()])
+            .output()?;
+        if output.status.success() {
+            let text = String::from_utf8_lossy(&output.stdout);
+            // ps -M shows one line per thread; subtract 1 for the header
+            let count = text.lines().count().saturating_sub(1);
+            return Ok(Value::Int(count as i64));
+        }
+    }
     Ok(Value::Int(0))
 }
 
@@ -14077,6 +14237,29 @@ fn bi_proc_env(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         _ => return Ok(Value::Record(std::collections::BTreeMap::new())),
     };
 
+    #[cfg(target_os = "windows")]
+    {
+        // Windows: use WMI to get process environment (requires elevation for other processes)
+        let cmd = format!(
+            "(Get-CimInstance Win32_Process -Filter \"ProcessId={}\").GetOwner() | Out-Null; [System.Environment]::GetEnvironmentVariables() | ConvertTo-Json",
+            pid
+        );
+        let output = std::process::Command::new("powershell")
+            .args(["-Command", &cmd])
+            .output()?;
+        if output.status.success() {
+            let json_str = String::from_utf8_lossy(&output.stdout);
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                if let serde_json::Value::Object(obj) = json {
+                    let mut rec = std::collections::BTreeMap::new();
+                    for (k, v) in obj {
+                        rec.insert(k, Value::Str(v.as_str().unwrap_or("").to_string()));
+                    }
+                    return Ok(Value::Record(rec));
+                }
+            }
+        }
+    }
     #[cfg(target_os = "linux")]
     {
         let env_path = format!("/proc/{}/environ", pid);
@@ -14087,6 +14270,23 @@ fn bi_proc_env(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     if let Some((k, v)) = s.split_once('=') {
                         rec.insert(k.to_string(), Value::Str(v.to_string()));
                     }
+                }
+            }
+            return Ok(Value::Record(rec));
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        // macOS: use ps to get command environment (limited)
+        let output = std::process::Command::new("ps")
+            .args(["-p", &pid.to_string(), "-E", "-o", "command="])
+            .output()?;
+        if output.status.success() {
+            let text = String::from_utf8_lossy(&output.stdout);
+            let mut rec = std::collections::BTreeMap::new();
+            for part in text.split_whitespace() {
+                if let Some((k, v)) = part.split_once('=') {
+                    rec.insert(k.to_string(), Value::Str(v.to_string()));
                 }
             }
             return Ok(Value::Record(rec));
@@ -14111,6 +14311,20 @@ fn bi_proc_cwd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let cwd_path = format!("/proc/{}/cwd", pid);
         if let Ok(cwd) = std::fs::read_link(&cwd_path) {
             return Ok(Value::Str(cwd.to_string_lossy().to_string()));
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let output = std::process::Command::new("lsof")
+            .args(["-p", &pid.to_string(), "-Fn", "-d", "cwd"])
+            .output()?;
+        if output.status.success() {
+            let text = String::from_utf8_lossy(&output.stdout);
+            for line in text.lines() {
+                if let Some(path) = line.strip_prefix('n') {
+                    return Ok(Value::Str(path.to_string()));
+                }
+            }
         }
     }
     Ok(Value::Null)
@@ -14141,6 +14355,17 @@ fn bi_proc_exe(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             return Ok(Value::Str(exe.to_string_lossy().to_string()));
         }
     }
+    #[cfg(target_os = "macos")]
+    {
+        let output = std::process::Command::new("ps")
+            .args(["-p", &pid.to_string(), "-o", "comm="])
+            .output()?;
+        if output.status.success() {
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).trim().to_string(),
+            ));
+        }
+    }
     Ok(Value::Null)
 }
 
@@ -14150,6 +14375,7 @@ fn bi_proc_cmdline(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         _ => return Ok(Value::Array(vec![])),
     };
 
+    // Always returns Array<String> on all platforms
     #[cfg(target_os = "windows")]
     {
         let cmd = format!(
@@ -14160,9 +14386,13 @@ fn bi_proc_cmdline(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args(["-Command", &cmd])
             .output()?;
         if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).trim().to_string(),
-            ));
+            let cmdline = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            // Split command line into args (simple split; Windows command lines are complex)
+            let args: Vec<Value> = cmdline
+                .split_whitespace()
+                .map(|s| Value::Str(s.to_string()))
+                .collect();
+            return Ok(Value::Array(args));
         }
     }
     #[cfg(target_os = "linux")]
@@ -14173,6 +14403,20 @@ fn bi_proc_cmdline(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 .split(|&b| b == 0)
                 .filter(|s| !s.is_empty())
                 .map(|s| Value::Str(String::from_utf8_lossy(s).to_string()))
+                .collect();
+            return Ok(Value::Array(args));
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let output = std::process::Command::new("ps")
+            .args(["-p", &pid.to_string(), "-o", "args="])
+            .output()?;
+        if output.status.success() {
+            let cmdline = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let args: Vec<Value> = cmdline
+                .split_whitespace()
+                .map(|s| Value::Str(s.to_string()))
                 .collect();
             return Ok(Value::Array(args));
         }
@@ -14712,12 +14956,49 @@ fn bi_fs_df(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                return Ok(json_to_value(json));
+                // Normalize to canonical field names
+                let normalize = |item: serde_json::Value| -> Value {
+                    if let serde_json::Value::Object(obj) = item {
+                        let mut rec = std::collections::BTreeMap::new();
+                        let name = obj.get("Name").and_then(|v| v.as_str()).unwrap_or("");
+                        let used = obj.get("Used").and_then(|v| v.as_i64()).unwrap_or(0);
+                        let free = obj.get("Free").and_then(|v| v.as_i64()).unwrap_or(0);
+                        let total = used + free;
+                        let use_pct = if total > 0 {
+                            (used as f64 / total as f64 * 100.0) as i64
+                        } else {
+                            0
+                        };
+                        rec.insert("filesystem".to_string(), Value::Str(format!("{}:\\", name)));
+                        rec.insert("size".to_string(), Value::Str(format_bytes(total)));
+                        rec.insert("used".to_string(), Value::Str(format_bytes(used)));
+                        rec.insert("available".to_string(), Value::Str(format_bytes(free)));
+                        rec.insert(
+                            "use_percent".to_string(),
+                            Value::Str(format!("{}%", use_pct)),
+                        );
+                        rec.insert("mounted_on".to_string(), Value::Str(format!("{}:\\", name)));
+                        Value::Record(rec)
+                    } else {
+                        Value::Null
+                    }
+                };
+                match json {
+                    serde_json::Value::Array(arr) => {
+                        let drives: Vec<Value> = arr.into_iter().map(normalize).collect();
+                        return Ok(Value::Array(drives));
+                    }
+                    obj @ serde_json::Value::Object(_) => {
+                        return Ok(Value::Array(vec![normalize(obj)]));
+                    }
+                    _ => {}
+                }
             }
         }
     }
     #[cfg(not(target_os = "windows"))]
     {
+        // df -h works on both Linux and macOS
         let output = std::process::Command::new("df").args(["-h"]).output()?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
@@ -14764,7 +15045,29 @@ fn bi_fs_mounts(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                return Ok(json_to_value(json));
+                // Normalize to canonical field names
+                let normalize = |item: &serde_json::Value| -> Value {
+                    let mut rec = std::collections::BTreeMap::new();
+                    if let serde_json::Value::Object(obj) = item {
+                        let name = obj.get("Name").and_then(|v| v.as_str()).unwrap_or("");
+                        let root = obj.get("Root").and_then(|v| v.as_str()).unwrap_or("");
+                        rec.insert("device".to_string(), Value::Str(format!("{}:", name)));
+                        rec.insert("mountpoint".to_string(), Value::Str(root.to_string()));
+                        rec.insert("fstype".to_string(), Value::Str("NTFS".to_string()));
+                        rec.insert("options".to_string(), Value::Str("rw".to_string()));
+                    }
+                    Value::Record(rec)
+                };
+                match &json {
+                    serde_json::Value::Array(arr) => {
+                        let result: Vec<Value> = arr.iter().map(normalize).collect();
+                        return Ok(Value::Array(result));
+                    }
+                    obj @ serde_json::Value::Object(_) => {
+                        return Ok(Value::Array(vec![normalize(obj)]));
+                    }
+                    _ => {}
+                }
             }
         }
     }
@@ -14786,6 +15089,38 @@ fn bi_fs_mounts(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             return Ok(Value::Array(result));
         }
     }
+    #[cfg(target_os = "macos")]
+    {
+        // macOS: use mount command (no /proc/mounts)
+        let output = std::process::Command::new("mount").output()?;
+        if output.status.success() {
+            let text = String::from_utf8_lossy(&output.stdout);
+            let mut result = Vec::new();
+            for line in text.lines() {
+                // Format: /dev/disk1s1 on / (apfs, local, journaled)
+                if let Some((device_part, rest)) = line.split_once(" on ") {
+                    let mut rec = std::collections::BTreeMap::new();
+                    rec.insert("device".to_string(), Value::Str(device_part.to_string()));
+                    if let Some((mountpoint, opts)) = rest.split_once(" (") {
+                        rec.insert("mountpoint".to_string(), Value::Str(mountpoint.to_string()));
+                        let opts_clean = opts.trim_end_matches(')');
+                        let parts: Vec<&str> = opts_clean.split(", ").collect();
+                        rec.insert(
+                            "fstype".to_string(),
+                            Value::Str(parts.first().unwrap_or(&"").to_string()),
+                        );
+                        rec.insert("options".to_string(), Value::Str(parts[1..].join(",")));
+                    } else {
+                        rec.insert("mountpoint".to_string(), Value::Str(rest.to_string()));
+                        rec.insert("fstype".to_string(), Value::Str("unknown".to_string()));
+                        rec.insert("options".to_string(), Value::Str(String::new()));
+                    }
+                    result.push(Value::Record(rec));
+                }
+            }
+            return Ok(Value::Array(result));
+        }
+    }
     Ok(Value::Array(vec![]))
 }
 
@@ -14794,6 +15129,7 @@ fn bi_fs_mounts(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // ============================================================================
 
 fn bi_net_interfaces(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    // Returns Array of Records with consistent {name, status} fields
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
@@ -14802,19 +15138,138 @@ fn bi_net_interfaces(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                return Ok(json_to_value(json));
+                // Normalize to lowercase fields
+                let normalize = |item: &serde_json::Value| -> Value {
+                    let mut rec = std::collections::BTreeMap::new();
+                    if let serde_json::Value::Object(obj) = item {
+                        rec.insert(
+                            "name".to_string(),
+                            Value::Str(
+                                obj.get("Name")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string(),
+                            ),
+                        );
+                        rec.insert(
+                            "description".to_string(),
+                            Value::Str(
+                                obj.get("InterfaceDescription")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string(),
+                            ),
+                        );
+                        rec.insert(
+                            "mac".to_string(),
+                            Value::Str(
+                                obj.get("MacAddress")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string(),
+                            ),
+                        );
+                        rec.insert(
+                            "status".to_string(),
+                            Value::Str(
+                                obj.get("Status")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string(),
+                            ),
+                        );
+                        rec.insert(
+                            "speed".to_string(),
+                            Value::Str(
+                                obj.get("LinkSpeed")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string(),
+                            ),
+                        );
+                    }
+                    Value::Record(rec)
+                };
+                match &json {
+                    serde_json::Value::Array(arr) => {
+                        return Ok(Value::Array(arr.iter().map(normalize).collect()));
+                    }
+                    obj @ serde_json::Value::Object(_) => {
+                        return Ok(Value::Array(vec![normalize(obj)]));
+                    }
+                    _ => {}
+                }
             }
         }
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "linux")]
     {
+        // Parse ip addr show into structured data
+        let output = std::process::Command::new("ip")
+            .args(["-j", "addr", "show"])
+            .output();
+        if let Ok(output) = output {
+            if output.status.success() {
+                let json_str = String::from_utf8_lossy(&output.stdout);
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                    return Ok(json_to_value(json));
+                }
+            }
+        }
+        // Fallback: text parsing
         let output = std::process::Command::new("ip")
             .args(["addr", "show"])
             .output()?;
         if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).to_string(),
-            ));
+            let text = String::from_utf8_lossy(&output.stdout);
+            let mut interfaces = Vec::new();
+            let mut current: Option<std::collections::BTreeMap<String, Value>> = None;
+            for line in text.lines() {
+                if !line.starts_with(' ') && line.contains(":  ") {
+                    if let Some(rec) = current.take() {
+                        interfaces.push(Value::Record(rec));
+                    }
+                    let mut rec = std::collections::BTreeMap::new();
+                    if let Some(name) = line.split(':').nth(1) {
+                        rec.insert("name".to_string(), Value::Str(name.trim().to_string()));
+                    }
+                    let status = if line.contains("UP") { "Up" } else { "Down" };
+                    rec.insert("status".to_string(), Value::Str(status.to_string()));
+                    current = Some(rec);
+                }
+            }
+            if let Some(rec) = current {
+                interfaces.push(Value::Record(rec));
+            }
+            return Ok(Value::Array(interfaces));
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        // macOS: use ifconfig (ip command not available by default)
+        let output = std::process::Command::new("ifconfig").output()?;
+        if output.status.success() {
+            let text = String::from_utf8_lossy(&output.stdout);
+            let mut interfaces = Vec::new();
+            let mut current: Option<std::collections::BTreeMap<String, Value>> = None;
+            for line in text.lines() {
+                if !line.starts_with('\t') && !line.starts_with(' ') && line.contains(':') {
+                    if let Some(rec) = current.take() {
+                        interfaces.push(Value::Record(rec));
+                    }
+                    let mut rec = std::collections::BTreeMap::new();
+                    if let Some(name) = line.split(':').next() {
+                        rec.insert("name".to_string(), Value::Str(name.to_string()));
+                    }
+                    let status = if line.contains("UP") { "Up" } else { "Down" };
+                    rec.insert("status".to_string(), Value::Str(status.to_string()));
+                    current = Some(rec);
+                }
+            }
+            if let Some(rec) = current {
+                interfaces.push(Value::Record(rec));
+            }
+            return Ok(Value::Array(interfaces));
         }
     }
     Ok(Value::Array(vec![]))
@@ -14833,10 +15288,22 @@ fn bi_net_ip(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             }
         }
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("hostname")
             .args(["-I"])
+            .output()?;
+        if output.status.success() {
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).trim().to_string(),
+            ));
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        // macOS: hostname -I doesn't exist; use ipconfig getifaddr en0
+        let output = std::process::Command::new("ipconfig")
+            .args(["getifaddr", "en0"])
             .output()?;
         if output.status.success() {
             return Ok(Value::Str(
@@ -15010,13 +15477,48 @@ fn bi_net_connections(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
             }
         }
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "linux")]
     {
+        // Try ss with JSON output first
         let output = std::process::Command::new("ss").args(["-tuln"]).output()?;
         if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).to_string(),
-            ));
+            let text = String::from_utf8_lossy(&output.stdout);
+            let mut conns = Vec::new();
+            for line in text.lines().skip(1) {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 5 {
+                    let mut rec = std::collections::BTreeMap::new();
+                    rec.insert("state".to_string(), Value::Str(parts[0].to_string()));
+                    rec.insert("local".to_string(), Value::Str(parts[4].to_string()));
+                    if parts.len() >= 6 {
+                        rec.insert("peer".to_string(), Value::Str(parts[5].to_string()));
+                    }
+                    conns.push(Value::Record(rec));
+                }
+            }
+            return Ok(Value::Array(conns));
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        // macOS: use netstat (ss not available)
+        let output = std::process::Command::new("netstat")
+            .args(["-an", "-p", "tcp"])
+            .output()?;
+        if output.status.success() {
+            let text = String::from_utf8_lossy(&output.stdout);
+            let mut conns = Vec::new();
+            for line in text.lines().skip(2) {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 6 {
+                    let mut rec = std::collections::BTreeMap::new();
+                    rec.insert("local".to_string(), Value::Str(parts[3].to_string()));
+                    rec.insert("peer".to_string(), Value::Str(parts[4].to_string()));
+                    rec.insert("state".to_string(), Value::Str(parts[5].to_string()));
+                    conns.push(Value::Record(rec));
+                }
+            }
+            return Ok(Value::Array(conns));
         }
     }
     Ok(Value::Array(vec![]))
@@ -15044,6 +15546,7 @@ fn bi_net_close(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_net_ports(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    // Use netstat on all platforms (available everywhere)
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("netstat")
@@ -15053,12 +15556,27 @@ fn bi_net_ports(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             String::from_utf8_lossy(&output.stdout).to_string(),
         ));
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "linux")]
     {
+        // Prefer ss on Linux (faster than netstat)
         let output = std::process::Command::new("ss").args(["-tuln"]).output()?;
         return Ok(Value::Str(
             String::from_utf8_lossy(&output.stdout).to_string(),
         ));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        // macOS: ss not available, use netstat
+        let output = std::process::Command::new("netstat")
+            .args(["-an"])
+            .output()?;
+        return Ok(Value::Str(
+            String::from_utf8_lossy(&output.stdout).to_string(),
+        ));
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+    {
+        Ok(Value::Str(String::new()))
     }
 }
 
@@ -15079,34 +15597,37 @@ fn bi_net_route(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             String::from_utf8_lossy(&output.stdout).to_string(),
         ));
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("ip").args(["route"]).output()?;
         return Ok(Value::Str(
             String::from_utf8_lossy(&output.stdout).to_string(),
         ));
     }
+    #[cfg(target_os = "macos")]
+    {
+        // macOS: ip command not available, use netstat -rn
+        let output = std::process::Command::new("netstat")
+            .args(["-rn"])
+            .output()?;
+        return Ok(Value::Str(
+            String::from_utf8_lossy(&output.stdout).to_string(),
+        ));
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+    {
+        Ok(Value::Str(String::new()))
+    }
 }
 
 fn bi_net_stats(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    #[cfg(target_os = "windows")]
-    {
-        let output = std::process::Command::new("netstat")
-            .args(["-s"])
-            .output()?;
-        return Ok(Value::Str(
-            String::from_utf8_lossy(&output.stdout).to_string(),
-        ));
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let output = std::process::Command::new("netstat")
-            .args(["-s"])
-            .output()?;
-        return Ok(Value::Str(
-            String::from_utf8_lossy(&output.stdout).to_string(),
-        ));
-    }
+    // netstat -s works on all platforms
+    let output = std::process::Command::new("netstat")
+        .args(["-s"])
+        .output()?;
+    Ok(Value::Str(
+        String::from_utf8_lossy(&output.stdout).to_string(),
+    ))
 }
 
 fn bi_net_bandwidth(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -15329,6 +15850,7 @@ fn bi_sys_boot_time(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_sys_cpu_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    // Returns consistent Record {name: String, cores: Int, mhz: Float} on all platforms
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
@@ -15337,7 +15859,40 @@ fn bi_sys_cpu_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                return Ok(json_to_value(json));
+                let obj = match &json {
+                    serde_json::Value::Object(o) => Some(o),
+                    serde_json::Value::Array(arr) => arr.first().and_then(|v| v.as_object()),
+                    _ => None,
+                };
+                if let Some(obj) = obj {
+                    let mut rec = std::collections::BTreeMap::new();
+                    rec.insert(
+                        "name".to_string(),
+                        Value::Str(
+                            obj.get("Name")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                        ),
+                    );
+                    rec.insert(
+                        "cores".to_string(),
+                        Value::Int(
+                            obj.get("NumberOfCores")
+                                .and_then(|v| v.as_i64())
+                                .unwrap_or(0),
+                        ),
+                    );
+                    rec.insert(
+                        "mhz".to_string(),
+                        Value::Float(
+                            obj.get("MaxClockSpeed")
+                                .and_then(|v| v.as_f64())
+                                .unwrap_or(0.0),
+                        ),
+                    );
+                    return Ok(Value::Record(rec));
+                }
             }
         }
     }
@@ -15366,6 +15921,55 @@ fn bi_sys_cpu_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     }
                 }
             }
+            return Ok(Value::Record(rec));
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mut rec = std::collections::BTreeMap::new();
+        // CPU brand string
+        if let Ok(output) = std::process::Command::new("sysctl")
+            .args(["-n", "machdep.cpu.brand_string"])
+            .output()
+        {
+            if output.status.success() {
+                rec.insert(
+                    "name".to_string(),
+                    Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()),
+                );
+            }
+        }
+        // Core count
+        if let Ok(output) = std::process::Command::new("sysctl")
+            .args(["-n", "hw.physicalcpu"])
+            .output()
+        {
+            if output.status.success() {
+                rec.insert(
+                    "cores".to_string(),
+                    Value::Int(
+                        String::from_utf8_lossy(&output.stdout)
+                            .trim()
+                            .parse()
+                            .unwrap_or(0),
+                    ),
+                );
+            }
+        }
+        // CPU frequency (MHz)
+        if let Ok(output) = std::process::Command::new("sysctl")
+            .args(["-n", "hw.cpufrequency"])
+            .output()
+        {
+            if output.status.success() {
+                let hz: f64 = String::from_utf8_lossy(&output.stdout)
+                    .trim()
+                    .parse()
+                    .unwrap_or(0.0);
+                rec.insert("mhz".to_string(), Value::Float(hz / 1_000_000.0));
+            }
+        }
+        if !rec.is_empty() {
             return Ok(Value::Record(rec));
         }
     }
@@ -15406,10 +16010,26 @@ fn bi_sys_cpu_freq(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             return Ok(Value::Int(khz / 1000)); // Return MHz
         }
     }
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(output) = std::process::Command::new("sysctl")
+            .args(["-n", "hw.cpufrequency"])
+            .output()
+        {
+            if output.status.success() {
+                let hz: i64 = String::from_utf8_lossy(&output.stdout)
+                    .trim()
+                    .parse()
+                    .unwrap_or(0);
+                return Ok(Value::Int(hz / 1_000_000)); // Hz to MHz
+            }
+        }
+    }
     Ok(Value::Int(0))
 }
 
 fn bi_sys_mem_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    // Returns consistent Record {total: Int, free: Int, available: Int} in bytes
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
@@ -15418,7 +16038,21 @@ fn bi_sys_mem_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                return Ok(json_to_value(json));
+                if let serde_json::Value::Object(obj) = &json {
+                    let mut rec = std::collections::BTreeMap::new();
+                    let total_kb = obj
+                        .get("TotalVisibleMemorySize")
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or(0);
+                    let free_kb = obj
+                        .get("FreePhysicalMemory")
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or(0);
+                    rec.insert("total".to_string(), Value::Int(total_kb * 1024));
+                    rec.insert("free".to_string(), Value::Int(free_kb * 1024));
+                    rec.insert("available".to_string(), Value::Int(free_kb * 1024));
+                    return Ok(Value::Record(rec));
+                }
             }
         }
     }
@@ -15426,14 +16060,68 @@ fn bi_sys_mem_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         if let Ok(meminfo) = std::fs::read_to_string("/proc/meminfo") {
             let mut rec = std::collections::BTreeMap::new();
+            let mut total: i64 = 0;
+            let mut free: i64 = 0;
+            let mut available: i64 = 0;
             for line in meminfo.lines() {
                 let parts: Vec<&str> = line.split_whitespace().collect();
                 if parts.len() >= 2 {
-                    let key = parts[0].trim_end_matches(':').to_lowercase();
+                    let key = parts[0].trim_end_matches(':');
                     let val: i64 = parts[1].parse().unwrap_or(0);
-                    rec.insert(key, Value::Int(val * 1024)); // KB to bytes
+                    match key {
+                        "MemTotal" => total = val * 1024,
+                        "MemFree" => free = val * 1024,
+                        "MemAvailable" => available = val * 1024,
+                        _ => {}
+                    }
                 }
             }
+            rec.insert("total".to_string(), Value::Int(total));
+            rec.insert("free".to_string(), Value::Int(free));
+            rec.insert("available".to_string(), Value::Int(available));
+            return Ok(Value::Record(rec));
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mut rec = std::collections::BTreeMap::new();
+        // Total memory
+        if let Ok(output) = std::process::Command::new("sysctl")
+            .args(["-n", "hw.memsize"])
+            .output()
+        {
+            if output.status.success() {
+                let total: i64 = String::from_utf8_lossy(&output.stdout)
+                    .trim()
+                    .parse()
+                    .unwrap_or(0);
+                rec.insert("total".to_string(), Value::Int(total));
+            }
+        }
+        // Free/available via vm_stat
+        if let Ok(output) = std::process::Command::new("vm_stat").output() {
+            if output.status.success() {
+                let text = String::from_utf8_lossy(&output.stdout);
+                let mut free_pages: i64 = 0;
+                let mut speculative: i64 = 0;
+                for line in text.lines() {
+                    if line.starts_with("Pages free") {
+                        if let Some(val) = line.split(':').nth(1) {
+                            free_pages = val.trim().trim_end_matches('.').parse().unwrap_or(0);
+                        }
+                    } else if line.starts_with("Pages speculative") {
+                        if let Some(val) = line.split(':').nth(1) {
+                            speculative = val.trim().trim_end_matches('.').parse().unwrap_or(0);
+                        }
+                    }
+                }
+                let page_size: i64 = 4096; // macOS default
+                let free_bytes = (free_pages + speculative) * page_size;
+                rec.insert("free".to_string(), Value::Int(free_bytes));
+                rec.insert("available".to_string(), Value::Int(free_bytes));
+            }
+        }
+        if !rec.is_empty() {
             return Ok(Value::Record(rec));
         }
     }
@@ -15441,6 +16129,7 @@ fn bi_sys_mem_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_sys_swap_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    // Returns consistent Record {total: Int, used: Int, free: Int} in bytes
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
@@ -15449,17 +16138,94 @@ fn bi_sys_swap_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                return Ok(json_to_value(json));
+                let obj = match &json {
+                    serde_json::Value::Object(o) => Some(o),
+                    serde_json::Value::Array(arr) => arr.first().and_then(|v| v.as_object()),
+                    _ => None,
+                };
+                if let Some(obj) = obj {
+                    let mut rec = std::collections::BTreeMap::new();
+                    let total_mb = obj
+                        .get("AllocatedBaseSize")
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or(0);
+                    let used_mb = obj
+                        .get("CurrentUsage")
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or(0);
+                    rec.insert("total".to_string(), Value::Int(total_mb * 1024 * 1024));
+                    rec.insert("used".to_string(), Value::Int(used_mb * 1024 * 1024));
+                    rec.insert(
+                        "free".to_string(),
+                        Value::Int((total_mb - used_mb) * 1024 * 1024),
+                    );
+                    return Ok(Value::Record(rec));
+                }
             }
         }
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "linux")]
     {
-        let output = std::process::Command::new("free").args(["-b"]).output()?;
-        if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).to_string(),
-            ));
+        // Parse /proc/meminfo for swap info
+        if let Ok(meminfo) = std::fs::read_to_string("/proc/meminfo") {
+            let mut rec = std::collections::BTreeMap::new();
+            let mut total: i64 = 0;
+            let mut free: i64 = 0;
+            for line in meminfo.lines() {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 2 {
+                    match parts[0].trim_end_matches(':') {
+                        "SwapTotal" => total = parts[1].parse::<i64>().unwrap_or(0) * 1024,
+                        "SwapFree" => free = parts[1].parse::<i64>().unwrap_or(0) * 1024,
+                        _ => {}
+                    }
+                }
+            }
+            rec.insert("total".to_string(), Value::Int(total));
+            rec.insert("used".to_string(), Value::Int(total - free));
+            rec.insert("free".to_string(), Value::Int(free));
+            return Ok(Value::Record(rec));
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(output) = std::process::Command::new("sysctl")
+            .args(["-n", "vm.swapusage"])
+            .output()
+        {
+            if output.status.success() {
+                let text = String::from_utf8_lossy(&output.stdout);
+                let mut rec = std::collections::BTreeMap::new();
+                // Format: "total = 2048.00M  used = 1024.00M  free = 1024.00M  ..."
+                for part in text.split_whitespace() {
+                    // skip
+                }
+                // Simple parse
+                let parse_mb = |s: &str| -> i64 {
+                    s.trim_end_matches('M')
+                        .trim_end_matches('G')
+                        .parse::<f64>()
+                        .unwrap_or(0.0) as i64
+                        * if s.ends_with('G') {
+                            1024 * 1024 * 1024
+                        } else {
+                            1024 * 1024
+                        }
+                };
+                let parts: Vec<&str> = text.split_whitespace().collect();
+                for (i, &p) in parts.iter().enumerate() {
+                    if p == "total" && i + 2 < parts.len() {
+                        rec.insert("total".to_string(), Value::Int(parse_mb(parts[i + 2])));
+                    } else if p == "used" && i + 2 < parts.len() {
+                        rec.insert("used".to_string(), Value::Int(parse_mb(parts[i + 2])));
+                    } else if p == "free" && i + 2 < parts.len() {
+                        rec.insert("free".to_string(), Value::Int(parse_mb(parts[i + 2])));
+                    }
+                }
+                if !rec.is_empty() {
+                    return Ok(Value::Record(rec));
+                }
+            }
         }
     }
     Ok(Value::Null)
@@ -15470,6 +16236,7 @@ fn bi_sys_disk_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_sys_load_avg(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    // Returns consistent Record {1min: Float, 5min: Float, 15min: Float} on all platforms
     #[cfg(target_os = "linux")]
     {
         if let Ok(loadavg) = std::fs::read_to_string("/proc/loadavg") {
@@ -15492,9 +16259,42 @@ fn bi_sys_load_avg(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             }
         }
     }
+    #[cfg(target_os = "macos")]
+    {
+        // macOS: sysctl vm.loadavg returns "{ 1.23 4.56 7.89 }"
+        if let Ok(output) = std::process::Command::new("sysctl")
+            .args(["-n", "vm.loadavg"])
+            .output()
+        {
+            if output.status.success() {
+                let text = String::from_utf8_lossy(&output.stdout);
+                let parts: Vec<&str> = text
+                    .trim()
+                    .trim_matches(|c| c == '{' || c == '}')
+                    .split_whitespace()
+                    .collect();
+                if parts.len() >= 3 {
+                    let mut rec = std::collections::BTreeMap::new();
+                    rec.insert(
+                        "1min".to_string(),
+                        Value::Float(parts[0].parse().unwrap_or(0.0)),
+                    );
+                    rec.insert(
+                        "5min".to_string(),
+                        Value::Float(parts[1].parse().unwrap_or(0.0)),
+                    );
+                    rec.insert(
+                        "15min".to_string(),
+                        Value::Float(parts[2].parse().unwrap_or(0.0)),
+                    );
+                    return Ok(Value::Record(rec));
+                }
+            }
+        }
+    }
     #[cfg(target_os = "windows")]
     {
-        // Windows doesn't have load average; return CPU usage instead
+        // Windows doesn't have load average; approximate with CPU usage as all three values
         let output = std::process::Command::new("powershell")
             .args([
                 "-Command",
@@ -15506,7 +16306,12 @@ fn bi_sys_load_avg(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 .trim()
                 .parse()
                 .unwrap_or(0.0);
-            return Ok(Value::Float(load));
+            let load_norm = load / 100.0; // Normalize to load average scale
+            let mut rec = std::collections::BTreeMap::new();
+            rec.insert("1min".to_string(), Value::Float(load_norm));
+            rec.insert("5min".to_string(), Value::Float(load_norm));
+            rec.insert("15min".to_string(), Value::Float(load_norm));
+            return Ok(Value::Record(rec));
         }
     }
     Ok(Value::Null)
@@ -15593,6 +16398,7 @@ fn bi_sys_groups(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_sys_user_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    // Returns consistent Record {name, home, shell, domain} on all platforms
     let mut rec = std::collections::BTreeMap::new();
 
     #[cfg(target_os = "windows")]
@@ -15606,6 +16412,12 @@ fn bi_sys_user_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         if let Ok(profile) = std::env::var("USERPROFILE") {
             rec.insert("home".to_string(), Value::Str(profile));
         }
+        // Detect default shell on Windows
+        if let Ok(comspec) = std::env::var("COMSPEC") {
+            rec.insert("shell".to_string(), Value::Str(comspec));
+        } else {
+            rec.insert("shell".to_string(), Value::Str("cmd.exe".to_string()));
+        }
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -15618,6 +16430,7 @@ fn bi_sys_user_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         if let Ok(shell) = std::env::var("SHELL") {
             rec.insert("shell".to_string(), Value::Str(shell));
         }
+        rec.insert("domain".to_string(), Value::Str("local".to_string()));
     }
 
     Ok(Value::Record(rec))
@@ -15692,7 +16505,34 @@ fn bi_svc_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                return Ok(json_to_value(json));
+                let items = match &json {
+                    serde_json::Value::Array(arr) => arr.clone(),
+                    obj @ serde_json::Value::Object(_) => vec![obj.clone()],
+                    _ => vec![],
+                };
+                let services: Vec<Value> = items
+                    .iter()
+                    .filter_map(|obj| {
+                        let o = obj.as_object()?;
+                        let mut rec = std::collections::BTreeMap::new();
+                        if let Some(v) = o.get("Name") {
+                            rec.insert("name".to_string(), json_to_value(v.clone()));
+                        }
+                        if let Some(v) = o.get("DisplayName") {
+                            rec.insert("display_name".to_string(), json_to_value(v.clone()));
+                        }
+                        let status_str = match o.get("Status").and_then(|v| v.as_i64()) {
+                            Some(1) => "stopped",
+                            Some(4) => "running",
+                            Some(2) => "start_pending",
+                            Some(3) => "stop_pending",
+                            _ => "unknown",
+                        };
+                        rec.insert("status".to_string(), Value::Str(status_str.to_string()));
+                        Some(Value::Record(rec))
+                    })
+                    .collect();
+                return Ok(Value::Array(services));
             }
         }
     }
@@ -15711,6 +16551,37 @@ fn bi_svc_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
                 return Ok(json_to_value(json));
             }
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let output = std::process::Command::new("launchctl")
+            .arg("list")
+            .output()?;
+        if output.status.success() {
+            let text = String::from_utf8_lossy(&output.stdout);
+            // Format: PID\tStatus\tLabel
+            let services: Vec<Value> = text
+                .lines()
+                .skip(1)
+                .filter_map(|line| {
+                    let parts: Vec<&str> = line.split('\t').collect();
+                    if parts.len() >= 3 {
+                        let mut rec = std::collections::BTreeMap::new();
+                        rec.insert("name".to_string(), Value::Str(parts[2].to_string()));
+                        let status = if parts[0] == "-" {
+                            "stopped"
+                        } else {
+                            "running"
+                        };
+                        rec.insert("status".to_string(), Value::Str(status.to_string()));
+                        Some(Value::Record(rec))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            return Ok(Value::Array(services));
         }
     }
     Ok(Value::Array(vec![]))
@@ -15736,19 +16607,48 @@ fn bi_svc_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                return Ok(json_to_value(json));
+                if let Some(obj) = json.as_object() {
+                    let mut rec = std::collections::BTreeMap::new();
+                    if let Some(v) = obj.get("Name") {
+                        rec.insert("name".to_string(), json_to_value(v.clone()));
+                    }
+                    let status_str = match obj.get("Status").and_then(|v| v.as_i64()) {
+                        Some(1) => "stopped",
+                        Some(4) => "running",
+                        _ => "unknown",
+                    };
+                    rec.insert("status".to_string(), Value::Str(status_str.to_string()));
+                    return Ok(Value::Record(rec));
+                }
             }
         }
     }
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("systemctl")
-            .args(["status", &name])
+            .args(["is-active", &name])
             .output()?;
-        return Ok(Value::Str(
-            String::from_utf8_lossy(&output.stdout).to_string(),
-        ));
+        let status_text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let mut rec = std::collections::BTreeMap::new();
+        rec.insert("name".to_string(), Value::Str(name.clone()));
+        rec.insert("status".to_string(), Value::Str(status_text));
+        return Ok(Value::Record(rec));
     }
+    #[cfg(target_os = "macos")]
+    {
+        let output = std::process::Command::new("launchctl")
+            .args(["list", &name])
+            .output()?;
+        let mut rec = std::collections::BTreeMap::new();
+        rec.insert("name".to_string(), Value::Str(name.clone()));
+        if output.status.success() {
+            rec.insert("status".to_string(), Value::Str("running".to_string()));
+        } else {
+            rec.insert("status".to_string(), Value::Str("stopped".to_string()));
+        }
+        return Ok(Value::Record(rec));
+    }
+    #[allow(unreachable_code)]
     Ok(Value::Null)
 }
 
@@ -15772,6 +16672,18 @@ fn bi_svc_start(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .output()?;
         return Ok(Value::Bool(output.status.success()));
     }
+    #[cfg(target_os = "macos")]
+    {
+        let output = std::process::Command::new("launchctl")
+            .args(["start", &name])
+            .output()?;
+        return Ok(Value::Bool(output.status.success()));
+    }
+    #[allow(unreachable_code)]
+    {
+        let _ = name;
+        Ok(Value::Bool(false))
+    }
 }
 
 fn bi_svc_stop(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -15794,6 +16706,18 @@ fn bi_svc_stop(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .output()?;
         return Ok(Value::Bool(output.status.success()));
     }
+    #[cfg(target_os = "macos")]
+    {
+        let output = std::process::Command::new("launchctl")
+            .args(["stop", &name])
+            .output()?;
+        return Ok(Value::Bool(output.status.success()));
+    }
+    #[allow(unreachable_code)]
+    {
+        let _ = name;
+        Ok(Value::Bool(false))
+    }
 }
 
 fn bi_svc_restart(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -15815,6 +16739,21 @@ fn bi_svc_restart(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args(["restart", &name])
             .output()?;
         return Ok(Value::Bool(output.status.success()));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("launchctl")
+            .args(["stop", &name])
+            .output();
+        let output = std::process::Command::new("launchctl")
+            .args(["start", &name])
+            .output()?;
+        return Ok(Value::Bool(output.status.success()));
+    }
+    #[allow(unreachable_code)]
+    {
+        let _ = name;
+        Ok(Value::Bool(false))
     }
 }
 
@@ -15841,6 +16780,18 @@ fn bi_svc_enable(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .output()?;
         return Ok(Value::Bool(output.status.success()));
     }
+    #[cfg(target_os = "macos")]
+    {
+        let output = std::process::Command::new("launchctl")
+            .args(["enable", &format!("system/{}", name)])
+            .output()?;
+        return Ok(Value::Bool(output.status.success()));
+    }
+    #[allow(unreachable_code)]
+    {
+        let _ = name;
+        Ok(Value::Bool(false))
+    }
 }
 
 fn bi_svc_disable(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -15865,6 +16816,18 @@ fn bi_svc_disable(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args(["disable", &name])
             .output()?;
         return Ok(Value::Bool(output.status.success()));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let output = std::process::Command::new("launchctl")
+            .args(["disable", &format!("system/{}", name)])
+            .output()?;
+        return Ok(Value::Bool(output.status.success()));
+    }
+    #[allow(unreachable_code)]
+    {
+        let _ = name;
+        Ok(Value::Bool(false))
     }
 }
 
@@ -15904,6 +16867,32 @@ fn bi_svc_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         return Ok(Value::Str(
             String::from_utf8_lossy(&output.stdout).to_string(),
         ));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let output = std::process::Command::new("log")
+            .args([
+                "show",
+                "--predicate",
+                &format!("process == '{}'", name),
+                "--last",
+                "1h",
+                "--style",
+                "compact",
+            ])
+            .output()?;
+        let text = String::from_utf8_lossy(&output.stdout);
+        let result: String = text
+            .lines()
+            .take(lines as usize)
+            .collect::<Vec<_>>()
+            .join("\n");
+        return Ok(Value::Str(result));
+    }
+    #[allow(unreachable_code)]
+    {
+        let _ = (name, lines);
+        Ok(Value::Null)
     }
 }
 
@@ -16941,18 +17930,89 @@ fn bi_hw_gpu(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                return Ok(json_to_value(json));
+                let items = match &json {
+                    serde_json::Value::Array(arr) => arr.clone(),
+                    obj @ serde_json::Value::Object(_) => vec![obj.clone()],
+                    _ => vec![],
+                };
+                let gpus: Vec<Value> = items
+                    .iter()
+                    .filter_map(|obj| {
+                        let o = obj.as_object()?;
+                        let mut rec = std::collections::BTreeMap::new();
+                        if let Some(v) = o.get("Name") {
+                            rec.insert("name".to_string(), json_to_value(v.clone()));
+                        }
+                        if let Some(v) = o.get("AdapterRAM") {
+                            rec.insert("vram".to_string(), json_to_value(v.clone()));
+                        }
+                        if let Some(v) = o.get("DriverVersion") {
+                            rec.insert("driver".to_string(), json_to_value(v.clone()));
+                        }
+                        Some(Value::Record(rec))
+                    })
+                    .collect();
+                return Ok(Value::Array(gpus));
             }
         }
     }
     #[cfg(target_os = "linux")]
     {
-        let output = std::process::Command::new("lspci")
-            .args(["-v", "-s", "$(lspci | grep -i vga | cut -d' ' -f1)"])
+        // Use sh -c for proper shell pipeline expansion
+        let output = std::process::Command::new("sh")
+            .args(["-c", "lspci | grep -iE 'vga|3d|display'"])
             .output()?;
-        return Ok(Value::Str(
-            String::from_utf8_lossy(&output.stdout).to_string(),
-        ));
+        if output.status.success() {
+            let text = String::from_utf8_lossy(&output.stdout);
+            let gpus: Vec<Value> = text
+                .lines()
+                .filter_map(|line| {
+                    let mut rec = std::collections::BTreeMap::new();
+                    // Format: "01:00.0 VGA compatible controller: NVIDIA Corporation ..."
+                    if let Some(desc_start) = line.find(": ") {
+                        rec.insert(
+                            "name".to_string(),
+                            Value::Str(line[desc_start + 2..].to_string()),
+                        );
+                    } else {
+                        rec.insert("name".to_string(), Value::Str(line.to_string()));
+                    }
+                    Some(Value::Record(rec))
+                })
+                .collect();
+            return Ok(Value::Array(gpus));
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let output = std::process::Command::new("system_profiler")
+            .args(["SPDisplaysDataType", "-json"])
+            .output()?;
+        if output.status.success() {
+            let json_str = String::from_utf8_lossy(&output.stdout);
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                if let Some(displays) = json.get("SPDisplaysDataType").and_then(|v| v.as_array()) {
+                    let gpus: Vec<Value> = displays
+                        .iter()
+                        .filter_map(|d| {
+                            let o = d.as_object()?;
+                            let mut rec = std::collections::BTreeMap::new();
+                            if let Some(v) = o.get("sppci_model") {
+                                rec.insert("name".to_string(), json_to_value(v.clone()));
+                            }
+                            if let Some(v) = o.get("spdisplays_vram") {
+                                rec.insert("vram".to_string(), json_to_value(v.clone()));
+                            }
+                            if let Some(v) = o.get("sppci_vendor") {
+                                rec.insert("vendor".to_string(), json_to_value(v.clone()));
+                            }
+                            Some(Value::Record(rec))
+                        })
+                        .collect();
+                    return Ok(Value::Array(gpus));
+                }
+            }
+        }
     }
     Ok(Value::Null)
 }
@@ -26923,7 +27983,11 @@ fn bi_docker_images(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_docker_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let image = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("docker.run requires an image name as first argument")),
+        _ => {
+            return Err(anyhow!(
+                "docker.run requires an image name as first argument"
+            ))
+        }
     };
     let command = match args.get(1) {
         Some(Value::Str(s)) => Some(s.clone()),
@@ -26990,7 +28054,11 @@ fn bi_docker_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_docker_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let container_id = match args.first() {
         Some(Value::Str(s)) => s.as_str(),
-        _ => return Err(anyhow!("docker.exec requires a container ID as first argument")),
+        _ => {
+            return Err(anyhow!(
+                "docker.exec requires a container ID as first argument"
+            ))
+        }
     };
     let command = match args.get(1) {
         Some(Value::Str(s)) => s.as_str(),
@@ -27019,7 +28087,11 @@ fn bi_docker_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_docker_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let container_id = match args.first() {
         Some(Value::Str(s)) => s.as_str(),
-        _ => return Err(anyhow!("docker.logs requires a container ID as first argument")),
+        _ => {
+            return Err(anyhow!(
+                "docker.logs requires a container ID as first argument"
+            ))
+        }
     };
     let mut cmd_args = vec!["logs".to_string(), container_id.to_string()];
     if let Some(Value::Int(n)) = args.get(1) {
@@ -27132,8 +28204,7 @@ fn bi_docker_volumes(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // ---------------------------------------------------------------------------
 fn bi_docker_networks(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let _ = args;
-    let networks =
-        container_json_lines("docker", &["network", "ls", "--format", "{{json .}}"])?;
+    let networks = container_json_lines("docker", &["network", "ls", "--format", "{{json .}}"])?;
     Ok(Value::Array(networks))
 }
 
@@ -27235,7 +28306,10 @@ fn bi_docker_top(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         return Ok(Value::Array(vec![]));
     }
     let header_line = lines.remove(0);
-    let headers: Vec<String> = header_line.split_whitespace().map(|h| h.to_lowercase()).collect();
+    let headers: Vec<String> = header_line
+        .split_whitespace()
+        .map(|h| h.to_lowercase())
+        .collect();
     let mut processes = Vec::new();
     for line in lines {
         let fields: Vec<&str> = line.split_whitespace().collect();
@@ -27259,7 +28333,11 @@ fn bi_docker_cp(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     };
     let dest = match args.get(1) {
         Some(Value::Str(s)) => s.as_str(),
-        _ => return Err(anyhow!("docker.cp requires destination path as second argument")),
+        _ => {
+            return Err(anyhow!(
+                "docker.cp requires destination path as second argument"
+            ))
+        }
     };
     container_run_cmd("docker", &["cp", src, dest])?;
     Ok(Value::Str(format!("Copied {} -> {}", src, dest)))
@@ -27271,7 +28349,11 @@ fn bi_docker_cp(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_docker_tag(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let source = match args.first() {
         Some(Value::Str(s)) => s.as_str(),
-        _ => return Err(anyhow!("docker.tag requires source image as first argument")),
+        _ => {
+            return Err(anyhow!(
+                "docker.tag requires source image as first argument"
+            ))
+        }
     };
     let target = match args.get(1) {
         Some(Value::Str(s)) => s.as_str(),
@@ -27341,7 +28423,11 @@ fn bi_podman_images(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_podman_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let image = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("podman.run requires an image name as first argument")),
+        _ => {
+            return Err(anyhow!(
+                "podman.run requires an image name as first argument"
+            ))
+        }
     };
     let command = match args.get(1) {
         Some(Value::Str(s)) => Some(s.clone()),
@@ -27406,7 +28492,11 @@ fn bi_podman_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_podman_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let container_id = match args.first() {
         Some(Value::Str(s)) => s.as_str(),
-        _ => return Err(anyhow!("podman.exec requires a container ID as first argument")),
+        _ => {
+            return Err(anyhow!(
+                "podman.exec requires a container ID as first argument"
+            ))
+        }
     };
     let command = match args.get(1) {
         Some(Value::Str(s)) => s.as_str(),
@@ -27435,7 +28525,11 @@ fn bi_podman_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_podman_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let container_id = match args.first() {
         Some(Value::Str(s)) => s.as_str(),
-        _ => return Err(anyhow!("podman.logs requires a container ID as first argument")),
+        _ => {
+            return Err(anyhow!(
+                "podman.logs requires a container ID as first argument"
+            ))
+        }
     };
     let mut cmd_args = vec!["logs".to_string(), container_id.to_string()];
     if let Some(Value::Int(n)) = args.get(1) {
@@ -27527,13 +28621,8 @@ fn bi_container_runtime(args: Vec<Value>, _input: Option<Value>) -> Result<Value
         {
             if status.success() {
                 // Get version string
-                if let Ok(output) = std::process::Command::new(rt)
-                    .arg("--version")
-                    .output()
-                {
-                    let version = String::from_utf8_lossy(&output.stdout)
-                        .trim()
-                        .to_string();
+                if let Ok(output) = std::process::Command::new(rt).arg("--version").output() {
+                    let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
                     let mut record = BTreeMap::new();
                     record.insert("name".to_string(), Value::Str(rt.to_string()));
                     record.insert("version".to_string(), Value::Str(version));
@@ -27612,7 +28701,11 @@ fn bi_container_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let runtime = detect_container_runtime()?;
     let container_id = match args.first() {
         Some(Value::Str(s)) => s.as_str(),
-        _ => return Err(anyhow!("container.logs requires a container ID as first argument")),
+        _ => {
+            return Err(anyhow!(
+                "container.logs requires a container ID as first argument"
+            ))
+        }
     };
     let mut cmd_args = vec!["logs".to_string(), container_id.to_string()];
     if let Some(Value::Int(n)) = args.get(1) {
@@ -27741,7 +28834,12 @@ fn parse_kubectl_table(text: &str) -> Vec<Value> {
     };
     let headers: Vec<String> = header_line
         .split_whitespace()
-        .map(|h| h.to_lowercase().replace('(', "_").replace(')', "").replace('%', "pct"))
+        .map(|h| {
+            h.to_lowercase()
+                .replace('(', "_")
+                .replace(')', "")
+                .replace('%', "pct")
+        })
         .collect();
     let mut rows = Vec::new();
     for line in lines {
@@ -27784,7 +28882,11 @@ fn bi_k8s_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_k8s_apply(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let file = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("k8s.apply requires a file or URL as first argument")),
+        _ => {
+            return Err(anyhow!(
+                "k8s.apply requires a file or URL as first argument"
+            ))
+        }
     };
     let mut cmd_args = vec!["apply", "-f", &file];
     let ns_owned;
@@ -27803,11 +28905,19 @@ fn bi_k8s_apply(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_k8s_delete(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let resource = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("k8s.delete requires resource type as first argument")),
+        _ => {
+            return Err(anyhow!(
+                "k8s.delete requires resource type as first argument"
+            ))
+        }
     };
     let name = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("k8s.delete requires resource name as second argument")),
+        _ => {
+            return Err(anyhow!(
+                "k8s.delete requires resource name as second argument"
+            ))
+        }
     };
     let mut cmd_args = vec!["delete", &resource, &name];
     let ns_owned;
@@ -27826,11 +28936,19 @@ fn bi_k8s_delete(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_k8s_describe(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let resource = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("k8s.describe requires resource type as first argument")),
+        _ => {
+            return Err(anyhow!(
+                "k8s.describe requires resource type as first argument"
+            ))
+        }
     };
     let name = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("k8s.describe requires resource name as second argument")),
+        _ => {
+            return Err(anyhow!(
+                "k8s.describe requires resource name as second argument"
+            ))
+        }
     };
     let mut cmd_args = vec!["describe", &resource, &name];
     let ns_owned;
@@ -27982,10 +29100,7 @@ fn bi_k8s_configmaps(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // ---------------------------------------------------------------------------
 fn bi_k8s_secrets(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // Return only metadata (names/types), not secret data
-    let mut cmd_args = vec![
-        "get", "secrets",
-        "-o", "jsonpath={.items[*].metadata.name}",
-    ];
+    let mut cmd_args = vec!["get", "secrets", "-o", "jsonpath={.items[*].metadata.name}"];
     let ns_owned;
     if let Some(Value::Str(ns)) = args.first() {
         ns_owned = ns.clone();
@@ -28061,11 +29176,19 @@ fn bi_k8s_rollout_restart(args: Vec<Value>, _input: Option<Value>) -> Result<Val
 fn bi_k8s_scale(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("k8s.scale requires deployment name as first argument")),
+        _ => {
+            return Err(anyhow!(
+                "k8s.scale requires deployment name as first argument"
+            ))
+        }
     };
     let replicas = match args.get(1) {
         Some(Value::Int(n)) => *n,
-        _ => return Err(anyhow!("k8s.scale requires replica count (Int) as second argument")),
+        _ => {
+            return Err(anyhow!(
+                "k8s.scale requires replica count (Int) as second argument"
+            ))
+        }
     };
     let resource = format!("deployment/{}", name);
     let replicas_flag = format!("--replicas={}", replicas);
@@ -28163,11 +29286,19 @@ fn bi_helm_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_helm_install(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let release = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("helm.install requires release name as first argument")),
+        _ => {
+            return Err(anyhow!(
+                "helm.install requires release name as first argument"
+            ))
+        }
     };
     let chart = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("helm.install requires chart name as second argument")),
+        _ => {
+            return Err(anyhow!(
+                "helm.install requires chart name as second argument"
+            ))
+        }
     };
     let mut cmd_args = vec!["install".to_string(), release, chart];
     if let Some(Value::Str(ns)) = args.get(2) {
@@ -28199,11 +29330,19 @@ fn bi_helm_install(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_helm_upgrade(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let release = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("helm.upgrade requires release name as first argument")),
+        _ => {
+            return Err(anyhow!(
+                "helm.upgrade requires release name as first argument"
+            ))
+        }
     };
     let chart = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("helm.upgrade requires chart name as second argument")),
+        _ => {
+            return Err(anyhow!(
+                "helm.upgrade requires chart name as second argument"
+            ))
+        }
     };
     let mut cmd_args = vec!["upgrade".to_string(), release, chart];
     if let Some(Value::Str(ns)) = args.get(2) {
@@ -28359,7 +29498,8 @@ fn parse_virsh_table(text: &str) -> Vec<Value> {
         if trimmed.is_empty() {
             continue;
         }
-        let cols: Vec<&str> = trimmed.splitn(headers.len(), char::is_whitespace)
+        let cols: Vec<&str> = trimmed
+            .splitn(headers.len(), char::is_whitespace)
             .map(|s| s.trim())
             .filter(|s| !s.is_empty())
             .collect();
@@ -28395,10 +29535,7 @@ fn parse_wsl_list(text: &str) -> Vec<Value> {
             record.insert("name".to_string(), Value::Str(cols[0].to_string()));
             record.insert("state".to_string(), Value::Str(cols[1].to_string()));
             record.insert("version".to_string(), Value::Str(cols[2].to_string()));
-            record.insert(
-                "default".to_string(),
-                Value::Bool(trimmed.starts_with('*')),
-            );
+            record.insert("default".to_string(), Value::Bool(trimmed.starts_with('*')));
             rows.push(Value::Record(record));
         }
     }
@@ -28420,7 +29557,11 @@ fn detect_hypervisor() -> &'static str {
     {
         // On Windows, prefer Hyper-V
         if std::process::Command::new("powershell")
-            .args(&["-NoProfile", "-Command", "Get-Command Get-VM -ErrorAction SilentlyContinue"])
+            .args(&[
+                "-NoProfile",
+                "-Command",
+                "Get-Command Get-VM -ErrorAction SilentlyContinue",
+            ])
             .output()
             .map(|o| o.status.success())
             .unwrap_or(false)
@@ -28485,7 +29626,9 @@ fn bi_vm_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 .collect();
             Ok(Value::Array(rows))
         }
-        _ => Err(anyhow!("No supported hypervisor found (Hyper-V, libvirt, VirtualBox)")),
+        _ => Err(anyhow!(
+            "No supported hypervisor found (Hyper-V, libvirt, VirtualBox)"
+        )),
     }
 }
 
@@ -28634,21 +29777,39 @@ fn bi_vm_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let memory = match args.get(1) {
         Some(Value::Record(cfg)) => cfg
             .get("memory")
-            .and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None })
+            .and_then(|v| {
+                if let Value::Str(s) = v {
+                    Some(s.clone())
+                } else {
+                    None
+                }
+            })
             .unwrap_or_else(|| "1GB".to_string()),
         _ => "1GB".to_string(),
     };
     let cpu: i64 = match args.get(1) {
         Some(Value::Record(cfg)) => cfg
             .get("cpu")
-            .and_then(|v| if let Value::Int(n) = v { Some(*n) } else { None })
+            .and_then(|v| {
+                if let Value::Int(n) = v {
+                    Some(*n)
+                } else {
+                    None
+                }
+            })
             .unwrap_or(1),
         _ => 1,
     };
     let disk = match args.get(1) {
         Some(Value::Record(cfg)) => cfg
             .get("disk")
-            .and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None })
+            .and_then(|v| {
+                if let Value::Str(s) = v {
+                    Some(s.clone())
+                } else {
+                    None
+                }
+            })
             .unwrap_or_else(|| "20GB".to_string()),
         _ => "20GB".to_string(),
     };
@@ -28663,24 +29824,46 @@ fn bi_vm_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
         "virsh" => {
             // Use virt-install if available, otherwise basic virsh define
-            let mem_mb = memory.trim_end_matches(|c: char| c.is_alphabetic())
-                .parse::<i64>().unwrap_or(1024);
-            let disk_gb = disk.trim_end_matches(|c: char| c.is_alphabetic())
-                .parse::<i64>().unwrap_or(20);
-            let text = vm_run_cmd("virt-install", &[
-                "--name", &name,
-                "--memory", &mem_mb.to_string(),
-                "--vcpus", &cpu.to_string(),
-                "--disk", &format!("size={}", disk_gb),
-                "--os-variant", "generic",
-                "--import",
-                "--noautoconsole",
-            ])?;
+            let mem_mb = memory
+                .trim_end_matches(|c: char| c.is_alphabetic())
+                .parse::<i64>()
+                .unwrap_or(1024);
+            let disk_gb = disk
+                .trim_end_matches(|c: char| c.is_alphabetic())
+                .parse::<i64>()
+                .unwrap_or(20);
+            let text = vm_run_cmd(
+                "virt-install",
+                &[
+                    "--name",
+                    &name,
+                    "--memory",
+                    &mem_mb.to_string(),
+                    "--vcpus",
+                    &cpu.to_string(),
+                    "--disk",
+                    &format!("size={}", disk_gb),
+                    "--os-variant",
+                    "generic",
+                    "--import",
+                    "--noautoconsole",
+                ],
+            )?;
             Ok(Value::Str(text.trim().to_string()))
         }
         "vboxmanage" => {
             vm_run_cmd("VBoxManage", &["createvm", "--name", &name, "--register"])?;
-            vm_run_cmd("VBoxManage", &["modifyvm", &name, "--cpus", &cpu.to_string(), "--memory", &memory])?;
+            vm_run_cmd(
+                "VBoxManage",
+                &[
+                    "modifyvm",
+                    &name,
+                    "--cpus",
+                    &cpu.to_string(),
+                    "--memory",
+                    &memory,
+                ],
+            )?;
             Ok(Value::Str(format!("VM '{}' created (VirtualBox)", name)))
         }
         _ => Err(anyhow!("No supported hypervisor found")),
@@ -28720,17 +29903,32 @@ fn bi_vm_snapshot(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let snap_name = require_str(&args, 1, "vm.snapshot")?;
     match detect_hypervisor() {
         "hyperv" => {
-            let script = format!("Checkpoint-VM -Name '{}' -SnapshotName '{}'", vm_name, snap_name);
+            let script = format!(
+                "Checkpoint-VM -Name '{}' -SnapshotName '{}'",
+                vm_name, snap_name
+            );
             vm_run_powershell(&script)?;
-            Ok(Value::Str(format!("Snapshot '{}' created for VM '{}' (Hyper-V)", snap_name, vm_name)))
+            Ok(Value::Str(format!(
+                "Snapshot '{}' created for VM '{}' (Hyper-V)",
+                snap_name, vm_name
+            )))
         }
         "virsh" => {
-            vm_run_cmd("virsh", &["snapshot-create-as", &vm_name, "--name", &snap_name])?;
-            Ok(Value::Str(format!("Snapshot '{}' created for VM '{}' (virsh)", snap_name, vm_name)))
+            vm_run_cmd(
+                "virsh",
+                &["snapshot-create-as", &vm_name, "--name", &snap_name],
+            )?;
+            Ok(Value::Str(format!(
+                "Snapshot '{}' created for VM '{}' (virsh)",
+                snap_name, vm_name
+            )))
         }
         "vboxmanage" => {
             vm_run_cmd("VBoxManage", &["snapshot", &vm_name, "take", &snap_name])?;
-            Ok(Value::Str(format!("Snapshot '{}' created for VM '{}' (VirtualBox)", snap_name, vm_name)))
+            Ok(Value::Str(format!(
+                "Snapshot '{}' created for VM '{}' (VirtualBox)",
+                snap_name, vm_name
+            )))
         }
         _ => Err(anyhow!("No supported hypervisor found")),
     }
@@ -28772,17 +29970,29 @@ fn bi_vm_snapshot_restore(args: Vec<Value>, _input: Option<Value>) -> Result<Val
     let snap_name = require_str(&args, 1, "vm.snapshot_restore")?;
     match detect_hypervisor() {
         "hyperv" => {
-            let script = format!("Restore-VMSnapshot -VMName '{}' -Name '{}' -Confirm:$false", vm_name, snap_name);
+            let script = format!(
+                "Restore-VMSnapshot -VMName '{}' -Name '{}' -Confirm:$false",
+                vm_name, snap_name
+            );
             vm_run_powershell(&script)?;
-            Ok(Value::Str(format!("Snapshot '{}' restored for VM '{}' (Hyper-V)", snap_name, vm_name)))
+            Ok(Value::Str(format!(
+                "Snapshot '{}' restored for VM '{}' (Hyper-V)",
+                snap_name, vm_name
+            )))
         }
         "virsh" => {
             vm_run_cmd("virsh", &["snapshot-revert", &vm_name, &snap_name])?;
-            Ok(Value::Str(format!("Snapshot '{}' restored for VM '{}' (virsh)", snap_name, vm_name)))
+            Ok(Value::Str(format!(
+                "Snapshot '{}' restored for VM '{}' (virsh)",
+                snap_name, vm_name
+            )))
         }
         "vboxmanage" => {
             vm_run_cmd("VBoxManage", &["snapshot", &vm_name, "restore", &snap_name])?;
-            Ok(Value::Str(format!("Snapshot '{}' restored for VM '{}' (VirtualBox)", snap_name, vm_name)))
+            Ok(Value::Str(format!(
+                "Snapshot '{}' restored for VM '{}' (VirtualBox)",
+                snap_name, vm_name
+            )))
         }
         _ => Err(anyhow!("No supported hypervisor found")),
     }
@@ -28803,12 +30013,24 @@ fn bi_vm_clone(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             vm_run_powershell_json(&script)
         }
         "virsh" => {
-            vm_run_cmd("virt-clone", &["--original", &source, "--name", &new_name, "--auto-clone"])?;
-            Ok(Value::Str(format!("VM '{}' cloned to '{}' (virsh)", source, new_name)))
+            vm_run_cmd(
+                "virt-clone",
+                &["--original", &source, "--name", &new_name, "--auto-clone"],
+            )?;
+            Ok(Value::Str(format!(
+                "VM '{}' cloned to '{}' (virsh)",
+                source, new_name
+            )))
         }
         "vboxmanage" => {
-            vm_run_cmd("VBoxManage", &["clonevm", &source, "--name", &new_name, "--register"])?;
-            Ok(Value::Str(format!("VM '{}' cloned to '{}' (VirtualBox)", source, new_name)))
+            vm_run_cmd(
+                "VBoxManage",
+                &["clonevm", &source, "--name", &new_name, "--register"],
+            )?;
+            Ok(Value::Str(format!(
+                "VM '{}' cloned to '{}' (VirtualBox)",
+                source, new_name
+            )))
         }
         _ => Err(anyhow!("No supported hypervisor found")),
     }
@@ -28863,7 +30085,10 @@ fn bi_hyperv_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_hyperv_checkpoint(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = require_str(&args, 0, "hyperv.checkpoint")?;
     let snap_name = require_str(&args, 1, "hyperv.checkpoint")?;
-    let script = format!("Checkpoint-VM -Name '{}' -SnapshotName '{}'", name, snap_name);
+    let script = format!(
+        "Checkpoint-VM -Name '{}' -SnapshotName '{}'",
+        name, snap_name
+    );
     vm_run_powershell(&script)?;
     Ok(Value::Str(format!(
         "Checkpoint '{}' created for Hyper-V VM '{}'",
@@ -28901,7 +30126,9 @@ fn bi_esxi_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     .collect();
                 Ok(Value::Array(rows))
             } else {
-                Err(anyhow!("govc not found. Provide ESXi host as argument for SSH fallback"))
+                Err(anyhow!(
+                    "govc not found. Provide ESXi host as argument for SSH fallback"
+                ))
             }
         }
     }
@@ -28996,7 +30223,10 @@ fn bi_virsh_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_wsl_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let text = vm_run_cmd("wsl", &["--list", "--verbose"])?;
     // WSL output may include UTF-16 BOM / null bytes on some systems
-    let cleaned: String = text.chars().filter(|c| *c != '\0' && *c != '\u{feff}').collect();
+    let cleaned: String = text
+        .chars()
+        .filter(|c| *c != '\0' && *c != '\u{feff}')
+        .collect();
     let rows = parse_wsl_list(&cleaned);
     Ok(Value::Array(rows))
 }
@@ -29008,7 +30238,11 @@ fn bi_wsl_start(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let distro = require_str(&args, 0, "wsl.start")?;
     // Start the distro in the background by running a no-op command
     let text = vm_run_cmd("wsl", &["-d", &distro, "--", "echo", "started"])?;
-    Ok(Value::Str(format!("WSL distro '{}' started: {}", distro, text.trim())))
+    Ok(Value::Str(format!(
+        "WSL distro '{}' started: {}",
+        distro,
+        text.trim()
+    )))
 }
 
 // ---------------------------------------------------------------------------
@@ -29042,7 +30276,10 @@ fn bi_wsl_import(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let install_path = require_str(&args, 1, "wsl.import")?;
     let tarball = require_str(&args, 2, "wsl.import")?;
     vm_run_cmd("wsl", &["--import", &name, &install_path, &tarball])?;
-    Ok(Value::Str(format!("WSL distro '{}' imported from '{}'", name, tarball)))
+    Ok(Value::Str(format!(
+        "WSL distro '{}' imported from '{}'",
+        name, tarball
+    )))
 }
 
 // ---------------------------------------------------------------------------
@@ -29052,7 +30289,10 @@ fn bi_wsl_export(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let distro = require_str(&args, 0, "wsl.export")?;
     let file = require_str(&args, 1, "wsl.export")?;
     vm_run_cmd("wsl", &["--export", &distro, &file])?;
-    Ok(Value::Str(format!("WSL distro '{}' exported to '{}'", distro, file)))
+    Ok(Value::Str(format!(
+        "WSL distro '{}' exported to '{}'",
+        distro, file
+    )))
 }
 
 // ===========================================================================
@@ -29083,11 +30323,17 @@ fn bi_qemu_start(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_qemu_monitor(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = require_str(&args, 0, "qemu.monitor")?;
     let command = require_str(&args, 1, "qemu.monitor")?;
-    let text = vm_run_cmd("virsh", &[
-        "-c", "qemu:///system",
-        "qemu-monitor-command", &name,
-        "--hmp", &command,
-    ])?;
+    let text = vm_run_cmd(
+        "virsh",
+        &[
+            "-c",
+            "qemu:///system",
+            "qemu-monitor-command",
+            &name,
+            "--hmp",
+            &command,
+        ],
+    )?;
     Ok(Value::Str(text.trim().to_string()))
 }
 
@@ -29154,10 +30400,17 @@ fn cloud_run_cmd(program: &str, args: &[&str], dir: Option<&str>) -> Result<Stri
     if let Some(d) = dir {
         cmd.current_dir(d);
     }
-    let output = cmd.output().map_err(|e| anyhow!("failed to run `{}`: {}", program, e))?;
+    let output = cmd
+        .output()
+        .map_err(|e| anyhow!("failed to run `{}`: {}", program, e))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(anyhow!("`{} {}` failed: {}", program, args.join(" "), stderr));
+        return Err(anyhow!(
+            "`{} {}` failed: {}",
+            program,
+            args.join(" "),
+            stderr
+        ));
     }
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
@@ -29330,7 +30583,11 @@ pub fn bi_ansible_galaxy(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
 pub fn bi_ansible_vault(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let action = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("ansible_vault requires action (view|encrypt|decrypt)")),
+        _ => {
+            return Err(anyhow!(
+                "ansible_vault requires action (view|encrypt|decrypt)"
+            ))
+        }
     };
     let file = match args.get(1) {
         Some(Value::Str(s)) => s.as_str(),
@@ -29338,7 +30595,12 @@ pub fn bi_ansible_vault(args: Vec<Value>, _input: Option<Value>) -> Result<Value
     };
     match action.as_str() {
         "view" | "encrypt" | "decrypt" => {}
-        other => return Err(anyhow!("ansible_vault: unknown action '{}' (use view|encrypt|decrypt)", other)),
+        other => {
+            return Err(anyhow!(
+                "ansible_vault: unknown action '{}' (use view|encrypt|decrypt)",
+                other
+            ))
+        }
     }
     let out = cloud_run_cmd("ansible-vault", &[action.as_str(), file], None)?;
     Ok(Value::Str(out))
@@ -29553,8 +30815,12 @@ pub fn bi_aws_s3_ls(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 /// 945 – aws ec2 describe-instances --output json
 pub fn bi_aws_ec2_instances(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut cmd_args: Vec<String> =
-        vec!["ec2".into(), "describe-instances".into(), "--output".into(), "json".into()];
+    let mut cmd_args: Vec<String> = vec![
+        "ec2".into(),
+        "describe-instances".into(),
+        "--output".into(),
+        "json".into(),
+    ];
     // Optional --region
     if let Some(Value::Str(region)) = args.first() {
         cmd_args.push("--region".into());
@@ -29570,7 +30836,8 @@ pub fn bi_aws_ec2_instances(args: Vec<Value>, _input: Option<Value>) -> Result<V
 
 /// 946 – az vm list --output json
 pub fn bi_az_vm_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut cmd_args: Vec<String> = vec!["vm".into(), "list".into(), "--output".into(), "json".into()];
+    let mut cmd_args: Vec<String> =
+        vec!["vm".into(), "list".into(), "--output".into(), "json".into()];
     // Optional --resource-group
     if let Some(Value::Str(rg)) = args.first() {
         cmd_args.push("--resource-group".into());
@@ -29591,8 +30858,12 @@ pub fn bi_az_group_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Valu
 
 /// 948 – gcloud compute instances list --format=json
 pub fn bi_gcloud_instances(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut cmd_args: Vec<String> =
-        vec!["compute".into(), "instances".into(), "list".into(), "--format=json".into()];
+    let mut cmd_args: Vec<String> = vec![
+        "compute".into(),
+        "instances".into(),
+        "list".into(),
+        "--format=json".into(),
+    ];
     // Optional --project
     if let Some(Value::Str(project)) = args.first() {
         cmd_args.push(format!("--project={}", project));
@@ -29668,30 +30939,50 @@ pub fn bi_file_type(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(anyhow!("file_type: expected path string")),
     };
-    let ext = std::path::Path::new(&path).extension()
-        .and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+    let ext = std::path::Path::new(&path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
     let mime = match ext.as_str() {
         "txt" | "text" | "log" => "text/plain",
-        "html" | "htm" => "text/html", "css" => "text/css",
+        "html" | "htm" => "text/html",
+        "css" => "text/css",
         "js" | "mjs" | "cjs" => "text/javascript",
-        "json" => "application/json", "xml" => "application/xml",
-        "csv" => "text/csv", "md" | "markdown" => "text/markdown",
-        "yaml" | "yml" => "application/yaml", "toml" => "application/toml",
-        "rs" => "text/x-rust", "py" => "text/x-python",
-        "rb" => "text/x-ruby", "java" => "text/x-java",
-        "c" | "h" => "text/x-c", "cpp" | "cxx" | "cc" | "hpp" => "text/x-c++",
-        "go" => "text/x-go", "ts" | "tsx" => "text/typescript",
+        "json" => "application/json",
+        "xml" => "application/xml",
+        "csv" => "text/csv",
+        "md" | "markdown" => "text/markdown",
+        "yaml" | "yml" => "application/yaml",
+        "toml" => "application/toml",
+        "rs" => "text/x-rust",
+        "py" => "text/x-python",
+        "rb" => "text/x-ruby",
+        "java" => "text/x-java",
+        "c" | "h" => "text/x-c",
+        "cpp" | "cxx" | "cc" | "hpp" => "text/x-c++",
+        "go" => "text/x-go",
+        "ts" | "tsx" => "text/typescript",
         "sh" | "bash" | "zsh" => "text/x-shellscript",
-        "ps1" => "text/x-powershell", "bat" | "cmd" => "text/x-batch",
+        "ps1" => "text/x-powershell",
+        "bat" | "cmd" => "text/x-batch",
         "sql" => "text/x-sql",
-        "jpg" | "jpeg" => "image/jpeg", "png" => "image/png",
-        "gif" => "image/gif", "bmp" => "image/bmp",
-        "svg" => "image/svg+xml", "webp" => "image/webp",
-        "mp3" => "audio/mpeg", "wav" => "audio/wav",
-        "mp4" | "m4v" => "video/mp4", "webm" => "video/webm",
-        "avi" => "video/x-msvideo", "mkv" => "video/x-matroska",
-        "pdf" => "application/pdf", "zip" => "application/zip",
-        "gz" | "gzip" => "application/gzip", "tar" => "application/x-tar",
+        "jpg" | "jpeg" => "image/jpeg",
+        "png" => "image/png",
+        "gif" => "image/gif",
+        "bmp" => "image/bmp",
+        "svg" => "image/svg+xml",
+        "webp" => "image/webp",
+        "mp3" => "audio/mpeg",
+        "wav" => "audio/wav",
+        "mp4" | "m4v" => "video/mp4",
+        "webm" => "video/webm",
+        "avi" => "video/x-msvideo",
+        "mkv" => "video/x-matroska",
+        "pdf" => "application/pdf",
+        "zip" => "application/zip",
+        "gz" | "gzip" => "application/gzip",
+        "tar" => "application/x-tar",
         "exe" => "application/x-executable",
         "dll" | "so" | "dylib" => "application/x-sharedlib",
         "wasm" => "application/wasm",
@@ -29710,8 +31001,14 @@ pub fn bi_id_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     rec.insert("user".to_string(), Value::Str(user));
     #[cfg(unix)]
     {
-        rec.insert("uid".to_string(), Value::Int(unsafe { libc::getuid() } as i64));
-        rec.insert("gid".to_string(), Value::Int(unsafe { libc::getgid() } as i64));
+        rec.insert(
+            "uid".to_string(),
+            Value::Int(unsafe { libc::getuid() } as i64),
+        );
+        rec.insert(
+            "gid".to_string(),
+            Value::Int(unsafe { libc::getgid() } as i64),
+        );
     }
     #[cfg(not(unix))]
     {
@@ -29754,18 +31051,40 @@ pub fn bi_cal(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         NaiveDate::from_ymd_opt(year + 1, 1, 1)
     } else {
         NaiveDate::from_ymd_opt(year, month + 1, 1)
-    }.unwrap().signed_duration_since(first).num_days() as u32;
+    }
+    .unwrap()
+    .signed_duration_since(first)
+    .num_days() as u32;
     let weekday_offset = first.weekday().num_days_from_sunday();
-    let month_names = ["", "January", "February", "March", "April", "May", "June",
-        "July", "August", "September", "October", "November", "December"];
+    let month_names = [
+        "",
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+    ];
     let mut cal = format!("    {} {}\n", month_names[month as usize], year);
     cal.push_str("Su Mo Tu We Th Fr Sa\n");
-    for _ in 0..weekday_offset { cal.push_str("   "); }
+    for _ in 0..weekday_offset {
+        cal.push_str("   ");
+    }
     for d in 1..=days_in_month {
         cal.push_str(&format!("{:2} ", d));
-        if (weekday_offset + d) % 7 == 0 { cal.push_str("\n"); }
+        if (weekday_offset + d) % 7 == 0 {
+            cal.push_str("\n");
+        }
     }
-    if (weekday_offset + days_in_month) % 7 != 0 { cal.push_str("\n"); }
+    if (weekday_offset + days_in_month) % 7 != 0 {
+        cal.push_str("\n");
+    }
     Ok(Value::Str(cal))
 }
 
@@ -29773,16 +31092,34 @@ pub fn bi_cal(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 pub fn bi_lsblk(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let _ = args;
     let disks = Disks::new_with_refreshed_list();
-    let entries: Vec<Value> = disks.iter().map(|d| {
-        let mut rec = BTreeMap::new();
-        rec.insert("name".to_string(), Value::Str(d.name().to_string_lossy().to_string()));
-        rec.insert("mount_point".to_string(), Value::Str(d.mount_point().to_string_lossy().to_string()));
-        rec.insert("total_space".to_string(), Value::Int(d.total_space() as i64));
-        rec.insert("available_space".to_string(), Value::Int(d.available_space() as i64));
-        rec.insert("file_system".to_string(), Value::Str(String::from_utf8_lossy(d.file_system().as_encoded_bytes()).to_string()));
-        rec.insert("is_removable".to_string(), Value::Bool(d.is_removable()));
-        Value::Record(rec)
-    }).collect();
+    let entries: Vec<Value> = disks
+        .iter()
+        .map(|d| {
+            let mut rec = BTreeMap::new();
+            rec.insert(
+                "name".to_string(),
+                Value::Str(d.name().to_string_lossy().to_string()),
+            );
+            rec.insert(
+                "mount_point".to_string(),
+                Value::Str(d.mount_point().to_string_lossy().to_string()),
+            );
+            rec.insert(
+                "total_space".to_string(),
+                Value::Int(d.total_space() as i64),
+            );
+            rec.insert(
+                "available_space".to_string(),
+                Value::Int(d.available_space() as i64),
+            );
+            rec.insert(
+                "file_system".to_string(),
+                Value::Str(String::from_utf8_lossy(d.file_system().as_encoded_bytes()).to_string()),
+            );
+            rec.insert("is_removable".to_string(), Value::Bool(d.is_removable()));
+            Value::Record(rec)
+        })
+        .collect();
     Ok(Value::Array(entries))
 }
 
@@ -29794,7 +31131,9 @@ pub fn bi_blkid(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             Some(Value::Str(s)) => s.clone(),
             _ => return Err(anyhow!("blkid: expected device path")),
         };
-        let out = Command::new("blkid").args(&["-o", "export", &device]).output()
+        let out = Command::new("blkid")
+            .args(&["-o", "export", &device])
+            .output()
             .map_err(|e| anyhow!("blkid: {}", e))?;
         let text = String::from_utf8_lossy(&out.stdout);
         let mut rec = BTreeMap::new();
@@ -29818,12 +31157,14 @@ pub fn bi_dmesg(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let out = Command::new("dmesg").args(&["--json"]).output();
         match out {
             Ok(o) if o.status.success() => {
-                let json: serde_json::Value = serde_json::from_slice(&o.stdout)
-                    .unwrap_or(serde_json::Value::String(String::from_utf8_lossy(&o.stdout).to_string()));
+                let json: serde_json::Value = serde_json::from_slice(&o.stdout).unwrap_or(
+                    serde_json::Value::String(String::from_utf8_lossy(&o.stdout).to_string()),
+                );
                 Ok(json_to_value(json))
             }
             _ => {
-                let out = Command::new("dmesg").output()
+                let out = Command::new("dmesg")
+                    .output()
                     .map_err(|e| anyhow!("dmesg: {}", e))?;
                 Ok(Value::Str(String::from_utf8_lossy(&out.stdout).to_string()))
             }
@@ -29844,7 +31185,9 @@ pub fn bi_dmesg(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "macos")]
     {
-        let out = Command::new("log").args(&["show", "--last", "5m", "--style", "compact"]).output()
+        let out = Command::new("log")
+            .args(&["show", "--last", "5m", "--style", "compact"])
+            .output()
             .map_err(|e| anyhow!("dmesg: {}", e))?;
         Ok(Value::Str(String::from_utf8_lossy(&out.stdout).to_string()))
     }
@@ -29870,9 +31213,14 @@ pub fn bi_journalctl(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let out = cmd.output().map_err(|e| anyhow!("journalctl: {}", e))?;
         // journalctl -o json outputs one JSON object per line
         let text = String::from_utf8_lossy(&out.stdout);
-        let entries: Vec<Value> = text.lines().filter_map(|line| {
-            serde_json::from_str::<serde_json::Value>(line).ok().map(|j| json_to_value(j))
-        }).collect();
+        let entries: Vec<Value> = text
+            .lines()
+            .filter_map(|line| {
+                serde_json::from_str::<serde_json::Value>(line)
+                    .ok()
+                    .map(|j| json_to_value(j))
+            })
+            .collect();
         Ok(Value::Array(entries))
     }
     #[cfg(not(target_os = "linux"))]
@@ -29885,7 +31233,9 @@ pub fn bi_journalctl(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 pub fn bi_lsof(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
-        let out = Command::new("lsof").args(&["-i", "-P", "-n"]).output()
+        let out = Command::new("lsof")
+            .args(&["-i", "-P", "-n"])
+            .output()
             .map_err(|e| anyhow!("lsof: {}", e))?;
         let text = String::from_utf8_lossy(&out.stdout);
         let lines: Vec<&str> = text.lines().collect();
@@ -29893,23 +31243,34 @@ pub fn bi_lsof(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             return Ok(Value::Array(vec![]));
         }
         let headers: Vec<&str> = lines[0].split_whitespace().collect();
-        let entries: Vec<Value> = lines[1..].iter().map(|line| {
-            let cols: Vec<&str> = line.splitn(headers.len(), char::is_whitespace).collect();
-            let mut rec = BTreeMap::new();
-            for (i, h) in headers.iter().enumerate() {
-                rec.insert(h.to_lowercase(), Value::Str(cols.get(i).unwrap_or(&"").to_string()));
-            }
-            Value::Record(rec)
-        }).collect();
+        let entries: Vec<Value> = lines[1..]
+            .iter()
+            .map(|line| {
+                let cols: Vec<&str> = line.splitn(headers.len(), char::is_whitespace).collect();
+                let mut rec = BTreeMap::new();
+                for (i, h) in headers.iter().enumerate() {
+                    rec.insert(
+                        h.to_lowercase(),
+                        Value::Str(cols.get(i).unwrap_or(&"").to_string()),
+                    );
+                }
+                Value::Record(rec)
+            })
+            .collect();
         Ok(Value::Array(entries))
     }
     #[cfg(target_os = "windows")]
     {
-        let out = Command::new("powershell").args(&["-NoProfile", "-Command",
-            "Get-Process | Select-Object -First 50 Id,ProcessName,HandleCount | ConvertTo-Json"])
-            .output().map_err(|e| anyhow!("lsof: {}", e))?;
-        let json: serde_json::Value = serde_json::from_slice(&out.stdout)
-            .map_err(|e| anyhow!("lsof: parse error: {}", e))?;
+        let out = Command::new("powershell")
+            .args(&[
+                "-NoProfile",
+                "-Command",
+                "Get-Process | Select-Object -First 50 Id,ProcessName,HandleCount | ConvertTo-Json",
+            ])
+            .output()
+            .map_err(|e| anyhow!("lsof: {}", e))?;
+        let json: serde_json::Value =
+            serde_json::from_slice(&out.stdout).map_err(|e| anyhow!("lsof: parse error: {}", e))?;
         Ok(json_to_value(json))
     }
 }
@@ -29922,15 +31283,20 @@ pub fn bi_strace_cmd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     };
     #[cfg(target_os = "linux")]
     {
-        let out = Command::new("strace").args(&["-c", "-e", "trace=all"]).arg(&command)
-            .output().map_err(|e| anyhow!("strace_cmd: {}", e))?;
+        let out = Command::new("strace")
+            .args(&["-c", "-e", "trace=all"])
+            .arg(&command)
+            .output()
+            .map_err(|e| anyhow!("strace_cmd: {}", e))?;
         // strace outputs to stderr
         let text = String::from_utf8_lossy(&out.stderr).to_string();
         Ok(Value::Str(text))
     }
     #[cfg(target_os = "macos")]
     {
-        let out = Command::new("dtruss").arg(&command).output()
+        let out = Command::new("dtruss")
+            .arg(&command)
+            .output()
             .map_err(|e| anyhow!("strace_cmd: {}", e))?;
         Ok(Value::Str(String::from_utf8_lossy(&out.stderr).to_string()))
     }
@@ -29946,14 +31312,33 @@ pub fn bi_vmstat(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut sys = System::new_all();
     sys.refresh_all();
     let mut rec = BTreeMap::new();
-    rec.insert("total_memory".to_string(), Value::Int(sys.total_memory() as i64));
-    rec.insert("used_memory".to_string(), Value::Int(sys.used_memory() as i64));
-    rec.insert("free_memory".to_string(), Value::Int((sys.total_memory() - sys.used_memory()) as i64));
-    rec.insert("available_memory".to_string(), Value::Int(sys.available_memory() as i64));
-    rec.insert("total_swap".to_string(), Value::Int(sys.total_swap() as i64));
+    rec.insert(
+        "total_memory".to_string(),
+        Value::Int(sys.total_memory() as i64),
+    );
+    rec.insert(
+        "used_memory".to_string(),
+        Value::Int(sys.used_memory() as i64),
+    );
+    rec.insert(
+        "free_memory".to_string(),
+        Value::Int((sys.total_memory() - sys.used_memory()) as i64),
+    );
+    rec.insert(
+        "available_memory".to_string(),
+        Value::Int(sys.available_memory() as i64),
+    );
+    rec.insert(
+        "total_swap".to_string(),
+        Value::Int(sys.total_swap() as i64),
+    );
     rec.insert("used_swap".to_string(), Value::Int(sys.used_swap() as i64));
-    rec.insert("free_swap".to_string(), Value::Int((sys.total_swap() - sys.used_swap()) as i64));
-    let cpu_usage: f64 = sys.cpus().iter().map(|c| c.cpu_usage() as f64).sum::<f64>() / sys.cpus().len().max(1) as f64;
+    rec.insert(
+        "free_swap".to_string(),
+        Value::Int((sys.total_swap() - sys.used_swap()) as i64),
+    );
+    let cpu_usage: f64 = sys.cpus().iter().map(|c| c.cpu_usage() as f64).sum::<f64>()
+        / sys.cpus().len().max(1) as f64;
     rec.insert("cpu_usage_avg".to_string(), Value::Float(cpu_usage));
     rec.insert("cpu_count".to_string(), Value::Int(sys.cpus().len() as i64));
     Ok(Value::Record(rec))
@@ -29963,20 +31348,33 @@ pub fn bi_vmstat(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 pub fn bi_iostat(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let _ = args;
     let disks = Disks::new_with_refreshed_list();
-    let entries: Vec<Value> = disks.iter().map(|d| {
-        let mut rec = BTreeMap::new();
-        let total = d.total_space();
-        let avail = d.available_space();
-        let used = total.saturating_sub(avail);
-        rec.insert("name".to_string(), Value::Str(d.name().to_string_lossy().to_string()));
-        rec.insert("mount_point".to_string(), Value::Str(d.mount_point().to_string_lossy().to_string()));
-        rec.insert("total_bytes".to_string(), Value::Int(total as i64));
-        rec.insert("used_bytes".to_string(), Value::Int(used as i64));
-        rec.insert("available_bytes".to_string(), Value::Int(avail as i64));
-        let usage_pct = if total > 0 { (used as f64 / total as f64) * 100.0 } else { 0.0 };
-        rec.insert("usage_percent".to_string(), Value::Float(usage_pct));
-        Value::Record(rec)
-    }).collect();
+    let entries: Vec<Value> = disks
+        .iter()
+        .map(|d| {
+            let mut rec = BTreeMap::new();
+            let total = d.total_space();
+            let avail = d.available_space();
+            let used = total.saturating_sub(avail);
+            rec.insert(
+                "name".to_string(),
+                Value::Str(d.name().to_string_lossy().to_string()),
+            );
+            rec.insert(
+                "mount_point".to_string(),
+                Value::Str(d.mount_point().to_string_lossy().to_string()),
+            );
+            rec.insert("total_bytes".to_string(), Value::Int(total as i64));
+            rec.insert("used_bytes".to_string(), Value::Int(used as i64));
+            rec.insert("available_bytes".to_string(), Value::Int(avail as i64));
+            let usage_pct = if total > 0 {
+                (used as f64 / total as f64) * 100.0
+            } else {
+                0.0
+            };
+            rec.insert("usage_percent".to_string(), Value::Float(usage_pct));
+            Value::Record(rec)
+        })
+        .collect();
     Ok(Value::Array(entries))
 }
 
@@ -29984,14 +31382,19 @@ pub fn bi_iostat(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 pub fn bi_sar(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "linux")]
     {
-        let out = Command::new("sar").args(&["1", "1"]).output()
+        let out = Command::new("sar")
+            .args(&["1", "1"])
+            .output()
             .map_err(|e| anyhow!("sar: {}", e))?;
         Ok(Value::Str(String::from_utf8_lossy(&out.stdout).to_string()))
     }
     #[cfg(not(target_os = "linux"))]
     {
         let mut rec = BTreeMap::new();
-        rec.insert("error".to_string(), Value::Str("sar: not available on this platform".to_string()));
+        rec.insert(
+            "error".to_string(),
+            Value::Str("sar: not available on this platform".to_string()),
+        );
         Ok(Value::Record(rec))
     }
 }
@@ -30006,15 +31409,28 @@ pub fn bi_top_snapshot(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     sys.refresh_all();
     let mut procs: Vec<_> = sys.processes().iter().collect();
     procs.sort_by(|a, b| b.1.memory().cmp(&a.1.memory()));
-    let entries: Vec<Value> = procs.iter().take(count).map(|(pid, p)| {
-        let mut rec = BTreeMap::new();
-        rec.insert("pid".to_string(), Value::Int(pid.as_u32() as i64));
-        rec.insert("name".to_string(), Value::Str(p.name().to_string_lossy().to_string()));
-        rec.insert("cpu_percent".to_string(), Value::Float(p.cpu_usage() as f64));
-        rec.insert("memory_bytes".to_string(), Value::Int(p.memory() as i64));
-        rec.insert("memory_mb".to_string(), Value::Float(p.memory() as f64 / 1_048_576.0));
-        Value::Record(rec)
-    }).collect();
+    let entries: Vec<Value> = procs
+        .iter()
+        .take(count)
+        .map(|(pid, p)| {
+            let mut rec = BTreeMap::new();
+            rec.insert("pid".to_string(), Value::Int(pid.as_u32() as i64));
+            rec.insert(
+                "name".to_string(),
+                Value::Str(p.name().to_string_lossy().to_string()),
+            );
+            rec.insert(
+                "cpu_percent".to_string(),
+                Value::Float(p.cpu_usage() as f64),
+            );
+            rec.insert("memory_bytes".to_string(), Value::Int(p.memory() as i64));
+            rec.insert(
+                "memory_mb".to_string(),
+                Value::Float(p.memory() as f64 / 1_048_576.0),
+            );
+            Value::Record(rec)
+        })
+        .collect();
     Ok(Value::Array(entries))
 }
 
@@ -30024,11 +31440,17 @@ pub fn bi_nohup_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(anyhow!("nohup_run: expected command string")),
     };
-    let (shell, flag) = if cfg!(windows) { ("cmd", "/C") } else { ("sh", "-c") };
-    let child = Command::new(shell).args(&[flag, &command])
+    let (shell, flag) = if cfg!(windows) {
+        ("cmd", "/C")
+    } else {
+        ("sh", "-c")
+    };
+    let child = Command::new(shell)
+        .args(&[flag, &command])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
-        .spawn().map_err(|e| anyhow!("nohup_run: {}", e))?;
+        .spawn()
+        .map_err(|e| anyhow!("nohup_run: {}", e))?;
     let mut rec = BTreeMap::new();
     rec.insert("pid".to_string(), Value::Int(child.id() as i64));
     rec.insert("command".to_string(), Value::Str(command));
@@ -30066,7 +31488,12 @@ pub fn bi_file_checksum(args: Vec<Value>, _input: Option<Value>) -> Result<Value
             format!("{:x}", hasher.finalize())
         }
         "md5" => format!("{:x}", md5::compute(&data)),
-        _ => return Err(anyhow!("file_checksum: unsupported algorithm '{}' (use md5 or sha256)", algo)),
+        _ => {
+            return Err(anyhow!(
+                "file_checksum: unsupported algorithm '{}' (use md5 or sha256)",
+                algo
+            ))
+        }
     };
     let mut rec = BTreeMap::new();
     rec.insert("algorithm".to_string(), Value::Str(algo));
@@ -30123,13 +31550,21 @@ pub fn bi_mkfs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             Some(Value::Str(s)) => s.clone(),
             _ => return Err(anyhow!("mkfs: expected device path")),
         };
-        let out = Command::new("mkfs").args(&["-t", &fs_type, &device]).output()
+        let out = Command::new("mkfs")
+            .args(&["-t", &fs_type, &device])
+            .output()
             .map_err(|e| anyhow!("mkfs: {}", e))?;
         let mut rec = BTreeMap::new();
         rec.insert("success".to_string(), Value::Bool(out.status.success()));
-        rec.insert("output".to_string(), Value::Str(String::from_utf8_lossy(&out.stdout).to_string()));
+        rec.insert(
+            "output".to_string(),
+            Value::Str(String::from_utf8_lossy(&out.stdout).to_string()),
+        );
         if !out.status.success() {
-            rec.insert("error".to_string(), Value::Str(String::from_utf8_lossy(&out.stderr).to_string()));
+            rec.insert(
+                "error".to_string(),
+                Value::Str(String::from_utf8_lossy(&out.stderr).to_string()),
+            );
         }
         Ok(Value::Record(rec))
     }
@@ -30148,12 +31583,17 @@ pub fn bi_fdisk_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             _ => "".to_string(),
         };
         let out = if device.is_empty() {
-            Command::new("sfdisk").args(&["-J"]).output()
+            Command::new("sfdisk")
+                .args(&["-J"])
+                .output()
                 .or_else(|_| Command::new("fdisk").args(&["-l"]).output())
         } else {
-            Command::new("sfdisk").args(&["-J", &device]).output()
+            Command::new("sfdisk")
+                .args(&["-J", &device])
+                .output()
                 .or_else(|_| Command::new("fdisk").args(&["-l", &device]).output())
-        }.map_err(|e| anyhow!("fdisk_list: {}", e))?;
+        }
+        .map_err(|e| anyhow!("fdisk_list: {}", e))?;
         if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&out.stdout) {
             Ok(json_to_value(json))
         } else {
@@ -30171,7 +31611,9 @@ pub fn bi_fdisk_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "macos")]
     {
-        let out = Command::new("diskutil").arg("list").output()
+        let out = Command::new("diskutil")
+            .arg("list")
+            .output()
             .map_err(|e| anyhow!("fdisk_list: {}", e))?;
         Ok(Value::Str(String::from_utf8_lossy(&out.stdout).to_string()))
     }
@@ -30185,7 +31627,9 @@ pub fn bi_swap_on(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             Some(Value::Str(s)) => s.clone(),
             _ => return Err(anyhow!("swap_on: expected device path")),
         };
-        let out = Command::new("swapon").arg(&device).output()
+        let out = Command::new("swapon")
+            .arg(&device)
+            .output()
             .map_err(|e| anyhow!("swap_on: {}", e))?;
         if out.status.success() {
             Ok(Value::Str(format!("swap enabled: {}", device)))
@@ -30207,12 +31651,17 @@ pub fn bi_swap_off(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             Some(Value::Str(s)) => s.clone(),
             _ => return Err(anyhow!("swap_off: expected device path")),
         };
-        let out = Command::new("swapoff").arg(&device).output()
+        let out = Command::new("swapoff")
+            .arg(&device)
+            .output()
             .map_err(|e| anyhow!("swap_off: {}", e))?;
         if out.status.success() {
             Ok(Value::Str(format!("swap disabled: {}", device)))
         } else {
-            Err(anyhow!("swap_off: {}", String::from_utf8_lossy(&out.stderr)))
+            Err(anyhow!(
+                "swap_off: {}",
+                String::from_utf8_lossy(&out.stderr)
+            ))
         }
     }
     #[cfg(not(target_os = "linux"))]
@@ -30225,16 +31674,34 @@ pub fn bi_swap_off(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 pub fn bi_mount_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let _ = args;
     let disks = Disks::new_with_refreshed_list();
-    let entries: Vec<Value> = disks.iter().map(|d| {
-        let mut rec = BTreeMap::new();
-        rec.insert("device".to_string(), Value::Str(d.name().to_string_lossy().to_string()));
-        rec.insert("mount_point".to_string(), Value::Str(d.mount_point().to_string_lossy().to_string()));
-        rec.insert("file_system".to_string(), Value::Str(String::from_utf8_lossy(d.file_system().as_encoded_bytes()).to_string()));
-        rec.insert("total_space".to_string(), Value::Int(d.total_space() as i64));
-        rec.insert("available_space".to_string(), Value::Int(d.available_space() as i64));
-        rec.insert("is_removable".to_string(), Value::Bool(d.is_removable()));
-        Value::Record(rec)
-    }).collect();
+    let entries: Vec<Value> = disks
+        .iter()
+        .map(|d| {
+            let mut rec = BTreeMap::new();
+            rec.insert(
+                "device".to_string(),
+                Value::Str(d.name().to_string_lossy().to_string()),
+            );
+            rec.insert(
+                "mount_point".to_string(),
+                Value::Str(d.mount_point().to_string_lossy().to_string()),
+            );
+            rec.insert(
+                "file_system".to_string(),
+                Value::Str(String::from_utf8_lossy(d.file_system().as_encoded_bytes()).to_string()),
+            );
+            rec.insert(
+                "total_space".to_string(),
+                Value::Int(d.total_space() as i64),
+            );
+            rec.insert(
+                "available_space".to_string(),
+                Value::Int(d.available_space() as i64),
+            );
+            rec.insert("is_removable".to_string(), Value::Bool(d.is_removable()));
+            Value::Record(rec)
+        })
+        .collect();
     Ok(Value::Array(entries))
 }
 
@@ -30250,12 +31717,21 @@ pub fn bi_chroot(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             Some(Value::Str(s)) => s.clone(),
             _ => "/bin/sh".to_string(),
         };
-        let out = Command::new("chroot").arg(&dir).arg(&cmd).output()
+        let out = Command::new("chroot")
+            .arg(&dir)
+            .arg(&cmd)
+            .output()
             .map_err(|e| anyhow!("chroot: {}", e))?;
         let mut rec = BTreeMap::new();
         rec.insert("success".to_string(), Value::Bool(out.status.success()));
-        rec.insert("stdout".to_string(), Value::Str(String::from_utf8_lossy(&out.stdout).to_string()));
-        rec.insert("stderr".to_string(), Value::Str(String::from_utf8_lossy(&out.stderr).to_string()));
+        rec.insert(
+            "stdout".to_string(),
+            Value::Str(String::from_utf8_lossy(&out.stdout).to_string()),
+        );
+        rec.insert(
+            "stderr".to_string(),
+            Value::Str(String::from_utf8_lossy(&out.stderr).to_string()),
+        );
         Ok(Value::Record(rec))
     }
     #[cfg(not(target_os = "linux"))]
@@ -30268,7 +31744,9 @@ pub fn bi_chroot(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 pub fn bi_ulimit_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(not(target_os = "windows"))]
     {
-        let out = Command::new("sh").args(&["-c", "ulimit -a"]).output()
+        let out = Command::new("sh")
+            .args(&["-c", "ulimit -a"])
+            .output()
             .map_err(|e| anyhow!("ulimit_info: {}", e))?;
         let text = String::from_utf8_lossy(&out.stdout);
         let mut rec = BTreeMap::new();
@@ -30307,12 +31785,17 @@ pub fn bi_sysctl_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             Command::new("sysctl").arg("-a").output()
         } else {
             Command::new("sysctl").arg(&key).output()
-        }.map_err(|e| anyhow!("sysctl_get: {}", e))?;
+        }
+        .map_err(|e| anyhow!("sysctl_get: {}", e))?;
         let text = String::from_utf8_lossy(&out.stdout);
         if !key.is_empty() {
             // Single value: "key = value" or "key: value"
-            let val = text.splitn(2, |c| c == '=' || c == ':')
-                .nth(1).unwrap_or("").trim().to_string();
+            let val = text
+                .splitn(2, |c| c == '=' || c == ':')
+                .nth(1)
+                .unwrap_or("")
+                .trim()
+                .to_string();
             Ok(Value::Str(val))
         } else {
             let mut rec = BTreeMap::new();
@@ -30331,13 +31814,20 @@ pub fn bi_sysctl_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             Some(Value::Str(s)) => s.clone(),
             _ => return Err(anyhow!("sysctl_get: expected registry key path on Windows")),
         };
-        let out = Command::new("powershell").args(&["-NoProfile", "-Command",
-            &format!("Get-ItemProperty '{}' | ConvertTo-Json", key)])
-            .output().map_err(|e| anyhow!("sysctl_get: {}", e))?;
+        let out = Command::new("powershell")
+            .args(&[
+                "-NoProfile",
+                "-Command",
+                &format!("Get-ItemProperty '{}' | ConvertTo-Json", key),
+            ])
+            .output()
+            .map_err(|e| anyhow!("sysctl_get: {}", e))?;
         if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&out.stdout) {
             Ok(json_to_value(json))
         } else {
-            Ok(Value::Str(String::from_utf8_lossy(&out.stdout).trim().to_string()))
+            Ok(Value::Str(
+                String::from_utf8_lossy(&out.stdout).trim().to_string(),
+            ))
         }
     }
 }
@@ -30350,29 +31840,44 @@ pub fn bi_modprobe(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             Some(Value::Str(s)) => s.clone(),
             _ => {
                 // No arg: list loaded modules via lsmod
-                let out = Command::new("lsmod").output()
+                let out = Command::new("lsmod")
+                    .output()
                     .map_err(|e| anyhow!("modprobe: {}", e))?;
                 let text = String::from_utf8_lossy(&out.stdout);
                 let lines: Vec<&str> = text.lines().collect();
-                let entries: Vec<Value> = lines[1..].iter().map(|line| {
-                    let cols: Vec<&str> = line.split_whitespace().collect();
-                    let mut rec = BTreeMap::new();
-                    if cols.len() >= 3 {
-                        rec.insert("module".to_string(), Value::Str(cols[0].to_string()));
-                        rec.insert("size".to_string(), Value::Int(cols[1].parse().unwrap_or(0)));
-                        rec.insert("used_by".to_string(), Value::Int(cols[2].parse().unwrap_or(0)));
-                    }
-                    Value::Record(rec)
-                }).collect();
+                let entries: Vec<Value> = lines[1..]
+                    .iter()
+                    .map(|line| {
+                        let cols: Vec<&str> = line.split_whitespace().collect();
+                        let mut rec = BTreeMap::new();
+                        if cols.len() >= 3 {
+                            rec.insert("module".to_string(), Value::Str(cols[0].to_string()));
+                            rec.insert(
+                                "size".to_string(),
+                                Value::Int(cols[1].parse().unwrap_or(0)),
+                            );
+                            rec.insert(
+                                "used_by".to_string(),
+                                Value::Int(cols[2].parse().unwrap_or(0)),
+                            );
+                        }
+                        Value::Record(rec)
+                    })
+                    .collect();
                 return Ok(Value::Array(entries));
             }
         };
-        let out = Command::new("modprobe").arg(&module).output()
+        let out = Command::new("modprobe")
+            .arg(&module)
+            .output()
             .map_err(|e| anyhow!("modprobe: {}", e))?;
         if out.status.success() {
             Ok(Value::Str(format!("module loaded: {}", module)))
         } else {
-            Err(anyhow!("modprobe: {}", String::from_utf8_lossy(&out.stderr)))
+            Err(anyhow!(
+                "modprobe: {}",
+                String::from_utf8_lossy(&out.stderr)
+            ))
         }
     }
     #[cfg(not(target_os = "linux"))]
@@ -30395,7 +31900,11 @@ pub fn bi_modprobe(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 pub fn bi_ssh_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let host = match args.get(0) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("ssh_exec: first argument must be host string (user@host)")),
+        _ => {
+            return Err(anyhow!(
+                "ssh_exec: first argument must be host string (user@host)"
+            ))
+        }
     };
     let command = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
@@ -30410,13 +31919,18 @@ pub fn bi_ssh_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         cmd.arg("-p").arg(p.to_string());
     }
     cmd.arg(&host).arg(&command);
-    let output = cmd.output().map_err(|e| anyhow!("ssh_exec: failed to run ssh: {}", e))?;
+    let output = cmd
+        .output()
+        .map_err(|e| anyhow!("ssh_exec: failed to run ssh: {}", e))?;
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
     let mut map = BTreeMap::new();
     map.insert("stdout".to_string(), Value::Str(stdout));
     map.insert("stderr".to_string(), Value::Str(stderr));
-    map.insert("exit_code".to_string(), Value::Int(output.status.code().unwrap_or(-1) as i64));
+    map.insert(
+        "exit_code".to_string(),
+        Value::Int(output.status.code().unwrap_or(-1) as i64),
+    );
     map.insert("success".to_string(), Value::Bool(output.status.success()));
     Ok(Value::Record(map))
 }
@@ -30425,19 +31939,35 @@ pub fn bi_ssh_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 pub fn bi_ssh_tunnel(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let local_port = match args.get(0) {
         Some(Value::Int(p)) => *p,
-        _ => return Err(anyhow!("ssh_tunnel: first argument must be local_port (Int)")),
+        _ => {
+            return Err(anyhow!(
+                "ssh_tunnel: first argument must be local_port (Int)"
+            ))
+        }
     };
     let remote_host = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("ssh_tunnel: second argument must be remote_host string")),
+        _ => {
+            return Err(anyhow!(
+                "ssh_tunnel: second argument must be remote_host string"
+            ))
+        }
     };
     let remote_port = match args.get(2) {
         Some(Value::Int(p)) => *p,
-        _ => return Err(anyhow!("ssh_tunnel: third argument must be remote_port (Int)")),
+        _ => {
+            return Err(anyhow!(
+                "ssh_tunnel: third argument must be remote_port (Int)"
+            ))
+        }
     };
     let ssh_host = match args.get(3) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("ssh_tunnel: fourth argument must be ssh_host string")),
+        _ => {
+            return Err(anyhow!(
+                "ssh_tunnel: fourth argument must be ssh_host string"
+            ))
+        }
     };
     let tunnel_spec = format!("{}:{}:{}", local_port, remote_host, remote_port);
     let output = Command::new("ssh")
@@ -30480,7 +32010,10 @@ pub fn bi_ssh_keygen(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     map.insert("success".to_string(), Value::Bool(output.status.success()));
     map.insert("type".to_string(), Value::Str(key_type));
     map.insert("private_key".to_string(), Value::Str(filename.clone()));
-    map.insert("public_key".to_string(), Value::Str(format!("{}.pub", filename)));
+    map.insert(
+        "public_key".to_string(),
+        Value::Str(format!("{}.pub", filename)),
+    );
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
         map.insert("error".to_string(), Value::Str(stderr));
@@ -30495,7 +32028,11 @@ pub fn bi_ssh_keygen(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 pub fn bi_ssh_copy_id(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let host = match args.get(0) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("ssh_copy_id: first argument must be host string (user@host)")),
+        _ => {
+            return Err(anyhow!(
+                "ssh_copy_id: first argument must be host string (user@host)"
+            ))
+        }
     };
     let key_file = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
@@ -30580,14 +32117,22 @@ pub fn bi_ssh_config(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             current = Some(entry);
         } else if let Some(ref mut entry) = current {
             match key.as_str() {
-                "hostname" => { entry.insert("HostName".to_string(), Value::Str(val)); }
-                "user" => { entry.insert("User".to_string(), Value::Str(val)); }
+                "hostname" => {
+                    entry.insert("HostName".to_string(), Value::Str(val));
+                }
+                "user" => {
+                    entry.insert("User".to_string(), Value::Str(val));
+                }
                 "port" => {
                     let port = val.parse::<i64>().unwrap_or(22);
                     entry.insert("Port".to_string(), Value::Int(port));
                 }
-                "identityfile" => { entry.insert("IdentityFile".to_string(), Value::Str(val)); }
-                other => { entry.insert(other.to_string(), Value::Str(val)); }
+                "identityfile" => {
+                    entry.insert("IdentityFile".to_string(), Value::Str(val));
+                }
+                other => {
+                    entry.insert(other.to_string(), Value::Str(val));
+                }
             }
         }
     }
@@ -30601,11 +32146,19 @@ pub fn bi_ssh_config(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 pub fn bi_scp_upload(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let local_path = match args.get(0) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("scp_upload: first argument must be local_path string")),
+        _ => {
+            return Err(anyhow!(
+                "scp_upload: first argument must be local_path string"
+            ))
+        }
     };
     let remote = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("scp_upload: second argument must be remote string (user@host:path)")),
+        _ => {
+            return Err(anyhow!(
+                "scp_upload: second argument must be remote string (user@host:path)"
+            ))
+        }
     };
     let port = match args.get(2) {
         Some(Value::Int(p)) => Some(*p),
@@ -30616,7 +32169,9 @@ pub fn bi_scp_upload(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         cmd.arg("-P").arg(p.to_string());
     }
     cmd.arg(&local_path).arg(&remote);
-    let output = cmd.output().map_err(|e| anyhow!("scp_upload: failed: {}", e))?;
+    let output = cmd
+        .output()
+        .map_err(|e| anyhow!("scp_upload: failed: {}", e))?;
     let mut map = BTreeMap::new();
     map.insert("success".to_string(), Value::Bool(output.status.success()));
     map.insert("local_path".to_string(), Value::Str(local_path));
@@ -30632,11 +32187,19 @@ pub fn bi_scp_upload(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 pub fn bi_scp_download(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let remote = match args.get(0) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("scp_download: first argument must be remote string (user@host:path)")),
+        _ => {
+            return Err(anyhow!(
+                "scp_download: first argument must be remote string (user@host:path)"
+            ))
+        }
     };
     let local_path = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("scp_download: second argument must be local_path string")),
+        _ => {
+            return Err(anyhow!(
+                "scp_download: second argument must be local_path string"
+            ))
+        }
     };
     let port = match args.get(2) {
         Some(Value::Int(p)) => Some(*p),
@@ -30647,7 +32210,9 @@ pub fn bi_scp_download(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         cmd.arg("-P").arg(p.to_string());
     }
     cmd.arg(&remote).arg(&local_path);
-    let output = cmd.output().map_err(|e| anyhow!("scp_download: failed: {}", e))?;
+    let output = cmd
+        .output()
+        .map_err(|e| anyhow!("scp_download: failed: {}", e))?;
     let mut map = BTreeMap::new();
     map.insert("success".to_string(), Value::Bool(output.status.success()));
     map.insert("remote".to_string(), Value::Str(remote));
@@ -30667,7 +32232,11 @@ pub fn bi_rsync_sync(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     };
     let destination = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("rsync_sync: second argument must be destination string")),
+        _ => {
+            return Err(anyhow!(
+                "rsync_sync: second argument must be destination string"
+            ))
+        }
     };
     let flags = args.get(2);
     let mut cmd = Command::new("rsync");
@@ -30695,7 +32264,9 @@ pub fn bi_rsync_sync(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         cmd.arg("-az");
     }
     cmd.arg(&source).arg(&destination);
-    let output = cmd.output().map_err(|e| anyhow!("rsync_sync: failed: {}", e))?;
+    let output = cmd
+        .output()
+        .map_err(|e| anyhow!("rsync_sync: failed: {}", e))?;
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
     let mut map = BTreeMap::new();
@@ -30713,7 +32284,11 @@ pub fn bi_rsync_sync(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 pub fn bi_sftp_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let host = match args.get(0) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("sftp_list: first argument must be host string (user@host)")),
+        _ => {
+            return Err(anyhow!(
+                "sftp_list: first argument must be host string (user@host)"
+            ))
+        }
     };
     let remote_path = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
@@ -30755,15 +32330,27 @@ pub fn bi_sftp_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 pub fn bi_sftp_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let host = match args.get(0) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("sftp_get: first argument must be host string (user@host)")),
+        _ => {
+            return Err(anyhow!(
+                "sftp_get: first argument must be host string (user@host)"
+            ))
+        }
     };
     let remote_path = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("sftp_get: second argument must be remote_path string")),
+        _ => {
+            return Err(anyhow!(
+                "sftp_get: second argument must be remote_path string"
+            ))
+        }
     };
     let local_path = match args.get(2) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("sftp_get: third argument must be local_path string")),
+        _ => {
+            return Err(anyhow!(
+                "sftp_get: third argument must be local_path string"
+            ))
+        }
     };
     let sftp_cmd = format!("get {} {}", remote_path, local_path);
     let output = Command::new("sftp")
@@ -30799,15 +32386,27 @@ pub fn bi_sftp_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 pub fn bi_sftp_put(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let host = match args.get(0) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("sftp_put: first argument must be host string (user@host)")),
+        _ => {
+            return Err(anyhow!(
+                "sftp_put: first argument must be host string (user@host)"
+            ))
+        }
     };
     let local_path = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("sftp_put: second argument must be local_path string")),
+        _ => {
+            return Err(anyhow!(
+                "sftp_put: second argument must be local_path string"
+            ))
+        }
     };
     let remote_path = match args.get(2) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("sftp_put: third argument must be remote_path string")),
+        _ => {
+            return Err(anyhow!(
+                "sftp_put: third argument must be remote_path string"
+            ))
+        }
     };
     let sftp_cmd = format!("put {} {}", local_path, remote_path);
     let output = Command::new("sftp")
@@ -30863,7 +32462,10 @@ pub fn bi_rdp_connect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
             Ok(_) => {
                 map.insert("success".to_string(), Value::Bool(true));
                 map.insert("method".to_string(), Value::Str("mstsc".to_string()));
-                map.insert("command".to_string(), Value::Str(format!("mstsc /v:{}", host)));
+                map.insert(
+                    "command".to_string(),
+                    Value::Str(format!("mstsc /v:{}", host)),
+                );
             }
             Err(e) => {
                 map.insert("success".to_string(), Value::Bool(false));
@@ -30881,10 +32483,16 @@ pub fn bi_rdp_connect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
     } else if cfg!(target_os = "macos") {
         map.insert("success".to_string(), Value::Bool(true));
         map.insert("method".to_string(), Value::Str("open".to_string()));
-        map.insert("command".to_string(), Value::Str(format!("open rdp://full%20address=s:{}:3389", host)));
+        map.insert(
+            "command".to_string(),
+            Value::Str(format!("open rdp://full%20address=s:{}:3389", host)),
+        );
     } else {
         map.insert("success".to_string(), Value::Bool(false));
-        map.insert("error".to_string(), Value::Str("unsupported platform".to_string()));
+        map.insert(
+            "error".to_string(),
+            Value::Str("unsupported platform".to_string()),
+        );
     }
     Ok(Value::Record(map))
 }
@@ -30904,13 +32512,22 @@ pub fn bi_vnc_connect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
     map.insert("port".to_string(), Value::Int(port));
     map.insert("protocol".to_string(), Value::Str("vnc".to_string()));
     if cfg!(target_os = "windows") {
-        map.insert("command".to_string(), Value::Str(format!("vncviewer {}:{}", host, port)));
+        map.insert(
+            "command".to_string(),
+            Value::Str(format!("vncviewer {}:{}", host, port)),
+        );
         map.insert("method".to_string(), Value::Str("vncviewer".to_string()));
     } else if cfg!(target_os = "macos") {
-        map.insert("command".to_string(), Value::Str(format!("open vnc://{}:{}", host, port)));
+        map.insert(
+            "command".to_string(),
+            Value::Str(format!("open vnc://{}:{}", host, port)),
+        );
         map.insert("method".to_string(), Value::Str("open".to_string()));
     } else {
-        map.insert("command".to_string(), Value::Str(format!("vncviewer {}:{}", host, port)));
+        map.insert(
+            "command".to_string(),
+            Value::Str(format!("vncviewer {}:{}", host, port)),
+        );
         map.insert("method".to_string(), Value::Str("vncviewer".to_string()));
     }
     map.insert("success".to_string(), Value::Bool(true));
@@ -30921,7 +32538,11 @@ pub fn bi_vnc_connect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 pub fn bi_telnet_connect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let host = match args.get(0) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("telnet_connect: first argument must be host string")),
+        _ => {
+            return Err(anyhow!(
+                "telnet_connect: first argument must be host string"
+            ))
+        }
     };
     let port = match args.get(1) {
         Some(Value::Int(p)) => *p,
@@ -30931,8 +32552,14 @@ pub fn bi_telnet_connect(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
     map.insert("host".to_string(), Value::Str(host.clone()));
     map.insert("port".to_string(), Value::Int(port));
     map.insert("protocol".to_string(), Value::Str("telnet".to_string()));
-    map.insert("command".to_string(), Value::Str(format!("telnet {} {}", host, port)));
-    map.insert("warning".to_string(), Value::Str("Telnet is unencrypted. Use SSH when possible.".to_string()));
+    map.insert(
+        "command".to_string(),
+        Value::Str(format!("telnet {} {}", host, port)),
+    );
+    map.insert(
+        "warning".to_string(),
+        Value::Str("Telnet is unencrypted. Use SSH when possible.".to_string()),
+    );
     // Attempt to check if telnet is available
     let check = Command::new("telnet")
         .arg("--help")
@@ -30977,7 +32604,9 @@ pub fn bi_curl_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         cmd.arg("-d").arg(body);
     }
     cmd.arg(&url);
-    let output = cmd.output().map_err(|e| anyhow!("curl_exec: failed to run curl: {}", e))?;
+    let output = cmd
+        .output()
+        .map_err(|e| anyhow!("curl_exec: failed to run curl: {}", e))?;
     let raw_stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
     // Parse status code from the last line
@@ -30998,7 +32627,10 @@ pub fn bi_curl_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if !stderr.is_empty() {
         map.insert("stderr".to_string(), Value::Str(stderr));
     }
-    map.insert("exit_code".to_string(), Value::Int(output.status.code().unwrap_or(-1) as i64));
+    map.insert(
+        "exit_code".to_string(),
+        Value::Int(output.status.code().unwrap_or(-1) as i64),
+    );
     Ok(Value::Record(map))
 }
 
@@ -31024,7 +32656,12 @@ fn sec_run_cmd(program: &str, args: &[&str]) -> Result<String> {
         .map_err(|e| anyhow!("failed to run `{}`: {}", program, e))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(anyhow!("`{} {}` failed: {}", program, args.join(" "), stderr.trim()));
+        return Err(anyhow!(
+            "`{} {}` failed: {}",
+            program,
+            args.join(" "),
+            stderr.trim()
+        ));
     }
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
@@ -31062,10 +32699,14 @@ pub fn bi_firewall_status(args: Vec<Value>, _input: Option<Value>) -> Result<Val
 
     #[cfg(target_os = "windows")]
     {
-        let out = sec_run_cmd("powershell", &[
-            "-NoProfile", "-Command",
-            "Get-NetFirewallProfile | Select-Object Name,Enabled | ConvertTo-Json",
-        ])?;
+        let out = sec_run_cmd(
+            "powershell",
+            &[
+                "-NoProfile",
+                "-Command",
+                "Get-NetFirewallProfile | Select-Object Name,Enabled | ConvertTo-Json",
+            ],
+        )?;
         Ok(rec(vec![
             ("platform", s("windows")),
             ("tool", s("NetFirewallProfile")),
@@ -31106,7 +32747,9 @@ pub fn bi_firewall_status(args: Vec<Value>, _input: Option<Value>) -> Result<Val
                 ("raw", s(out.trim())),
             ]));
         }
-        Err(anyhow!("no supported firewall tool found (tried ufw, firewalld, iptables)"))
+        Err(anyhow!(
+            "no supported firewall tool found (tried ufw, firewalld, iptables)"
+        ))
     }
 
     #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
@@ -31168,7 +32811,9 @@ pub fn bi_firewall_rules(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
                 ("rules", Value::Array(rules)),
             ]));
         }
-        Err(anyhow!("no supported firewall tool found for listing rules"))
+        Err(anyhow!(
+            "no supported firewall tool found for listing rules"
+        ))
     }
 }
 
@@ -31177,12 +32822,19 @@ pub fn bi_firewall_rules(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
 // ============================================================================
 pub fn bi_firewall_allow(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.is_empty() {
-        return Err(anyhow!("firewall_allow requires a port argument (e.g. 80 or \"80/tcp\")"));
+        return Err(anyhow!(
+            "firewall_allow requires a port argument (e.g. 80 or \"80/tcp\")"
+        ));
     }
     let port_str = match &args[0] {
         Value::Int(n) => n.to_string(),
         Value::Str(s) => s.clone(),
-        other => return Err(anyhow!("firewall_allow: expected Int or String port, got {:?}", other)),
+        other => {
+            return Err(anyhow!(
+                "firewall_allow: expected Int or String port, got {:?}",
+                other
+            ))
+        }
     };
 
     #[cfg(target_os = "windows")]
@@ -31222,9 +32874,12 @@ pub fn bi_firewall_allow(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
         } else {
             "tcp"
         };
-        let out = sec_run_cmd("iptables", &[
-            "-A", "INPUT", "-p", proto, "--dport", port_only, "-j", "ACCEPT",
-        ])?;
+        let out = sec_run_cmd(
+            "iptables",
+            &[
+                "-A", "INPUT", "-p", proto, "--dport", port_only, "-j", "ACCEPT",
+            ],
+        )?;
         Ok(rec(vec![
             ("action", s("allow")),
             ("port", s(&port_str)),
@@ -31239,12 +32894,19 @@ pub fn bi_firewall_allow(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
 // ============================================================================
 pub fn bi_firewall_deny(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.is_empty() {
-        return Err(anyhow!("firewall_deny requires a port argument (e.g. 80 or \"80/tcp\")"));
+        return Err(anyhow!(
+            "firewall_deny requires a port argument (e.g. 80 or \"80/tcp\")"
+        ));
     }
     let port_str = match &args[0] {
         Value::Int(n) => n.to_string(),
         Value::Str(s) => s.clone(),
-        other => return Err(anyhow!("firewall_deny: expected Int or String port, got {:?}", other)),
+        other => {
+            return Err(anyhow!(
+                "firewall_deny: expected Int or String port, got {:?}",
+                other
+            ))
+        }
     };
 
     #[cfg(target_os = "windows")]
@@ -31283,9 +32945,12 @@ pub fn bi_firewall_deny(args: Vec<Value>, _input: Option<Value>) -> Result<Value
         } else {
             "tcp"
         };
-        let out = sec_run_cmd("iptables", &[
-            "-A", "INPUT", "-p", proto, "--dport", port_only, "-j", "DROP",
-        ])?;
+        let out = sec_run_cmd(
+            "iptables",
+            &[
+                "-A", "INPUT", "-p", proto, "--dport", port_only, "-j", "DROP",
+            ],
+        )?;
         Ok(rec(vec![
             ("action", s("deny")),
             ("port", s(&port_str)),
@@ -31300,12 +32965,19 @@ pub fn bi_firewall_deny(args: Vec<Value>, _input: Option<Value>) -> Result<Value
 // ============================================================================
 pub fn bi_firewall_delete(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.is_empty() {
-        return Err(anyhow!("firewall_delete requires a rule id or name argument"));
+        return Err(anyhow!(
+            "firewall_delete requires a rule id or name argument"
+        ));
     }
     let rule_id = match &args[0] {
         Value::Int(n) => n.to_string(),
         Value::Str(s) => s.clone(),
-        other => return Err(anyhow!("firewall_delete: expected Int or String rule id, got {:?}", other)),
+        other => {
+            return Err(anyhow!(
+                "firewall_delete: expected Int or String rule id, got {:?}",
+                other
+            ))
+        }
     };
 
     #[cfg(target_os = "windows")]
@@ -31357,7 +33029,9 @@ pub fn bi_firewall_delete(args: Vec<Value>, _input: Option<Value>) -> Result<Val
                 ("raw", s(out.trim())),
             ]));
         }
-        Err(anyhow!("firewall_delete: for iptables, provide rule as \"CHAIN NUM\" (e.g. \"INPUT 3\")"))
+        Err(anyhow!(
+            "firewall_delete: for iptables, provide rule as \"CHAIN NUM\" (e.g. \"INPUT 3\")"
+        ))
     }
 }
 
@@ -31472,7 +33146,10 @@ pub fn bi_selinux_status(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
         }
         Ok(rec(vec![
             ("available", Value::Bool(false)),
-            ("reason", s("getenforce not found; SELinux may not be installed")),
+            (
+                "reason",
+                s("getenforce not found; SELinux may not be installed"),
+            ),
         ]))
     }
 
@@ -31494,18 +33171,22 @@ pub fn bi_selinux_mode(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         if args.is_empty() {
             // Get current mode
             let out = sec_run_cmd("getenforce", &[])?;
-            return Ok(rec(vec![
-                ("mode", s(out.trim())),
-                ("action", s("get")),
-            ]));
+            return Ok(rec(vec![("mode", s(out.trim())), ("action", s("get"))]));
         }
-        let new_mode = match &args[0] {
-            Value::Str(s) => s.clone(),
-            other => return Err(anyhow!("selinux_mode: expected String mode (Enforcing/Permissive/Disabled), got {:?}", other)),
-        };
+        let new_mode =
+            match &args[0] {
+                Value::Str(s) => s.clone(),
+                other => return Err(anyhow!(
+                    "selinux_mode: expected String mode (Enforcing/Permissive/Disabled), got {:?}",
+                    other
+                )),
+            };
         let mode_lower = new_mode.to_lowercase();
         if !["enforcing", "permissive", "0", "1"].contains(&mode_lower.as_str()) {
-            return Err(anyhow!("selinux_mode: invalid mode '{}'. Use Enforcing, Permissive, 0, or 1", new_mode));
+            return Err(anyhow!(
+                "selinux_mode: invalid mode '{}'. Use Enforcing, Permissive, 0, or 1",
+                new_mode
+            ));
         }
         let out = sec_run_cmd("setenforce", &[&new_mode])?;
         Ok(rec(vec![
@@ -31531,8 +33212,8 @@ pub fn bi_apparmor_status(args: Vec<Value>, _input: Option<Value>) -> Result<Val
     #[cfg(target_os = "linux")]
     {
         // Try aa-status first, then apparmor_status
-        let out = sec_run_cmd_ok("aa-status", &[])
-            .or_else(|| sec_run_cmd_ok("apparmor_status", &[]));
+        let out =
+            sec_run_cmd_ok("aa-status", &[]).or_else(|| sec_run_cmd_ok("apparmor_status", &[]));
         match out {
             Some(text) => {
                 let mut m = BTreeMap::new();
@@ -31585,8 +33266,8 @@ pub fn bi_apparmor_profiles(args: Vec<Value>, _input: Option<Value>) -> Result<V
 
     #[cfg(target_os = "linux")]
     {
-        let text = sec_run_cmd_ok("aa-status", &[])
-            .or_else(|| sec_run_cmd_ok("apparmor_status", &[]));
+        let text =
+            sec_run_cmd_ok("aa-status", &[]).or_else(|| sec_run_cmd_ok("apparmor_status", &[]));
         match text {
             Some(output) => {
                 let mut profiles = Vec::new();
@@ -31603,15 +33284,17 @@ pub fn bi_apparmor_profiles(args: Vec<Value>, _input: Option<Value>) -> Result<V
                         && !trimmed.is_empty()
                         && !trimmed.contains("processes")
                         && !trimmed.contains("profiles")
-                        && !trimmed.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false)
+                        && !trimmed
+                            .chars()
+                            .next()
+                            .map(|c| c.is_ascii_digit())
+                            .unwrap_or(false)
                     {
                         // Lines under a mode section are profile names
                         let name = trimmed.trim_start_matches("   ").to_string();
                         if !name.is_empty() {
-                            profiles.push(rec(vec![
-                                ("name", s(&name)),
-                                ("mode", s(&current_mode)),
-                            ]));
+                            profiles
+                                .push(rec(vec![("name", s(&name)), ("mode", s(&current_mode))]));
                         }
                     }
                 }
@@ -31651,17 +33334,26 @@ pub fn bi_auditd_rules(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
                 // Try to extract key fields
                 if l.contains("-k ") {
                     if let Some(key) = l.split("-k ").nth(1) {
-                        m.insert("key".to_string(), s(key.split_whitespace().next().unwrap_or("")));
+                        m.insert(
+                            "key".to_string(),
+                            s(key.split_whitespace().next().unwrap_or("")),
+                        );
                     }
                 }
                 if l.contains("-w ") {
                     if let Some(path) = l.split("-w ").nth(1) {
-                        m.insert("watch".to_string(), s(path.split_whitespace().next().unwrap_or("")));
+                        m.insert(
+                            "watch".to_string(),
+                            s(path.split_whitespace().next().unwrap_or("")),
+                        );
                     }
                 }
                 if l.contains("-S ") {
                     if let Some(syscall) = l.split("-S ").nth(1) {
-                        m.insert("syscall".to_string(), s(syscall.split_whitespace().next().unwrap_or("")));
+                        m.insert(
+                            "syscall".to_string(),
+                            s(syscall.split_whitespace().next().unwrap_or("")),
+                        );
                     }
                 }
                 Value::Record(m)
@@ -31743,7 +33435,11 @@ pub fn bi_fail2ban_status(args: Vec<Value>, _input: Option<Value>) -> Result<Val
                         .split(',')
                         .map(|j| s(j.trim()))
                         .filter(|v| {
-                            if let Value::Str(val) = v { !val.is_empty() } else { false }
+                            if let Value::Str(val) = v {
+                                !val.is_empty()
+                            } else {
+                                false
+                            }
                         })
                         .collect();
                     m.insert("jails".to_string(), Value::Array(jails));
@@ -31773,7 +33469,12 @@ pub fn bi_fail2ban_jails(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
             // Get details for a specific jail
             let jail_name = match &args[0] {
                 Value::Str(s) => s.clone(),
-                other => return Err(anyhow!("fail2ban_jails: expected String jail name, got {:?}", other)),
+                other => {
+                    return Err(anyhow!(
+                        "fail2ban_jails: expected String jail name, got {:?}",
+                        other
+                    ))
+                }
             };
             let out = sec_run_cmd("fail2ban-client", &["status", &jail_name])?;
             let mut m = BTreeMap::new();
@@ -31806,10 +33507,7 @@ pub fn bi_fail2ban_jails(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
                     }
                 } else if trimmed.starts_with("Banned IP list:") {
                     if let Some(list) = trimmed.split(':').nth(1) {
-                        let ips: Vec<Value> = list
-                            .split_whitespace()
-                            .map(|ip| s(ip))
-                            .collect();
+                        let ips: Vec<Value> = list.split_whitespace().map(|ip| s(ip)).collect();
                         m.insert("banned_ips".to_string(), Value::Array(ips));
                     }
                 }
@@ -31850,11 +33548,18 @@ pub fn bi_fail2ban_jails(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
 // ============================================================================
 pub fn bi_openssl_cert_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.is_empty() {
-        return Err(anyhow!("openssl_cert_info requires a certificate file path argument"));
+        return Err(anyhow!(
+            "openssl_cert_info requires a certificate file path argument"
+        ));
     }
     let file_path = match &args[0] {
         Value::Str(s) => s.clone(),
-        other => return Err(anyhow!("openssl_cert_info: expected String file path, got {:?}", other)),
+        other => {
+            return Err(anyhow!(
+                "openssl_cert_info: expected String file path, got {:?}",
+                other
+            ))
+        }
     };
 
     let out = sec_run_cmd("openssl", &["x509", "-in", &file_path, "-text", "-noout"])?;
@@ -31864,11 +33569,20 @@ pub fn bi_openssl_cert_info(args: Vec<Value>, _input: Option<Value>) -> Result<V
     for line in out.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with("Issuer:") {
-            m.insert("issuer".to_string(), s(trimmed.strip_prefix("Issuer:").unwrap_or("").trim()));
+            m.insert(
+                "issuer".to_string(),
+                s(trimmed.strip_prefix("Issuer:").unwrap_or("").trim()),
+            );
         } else if trimmed.starts_with("Subject:") {
-            m.insert("subject".to_string(), s(trimmed.strip_prefix("Subject:").unwrap_or("").trim()));
+            m.insert(
+                "subject".to_string(),
+                s(trimmed.strip_prefix("Subject:").unwrap_or("").trim()),
+            );
         } else if trimmed.starts_with("Not Before:") {
-            m.insert("not_before".to_string(), s(trimmed.strip_prefix("Not Before:").unwrap_or("").trim()));
+            m.insert(
+                "not_before".to_string(),
+                s(trimmed.strip_prefix("Not Before:").unwrap_or("").trim()),
+            );
         } else if trimmed.starts_with("Not After :") || trimmed.starts_with("Not After:") {
             let val = trimmed
                 .strip_prefix("Not After :")
@@ -31877,11 +33591,26 @@ pub fn bi_openssl_cert_info(args: Vec<Value>, _input: Option<Value>) -> Result<V
                 .trim();
             m.insert("not_after".to_string(), s(val));
         } else if trimmed.starts_with("Serial Number:") {
-            m.insert("serial_number".to_string(), s(trimmed.strip_prefix("Serial Number:").unwrap_or("").trim()));
+            m.insert(
+                "serial_number".to_string(),
+                s(trimmed.strip_prefix("Serial Number:").unwrap_or("").trim()),
+            );
         } else if trimmed.starts_with("Signature Algorithm:") {
-            m.insert("signature_algorithm".to_string(), s(trimmed.strip_prefix("Signature Algorithm:").unwrap_or("").trim()));
+            m.insert(
+                "signature_algorithm".to_string(),
+                s(trimmed
+                    .strip_prefix("Signature Algorithm:")
+                    .unwrap_or("")
+                    .trim()),
+            );
         } else if trimmed.starts_with("Public Key Algorithm:") {
-            m.insert("public_key_algorithm".to_string(), s(trimmed.strip_prefix("Public Key Algorithm:").unwrap_or("").trim()));
+            m.insert(
+                "public_key_algorithm".to_string(),
+                s(trimmed
+                    .strip_prefix("Public Key Algorithm:")
+                    .unwrap_or("")
+                    .trim()),
+            );
         }
     }
     m.insert("raw".to_string(), s(out.trim()));
@@ -31893,17 +33622,31 @@ pub fn bi_openssl_cert_info(args: Vec<Value>, _input: Option<Value>) -> Result<V
 // ============================================================================
 pub fn bi_openssl_genrsa(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.is_empty() {
-        return Err(anyhow!("openssl_genrsa requires at least a file path argument"));
+        return Err(anyhow!(
+            "openssl_genrsa requires at least a file path argument"
+        ));
     }
     let file_path = match &args[0] {
         Value::Str(s) => s.clone(),
-        other => return Err(anyhow!("openssl_genrsa: expected String file path, got {:?}", other)),
+        other => {
+            return Err(anyhow!(
+                "openssl_genrsa: expected String file path, got {:?}",
+                other
+            ))
+        }
     };
     let bits = if args.len() > 1 {
         match &args[1] {
             Value::Int(n) => *n,
-            Value::Str(s) => s.parse::<i64>().map_err(|_| anyhow!("openssl_genrsa: invalid bits '{}'", s))?,
-            other => return Err(anyhow!("openssl_genrsa: expected Int bits, got {:?}", other)),
+            Value::Str(s) => s
+                .parse::<i64>()
+                .map_err(|_| anyhow!("openssl_genrsa: invalid bits '{}'", s))?,
+            other => {
+                return Err(anyhow!(
+                    "openssl_genrsa: expected Int bits, got {:?}",
+                    other
+                ))
+            }
         }
     } else {
         4096
@@ -31942,12 +33685,24 @@ pub fn bi_gpg_list_keys(args: Vec<Value>, _input: Option<Value>) -> Result<Value
                 }
                 let mut m = BTreeMap::new();
                 m.insert("type".to_string(), s("pub"));
-                if fields.len() > 1 { m.insert("validity".to_string(), s(fields[1])); }
-                if fields.len() > 2 { m.insert("key_length".to_string(), s(fields[2])); }
-                if fields.len() > 3 { m.insert("algorithm".to_string(), s(fields[3])); }
-                if fields.len() > 4 { m.insert("key_id".to_string(), s(fields[4])); }
-                if fields.len() > 5 { m.insert("creation_date".to_string(), s(fields[5])); }
-                if fields.len() > 6 { m.insert("expiration_date".to_string(), s(fields[6])); }
+                if fields.len() > 1 {
+                    m.insert("validity".to_string(), s(fields[1]));
+                }
+                if fields.len() > 2 {
+                    m.insert("key_length".to_string(), s(fields[2]));
+                }
+                if fields.len() > 3 {
+                    m.insert("algorithm".to_string(), s(fields[3]));
+                }
+                if fields.len() > 4 {
+                    m.insert("key_id".to_string(), s(fields[4]));
+                }
+                if fields.len() > 5 {
+                    m.insert("creation_date".to_string(), s(fields[5]));
+                }
+                if fields.len() > 6 {
+                    m.insert("expiration_date".to_string(), s(fields[6]));
+                }
                 current = Some(m);
             }
             "uid" => {
@@ -31960,10 +33715,16 @@ pub fn bi_gpg_list_keys(args: Vec<Value>, _input: Option<Value>) -> Result<Value
             "sub" => {
                 if let Some(ref mut m) = current {
                     let mut sub_info = String::new();
-                    if fields.len() > 2 { sub_info.push_str(fields[2]); sub_info.push('/'); }
-                    if fields.len() > 4 { sub_info.push_str(fields[4]); }
+                    if fields.len() > 2 {
+                        sub_info.push_str(fields[2]);
+                        sub_info.push('/');
+                    }
+                    if fields.len() > 4 {
+                        sub_info.push_str(fields[4]);
+                    }
                     // Append to existing subkeys or create
-                    let existing = m.entry("subkeys".to_string())
+                    let existing = m
+                        .entry("subkeys".to_string())
                         .or_insert_with(|| Value::Array(Vec::new()));
                     if let Value::Array(ref mut arr) = existing {
                         arr.push(s(&sub_info));
@@ -31993,18 +33754,40 @@ pub fn bi_gpg_list_keys(args: Vec<Value>, _input: Option<Value>) -> Result<Value
 // ============================================================================
 pub fn bi_gpg_encrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.len() < 2 {
-        return Err(anyhow!("gpg_encrypt requires two arguments: file and recipient"));
+        return Err(anyhow!(
+            "gpg_encrypt requires two arguments: file and recipient"
+        ));
     }
     let file_path = match &args[0] {
         Value::Str(s) => s.clone(),
-        other => return Err(anyhow!("gpg_encrypt: expected String file path, got {:?}", other)),
+        other => {
+            return Err(anyhow!(
+                "gpg_encrypt: expected String file path, got {:?}",
+                other
+            ))
+        }
     };
     let recipient = match &args[1] {
         Value::Str(s) => s.clone(),
-        other => return Err(anyhow!("gpg_encrypt: expected String recipient, got {:?}", other)),
+        other => {
+            return Err(anyhow!(
+                "gpg_encrypt: expected String recipient, got {:?}",
+                other
+            ))
+        }
     };
 
-    let out = sec_run_cmd("gpg", &["--batch", "--yes", "--encrypt", "--recipient", &recipient, &file_path])?;
+    let out = sec_run_cmd(
+        "gpg",
+        &[
+            "--batch",
+            "--yes",
+            "--encrypt",
+            "--recipient",
+            &recipient,
+            &file_path,
+        ],
+    )?;
     let output_file = format!("{}.gpg", file_path);
     Ok(rec(vec![
         ("action", s("encrypt")),
@@ -32024,7 +33807,12 @@ pub fn bi_gpg_decrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
     }
     let file_path = match &args[0] {
         Value::Str(s) => s.clone(),
-        other => return Err(anyhow!("gpg_decrypt: expected String file path, got {:?}", other)),
+        other => {
+            return Err(anyhow!(
+                "gpg_decrypt: expected String file path, got {:?}",
+                other
+            ))
+        }
     };
 
     // Determine output file (strip .gpg or .asc extension if present)
@@ -32036,7 +33824,17 @@ pub fn bi_gpg_decrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
         format!("{}.decrypted", file_path)
     };
 
-    let out = sec_run_cmd("gpg", &["--batch", "--yes", "--output", &output_file, "--decrypt", &file_path])?;
+    let out = sec_run_cmd(
+        "gpg",
+        &[
+            "--batch",
+            "--yes",
+            "--output",
+            &output_file,
+            "--decrypt",
+            &file_path,
+        ],
+    )?;
     Ok(rec(vec![
         ("action", s("decrypt")),
         ("input_file", s(&file_path)),
@@ -32071,15 +33869,28 @@ pub fn bi_htop_snapshot(args: Vec<Value>, _input: Option<Value>) -> Result<Value
     sys.refresh_all();
     let mut procs: Vec<_> = sys.processes().iter().collect();
     procs.sort_by(|a, b| b.1.memory().cmp(&a.1.memory()));
-    let entries: Vec<Value> = procs.iter().take(count).map(|(pid, p)| {
-        let mut rec = BTreeMap::new();
-        rec.insert("pid".to_string(), Value::Int(pid.as_u32() as i64));
-        rec.insert("name".to_string(), Value::Str(p.name().to_string_lossy().to_string()));
-        rec.insert("cpu_percent".to_string(), Value::Float(p.cpu_usage() as f64));
-        rec.insert("memory_bytes".to_string(), Value::Int(p.memory() as i64));
-        rec.insert("memory_mb".to_string(), Value::Float(p.memory() as f64 / 1_048_576.0));
-        Value::Record(rec)
-    }).collect();
+    let entries: Vec<Value> = procs
+        .iter()
+        .take(count)
+        .map(|(pid, p)| {
+            let mut rec = BTreeMap::new();
+            rec.insert("pid".to_string(), Value::Int(pid.as_u32() as i64));
+            rec.insert(
+                "name".to_string(),
+                Value::Str(p.name().to_string_lossy().to_string()),
+            );
+            rec.insert(
+                "cpu_percent".to_string(),
+                Value::Float(p.cpu_usage() as f64),
+            );
+            rec.insert("memory_bytes".to_string(), Value::Int(p.memory() as i64));
+            rec.insert(
+                "memory_mb".to_string(),
+                Value::Float(p.memory() as f64 / 1_048_576.0),
+            );
+            Value::Record(rec)
+        })
+        .collect();
     Ok(Value::Array(entries))
 }
 
@@ -32101,17 +33912,33 @@ pub fn bi_iotop_snapshot(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
         let b_io = b.1.disk_usage().total_read_bytes + b.1.disk_usage().total_written_bytes;
         b_io.cmp(&a_io)
     });
-    let entries: Vec<Value> = procs.iter().take(count).map(|(pid, p)| {
-        let du = p.disk_usage();
-        let mut rec = BTreeMap::new();
-        rec.insert("pid".to_string(), Value::Int(pid.as_u32() as i64));
-        rec.insert("name".to_string(), Value::Str(p.name().to_string_lossy().to_string()));
-        rec.insert("total_read_bytes".to_string(), Value::Int(du.total_read_bytes as i64));
-        rec.insert("total_written_bytes".to_string(), Value::Int(du.total_written_bytes as i64));
-        rec.insert("read_bytes".to_string(), Value::Int(du.read_bytes as i64));
-        rec.insert("written_bytes".to_string(), Value::Int(du.written_bytes as i64));
-        Value::Record(rec)
-    }).collect();
+    let entries: Vec<Value> = procs
+        .iter()
+        .take(count)
+        .map(|(pid, p)| {
+            let du = p.disk_usage();
+            let mut rec = BTreeMap::new();
+            rec.insert("pid".to_string(), Value::Int(pid.as_u32() as i64));
+            rec.insert(
+                "name".to_string(),
+                Value::Str(p.name().to_string_lossy().to_string()),
+            );
+            rec.insert(
+                "total_read_bytes".to_string(),
+                Value::Int(du.total_read_bytes as i64),
+            );
+            rec.insert(
+                "total_written_bytes".to_string(),
+                Value::Int(du.total_written_bytes as i64),
+            );
+            rec.insert("read_bytes".to_string(), Value::Int(du.read_bytes as i64));
+            rec.insert(
+                "written_bytes".to_string(),
+                Value::Int(du.written_bytes as i64),
+            );
+            Value::Record(rec)
+        })
+        .collect();
     Ok(Value::Array(entries))
 }
 
@@ -32144,9 +33971,7 @@ pub fn bi_nethogs_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     #[cfg(not(target_os = "windows"))]
     {
         // Try nethogs first, fall back to ss/netstat
-        let output = Command::new("nethogs")
-            .args(["-t", "-c", "1"])
-            .output();
+        let output = Command::new("nethogs").args(["-t", "-c", "1"]).output();
 
         match output {
             Ok(out) if out.status.success() => {
@@ -32157,8 +33982,14 @@ pub fn bi_nethogs_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
                     if parts.len() >= 3 {
                         let mut rec = BTreeMap::new();
                         rec.insert("program".to_string(), Value::Str(parts[0].to_string()));
-                        rec.insert("sent_kbps".to_string(), Value::Float(parts[1].parse::<f64>().unwrap_or(0.0)));
-                        rec.insert("received_kbps".to_string(), Value::Float(parts[2].parse::<f64>().unwrap_or(0.0)));
+                        rec.insert(
+                            "sent_kbps".to_string(),
+                            Value::Float(parts[1].parse::<f64>().unwrap_or(0.0)),
+                        );
+                        rec.insert(
+                            "received_kbps".to_string(),
+                            Value::Float(parts[2].parse::<f64>().unwrap_or(0.0)),
+                        );
                         records.push(Value::Record(rec));
                     }
                 }
@@ -32178,9 +34009,18 @@ pub fn bi_nethogs_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
                     if parts.len() >= 5 {
                         let mut rec = BTreeMap::new();
                         rec.insert("protocol".to_string(), Value::Str(parts[0].to_string()));
-                        rec.insert("recv_q".to_string(), Value::Int(parts[1].parse::<i64>().unwrap_or(0)));
-                        rec.insert("send_q".to_string(), Value::Int(parts[2].parse::<i64>().unwrap_or(0)));
-                        rec.insert("local_address".to_string(), Value::Str(parts[3].to_string()));
+                        rec.insert(
+                            "recv_q".to_string(),
+                            Value::Int(parts[1].parse::<i64>().unwrap_or(0)),
+                        );
+                        rec.insert(
+                            "send_q".to_string(),
+                            Value::Int(parts[2].parse::<i64>().unwrap_or(0)),
+                        );
+                        rec.insert(
+                            "local_address".to_string(),
+                            Value::Str(parts[3].to_string()),
+                        );
                         rec.insert("peer_address".to_string(), Value::Str(parts[4].to_string()));
                         if parts.len() >= 6 {
                             rec.insert("process".to_string(), Value::Str(parts[5..].join(" ")));
@@ -32214,23 +34054,51 @@ pub fn bi_iftop_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         for line in stdout.lines() {
             let trimmed = line.trim();
             if trimmed.contains("Segments Sent") || trimmed.contains("Segments sent") {
-                if let Some(val) = trimmed.split('=').last().or_else(|| trimmed.split_whitespace().next()) {
-                    rec.insert("tcp_segments_sent".to_string(), Value::Int(val.trim().replace(",", "").parse::<i64>().unwrap_or(0)));
+                if let Some(val) = trimmed
+                    .split('=')
+                    .last()
+                    .or_else(|| trimmed.split_whitespace().next())
+                {
+                    rec.insert(
+                        "tcp_segments_sent".to_string(),
+                        Value::Int(val.trim().replace(",", "").parse::<i64>().unwrap_or(0)),
+                    );
                 }
             }
             if trimmed.contains("Segments Received") || trimmed.contains("Segments received") {
-                if let Some(val) = trimmed.split('=').last().or_else(|| trimmed.split_whitespace().next()) {
-                    rec.insert("tcp_segments_received".to_string(), Value::Int(val.trim().replace(",", "").parse::<i64>().unwrap_or(0)));
+                if let Some(val) = trimmed
+                    .split('=')
+                    .last()
+                    .or_else(|| trimmed.split_whitespace().next())
+                {
+                    rec.insert(
+                        "tcp_segments_received".to_string(),
+                        Value::Int(val.trim().replace(",", "").parse::<i64>().unwrap_or(0)),
+                    );
                 }
             }
             if trimmed.contains("Datagrams Sent") || trimmed.contains("Datagrams sent") {
-                if let Some(val) = trimmed.split('=').last().or_else(|| trimmed.split_whitespace().next()) {
-                    rec.insert("udp_datagrams_sent".to_string(), Value::Int(val.trim().replace(",", "").parse::<i64>().unwrap_or(0)));
+                if let Some(val) = trimmed
+                    .split('=')
+                    .last()
+                    .or_else(|| trimmed.split_whitespace().next())
+                {
+                    rec.insert(
+                        "udp_datagrams_sent".to_string(),
+                        Value::Int(val.trim().replace(",", "").parse::<i64>().unwrap_or(0)),
+                    );
                 }
             }
             if trimmed.contains("Datagrams Received") || trimmed.contains("Datagrams received") {
-                if let Some(val) = trimmed.split('=').last().or_else(|| trimmed.split_whitespace().next()) {
-                    rec.insert("udp_datagrams_received".to_string(), Value::Int(val.trim().replace(",", "").parse::<i64>().unwrap_or(0)));
+                if let Some(val) = trimmed
+                    .split('=')
+                    .last()
+                    .or_else(|| trimmed.split_whitespace().next())
+                {
+                    rec.insert(
+                        "udp_datagrams_received".to_string(),
+                        Value::Int(val.trim().replace(",", "").parse::<i64>().unwrap_or(0)),
+                    );
                 }
             }
         }
@@ -32278,16 +34146,25 @@ pub fn bi_nmon_snapshot(args: Vec<Value>, _input: Option<Value>) -> Result<Value
     let avail_disk: u64 = disks.iter().map(|d| d.available_space()).sum();
     let mut rec = BTreeMap::new();
     rec.insert("cpu_count".to_string(), Value::Int(sys.cpus().len() as i64));
-    rec.insert("cpu_percent".to_string(), Value::Float(sys.global_cpu_usage() as f64));
+    rec.insert(
+        "cpu_percent".to_string(),
+        Value::Float(sys.global_cpu_usage() as f64),
+    );
     rec.insert("load_1".to_string(), Value::Float(load.one));
     rec.insert("load_5".to_string(), Value::Float(load.five));
     rec.insert("load_15".to_string(), Value::Float(load.fifteen));
     rec.insert("memory_total".to_string(), Value::Int(total_mem as i64));
     rec.insert("memory_used".to_string(), Value::Int(used_mem as i64));
-    rec.insert("memory_free".to_string(), Value::Int((total_mem - used_mem) as i64));
+    rec.insert(
+        "memory_free".to_string(),
+        Value::Int((total_mem - used_mem) as i64),
+    );
     rec.insert("disk_total".to_string(), Value::Int(total_disk as i64));
     rec.insert("disk_available".to_string(), Value::Int(avail_disk as i64));
-    rec.insert("timestamp".to_string(), Value::Str(chrono::Local::now().to_rfc3339()));
+    rec.insert(
+        "timestamp".to_string(),
+        Value::Str(chrono::Local::now().to_rfc3339()),
+    );
     Ok(Value::Record(rec))
 }
 // ---------------------------------------------------------------------------
@@ -32301,45 +34178,105 @@ pub fn bi_glances_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     let used_mem = sys.used_memory();
     let total_swap = sys.total_swap();
     let used_swap = sys.used_swap();
-    let cpus: Vec<Value> = sys.cpus().iter().map(|c| {
-        let mut m = BTreeMap::new();
-        m.insert("name".to_string(), Value::Str(c.name().to_string()));
-        m.insert("usage_percent".to_string(), Value::Float(c.cpu_usage() as f64));
-        m.insert("frequency_mhz".to_string(), Value::Int(c.frequency() as i64));
-        Value::Record(m)
-    }).collect();
+    let cpus: Vec<Value> = sys
+        .cpus()
+        .iter()
+        .map(|c| {
+            let mut m = BTreeMap::new();
+            m.insert("name".to_string(), Value::Str(c.name().to_string()));
+            m.insert(
+                "usage_percent".to_string(),
+                Value::Float(c.cpu_usage() as f64),
+            );
+            m.insert(
+                "frequency_mhz".to_string(),
+                Value::Int(c.frequency() as i64),
+            );
+            Value::Record(m)
+        })
+        .collect();
     let disks_list = Disks::new_with_refreshed_list();
-    let disk_entries: Vec<Value> = disks_list.iter().map(|d| {
-        let mut m = BTreeMap::new();
-        m.insert("name".to_string(), Value::Str(d.name().to_string_lossy().to_string()));
-        m.insert("mount".to_string(), Value::Str(d.mount_point().to_string_lossy().to_string()));
-        m.insert("fs_type".to_string(), Value::Str(d.file_system().to_string_lossy().to_string()));
-        m.insert("total_bytes".to_string(), Value::Int(d.total_space() as i64));
-        m.insert("available_bytes".to_string(), Value::Int(d.available_space() as i64));
-        let used = d.total_space().saturating_sub(d.available_space());
-        let pct = if d.total_space() > 0 { used as f64 / d.total_space() as f64 * 100.0 } else { 0.0 };
-        m.insert("use_percent".to_string(), Value::Float(pct));
-        Value::Record(m)
-    }).collect();
+    let disk_entries: Vec<Value> = disks_list
+        .iter()
+        .map(|d| {
+            let mut m = BTreeMap::new();
+            m.insert(
+                "name".to_string(),
+                Value::Str(d.name().to_string_lossy().to_string()),
+            );
+            m.insert(
+                "mount".to_string(),
+                Value::Str(d.mount_point().to_string_lossy().to_string()),
+            );
+            m.insert(
+                "fs_type".to_string(),
+                Value::Str(d.file_system().to_string_lossy().to_string()),
+            );
+            m.insert(
+                "total_bytes".to_string(),
+                Value::Int(d.total_space() as i64),
+            );
+            m.insert(
+                "available_bytes".to_string(),
+                Value::Int(d.available_space() as i64),
+            );
+            let used = d.total_space().saturating_sub(d.available_space());
+            let pct = if d.total_space() > 0 {
+                used as f64 / d.total_space() as f64 * 100.0
+            } else {
+                0.0
+            };
+            m.insert("use_percent".to_string(), Value::Float(pct));
+            Value::Record(m)
+        })
+        .collect();
     let nets = Networks::new_with_refreshed_list();
-    let net_entries: Vec<Value> = nets.iter().map(|(name, data)| {
-        let mut m = BTreeMap::new();
-        m.insert("interface".to_string(), Value::Str(name.clone()));
-        m.insert("rx_bytes".to_string(), Value::Int(data.total_received() as i64));
-        m.insert("tx_bytes".to_string(), Value::Int(data.total_transmitted() as i64));
-        m.insert("rx_packets".to_string(), Value::Int(data.total_packets_received() as i64));
-        m.insert("tx_packets".to_string(), Value::Int(data.total_packets_transmitted() as i64));
-        Value::Record(m)
-    }).collect();
+    let net_entries: Vec<Value> = nets
+        .iter()
+        .map(|(name, data)| {
+            let mut m = BTreeMap::new();
+            m.insert("interface".to_string(), Value::Str(name.clone()));
+            m.insert(
+                "rx_bytes".to_string(),
+                Value::Int(data.total_received() as i64),
+            );
+            m.insert(
+                "tx_bytes".to_string(),
+                Value::Int(data.total_transmitted() as i64),
+            );
+            m.insert(
+                "rx_packets".to_string(),
+                Value::Int(data.total_packets_received() as i64),
+            );
+            m.insert(
+                "tx_packets".to_string(),
+                Value::Int(data.total_packets_transmitted() as i64),
+            );
+            Value::Record(m)
+        })
+        .collect();
     let load = System::load_average();
     let mut rec = BTreeMap::new();
-    rec.insert("hostname".to_string(), Value::Str(System::host_name().unwrap_or_default()));
-    rec.insert("uptime_seconds".to_string(), Value::Int(System::uptime() as i64));
+    rec.insert(
+        "hostname".to_string(),
+        Value::Str(System::host_name().unwrap_or_default()),
+    );
+    rec.insert(
+        "uptime_seconds".to_string(),
+        Value::Int(System::uptime() as i64),
+    );
     rec.insert("cpu_count".to_string(), Value::Int(sys.cpus().len() as i64));
     rec.insert("cpus".to_string(), Value::Array(cpus));
     rec.insert("memory_total".to_string(), Value::Int(total_mem as i64));
     rec.insert("memory_used".to_string(), Value::Int(used_mem as i64));
-    rec.insert("memory_percent".to_string(), Value::Float(if total_mem > 0 { used_mem as f64 / total_mem as f64 * 100.0 } else { 0.0 }));
+    rec.insert(
+        "memory_percent".to_string(),
+        Value::Float(if total_mem > 0 {
+            used_mem as f64 / total_mem as f64 * 100.0
+        } else {
+            0.0
+        }),
+    );
     rec.insert("swap_total".to_string(), Value::Int(total_swap as i64));
     rec.insert("swap_used".to_string(), Value::Int(used_swap as i64));
     rec.insert("disks".to_string(), Value::Array(disk_entries));
@@ -32385,9 +34322,16 @@ pub fn bi_tcpdump_capture(args: Vec<Value>, _input: Option<Value>) -> Result<Val
                 let stdout = String::from_utf8_lossy(&out.stdout);
                 let stderr = String::from_utf8_lossy(&out.stderr);
                 let mut records = Vec::new();
-                let text = if stdout.trim().is_empty() { stderr.to_string() } else { stdout.to_string() };
+                let text = if stdout.trim().is_empty() {
+                    stderr.to_string()
+                } else {
+                    stdout.to_string()
+                };
                 for line in text.lines() {
-                    if !line.trim().is_empty() && !line.contains("listening on") && !line.contains("packets captured") {
+                    if !line.trim().is_empty()
+                        && !line.contains("listening on")
+                        && !line.contains("packets captured")
+                    {
                         let mut rec = BTreeMap::new();
                         rec.insert("line".to_string(), Value::Str(line.trim().to_string()));
                         records.push(Value::Record(rec));
@@ -32406,7 +34350,10 @@ pub fn bi_tcpdump_capture(args: Vec<Value>, _input: Option<Value>) -> Result<Val
             Err(e) => {
                 let mut rec = BTreeMap::new();
                 rec.insert("available".to_string(), Value::Bool(false));
-                rec.insert("reason".to_string(), Value::Str(format!("tcpdump not found: {}", e)));
+                rec.insert(
+                    "reason".to_string(),
+                    Value::Str(format!("tcpdump not found: {}", e)),
+                );
                 Ok(Value::Record(rec))
             }
         }
@@ -32417,8 +34364,14 @@ pub fn bi_tcpdump_capture(args: Vec<Value>, _input: Option<Value>) -> Result<Val
         let _ = (iface, count);
         let mut rec = BTreeMap::new();
         rec.insert("available".to_string(), Value::Bool(false));
-        rec.insert("reason".to_string(), Value::Str("tcpdump_capture is only available on Linux".to_string()));
-        rec.insert("hint".to_string(), Value::Str("Use Wireshark or pktmon on Windows".to_string()));
+        rec.insert(
+            "reason".to_string(),
+            Value::Str("tcpdump_capture is only available on Linux".to_string()),
+        );
+        rec.insert(
+            "hint".to_string(),
+            Value::Str("Use Wireshark or pktmon on Windows".to_string()),
+        );
         Ok(Value::Record(rec))
     }
 }
@@ -32439,7 +34392,8 @@ pub fn bi_ss_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
         let _ = filter;
-        let ps_cmd = "netstat -an | Select-String -Pattern 'TCP|UDP' | ForEach-Object { $_.Line.Trim() }";
+        let ps_cmd =
+            "netstat -an | Select-String -Pattern 'TCP|UDP' | ForEach-Object { $_.Line.Trim() }";
         let output = Command::new("powershell")
             .args(["-NoProfile", "-Command", ps_cmd])
             .output()
@@ -32451,9 +34405,18 @@ pub fn bi_ss_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             if parts.len() >= 4 {
                 let mut rec = BTreeMap::new();
                 rec.insert("protocol".to_string(), Value::Str(parts[0].to_string()));
-                rec.insert("local_address".to_string(), Value::Str(parts[1].to_string()));
-                rec.insert("foreign_address".to_string(), Value::Str(parts[2].to_string()));
-                rec.insert("state".to_string(), Value::Str(parts.get(3).unwrap_or(&"").to_string()));
+                rec.insert(
+                    "local_address".to_string(),
+                    Value::Str(parts[1].to_string()),
+                );
+                rec.insert(
+                    "foreign_address".to_string(),
+                    Value::Str(parts[2].to_string()),
+                );
+                rec.insert(
+                    "state".to_string(),
+                    Value::Str(parts.get(3).unwrap_or(&"").to_string()),
+                );
                 records.push(Value::Record(rec));
             }
         }
@@ -32484,9 +34447,18 @@ pub fn bi_ss_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             if parts.len() >= 5 {
                 let mut rec = BTreeMap::new();
                 rec.insert("state".to_string(), Value::Str(parts[0].to_string()));
-                rec.insert("recv_q".to_string(), Value::Int(parts[1].parse::<i64>().unwrap_or(0)));
-                rec.insert("send_q".to_string(), Value::Int(parts[2].parse::<i64>().unwrap_or(0)));
-                rec.insert("local_address".to_string(), Value::Str(parts[3].to_string()));
+                rec.insert(
+                    "recv_q".to_string(),
+                    Value::Int(parts[1].parse::<i64>().unwrap_or(0)),
+                );
+                rec.insert(
+                    "send_q".to_string(),
+                    Value::Int(parts[2].parse::<i64>().unwrap_or(0)),
+                );
+                rec.insert(
+                    "local_address".to_string(),
+                    Value::Str(parts[3].to_string()),
+                );
                 rec.insert("peer_address".to_string(), Value::Str(parts[4].to_string()));
                 if parts.len() >= 6 {
                     rec.insert("process".to_string(), Value::Str(parts[5..].join(" ")));
@@ -32538,7 +34510,8 @@ pub fn bi_ip_addr(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         if let Some(ref iface_name) = iface {
             cmd.arg(iface_name);
         }
-        let output = cmd.output()
+        let output = cmd
+            .output()
             .map_err(|e| anyhow!("ip_addr: failed to run ip: {}", e))?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -32556,7 +34529,8 @@ pub fn bi_ip_addr(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         if let Some(ref iface_name) = iface {
             cmd.arg(iface_name);
         }
-        let output = cmd.output()
+        let output = cmd
+            .output()
             .map_err(|e| anyhow!("ip_addr: failed to run ifconfig: {}", e))?;
         let stdout = String::from_utf8_lossy(&output.stdout);
         let mut records = Vec::new();
@@ -32573,7 +34547,10 @@ pub fn bi_ip_addr(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     rec.insert("family".to_string(), Value::Str("inet".to_string()));
                     if let Some(pos) = parts.iter().position(|&x| x == "netmask") {
                         if parts.len() > pos + 1 {
-                            rec.insert("netmask".to_string(), Value::Str(parts[pos + 1].to_string()));
+                            rec.insert(
+                                "netmask".to_string(),
+                                Value::Str(parts[pos + 1].to_string()),
+                            );
                         }
                     }
                     records.push(Value::Record(rec));
@@ -32652,7 +34629,10 @@ pub fn bi_ip_route(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     rec.insert("destination".to_string(), Value::Str(parts[0].to_string()));
                     rec.insert("gateway".to_string(), Value::Str(parts[1].to_string()));
                     rec.insert("flags".to_string(), Value::Str(parts[2].to_string()));
-                    rec.insert("interface".to_string(), Value::Str(parts.last().unwrap_or(&"").to_string()));
+                    rec.insert(
+                        "interface".to_string(),
+                        Value::Str(parts.last().unwrap_or(&"").to_string()),
+                    );
                     records.push(Value::Record(rec));
                 }
             }
@@ -32701,7 +34681,8 @@ pub fn bi_ip_link(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         if let Some(ref iface_name) = iface {
             cmd.arg(iface_name);
         }
-        let output = cmd.output()
+        let output = cmd
+            .output()
             .map_err(|e| anyhow!("ip_link: failed to run ip: {}", e))?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -32719,7 +34700,8 @@ pub fn bi_ip_link(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         if let Some(ref iface_name) = iface {
             cmd.arg(iface_name);
         }
-        let output = cmd.output()
+        let output = cmd
+            .output()
             .map_err(|e| anyhow!("ip_link: failed to run ifconfig: {}", e))?;
         let stdout = String::from_utf8_lossy(&output.stdout);
         let mut records = Vec::new();
@@ -32764,17 +34746,21 @@ pub fn bi_ethtool_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     let device = if !args.is_empty() {
         match &args[0] {
             Value::Str(s) => s.clone(),
-            _ => return Err(anyhow!("ethtool_info: device name required as string argument")),
+            _ => {
+                return Err(anyhow!(
+                    "ethtool_info: device name required as string argument"
+                ))
+            }
         }
     } else {
-        return Err(anyhow!("ethtool_info: device name required (e.g., \"eth0\")"));
+        return Err(anyhow!(
+            "ethtool_info: device name required (e.g., \"eth0\")"
+        ));
     };
 
     #[cfg(target_os = "linux")]
     {
-        let output = Command::new("ethtool")
-            .arg(&device)
-            .output();
+        let output = Command::new("ethtool").arg(&device).output();
         match output {
             Ok(out) if out.status.success() => {
                 let stdout = String::from_utf8_lossy(&out.stdout);
@@ -32783,7 +34769,11 @@ pub fn bi_ethtool_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
                 for line in stdout.lines() {
                     let trimmed = line.trim();
                     if let Some((key, val)) = trimmed.split_once(':') {
-                        let k = key.trim().to_lowercase().replace(' ', "_").replace('-', "_");
+                        let k = key
+                            .trim()
+                            .to_lowercase()
+                            .replace(' ', "_")
+                            .replace('-', "_");
                         let v = val.trim();
                         if !k.is_empty() && !v.is_empty() {
                             rec.insert(k, Value::Str(v.to_string()));
@@ -32794,12 +34784,19 @@ pub fn bi_ethtool_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
             }
             Ok(out) => {
                 let stderr = String::from_utf8_lossy(&out.stderr);
-                Err(anyhow!("ethtool_info: ethtool failed for {}: {}", device, stderr))
+                Err(anyhow!(
+                    "ethtool_info: ethtool failed for {}: {}",
+                    device,
+                    stderr
+                ))
             }
             Err(e) => {
                 let mut rec = BTreeMap::new();
                 rec.insert("available".to_string(), Value::Bool(false));
-                rec.insert("reason".to_string(), Value::Str(format!("ethtool not found: {}", e)));
+                rec.insert(
+                    "reason".to_string(),
+                    Value::Str(format!("ethtool not found: {}", e)),
+                );
                 Ok(Value::Record(rec))
             }
         }
@@ -32810,7 +34807,10 @@ pub fn bi_ethtool_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         let _ = device;
         let mut rec = BTreeMap::new();
         rec.insert("available".to_string(), Value::Bool(false));
-        rec.insert("reason".to_string(), Value::Str("ethtool is only available on Linux".to_string()));
+        rec.insert(
+            "reason".to_string(),
+            Value::Str("ethtool is only available on Linux".to_string()),
+        );
         Ok(Value::Record(rec))
     }
 }
@@ -32825,7 +34825,9 @@ pub fn bi_perf_stat(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             _ => return Err(anyhow!("perf_stat: command string required")),
         }
     } else {
-        return Err(anyhow!("perf_stat: command string required (e.g., \"sleep 1\")"));
+        return Err(anyhow!(
+            "perf_stat: command string required (e.g., \"sleep 1\")"
+        ));
     };
     let events = if args.len() > 1 {
         match &args[1] {
@@ -32851,7 +34853,10 @@ pub fn bi_perf_stat(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 let mut counters = Vec::new();
                 for line in stderr.lines() {
                     let trimmed = line.trim();
-                    if trimmed.is_empty() || trimmed.starts_with("Performance") || trimmed.starts_with("#") {
+                    if trimmed.is_empty()
+                        || trimmed.starts_with("Performance")
+                        || trimmed.starts_with("#")
+                    {
                         continue;
                     }
                     // Parse lines like "  1,234,567      cycles"
@@ -32870,7 +34875,10 @@ pub fn bi_perf_stat(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             Err(e) => {
                 let mut rec = BTreeMap::new();
                 rec.insert("available".to_string(), Value::Bool(false));
-                rec.insert("reason".to_string(), Value::Str(format!("perf not found: {}", e)));
+                rec.insert(
+                    "reason".to_string(),
+                    Value::Str(format!("perf not found: {}", e)),
+                );
                 Ok(Value::Record(rec))
             }
         }
@@ -32881,7 +34889,10 @@ pub fn bi_perf_stat(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let _ = (command, events);
         let mut rec = BTreeMap::new();
         rec.insert("available".to_string(), Value::Bool(false));
-        rec.insert("reason".to_string(), Value::Str("perf stat is only available on Linux".to_string()));
+        rec.insert(
+            "reason".to_string(),
+            Value::Str("perf stat is only available on Linux".to_string()),
+        );
         Ok(Value::Record(rec))
     }
 }
@@ -32896,7 +34907,9 @@ pub fn bi_perf_record(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
             _ => return Err(anyhow!("perf_record: command string required")),
         }
     } else {
-        return Err(anyhow!("perf_record: command string required (e.g., \"sleep 1\")"));
+        return Err(anyhow!(
+            "perf_record: command string required (e.g., \"sleep 1\")"
+        ));
     };
     let output_file = if args.len() > 1 {
         match &args[1] {
@@ -32920,13 +34933,19 @@ pub fn bi_perf_record(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
                 rec.insert("output_file".to_string(), Value::Str(output_file));
                 rec.insert("success".to_string(), Value::Bool(out.status.success()));
                 rec.insert("details".to_string(), Value::Str(stderr.trim().to_string()));
-                rec.insert("hint".to_string(), Value::Str("Use 'perf report' to analyze the recorded data".to_string()));
+                rec.insert(
+                    "hint".to_string(),
+                    Value::Str("Use 'perf report' to analyze the recorded data".to_string()),
+                );
                 Ok(Value::Record(rec))
             }
             Err(e) => {
                 let mut rec = BTreeMap::new();
                 rec.insert("available".to_string(), Value::Bool(false));
-                rec.insert("reason".to_string(), Value::Str(format!("perf not found: {}", e)));
+                rec.insert(
+                    "reason".to_string(),
+                    Value::Str(format!("perf not found: {}", e)),
+                );
                 Ok(Value::Record(rec))
             }
         }
@@ -32937,7 +34956,10 @@ pub fn bi_perf_record(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
         let _ = (command, output_file);
         let mut rec = BTreeMap::new();
         rec.insert("available".to_string(), Value::Bool(false));
-        rec.insert("reason".to_string(), Value::Str("perf record is only available on Linux".to_string()));
+        rec.insert(
+            "reason".to_string(),
+            Value::Str("perf record is only available on Linux".to_string()),
+        );
         Ok(Value::Record(rec))
     }
 }
@@ -32960,7 +34982,14 @@ pub fn bi_free_mem(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     rec.insert("used".to_string(), Value::Int(used as i64));
     rec.insert("free".to_string(), Value::Int(free as i64));
     rec.insert("available".to_string(), Value::Int(available as i64));
-    rec.insert("use_percent".to_string(), Value::Float(if total > 0 { used as f64 / total as f64 * 100.0 } else { 0.0 }));
+    rec.insert(
+        "use_percent".to_string(),
+        Value::Float(if total > 0 {
+            used as f64 / total as f64 * 100.0
+        } else {
+            0.0
+        }),
+    );
     rec.insert("swap_total".to_string(), Value::Int(swap_total as i64));
     rec.insert("swap_used".to_string(), Value::Int(swap_used as i64));
     rec.insert("swap_free".to_string(), Value::Int(swap_free as i64));
@@ -32988,7 +35017,10 @@ pub fn bi_uptime_extended(args: Vec<Value>, _input: Option<Value>) -> Result<Val
     rec.insert("load_1".to_string(), Value::Float(load.one));
     rec.insert("load_5".to_string(), Value::Float(load.five));
     rec.insert("load_15".to_string(), Value::Float(load.fifteen));
-    rec.insert("hostname".to_string(), Value::Str(System::host_name().unwrap_or_default()));
+    rec.insert(
+        "hostname".to_string(),
+        Value::Str(System::host_name().unwrap_or_default()),
+    );
     Ok(Value::Record(rec))
 }
 
@@ -33014,7 +35046,10 @@ pub fn bi_who_users(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             let parts: Vec<&str> = trimmed.split_whitespace().collect();
             if parts.len() >= 4 {
                 let mut rec = BTreeMap::new();
-                rec.insert("username".to_string(), Value::Str(parts[0].trim_start_matches('>').to_string()));
+                rec.insert(
+                    "username".to_string(),
+                    Value::Str(parts[0].trim_start_matches('>').to_string()),
+                );
                 rec.insert("session_name".to_string(), Value::Str(parts[1].to_string()));
                 rec.insert("id".to_string(), Value::Str(parts[2].to_string()));
                 rec.insert("state".to_string(), Value::Str(parts[3].to_string()));
@@ -33084,7 +35119,10 @@ pub fn bi_last_logins(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
         if stdout.trim().is_empty() {
             let mut rec = BTreeMap::new();
             rec.insert("available".to_string(), Value::Bool(false));
-            rec.insert("reason".to_string(), Value::Str("No login events found or access denied".to_string()));
+            rec.insert(
+                "reason".to_string(),
+                Value::Str("No login events found or access denied".to_string()),
+            );
             return Ok(Value::Record(rec));
         }
         let json_val: serde_json::Value = serde_json::from_str(stdout.trim())
@@ -33118,7 +35156,10 @@ pub fn bi_last_logins(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
                     2
                 };
                 if parts.len() > time_start {
-                    rec.insert("login_time".to_string(), Value::Str(parts[time_start..].join(" ")));
+                    rec.insert(
+                        "login_time".to_string(),
+                        Value::Str(parts[time_start..].join(" ")),
+                    );
                 }
                 records.push(Value::Record(rec));
             }
@@ -33180,7 +35221,15 @@ pub fn bi_syslog_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value
     {
         // Try journalctl first, fall back to grep in /var/log/syslog
         let output = Command::new("journalctl")
-            .args(["-g", &keyword, "-n", &count.to_string(), "--no-pager", "-o", "json"])
+            .args([
+                "-g",
+                &keyword,
+                "-n",
+                &count.to_string(),
+                "--no-pager",
+                "-o",
+                "json",
+            ])
             .output();
 
         match output {
@@ -33199,7 +35248,11 @@ pub fn bi_syslog_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value
                 let output = Command::new("grep")
                     .args(["-i", &keyword, "/var/log/syslog"])
                     .output()
-                    .or_else(|_| Command::new("grep").args(["-i", &keyword, "/var/log/messages"]).output())
+                    .or_else(|_| {
+                        Command::new("grep")
+                            .args(["-i", &keyword, "/var/log/messages"])
+                            .output()
+                    })
                     .map_err(|e| anyhow!("syslog_search: fallback grep failed: {}", e))?;
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 let mut records = Vec::new();
@@ -33218,14 +35271,23 @@ pub fn bi_syslog_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value
     {
         let predicate = format!("eventMessage contains \"{}\"", keyword.replace('"', "\\\""));
         let output = Command::new("log")
-            .args(["show", "--predicate", &predicate, "--last", "1h", "--style", "json"])
+            .args([
+                "show",
+                "--predicate",
+                &predicate,
+                "--last",
+                "1h",
+                "--style",
+                "json",
+            ])
             .output()
             .map_err(|e| anyhow!("syslog_search: failed to run log: {}", e))?;
         let stdout = String::from_utf8_lossy(&output.stdout);
         if let Ok(jv) = serde_json::from_str::<serde_json::Value>(stdout.trim()) {
             // Limit results
             if let Some(arr) = jv.as_array() {
-                let limited: Vec<serde_json::Value> = arr.iter().take(count as usize).cloned().collect();
+                let limited: Vec<serde_json::Value> =
+                    arr.iter().take(count as usize).cloned().collect();
                 return Ok(json_to_value(serde_json::Value::Array(limited)));
             }
             return Ok(json_to_value(jv));
@@ -33252,48 +35314,90 @@ pub fn bi_dstat_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     sys.refresh_all();
     let mut stats = BTreeMap::new();
     // Per-CPU usage
-    let cpus: Vec<Value> = sys.cpus().iter().map(|c| {
-        let mut m = BTreeMap::new();
-        m.insert("name".to_string(), Value::Str(c.name().to_string()));
-        m.insert("usage_percent".to_string(), Value::Float(c.cpu_usage() as f64));
-        Value::Record(m)
-    }).collect();
+    let cpus: Vec<Value> = sys
+        .cpus()
+        .iter()
+        .map(|c| {
+            let mut m = BTreeMap::new();
+            m.insert("name".to_string(), Value::Str(c.name().to_string()));
+            m.insert(
+                "usage_percent".to_string(),
+                Value::Float(c.cpu_usage() as f64),
+            );
+            Value::Record(m)
+        })
+        .collect();
     stats.insert("cpus".to_string(), Value::Array(cpus));
-    stats.insert("cpu_percent".to_string(), Value::Float(sys.global_cpu_usage() as f64));
+    stats.insert(
+        "cpu_percent".to_string(),
+        Value::Float(sys.global_cpu_usage() as f64),
+    );
     // Memory
     let total_mem = sys.total_memory();
     let used_mem = sys.used_memory();
     let mut mem = BTreeMap::new();
     mem.insert("total".to_string(), Value::Int(total_mem as i64));
     mem.insert("used".to_string(), Value::Int(used_mem as i64));
-    mem.insert("free".to_string(), Value::Int((total_mem - used_mem) as i64));
+    mem.insert(
+        "free".to_string(),
+        Value::Int((total_mem - used_mem) as i64),
+    );
     stats.insert("memory".to_string(), Value::Record(mem));
     // Disks
     let disks = Disks::new_with_refreshed_list();
-    let disk_entries: Vec<Value> = disks.iter().map(|d| {
-        let mut m = BTreeMap::new();
-        m.insert("name".to_string(), Value::Str(d.name().to_string_lossy().to_string()));
-        m.insert("total_bytes".to_string(), Value::Int(d.total_space() as i64));
-        m.insert("available_bytes".to_string(), Value::Int(d.available_space() as i64));
-        Value::Record(m)
-    }).collect();
+    let disk_entries: Vec<Value> = disks
+        .iter()
+        .map(|d| {
+            let mut m = BTreeMap::new();
+            m.insert(
+                "name".to_string(),
+                Value::Str(d.name().to_string_lossy().to_string()),
+            );
+            m.insert(
+                "total_bytes".to_string(),
+                Value::Int(d.total_space() as i64),
+            );
+            m.insert(
+                "available_bytes".to_string(),
+                Value::Int(d.available_space() as i64),
+            );
+            Value::Record(m)
+        })
+        .collect();
     stats.insert("disk".to_string(), Value::Array(disk_entries));
     // Networks
     let nets = Networks::new_with_refreshed_list();
-    let net_entries: Vec<Value> = nets.iter().map(|(name, data)| {
-        let mut m = BTreeMap::new();
-        m.insert("interface".to_string(), Value::Str(name.clone()));
-        m.insert("rx_bytes".to_string(), Value::Int(data.total_received() as i64));
-        m.insert("tx_bytes".to_string(), Value::Int(data.total_transmitted() as i64));
-        m.insert("rx_packets".to_string(), Value::Int(data.total_packets_received() as i64));
-        m.insert("tx_packets".to_string(), Value::Int(data.total_packets_transmitted() as i64));
-        Value::Record(m)
-    }).collect();
+    let net_entries: Vec<Value> = nets
+        .iter()
+        .map(|(name, data)| {
+            let mut m = BTreeMap::new();
+            m.insert("interface".to_string(), Value::Str(name.clone()));
+            m.insert(
+                "rx_bytes".to_string(),
+                Value::Int(data.total_received() as i64),
+            );
+            m.insert(
+                "tx_bytes".to_string(),
+                Value::Int(data.total_transmitted() as i64),
+            );
+            m.insert(
+                "rx_packets".to_string(),
+                Value::Int(data.total_packets_received() as i64),
+            );
+            m.insert(
+                "tx_packets".to_string(),
+                Value::Int(data.total_packets_transmitted() as i64),
+            );
+            Value::Record(m)
+        })
+        .collect();
     stats.insert("network".to_string(), Value::Array(net_entries));
-    stats.insert("timestamp".to_string(), Value::Str(chrono::Local::now().to_rfc3339()));
+    stats.insert(
+        "timestamp".to_string(),
+        Value::Str(chrono::Local::now().to_rfc3339()),
+    );
     Ok(Value::Record(stats))
 }
-
 
 // ===========================================================================
 // Proactive Monitoring & Alerting Builtins (836-843)
@@ -33308,12 +35412,20 @@ pub fn bi_health_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     let cpu = sys.global_cpu_usage() as f64;
     let total_mem = sys.total_memory();
     let used_mem = sys.used_memory();
-    let mem_pct = if total_mem > 0 { used_mem as f64 / total_mem as f64 * 100.0 } else { 0.0 };
+    let mem_pct = if total_mem > 0 {
+        used_mem as f64 / total_mem as f64 * 100.0
+    } else {
+        0.0
+    };
 
     let disks = Disks::new_with_refreshed_list();
     let total_disk: u64 = disks.iter().map(|d| d.total_space()).sum();
     let avail_disk: u64 = disks.iter().map(|d| d.available_space()).sum();
-    let disk_pct = if total_disk > 0 { (total_disk - avail_disk) as f64 / total_disk as f64 * 100.0 } else { 0.0 };
+    let disk_pct = if total_disk > 0 {
+        (total_disk - avail_disk) as f64 / total_disk as f64 * 100.0
+    } else {
+        0.0
+    };
 
     let load = System::load_average();
 
@@ -33330,8 +35442,14 @@ pub fn bi_health_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     if cpu > 80.0 {
         let mut a = BTreeMap::new();
         a.insert("type".to_string(), Value::Str("cpu".to_string()));
-        a.insert("severity".to_string(), Value::Str(if cpu > 95.0 { "critical" } else { "warning" }.to_string()));
-        a.insert("message".to_string(), Value::Str(format!("CPU usage at {:.1}%", cpu)));
+        a.insert(
+            "severity".to_string(),
+            Value::Str(if cpu > 95.0 { "critical" } else { "warning" }.to_string()),
+        );
+        a.insert(
+            "message".to_string(),
+            Value::Str(format!("CPU usage at {:.1}%", cpu)),
+        );
         a.insert("value".to_string(), Value::Float(cpu));
         a.insert("threshold".to_string(), Value::Float(80.0));
         alerts.push(Value::Record(a));
@@ -33339,8 +35457,21 @@ pub fn bi_health_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     if mem_pct > 80.0 {
         let mut a = BTreeMap::new();
         a.insert("type".to_string(), Value::Str("memory".to_string()));
-        a.insert("severity".to_string(), Value::Str(if mem_pct > 95.0 { "critical" } else { "warning" }.to_string()));
-        a.insert("message".to_string(), Value::Str(format!("Memory usage at {:.1}%", mem_pct)));
+        a.insert(
+            "severity".to_string(),
+            Value::Str(
+                if mem_pct > 95.0 {
+                    "critical"
+                } else {
+                    "warning"
+                }
+                .to_string(),
+            ),
+        );
+        a.insert(
+            "message".to_string(),
+            Value::Str(format!("Memory usage at {:.1}%", mem_pct)),
+        );
         a.insert("value".to_string(), Value::Float(mem_pct));
         a.insert("threshold".to_string(), Value::Float(80.0));
         alerts.push(Value::Record(a));
@@ -33348,8 +35479,21 @@ pub fn bi_health_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     if disk_pct > 85.0 {
         let mut a = BTreeMap::new();
         a.insert("type".to_string(), Value::Str("disk".to_string()));
-        a.insert("severity".to_string(), Value::Str(if disk_pct > 95.0 { "critical" } else { "warning" }.to_string()));
-        a.insert("message".to_string(), Value::Str(format!("Disk usage at {:.1}%", disk_pct)));
+        a.insert(
+            "severity".to_string(),
+            Value::Str(
+                if disk_pct > 95.0 {
+                    "critical"
+                } else {
+                    "warning"
+                }
+                .to_string(),
+            ),
+        );
+        a.insert(
+            "message".to_string(),
+            Value::Str(format!("Disk usage at {:.1}%", disk_pct)),
+        );
         a.insert("value".to_string(), Value::Float(disk_pct));
         a.insert("threshold".to_string(), Value::Float(85.0));
         alerts.push(Value::Record(a));
@@ -33363,9 +35507,15 @@ pub fn bi_health_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     rec.insert("load_1".to_string(), Value::Float(load.one));
     rec.insert("load_5".to_string(), Value::Float(load.five));
     rec.insert("load_15".to_string(), Value::Float(load.fifteen));
-    rec.insert("process_count".to_string(), Value::Int(sys.processes().len() as i64));
+    rec.insert(
+        "process_count".to_string(),
+        Value::Int(sys.processes().len() as i64),
+    );
     rec.insert("alerts".to_string(), Value::Array(alerts));
-    rec.insert("timestamp".to_string(), Value::Str(chrono::Local::now().to_rfc3339()));
+    rec.insert(
+        "timestamp".to_string(),
+        Value::Str(chrono::Local::now().to_rfc3339()),
+    );
     Ok(Value::Record(rec))
 }
 
@@ -33377,7 +35527,11 @@ pub fn bi_alert_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     };
     let metric = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("alert_create: metric string required (cpu, memory, disk)")),
+        _ => {
+            return Err(anyhow!(
+                "alert_create: metric string required (cpu, memory, disk)"
+            ))
+        }
     };
     let condition = match args.get(2) {
         Some(Value::Str(s)) => s.clone(),
@@ -33393,7 +35547,11 @@ pub fn bi_alert_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         _ => "warning".to_string(),
     };
 
-    let id = format!("alert_{}_{}", metric, chrono::Local::now().timestamp_millis());
+    let id = format!(
+        "alert_{}_{}",
+        metric,
+        chrono::Local::now().timestamp_millis()
+    );
 
     let mut rec = BTreeMap::new();
     rec.insert("id".to_string(), Value::Str(id));
@@ -33403,7 +35561,10 @@ pub fn bi_alert_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     rec.insert("threshold".to_string(), Value::Float(threshold));
     rec.insert("severity".to_string(), Value::Str(severity));
     rec.insert("status".to_string(), Value::Str("active".to_string()));
-    rec.insert("created_at".to_string(), Value::Str(chrono::Local::now().to_rfc3339()));
+    rec.insert(
+        "created_at".to_string(),
+        Value::Str(chrono::Local::now().to_rfc3339()),
+    );
     Ok(Value::Record(rec))
 }
 
@@ -33417,12 +35578,20 @@ pub fn bi_alert_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let cpu = sys.global_cpu_usage() as f64;
     let total_mem = sys.total_memory();
     let used_mem = sys.used_memory();
-    let mem_pct = if total_mem > 0 { used_mem as f64 / total_mem as f64 * 100.0 } else { 0.0 };
+    let mem_pct = if total_mem > 0 {
+        used_mem as f64 / total_mem as f64 * 100.0
+    } else {
+        0.0
+    };
 
     let disks = Disks::new_with_refreshed_list();
     let total_disk: u64 = disks.iter().map(|d| d.total_space()).sum();
     let avail_disk: u64 = disks.iter().map(|d| d.available_space()).sum();
-    let disk_pct = if total_disk > 0 { (total_disk - avail_disk) as f64 / total_disk as f64 * 100.0 } else { 0.0 };
+    let disk_pct = if total_disk > 0 {
+        (total_disk - avail_disk) as f64 / total_disk as f64 * 100.0
+    } else {
+        0.0
+    };
 
     let mut active = Vec::new();
 
@@ -33463,16 +35632,24 @@ pub fn bi_alert_history(args: Vec<Value>, _input: Option<Value>) -> Result<Value
     let cpu = sys.global_cpu_usage() as f64;
     let total_mem = sys.total_memory();
     let used_mem = sys.used_memory();
-    let mem_pct = if total_mem > 0 { used_mem as f64 / total_mem as f64 * 100.0 } else { 0.0 };
+    let mem_pct = if total_mem > 0 {
+        used_mem as f64 / total_mem as f64 * 100.0
+    } else {
+        0.0
+    };
 
     let mut history = Vec::new();
     let mut entry = BTreeMap::new();
-    entry.insert("timestamp".to_string(), Value::Str(chrono::Local::now().to_rfc3339()));
+    entry.insert(
+        "timestamp".to_string(),
+        Value::Str(chrono::Local::now().to_rfc3339()),
+    );
     entry.insert("cpu_percent".to_string(), Value::Float(cpu));
     entry.insert("memory_percent".to_string(), Value::Float(mem_pct));
-    entry.insert("alerts_fired".to_string(), Value::Int(
-        if cpu > 80.0 { 1 } else { 0 } + if mem_pct > 80.0 { 1 } else { 0 }
-    ));
+    entry.insert(
+        "alerts_fired".to_string(),
+        Value::Int(if cpu > 80.0 { 1 } else { 0 } + if mem_pct > 80.0 { 1 } else { 0 }),
+    );
     history.push(Value::Record(entry));
 
     let _ = limit; // Would limit historical entries in a persistent store
@@ -33488,7 +35665,10 @@ pub fn bi_alert_remove(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     let mut rec = BTreeMap::new();
     rec.insert("id".to_string(), Value::Str(id));
     rec.insert("removed".to_string(), Value::Bool(true));
-    rec.insert("timestamp".to_string(), Value::Str(chrono::Local::now().to_rfc3339()));
+    rec.insert(
+        "timestamp".to_string(),
+        Value::Str(chrono::Local::now().to_rfc3339()),
+    );
     Ok(Value::Record(rec))
 }
 
@@ -33518,21 +35698,39 @@ pub fn bi_watch_cpu(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         sample.insert("sample".to_string(), Value::Int(i as i64 + 1));
         sample.insert("cpu_percent".to_string(), Value::Float(cpu));
         sample.insert("above_threshold".to_string(), Value::Bool(cpu > threshold));
-        sample.insert("timestamp".to_string(), Value::Str(chrono::Local::now().to_rfc3339()));
+        sample.insert(
+            "timestamp".to_string(),
+            Value::Str(chrono::Local::now().to_rfc3339()),
+        );
         readings.push(Value::Record(sample));
     }
 
-    let avg: f64 = readings.iter().filter_map(|v| {
-        if let Value::Record(r) = v {
-            if let Some(Value::Float(f)) = r.get("cpu_percent") { Some(*f) } else { None }
-        } else { None }
-    }).sum::<f64>() / samples as f64;
+    let avg: f64 = readings
+        .iter()
+        .filter_map(|v| {
+            if let Value::Record(r) = v {
+                if let Some(Value::Float(f)) = r.get("cpu_percent") {
+                    Some(*f)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        })
+        .sum::<f64>()
+        / samples as f64;
 
-    let breaches = readings.iter().filter(|v| {
-        if let Value::Record(r) = v {
-            matches!(r.get("above_threshold"), Some(Value::Bool(true)))
-        } else { false }
-    }).count();
+    let breaches = readings
+        .iter()
+        .filter(|v| {
+            if let Value::Record(r) = v {
+                matches!(r.get("above_threshold"), Some(Value::Bool(true)))
+            } else {
+                false
+            }
+        })
+        .count();
 
     let mut rec = BTreeMap::new();
     rec.insert("threshold".to_string(), Value::Float(threshold));
@@ -33558,13 +35756,27 @@ pub fn bi_watch_memory(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     let used = sys.used_memory();
     let free = sys.free_memory();
     let available = sys.available_memory();
-    let pct = if total > 0 { used as f64 / total as f64 * 100.0 } else { 0.0 };
+    let pct = if total > 0 {
+        used as f64 / total as f64 * 100.0
+    } else {
+        0.0
+    };
 
     let swap_total = sys.total_swap();
     let swap_used = sys.used_swap();
-    let swap_pct = if swap_total > 0 { swap_used as f64 / swap_total as f64 * 100.0 } else { 0.0 };
+    let swap_pct = if swap_total > 0 {
+        swap_used as f64 / swap_total as f64 * 100.0
+    } else {
+        0.0
+    };
 
-    let status = if pct > 95.0 { "critical" } else if pct > threshold { "warning" } else { "healthy" };
+    let status = if pct > 95.0 {
+        "critical"
+    } else if pct > threshold {
+        "warning"
+    } else {
+        "healthy"
+    };
 
     let mut rec = BTreeMap::new();
     rec.insert("status".to_string(), Value::Str(status.to_string()));
@@ -33578,7 +35790,10 @@ pub fn bi_watch_memory(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     rec.insert("swap_total".to_string(), Value::Int(swap_total as i64));
     rec.insert("swap_used".to_string(), Value::Int(swap_used as i64));
     rec.insert("swap_percent".to_string(), Value::Float(swap_pct));
-    rec.insert("timestamp".to_string(), Value::Str(chrono::Local::now().to_rfc3339()));
+    rec.insert(
+        "timestamp".to_string(),
+        Value::Str(chrono::Local::now().to_rfc3339()),
+    );
     Ok(Value::Record(rec))
 }
 
@@ -33597,19 +35812,37 @@ pub fn bi_watch_disk(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let total = disk.total_space();
         let avail = disk.available_space();
         let used = total.saturating_sub(avail);
-        let pct = if total > 0 { used as f64 / total as f64 * 100.0 } else { 0.0 };
+        let pct = if total > 0 {
+            used as f64 / total as f64 * 100.0
+        } else {
+            0.0
+        };
         let above = pct > threshold;
-        if above { any_alert = true; }
+        if above {
+            any_alert = true;
+        }
 
         let mut rec = BTreeMap::new();
-        rec.insert("mount".to_string(), Value::Str(disk.mount_point().to_string_lossy().to_string()));
-        rec.insert("filesystem".to_string(), Value::Str(disk.file_system().to_string_lossy().to_string()));
+        rec.insert(
+            "mount".to_string(),
+            Value::Str(disk.mount_point().to_string_lossy().to_string()),
+        );
+        rec.insert(
+            "filesystem".to_string(),
+            Value::Str(disk.file_system().to_string_lossy().to_string()),
+        );
         rec.insert("total_bytes".to_string(), Value::Int(total as i64));
         rec.insert("used_bytes".to_string(), Value::Int(used as i64));
         rec.insert("available_bytes".to_string(), Value::Int(avail as i64));
         rec.insert("use_percent".to_string(), Value::Float(pct));
         rec.insert("above_threshold".to_string(), Value::Bool(above));
-        let status = if pct > 95.0 { "critical" } else if above { "warning" } else { "healthy" };
+        let status = if pct > 95.0 {
+            "critical"
+        } else if above {
+            "warning"
+        } else {
+            "healthy"
+        };
         rec.insert("status".to_string(), Value::Str(status.to_string()));
         disk_entries.push(Value::Record(rec));
     }
@@ -33617,8 +35850,14 @@ pub fn bi_watch_disk(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut rec = BTreeMap::new();
     rec.insert("threshold".to_string(), Value::Float(threshold));
     rec.insert("alert".to_string(), Value::Bool(any_alert));
-    rec.insert("disk_count".to_string(), Value::Int(disk_entries.len() as i64));
+    rec.insert(
+        "disk_count".to_string(),
+        Value::Int(disk_entries.len() as i64),
+    );
     rec.insert("disks".to_string(), Value::Array(disk_entries));
-    rec.insert("timestamp".to_string(), Value::Str(chrono::Local::now().to_rfc3339()));
+    rec.insert(
+        "timestamp".to_string(),
+        Value::Str(chrono::Local::now().to_rfc3339()),
+    );
     Ok(Value::Record(rec))
 }
