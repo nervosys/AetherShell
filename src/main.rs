@@ -28,6 +28,14 @@ struct Cli {
     #[arg(long, short = 'b')]
     bash: bool,
 
+    /// Zsh compatibility mode
+    #[arg(long, short = 'z')]
+    zsh: bool,
+
+    /// PowerShell compatibility mode
+    #[arg(long, short = 'p')]
+    pwsh: bool,
+
     /// Execute a command string
     #[arg(long, short = 'c')]
     command: Option<String>,
@@ -257,20 +265,49 @@ fn main() -> Result<()> {
         let code = transpile::bash::transpile_bash_to_ae(&buf)?;
         return run_code(&code);
     }
+    // Handle zsh mode with stdin
+    if cli.zsh && cli.file.is_none() && cli.command.is_none() {
+        let mut buf = String::new();
+        io::stdin().read_to_string(&mut buf)?;
+        let code = transpile::zsh::transpile_zsh_to_ae(&buf)?;
+        return run_code(&code);
+    }
+    // Handle pwsh mode with stdin
+    if cli.pwsh && cli.file.is_none() && cli.command.is_none() {
+        let mut buf = String::new();
+        io::stdin().read_to_string(&mut buf)?;
+        let code = transpile::powershell::transpile_powershell_to_ae(&buf)?;
+        return run_code(&code);
+    }
 
     // Handle -c/--command flag
     if let Some(cmd) = cli.command {
         let code = if cli.bash {
             transpile::bash::transpile_bash_to_ae(&cmd)?
+        } else if cli.zsh {
+            transpile::zsh::transpile_zsh_to_ae(&cmd)?
+        } else if cli.pwsh {
+            transpile::powershell::transpile_powershell_to_ae(&cmd)?
         } else {
             cmd
         };
         return run_code(&code);
     }
 
+    // Determine transpile mode from flags
+    let transpile_mode = if cli.bash {
+        Some(TranspileMode::Bash)
+    } else if cli.zsh {
+        Some(TranspileMode::Zsh)
+    } else if cli.pwsh {
+        Some(TranspileMode::PowerShell)
+    } else {
+        None
+    };
+
     // Handle file execution or REPL
     match cli.file {
-        Some(file) => run_file(&file, cli.bash)?,
+        Some(file) => run_file(&file, transpile_mode)?,
         None => repl()?,
     }
 
@@ -867,12 +904,47 @@ fn repl() -> Result<()> {
     Ok(())
 }
 
-fn run_file(path: &str, bash_mode: bool) -> Result<()> {
+
+/// Transpilation mode for legacy shell compatibility.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TranspileMode {
+    Bash,
+    Zsh,
+    PowerShell,
+}
+
+/// Detect transpile mode from file extension (when no explicit flag is given).
+fn detect_transpile_mode(path: &str) -> Option<TranspileMode> {
+    let lower = path.to_lowercase();
+    if lower.ends_with(".sh") || lower.ends_with(".bash") {
+        Some(TranspileMode::Bash)
+    } else if lower.ends_with(".zsh") {
+        Some(TranspileMode::Zsh)
+    } else if lower.ends_with(".ps1")
+        || lower.ends_with(".psm1")
+        || lower.ends_with(".psd1")
+    {
+        Some(TranspileMode::PowerShell)
+    } else {
+        None
+    }
+}
+
+fn run_file(path: &str, explicit_mode: Option<TranspileMode>) -> Result<()> {
     let mut code = fs::read_to_string(path).with_context(|| format!("failed to read {}", path))?;
 
-    if bash_mode {
-        code = transpile::bash::transpile_bash_to_ae(&code)
-            .with_context(|| format!("bash→aether transpile failed for {}", path))?;
+    // Explicit flag takes priority; otherwise auto-detect from extension
+    let mode = explicit_mode.or_else(|| detect_transpile_mode(path));
+
+    if let Some(m) = mode {
+        code = match m {
+            TranspileMode::Bash => transpile::bash::transpile_bash_to_ae(&code)
+                .with_context(|| format!("bash\u{2192}aether transpile failed for {}", path))?,
+            TranspileMode::Zsh => transpile::zsh::transpile_zsh_to_ae(&code)
+                .with_context(|| format!("zsh\u{2192}aether transpile failed for {}", path))?,
+            TranspileMode::PowerShell => transpile::powershell::transpile_powershell_to_ae(&code)
+                .with_context(|| format!("powershell\u{2192}aether transpile failed for {}", path))?,
+        };
     }
 
     run_code(&code)

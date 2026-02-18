@@ -124,8 +124,8 @@ fn pipeline_basic() {
     let ae = transpile_bash_to_ae(bash).expect("transpile ok");
     let ae_n = strip_ws(&ae);
 
-    // echo is mapped to builtin; others fall back to sh([...])
-    let expected = r#"echo("hello ${USER}") | sh(["grep","hello"]) | sh(["wc","-l"])"#;
+    // echo, grep (str.grep), wc (file.wc) are all mapped to builtins
+    let expected = r#"echo("hello ${USER}") | str.grep("hello") | file.wc("-l")"#;
     let ex_n = strip_ws(expected);
 
     assert!(ae_n.contains(&ex_n), "got:\n{ae}");
@@ -189,12 +189,12 @@ fn single_vs_double_quotes() {
 }
 
 #[test]
-fn external_cmd_defaults_to_sh() {
+fn builtin_mapped_ls() {
     let bash = r#"ls -la"#;
     let ae = transpile_bash_to_ae(bash).expect("transpile ok");
     let ae_n = strip_ws(&ae);
 
-    let expected = r#"sh(["ls","-la"])"#;
+    let expected = r#"ls("-la")"#;
     let ex_n = strip_ws(expected);
 
     assert!(ae_n.contains(&ex_n), "got:\n{ae}");
