@@ -8304,11 +8304,20 @@ pub fn execute_tool_safe(
                 ));
             }
         }
-        // On Windows, this is more complex - we just warn
+        // On Windows, check if running as administrator
         #[cfg(windows)]
         {
-            // Windows admin check would require additional logic
-            // For now, we proceed with a warning in stderr
+            let admin_check = std::process::Command::new("net")
+                .args(["session"])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status();
+            if !admin_check.map(|s| s.success()).unwrap_or(false) {
+                return Err(format!(
+                    "Tool '{}' requires administrator privileges",
+                    tool_name
+                ));
+            }
         }
     }
 
