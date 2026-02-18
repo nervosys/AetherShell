@@ -27,7 +27,7 @@ Traditional shells (Bash, PowerShell, Zsh) produce unstructured text that varies
 ## Build
 ```bash
 cargo build --bins    # ae + aimodel
-cargo test           # 1,169 tests
+cargo test           # 1,237 tests
 ```
 
 ## Full Context

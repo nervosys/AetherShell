@@ -87,7 +87,7 @@ AetherShell follows [Semantic Versioning 2.0](https://semver.org/):
 | Comprehensive rustdoc | ✅ | All `pub mod` items documented |
 | Migration guide | ✅ | Bash/Zsh/PowerShell → AetherShell |
 | Stability policy | ✅ | This document |
-| Test coverage > 95% intent | ✅ | 1,169+ tests, 100% pass rate |
+| Test coverage > 95% intent | ✅ | 1,237+ tests, 100% pass rate |
 | Security audit | ⬜ | Third-party audit planned |
 | Performance benchmarks | ✅ | 5 benchmark suites |
 | Cross-platform CI | ✅ | Linux + Windows + macOS |
