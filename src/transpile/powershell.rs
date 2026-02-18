@@ -16,12 +16,17 @@
 use anyhow::Result;
 
 /// Transpile a whole PowerShell script (multi-line) to Aether code.
+/// Multi-line blocks (if/foreach/for/while/switch/try/function/class) are
+/// accumulated and emitted as a single `sh(["pwsh","-c","..."])` call rather
+/// than falling back line-by-line.
 pub fn transpile_powershell_to_ae(src: &str) -> Result<String> {
     let mut out = String::new();
-    out.push_str("// Transpiled from PowerShell → Aether (compat mode)\n");
+    out.push_str("// Transpiled from PowerShell \u{2192} Aether (compat mode)\n");
 
     let mut in_multiline_string = false;
     let mut multiline_buffer = String::new();
+    let mut brace_depth: i32 = 0;
+    let mut block_lines: Vec<String> = Vec::new();
 
     for raw_line in src.lines() {
         let line = raw_line.trim();
@@ -30,7 +35,6 @@ pub fn transpile_powershell_to_ae(src: &str) -> Result<String> {
         if in_multiline_string {
             if line == "\"@" || line == "'@" {
                 in_multiline_string = false;
-                // Process the multiline string
                 out.push_str(&format!("\"{}\"", escape_string(&multiline_buffer)));
                 out.push('\n');
                 multiline_buffer.clear();
@@ -48,21 +52,54 @@ pub fn transpile_powershell_to_ae(src: &str) -> Result<String> {
         }
 
         if line.is_empty() {
+            if brace_depth > 0 { block_lines.push(raw_line.to_string()); }
             continue;
         }
 
         // PowerShell comments
         if line.starts_with('#') {
-            out.push_str(&format!("// {}\n", &line[1..].trim_start()));
+            if brace_depth > 0 {
+                block_lines.push(raw_line.to_string());
+            } else {
+                out.push_str(&format!("// {}\n", &line[1..].trim_start()));
+            }
             continue;
         }
 
         // Block comments <# ... #>
         if line.starts_with("<#") {
-            out.push_str(&format!(
-                "// {}\n",
-                line.trim_start_matches("<#").trim_end_matches("#>").trim()
-            ));
+            if brace_depth > 0 {
+                block_lines.push(raw_line.to_string());
+            } else {
+                out.push_str(&format!(
+                    "// {}\n",
+                    line.trim_start_matches("<#").trim_end_matches("#>").trim()
+                ));
+            }
+            continue;
+        }
+
+        let openers = count_ps_brace_openers(line);
+        let closers = count_ps_brace_closers(line);
+
+        // Already inside a block
+        if brace_depth > 0 {
+            block_lines.push(raw_line.to_string());
+            brace_depth += openers - closers;
+            if brace_depth <= 0 {
+                let full_block = block_lines.join("\n");
+                out.push_str(&render_fallback_pwsh(&full_block));
+                out.push('\n');
+                block_lines.clear();
+                brace_depth = 0;
+            }
+            continue;
+        }
+
+        // New block starting (more open braces than close)
+        if openers > closers {
+            brace_depth = openers - closers;
+            block_lines.push(raw_line.to_string());
             continue;
         }
 
@@ -88,15 +125,22 @@ pub fn transpile_powershell_to_ae(src: &str) -> Result<String> {
                 out.push('\n');
             }
             _ => {
-                // Fallback if we failed to parse robustly
                 out.push_str(&render_fallback_pwsh(line));
                 out.push('\n');
             }
         }
     }
 
+    // Flush any unterminated block
+    if !block_lines.is_empty() {
+        let full_block = block_lines.join("\n");
+        out.push_str(&render_fallback_pwsh(&full_block));
+        out.push('\n');
+    }
+
     Ok(out)
 }
+
 
 /* =============================================================================
 Representation
@@ -124,6 +168,52 @@ enum Token {
 enum Piece {
     Text(String),
     Var(String), // VAR name (no leading '$')
+}
+
+/* =============================================================================
+Block depth tracking (brace-based)
+============================================================================= */
+
+fn count_ps_brace_openers(line: &str) -> i32 {
+    // Count unquoted opening braces
+    let mut count = 0i32;
+    let mut in_sq = false;
+    let mut in_dq = false;
+    let chars: Vec<char> = line.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        let ch = chars[i];
+        if ch == '`' && i + 1 < chars.len() {
+            i += 2; // skip escaped char
+            continue;
+        }
+        if ch == '\'' && !in_dq { in_sq = !in_sq; }
+        else if ch == '\"' && !in_sq { in_dq = !in_dq; }
+        else if ch == '{' && !in_sq && !in_dq { count += 1; }
+        i += 1;
+    }
+    count
+}
+
+fn count_ps_brace_closers(line: &str) -> i32 {
+    // Count unquoted closing braces
+    let mut count = 0i32;
+    let mut in_sq = false;
+    let mut in_dq = false;
+    let chars: Vec<char> = line.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        let ch = chars[i];
+        if ch == '`' && i + 1 < chars.len() {
+            i += 2;
+            continue;
+        }
+        if ch == '\'' && !in_dq { in_sq = !in_sq; }
+        else if ch == '\"' && !in_sq { in_dq = !in_dq; }
+        else if ch == '}' && !in_sq && !in_dq { count += 1; }
+        i += 1;
+    }
+    count
 }
 
 /* =============================================================================

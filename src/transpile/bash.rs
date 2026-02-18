@@ -17,17 +17,61 @@
 use anyhow::{anyhow, Result};
 
 /// Transpile a whole Bash script (multi-line) to Aether code.
+/// Transpile a whole Bash script (multi-line) to Aether code.
+///
+/// Multi-line blocks (if/for/while/until/case/select/function) are accumulated
+/// and emitted as a single `sh(["bash","-lc","..."])` call rather than falling
+/// back line-by-line.
+/// Transpile a whole Bash script (multi-line) to Aether code.
+///
+/// Multi-line blocks (if/for/while/until/case/select/function) are accumulated
+/// and emitted as a single `sh(["bash","-lc","..."])` call rather than falling
+/// back line-by-line.
 pub fn transpile_bash_to_ae(src: &str) -> Result<String> {
     let mut out = String::new();
-    out.push_str("// Transpiled from Bash → Aether (compat mode)\n");
+    out.push_str("// Transpiled from Bash \u{2192} Aether (compat mode)\n");
+
+    let mut block_depth: i32 = 0;
+    let mut block_lines: Vec<String> = Vec::new();
 
     for raw_line in src.lines() {
         let line = raw_line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            // preserve comments as Aether comments
-            if line.starts_with('#') {
+
+        // Inside a block: accumulate
+        if line.is_empty() {
+            if block_depth > 0 { block_lines.push(raw_line.to_string()); }
+            continue;
+        }
+        if line.starts_with('#') {
+            if block_depth > 0 {
+                block_lines.push(raw_line.to_string());
+            } else {
                 out.push_str(&format!("// {}\n", &line[1..].trim_start()));
             }
+            continue;
+        }
+
+        let openers = count_block_openers(line);
+        let closers = count_block_closers(line);
+
+        // Already inside a block
+        if block_depth > 0 {
+            block_lines.push(raw_line.to_string());
+            block_depth += openers - closers;
+            if block_depth <= 0 {
+                let full_block = block_lines.join("\n");
+                out.push_str(&render_fallback_bash(&full_block));
+                out.push('\n');
+                block_lines.clear();
+                block_depth = 0;
+            }
+            continue;
+        }
+
+        // New block starting
+        if openers > closers {
+            block_depth = openers - closers;
+            block_lines.push(raw_line.to_string());
             continue;
         }
 
@@ -54,15 +98,23 @@ pub fn transpile_bash_to_ae(src: &str) -> Result<String> {
                 out.push('\n');
             }
             _ => {
-                // Fallback if we failed to parse robustly
                 out.push_str(&render_fallback_bash(line));
                 out.push('\n');
             }
         }
     }
 
+    // Flush any unterminated block
+    if !block_lines.is_empty() {
+        let full_block = block_lines.join("\n");
+        out.push_str(&render_fallback_bash(&full_block));
+        out.push('\n');
+    }
+
     Ok(out)
 }
+
+
 
 /* =============================================================================
 Representation
@@ -105,6 +157,45 @@ fn contains_redirection_or_complex(s: &str) -> bool {
         || s.contains(">|")
         || s.contains("$(")  // command substitution: not supported yet, fallback
         || s.contains("`") // backticks: not supported yet, fallback
+}
+
+/* =============================================================================
+Block depth tracking
+============================================================================= */
+
+fn count_block_openers(line: &str) -> i32 {
+    let mut count = 0i32;
+    let words: Vec<&str> = line.split_whitespace().collect();
+    let first = words.first().copied().unwrap_or("");
+
+    // Control-flow keywords that start blocks
+    match first {
+        "if" | "for" | "while" | "until" | "case" | "select" => count += 1,
+        "function" => count += 1,
+        _ => {}
+    }
+
+    // name() { ... } style function definitions
+    if first != "function" && (line.contains("() {") || line.contains("(){")) {
+        count += 1;
+    }
+
+    count
+}
+
+fn count_block_closers(line: &str) -> i32 {
+    let mut count = 0i32;
+    let trimmed = line.trim().trim_end_matches(';').trim();
+    let first_word = trimmed.split_whitespace().next().unwrap_or("");
+
+    if trimmed == "fi" || trimmed == "done" || trimmed == "esac" || trimmed == "}" {
+        count += 1;
+    } else if first_word == "fi" || first_word == "done" || first_word == "esac" {
+        count += 1;
+    }
+
+
+    count
 }
 
 fn render_fallback_bash(line: &str) -> String {
@@ -604,12 +695,126 @@ Builtin mapping
 ============================================================================= */
 
 fn map_builtin(name: &str) -> Option<&'static str> {
-    // Extend as Aether adds more native builtins.
     match name {
+        // Shell builtins
         "echo" => Some("echo"),
+        "printf" => Some("echo"),
         "pwd" => Some("pwd"),
         "cd" => Some("cd"),
-        // "cat" => Some("read_text"), // optional: would change behavior (returns text)
+        "exit" => Some("exit"),
+        "clear" => Some("clear"),
+        "true" => Some("true"),
+        "false" => Some("false"),
+        "test" => Some("test"),
+
+        // File operations
+        "ls" => Some("ls"),
+        "cat" => Some("file.read"),
+        "head" => Some("file.head"),
+        "tail" => Some("file.tail"),
+        "touch" => Some("file.touch"),
+        "mkdir" => Some("file.mkdir"),
+        "rmdir" => Some("file.rmdir"),
+        "cp" => Some("file.copy"),
+        "mv" => Some("file.move"),
+        "rm" => Some("file.remove"),
+        "ln" => Some("file.link"),
+        "chmod" => Some("perm.chmod"),
+        "chown" => Some("perm.chown"),
+        "stat" => Some("file.stat"),
+        "find" => Some("file.find"),
+        "basename" => Some("file.basename"),
+        "dirname" => Some("file.dirname"),
+        "realpath" => Some("file.realpath"),
+        "readlink" => Some("file.readlink"),
+        "wc" => Some("file.wc"),
+        "diff" => Some("file.diff"),
+        "tee" => Some("file.tee"),
+        "mktemp" => Some("file.mktemp"),
+
+        // Text processing
+        "grep" => Some("str.grep"),
+        "sed" => Some("str.sed"),
+        "awk" => Some("str.awk"),
+        "cut" => Some("str.cut"),
+        "sort" => Some("sort"),
+        "uniq" => Some("arr.unique"),
+        "tr" => Some("str.tr"),
+        "rev" => Some("str.reverse"),
+        "xargs" => Some("map"),
+
+        // System info
+        "hostname" => Some("sys.hostname"),
+        "uname" => Some("sys.uname"),
+        "uptime" => Some("sys.uptime"),
+        "whoami" => Some("sys.whoami"),
+        "id" => Some("sys.id"),
+        "date" => Some("sys.date"),
+        "df" => Some("sys.disk_usage"),
+        "du" => Some("sys.dir_size"),
+        "free" => Some("sys.mem_info"),
+        "arch" => Some("platform.arch"),
+        "env" => Some("sys.env"),
+        "printenv" => Some("sys.env"),
+
+        // Process management
+        "ps" => Some("proc.list"),
+        "kill" => Some("proc.kill"),
+        "killall" => Some("proc.killall"),
+        "top" => Some("monitor.htop"),
+        "htop" => Some("monitor.htop"),
+        "pgrep" => Some("proc.grep"),
+        "pkill" => Some("proc.pkill"),
+        "nohup" => Some("proc.spawn"),
+        "sleep" => Some("sleep"),
+        "wait" => Some("wait"),
+
+        // Network
+        "ping" => Some("net.ping"),
+        "curl" => Some("http.get"),
+        "wget" => Some("http.download"),
+        "dig" => Some("net.dns_lookup"),
+        "nslookup" => Some("net.dns_lookup"),
+        "host" => Some("net.dns_lookup"),
+        "ip" => Some("net.ip"),
+        "ifconfig" => Some("net.interfaces"),
+        "netstat" => Some("net.connections"),
+        "ss" => Some("net.connections"),
+        "traceroute" => Some("net.traceroute"),
+
+        // Archive & compression
+        "tar" => Some("archive.tar"),
+        "gzip" => Some("archive.gzip"),
+        "gunzip" => Some("archive.gunzip"),
+        "zip" => Some("archive.zip"),
+        "unzip" => Some("archive.unzip"),
+
+        // JSON
+        "jq" => Some("json.query"),
+
+        // Package managers (common)
+        "apt" | "apt-get" => Some("pkg.install"),
+        "yum" | "dnf" => Some("pkg.install"),
+        "brew" => Some("pkg.install"),
+
+        // Docker / containers
+        "docker" => Some("docker.run"),
+        "podman" => Some("podman.run"),
+        "kubectl" => Some("k8s.exec"),
+
+        // Version control
+        "git" => Some("sh"),
+
+        // Misc
+        "which" => Some("sys.which"),
+        "type" => Some("sys.which"),
+        "man" => Some("help"),
+        "history" => Some("history"),
+        "alias" => Some("alias"),
+        "export" => Some("set_env"),
+        "source" | "." => Some("source"),
+        "read" => Some("input.readline"),
+
         _ => None,
     }
 }
