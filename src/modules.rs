@@ -627,6 +627,71 @@ pub fn cluster_module() -> Value {
     ])
 }
 
+/// Cloud platform module — hosted AetherShell instances
+pub fn cloud_module() -> Value {
+    module(&[
+        ("deploy", "cloud_deploy"),
+        ("instances", "cloud_instances"),
+        ("instance_create", "cloud_instance_create"),
+        ("instance_destroy", "cloud_instance_destroy"),
+        ("instance_status", "cloud_instance_status"),
+        ("instance_connect", "cloud_instance_connect"),
+        ("regions", "cloud_regions"),
+        ("config", "cloud_config"),
+    ])
+}
+
+/// Remote REPL module — WebSocket-based remote shell sessions
+pub fn repl_module() -> Value {
+    module(&[
+        ("serve", "repl_serve"),
+        ("connect", "repl_connect"),
+        ("sessions", "repl_sessions"),
+        ("disconnect", "repl_disconnect"),
+        ("broadcast", "repl_broadcast"),
+    ])
+}
+
+/// Team workspace module — shared workspaces with agents
+pub fn workspace_module() -> Value {
+    module(&[
+        ("create", "workspace_create"),
+        ("list", "workspace_list"),
+        ("join", "workspace_join"),
+        ("leave", "workspace_leave"),
+        ("members", "workspace_members"),
+        ("share_agent", "workspace_share_agent"),
+        ("agents", "workspace_agents"),
+        ("sync", "workspace_sync"),
+    ])
+}
+
+/// Marketplace module — community plugins and agents
+pub fn marketplace_module() -> Value {
+    module(&[
+        ("publish", "marketplace_publish"),
+        ("search", "marketplace_search"),
+        ("install", "marketplace_install"),
+        ("uninstall", "marketplace_uninstall"),
+        ("list", "marketplace_list"),
+        ("info", "marketplace_info"),
+        ("rate", "marketplace_rate"),
+        ("update", "marketplace_update"),
+    ])
+}
+
+/// Telemetry module — opt-in usage analytics
+pub fn telemetry_module() -> Value {
+    module(&[
+        ("enable", "telemetry_enable"),
+        ("disable", "telemetry_disable"),
+        ("status", "telemetry_status"),
+        ("report", "telemetry_report"),
+        ("events", "telemetry_events"),
+        ("reset", "telemetry_reset"),
+    ])
+}
+
 /// Neural network module
 pub fn nn_module() -> Value {
     module(&[
@@ -1143,5 +1208,10 @@ pub fn all_modules() -> Vec<(&'static str, Value)> {
         ("evo", evo_module()),
         ("rl", rl_module()),
         ("monitor", monitor_module()),
+        ("cloud", cloud_module()),
+        ("repl", repl_module()),
+        ("workspace", workspace_module()),
+        ("marketplace", marketplace_module()),
+        ("telemetry", telemetry_module()),
     ]
 }
