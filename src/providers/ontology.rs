@@ -628,26 +628,30 @@ impl OSOperationRegistry {
 
     /// Export as JSON-LD (Linked Data)
     pub fn to_json_ld(&self) -> JsonValue {
-        let operations: Vec<JsonValue> = self.operations.values().map(|op| {
-            json!({
-                "@type": "aether:Operation",
-                "@id": format!("aether:{}", op.id),
-                "schema:name": op.name,
-                "schema:description": op.description,
-                "aether:domain": format!("{:?}", op.domain),
-                "aether:isMutating": op.is_mutating,
-                "aether:isIdempotent": op.is_idempotent,
-                "aether:security": op.security,
-                "aether:parameters": op.parameters.iter().map(|p| {
-                    json!({
-                        "@type": "aether:Parameter",
-                        "schema:name": p.name,
-                        "schema:description": p.description,
-                        "aether:required": p.required,
-                    })
-                }).collect::<Vec<_>>(),
+        let operations: Vec<JsonValue> = self
+            .operations
+            .values()
+            .map(|op| {
+                json!({
+                    "@type": "aether:Operation",
+                    "@id": format!("aether:{}", op.id),
+                    "schema:name": op.name,
+                    "schema:description": op.description,
+                    "aether:domain": format!("{:?}", op.domain),
+                    "aether:isMutating": op.is_mutating,
+                    "aether:isIdempotent": op.is_idempotent,
+                    "aether:security": op.security,
+                    "aether:parameters": op.parameters.iter().map(|p| {
+                        json!({
+                            "@type": "aether:Parameter",
+                            "schema:name": p.name,
+                            "schema:description": p.description,
+                            "aether:required": p.required,
+                        })
+                    }).collect::<Vec<_>>(),
+                })
             })
-        }).collect();
+            .collect();
 
         json!({
             "@context": {
@@ -690,7 +694,9 @@ impl OSOperationRegistry {
         // Ontology declaration
         lines.push("aether:OSOperations a owl:Ontology ;".to_string());
         lines.push("    rdfs:label \"AetherShell OS Ontology\" ;".to_string());
-        lines.push("    rdfs:comment \"Operating system abstraction layer for AI agents\" ;".to_string());
+        lines.push(
+            "    rdfs:comment \"Operating system abstraction layer for AI agents\" ;".to_string(),
+        );
         lines.push("    owl:versionInfo \"1.0.0\" .".to_string());
         lines.push(String::new());
 
@@ -734,9 +740,18 @@ impl OSOperationRegistry {
             let safe_id = op.id.replace('.', "_");
             lines.push(format!("aether:{} a aether:Operation ;", safe_id));
             lines.push(format!("    rdfs:label \"{}\" ;", op.name));
-            lines.push(format!("    rdfs:comment \"{}\" ;", op.description.replace('"', "\\\"")));
-            lines.push(format!("    aether:hasDomain aether:domain:{:?} ;", op.domain));
-            lines.push(format!("    aether:isMutating \"{}\"^^xsd:boolean .", op.is_mutating));
+            lines.push(format!(
+                "    rdfs:comment \"{}\" ;",
+                op.description.replace('"', "\\\"")
+            ));
+            lines.push(format!(
+                "    aether:hasDomain aether:domain:{:?} ;",
+                op.domain
+            ));
+            lines.push(format!(
+                "    aether:isMutating \"{}\"^^xsd:boolean .",
+                op.is_mutating
+            ));
             lines.push(String::new());
         }
 
@@ -745,27 +760,35 @@ impl OSOperationRegistry {
 
     /// Export as SHACL shapes (for validation)
     pub fn to_shacl(&self) -> JsonValue {
-        let shapes: Vec<JsonValue> = self.operations.values().map(|op| {
-            let property_shapes: Vec<JsonValue> = op.parameters.iter().map(|p| {
-                json!({
-                    "@type": "sh:PropertyShape",
-                    "sh:path": format!("aether:{}", p.name),
-                    "sh:name": p.name,
-                    "sh:description": p.description,
-                    "sh:minCount": if p.required { 1 } else { 0 },
-                    "sh:maxCount": 1,
-                })
-            }).collect();
+        let shapes: Vec<JsonValue> = self
+            .operations
+            .values()
+            .map(|op| {
+                let property_shapes: Vec<JsonValue> = op
+                    .parameters
+                    .iter()
+                    .map(|p| {
+                        json!({
+                            "@type": "sh:PropertyShape",
+                            "sh:path": format!("aether:{}", p.name),
+                            "sh:name": p.name,
+                            "sh:description": p.description,
+                            "sh:minCount": if p.required { 1 } else { 0 },
+                            "sh:maxCount": 1,
+                        })
+                    })
+                    .collect();
 
-            json!({
-                "@type": "sh:NodeShape",
-                "@id": format!("aether:shape:{}", op.id),
-                "sh:targetClass": format!("aether:{}", op.id.replace('.', "_")),
-                "sh:name": format!("{} Shape", op.name),
-                "sh:description": format!("Validation shape for {}", op.name),
-                "sh:property": property_shapes,
+                json!({
+                    "@type": "sh:NodeShape",
+                    "@id": format!("aether:shape:{}", op.id),
+                    "sh:targetClass": format!("aether:{}", op.id.replace('.', "_")),
+                    "sh:name": format!("{} Shape", op.name),
+                    "sh:description": format!("Validation shape for {}", op.name),
+                    "sh:property": property_shapes,
+                })
             })
-        }).collect();
+            .collect();
 
         json!({
             "@context": {
