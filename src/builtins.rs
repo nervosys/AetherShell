@@ -3704,6 +3704,33 @@ pub fn call_with_input(
         "ai_backends" | "ai-backends" => bi_ai_backends(args, input),
         "ai_detect" | "ai-detect" => bi_ai_detect(args, input),
 
+        // AI Cost Tracking
+        "ai_usage" | "ai-usage" => bi_ai_usage(),
+        "ai_cost" | "ai-cost" => bi_ai_cost(),
+        "ai_reset_usage" | "ai-reset-usage" => bi_ai_reset_usage(),
+
+        // GPU Memory Management
+        "ai_gpu_memory" | "ai-gpu-memory" => bi_ai_gpu_memory(),
+        "ai_model_fits" | "ai-model-fits" => bi_ai_model_fits(args),
+
+        // Model Format Conversion
+        "ai_convert_model" | "ai-convert-model" => bi_ai_convert_model(args),
+        "ai_supported_conversions" | "ai-supported-conversions" => bi_ai_supported_conversions(),
+        "ai_detect_format" | "ai-detect-format" => bi_ai_detect_format(args),
+
+        // Runtime Type Introspection
+        "typeof" | "type_of" => bi_typeof(args, input),
+        "type_name" => bi_type_name(args, input),
+        "type_fields" => bi_type_fields(args, input),
+        "type_schema" => bi_type_schema(args, input),
+        "is_type" => bi_is_type(args),
+
+        // Ontology Export
+        "ontology_json" => bi_ontology_json(),
+        "ontology_jsonld" => bi_ontology_jsonld(),
+        "ontology_owl" => bi_ontology_owl(),
+        "ontology_shacl" => bi_ontology_shacl(),
+
         _ => Err(anyhow!("unknown builtin: {}", name)),
     }
 }
@@ -8472,6 +8499,547 @@ fn bi_ai_detect(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(uri) => Ok(Value::Str(uri)),
         None => Ok(Value::Str(String::new())),
     }
+}
+
+/// ai_usage() - Get detailed AI usage statistics for the current session
+/// Returns: Record with call_count, total_tokens, total_cost_usd, and per-call records
+///
+/// Example:
+///   ai_usage()
+///   ai_usage() | get("total_cost_usd")
+fn bi_ai_usage() -> Result<Value> {
+    let tracker = crate::ai::COST_TRACKER
+        .lock()
+        .map_err(|e| anyhow!("cost tracker lock: {}", e))?;
+    let summary = tracker.summary();
+    Ok(Value::from_json(&summary))
+}
+
+/// ai_cost() - Get total estimated cost for the current session in USD
+/// Returns: Float (cost in USD)
+///
+/// Example:
+///   ai_cost()  # => 0.0042
+fn bi_ai_cost() -> Result<Value> {
+    let tracker = crate::ai::COST_TRACKER
+        .lock()
+        .map_err(|e| anyhow!("cost tracker lock: {}", e))?;
+    Ok(Value::Float(tracker.total_cost_usd))
+}
+
+/// ai_reset_usage() - Reset all usage tracking counters
+/// Returns: String confirmation
+///
+/// Example:
+///   ai_reset_usage()
+fn bi_ai_reset_usage() -> Result<Value> {
+    let mut tracker = crate::ai::COST_TRACKER
+        .lock()
+        .map_err(|e| anyhow!("cost tracker lock: {}", e))?;
+    tracker.reset();
+    Ok(Value::Str("Usage tracking reset".to_string()))
+}
+
+/// ai_gpu_memory() - Query GPU memory status
+/// Returns: Record with GPU memory info for all available GPUs
+///
+/// Example:
+///   ai_gpu_memory()
+///   ai_gpu_memory() | get("gpus") | map(fn(g) => g.free_mb)
+fn bi_ai_gpu_memory() -> Result<Value> {
+    let summary = crate::ai::gpu_memory_summary(None, None, None);
+    Ok(Value::from_json(&summary))
+}
+
+/// ai_model_fits(config) - Check if a model fits in GPU memory
+/// Args: config record with params_b (float), file_size_mb (int), quantization (string)
+/// Returns: Record with model_fits (bool), estimated VRAM, GPU info
+///
+/// Example:
+///   ai_model_fits({params_b: 7.0, quantization: "q4_k_m"})
+///   ai_model_fits({file_size_mb: 4096})
+fn bi_ai_model_fits(args: Vec<Value>) -> Result<Value> {
+    let config = args.first().and_then(|v| {
+        if let Value::Record(r) = v {
+            Some(r)
+        } else {
+            None
+        }
+    });
+
+    let params_b = config
+        .and_then(|c| c.get("params_b"))
+        .and_then(|v| match v {
+            Value::Float(f) => Some(*f),
+            Value::Int(i) => Some(*i as f64),
+            _ => None,
+        });
+
+    let file_size_mb = config
+        .and_then(|c| c.get("file_size_mb"))
+        .and_then(|v| match v {
+            Value::Int(i) => Some(*i as u64),
+            _ => None,
+        });
+
+    let quant_str = config
+        .and_then(|c| c.get("quantization"))
+        .and_then(|v| match v {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        });
+
+    let summary = crate::ai::gpu_memory_summary(params_b, file_size_mb, quant_str.as_deref());
+    Ok(Value::from_json(&summary))
+}
+
+/// ai_convert_model(config) - Convert a model between formats
+/// Args: config record with source, target, source_format, target_format, quantization (optional)
+/// Returns: Record with conversion result
+///
+/// Example:
+///   ai_convert_model({source: "model.pt", target: "model.safetensors", source_format: "pytorch", target_format: "safetensors"})
+fn bi_ai_convert_model(args: Vec<Value>) -> Result<Value> {
+    use crate::ai_api::converters::{ConversionRequest, ModelConverter};
+    use crate::ai_api::models::ModelFormat;
+
+    let config = match args.first() {
+        Some(Value::Record(r)) => r,
+        _ => return Err(anyhow!("ai_convert_model: requires a config record with source, target, source_format, target_format")),
+    };
+
+    let source = config
+        .get("source")
+        .and_then(|v| {
+            if let Value::Str(s) = v {
+                Some(s.clone())
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| anyhow!("ai_convert_model: missing 'source' path"))?;
+    let target = config
+        .get("target")
+        .and_then(|v| {
+            if let Value::Str(s) = v {
+                Some(s.clone())
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| anyhow!("ai_convert_model: missing 'target' path"))?;
+
+    let parse_format = |s: &str| -> ModelFormat {
+        match s.to_lowercase().as_str() {
+            "gguf" => ModelFormat::GGUF,
+            "safetensors" => ModelFormat::SafeTensors,
+            "pytorch" | "pt" | "pth" => ModelFormat::PyTorch,
+            "onnx" => ModelFormat::ONNX,
+            "tensorflow" | "tf" => ModelFormat::TensorFlow,
+            "tensorrt" | "trt" => ModelFormat::TensorRT,
+            "huggingface" | "hf" => ModelFormat::Huggingface,
+            other => ModelFormat::Other(other.to_string()),
+        }
+    };
+
+    let source_format = config
+        .get("source_format")
+        .and_then(|v| {
+            if let Value::Str(s) = v {
+                Some(parse_format(s))
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| anyhow!("ai_convert_model: missing 'source_format'"))?;
+    let target_format = config
+        .get("target_format")
+        .and_then(|v| {
+            if let Value::Str(s) = v {
+                Some(parse_format(s))
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| anyhow!("ai_convert_model: missing 'target_format'"))?;
+
+    let quantization = config.get("quantization").and_then(|v| {
+        if let Value::Str(s) = v {
+            use crate::ai_api::converters::QuantizationType;
+            match s.to_lowercase().as_str() {
+                "f16" | "fp16" => Some(QuantizationType::F16),
+                "q4_0" => Some(QuantizationType::Q4_0),
+                "q4_1" => Some(QuantizationType::Q4_1),
+                "q5_0" => Some(QuantizationType::Q5_0),
+                "q5_1" => Some(QuantizationType::Q5_1),
+                "q8_0" => Some(QuantizationType::Q8_0),
+                "q8_1" => Some(QuantizationType::Q8_1),
+                _ => None,
+            }
+        } else {
+            None
+        }
+    });
+
+    let converter = ModelConverter::new();
+    let request = ConversionRequest {
+        source_path: source,
+        source_format,
+        target_format,
+        target_path: target,
+        preserve_metadata: true,
+        compression_level: None,
+        quantization,
+    };
+
+    // Run async conversion in a blocking context
+    let rt = tokio::runtime::Handle::try_current()
+        .map(|h| h.block_on(converter.convert_model(request.clone())))
+        .unwrap_or_else(|_| {
+            let rt = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+            rt.block_on(converter.convert_model(request))
+        })?;
+
+    let mut result = std::collections::BTreeMap::new();
+    result.insert("success".to_string(), Value::Bool(rt.success));
+    result.insert("target_path".to_string(), Value::Str(rt.target_path));
+    result.insert("target_size".to_string(), Value::Int(rt.target_size as i64));
+    result.insert("checksum".to_string(), Value::Str(rt.checksum));
+    result.insert(
+        "conversion_time_ms".to_string(),
+        Value::Int(rt.conversion_time_ms as i64),
+    );
+    result.insert(
+        "warnings".to_string(),
+        Value::Array(rt.warnings.into_iter().map(Value::Str).collect()),
+    );
+    Ok(Value::Record(result))
+}
+
+/// ai_supported_conversions() - List all supported model format conversions
+/// Returns: Array of records with source_format and target_format
+fn bi_ai_supported_conversions() -> Result<Value> {
+    let converter = crate::ai_api::converters::ModelConverter::new();
+    let conversions = converter.list_supported_conversions();
+    let records: Vec<Value> = conversions
+        .into_iter()
+        .map(|(src, tgt)| {
+            let mut r = std::collections::BTreeMap::new();
+            r.insert(
+                "source_format".to_string(),
+                Value::Str(format!("{:?}", src)),
+            );
+            r.insert(
+                "target_format".to_string(),
+                Value::Str(format!("{:?}", tgt)),
+            );
+            r.insert("supported".to_string(), Value::Bool(true));
+            Value::Record(r)
+        })
+        .collect();
+    Ok(Value::Array(records))
+}
+
+/// ai_detect_format(path) - Detect the format of a model file
+/// Args: path (string)
+/// Returns: String with detected format name
+fn bi_ai_detect_format(args: Vec<Value>) -> Result<Value> {
+    let path = match args.first() {
+        Some(Value::Str(s)) => s,
+        _ => return Err(anyhow!("ai_detect_format: requires a file path string")),
+    };
+
+    let ext = std::path::Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
+
+    let format = match ext.to_lowercase().as_str() {
+        "gguf" => "GGUF",
+        "safetensors" => "SafeTensors",
+        "pt" | "pth" | "bin" => "PyTorch",
+        "onnx" => "ONNX",
+        "pb" | "savedmodel" => "TensorFlow",
+        "trt" | "engine" => "TensorRT",
+        _ => "Unknown",
+    };
+
+    Ok(Value::Str(format.to_string()))
+}
+
+// ========== Runtime Type Introspection ==========
+
+/// typeof(value) - Get the runtime type name of a value
+/// Returns: String with the type name
+///
+/// Example:
+///   typeof(42)              # => "Int"
+///   typeof("hello")         # => "String"
+///   typeof([1,2])           # => "Array"
+///   typeof({a: 1})          # => "Record"
+///   42 | typeof()           # => "Int"
+fn bi_typeof(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let val = if let Some(input) = input {
+        input
+    } else if let Some(v) = args.first() {
+        v.clone()
+    } else {
+        return Err(anyhow!(
+            "typeof: requires a value (argument or piped input)"
+        ));
+    };
+
+    Ok(Value::Str(val.type_name().to_string()))
+}
+
+/// type_name(value) - Get detailed type description with inner types
+/// Returns: String with detailed type info
+///
+/// Example:
+///   type_name([1,2,3])       # => "Array<Int>"
+///   type_name({a: 1, b: "x"})  # => "Record{a: Int, b: String}"
+fn bi_type_name(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let val = if let Some(input) = input {
+        input
+    } else if let Some(v) = args.first() {
+        v.clone()
+    } else {
+        return Err(anyhow!("type_name: requires a value"));
+    };
+
+    let type_desc = detailed_type_name(&val);
+    Ok(Value::Str(type_desc))
+}
+
+fn detailed_type_name(val: &Value) -> String {
+    match val {
+        Value::Int(_) => "Int".into(),
+        Value::Float(_) => "Float".into(),
+        Value::Str(_) => "String".into(),
+        Value::Bool(_) => "Bool".into(),
+        Value::Null => "Null".into(),
+        Value::Uri(_) => "Uri".into(),
+        Value::Error(e) => format!("Error({})", e),
+        Value::Builtin(b) => format!("Builtin({})", b.name),
+        Value::AsyncLambda(al) => format!("AsyncLambda({})", al.params.len()),
+        Value::Future(_) => "Future".into(),
+        Value::Array(items) => {
+            if items.is_empty() {
+                "Array<Any>".into()
+            } else {
+                let inner = detailed_type_name(&items[0]);
+                format!("Array<{}>", inner)
+            }
+        }
+        Value::Record(fields) => {
+            let parts: Vec<String> = fields
+                .iter()
+                .take(6)
+                .map(|(k, v)| format!("{}: {}", k, detailed_type_name(v)))
+                .collect();
+            let suffix = if fields.len() > 6 { ", …" } else { "" };
+            format!("Record{{{}{}}}", parts.join(", "), suffix)
+        }
+        Value::Lambda(l) => format!("Lambda({})", l.params.len()),
+        Value::Table(t) => {
+            format!("Table({} cols, {} rows)", t.schema.len(), t.rows.len())
+        }
+    }
+}
+
+/// type_fields(record) - Get the field names and types of a record
+/// Returns: Array of records with name, type, value_preview
+///
+/// Example:
+///   type_fields({name: "ae", version: 3, active: true})
+fn bi_type_fields(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let val = if let Some(input) = input {
+        input
+    } else if let Some(v) = args.first() {
+        v.clone()
+    } else {
+        return Err(anyhow!("type_fields: requires a record value"));
+    };
+
+    match val {
+        Value::Record(fields) => {
+            let result: Vec<Value> = fields
+                .iter()
+                .map(|(name, value)| {
+                    let mut r = std::collections::BTreeMap::new();
+                    r.insert("name".to_string(), Value::Str(name.clone()));
+                    r.insert("type".to_string(), Value::Str(detailed_type_name(value)));
+                    // Brief preview of value
+                    let preview = match value {
+                        Value::Str(s) if s.len() > 50 => format!("\"{}…\"", &s[..50]),
+                        Value::Array(a) => format!("[…] ({} items)", a.len()),
+                        Value::Record(r) => format!("{{…}} ({} fields)", r.len()),
+                        other => format!("{}", other),
+                    };
+                    r.insert("preview".to_string(), Value::Str(preview));
+                    Value::Record(r)
+                })
+                .collect();
+            Ok(Value::Array(result))
+        }
+        Value::Table(t) => {
+            let result: Vec<Value> = t
+                .schema
+                .iter()
+                .map(|h| {
+                    let mut r = std::collections::BTreeMap::new();
+                    r.insert("name".to_string(), Value::Str(h.clone()));
+                    r.insert("type".to_string(), Value::Str("Any".to_string()));
+                    r.insert("preview".to_string(), Value::Str("(column)".to_string()));
+                    Value::Record(r)
+                })
+                .collect();
+            Ok(Value::Array(result))
+        }
+        _ => Err(anyhow!(
+            "type_fields: requires a Record or Table, got {}",
+            detailed_type_name(&val)
+        )),
+    }
+}
+
+/// type_schema(value) - Generate a JSON Schema for a value's structure
+/// Returns: Record representing a JSON Schema
+///
+/// Example:
+///   type_schema({name: "ae", version: 3})
+///   # => {type: "object", properties: {name: {type: "string"}, version: {type: "integer"}}}
+fn bi_type_schema(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let val = if let Some(input) = input {
+        input
+    } else if let Some(v) = args.first() {
+        v.clone()
+    } else {
+        return Err(anyhow!("type_schema: requires a value"));
+    };
+
+    let schema = value_to_json_schema(&val);
+    Ok(Value::from_json(&schema))
+}
+
+fn value_to_json_schema(val: &Value) -> serde_json::Value {
+    use serde_json::json;
+    match val {
+        Value::Int(_) => json!({"type": "integer"}),
+        Value::Float(_) => json!({"type": "number"}),
+        Value::Str(_) => json!({"type": "string"}),
+        Value::Bool(_) => json!({"type": "boolean"}),
+        Value::Null => json!({"type": "null"}),
+        Value::Uri(_) => json!({"type": "string", "format": "uri"}),
+        Value::Error(_) => json!({"type": "string", "description": "error"}),
+        Value::Builtin(_) => json!({"type": "string", "description": "builtin reference"}),
+        Value::AsyncLambda(_) => json!({"type": "function", "async": true}),
+        Value::Future(_) => json!({"type": "object", "description": "future"}),
+        Value::Array(items) => {
+            if items.is_empty() {
+                json!({"type": "array", "items": {}})
+            } else {
+                let item_schema = value_to_json_schema(&items[0]);
+                json!({"type": "array", "items": item_schema})
+            }
+        }
+        Value::Record(fields) => {
+            let mut properties = serde_json::Map::new();
+            let required: Vec<String> = fields.keys().cloned().collect();
+            for (k, v) in fields {
+                properties.insert(k.clone(), value_to_json_schema(v));
+            }
+            json!({
+                "type": "object",
+                "properties": serde_json::Value::Object(properties),
+                "required": required,
+            })
+        }
+        Value::Lambda(l) => {
+            json!({"type": "function", "parameters": l.params.len()})
+        }
+        Value::Table(t) => {
+            let mut properties = serde_json::Map::new();
+            for h in &t.schema {
+                properties.insert(h.clone(), json!({}));
+            }
+            json!({
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": serde_json::Value::Object(properties),
+                }
+            })
+        }
+    }
+}
+
+/// is_type(value, type_name) - Check if a value matches a type name
+/// Returns: Bool
+///
+/// Example:
+///   is_type(42, "Int")       # => true
+///   is_type("hi", "String")  # => true
+///   is_type([], "Array")     # => true
+fn bi_is_type(args: Vec<Value>) -> Result<Value> {
+    if args.len() < 2 {
+        return Err(anyhow!("is_type: requires (value, type_name) arguments"));
+    }
+    let type_name = match &args[1] {
+        Value::Str(s) => s.to_lowercase(),
+        _ => return Err(anyhow!("is_type: type_name must be a string")),
+    };
+
+    let matches = match (&args[0], type_name.as_str()) {
+        (Value::Int(_), "int" | "integer" | "number") => true,
+        (Value::Float(_), "float" | "number" | "double") => true,
+        (Value::Str(_), "string" | "str" | "text") => true,
+        (Value::Bool(_), "bool" | "boolean") => true,
+        (Value::Array(_), "array" | "list") => true,
+        (Value::Record(_), "record" | "object" | "map") => true,
+        (Value::Uri(_), "uri" | "url") => true,
+        (Value::Lambda(_), "lambda" | "function" | "fn") => true,
+        (Value::AsyncLambda(_), "asynclambda" | "async_lambda" | "function" | "fn") => true,
+        (Value::Null, "null" | "nil" | "none") => true,
+        (Value::Table(_), "table") => true,
+        (Value::Error(_), "error") => true,
+        (Value::Future(_), "future") => true,
+        (Value::Builtin(_), "builtin") => true,
+        (_, "any") => true,
+        _ => false,
+    };
+
+    Ok(Value::Bool(matches))
+}
+
+// ========== Ontology Export Functions ==========
+
+/// ontology_json() - Export the OS ontology as JSON Schema
+/// Returns: Record with the full JSON Schema representation
+fn bi_ontology_json() -> Result<Value> {
+    let schema = crate::providers::ontology::OS_ONTOLOGY.to_json_schema();
+    Ok(Value::from_json(&schema))
+}
+
+/// ontology_jsonld() - Export the OS ontology as JSON-LD (Linked Data)
+/// Returns: Record with JSON-LD representation for semantic web
+fn bi_ontology_jsonld() -> Result<Value> {
+    let ld = crate::providers::ontology::OS_ONTOLOGY.to_json_ld();
+    Ok(Value::from_json(&ld))
+}
+
+/// ontology_owl() - Export the OS ontology as OWL/RDF Turtle format
+/// Returns: String with OWL Turtle serialization
+fn bi_ontology_owl() -> Result<Value> {
+    let turtle = crate::providers::ontology::OS_ONTOLOGY.to_owl_turtle();
+    Ok(Value::Str(turtle))
+}
+
+/// ontology_shacl() - Export the OS ontology as SHACL shapes for validation
+/// Returns: Record with SHACL shapes graph
+fn bi_ontology_shacl() -> Result<Value> {
+    let shacl = crate::providers::ontology::OS_ONTOLOGY.to_shacl();
+    Ok(Value::from_json(&shacl))
 }
 
 // ========== MCP Server Detection Functions ==========

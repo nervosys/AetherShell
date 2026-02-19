@@ -669,6 +669,64 @@ pub mod common_tools {
     }
 }
 
+// ============================================================================
+// BUILTIN BRIDGE
+// ============================================================================
+
+/// Tool format type for the bridge functions
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolFormat {
+    /// `{type: "function", function: {name, description, parameters}}`
+    OpenAI,
+    /// `{name, description, input_schema}`
+    Anthropic,
+    /// `{name, description, parameters}` (used inside `function_declarations`)
+    Google,
+    /// `{name, description, parameter_definitions}` (flattened)
+    Cohere,
+}
+
+impl ToolSchema {
+    /// Create a `ToolSchema` from a builtin's name, description, and JSON schema.
+    /// Used by `agent_api.rs` to bridge both schema systems.
+    pub fn from_builtin(name: &str, description: &str, json_schema: &JsonValue) -> Self {
+        Self {
+            name: name.to_string(),
+            description: description.to_string(),
+            parameters: json_schema.clone(),
+            requires_confirmation: None,
+            category: None,
+            cacheable: None,
+        }
+    }
+
+    /// Convert to the specified format
+    pub fn to_format(&self, format: ToolFormat) -> JsonValue {
+        match format {
+            ToolFormat::OpenAI => self.to_openai(),
+            ToolFormat::Anthropic => self.to_anthropic(),
+            ToolFormat::Google => self.to_google(),
+            ToolFormat::Cohere => self.to_cohere(),
+        }
+    }
+}
+
+/// Convert a list of builtins (name, description, json_schema) to provider-formatted tool list.
+/// `name_prefix` is prepended to each tool name (e.g. "aethershell_").
+pub fn builtins_to_tools<'a>(
+    builtins: impl IntoIterator<Item = (&'a str, &'a str, &'a JsonValue)>,
+    format: ToolFormat,
+    name_prefix: &str,
+) -> Vec<JsonValue> {
+    builtins
+        .into_iter()
+        .map(|(name, desc, schema)| {
+            let tool = ToolSchema::from_builtin(&format!("{}{}", name_prefix, name), desc, schema);
+            tool.to_format(format)
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

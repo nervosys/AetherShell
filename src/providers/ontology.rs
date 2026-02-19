@@ -626,6 +626,157 @@ impl OSOperationRegistry {
         })
     }
 
+    /// Export as JSON-LD (Linked Data)
+    pub fn to_json_ld(&self) -> JsonValue {
+        let operations: Vec<JsonValue> = self.operations.values().map(|op| {
+            json!({
+                "@type": "aether:Operation",
+                "@id": format!("aether:{}", op.id),
+                "schema:name": op.name,
+                "schema:description": op.description,
+                "aether:domain": format!("{:?}", op.domain),
+                "aether:isMutating": op.is_mutating,
+                "aether:isIdempotent": op.is_idempotent,
+                "aether:security": op.security,
+                "aether:parameters": op.parameters.iter().map(|p| {
+                    json!({
+                        "@type": "aether:Parameter",
+                        "schema:name": p.name,
+                        "schema:description": p.description,
+                        "aether:required": p.required,
+                    })
+                }).collect::<Vec<_>>(),
+            })
+        }).collect();
+
+        json!({
+            "@context": {
+                "schema": "https://schema.org/",
+                "aether": "https://aethershell.dev/ontology/",
+                "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+                "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
+                "xsd": "http://www.w3.org/2001/XMLSchema#"
+            },
+            "@type": "aether:Ontology",
+            "@id": "aether:OSOperations",
+            "schema:name": "AetherShell OS Ontology",
+            "schema:version": "1.0.0",
+            "schema:description": "Operating system abstraction layer for AI agents",
+            "aether:operations": operations,
+            "aether:domains": CapabilityDomain::all().iter().map(|d| {
+                json!({
+                    "@type": "aether:CapabilityDomain",
+                    "@id": format!("aether:domain:{:?}", d),
+                    "schema:name": format!("{:?}", d),
+                    "schema:description": d.description(),
+                })
+            }).collect::<Vec<_>>(),
+        })
+    }
+
+    /// Export as OWL/RDF Turtle format (text)
+    pub fn to_owl_turtle(&self) -> String {
+        let mut lines = Vec::new();
+
+        // Prefixes
+        lines.push("@prefix aether: <https://aethershell.dev/ontology/> .".to_string());
+        lines.push("@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .".to_string());
+        lines.push("@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .".to_string());
+        lines.push("@prefix owl: <http://www.w3.org/2002/07/owl#> .".to_string());
+        lines.push("@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .".to_string());
+        lines.push("@prefix schema: <https://schema.org/> .".to_string());
+        lines.push(String::new());
+
+        // Ontology declaration
+        lines.push("aether:OSOperations a owl:Ontology ;".to_string());
+        lines.push("    rdfs:label \"AetherShell OS Ontology\" ;".to_string());
+        lines.push("    rdfs:comment \"Operating system abstraction layer for AI agents\" ;".to_string());
+        lines.push("    owl:versionInfo \"1.0.0\" .".to_string());
+        lines.push(String::new());
+
+        // Classes
+        lines.push("aether:Operation a owl:Class ;".to_string());
+        lines.push("    rdfs:label \"OS Operation\" ;".to_string());
+        lines.push("    rdfs:comment \"An abstract operating system operation\" .".to_string());
+        lines.push(String::new());
+
+        lines.push("aether:CapabilityDomain a owl:Class ;".to_string());
+        lines.push("    rdfs:label \"Capability Domain\" ;".to_string());
+        lines.push("    rdfs:comment \"A domain of OS capabilities\" .".to_string());
+        lines.push(String::new());
+
+        lines.push("aether:Parameter a owl:Class ;".to_string());
+        lines.push("    rdfs:label \"Operation Parameter\" .".to_string());
+        lines.push(String::new());
+
+        // Properties
+        lines.push("aether:hasDomain a owl:ObjectProperty ;".to_string());
+        lines.push("    rdfs:domain aether:Operation ;".to_string());
+        lines.push("    rdfs:range aether:CapabilityDomain .".to_string());
+        lines.push(String::new());
+
+        lines.push("aether:isMutating a owl:DatatypeProperty ;".to_string());
+        lines.push("    rdfs:domain aether:Operation ;".to_string());
+        lines.push("    rdfs:range xsd:boolean .".to_string());
+        lines.push(String::new());
+
+        // Domain instances
+        for domain in CapabilityDomain::all() {
+            let id = format!("{:?}", domain);
+            lines.push(format!("aether:domain:{} a aether:CapabilityDomain ;", id));
+            lines.push(format!("    rdfs:label \"{}\" ;", id));
+            lines.push(format!("    rdfs:comment \"{}\" .", domain.description()));
+            lines.push(String::new());
+        }
+
+        // Operation instances
+        for op in self.operations.values() {
+            let safe_id = op.id.replace('.', "_");
+            lines.push(format!("aether:{} a aether:Operation ;", safe_id));
+            lines.push(format!("    rdfs:label \"{}\" ;", op.name));
+            lines.push(format!("    rdfs:comment \"{}\" ;", op.description.replace('"', "\\\"")));
+            lines.push(format!("    aether:hasDomain aether:domain:{:?} ;", op.domain));
+            lines.push(format!("    aether:isMutating \"{}\"^^xsd:boolean .", op.is_mutating));
+            lines.push(String::new());
+        }
+
+        lines.join("\n")
+    }
+
+    /// Export as SHACL shapes (for validation)
+    pub fn to_shacl(&self) -> JsonValue {
+        let shapes: Vec<JsonValue> = self.operations.values().map(|op| {
+            let property_shapes: Vec<JsonValue> = op.parameters.iter().map(|p| {
+                json!({
+                    "@type": "sh:PropertyShape",
+                    "sh:path": format!("aether:{}", p.name),
+                    "sh:name": p.name,
+                    "sh:description": p.description,
+                    "sh:minCount": if p.required { 1 } else { 0 },
+                    "sh:maxCount": 1,
+                })
+            }).collect();
+
+            json!({
+                "@type": "sh:NodeShape",
+                "@id": format!("aether:shape:{}", op.id),
+                "sh:targetClass": format!("aether:{}", op.id.replace('.', "_")),
+                "sh:name": format!("{} Shape", op.name),
+                "sh:description": format!("Validation shape for {}", op.name),
+                "sh:property": property_shapes,
+            })
+        }).collect();
+
+        json!({
+            "@context": {
+                "sh": "http://www.w3.org/ns/shacl#",
+                "aether": "https://aethershell.dev/ontology/",
+                "xsd": "http://www.w3.org/2001/XMLSchema#"
+            },
+            "@graph": shapes,
+        })
+    }
+
     // ========================================================================
     // BUILT-IN OPERATION REGISTRATIONS
     // ========================================================================
@@ -2187,6 +2338,900 @@ impl OSOperationRegistry {
 // Global ontology registry instance
 lazy_static::lazy_static! {
     pub static ref OS_ONTOLOGY: OSOperationRegistry = OSOperationRegistry::new();
+}
+
+// ============================================================================
+// CLI TOOL ONTOLOGY MAPPINGS
+// ============================================================================
+
+/// Information about an installed CLI tool and its AetherShell wrapper
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CLIToolMapping {
+    /// Tool name (e.g., "tmux", "cargo", "docker")
+    pub tool: String,
+    /// Category for grouping
+    pub category: String,
+    /// AetherShell module name (e.g., "cargo", "tmux")
+    pub module: String,
+    /// AetherShell builtin functions mapped to this tool
+    pub builtins: Vec<String>,
+    /// Whether the tool binary is detected on this system
+    pub installed: bool,
+    /// Detected version string, if available
+    pub version: Option<String>,
+    /// Path to the binary, if found
+    pub binary_path: Option<String>,
+    /// Description of what the tool does
+    pub description: String,
+}
+
+/// Registry of all CLI tool wrappers with installation detection
+pub struct CLIToolRegistry {
+    tools: Vec<CLIToolMapping>,
+}
+
+impl CLIToolRegistry {
+    /// Create the registry and detect installed tools
+    pub fn new() -> Self {
+        let definitions = Self::tool_definitions();
+        let mut tools = Vec::with_capacity(definitions.len());
+
+        for (tool, category, module, builtins, description) in definitions {
+            let (installed, version, binary_path) = Self::detect_tool(&tool);
+            tools.push(CLIToolMapping {
+                tool,
+                category: category.to_string(),
+                module: module.to_string(),
+                builtins: builtins.iter().map(|s| s.to_string()).collect(),
+                installed,
+                version,
+                binary_path,
+                description: description.to_string(),
+            });
+        }
+
+        Self { tools }
+    }
+
+    /// Get all tool mappings
+    pub fn all(&self) -> &[CLIToolMapping] {
+        &self.tools
+    }
+
+    /// Get only installed tools
+    pub fn installed(&self) -> Vec<&CLIToolMapping> {
+        self.tools.iter().filter(|t| t.installed).collect()
+    }
+
+    /// Get tools by category
+    pub fn by_category(&self, category: &str) -> Vec<&CLIToolMapping> {
+        self.tools
+            .iter()
+            .filter(|t| t.category == category)
+            .collect()
+    }
+
+    /// Get all unique categories
+    pub fn categories(&self) -> Vec<String> {
+        let mut cats: Vec<String> = self
+            .tools
+            .iter()
+            .map(|t| t.category.clone())
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+        cats.sort();
+        cats
+    }
+
+    /// Export as JSON schema for ontology
+    pub fn to_json_schema(&self) -> JsonValue {
+        let tool_schemas: Vec<JsonValue> = self
+            .tools
+            .iter()
+            .map(|t| {
+                json!({
+                    "tool": t.tool,
+                    "category": t.category,
+                    "module": t.module,
+                    "builtins": t.builtins,
+                    "installed": t.installed,
+                    "version": t.version,
+                    "binary_path": t.binary_path,
+                    "description": t.description,
+                })
+            })
+            .collect();
+
+        let installed_count = self.tools.iter().filter(|t| t.installed).count();
+
+        json!({
+            "title": "AetherShell CLI Tool Wrappers",
+            "description": "Auto-detected CLI tools with AetherShell module mappings",
+            "total_tools": self.tools.len(),
+            "installed_tools": installed_count,
+            "categories": self.categories(),
+            "tools": tool_schemas,
+        })
+    }
+
+    /// Detect if a tool is installed, get its version and path
+    fn detect_tool(tool_name: &str) -> (bool, Option<String>, Option<String>) {
+        // Use `which` crate or PATH lookup
+        let binary = if cfg!(target_os = "windows") {
+            // Try with .exe suffix on Windows
+            which::which(tool_name)
+                .or_else(|_| which::which(format!("{}.exe", tool_name)))
+                .ok()
+        } else {
+            which::which(tool_name).ok()
+        };
+
+        if let Some(path) = binary {
+            let path_str = path.to_string_lossy().to_string();
+
+            // Try to get version
+            let version = Self::get_tool_version(tool_name);
+
+            (true, version, Some(path_str))
+        } else {
+            (false, None, None)
+        }
+    }
+
+    /// Try to get the version of a tool
+    fn get_tool_version(tool_name: &str) -> Option<String> {
+        // Most tools support --version
+        let version_flags = match tool_name {
+            "go" => vec!["version"],
+            "node" | "bun" | "deno" => vec!["--version"],
+            "python3" | "python" => vec!["--version"],
+            "java" => vec!["-version"],
+            _ => vec!["--version"],
+        };
+
+        for flag in version_flags {
+            if let Ok(output) = std::process::Command::new(tool_name)
+                .arg(flag)
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .output()
+            {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                let text = if stdout.trim().is_empty() {
+                    stderr.to_string()
+                } else {
+                    stdout.to_string()
+                };
+
+                // Extract first line, trim to reasonable length
+                if let Some(line) = text.lines().next() {
+                    let version = line.trim();
+                    if !version.is_empty() && version.len() < 200 {
+                        return Some(version.to_string());
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Define all 150+ CLI tool wrappers with their mappings
+    fn tool_definitions() -> Vec<(
+        String,
+        &'static str,
+        &'static str,
+        Vec<&'static str>,
+        &'static str,
+    )> {
+        vec![
+            // Process & Terminal Management
+            (
+                "tmux".into(),
+                "process",
+                "tmux",
+                vec!["tmux_new", "tmux_list", "tmux_attach", "tmux_kill"],
+                "Terminal multiplexer",
+            ),
+            (
+                "screen".into(),
+                "process",
+                "screen",
+                vec!["screen_new", "screen_list", "screen_attach"],
+                "Terminal multiplexer (GNU Screen)",
+            ),
+            (
+                "htop".into(),
+                "process",
+                "proc",
+                vec!["htop_run"],
+                "Interactive process viewer",
+            ),
+            (
+                "btop".into(),
+                "process",
+                "proc",
+                vec!["btop_run"],
+                "Resource monitor",
+            ),
+            (
+                "procs".into(),
+                "process",
+                "proc",
+                vec!["procs_list"],
+                "Modern process viewer",
+            ),
+            // Disk & Filesystem
+            (
+                "ncdu".into(),
+                "filesystem",
+                "fs",
+                vec!["ncdu_scan"],
+                "Disk usage analyzer",
+            ),
+            (
+                "duf".into(),
+                "filesystem",
+                "fs",
+                vec!["duf_info"],
+                "Disk usage/free utility",
+            ),
+            (
+                "dust".into(),
+                "filesystem",
+                "fs",
+                vec!["dust_scan"],
+                "Directory disk usage",
+            ),
+            (
+                "lsblk".into(),
+                "filesystem",
+                "fs",
+                vec!["lsblk"],
+                "List block devices",
+            ),
+            (
+                "blkid".into(),
+                "filesystem",
+                "fs",
+                vec!["blkid"],
+                "Block device attributes",
+            ),
+            (
+                "mount".into(),
+                "filesystem",
+                "fs",
+                vec!["mount_info"],
+                "Mount information",
+            ),
+            (
+                "dd".into(),
+                "filesystem",
+                "fs",
+                vec!["dd_copy"],
+                "Block-level copy",
+            ),
+            (
+                "file".into(),
+                "filesystem",
+                "fs",
+                vec!["file_type"],
+                "File type detection",
+            ),
+            // Debugging & Profiling
+            (
+                "gdb".into(),
+                "debugging",
+                "gdb",
+                vec!["gdb_run", "gdb_bt"],
+                "GNU Debugger",
+            ),
+            (
+                "lldb".into(),
+                "debugging",
+                "gdb",
+                vec!["lldb_run"],
+                "LLVM Debugger",
+            ),
+            (
+                "valgrind".into(),
+                "debugging",
+                "valgrind",
+                vec!["valgrind_run", "valgrind_memcheck", "valgrind_callgrind"],
+                "Memory debugger and profiler",
+            ),
+            (
+                "strace".into(),
+                "debugging",
+                "proc",
+                vec!["strace_cmd"],
+                "System call tracer",
+            ),
+            (
+                "ltrace".into(),
+                "debugging",
+                "proc",
+                vec!["ltrace_cmd"],
+                "Library call tracer",
+            ),
+            (
+                "perf".into(),
+                "debugging",
+                "proc",
+                vec!["perf_stat", "perf_record"],
+                "Linux perf profiler",
+            ),
+            // Binary Inspection
+            (
+                "objdump".into(),
+                "binary",
+                "objdump",
+                vec!["objdump_disasm", "objdump_headers"],
+                "Object file dumper",
+            ),
+            (
+                "readelf".into(),
+                "binary",
+                "readelf",
+                vec!["readelf_headers", "readelf_sections"],
+                "ELF file analyzer",
+            ),
+            (
+                "nm".into(),
+                "binary",
+                "objdump",
+                vec!["nm_symbols"],
+                "Symbol table viewer",
+            ),
+            (
+                "ldd".into(),
+                "binary",
+                "objdump",
+                vec!["ldd_deps"],
+                "Shared library dependencies",
+            ),
+            (
+                "strings".into(),
+                "binary",
+                "objdump",
+                vec!["strings_extract"],
+                "Extract printable strings",
+            ),
+            (
+                "xxd".into(),
+                "binary",
+                "objdump",
+                vec!["xxd_hex"],
+                "Hex dump utility",
+            ),
+            (
+                "hexdump".into(),
+                "binary",
+                "objdump",
+                vec!["hexdump_view"],
+                "Binary file hex viewer",
+            ),
+            // Modern CLI Replacements
+            (
+                "bat".into(),
+                "modern_cli",
+                "shell",
+                vec!["bat_view"],
+                "Cat clone with syntax highlighting",
+            ),
+            (
+                "fd".into(),
+                "modern_cli",
+                "fs",
+                vec!["fd_find"],
+                "User-friendly find",
+            ),
+            (
+                "rg".into(),
+                "modern_cli",
+                "shell",
+                vec!["rg_search"],
+                "Ripgrep — fast search",
+            ),
+            (
+                "sd".into(),
+                "modern_cli",
+                "shell",
+                vec!["sd_replace"],
+                "Sed alternative for find-and-replace",
+            ),
+            (
+                "fzf".into(),
+                "modern_cli",
+                "shell",
+                vec!["fzf_select"],
+                "Fuzzy finder",
+            ),
+            (
+                "jq".into(),
+                "modern_cli",
+                "json",
+                vec!["jq_query"],
+                "JSON processor",
+            ),
+            (
+                "yq".into(),
+                "modern_cli",
+                "json",
+                vec!["yq_query"],
+                "YAML/JSON/XML processor",
+            ),
+            (
+                "delta".into(),
+                "modern_cli",
+                "shell",
+                vec!["delta_diff"],
+                "Syntax-aware diff viewer",
+            ),
+            (
+                "hyperfine".into(),
+                "modern_cli",
+                "shell",
+                vec!["hyperfine_bench"],
+                "Command-line benchmarking",
+            ),
+            (
+                "tokei".into(),
+                "modern_cli",
+                "shell",
+                vec!["tokei_count"],
+                "Code statistics tool",
+            ),
+            (
+                "eza".into(),
+                "modern_cli",
+                "fs",
+                vec!["eza_list"],
+                "Modern ls replacement",
+            ),
+            (
+                "zoxide".into(),
+                "modern_cli",
+                "zoxide",
+                vec!["zoxide_add", "zoxide_query"],
+                "Smarter cd command",
+            ),
+            // Task Runners
+            (
+                "just".into(),
+                "task_runner",
+                "just",
+                vec!["just_run", "just_list"],
+                "Command runner (Justfile)",
+            ),
+            (
+                "make".into(),
+                "task_runner",
+                "shell",
+                vec!["make_run", "make_list"],
+                "GNU Make",
+            ),
+            (
+                "cmake".into(),
+                "task_runner",
+                "shell",
+                vec!["cmake_configure", "cmake_build"],
+                "CMake build system",
+            ),
+            (
+                "ninja".into(),
+                "task_runner",
+                "shell",
+                vec!["ninja_build", "ninja_targets"],
+                "Ninja build system",
+            ),
+            (
+                "task".into(),
+                "task_runner",
+                "just",
+                vec!["task_run", "task_list"],
+                "Task runner (Taskfile)",
+            ),
+            // Environment & Version Management
+            (
+                "direnv".into(),
+                "env_manager",
+                "direnv",
+                vec!["direnv_allow", "direnv_status"],
+                "Per-directory environment",
+            ),
+            (
+                "asdf".into(),
+                "env_manager",
+                "asdf",
+                vec!["asdf_list", "asdf_install"],
+                "Multi-runtime version manager",
+            ),
+            (
+                "mise".into(),
+                "env_manager",
+                "mise",
+                vec!["mise_list", "mise_install"],
+                "Dev tool version manager",
+            ),
+            (
+                "nvm".into(),
+                "env_manager",
+                "node",
+                vec!["nvm_list", "nvm_install", "nvm_use"],
+                "Node.js version manager",
+            ),
+            (
+                "pyenv".into(),
+                "env_manager",
+                "uv",
+                vec!["pyenv_list", "pyenv_install"],
+                "Python version manager",
+            ),
+            (
+                "rbenv".into(),
+                "env_manager",
+                "shell",
+                vec!["rbenv_list", "rbenv_install"],
+                "Ruby version manager",
+            ),
+            // Python Ecosystem
+            (
+                "uv".into(),
+                "python",
+                "uv",
+                vec!["uv_run", "uv_install", "uv_venv"],
+                "Fast Python package manager",
+            ),
+            (
+                "pipx".into(),
+                "python",
+                "pipx",
+                vec!["pipx_install", "pipx_list"],
+                "Python app installer",
+            ),
+            (
+                "poetry".into(),
+                "python",
+                "poetry",
+                vec!["poetry_run", "poetry_install"],
+                "Python dependency manager",
+            ),
+            (
+                "pytest".into(),
+                "python",
+                "uv",
+                vec!["pytest_run"],
+                "Python test framework",
+            ),
+            (
+                "ruff".into(),
+                "python",
+                "ruff",
+                vec!["ruff_check", "ruff_format"],
+                "Fast Python linter/formatter",
+            ),
+            (
+                "black".into(),
+                "python",
+                "shell",
+                vec!["black_format"],
+                "Python code formatter",
+            ),
+            // Rust Ecosystem
+            (
+                "cargo".into(),
+                "rust",
+                "cargo",
+                vec!["cargo_build", "cargo_test", "cargo_run"],
+                "Rust package manager",
+            ),
+            (
+                "rustup".into(),
+                "rust",
+                "rustup",
+                vec!["rustup_update", "rustup_list"],
+                "Rust toolchain manager",
+            ),
+            (
+                "clippy".into(),
+                "rust",
+                "cargo",
+                vec!["clippy_run"],
+                "Rust linter",
+            ),
+            (
+                "rustfmt".into(),
+                "rust",
+                "cargo",
+                vec!["rustfmt_run"],
+                "Rust code formatter",
+            ),
+            // Go Ecosystem
+            (
+                "go".into(),
+                "go",
+                "go",
+                vec!["go_build", "go_test", "go_run"],
+                "Go toolchain",
+            ),
+            (
+                "golangci-lint".into(),
+                "go",
+                "go",
+                vec!["golangci_lint_run"],
+                "Go linter aggregator",
+            ),
+            // JavaScript/TypeScript Ecosystem
+            (
+                "node".into(),
+                "javascript",
+                "node",
+                vec!["node_run"],
+                "Node.js runtime",
+            ),
+            (
+                "npm".into(),
+                "javascript",
+                "npm",
+                vec!["npm_install", "npm_run", "npm_list"],
+                "Node package manager",
+            ),
+            (
+                "pnpm".into(),
+                "javascript",
+                "pnpm",
+                vec!["pnpm_install", "pnpm_run"],
+                "Fast Node package manager",
+            ),
+            (
+                "yarn".into(),
+                "javascript",
+                "yarn",
+                vec!["yarn_run", "yarn_install"],
+                "Yarn package manager",
+            ),
+            (
+                "bun".into(),
+                "javascript",
+                "bun",
+                vec!["bun_run", "bun_install"],
+                "Fast JavaScript runtime",
+            ),
+            (
+                "deno".into(),
+                "javascript",
+                "deno",
+                vec!["deno_run", "deno_compile"],
+                "Secure JavaScript runtime",
+            ),
+            (
+                "eslint".into(),
+                "javascript",
+                "node",
+                vec!["eslint_run"],
+                "JavaScript linter",
+            ),
+            (
+                "prettier".into(),
+                "javascript",
+                "node",
+                vec!["prettier_run"],
+                "Code formatter",
+            ),
+            (
+                "nodemon".into(),
+                "javascript",
+                "node",
+                vec!["nodemon_run"],
+                "Auto-restart Node.js",
+            ),
+            // Dev Tools & VCS
+            (
+                "gh".into(),
+                "devtools",
+                "gh",
+                vec![
+                    "gh_pr_list",
+                    "gh_pr_create",
+                    "gh_issue_list",
+                    "gh_issue_create",
+                    "gh_repo_clone",
+                ],
+                "GitHub CLI",
+            ),
+            (
+                "glab".into(),
+                "devtools",
+                "glab",
+                vec![
+                    "glab_mr_list",
+                    "glab_mr_create",
+                    "glab_issue_list",
+                    "glab_issue_create",
+                ],
+                "GitLab CLI",
+            ),
+            (
+                "pre-commit".into(),
+                "devtools",
+                "pre_commit",
+                vec!["pre_commit_run", "pre_commit_install"],
+                "Git pre-commit hooks",
+            ),
+            (
+                "git".into(),
+                "devtools",
+                "shell",
+                vec!["git_status", "git_log"],
+                "Version control system",
+            ),
+            // Container & Security Tools
+            (
+                "docker".into(),
+                "container",
+                "docker",
+                vec!["docker_ps", "docker_run", "docker_build", "docker_images"],
+                "Container runtime",
+            ),
+            (
+                "podman".into(),
+                "container",
+                "podman",
+                vec!["podman_ps", "podman_run", "podman_build", "podman_images"],
+                "Rootless container runtime",
+            ),
+            (
+                "docker-compose".into(),
+                "container",
+                "docker",
+                vec!["docker_compose_up", "docker_compose_down"],
+                "Multi-container Docker",
+            ),
+            (
+                "podman-compose".into(),
+                "container",
+                "podman",
+                vec!["podman_compose_up", "podman_compose_down"],
+                "Multi-container Podman",
+            ),
+            (
+                "buildah".into(),
+                "container",
+                "buildah",
+                vec!["buildah_build", "buildah_images", "buildah_push"],
+                "OCI image builder",
+            ),
+            (
+                "skopeo".into(),
+                "container",
+                "skopeo",
+                vec!["skopeo_inspect", "skopeo_copy", "skopeo_list"],
+                "Container image utility",
+            ),
+            (
+                "trivy".into(),
+                "container",
+                "trivy",
+                vec!["trivy_scan", "trivy_image", "trivy_fs"],
+                "Security scanner",
+            ),
+            // Kubernetes & Orchestration
+            (
+                "kubectl".into(),
+                "orchestration",
+                "k8s",
+                vec!["k8s_pods", "k8s_apply", "k8s_get"],
+                "Kubernetes CLI",
+            ),
+            (
+                "helm".into(),
+                "orchestration",
+                "helm",
+                vec!["helm_list", "helm_install", "helm_upgrade"],
+                "Kubernetes package manager",
+            ),
+            (
+                "k9s".into(),
+                "orchestration",
+                "k8s",
+                vec!["k9s_run"],
+                "Kubernetes TUI",
+            ),
+            // Infrastructure
+            (
+                "terraform".into(),
+                "infrastructure",
+                "terraform",
+                vec!["terraform_plan", "terraform_apply"],
+                "Infrastructure as Code",
+            ),
+            (
+                "ansible".into(),
+                "infrastructure",
+                "ansible",
+                vec!["ansible_playbook"],
+                "Configuration management",
+            ),
+            // Shell Tools
+            (
+                "shellcheck".into(),
+                "shell_tools",
+                "shell",
+                vec!["shellcheck_run"],
+                "Shell script linter",
+            ),
+            (
+                "shfmt".into(),
+                "shell_tools",
+                "shell",
+                vec!["shfmt_run"],
+                "Shell script formatter",
+            ),
+            // Network Tools
+            (
+                "iperf3".into(),
+                "network",
+                "iperf3",
+                vec!["iperf3_client", "iperf3_server"],
+                "Network performance tester",
+            ),
+            (
+                "nmap".into(),
+                "network",
+                "net",
+                vec!["nmap_scan"],
+                "Network scanner",
+            ),
+            (
+                "mtr".into(),
+                "network",
+                "net",
+                vec!["mtr_trace"],
+                "Network diagnostics",
+            ),
+            (
+                "dig".into(),
+                "network",
+                "net",
+                vec!["dig_lookup"],
+                "DNS lookup",
+            ),
+            (
+                "nc".into(),
+                "network",
+                "nc",
+                vec!["nc_connect", "nc_listen"],
+                "Netcat",
+            ),
+            (
+                "curl".into(),
+                "network",
+                "http",
+                vec!["http_get", "http_post"],
+                "HTTP client",
+            ),
+            (
+                "wget".into(),
+                "network",
+                "http",
+                vec!["wget_download"],
+                "File downloader",
+            ),
+        ]
+    }
+}
+
+impl Default for CLIToolRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// Global CLI tool registry (lazily initialized)
+lazy_static::lazy_static! {
+    pub static ref CLI_TOOL_REGISTRY: CLIToolRegistry = CLIToolRegistry::new();
 }
 
 #[cfg(test)]

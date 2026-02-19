@@ -33,6 +33,266 @@ pub mod a2a;
 pub mod a2ui;
 pub mod nanda;
 
+// ===================== Cost Tracking =====================
+
+use lazy_static::lazy_static;
+use std::sync::Mutex;
+
+/// A single AI API call record for cost tracking
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UsageRecord {
+    pub provider: String,
+    pub model: String,
+    pub prompt_tokens: u64,
+    pub completion_tokens: u64,
+    pub total_tokens: u64,
+    pub cost_usd: f64,
+    pub timestamp: String, // ISO 8601
+}
+
+/// Cumulative session cost tracker
+#[derive(Debug, Default)]
+pub struct CostTracker {
+    pub records: Vec<UsageRecord>,
+    pub total_prompt_tokens: u64,
+    pub total_completion_tokens: u64,
+    pub total_cost_usd: f64,
+    pub call_count: u64,
+}
+
+impl CostTracker {
+    pub fn record(
+        &mut self,
+        provider: &str,
+        model: &str,
+        prompt_tokens: u64,
+        completion_tokens: u64,
+        cost_usd: f64,
+    ) {
+        let total_tokens = prompt_tokens + completion_tokens;
+        self.total_prompt_tokens += prompt_tokens;
+        self.total_completion_tokens += completion_tokens;
+        self.total_cost_usd += cost_usd;
+        self.call_count += 1;
+        self.records.push(UsageRecord {
+            provider: provider.to_string(),
+            model: model.to_string(),
+            prompt_tokens,
+            completion_tokens,
+            total_tokens,
+            cost_usd,
+            timestamp: chrono::Utc::now().to_rfc3339(),
+        });
+    }
+
+    pub fn summary(&self) -> serde_json::Value {
+        json!({
+            "call_count": self.call_count,
+            "total_prompt_tokens": self.total_prompt_tokens,
+            "total_completion_tokens": self.total_completion_tokens,
+            "total_tokens": self.total_prompt_tokens + self.total_completion_tokens,
+            "total_cost_usd": format!("{:.6}", self.total_cost_usd),
+            "records": self.records.iter().map(|r| json!({
+                "provider": r.provider,
+                "model": r.model,
+                "prompt_tokens": r.prompt_tokens,
+                "completion_tokens": r.completion_tokens,
+                "cost_usd": format!("{:.6}", r.cost_usd),
+                "timestamp": r.timestamp,
+            })).collect::<Vec<_>>(),
+        })
+    }
+
+    pub fn reset(&mut self) {
+        self.records.clear();
+        self.total_prompt_tokens = 0;
+        self.total_completion_tokens = 0;
+        self.total_cost_usd = 0.0;
+        self.call_count = 0;
+    }
+}
+
+lazy_static! {
+    /// Global session cost tracker
+    pub static ref COST_TRACKER: Mutex<CostTracker> = Mutex::new(CostTracker::default());
+}
+
+/// Estimate cost per 1K tokens for known providers/models
+pub fn estimate_cost(
+    provider: &str,
+    model: &str,
+    prompt_tokens: u64,
+    completion_tokens: u64,
+) -> f64 {
+    let (prompt_per_1k, completion_per_1k) = match (provider, model) {
+        // OpenAI
+        (_, m) if m.starts_with("gpt-4o-mini") => (0.00015, 0.0006),
+        (_, m) if m.starts_with("gpt-4o") => (0.0025, 0.01),
+        (_, m) if m.starts_with("gpt-4.5") => (0.075, 0.15),
+        (_, m) if m.starts_with("o3-mini") => (0.0011, 0.0044),
+        (_, m) if m.starts_with("o3") => (0.01, 0.04),
+        (_, m) if m.starts_with("o4-mini") => (0.0011, 0.0044),
+        (_, m) if m.starts_with("o1-mini") => (0.003, 0.012),
+        (_, m) if m.starts_with("o1") => (0.015, 0.06),
+        (_, m) if m.starts_with("gpt-4-turbo") => (0.01, 0.03),
+        (_, m) if m.starts_with("gpt-4") => (0.03, 0.06),
+        (_, m) if m.starts_with("gpt-3.5") => (0.0005, 0.0015),
+        // Anthropic
+        (_, m) if m.contains("claude-4-opus") || m.contains("opus-4") => (0.015, 0.075),
+        (_, m) if m.contains("claude-4-sonnet") || m.contains("sonnet-4") => (0.003, 0.015),
+        (_, m) if m.contains("claude-3-5-sonnet") || m.contains("sonnet-3-5") => (0.003, 0.015),
+        (_, m) if m.contains("claude-3-5-haiku") || m.contains("haiku-3-5") => (0.0008, 0.004),
+        (_, m) if m.contains("claude-3-opus") => (0.015, 0.075),
+        (_, m) if m.contains("claude-3-sonnet") => (0.003, 0.015),
+        // DeepSeek
+        ("deepseek", _) => (0.00014, 0.00028),
+        // Groq (free tier / very cheap)
+        ("groq", _) => (0.00059, 0.00079),
+        // Together / Fireworks (varies, use llama pricing)
+        ("together" | "fireworks", _) => (0.0009, 0.0009),
+        // Mistral
+        (_, m) if m.contains("mistral-large") => (0.002, 0.006),
+        (_, m) if m.contains("mixtral") => (0.0007, 0.0007),
+        // Google
+        (_, m) if m.contains("gemini-2.5-flash") => (0.00015, 0.0035),
+        (_, m) if m.contains("gemini-2.5-pro") => (0.00125, 0.01),
+        // Local (free)
+        ("local" | "lmstudio" | "llamacpp" | "llama_cpp" | "ollama" | "vllm", _) => (0.0, 0.0),
+        // Default: unknown, can't estimate
+        _ => (0.0, 0.0),
+    };
+
+    (prompt_tokens as f64 * prompt_per_1k / 1000.0)
+        + (completion_tokens as f64 * completion_per_1k / 1000.0)
+}
+
+/// Record usage from an API response's usage object
+pub fn track_usage(provider: &str, model: &str, usage_json: &serde_json::Value) {
+    let prompt_tokens = usage_json
+        .get("prompt_tokens")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let completion_tokens = usage_json
+        .get("completion_tokens")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let cost = estimate_cost(provider, model, prompt_tokens, completion_tokens);
+
+    if let Ok(mut tracker) = COST_TRACKER.lock() {
+        tracker.record(provider, model, prompt_tokens, completion_tokens, cost);
+    }
+}
+
+// ===================== GPU Memory Management =====================
+
+/// GPU memory information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GpuMemoryInfo {
+    pub gpu_index: usize,
+    pub name: String,
+    pub total_mb: u64,
+    pub used_mb: u64,
+    pub free_mb: u64,
+}
+
+/// Query GPU memory via nvidia-smi
+pub fn query_gpu_memory() -> Vec<GpuMemoryInfo> {
+    let output = std::process::Command::new("nvidia-smi")
+        .args([
+            "--query-gpu=index,name,memory.total,memory.used,memory.free",
+            "--format=csv,noheader,nounits",
+        ])
+        .output();
+
+    match output {
+        Ok(out) if out.status.success() => {
+            let text = String::from_utf8_lossy(&out.stdout);
+            text.lines()
+                .filter_map(|line| {
+                    let parts: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
+                    if parts.len() >= 5 {
+                        Some(GpuMemoryInfo {
+                            gpu_index: parts[0].parse().unwrap_or(0),
+                            name: parts[1].to_string(),
+                            total_mb: parts[2].parse().unwrap_or(0),
+                            used_mb: parts[3].parse().unwrap_or(0),
+                            free_mb: parts[4].parse().unwrap_or(0),
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// Estimate VRAM required to load a model (in MB)
+///
+/// Rules of thumb:
+/// - GGUF Q4_K_M: ~0.6 bytes per parameter
+/// - GGUF Q5_K_M: ~0.7 bytes per parameter
+/// - GGUF Q8_0: ~1.0 bytes per parameter
+/// - FP16: ~2.0 bytes per parameter
+/// - FP32: ~4.0 bytes per parameter
+/// - File-size based: file size + ~20% overhead for KV cache
+pub fn estimate_model_vram_mb(
+    params_billions: Option<f64>,
+    file_size_mb: Option<u64>,
+    quantization: Option<&str>,
+) -> u64 {
+    if let Some(params_b) = params_billions {
+        let bytes_per_param = match quantization.unwrap_or("q4_k_m") {
+            q if q.contains("q4") || q.contains("Q4") => 0.6,
+            q if q.contains("q5") || q.contains("Q5") => 0.7,
+            q if q.contains("q8") || q.contains("Q8") => 1.0,
+            q if q.contains("f16") || q.contains("fp16") || q.contains("F16") => 2.0,
+            q if q.contains("f32") || q.contains("fp32") || q.contains("F32") => 4.0,
+            _ => 0.7, // default: ~Q5
+        };
+        // params_b * 1e9 * bytes_per_param / (1024*1024) + 20% KV cache overhead
+        let base_mb = (params_b * 1e9 * bytes_per_param / (1024.0 * 1024.0)) as u64;
+        base_mb + base_mb / 5 // +20%
+    } else if let Some(file_mb) = file_size_mb {
+        file_mb + file_mb / 5 // file size + 20% overhead
+    } else {
+        0
+    }
+}
+
+/// Check if a model can fit in available GPU memory
+pub fn model_fits_gpu(required_mb: u64) -> (bool, Vec<GpuMemoryInfo>) {
+    let gpus = query_gpu_memory();
+    let fits = gpus.iter().any(|g| g.free_mb >= required_mb);
+    (fits, gpus)
+}
+
+/// Get a JSON summary of GPU memory status and model fit assessment
+pub fn gpu_memory_summary(
+    params_billions: Option<f64>,
+    file_size_mb: Option<u64>,
+    quantization: Option<&str>,
+) -> serde_json::Value {
+    let gpus = query_gpu_memory();
+    let estimated_mb = estimate_model_vram_mb(params_billions, file_size_mb, quantization);
+    let fits = gpus.iter().any(|g| g.free_mb >= estimated_mb);
+
+    json!({
+        "gpus": gpus.iter().map(|g| json!({
+            "index": g.gpu_index,
+            "name": g.name,
+            "total_mb": g.total_mb,
+            "used_mb": g.used_mb,
+            "free_mb": g.free_mb,
+        })).collect::<Vec<_>>(),
+        "gpu_count": gpus.len(),
+        "model_estimated_vram_mb": estimated_mb,
+        "model_fits": fits,
+        "quantization": quantization.unwrap_or("auto"),
+    })
+}
+
 // ===================== Multi-modal support =====================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -342,35 +602,273 @@ impl MultiModalLlmBackend for OpenAiCompatMultiModalBackend {
 // ===================== Provider Router (simple 1-shot completion) =====================
 
 /// Route by `AETHER_AI` to one of: openai | ollama | openai_compat | tgi
+/// Supports all 19 provider types via OpenAI-compatible routing.
 /// Returns an error with configuration instructions if no provider is set.
 pub fn complete_sync_router(prompt: &str) -> Result<String> {
     let provider = std::env::var("AETHER_AI").unwrap_or_default();
 
     match provider.as_str() {
+        // Fast path: direct backends
         "openai" => openai::complete_sync(prompt),
         "ollama" => ollama::complete_sync(prompt),
         "openai_compat" | "compat" => openai_compat::complete_sync(prompt),
         "tgi" => tgi::complete_sync(prompt),
+
+        // Extended providers: route via OpenAI-compatible endpoints
+        // These all use /v1/chat/completions format
+        "anthropic" | "claude" => complete_via_compat(
+            prompt,
+            "https://api.anthropic.com/v1",
+            "claude-sonnet-4-20250514",
+            "ANTHROPIC_API_KEY",
+        ),
+        "deepseek" => complete_via_compat(
+            prompt,
+            "https://api.deepseek.com/v1",
+            "deepseek-chat",
+            "DEEPSEEK_API_KEY",
+        ),
+        "groq" => complete_via_compat(
+            prompt,
+            "https://api.groq.com/openai/v1",
+            "llama-3.3-70b-versatile",
+            "GROQ_API_KEY",
+        ),
+        "together" => complete_via_compat(
+            prompt,
+            "https://api.together.xyz/v1",
+            "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+            "TOGETHER_API_KEY",
+        ),
+        "fireworks" => complete_via_compat(
+            prompt,
+            "https://api.fireworks.ai/inference/v1",
+            "accounts/fireworks/models/llama-v3p3-70b-instruct",
+            "FIREWORKS_API_KEY",
+        ),
+        "perplexity" => complete_via_compat(
+            prompt,
+            "https://api.perplexity.ai",
+            "sonar",
+            "PERPLEXITY_API_KEY",
+        ),
+        "xai" | "grok" => {
+            complete_via_compat(prompt, "https://api.x.ai/v1", "grok-3", "XAI_API_KEY")
+        }
+        "openrouter" => complete_via_compat(
+            prompt,
+            "https://openrouter.ai/api/v1",
+            "openai/gpt-4o",
+            "OPENROUTER_API_KEY",
+        ),
+        "mistral" => complete_via_compat(
+            prompt,
+            "https://api.mistral.ai/v1",
+            "mistral-large-latest",
+            "MISTRAL_API_KEY",
+        ),
+        "cohere" => complete_via_compat(
+            prompt,
+            "https://api.cohere.com/v2",
+            "command-a",
+            "COHERE_API_KEY",
+        ),
+        "google" | "gemini" => complete_via_compat(
+            prompt,
+            "https://generativelanguage.googleapis.com/v1beta/openai",
+            "gemini-2.5-flash",
+            "GOOGLE_API_KEY",
+        ),
+        "azure" => {
+            let base = std::env::var("AZURE_OPENAI_ENDPOINT").unwrap_or_else(|_| {
+                "https://YOUR_RESOURCE.openai.azure.com/openai/deployments/YOUR_DEPLOYMENT"
+                    .to_string()
+            });
+            complete_via_compat(prompt, &base, "gpt-4o", "AZURE_OPENAI_API_KEY")
+        }
+        "local" | "lmstudio" => {
+            complete_via_compat(prompt, "http://localhost:1234/v1", "default", "")
+        }
+        "llama_cpp" | "llamacpp" => {
+            complete_via_compat(prompt, "http://localhost:8080/v1", "default", "")
+        }
+        "vllm" => {
+            let base = std::env::var("VLLM_BASE_URL")
+                .unwrap_or_else(|_| "http://localhost:8000/v1".to_string());
+            complete_via_compat(prompt, &base, "default", "")
+        }
+
+        // Model URI syntax: "provider:model" (e.g., "openai:gpt-4o", "ollama:llama3")
+        uri if uri.contains(':') => {
+            let parts: Vec<&str> = uri.splitn(2, ':').collect();
+            let scheme = parts[0];
+            let model = parts.get(1).copied().unwrap_or("default");
+            if let Some((base, key_env)) = provider_base_url(scheme) {
+                complete_via_compat(prompt, &base, model, &key_env)
+            } else {
+                Err(anyhow!("Unknown provider scheme: '{}'\nTry: openai, anthropic, ollama, deepseek, groq, etc.", scheme))
+            }
+        }
+
         "" => Err(anyhow!(
             "No AI provider configured.\n\n\
             To use AI features, set the AETHER_AI environment variable:\n\n\
             For OpenAI:\n  \
               $env:AETHER_AI = \"openai\"\n  \
               $env:OPENAI_API_KEY = \"sk-your-key\"\n\n\
+            For Anthropic:\n  \
+              $env:AETHER_AI = \"anthropic\"\n  \
+              $env:ANTHROPIC_API_KEY = \"sk-ant-...\"\n\n\
             For Ollama (local):\n  \
               $env:AETHER_AI = \"ollama\"\n  \
               # Ensure 'ollama serve' is running\n\n\
-            For OpenAI-compatible servers (vLLM, llama.cpp):\n  \
-              $env:AETHER_AI = \"compat\"\n  \
-              $env:AETHER_COMPAT_BASE = \"http://localhost:8000/v1\"\n\n\
+            For any provider via model URI:\n  \
+              $env:AETHER_AI = \"openai:gpt-4o\"\n  \
+              $env:AETHER_AI = \"anthropic:claude-sonnet-4-20250514\"\n\n\
+            Supported: openai, anthropic, google, ollama, deepseek, groq,\n\
+            together, fireworks, perplexity, xai, azure, openrouter,\n\
+            mistral, cohere, local, vllm, lmstudio, compat, tgi\n\n\
             Then restart ae."
         )),
         other => Err(anyhow!(
             "Unknown AI provider: '{}'\n\n\
-            Supported providers: openai, ollama, compat, tgi\n\n\
-            Example: $env:AETHER_AI = \"openai\"",
+            Supported providers: openai, anthropic, google, ollama, deepseek,\n\
+            groq, together, fireworks, perplexity, xai, azure, openrouter,\n\
+            mistral, cohere, local, vllm, lmstudio, compat, tgi\n\n\
+            You can also use model URIs: AETHER_AI=\"provider:model\"\n\
+            Example: $env:AETHER_AI = \"openai:gpt-4o\"",
             other
         )),
+    }
+}
+
+/// Complete via any OpenAI-compatible endpoint
+fn complete_via_compat(
+    prompt: &str,
+    base_url: &str,
+    model: &str,
+    api_key_env: &str,
+) -> Result<String> {
+    let api_key = if api_key_env.is_empty() {
+        String::new()
+    } else {
+        std::env::var(api_key_env).unwrap_or_default()
+    };
+
+    let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
+
+    let body = serde_json::json!({
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.7
+    });
+
+    let client = reqwest::blocking::Client::new();
+    let mut req = client
+        .post(&url)
+        .header("Content-Type", "application/json")
+        .json(&body);
+
+    if !api_key.is_empty() {
+        req = req.header("Authorization", format!("Bearer {}", api_key));
+    }
+
+    let resp = req
+        .send()
+        .map_err(|e| anyhow!("HTTP request to {} failed: {}", url, e))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().unwrap_or_default();
+        return Err(anyhow!("API error {} from {}: {}", status, base_url, text));
+    }
+
+    let json: serde_json::Value = resp
+        .json()
+        .map_err(|e| anyhow!("Failed to parse response from {}: {}", base_url, e))?;
+
+    // Track usage/cost if the response includes usage info
+    if let Some(usage) = json.get("usage") {
+        let model_name = json.get("model").and_then(|m| m.as_str()).unwrap_or(model);
+        // Derive provider name from base_url
+        let provider_name = base_url
+            .split("//")
+            .last()
+            .and_then(|h| h.split('.').next())
+            .unwrap_or("unknown");
+        track_usage(provider_name, model_name, usage);
+    }
+
+    json["choices"][0]["message"]["content"]
+        .as_str()
+        .map(|s| s.to_string())
+        .ok_or_else(|| anyhow!("No content in response from {}", base_url))
+}
+
+/// Map provider scheme to (base_url, api_key_env_var)
+fn provider_base_url(scheme: &str) -> Option<(String, String)> {
+    match scheme {
+        "openai" => Some(("https://api.openai.com/v1".into(), "OPENAI_API_KEY".into())),
+        "anthropic" | "claude" => Some((
+            "https://api.anthropic.com/v1".into(),
+            "ANTHROPIC_API_KEY".into(),
+        )),
+        "google" | "gemini" => Some((
+            "https://generativelanguage.googleapis.com/v1beta/openai".into(),
+            "GOOGLE_API_KEY".into(),
+        )),
+        "ollama" => Some(("http://localhost:11434/v1".into(), String::new())),
+        "deepseek" => Some((
+            "https://api.deepseek.com/v1".into(),
+            "DEEPSEEK_API_KEY".into(),
+        )),
+        "groq" => Some((
+            "https://api.groq.com/openai/v1".into(),
+            "GROQ_API_KEY".into(),
+        )),
+        "together" => Some((
+            "https://api.together.xyz/v1".into(),
+            "TOGETHER_API_KEY".into(),
+        )),
+        "fireworks" => Some((
+            "https://api.fireworks.ai/inference/v1".into(),
+            "FIREWORKS_API_KEY".into(),
+        )),
+        "perplexity" => Some((
+            "https://api.perplexity.ai".into(),
+            "PERPLEXITY_API_KEY".into(),
+        )),
+        "xai" | "grok" => Some(("https://api.x.ai/v1".into(), "XAI_API_KEY".into())),
+        "openrouter" => Some((
+            "https://openrouter.ai/api/v1".into(),
+            "OPENROUTER_API_KEY".into(),
+        )),
+        "mistral" => Some(("https://api.mistral.ai/v1".into(), "MISTRAL_API_KEY".into())),
+        "cohere" => Some(("https://api.cohere.com/v2".into(), "COHERE_API_KEY".into())),
+        "azure" => {
+            let base = std::env::var("AZURE_OPENAI_ENDPOINT").unwrap_or_else(|_| {
+                "https://YOUR_RESOURCE.openai.azure.com/openai/deployments/YOUR_DEPLOYMENT".into()
+            });
+            Some((base, "AZURE_OPENAI_API_KEY".into()))
+        }
+        "local" | "lmstudio" => Some(("http://localhost:1234/v1".into(), String::new())),
+        "llamacpp" | "llama_cpp" => Some(("http://localhost:8080/v1".into(), String::new())),
+        "vllm" => {
+            let base = std::env::var("VLLM_BASE_URL")
+                .unwrap_or_else(|_| "http://localhost:8000/v1".into());
+            Some((base, String::new()))
+        }
+        "tgi" => {
+            let base =
+                std::env::var("TGI_BASE_URL").unwrap_or_else(|_| "http://localhost:8080/v1".into());
+            Some((base, String::new()))
+        }
+        "compat" => {
+            let base = std::env::var("AETHER_COMPAT_BASE")
+                .unwrap_or_else(|_| "http://localhost:8000/v1".into());
+            Some((base, String::new()))
+        }
+        _ => None,
     }
 }
 
@@ -1059,7 +1557,11 @@ fn detect_lmstudio() -> Result<BackendInfo> {
             .and_then(|d| d.as_array())
             .map(|arr| {
                 arr.iter()
-                    .filter_map(|m| m.get("id").and_then(|id| id.as_str()).map(|s| s.to_string()))
+                    .filter_map(|m| {
+                        m.get("id")
+                            .and_then(|id| id.as_str())
+                            .map(|s| s.to_string())
+                    })
                     .collect()
             })
             .unwrap_or_default();
@@ -1078,7 +1580,7 @@ fn detect_lmstudio() -> Result<BackendInfo> {
 
 // ========== MCP Server Detection ==========
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// MCP Server information
@@ -1332,7 +1834,7 @@ pub fn display_value(v: &Value) -> String {
         Value::AsyncLambda(_) => "<async lambda>".into(),
         Value::Future(_) => "<future>".into(),
         Value::Builtin(b) => format!("<builtin:{}>", b.name),
-            Value::Error(msg) => format!("Error: {}", msg),
+        Value::Error(msg) => format!("Error: {}", msg),
     }
 }
 

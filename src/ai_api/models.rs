@@ -61,6 +61,7 @@ pub enum ModelFormat {
     TensorFlow,
     TensorRT,
     Huggingface,
+    Other(String),
 }
 
 /// Chat completion request compatible with OpenAI API

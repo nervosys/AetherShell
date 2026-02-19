@@ -153,6 +153,12 @@ pub enum SchemaFormat {
     Fireworks,
     /// Compact ontology format
     Ontology,
+    /// JSON-LD semantic web format
+    JsonLD,
+    /// OWL/RDF Turtle format
+    OwlTurtle,
+    /// SHACL validation shapes
+    SHACL,
 }
 
 /// Agent API response
@@ -197,6 +203,12 @@ pub struct LanguageOntology {
     pub syntax: SyntaxPatterns,
     /// Categories of functionality
     pub categories: Vec<CategoryInfo>,
+    /// OS operations ontology (platform-abstracted capabilities)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub os_ontology: Option<JsonValue>,
+    /// CLI tool wrappers with install detection
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cli_tools: Option<JsonValue>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -541,6 +553,15 @@ fn get_schema(format: &SchemaFormat) -> AgentResponse {
         SchemaFormat::Groq => build_groq_schema(&ontology),
         SchemaFormat::Fireworks => build_fireworks_schema(&ontology),
         SchemaFormat::Ontology => build_compact_ontology(&ontology),
+        SchemaFormat::JsonLD => {
+            crate::providers::ontology::OS_ONTOLOGY.to_json_ld()
+        }
+        SchemaFormat::OwlTurtle => {
+            json!({"format": "text/turtle", "content": crate::providers::ontology::OS_ONTOLOGY.to_owl_turtle()})
+        }
+        SchemaFormat::SHACL => {
+            crate::providers::ontology::OS_ONTOLOGY.to_shacl()
+        }
     };
 
     AgentResponse {
@@ -775,6 +796,8 @@ pub fn build_language_ontology() -> LanguageOntology {
             pattern_matching: "match <expr> { pattern => result, ... }".to_string(),
         },
         categories: get_category_info(),
+        os_ontology: Some(crate::providers::ontology::OS_ONTOLOGY.to_json_schema()),
+        cli_tools: Some(crate::providers::ontology::CLI_TOOL_REGISTRY.to_json_schema()),
     }
 }
 
@@ -2114,22 +2137,20 @@ fn get_category_info() -> Vec<CategoryInfo> {
 // AI Provider Schema Formats
 // ============================================================================
 
+use crate::providers::schema::{builtins_to_tools, ToolFormat};
+
+/// Convert ontology builtins to tool list in the specified format with optional name prefix
+fn ontology_tools(ontology: &LanguageOntology, format: ToolFormat, prefix: &str) -> Vec<JsonValue> {
+    builtins_to_tools(
+        ontology.builtins.iter().map(|b| (b.name.as_str(), b.description.as_str(), &b.json_schema)),
+        format,
+        prefix,
+    )
+}
+
 /// Build OpenAI function calling schema
 fn build_openai_schema(ontology: &LanguageOntology) -> JsonValue {
-    let tools: Vec<JsonValue> = ontology
-        .builtins
-        .iter()
-        .map(|b| {
-            json!({
-                "type": "function",
-                "function": {
-                    "name": format!("aethershell_{}", b.name),
-                    "description": b.description,
-                    "parameters": b.json_schema
-                }
-            })
-        })
-        .collect();
+    let tools = ontology_tools(ontology, ToolFormat::OpenAI, "aethershell_");
 
     json!({
         "format": "openai_function_calling",
@@ -2147,17 +2168,7 @@ fn build_openai_schema(ontology: &LanguageOntology) -> JsonValue {
 
 /// Build Anthropic Claude tool use schema
 fn build_claude_schema(ontology: &LanguageOntology) -> JsonValue {
-    let tools: Vec<JsonValue> = ontology
-        .builtins
-        .iter()
-        .map(|b| {
-            json!({
-                "name": format!("aethershell_{}", b.name),
-                "description": b.description,
-                "input_schema": b.json_schema
-            })
-        })
-        .collect();
+    let tools = ontology_tools(ontology, ToolFormat::Anthropic, "aethershell_");
 
     json!({
         "format": "anthropic_tool_use",
@@ -2175,17 +2186,7 @@ fn build_claude_schema(ontology: &LanguageOntology) -> JsonValue {
 
 /// Build Google Gemini function declaration schema
 fn build_gemini_schema(ontology: &LanguageOntology) -> JsonValue {
-    let function_declarations: Vec<JsonValue> = ontology
-        .builtins
-        .iter()
-        .map(|b| {
-            json!({
-                "name": format!("aethershell_{}", b.name),
-                "description": b.description,
-                "parameters": b.json_schema
-            })
-        })
-        .collect();
+    let function_declarations = ontology_tools(ontology, ToolFormat::Google, "aethershell_");
 
     json!({
         "format": "gemini_function_calling",
@@ -2256,27 +2257,15 @@ fn build_compact_ontology(ontology: &LanguageOntology) -> JsonValue {
             "total_builtins": ontology.builtins.len(),
             "total_modules": ontology.modules.len(),
             "categories": ontology.categories.len()
-        }
+        },
+        "os_ontology": ontology.os_ontology,
+        "cli_tools": ontology.cli_tools,
     })
 }
 
 /// Build Meta Llama function calling schema
 fn build_llama_schema(ontology: &LanguageOntology) -> JsonValue {
-    // Llama 3.1+ uses a tool format similar to OpenAI but with slight differences
-    let tools: Vec<JsonValue> = ontology
-        .builtins
-        .iter()
-        .map(|b| {
-            json!({
-                "type": "function",
-                "function": {
-                    "name": format!("aethershell_{}", b.name),
-                    "description": b.description,
-                    "parameters": b.json_schema
-                }
-            })
-        })
-        .collect();
+    let tools = ontology_tools(ontology, ToolFormat::OpenAI, "aethershell_");
 
     json!({
         "format": "llama_function_calling",
@@ -2295,21 +2284,7 @@ fn build_llama_schema(ontology: &LanguageOntology) -> JsonValue {
 
 /// Build Mistral AI function calling schema  
 fn build_mistral_schema(ontology: &LanguageOntology) -> JsonValue {
-    // Mistral uses OpenAI-compatible tool format
-    let tools: Vec<JsonValue> = ontology
-        .builtins
-        .iter()
-        .map(|b| {
-            json!({
-                "type": "function",
-                "function": {
-                    "name": b.name,
-                    "description": b.description,
-                    "parameters": b.json_schema
-                }
-            })
-        })
-        .collect();
+    let tools = ontology_tools(ontology, ToolFormat::OpenAI, "");
 
     json!({
         "format": "mistral_function_calling",
@@ -2329,36 +2304,7 @@ fn build_mistral_schema(ontology: &LanguageOntology) -> JsonValue {
 
 /// Build Cohere Command R function calling schema
 fn build_cohere_schema(ontology: &LanguageOntology) -> JsonValue {
-    // Cohere uses a distinct tool format with parameter_definitions
-    let tools: Vec<JsonValue> = ontology
-        .builtins
-        .iter()
-        .map(|b| {
-            // Convert JSON schema to Cohere's parameter_definitions format
-            let params = b.json_schema.get("properties")
-                .and_then(|p| p.as_object())
-                .map(|props| {
-                    props.iter().map(|(name, schema)| {
-                        json!({
-                            "name": name,
-                            "description": schema.get("description").and_then(|d| d.as_str()).unwrap_or(""),
-                            "type": schema.get("type").and_then(|t| t.as_str()).unwrap_or("string"),
-                            "required": b.json_schema.get("required")
-                                .and_then(|r| r.as_array())
-                                .map(|arr| arr.iter().any(|v| v.as_str() == Some(name)))
-                                .unwrap_or(false)
-                        })
-                    }).collect::<Vec<_>>()
-                })
-                .unwrap_or_default();
-
-            json!({
-                "name": b.name,
-                "description": b.description,
-                "parameter_definitions": params
-            })
-        })
-        .collect();
+    let tools = ontology_tools(ontology, ToolFormat::Cohere, "");
 
     json!({
         "format": "cohere_tools",
@@ -2376,21 +2322,7 @@ fn build_cohere_schema(ontology: &LanguageOntology) -> JsonValue {
 
 /// Build xAI Grok function calling schema
 fn build_grok_schema(ontology: &LanguageOntology) -> JsonValue {
-    // Grok uses OpenAI-compatible format
-    let tools: Vec<JsonValue> = ontology
-        .builtins
-        .iter()
-        .map(|b| {
-            json!({
-                "type": "function",
-                "function": {
-                    "name": b.name,
-                    "description": b.description,
-                    "parameters": b.json_schema
-                }
-            })
-        })
-        .collect();
+    let tools = ontology_tools(ontology, ToolFormat::OpenAI, "");
 
     json!({
         "format": "grok_function_calling",
@@ -2407,21 +2339,7 @@ fn build_grok_schema(ontology: &LanguageOntology) -> JsonValue {
 
 /// Build DeepSeek function calling schema
 fn build_deepseek_schema(ontology: &LanguageOntology) -> JsonValue {
-    // DeepSeek uses OpenAI-compatible format with some enhancements
-    let tools: Vec<JsonValue> = ontology
-        .builtins
-        .iter()
-        .map(|b| {
-            json!({
-                "type": "function",
-                "function": {
-                    "name": b.name,
-                    "description": b.description,
-                    "parameters": b.json_schema
-                }
-            })
-        })
-        .collect();
+    let tools = ontology_tools(ontology, ToolFormat::OpenAI, "");
 
     json!({
         "format": "deepseek_function_calling",
@@ -2441,7 +2359,7 @@ fn build_deepseek_schema(ontology: &LanguageOntology) -> JsonValue {
 
 /// Build AWS Bedrock converse API schema
 fn build_bedrock_schema(ontology: &LanguageOntology) -> JsonValue {
-    // Bedrock Converse API tool format
+    // Bedrock uses Anthropic-style input_schema wrapped in toolSpec/inputSchema/json
     let tool_config: Vec<JsonValue> = ontology
         .builtins
         .iter()
@@ -2484,21 +2402,7 @@ fn build_bedrock_schema(ontology: &LanguageOntology) -> JsonValue {
 
 /// Build Azure OpenAI function calling schema
 fn build_azure_openai_schema(ontology: &LanguageOntology) -> JsonValue {
-    // Azure OpenAI uses same format as OpenAI
-    let tools: Vec<JsonValue> = ontology
-        .builtins
-        .iter()
-        .map(|b| {
-            json!({
-                "type": "function",
-                "function": {
-                    "name": b.name,
-                    "description": b.description,
-                    "parameters": b.json_schema
-                }
-            })
-        })
-        .collect();
+    let tools = ontology_tools(ontology, ToolFormat::OpenAI, "");
 
     json!({
         "format": "azure_openai_function_calling",
@@ -2516,21 +2420,7 @@ fn build_azure_openai_schema(ontology: &LanguageOntology) -> JsonValue {
 
 /// Build Alibaba Qwen function calling schema
 fn build_qwen_schema(ontology: &LanguageOntology) -> JsonValue {
-    // Qwen uses OpenAI-compatible format
-    let tools: Vec<JsonValue> = ontology
-        .builtins
-        .iter()
-        .map(|b| {
-            json!({
-                "type": "function",
-                "function": {
-                    "name": b.name,
-                    "description": b.description,
-                    "parameters": b.json_schema
-                }
-            })
-        })
-        .collect();
+    let tools = ontology_tools(ontology, ToolFormat::OpenAI, "");
 
     json!({
         "format": "qwen_function_calling",
@@ -2548,21 +2438,7 @@ fn build_qwen_schema(ontology: &LanguageOntology) -> JsonValue {
 
 /// Build Ollama local model schema
 fn build_ollama_schema(ontology: &LanguageOntology) -> JsonValue {
-    // Ollama tool format (similar to OpenAI)
-    let tools: Vec<JsonValue> = ontology
-        .builtins
-        .iter()
-        .map(|b| {
-            json!({
-                "type": "function",
-                "function": {
-                    "name": b.name,
-                    "description": b.description,
-                    "parameters": b.json_schema
-                }
-            })
-        })
-        .collect();
+    let tools = ontology_tools(ontology, ToolFormat::OpenAI, "");
 
     json!({
         "format": "ollama_tools",
@@ -2583,21 +2459,7 @@ fn build_ollama_schema(ontology: &LanguageOntology) -> JsonValue {
 
 /// Build vLLM OpenAI-compatible schema
 fn build_vllm_schema(ontology: &LanguageOntology) -> JsonValue {
-    // vLLM uses OpenAI-compatible format
-    let tools: Vec<JsonValue> = ontology
-        .builtins
-        .iter()
-        .map(|b| {
-            json!({
-                "type": "function",
-                "function": {
-                    "name": b.name,
-                    "description": b.description,
-                    "parameters": b.json_schema
-                }
-            })
-        })
-        .collect();
+    let tools = ontology_tools(ontology, ToolFormat::OpenAI, "");
 
     json!({
         "format": "vllm_openai_compatible",
@@ -2612,21 +2474,7 @@ fn build_vllm_schema(ontology: &LanguageOntology) -> JsonValue {
 
 /// Build HuggingFace Inference Endpoints schema
 fn build_huggingface_schema(ontology: &LanguageOntology) -> JsonValue {
-    // HuggingFace Text Generation Inference tool format
-    let tools: Vec<JsonValue> = ontology
-        .builtins
-        .iter()
-        .map(|b| {
-            json!({
-                "type": "function",
-                "function": {
-                    "name": b.name,
-                    "description": b.description,
-                    "parameters": b.json_schema
-                }
-            })
-        })
-        .collect();
+    let tools = ontology_tools(ontology, ToolFormat::OpenAI, "");
 
     json!({
         "format": "huggingface_tgi",
@@ -2649,21 +2497,7 @@ fn build_huggingface_schema(ontology: &LanguageOntology) -> JsonValue {
 
 /// Build OpenRouter unified schema
 fn build_openrouter_schema(ontology: &LanguageOntology) -> JsonValue {
-    // OpenRouter uses OpenAI-compatible format and routes to multiple providers
-    let tools: Vec<JsonValue> = ontology
-        .builtins
-        .iter()
-        .map(|b| {
-            json!({
-                "type": "function",
-                "function": {
-                    "name": b.name,
-                    "description": b.description,
-                    "parameters": b.json_schema
-                }
-            })
-        })
-        .collect();
+    let tools = ontology_tools(ontology, ToolFormat::OpenAI, "");
 
     json!({
         "format": "openrouter_unified",
@@ -2687,21 +2521,7 @@ fn build_openrouter_schema(ontology: &LanguageOntology) -> JsonValue {
 
 /// Build Moonshot AI Kimi function calling schema
 fn build_kimi_schema(ontology: &LanguageOntology) -> JsonValue {
-    // Kimi uses OpenAI-compatible format
-    let tools: Vec<JsonValue> = ontology
-        .builtins
-        .iter()
-        .map(|b| {
-            json!({
-                "type": "function",
-                "function": {
-                    "name": b.name,
-                    "description": b.description,
-                    "parameters": b.json_schema
-                }
-            })
-        })
-        .collect();
+    let tools = ontology_tools(ontology, ToolFormat::OpenAI, "");
 
     json!({
         "format": "kimi_function_calling",
@@ -2719,21 +2539,7 @@ fn build_kimi_schema(ontology: &LanguageOntology) -> JsonValue {
 
 /// Build 01.AI Yi function calling schema
 fn build_yi_schema(ontology: &LanguageOntology) -> JsonValue {
-    // Yi uses OpenAI-compatible format
-    let tools: Vec<JsonValue> = ontology
-        .builtins
-        .iter()
-        .map(|b| {
-            json!({
-                "type": "function",
-                "function": {
-                    "name": b.name,
-                    "description": b.description,
-                    "parameters": b.json_schema
-                }
-            })
-        })
-        .collect();
+    let tools = ontology_tools(ontology, ToolFormat::OpenAI, "");
 
     json!({
         "format": "yi_function_calling",
@@ -2752,21 +2558,7 @@ fn build_yi_schema(ontology: &LanguageOntology) -> JsonValue {
 
 /// Build Zhipu AI GLM function calling schema
 fn build_glm_schema(ontology: &LanguageOntology) -> JsonValue {
-    // GLM/ChatGLM uses OpenAI-compatible format with some extensions
-    let tools: Vec<JsonValue> = ontology
-        .builtins
-        .iter()
-        .map(|b| {
-            json!({
-                "type": "function",
-                "function": {
-                    "name": b.name,
-                    "description": b.description,
-                    "parameters": b.json_schema
-                }
-            })
-        })
-        .collect();
+    let tools = ontology_tools(ontology, ToolFormat::OpenAI, "");
 
     json!({
         "format": "glm_function_calling",
@@ -2785,21 +2577,7 @@ fn build_glm_schema(ontology: &LanguageOntology) -> JsonValue {
 
 /// Build Reka AI function calling schema
 fn build_reka_schema(ontology: &LanguageOntology) -> JsonValue {
-    // Reka uses OpenAI-compatible format
-    let tools: Vec<JsonValue> = ontology
-        .builtins
-        .iter()
-        .map(|b| {
-            json!({
-                "type": "function",
-                "function": {
-                    "name": b.name,
-                    "description": b.description,
-                    "parameters": b.json_schema
-                }
-            })
-        })
-        .collect();
+    let tools = ontology_tools(ontology, ToolFormat::OpenAI, "");
 
     json!({
         "format": "reka_function_calling",
@@ -2819,21 +2597,7 @@ fn build_reka_schema(ontology: &LanguageOntology) -> JsonValue {
 
 /// Build AI21 Labs function calling schema
 fn build_ai21_schema(ontology: &LanguageOntology) -> JsonValue {
-    // AI21 uses OpenAI-compatible format for Jamba
-    let tools: Vec<JsonValue> = ontology
-        .builtins
-        .iter()
-        .map(|b| {
-            json!({
-                "type": "function",
-                "function": {
-                    "name": b.name,
-                    "description": b.description,
-                    "parameters": b.json_schema
-                }
-            })
-        })
-        .collect();
+    let tools = ontology_tools(ontology, ToolFormat::OpenAI, "");
 
     json!({
         "format": "ai21_function_calling",
@@ -2851,21 +2615,7 @@ fn build_ai21_schema(ontology: &LanguageOntology) -> JsonValue {
 
 /// Build Perplexity AI function calling schema
 fn build_perplexity_schema(ontology: &LanguageOntology) -> JsonValue {
-    // Perplexity uses OpenAI-compatible format
-    let tools: Vec<JsonValue> = ontology
-        .builtins
-        .iter()
-        .map(|b| {
-            json!({
-                "type": "function",
-                "function": {
-                    "name": b.name,
-                    "description": b.description,
-                    "parameters": b.json_schema
-                }
-            })
-        })
-        .collect();
+    let tools = ontology_tools(ontology, ToolFormat::OpenAI, "");
 
     json!({
         "format": "perplexity_function_calling",
@@ -2885,21 +2635,7 @@ fn build_perplexity_schema(ontology: &LanguageOntology) -> JsonValue {
 
 /// Build Together AI function calling schema
 fn build_together_schema(ontology: &LanguageOntology) -> JsonValue {
-    // Together uses OpenAI-compatible format
-    let tools: Vec<JsonValue> = ontology
-        .builtins
-        .iter()
-        .map(|b| {
-            json!({
-                "type": "function",
-                "function": {
-                    "name": b.name,
-                    "description": b.description,
-                    "parameters": b.json_schema
-                }
-            })
-        })
-        .collect();
+    let tools = ontology_tools(ontology, ToolFormat::OpenAI, "");
 
     json!({
         "format": "together_function_calling",
@@ -2923,21 +2659,7 @@ fn build_together_schema(ontology: &LanguageOntology) -> JsonValue {
 
 /// Build Groq function calling schema (distinct from xAI Grok)
 fn build_groq_schema(ontology: &LanguageOntology) -> JsonValue {
-    // Groq uses OpenAI-compatible format with fast inference
-    let tools: Vec<JsonValue> = ontology
-        .builtins
-        .iter()
-        .map(|b| {
-            json!({
-                "type": "function",
-                "function": {
-                    "name": b.name,
-                    "description": b.description,
-                    "parameters": b.json_schema
-                }
-            })
-        })
-        .collect();
+    let tools = ontology_tools(ontology, ToolFormat::OpenAI, "");
 
     json!({
         "format": "groq_function_calling",
@@ -2958,21 +2680,7 @@ fn build_groq_schema(ontology: &LanguageOntology) -> JsonValue {
 
 /// Build Fireworks AI function calling schema
 fn build_fireworks_schema(ontology: &LanguageOntology) -> JsonValue {
-    // Fireworks uses OpenAI-compatible format
-    let tools: Vec<JsonValue> = ontology
-        .builtins
-        .iter()
-        .map(|b| {
-            json!({
-                "type": "function",
-                "function": {
-                    "name": b.name,
-                    "description": b.description,
-                    "parameters": b.json_schema
-                }
-            })
-        })
-        .collect();
+    let tools = ontology_tools(ontology, ToolFormat::OpenAI, "");
 
     json!({
         "format": "fireworks_function_calling",
@@ -4439,6 +4147,9 @@ pub fn generate_schema(format: &str) -> Result<String> {
         // Standard formats
         "json" | "jsonschema" | "full" => SchemaFormat::JsonSchema,
         "compact" | "ontology" => SchemaFormat::Ontology,
+        "jsonld" | "json-ld" | "linked_data" => SchemaFormat::JsonLD,
+        "owl" | "rdf" | "turtle" | "owl_turtle" => SchemaFormat::OwlTurtle,
+        "shacl" | "shapes" => SchemaFormat::SHACL,
         
         _ => return Err(anyhow!(
             "Unknown schema format: '{}'. Supported: openai, claude, gemini, llama, mistral, cohere, grok, deepseek, bedrock, azure, qwen, ollama, vllm, huggingface, openrouter, kimi, yi, glm, reka, ai21, perplexity, together, groq, fireworks, json, ontology",

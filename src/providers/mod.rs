@@ -27,6 +27,10 @@
 //! | llama.cpp | `llamacpp:` | `llamacpp:model.gguf` |
 //! | Local/Custom | `local:` | `local:http://localhost:8080` |
 
+// NOTE: bridge.rs and impls/ exist but need trait alignment before compilation.
+// The universal provider routing uses ai.rs's openai_compat backend for now.
+// pub mod bridge;
+// pub mod impls;
 pub mod ontology;
 pub mod platform;
 pub mod registry;
