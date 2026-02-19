@@ -28,7 +28,7 @@ AetherShell (`ae`) is a shell and scripting language written in Rust that elimin
 - **Typed Pipelines**: Data flows as Int, Float, String, Array, Record, Lambda - not raw text
 - **Built-in Ontology**: Commands, arguments, and return types are machine-discoverable without documentation scraping
 - **430+ Builtins**: Organized in 50 namespaced modules (file, sys, net, ai, agent, crypto, db, docker, k8s, vm, terraform, firewall, ...)
-- **AI Integration**: Multi-provider (OpenAI, Anthropic, Ollama, vLLM), multi-modal (images/audio/video)
+- **AI Integration**: Multi-provider (OpenAI, Anthropic, Ollama, LM Studio, vLLM), multi-modal (images/audio/video)
 - **Agent Framework**: Autonomous agents with tool access, swarms with coordinator patterns
 - **Agentic Protocols**: MCP (130+ tools), A2A, A2UI, NANDA
 - **Agent API Server**: HTTP/WebSocket/SSE server with function calling schemas for 25+ AI providers
@@ -82,5 +82,6 @@ GET /api/v1/schema/claude     - Anthropic Claude tool use format
 GET /api/v1/schema/gemini     - Google Gemini function declarations
 GET /api/v1/schema/llama      - Meta Llama format
 GET /api/v1/schema/ollama     - Ollama local format
+GET /api/v1/schema/lmstudio   - LM Studio local format
 GET /api/v1/schema            - Full JSON Schema ontology
 ```

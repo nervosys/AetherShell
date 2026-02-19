@@ -175,7 +175,7 @@ fn multimodal_backend_from_model(uri: String) -> Box<dyn MultiModalLlmBackend> {
     match m.provider {
         Provider::OpenAI => Box::new(OpenAiMultiModalBackend),
         Provider::Ollama => Box::new(OllamaMultiModalBackend),
-        Provider::OpenAICompat => Box::new(OpenAiCompatMultiModalBackend),
+        Provider::OpenAICompat | Provider::LMStudio => Box::new(OpenAiCompatMultiModalBackend),
         _ => Box::new(StubMultiModalBackend),
     }
 }
@@ -564,6 +564,7 @@ pub enum Provider {
     Stub,
     OpenAI,
     Ollama,
+    LMStudio,
     OpenAICompat, // Generic OpenAI-compatible (vLLM, llama.cpp, etc.)
     Tgi,
     VLlm,     // Explicitly vLLM
@@ -586,6 +587,7 @@ pub fn parse_model_ref(s: &str) -> ModelRef {
         let provider = match pfx.trim().to_lowercase().as_str() {
             "openai" => Provider::OpenAI,
             "ollama" => Provider::Ollama,
+            "lmstudio" | "lm_studio" | "lm-studio" => Provider::LMStudio,
             "compat" | "openai_compat" => Provider::OpenAICompat,
             "tgi" => Provider::Tgi,
             "vllm" => Provider::VLlm,
@@ -620,6 +622,10 @@ pub fn parse_model_ref(s: &str) -> ModelRef {
             "llamacpp" | "llama.cpp" | "llama_cpp" => ModelRef {
                 provider: Provider::LlamaCpp,
                 model: std::env::var("LLAMACPP_MODEL").unwrap_or_else(|_| "model".into()),
+            },
+            "lmstudio" | "lm_studio" | "lm-studio" => ModelRef {
+                provider: Provider::LMStudio,
+                model: std::env::var("LMSTUDIO_MODEL").unwrap_or_else(|_| "default".into()),
             },
             _ => ModelRef {
                 provider: Provider::Stub,
@@ -864,6 +870,11 @@ pub fn detect_available_backends() -> Vec<BackendInfo> {
         backends.push(info);
     }
 
+    // Check LM Studio (localhost:1234)
+    if let Ok(info) = detect_lmstudio() {
+        backends.push(info);
+    }
+
     backends
 }
 
@@ -1027,6 +1038,41 @@ fn detect_openai() -> Result<BackendInfo> {
         })
     } else {
         Err(anyhow!("OpenAI API key not configured"))
+    }
+}
+
+fn detect_lmstudio() -> Result<BackendInfo> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(2))
+        .build()?;
+
+    // LM Studio exposes OpenAI-compatible API on :1234
+    let resp = client
+        .get("http://localhost:1234/v1/models")
+        .send()
+        .map_err(|_| anyhow!("LM Studio not reachable"))?;
+
+    if resp.status().is_success() {
+        let body: serde_json::Value = resp.json().unwrap_or_default();
+        let models: Vec<String> = body
+            .get("data")
+            .and_then(|d| d.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|m| m.get("id").and_then(|id| id.as_str()).map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        Ok(BackendInfo {
+            name: "LM Studio".to_string(),
+            provider: Provider::LMStudio,
+            endpoint: "http://localhost:1234".to_string(),
+            available: true,
+            models,
+        })
+    } else {
+        Err(anyhow!("LM Studio not available"))
     }
 }
 
@@ -1200,6 +1246,7 @@ pub fn auto_select_backend() -> Option<String> {
             Provider::LlamaCpp => format!("llamacpp:{}", model),
             Provider::Tgi => "tgi:model".to_string(),
             Provider::OpenAI => "openai:gpt-4o-mini".to_string(),
+            Provider::LMStudio => format!("lmstudio:{}", model),
             _ => continue,
         });
     }
@@ -1218,6 +1265,7 @@ pub fn backend_from_env() -> Box<dyn LlmBackend> {
                 "tgi" => "tgi:mixtral",
                 "vllm" => "vllm:meta-llama/Llama-3-8B",
                 "llamacpp" | "llama.cpp" => "llamacpp:model",
+                "lmstudio" | "lm_studio" | "lm-studio" => "lmstudio:default",
                 "auto" => return auto_select_backend().unwrap_or_else(|| "stub".to_string()),
                 _ => "stub",
             }
@@ -1237,6 +1285,7 @@ pub fn backend_from_model(uri: String) -> Box<dyn LlmBackend> {
         Provider::OpenAI => Box::new(OpenAiBackend),
         Provider::Ollama => Box::new(OllamaBackend),
         Provider::OpenAICompat => Box::new(OpenAiCompatBackend),
+        Provider::LMStudio => Box::new(OpenAiCompatBackend), // LM Studio uses OpenAI-compat API
         Provider::Tgi => Box::new(TgiBackend),
         Provider::VLlm => Box::new(VLlmBackend),
         Provider::LlamaCpp => Box::new(LlamaCppBackend),

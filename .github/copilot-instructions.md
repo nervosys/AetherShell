@@ -19,7 +19,7 @@ AetherShell is a shell built for AI agents. Traditional shells (Bash, PowerShell
 - **`transpile/bash.rs`**: Bash compatibility layer - separate from native AetherShell
 
 ### AI Integration Architecture
-- **`ai.rs`**: Provider-agnostic LLM client with model URIs (`openai:gpt-4o-mini`, `ollama:llama3`)
+- **`ai.rs`**: Provider-agnostic LLM client with model URIs (`openai:gpt-4o-mini`, `ollama:llama3`, `lmstudio:model`)
 - **`ai_api/`**: OpenRouter-style API server with local model management and format conversion
 - **Multi-modal support**: Images, audio, video via `MultiModalContent` and `MultiModalMessage`
 - **Agent framework**: Single agents (`agent`) and swarms with coordinator patterns
@@ -54,6 +54,7 @@ ls "." | where(fn(r) => r.size > 1000) | select("name")
 Use the established URI scheme for model references:
 - `openai:gpt-4o-mini` (OpenAI)
 - `ollama:llama3` (Local Ollama)
+- `lmstudio:model-name` (LM Studio)
 - `compat:mixtral` (Compatibility mode)
 
 ### TUI Component Structure

@@ -188,7 +188,7 @@ crypto.uuid()         math.sqrt(16)      arr.range(10)
 | `GET` | `/api/v1/types` | Type information |
 | `GET` | `/health` | Health check |
 
-Schema formats: `openai`, `claude`, `gemini`, `llama`, `mistral`, `cohere`, `grok`, `deepseek`, `bedrock`, `azure_openai`, `qwen`, `ollama`, `vllm`, `huggingface`, `openrouter`, `together`, `groq`, `fireworks`, `ontology`
+Schema formats: `openai`, `claude`, `gemini`, `llama`, `mistral`, `cohere`, `grok`, `deepseek`, `bedrock`, `azure_openai`, `qwen`, `ollama`, `lmstudio`, `vllm`, `huggingface`, `openrouter`, `together`, `groq`, `fireworks`, `ontology`
 
 ## Development
 

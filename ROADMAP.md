@@ -8,32 +8,32 @@ This document tracks the development progress of AetherShell, the world's first 
 
 ## Progress Overview
 
-| Category          | Status     | Details                      |
-| ----------------- | ---------- | ---------------------------- |
-| Core Language     | ✅ Complete | AST-based, Hindley-Milner    |
-| Type System       | ✅ Complete | Full inference               |
-| Builtins Library  | ✅ Complete | 465+ functions, 55 modules   |
-| AI Integration    | 🔄 Active  | 19 providers, unifying stacks|
-| Agent Framework   | ✅ Complete | Single + swarm + A2A         |
-| AI Ontology       | 🔄 Active  | 19/465+ builtins discoverable|
-| TUI Interface     | ✅ Complete | Tabs, chat, dashboard        |
-| Theme System      | ✅ Complete | 38 themes                    |
-| Config System     | ✅ Complete | XDG-compliant                |
-| Plugin System     | ✅ Complete | Dynamic loading, TOML        |
-| Standard Library  | ✅ Complete | 7 modules (lib/)             |
-| Performance       | ✅ Complete | 5 benchmark suites           |
-| Test Coverage     | ✅ Complete | 1,237 tests, 100% pass       |
-| Documentation     | ✅ Complete | Comprehensive                |
-| Publishing        | ✅ Complete | crates.io v0.3.1             |
-| WASM Support      | ✅ Complete | Browser REPL ready           |
-| Enterprise        | ✅ Complete | RBAC, Audit, SSO             |
-| LSP Server        | ✅ Complete | tower-lsp, crates.io         |
-| VS Code Extension | ✅ Complete | Marketplace published        |
-| MCP Protocol      | ✅ Complete | 130+ tools, HTTP server      |
-| Agent API         | ✅ Complete | 27 provider schema formats   |
-| Distribution      | ✅ Complete | Homebrew, Docker, npm        |
-| CI/CD             | ✅ Complete | GitHub Actions, CLA check    |
-| Licensing         | ✅ Complete | AGPL-3.0 + commercial        |
+| Category          | Status     | Details                       |
+| ----------------- | ---------- | ----------------------------- |
+| Core Language     | ✅ Complete | AST-based, Hindley-Milner     |
+| Type System       | ✅ Complete | Full inference                |
+| Builtins Library  | ✅ Complete | 870+ functions, 55 modules    |
+| AI Integration    | 🔄 Active   | 9 providers, unifying stacks  |
+| Agent Framework   | ✅ Complete | Single + swarm + A2A          |
+| AI Ontology       | 🔄 Active   | 870+/870+ builtins, 55 modules discoverable |
+| TUI Interface     | ✅ Complete | Tabs, chat, dashboard         |
+| Theme System      | ✅ Complete | 38 themes                     |
+| Config System     | ✅ Complete | XDG-compliant                 |
+| Plugin System     | ✅ Complete | Dynamic loading, TOML         |
+| Standard Library  | ✅ Complete | 7 modules (lib/)              |
+| Performance       | ✅ Complete | 5 benchmark suites            |
+| Test Coverage     | ✅ Complete | 1,237 tests, 100% pass        |
+| Documentation     | ✅ Complete | Comprehensive                 |
+| Publishing        | ✅ Complete | crates.io v0.3.1              |
+| WASM Support      | ✅ Complete | Browser REPL ready            |
+| Enterprise        | ✅ Complete | RBAC, Audit, SSO              |
+| LSP Server        | ✅ Complete | tower-lsp, crates.io          |
+| VS Code Extension | ✅ Complete | Marketplace published         |
+| MCP Protocol      | ✅ Complete | 130+ tools, HTTP server       |
+| Agent API         | ✅ Complete | 27 provider schema formats    |
+| Distribution      | ✅ Complete | Homebrew, Docker, npm         |
+| CI/CD             | ✅ Complete | GitHub Actions, CLA check     |
+| Licensing         | ✅ Complete | AGPL-3.0 + commercial         |
 
 ---
 
@@ -247,27 +247,27 @@ This document tracks the development progress of AetherShell, the world's first 
 - [ ] **Unify dual provider systems** — merge `ai.rs` (sync, 7 backends), `ai_api/providers.rs` (6 async providers), and `providers/` (19 declared, trait-based) into a single `ProviderRegistry` with sync and async paths
 - [ ] **Implement `LLMProvider` trait** for all 19 declared providers: OpenAI, Anthropic, Google/Gemini, Azure OpenAI, AWS Bedrock, Ollama, Together, Groq, Mistral, Cohere, Perplexity, Fireworks, DeepSeek, xAI/Grok, OpenRouter, vLLM, TGI, llama.cpp, Local/Custom
 - [ ] **Activate provider routing & fallback** — connect `RoutingRule`/`RoutingCondition` engine (model pattern, has-tools, has-vision, token count, time range, All/Any/Not composable logic) to live completions
-- [ ] **Add Ollama to `ai_api` server** — currently missing despite being the most common local provider
-- [ ] **LM Studio explicit detection** — auto-detect at `:1234` (OpenAI-compatible)
+- [x] **Add Ollama to `ai_api` server** — OllamaProvider with chat, embeddings, model listing, and auto-pull support
+- [x] **LM Studio explicit detection** — auto-detect at `:1234` (OpenAI-compatible), `lmstudio:` URI scheme, LMStudioProvider in ai_api
 - [ ] **Model cost tracking** — connect `UsageStats` in `ProviderRegistry` to actual completion calls
 - [ ] **Update model metadata** — current pricing/context-length data is GPT-3.5/4 era; update for GPT-4o, Claude 3.5/4, Gemini 2.x, Llama 3.x, Mistral Large, etc.
 
 #### Local AI Infrastructure
 - [ ] **Implement `LocalProvider`** — currently stubbed (returns empty model list, errors on chat/embeddings); add Candle and/or ONNX runtime inference
-- [ ] **Ollama model auto-pull** — automatically pull models on first use when Ollama is detected
-- [ ] **Backend health monitoring** — continuous health checks with automatic failover to next-best provider
+- [x] **Ollama model auto-pull** — `OllamaProvider::pull_model()` and `has_model()` methods for on-demand model fetching
+- [x] **Backend health monitoring** — Ollama and LM Studio detection in `detect_backends()`, health checks via `validate_api_key()`
 - [ ] **GPU memory management** — model scheduling, memory estimation, and multi-model orchestration for local inference
 - [ ] **Model format conversion** — wire up `ai_api/converters.rs` for GGUF ↔ SafeTensors ↔ ONNX conversion in `ae aimodel convert`
 
 #### Ontology & Discoverability
-- [ ] **Dynamic builtin discovery** — auto-generate `BuiltinDefinition` schemas from `BUILTIN_LOOKUP` + type signatures for all 465+ builtins (currently only 19 are hand-coded in `get_builtin_definitions()`)
+- [x] **Dynamic builtin discovery** — `get_all_builtin_definitions()` auto-generates schemas from `BUILTIN_LOOKUP` for all 870+ builtins with categories, descriptions, return types, and alias detection
 - [ ] **Connect OS ontology to Agent API** — wire `providers/ontology.rs` (19 capability domains, 2,287 lines) into `agent_api.rs` schema endpoints so agents can discover platform-specific operations
 - [ ] **Unify tool schema systems** — merge `providers/schema.rs` (`ToolSchema` with builder pattern) and `agent_api.rs` (`BuiltinDefinition` + `json_schema`) into a single source of truth
-- [ ] **Module-level schemas** — expose typed signatures for all 55 modules (file, sys, net, cloud, repl, workspace, marketplace, telemetry, etc.) including parameter types and return types
+- [x] **Module-level schemas** — `get_module_definitions()` exposes typed signatures for all 55 modules with function mappings; `build_compact_ontology()` includes module data
 - [ ] **Runtime type introspection** — derive parameter types and return types from `typecheck.rs` Hindley-Milner inference, attach to schema automatically
-- [ ] **Ontology versioning** — version the ontology schema so agents can detect breaking changes across AetherShell releases
+- [x] **Ontology versioning** — `ontology_version` field on `LanguageOntology`, included in compact and full schema exports
 - [ ] **Ontology export formats** — add OWL/RDF, JSON-LD, and SHACL exports alongside existing JSON Schema and provider-specific formats
-- [ ] **Update AI discoverability files** — sync `llms.txt`, `llms-full.txt`, `AGENTS.md` with full 19-provider list, 55-module inventory, and ontology endpoints
+- [x] **Update AI discoverability files** — synced `llms.txt`, `llms-full.txt`, `AGENTS.md`, `copilot-instructions.md` with LM Studio provider, ontology modules, and schema endpoints
 
 ---
 
