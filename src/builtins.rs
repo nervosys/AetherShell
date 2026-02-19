@@ -13946,11 +13946,19 @@ fn bi_proc_children(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                return Ok(json_to_value(json));
+                let items = match &json {
+                    serde_json::Value::Array(arr) => arr.clone(),
+                    obj @ serde_json::Value::Object(_) => vec![obj.clone()],
+                    _ => vec![],
+                };
+                let children: Vec<Value> = items.iter().filter_map(|obj| {
+                    obj.as_object()?.get("ProcessId")?.as_i64().map(Value::Int)
+                }).collect();
+                return Ok(Value::Array(children));
             }
         }
     }
-    #[cfg(target_os = "linux")]
+    #[cfg(not(target_os = "windows"))]
     {
         let output = std::process::Command::new("pgrep")
             .args(["-P", &pid.to_string()])
@@ -15284,7 +15292,27 @@ fn bi_net_ip(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                return Ok(json_to_value(json));
+                let items = match &json {
+                    serde_json::Value::Array(arr) => arr.clone(),
+                    obj @ serde_json::Value::Object(_) => vec![obj.clone()],
+                    _ => vec![],
+                };
+                let addrs: Vec<Value> = items.iter().filter_map(|obj| {
+                    let o = obj.as_object()?;
+                    let mut rec = std::collections::BTreeMap::new();
+                    if let Some(v) = o.get("IPAddress") { rec.insert("ip".to_string(), json_to_value(v.clone())); }
+                    if let Some(v) = o.get("InterfaceAlias") { rec.insert("interface".to_string(), json_to_value(v.clone())); }
+                    Some(Value::Record(rec))
+                }).collect();
+                if addrs.len() == 1 {
+                    // Single interface: return just the IP string for consistency with Linux/macOS
+                    if let Some(Value::Record(rec)) = addrs.first() {
+                        if let Some(ip) = rec.get("ip") {
+                            return Ok(ip.clone());
+                        }
+                    }
+                }
+                return Ok(Value::Array(addrs));
             }
         }
     }
@@ -15337,7 +15365,15 @@ fn bi_net_dns_lookup(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                return Ok(json_to_value(json));
+                let items = match &json {
+                    serde_json::Value::Array(arr) => arr.clone(),
+                    obj @ serde_json::Value::Object(_) => vec![obj.clone()],
+                    _ => vec![],
+                };
+                let ips: Vec<Value> = items.iter().filter_map(|obj| {
+                    obj.as_object()?.get("IPAddress")?.as_str().map(|s| Value::Str(s.to_string()))
+                }).collect();
+                return Ok(Value::Array(ips));
             }
         }
     }
@@ -15380,7 +15416,16 @@ fn bi_net_dns_reverse(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                return Ok(json_to_value(json));
+                let items = match &json {
+                    serde_json::Value::Array(arr) => arr.clone(),
+                    obj @ serde_json::Value::Object(_) => vec![obj.clone()],
+                    _ => vec![],
+                };
+                for obj in &items {
+                    if let Some(name) = obj.as_object().and_then(|o| o.get("NameHost")).and_then(|v| v.as_str()) {
+                        return Ok(Value::Str(name.to_string()));
+                    }
+                }
             }
         }
     }
@@ -15473,7 +15518,32 @@ fn bi_net_connections(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                return Ok(json_to_value(json));
+                let items = match &json {
+                    serde_json::Value::Array(arr) => arr.clone(),
+                    obj @ serde_json::Value::Object(_) => vec![obj.clone()],
+                    _ => vec![],
+                };
+                let conns: Vec<Value> = items.iter().filter_map(|obj| {
+                    let o = obj.as_object()?;
+                    let mut rec = std::collections::BTreeMap::new();
+                    // Map Windows State codes to readable strings
+                    let state = match o.get("State").and_then(|v| v.as_i64()) {
+                        Some(1) => "closed", Some(2) => "listen", Some(3) => "syn_sent",
+                        Some(4) => "syn_received", Some(5) => "established", Some(6) => "fin_wait_1",
+                        Some(7) => "fin_wait_2", Some(8) => "close_wait", Some(9) => "closing",
+                        Some(10) => "last_ack", Some(11) => "time_wait", Some(12) => "delete_tcb",
+                        _ => "unknown",
+                    };
+                    rec.insert("state".to_string(), Value::Str(state.to_string()));
+                    let local_addr = o.get("LocalAddress").and_then(|v| v.as_str()).unwrap_or("");
+                    let local_port = o.get("LocalPort").and_then(|v| v.as_i64()).unwrap_or(0);
+                    rec.insert("local".to_string(), Value::Str(format!("{}:{}", local_addr, local_port)));
+                    let remote_addr = o.get("RemoteAddress").and_then(|v| v.as_str()).unwrap_or("");
+                    let remote_port = o.get("RemotePort").and_then(|v| v.as_i64()).unwrap_or(0);
+                    rec.insert("peer".to_string(), Value::Str(format!("{}:{}", remote_addr, remote_port)));
+                    Some(Value::Record(rec))
+                }).collect();
+                return Ok(Value::Array(conns));
             }
         }
     }
@@ -16329,7 +16399,20 @@ fn bi_sys_users(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                return Ok(json_to_value(json));
+                let items = match &json {
+                    serde_json::Value::Array(arr) => arr.clone(),
+                    obj @ serde_json::Value::Object(_) => vec![obj.clone()],
+                    _ => vec![],
+                };
+                let users: Vec<Value> = items.iter().filter_map(|obj| {
+                    let o = obj.as_object()?;
+                    let mut rec = std::collections::BTreeMap::new();
+                    if let Some(v) = o.get("Name") { rec.insert("name".to_string(), json_to_value(v.clone())); }
+                    if let Some(v) = o.get("Enabled") { rec.insert("enabled".to_string(), json_to_value(v.clone())); }
+                    if let Some(v) = o.get("LastLogon") { rec.insert("last_logon".to_string(), json_to_value(v.clone())); }
+                    Some(Value::Record(rec))
+                }).collect();
+                return Ok(Value::Array(users));
             }
         }
     }
@@ -16370,7 +16453,19 @@ fn bi_sys_groups(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                return Ok(json_to_value(json));
+                let items = match &json {
+                    serde_json::Value::Array(arr) => arr.clone(),
+                    obj @ serde_json::Value::Object(_) => vec![obj.clone()],
+                    _ => vec![],
+                };
+                let groups: Vec<Value> = items.iter().filter_map(|obj| {
+                    let o = obj.as_object()?;
+                    let mut rec = std::collections::BTreeMap::new();
+                    if let Some(v) = o.get("Name") { rec.insert("name".to_string(), json_to_value(v.clone())); }
+                    if let Some(v) = o.get("Description") { rec.insert("description".to_string(), json_to_value(v.clone())); }
+                    Some(Value::Record(rec))
+                }).collect();
+                return Ok(Value::Array(groups));
             }
         }
     }
@@ -16986,7 +17081,20 @@ fn bi_startup_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                return Ok(json_to_value(json));
+                let items = match &json {
+                    serde_json::Value::Array(arr) => arr.clone(),
+                    obj @ serde_json::Value::Object(_) => vec![obj.clone()],
+                    _ => vec![],
+                };
+                let startup: Vec<Value> = items.iter().filter_map(|obj| {
+                    let o = obj.as_object()?;
+                    let mut rec = std::collections::BTreeMap::new();
+                    if let Some(v) = o.get("Name") { rec.insert("name".to_string(), json_to_value(v.clone())); }
+                    if let Some(v) = o.get("Command") { rec.insert("command".to_string(), json_to_value(v.clone())); }
+                    if let Some(v) = o.get("Location") { rec.insert("location".to_string(), json_to_value(v.clone())); }
+                    Some(Value::Record(rec))
+                }).collect();
+                return Ok(Value::Array(startup));
             }
         }
     }
@@ -16998,11 +17106,45 @@ fn bi_startup_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 "--type=service",
                 "--state=enabled",
                 "--no-pager",
+                "--no-legend",
             ])
             .output()?;
-        return Ok(Value::Str(
-            String::from_utf8_lossy(&output.stdout).to_string(),
-        ));
+        if output.status.success() {
+            let text = String::from_utf8_lossy(&output.stdout);
+            let services: Vec<Value> = text.lines()
+                .filter(|l| !l.trim().is_empty())
+                .map(|l| {
+                    let parts: Vec<&str> = l.split_whitespace().collect();
+                    let mut rec = std::collections::BTreeMap::new();
+                    rec.insert("name".to_string(), Value::Str(parts.first().unwrap_or(&"").to_string()));
+                    rec.insert("state".to_string(), Value::Str(parts.get(1).unwrap_or(&"").to_string()));
+                    Value::Record(rec)
+                })
+                .collect();
+            return Ok(Value::Array(services));
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let output = std::process::Command::new("launchctl")
+            .args(["list"])
+            .output()?;
+        if output.status.success() {
+            let text = String::from_utf8_lossy(&output.stdout);
+            let services: Vec<Value> = text.lines()
+                .skip(1) // skip header
+                .filter(|l| !l.trim().is_empty())
+                .map(|l| {
+                    let parts: Vec<&str> = l.split('\t').collect();
+                    let mut rec = std::collections::BTreeMap::new();
+                    rec.insert("pid".to_string(), Value::Str(parts.first().unwrap_or(&"").trim().to_string()));
+                    rec.insert("exit_code".to_string(), Value::Str(parts.get(1).unwrap_or(&"").trim().to_string()));
+                    rec.insert("name".to_string(), Value::Str(parts.get(2).unwrap_or(&"").trim().to_string()));
+                    Value::Record(rec)
+                })
+                .collect();
+            return Ok(Value::Array(services));
+        }
     }
     Ok(Value::Array(vec![]))
 }
@@ -17474,7 +17616,15 @@ fn bi_group_members(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                return Ok(json_to_value(json));
+                let items = match &json {
+                    serde_json::Value::Array(arr) => arr.clone(),
+                    obj @ serde_json::Value::Object(_) => vec![obj.clone()],
+                    _ => vec![],
+                };
+                let members: Vec<Value> = items.iter().filter_map(|obj| {
+                    obj.as_object()?.get("Name")?.as_str().map(|s| Value::Str(s.to_string()))
+                }).collect();
+                return Ok(Value::Array(members));
             }
         }
     }
