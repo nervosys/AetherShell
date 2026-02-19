@@ -1351,6 +1351,247 @@ pub fn nmap_module() -> Value {
     ])
 }
 
+// ============================================================
+// CLI Tool Wrapper Modules — Tools 51-150
+// ============================================================
+
+pub fn tmux_module() -> Value {
+    module(&[
+        ("new", "tmux_new"),
+        ("list", "tmux_list"),
+        ("attach", "tmux_attach"),
+        ("send", "tmux_send"),
+    ])
+}
+
+pub fn screen_module() -> Value {
+    module(&[
+        ("new", "screen_new"),
+        ("list", "screen_list"),
+        ("attach", "screen_attach"),
+    ])
+}
+
+pub fn valgrind_module() -> Value {
+    module(&[
+        ("run", "valgrind_run"),
+        ("memcheck", "valgrind_memcheck"),
+    ])
+}
+
+pub fn gdb_module() -> Value {
+    module(&[
+        ("run", "gdb_run"),
+        ("bt", "gdb_bt"),
+    ])
+}
+
+pub fn objdump_module() -> Value {
+    module(&[
+        ("disasm", "objdump_disasm"),
+        ("headers", "objdump_headers"),
+    ])
+}
+
+pub fn readelf_module() -> Value {
+    module(&[
+        ("headers", "readelf_headers"),
+        ("sections", "readelf_sections"),
+    ])
+}
+
+pub fn zoxide_module() -> Value {
+    module(&[
+        ("add", "zoxide_add"),
+        ("query", "zoxide_query"),
+    ])
+}
+
+pub fn just_module() -> Value {
+    module(&[
+        ("run", "just_run"),
+        ("list", "just_list"),
+    ])
+}
+
+pub fn taskfile_module() -> Value {
+    module(&[
+        ("run", "task_run"),
+        ("list", "task_list"),
+    ])
+}
+
+pub fn direnv_module() -> Value {
+    module(&[
+        ("allow", "direnv_allow"),
+        ("status", "direnv_status"),
+    ])
+}
+
+pub fn asdf_module() -> Value {
+    module(&[
+        ("list", "asdf_list"),
+        ("install", "asdf_install"),
+    ])
+}
+
+pub fn mise_module() -> Value {
+    module(&[
+        ("use_version", "mise_use"),
+        ("list", "mise_list"),
+    ])
+}
+
+pub fn uv_module() -> Value {
+    module(&[
+        ("run", "uv_run"),
+        ("pip", "uv_pip"),
+        ("venv", "uv_venv"),
+    ])
+}
+
+pub fn pipx_module() -> Value {
+    module(&[
+        ("install", "pipx_install"),
+        ("list", "pipx_list"),
+    ])
+}
+
+pub fn poetry_module() -> Value {
+    module(&[
+        ("run", "poetry_run"),
+        ("install", "poetry_install"),
+    ])
+}
+
+pub fn node_module() -> Value {
+    module(&[
+        ("run", "node_run"),
+    ])
+}
+
+pub fn npm_module() -> Value {
+    module(&[
+        ("run", "npm_run"),
+        ("install", "npm_install"),
+    ])
+}
+
+pub fn pnpm_module() -> Value {
+    module(&[
+        ("run", "pnpm_run"),
+        ("install", "pnpm_install"),
+    ])
+}
+
+pub fn yarn_module() -> Value {
+    module(&[
+        ("run", "yarn_run"),
+        ("install", "yarn_install"),
+    ])
+}
+
+pub fn cargo_module() -> Value {
+    module(&[
+        ("run", "cargo_run"),
+        ("build", "cargo_build_cmd"),
+        ("test", "cargo_test_cmd"),
+    ])
+}
+
+pub fn rustup_module() -> Value {
+    module(&[
+        ("show", "rustup_show"),
+        ("update", "rustup_update"),
+    ])
+}
+
+pub fn go_module() -> Value {
+    module(&[
+        ("run", "go_run"),
+        ("build", "go_build"),
+        ("test", "go_test"),
+    ])
+}
+
+pub fn bun_module() -> Value {
+    module(&[
+        ("run", "bun_run"),
+        ("install", "bun_install"),
+    ])
+}
+
+pub fn deno_module() -> Value {
+    module(&[
+        ("run", "deno_run"),
+        ("task", "deno_task"),
+    ])
+}
+
+pub fn gh_module() -> Value {
+    module(&[
+        ("pr", "gh_pr"),
+        ("issue", "gh_issue"),
+        ("repo", "gh_repo_cmd"),
+    ])
+}
+
+pub fn glab_module() -> Value {
+    module(&[
+        ("mr", "glab_mr"),
+        ("issue", "glab_issue"),
+    ])
+}
+
+pub fn pre_commit_module() -> Value {
+    module(&[
+        ("run", "pre_commit_run"),
+        ("install", "pre_commit_install"),
+    ])
+}
+
+pub fn buildah_module() -> Value {
+    module(&[
+        ("build", "buildah_build"),
+        ("images", "buildah_images"),
+    ])
+}
+
+pub fn skopeo_module() -> Value {
+    module(&[
+        ("copy", "skopeo_copy"),
+        ("inspect", "skopeo_inspect"),
+    ])
+}
+
+pub fn trivy_module() -> Value {
+    module(&[
+        ("scan", "trivy_scan"),
+        ("image", "trivy_image"),
+    ])
+}
+
+pub fn ruff_module() -> Value {
+    module(&[
+        ("check", "ruff_check"),
+        ("format", "ruff_format"),
+    ])
+}
+
+pub fn iperf3_module() -> Value {
+    module(&[
+        ("server", "iperf3_server"),
+        ("client", "iperf3_client"),
+    ])
+}
+
+pub fn nc_module() -> Value {
+    module(&[
+        ("connect", "nc_connect"),
+        ("listen", "nc_listen"),
+    ])
+}
+
 pub fn all_modules() -> Vec<(&'static str, Value)> {
     vec![
         ("sys", sys_module()),
@@ -1432,5 +1673,40 @@ pub fn all_modules() -> Vec<(&'static str, Value)> {
         ("cmake", cmake_module()),
         ("ninja", ninja_module()),
         ("nmap", nmap_module()),
+        // ── CLI Tool Wrapper Modules (Tools 51-150) ─────────────
+        ("tmux", tmux_module()),
+        ("screen", screen_module()),
+        ("valgrind", valgrind_module()),
+        ("gdb", gdb_module()),
+        ("objdump", objdump_module()),
+        ("readelf", readelf_module()),
+        ("zoxide", zoxide_module()),
+        ("just", just_module()),
+        ("taskfile", taskfile_module()),
+        ("direnv", direnv_module()),
+        ("asdf", asdf_module()),
+        ("mise", mise_module()),
+        ("uv", uv_module()),
+        ("pipx", pipx_module()),
+        ("poetry", poetry_module()),
+        ("node", node_module()),
+        ("npm", npm_module()),
+        ("pnpm", pnpm_module()),
+        ("yarn", yarn_module()),
+        ("cargo", cargo_module()),
+        ("rustup", rustup_module()),
+        ("go", go_module()),
+        ("bun", bun_module()),
+        ("deno", deno_module()),
+        ("gh", gh_module()),
+        ("glab", glab_module()),
+        ("pre_commit", pre_commit_module()),
+        ("buildah", buildah_module()),
+        ("skopeo", skopeo_module()),
+        ("trivy", trivy_module()),
+        ("ruff", ruff_module()),
+        ("iperf3", iperf3_module()),
+        ("nc", nc_module()),
+        ("netcat", nc_module()),
     ]
 }
