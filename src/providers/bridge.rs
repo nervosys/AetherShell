@@ -5,8 +5,8 @@
 
 use crate::ai::{self, ChatMessage, ModelRef, Provider as LegacyProvider};
 use crate::providers::{
-    self, create_provider, ChatRequest, ChatResponse, LLMProvider, Message, ModelUri,
-    ProviderConfig, ProviderType,
+    impls::create_provider, ChatRequest, EmbeddingRequest, LLMProvider, Message, ModelUri,
+    ProviderConfig, ProviderType, Role,
 };
 use anyhow::{anyhow, Result};
 use std::sync::Arc;
@@ -21,6 +21,7 @@ pub fn legacy_to_provider_type(legacy: &LegacyProvider) -> ProviderType {
         LegacyProvider::Tgi => ProviderType::TGI,
         LegacyProvider::VLlm => ProviderType::VLLM,
         LegacyProvider::LlamaCpp => ProviderType::LlamaCpp,
+        LegacyProvider::LMStudio => ProviderType::Local,
         LegacyProvider::Stub => ProviderType::Local,
     }
 }
@@ -58,14 +59,28 @@ pub fn uri_to_model_ref(uri: &ModelUri) -> ModelRef {
 
 /// Convert legacy ChatMessage to new Message
 pub fn chat_message_to_message(cm: &ChatMessage) -> Message {
-    Message::new(&cm.role, &cm.content)
+    let role = match cm.role.as_str() {
+        "system" => Role::System,
+        "assistant" => Role::Assistant,
+        "tool" => Role::Tool,
+        "function" => Role::Function,
+        _ => Role::User,
+    };
+    Message::text(role, &cm.content)
 }
 
 /// Convert new Message to legacy ChatMessage
 pub fn message_to_chat_message(msg: &Message) -> ChatMessage {
+    let role = match msg.role {
+        Role::System => "system",
+        Role::User => "user",
+        Role::Assistant => "assistant",
+        Role::Tool => "tool",
+        Role::Function => "function",
+    };
     ChatMessage {
-        role: msg.role.clone(),
-        content: msg.text(),
+        role: role.to_string(),
+        content: msg.text_content(),
     }
 }
 
@@ -77,26 +92,22 @@ pub fn complete_with_provider(prompt: &str, model_uri: Option<&str>) -> Result<S
     let uri = if let Some(uri_str) = model_uri {
         ModelUri::parse(uri_str)?
     } else {
-        // Fall back to environment-configured default
         let aether_ai = std::env::var("AETHER_AI").unwrap_or_else(|_| "openai".to_string());
         let model_ref = ai::parse_model_ref(&aether_ai);
         model_ref_to_uri(&model_ref)
     };
 
-    let config = ProviderConfig::from_env(uri.provider);
+    let config = ProviderConfig::from_env(uri.provider).with_env_key();
     let provider = create_provider(config);
 
-    // Create runtime and execute
     let rt = Runtime::new().map_err(|e| anyhow!("Failed to create async runtime: {}", e))?;
 
-    let request = ChatRequest::simple(uri, prompt);
+    let request = ChatRequest::new(uri, vec![Message::user(prompt)]);
     let response = rt
         .block_on(provider.chat(request))
         .map_err(|e| anyhow!("Provider error: {}", e))?;
 
-    response
-        .content
-        .ok_or_else(|| anyhow!("No content in response"))
+    Ok(response.text())
 }
 
 /// Chat with messages using the new provider system
@@ -109,7 +120,7 @@ pub fn chat_with_provider(messages: &[ChatMessage], model_uri: Option<&str>) -> 
         model_ref_to_uri(&model_ref)
     };
 
-    let config = ProviderConfig::from_env(uri.provider);
+    let config = ProviderConfig::from_env(uri.provider).with_env_key();
     let provider = create_provider(config);
 
     let msgs: Vec<Message> = messages.iter().map(chat_message_to_message).collect();
@@ -120,15 +131,13 @@ pub fn chat_with_provider(messages: &[ChatMessage], model_uri: Option<&str>) -> 
         .block_on(provider.chat(request))
         .map_err(|e| anyhow!("Provider error: {}", e))?;
 
-    response
-        .content
-        .ok_or_else(|| anyhow!("No content in response"))
+    Ok(response.text())
 }
 
 /// Get available models from a provider
 pub fn list_provider_models(provider_uri: &str) -> Result<Vec<String>> {
     let provider_type = ProviderType::from_scheme(provider_uri)?;
-    let config = ProviderConfig::from_env(provider_type);
+    let config = ProviderConfig::from_env(provider_type).with_env_key();
     let provider = create_provider(config);
 
     let rt = Runtime::new().map_err(|e| anyhow!("Failed to create async runtime: {}", e))?;
@@ -141,21 +150,19 @@ pub fn list_provider_models(provider_uri: &str) -> Result<Vec<String>> {
 
 /// Create embeddings using the new provider system
 pub fn embed_with_provider(texts: &[String], model_uri: Option<&str>) -> Result<Vec<Vec<f32>>> {
-    use crate::providers::EmbeddingRequest;
-
     let uri = if let Some(uri_str) = model_uri {
         ModelUri::parse(uri_str)?
     } else {
-        // Default to OpenAI embeddings
         ModelUri::parse("openai:text-embedding-3-small")?
     };
 
-    let config = ProviderConfig::from_env(uri.provider);
+    let config = ProviderConfig::from_env(uri.provider).with_env_key();
     let provider = create_provider(config);
 
     let request = EmbeddingRequest {
         model: uri,
         input: texts.to_vec(),
+        encoding_format: None,
         dimensions: None,
     };
 
@@ -175,7 +182,7 @@ pub struct UniversalBackend {
 
 impl UniversalBackend {
     pub fn new(model_uri: ModelUri) -> Self {
-        let config = ProviderConfig::from_env(model_uri.provider);
+        let config = ProviderConfig::from_env(model_uri.provider).with_env_key();
         let provider = create_provider(config);
         Self {
             provider,
@@ -199,7 +206,7 @@ impl ai::LlmBackend for UniversalBackend {
             .block_on(self.provider.chat(request))
             .map_err(|e| anyhow!("{}", e))?;
 
-        response.content.ok_or_else(|| anyhow!("No content"))
+        Ok(response.text())
     }
 }
 
@@ -237,7 +244,7 @@ mod tests {
             content: "Hello".to_string(),
         };
         let msg = chat_message_to_message(&cm);
-        assert_eq!(msg.role, "user");
-        assert_eq!(msg.text(), "Hello");
+        assert_eq!(msg.role, Role::User);
+        assert_eq!(msg.text_content(), "Hello");
     }
 }

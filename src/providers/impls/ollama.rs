@@ -3,15 +3,14 @@
 //! Local LLM provider using Ollama's API
 
 use async_trait::async_trait;
-use futures::Stream;
 use reqwest::Client;
 use serde_json::{json, Value as JsonValue};
-use std::pin::Pin;
+use std::collections::HashMap;
 
 use crate::providers::{
-    ChatRequest, ChatResponse, ContentPart, EmbeddingRequest, EmbeddingResponse, LLMProvider,
-    Message, ModelInfo, ModelUri, ProviderConfig, ProviderError, ProviderType, StreamChunk,
-    ToolCall, ToolSchema, Usage,
+    ChatRequest, ChatResponse, ChatStream, ContentPart, EmbeddingRequest, EmbeddingResponse,
+    FinishReason, ImageSource, LLMProvider, Message, ModelInfo, ProviderConfig,
+    ProviderError, ProviderType, Role, TokenUsage, ToolCall, ToolFormat, ToolSchema,
 };
 
 /// Ollama local LLM provider
@@ -39,9 +38,16 @@ impl OllamaProvider {
         messages
             .iter()
             .map(|msg| {
+                let role = match msg.role {
+                    Role::System => "system",
+                    Role::Assistant => "assistant",
+                    Role::Tool | Role::Function => "tool",
+                    _ => "user",
+                };
+
                 let mut msg_obj = json!({
-                    "role": msg.role,
-                    "content": msg.text(),
+                    "role": role,
+                    "content": msg.text_content(),
                 });
 
                 // Handle images for vision models
@@ -49,8 +55,11 @@ impl OllamaProvider {
                     .content
                     .iter()
                     .filter_map(|part| {
-                        if let ContentPart::Image { data, .. } = part {
-                            data.clone()
+                        if let ContentPart::Image { source } = part {
+                            match source {
+                                ImageSource::Base64 { data, .. } => Some(data.clone()),
+                                _ => None,
+                            }
                         } else {
                             None
                         }
@@ -85,135 +94,32 @@ impl OllamaProvider {
 
 #[async_trait]
 impl LLMProvider for OllamaProvider {
-    fn name(&self) -> &str {
-        "Ollama"
+    fn provider_type(&self) -> ProviderType {
+        ProviderType::Ollama
     }
 
     fn config(&self) -> &ProviderConfig {
         &self.config
     }
 
-    async fn chat(&self, request: ChatRequest) -> Result<ChatResponse, ProviderError> {
-        let url = format!("{}/api/chat", self.base_url());
-
-        let mut body = json!({
-            "model": request.model.model,
-            "messages": self.build_messages(&request.messages),
-            "stream": false,
-        });
-
-        if let Some(temp) = request.temperature {
-            body["options"] = json!({"temperature": temp});
-        }
-
-        if !request.tools.is_empty() {
-            body["tools"] = json!(self.build_tools(&request.tools));
-        }
-
-        let response = self
-            .client
-            .post(&url)
-            .header("Content-Type", "application/json")
-            .json(&body)
+    async fn is_available(&self) -> bool {
+        let url = format!("{}/api/tags", self.base_url());
+        self.client
+            .get(&url)
             .send()
             .await
-            .map_err(|e| ProviderError::Network {
-                message: e.to_string(),
-            })?;
-
-        if !response.status().is_success() {
-            let status = response.status().as_u16();
-            let text = response.text().await.unwrap_or_default();
-            return Err(ProviderError::Api {
-                status,
-                message: text,
-            });
-        }
-
-        let json: JsonValue = response.json().await.map_err(|e| ProviderError::Unknown {
-            message: e.to_string(),
-        })?;
-
-        self.parse_response(&json)
+            .map(|r| r.status().is_success())
+            .unwrap_or(false)
     }
 
-    async fn chat_stream(
-        &self,
-        _request: ChatRequest,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamChunk, ProviderError>> + Send>>, ProviderError>
-    {
-        Err(ProviderError::Unsupported {
-            feature: "streaming".to_string(),
-        })
-    }
-
-    async fn embed(&self, request: EmbeddingRequest) -> Result<EmbeddingResponse, ProviderError> {
-        let url = format!("{}/api/embed", self.base_url());
-
-        // Ollama expects a single prompt for embedding
-        let prompt = request.input.join(" ");
-
-        let body = json!({
-            "model": request.model.model,
-            "input": prompt,
-        });
-
-        let response = self
-            .client
-            .post(&url)
-            .header("Content-Type", "application/json")
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| ProviderError::Network {
-                message: e.to_string(),
-            })?;
-
-        if !response.status().is_success() {
-            let status = response.status().as_u16();
-            let text = response.text().await.unwrap_or_default();
-            return Err(ProviderError::Api {
-                status,
-                message: text,
-            });
+    async fn validate_credentials(&self) -> Result<(), ProviderError> {
+        if self.is_available().await {
+            Ok(())
+        } else {
+            Err(ProviderError::Unavailable {
+                message: "Ollama is not running at the configured address".to_string(),
+            })
         }
-
-        let json: JsonValue = response.json().await.map_err(|e| ProviderError::Unknown {
-            message: e.to_string(),
-        })?;
-
-        let embeddings = json["embeddings"]
-            .as_array()
-            .or_else(|| {
-                json["embedding"].as_array().map(|arr| {
-                    // Single embedding case - wrap in array
-                    vec![json!(arr
-                        .iter()
-                        .filter_map(|v| v.as_f64())
-                        .collect::<Vec<_>>())]
-                    .leak()
-                })
-            })
-            .ok_or_else(|| ProviderError::Unknown {
-                message: "Invalid response".to_string(),
-            })?
-            .iter()
-            .map(|emb| {
-                emb.as_array()
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|v| v.as_f64().map(|f| f as f32))
-                            .collect()
-                    })
-                    .unwrap_or_default()
-            })
-            .collect();
-
-        Ok(EmbeddingResponse {
-            embeddings,
-            model: request.model.model.clone(),
-            usage: None,
-        })
     }
 
     async fn list_models(&self) -> Result<Vec<ModelInfo>, ProviderError> {
@@ -224,7 +130,7 @@ impl LLMProvider for OllamaProvider {
             .get(&url)
             .send()
             .await
-            .map_err(|e| ProviderError::Network {
+            .map_err(|e| ProviderError::NetworkError {
                 message: e.to_string(),
             })?;
 
@@ -242,15 +148,24 @@ impl LLMProvider for OllamaProvider {
                 arr.iter()
                     .filter_map(|m| {
                         let name = m["name"].as_str()?.to_string();
+                        let size = m["size"].as_u64().unwrap_or(0);
                         Some(ModelInfo {
                             id: name.clone(),
                             name,
                             provider: ProviderType::Ollama,
-                            context_window: None,
-                            max_output: None,
-                            supports_tools: Some(true),
-                            supports_vision: None, // Depends on model
-                            supports_streaming: Some(true),
+                            context_length: 128_000, // Most modern Ollama models
+                            max_output_tokens: None,
+                            supports_tools: true,
+                            supports_vision: false,
+                            supports_audio: false,
+                            supports_json_mode: true,
+                            input_cost_per_million: Some(0.0),
+                            output_cost_per_million: Some(0.0),
+                            capabilities: vec![
+                                "chat".to_string(),
+                                "local".to_string(),
+                                format!("size:{}", size),
+                            ],
                         })
                     })
                     .collect()
@@ -260,13 +175,162 @@ impl LLMProvider for OllamaProvider {
         Ok(models)
     }
 
-    fn format_tools(&self, tools: &[ToolSchema]) -> JsonValue {
-        json!(self.build_tools(tools))
+    async fn get_model_info(&self, model: &str) -> Result<ModelInfo, ProviderError> {
+        let models = self.list_models().await?;
+        models
+            .into_iter()
+            .find(|m| m.id == model || m.id.starts_with(&format!("{}:", model)))
+            .ok_or_else(|| ProviderError::ModelNotFound {
+                model: model.to_string(),
+            })
+    }
+
+    async fn chat(&self, request: ChatRequest) -> Result<ChatResponse, ProviderError> {
+        let url = format!("{}/api/chat", self.base_url());
+
+        let mut body = json!({
+            "model": request.model.model,
+            "messages": self.build_messages(&request.messages),
+            "stream": false,
+        });
+
+        if let Some(temp) = request.temperature {
+            body["options"] = json!({"temperature": temp});
+        }
+        if let Some(ref tools) = request.tools {
+            if !tools.is_empty() {
+                body["tools"] = json!(self.build_tools(tools));
+            }
+        }
+
+        let response = self
+            .client
+            .post(&url)
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| ProviderError::NetworkError {
+                message: e.to_string(),
+            })?;
+
+        if !response.status().is_success() {
+            let status = response.status().as_u16();
+            let text = response.text().await.unwrap_or_default();
+            return Err(ProviderError::Unknown {
+                message: format!("API error {}: {}", status, text),
+            });
+        }
+
+        let json: JsonValue = response.json().await.map_err(|e| ProviderError::Unknown {
+            message: e.to_string(),
+        })?;
+
+        self.parse_response(&json)
+    }
+
+    async fn chat_stream(&self, _request: ChatRequest) -> Result<ChatStream, ProviderError> {
+        Err(ProviderError::Unavailable {
+            message: "Streaming not yet implemented".to_string(),
+        })
+    }
+
+    async fn embed(&self, request: EmbeddingRequest) -> Result<EmbeddingResponse, ProviderError> {
+        let url = format!("{}/api/embed", self.base_url());
+
+        let body = json!({
+            "model": request.model.model,
+            "input": request.input,
+        });
+
+        let response = self
+            .client
+            .post(&url)
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| ProviderError::NetworkError {
+                message: e.to_string(),
+            })?;
+
+        if !response.status().is_success() {
+            let status = response.status().as_u16();
+            let text = response.text().await.unwrap_or_default();
+            return Err(ProviderError::Unknown {
+                message: format!("API error {}: {}", status, text),
+            });
+        }
+
+        let json: JsonValue = response.json().await.map_err(|e| ProviderError::Unknown {
+            message: e.to_string(),
+        })?;
+
+        let embeddings = if let Some(arr) = json["embeddings"].as_array() {
+            arr.iter()
+                .map(|emb| {
+                    emb.as_array()
+                        .map(|a| {
+                            a.iter()
+                                .filter_map(|v| v.as_f64().map(|f| f as f32))
+                                .collect()
+                        })
+                        .unwrap_or_default()
+                })
+                .collect()
+        } else if let Some(arr) = json["embedding"].as_array() {
+            vec![arr.iter()
+                .filter_map(|v| v.as_f64().map(|f| f as f32))
+                .collect()]
+        } else {
+            return Err(ProviderError::Unknown {
+                message: "Invalid embedding response".to_string(),
+            });
+        };
+
+        Ok(EmbeddingResponse {
+            embeddings,
+            model: request.model.model.clone(),
+            usage: TokenUsage::default(),
+        })
+    }
+
+    fn tool_format(&self) -> ToolFormat {
+        ToolFormat::OpenAI
+    }
+
+    fn supports(&self, capability: &str) -> bool {
+        match capability {
+            "chat" | "tools" | "embeddings" | "json_mode" => true,
+            "vision" | "audio" | "streaming" => false,
+            _ => false,
+        }
+    }
+
+    fn auth_headers(&self) -> HashMap<String, String> {
+        HashMap::new() // Ollama doesn't need auth
+    }
+
+    fn transform_request(&self, request: &ChatRequest) -> Result<JsonValue, ProviderError> {
+        let mut body = json!({
+            "model": request.model.model,
+            "messages": self.build_messages(&request.messages),
+            "stream": false,
+        });
+        if let Some(ref tools) = request.tools {
+            if !tools.is_empty() {
+                body["tools"] = json!(self.build_tools(tools));
+            }
+        }
+        Ok(body)
     }
 
     fn parse_response(&self, response: &JsonValue) -> Result<ChatResponse, ProviderError> {
         let message = &response["message"];
-        let content = message["content"].as_str().map(|s| s.to_string());
+        let content = message["content"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
 
         // Parse tool calls if present
         let tool_calls = message
@@ -278,27 +342,29 @@ impl LLMProvider for OllamaProvider {
                         Some(ToolCall {
                             id: format!("call_{}", uuid::Uuid::new_v4()),
                             name: tc["function"]["name"].as_str()?.to_string(),
-                            arguments: tc["function"]["arguments"].to_string(),
+                            arguments: tc["function"]["arguments"].clone(),
                         })
                     })
                     .collect::<Vec<_>>()
             })
             .filter(|v: &Vec<ToolCall>| !v.is_empty());
 
-        let usage = Some(Usage {
+        let usage = TokenUsage {
             prompt_tokens: response["prompt_eval_count"].as_u64().unwrap_or(0) as u32,
             completion_tokens: response["eval_count"].as_u64().unwrap_or(0) as u32,
             total_tokens: (response["prompt_eval_count"].as_u64().unwrap_or(0)
                 + response["eval_count"].as_u64().unwrap_or(0)) as u32,
-        });
+            cached_tokens: None,
+        };
 
         Ok(ChatResponse {
             id: "".to_string(),
             model: response["model"].as_str().unwrap_or("").to_string(),
-            content,
-            tool_calls,
-            finish_reason: Some("stop".to_string()),
+            message: Message::assistant(content),
             usage,
+            finish_reason: FinishReason::Stop,
+            tool_calls,
+            metadata: None,
         })
     }
 }
@@ -311,7 +377,7 @@ mod tests {
     fn test_ollama_provider_creation() {
         let config = ProviderConfig::new(ProviderType::Ollama);
         let provider = OllamaProvider::new(config);
-        assert_eq!(provider.name(), "Ollama");
+        assert_eq!(provider.provider_type(), ProviderType::Ollama);
     }
 
     #[test]

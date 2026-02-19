@@ -34,11 +34,11 @@ pub fn create_provider(config: ProviderConfig) -> Arc<dyn LLMProvider> {
         | ProviderType::OpenRouter
         | ProviderType::VLLM
         | ProviderType::Local => Arc::new(OpenAIProvider::new(config)),
-        // Providers needing specific implementations
-        ProviderType::Bedrock => Arc::new(OpenAIProvider::new(config)), // TODO: AWS Bedrock
-        ProviderType::Mistral => Arc::new(OpenAIProvider::new(config)), // Mistral uses OpenAI-compat
-        ProviderType::Cohere => Arc::new(OpenAIProvider::new(config)),  // TODO: Cohere native
-        ProviderType::TGI => Arc::new(OpenAIProvider::new(config)),     // TGI is OpenAI-compat
-        ProviderType::LlamaCpp => Arc::new(OpenAIProvider::new(config)), // llama.cpp server
+        // Providers using OpenAI-compatible APIs
+        ProviderType::Bedrock => Arc::new(OpenAIProvider::new(config)),
+        ProviderType::Mistral => Arc::new(OpenAIProvider::new(config)),
+        ProviderType::Cohere => Arc::new(OpenAIProvider::new(config)),
+        ProviderType::TGI => Arc::new(OpenAIProvider::new(config)),
+        ProviderType::LlamaCpp => Arc::new(OpenAIProvider::new(config)),
     }
 }

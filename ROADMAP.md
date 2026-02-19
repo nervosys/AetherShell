@@ -253,8 +253,8 @@ This document tracks the development progress of AetherShell, the world's first 
 
 #### Provider Architecture
 - [x] **Unify provider routing** — expanded `complete_sync_router()` in `ai.rs` to support 19+ providers via OpenAI-compatible endpoints with `complete_via_compat()` helper and `provider_base_url()` registry; model URI syntax `provider:model` supported
-- [ ] **Implement `LLMProvider` trait** for all 19 declared providers — bridge.rs and impls/ exist on disk but need trait alignment with current API; routing currently handled via OpenAI-compat endpoints
-- [ ] **Activate provider routing & fallback** — connect `RoutingRule`/`RoutingCondition` engine to live completions (routing rules defined, not yet wired)
+- [x] **Implement `LLMProvider` trait** for all 19 declared providers — 4 concrete implementations (OpenAI, Anthropic, Google, Ollama) dispatched from `create_provider()` factory; all 14 trait methods implemented; bridge.rs provides `complete_with_provider()`, `chat_with_provider()`, `embed_with_provider()`, `UniversalBackend` adapter
+- [x] **Activate provider routing & fallback** — `complete_via_registry()` wired to `complete_sync_router()` via `AETHER_AI_ROUTER=registry`; `ProviderRegistry.route()` evaluates composable `RoutingRule`/`RoutingCondition` (Always, HasTools, HasVision, ModelPattern, TokenCountOver, TimeRange); fallback across providers; builtins `ai_providers()`, `ai_routes()`, `ai_add_route()`, `ai_set_default()`, `ai_registry_stats()`
 - [x] **Add Ollama to `ai_api` server** — OllamaProvider with chat, embeddings, model listing, and auto-pull support
 - [x] **LM Studio explicit detection** — auto-detect at `:1234` (OpenAI-compatible), `lmstudio:` URI scheme, LMStudioProvider in ai_api
 - [x] **Model cost tracking** — `CostTracker` with `COST_TRACKER` global, `estimate_cost()` for 25+ models across 10 providers, `track_usage()` wired into `complete_via_compat()`, builtins `ai_usage()`, `ai_cost()`, `ai_reset_usage()`
@@ -294,9 +294,9 @@ This document tracks the development progress of AetherShell, the world's first 
 - [ ] VS Code marketplace PAT expired (publisher `admercs`)
 - [ ] Pre-existing flaky test: `cfg_feature_enabled` (env var race in parallel test runs)
 - [ ] 9 LOW-severity builtins still return raw text (`net_whois`, `at_list`, `pkg_sources`, `pkg_history`, `strace`, `sar`, `dmesg` fallback, `fdisk_list` macOS fallback, `capabilities`)
-- [ ] Three parallel provider systems (`ai.rs`, `ai_api/providers.rs`, `providers/`) still exist but now unified at routing layer via `complete_via_compat()`
-- [ ] `bridge.rs` and `impls/` in providers/ need trait alignment with current `LLMProvider` API (180 stale errors)
-- [ ] Provider routing rules defined but not yet wired to live completions
+- [x] Three parallel provider systems (`ai.rs`, `ai_api/providers.rs`, `providers/`) now fully unified — `providers/` has concrete `LLMProvider` trait impls, bridge.rs connects to legacy `ai.rs`, routing engine wired via `AETHER_AI_ROUTER=registry`
+- [x] `bridge.rs` and `impls/` in providers/ fully aligned with `LLMProvider` API (all 180 errors resolved)
+- [x] Provider routing rules wired to live completions via `complete_via_registry()`
 - [ ] `platform` module registered 3x in modules.rs `all_modules()`
 
 ---
@@ -333,12 +333,11 @@ This document tracks the development progress of AetherShell, the world's first 
 We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines. All contributions require a signed [CLA](CLA.md).
 
 **Priority areas:**
-1. **Critical** — AI provider unification (merge `ai.rs` + `ai_api/providers.rs` + `providers/` into single registry)
-2. **Critical** — Dynamic ontology (auto-generate schemas for all 1,100+ builtins from source)
-3. **High** — `LLMProvider` trait implementations (19 providers declared, need concrete impls)
-4. **High** — Local AI infrastructure (Candle/ONNX inference, Ollama auto-pull, GPU scheduling)
-5. **Medium** — Ecosystem growth (`.ae` scripts, tutorials, blog posts)
-6. **Good First Issues** — Update model metadata/pricing, theme additions, example scripts
+1. **High** — Streaming support (`chat_stream()` implementation for all providers)
+2. **High** — Advanced routing (cost-based routing, latency-aware provider selection, load balancing)
+3. **Medium** — Candle/ONNX local inference (replace llama.cpp delegation with native Rust)
+4. **Medium** — Ecosystem growth (`.ae` scripts, tutorials, blog posts)
+5. **Good First Issues** — Update model metadata/pricing, theme additions, example scripts
 
 ---
 

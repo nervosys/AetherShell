@@ -605,6 +605,11 @@ impl MultiModalLlmBackend for OpenAiCompatMultiModalBackend {
 /// Supports all 19 provider types via OpenAI-compatible routing.
 /// Returns an error with configuration instructions if no provider is set.
 pub fn complete_sync_router(prompt: &str) -> Result<String> {
+    // If registry routing is enabled, try it first
+    if std::env::var("AETHER_AI_ROUTER").ok().as_deref() == Some("registry") {
+        return complete_via_registry(prompt, None);
+    }
+
     let provider = std::env::var("AETHER_AI").unwrap_or_default();
 
     match provider.as_str() {
@@ -740,6 +745,82 @@ pub fn complete_sync_router(prompt: &str) -> Result<String> {
             other
         )),
     }
+}
+
+// ===================== Provider Registry Router =====================
+
+/// Complete using the new provider registry with intelligent routing.
+///
+/// This uses `PROVIDER_REGISTRY.route()` to select the best provider,
+/// then calls the `LLMProvider` trait implementation for that provider.
+/// Falls back to `complete_sync_router()` legacy path on any error.
+pub fn complete_via_registry(prompt: &str, model_uri: Option<&str>) -> Result<String> {
+    use crate::providers::{
+        bridge::complete_with_provider, registry::PROVIDER_REGISTRY, ChatRequest, Message, ModelUri,
+    };
+
+    // Parse model URI or derive from AETHER_AI env
+    let uri = if let Some(uri_str) = model_uri {
+        ModelUri::parse(uri_str)?
+    } else {
+        let aether_ai = std::env::var("AETHER_AI").unwrap_or_default();
+        if aether_ai.is_empty() {
+            return Err(anyhow!("No AI provider configured"));
+        }
+        // Build a URI from the AETHER_AI value
+        if aether_ai.contains(':') {
+            ModelUri::parse(&aether_ai)?
+        } else {
+            let scheme = aether_ai.as_str();
+            let model = match scheme {
+                "openai" => "gpt-4o-mini",
+                "anthropic" | "claude" => "claude-sonnet-4-20250514",
+                "google" | "gemini" => "gemini-2.5-flash",
+                "ollama" => "llama3",
+                "deepseek" => "deepseek-chat",
+                "groq" => "llama-3.3-70b-versatile",
+                "together" => "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+                "mistral" => "mistral-large-latest",
+                "cohere" => "command-a",
+                "xai" | "grok" => "grok-3",
+                "openrouter" => "openai/gpt-4o",
+                "perplexity" => "sonar",
+                "fireworks" => "accounts/fireworks/models/llama-v3p3-70b-instruct",
+                _ => "default",
+            };
+            ModelUri::parse(&format!("{}:{}", scheme, model))?
+        }
+    };
+
+    // Route through the registry (checks rules, status, fallback)
+    let request = ChatRequest::new(uri.clone(), vec![Message::user(prompt)]);
+    let target_provider = PROVIDER_REGISTRY
+        .route(&request)
+        .map_err(|e| anyhow!("{}", e))?;
+
+    // If routing changed the provider, update the URI
+    let final_uri = if target_provider != uri.provider {
+        ModelUri {
+            provider: target_provider,
+            model: uri.model.clone(),
+            deployment: uri.deployment.clone(),
+            options: uri.options.clone(),
+        }
+    } else {
+        uri
+    };
+
+    // Execute via bridge
+    let result = complete_with_provider(prompt, Some(&final_uri.to_string()));
+
+    // Record stats on success/failure
+    if let Ok(ref _response) = result {
+        PROVIDER_REGISTRY.record_request(&final_uri.provider, 0, true);
+    } else {
+        PROVIDER_REGISTRY.record_request(&final_uri.provider, 0, false);
+    }
+
+    result
 }
 
 /// Complete via any OpenAI-compatible endpoint
