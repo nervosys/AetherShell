@@ -13,7 +13,7 @@ This file contains everything an AI model needs to understand, use, and generate
 
 AI agents today are forced to interact with shells designed decades ago for humans — Bash on Linux, PowerShell on Windows, Zsh on macOS. Their output is unstructured text that varies across OS versions, locales, and tool installations, creating non-deterministic results that make agent workflows fundamentally brittle. An agent that parses `df -h` on Ubuntu will break on Alpine. A script that scrapes `Get-Process` output will fail when column widths change.
 
-AetherShell (`ae`) eliminates this entire class of failure. It provides a single cross-platform shell language where every command returns deterministic, typed output. An ontology built into the shell makes commands, their arguments, and their return types machine-discoverable without documentation scraping or prompt engineering. Written in Rust with Hindley-Milner type inference, it provides 430+ builtins across 50 modules, native AI agent support, and the MCP/A2A/A2UI/NANDA agentic protocols.
+AetherShell (`ae`) eliminates this entire class of failure. It provides a single cross-platform shell language where every command returns deterministic, typed output. An ontology built into the shell makes commands, their arguments, and their return types machine-discoverable without documentation scraping or prompt engineering. Written in Rust with Hindley-Milner type inference, it provides 1,100+ builtins across 106 modules, native AI agent support, and the MCP/A2A/A2UI/NANDA agentic protocols.
 
 **Key differentiators from bash/zsh/PowerShell:**
 - Deterministic: same command produces the same typed structure on every OS, locale, and version
@@ -146,7 +146,7 @@ data = await http.get("https://api.example.com/data")
 
 ---
 
-## 5. Module System (50 Modules, 430+ Builtins)
+## 5. Module System (106 Modules, 1,100+ Builtins)
 
 All builtins return structured `Value` types, not raw text.
 

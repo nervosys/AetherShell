@@ -3476,7 +3476,7 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     // ltrace (1008)
     |args, input, _| bi_ltrace_cmd(args, input), // 1008
     // valgrind (1009-1010)
-    |args, input, _| bi_valgrind_run(args, input),      // 1009
+    |args, input, _| bi_valgrind_run(args, input), // 1009
     |args, input, _| bi_valgrind_memcheck(args, input), // 1010
     // gdb (1011-1012)
     |args, input, _| bi_gdb_run(args, input), // 1011
@@ -3484,12 +3484,12 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     // lldb (1013)
     |args, input, _| bi_lldb_run(args, input), // 1013
     // objdump (1014-1015)
-    |args, input, _| bi_objdump_disasm(args, input),   // 1014
+    |args, input, _| bi_objdump_disasm(args, input), // 1014
     |args, input, _| bi_objdump_headers(args, input), // 1015
     // nm (1016)
     |args, input, _| bi_nm_symbols(args, input), // 1016
     // readelf (1017-1018)
-    |args, input, _| bi_readelf_headers(args, input),  // 1017
+    |args, input, _| bi_readelf_headers(args, input), // 1017
     |args, input, _| bi_readelf_sections(args, input), // 1018
     // strings (1019)
     |args, input, _| bi_strings_extract(args, input), // 1019
@@ -3539,7 +3539,7 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_task_run(args, input),  // 1043
     |args, input, _| bi_task_list(args, input), // 1044
     // direnv (1045-1046)
-    |args, input, _| bi_direnv_allow(args, input),  // 1045
+    |args, input, _| bi_direnv_allow(args, input), // 1045
     |args, input, _| bi_direnv_status(args, input), // 1046
     // asdf (1047-1048)
     |args, input, _| bi_asdf_list(args, input),    // 1047
@@ -3555,7 +3555,7 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_pipx_install(args, input), // 1054
     |args, input, _| bi_pipx_list(args, input),    // 1055
     // poetry (1056-1057)
-    |args, input, _| bi_poetry_run(args, input),     // 1056
+    |args, input, _| bi_poetry_run(args, input), // 1056
     |args, input, _| bi_poetry_install(args, input), // 1057
     // node (1058)
     |args, input, _| bi_node_run(args, input), // 1058
@@ -3569,11 +3569,11 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_yarn_run(args, input),     // 1063
     |args, input, _| bi_yarn_install(args, input), // 1064
     // cargo (1065-1067)
-    |args, input, _| bi_cargo_run(args, input),       // 1065
+    |args, input, _| bi_cargo_run(args, input), // 1065
     |args, input, _| bi_cargo_build_cmd(args, input), // 1066
-    |args, input, _| bi_cargo_test_cmd(args, input),  // 1067
+    |args, input, _| bi_cargo_test_cmd(args, input), // 1067
     // rustup (1068-1069)
-    |args, input, _| bi_rustup_show(args, input),   // 1068
+    |args, input, _| bi_rustup_show(args, input), // 1068
     |args, input, _| bi_rustup_update(args, input), // 1069
     // go (1070-1072)
     |args, input, _| bi_go_run(args, input),   // 1070
@@ -3597,13 +3597,13 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     // act (1083)
     |args, input, _| bi_act_run(args, input), // 1083
     // pre-commit (1084-1085)
-    |args, input, _| bi_pre_commit_run(args, input),     // 1084
+    |args, input, _| bi_pre_commit_run(args, input), // 1084
     |args, input, _| bi_pre_commit_install(args, input), // 1085
     // buildah (1086-1087)
-    |args, input, _| bi_buildah_build(args, input),  // 1086
+    |args, input, _| bi_buildah_build(args, input), // 1086
     |args, input, _| bi_buildah_images(args, input), // 1087
     // skopeo (1088-1089)
-    |args, input, _| bi_skopeo_copy(args, input),    // 1088
+    |args, input, _| bi_skopeo_copy(args, input), // 1088
     |args, input, _| bi_skopeo_inspect(args, input), // 1089
     // trivy (1090-1091)
     |args, input, _| bi_trivy_scan(args, input),  // 1090

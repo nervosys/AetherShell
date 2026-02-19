@@ -19,7 +19,7 @@ AI agents today are forced to interact with shells designed decades ago for huma
 
 ## What Is AetherShell?
 
-AetherShell eliminates this entire class of failure. It provides a single cross-platform shell language with deterministic, typed output — every command returns structured data (Int, Float, String, Array, Record, Lambda), not raw text. An ontology built into the shell makes commands, their arguments, and their return types discoverable by AI agents without documentation scraping or prompt engineering. It has 430+ builtins in 50 modules, native AI agents with multi-modal support, and implements the MCP, A2A, A2UI, and NANDA agentic protocols.
+AetherShell eliminates this entire class of failure. It provides a single cross-platform shell language with deterministic, typed output — every command returns structured data (Int, Float, String, Array, Record, Lambda), not raw text. An ontology built into the shell makes commands, their arguments, and their return types discoverable by AI agents without documentation scraping or prompt engineering. It has 1,100+ builtins in 106 modules, native AI agents with multi-modal support, and implements the MCP, A2A, A2UI, and NANDA agentic protocols.
 
 ## How To Use AetherShell (for AI agents)
 
@@ -116,7 +116,7 @@ file.read("path")     sys.hostname()     net.ping("host")
 crypto.uuid()         math.sqrt(16)      arr.range(10)
 ```
 
-## Module Directory (38 modules)
+## Module Directory (106 modules)
 
 | Module      | Purpose        | Example                                               |
 | ----------- | -------------- | ----------------------------------------------------- |
@@ -170,6 +170,38 @@ crypto.uuid()         math.sqrt(16)      arr.range(10)
 | `terraform` | Terraform      | `terraform.plan()`, `terraform.apply()`               |
 | `ansible`   | Ansible        | `ansible.playbook(file)`                              |
 | `firewall`  | Firewall       | `firewall.rules()`, `firewall.allow(port)`            |
+| `tmux`      | Terminal mux   | `tmux.new(name)`, `tmux.list()`                       |
+| `screen`    | Screen         | `screen.new(name)`, `screen.list()`                   |
+| `valgrind`  | Memory debug   | `valgrind.run(prog)`, `valgrind.callgrind(prog)`      |
+| `gdb`       | Debugger       | `gdb.run(prog)`, `gdb.bt(prog)`                      |
+| `objdump`   | Binary inspect | `objdump.disasm(file)`, `objdump.headers(file)`       |
+| `readelf`   | ELF inspect    | `readelf.headers(file)`, `readelf.symbols(file)`      |
+| `zoxide`    | Smart cd       | `zoxide.add(path)`, `zoxide.query(term)`              |
+| `just`      | Task runner    | `just.run(recipe)`, `just.list()`                     |
+| `direnv`    | Dir envs       | `direnv.allow()`, `direnv.status()`                   |
+| `asdf`      | Version mgr    | `asdf.install(plugin, ver)`, `asdf.list(plugin)`      |
+| `mise`      | Dev tools      | `mise.install(tool, ver)`, `mise.list()`              |
+| `uv`        | Python pkg     | `uv.install(pkg)`, `uv.run(script)`                   |
+| `pipx`      | Python apps    | `pipx.install(pkg)`, `pipx.list()`                    |
+| `poetry`    | Python deps    | `poetry.install()`, `poetry.add(pkg)`                 |
+| `cargo`     | Rust pkg       | `cargo.build()`, `cargo.test()`, `cargo.run()`        |
+| `rustup`    | Rust toolchain | `rustup.update()`, `rustup.list()`                    |
+| `go`        | Go toolchain   | `go.build()`, `go.test()`, `go.run(file)`             |
+| `node`      | Node.js        | `node.run(script)`, `node.version()`                  |
+| `npm`       | npm            | `npm.install(pkg)`, `npm.run(script)`                 |
+| `pnpm`      | pnpm           | `pnpm.install(pkg)`, `pnpm.run(script)`               |
+| `yarn`      | Yarn           | `yarn.install()`, `yarn.add(pkg)`                     |
+| `bun`       | Bun            | `bun.run(script)`, `bun.install(pkg)`                 |
+| `deno`      | Deno           | `deno.run(script)`, `deno.compile(file)`              |
+| `gh`        | GitHub CLI     | `gh.pr_list()`, `gh.issue_create(title)`              |
+| `glab`      | GitLab CLI     | `glab.mr_list()`, `glab.issue_create(title)`          |
+| `pre_commit`| Git hooks      | `pre_commit.run()`, `pre_commit.install()`            |
+| `buildah`   | OCI build      | `buildah.build(file)`, `buildah.images()`             |
+| `skopeo`    | Container img  | `skopeo.inspect(img)`, `skopeo.copy(src, dst)`        |
+| `trivy`     | Security scan  | `trivy.scan(target)`, `trivy.image(img)`              |
+| `ruff`      | Python lint    | `ruff.check(path)`, `ruff.format(path)`               |
+| `iperf3`    | Network perf   | `iperf3.client(host)`, `iperf3.server()`              |
+| `nc`        | Netcat         | `nc.connect(host, port)`, `nc.listen(port)`           |
 
 ## Agent API Server Endpoints
 
@@ -208,7 +240,7 @@ cargo run -- -c 'expr'      # Quick eval
 | `src/parser.rs`    | Parser                                    |
 | `src/eval.rs`      | Evaluator                                 |
 | `src/value.rs`     | Value types                               |
-| `src/builtins.rs`  | 215+ builtins                             |
+| `src/builtins.rs`  | 1,100+ builtins                           |
 | `src/ai.rs`        | AI provider router                        |
 | `src/agent.rs`     | Agent framework                           |
 | `src/agent_api.rs` | Agent API + HTTP server                   |

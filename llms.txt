@@ -2,7 +2,7 @@
 
 > One language, every platform, deterministic typed output — the shell built for AI agents.
 
-AetherShell (`ae`) is a shell and scripting language written in Rust that eliminates the brittle text-parsing layer between AI agents and operating systems. Traditional shells (Bash, PowerShell, Zsh) produce unstructured output that varies by OS version, locale, and tool installation, making agent workflows non-deterministic. AetherShell replaces this with typed, structured data flows using Hindley-Milner type inference — every command returns deterministic Records, Arrays, and Tables, not raw text. An ontology built into the shell makes commands, their arguments, and their return types machine-discoverable. It provides 430+ builtins across 50 modules, native AI agents with multi-modal support, and the MCP/A2A/A2UI/NANDA agentic protocols.
+AetherShell (`ae`) is a shell and scripting language written in Rust that eliminates the brittle text-parsing layer between AI agents and operating systems. Traditional shells (Bash, PowerShell, Zsh) produce unstructured output that varies by OS version, locale, and tool installation, making agent workflows non-deterministic. AetherShell replaces this with typed, structured data flows using Hindley-Milner type inference — every command returns deterministic Records, Arrays, and Tables, not raw text. An ontology built into the shell makes commands, their arguments, and their return types machine-discoverable. It provides 1,100+ builtins across 106 modules, native AI agents with multi-modal support, and the MCP/A2A/A2UI/NANDA agentic protocols.
 
 ## Quick Links
 
@@ -27,7 +27,7 @@ AetherShell (`ae`) is a shell and scripting language written in Rust that elimin
 - **Deterministic Output**: Every command returns typed values — same command, same structure, every OS, every locale
 - **Typed Pipelines**: Data flows as Int, Float, String, Array, Record, Lambda - not raw text
 - **Built-in Ontology**: Commands, arguments, and return types are machine-discoverable without documentation scraping
-- **430+ Builtins**: Organized in 50 namespaced modules (file, sys, net, ai, agent, crypto, db, docker, k8s, vm, terraform, firewall, ...)
+- **1,100+ Builtins**: Organized in 106 namespaced modules (file, sys, net, ai, agent, crypto, db, docker, k8s, vm, terraform, firewall, cargo, go, node, gh, tmux, gdb, valgrind, ...)
 - **AI Integration**: Multi-provider (OpenAI, Anthropic, Ollama, LM Studio, vLLM), multi-modal (images/audio/video)
 - **Agent Framework**: Autonomous agents with tool access, swarms with coordinator patterns
 - **Agentic Protocols**: MCP (130+ tools), A2A, A2UI, NANDA
