@@ -15443,6 +15443,73 @@ fn bi_net_dns_reverse(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
     Ok(Value::Null)
 }
 
+/// Parse ping output into a structured Record with host, packets_sent, packets_received,
+/// packet_loss_pct, min_rtt, avg_rtt, max_rtt. Works for both Windows and Unix ping output.
+fn parse_ping_output(text: &str, host: &str) -> Value {
+    let mut rec = std::collections::BTreeMap::new();
+    rec.insert("host".to_string(), Value::Str(host.to_string()));
+
+    // Parse packet statistics: "X packets transmitted, Y received" (Unix)
+    // or "Packets: Sent = X, Received = Y, Lost = Z" (Windows)
+    for line in text.lines() {
+        let line = line.trim();
+        if line.contains("packets transmitted") || line.contains("Packets:") {
+            // Unix: "4 packets transmitted, 4 received, 0% packet loss"
+            // Windows: "Packets: Sent = 4, Received = 4, Lost = 0 (0% loss)"
+            let nums: Vec<i64> = line
+                .split(|c: char| !c.is_ascii_digit())
+                .filter(|s| !s.is_empty())
+                .filter_map(|s| s.parse().ok())
+                .collect();
+            if nums.len() >= 2 {
+                rec.insert("packets_sent".to_string(), Value::Int(nums[0]));
+                rec.insert("packets_received".to_string(), Value::Int(nums[1]));
+            }
+            // Extract loss percentage
+            if let Some(pct_pos) = line.find('%') {
+                let before = &line[..pct_pos];
+                let loss_str = before.rsplit(|c: char| !c.is_ascii_digit() && c != '.').next().unwrap_or("0");
+                if let Ok(loss) = loss_str.parse::<f64>() {
+                    rec.insert("packet_loss_pct".to_string(), Value::Float(loss));
+                }
+            }
+        }
+        // Parse RTT: "rtt min/avg/max/mdev = 1.234/5.678/9.012/3.456 ms" (Unix)
+        // or "Minimum = 1ms, Maximum = 9ms, Average = 5ms" (Windows)
+        if line.contains("min/avg/max") || line.contains("rtt ") {
+            if let Some(eq_pos) = line.find('=') {
+                let values_str = &line[eq_pos + 1..];
+                let values: Vec<f64> = values_str
+                    .split('/')
+                    .filter_map(|s| s.trim().trim_end_matches("ms").trim().parse().ok())
+                    .collect();
+                if values.len() >= 3 {
+                    rec.insert("min_rtt".to_string(), Value::Float(values[0]));
+                    rec.insert("avg_rtt".to_string(), Value::Float(values[1]));
+                    rec.insert("max_rtt".to_string(), Value::Float(values[2]));
+                }
+            }
+        }
+        if line.contains("Minimum") && line.contains("Maximum") && line.contains("Average") {
+            // Windows: "Minimum = 1ms, Maximum = 9ms, Average = 5ms"
+            let nums: Vec<f64> = line
+                .split(|c: char| !c.is_ascii_digit() && c != '.')
+                .filter(|s| !s.is_empty())
+                .filter_map(|s| s.parse().ok())
+                .collect();
+            if nums.len() >= 3 {
+                rec.insert("min_rtt".to_string(), Value::Float(nums[0]));
+                rec.insert("max_rtt".to_string(), Value::Float(nums[1]));
+                rec.insert("avg_rtt".to_string(), Value::Float(nums[2]));
+            }
+        }
+    }
+
+    // Include raw output as fallback
+    rec.insert("raw".to_string(), Value::Str(text.to_string()));
+    Value::Record(rec)
+}
+
 fn bi_net_ping(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let host = match args.first() {
         Some(Value::Str(s)) => s.clone(),
@@ -15465,18 +15532,16 @@ fn bi_net_ping(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let output = std::process::Command::new("ping")
             .args(["-n", &count.to_string(), &host])
             .output()?;
-        return Ok(Value::Str(
-            String::from_utf8_lossy(&output.stdout).to_string(),
-        ));
+        let text = String::from_utf8_lossy(&output.stdout);
+        return Ok(parse_ping_output(&text, &host));
     }
     #[cfg(not(target_os = "windows"))]
     {
         let output = std::process::Command::new("ping")
             .args(["-c", &count.to_string(), &host])
             .output()?;
-        return Ok(Value::Str(
-            String::from_utf8_lossy(&output.stdout).to_string(),
-        ));
+        let text = String::from_utf8_lossy(&output.stdout);
+        return Ok(parse_ping_output(&text, &host));
     }
 }
 
@@ -15494,18 +15559,62 @@ fn bi_net_traceroute(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let output = std::process::Command::new("tracert")
             .args(["-d", &host])
             .output()?;
-        return Ok(Value::Str(
-            String::from_utf8_lossy(&output.stdout).to_string(),
-        ));
+        let text = String::from_utf8_lossy(&output.stdout);
+        let hops: Vec<Value> = text.lines()
+            .filter(|l| {
+                let trimmed = l.trim();
+                !trimmed.is_empty() && trimmed.chars().next().map_or(false, |c| c.is_ascii_digit())
+            })
+            .filter_map(|l| {
+                let parts: Vec<&str> = l.split_whitespace().collect();
+                if parts.len() >= 2 {
+                    let mut rec = std::collections::BTreeMap::new();
+                    rec.insert("hop".to_string(), Value::Int(parts[0].parse().unwrap_or(0)));
+                    // Last token is the IP
+                    rec.insert("ip".to_string(), Value::Str(parts.last().unwrap_or(&"").to_string()));
+                    // RTT values (ms) — typically 3 values between hop number and IP
+                    let rtts: Vec<Value> = parts[1..parts.len()-1].iter()
+                        .filter_map(|s| s.trim_end_matches("ms").parse::<f64>().ok())
+                        .map(Value::Float)
+                        .collect();
+                    rec.insert("rtt_ms".to_string(), Value::Array(rtts));
+                    Some(Value::Record(rec))
+                } else { None }
+            })
+            .collect();
+        return Ok(Value::Array(hops));
     }
     #[cfg(not(target_os = "windows"))]
     {
         let output = std::process::Command::new("traceroute")
             .args(["-n", &host])
             .output()?;
-        return Ok(Value::Str(
-            String::from_utf8_lossy(&output.stdout).to_string(),
-        ));
+        let text = String::from_utf8_lossy(&output.stdout);
+        let hops: Vec<Value> = text.lines()
+            .filter(|l| {
+                let trimmed = l.trim();
+                !trimmed.is_empty() && trimmed.chars().next().map_or(false, |c| c.is_ascii_digit())
+            })
+            .filter_map(|l| {
+                let parts: Vec<&str> = l.split_whitespace().collect();
+                if parts.len() >= 2 {
+                    let mut rec = std::collections::BTreeMap::new();
+                    rec.insert("hop".to_string(), Value::Int(parts[0].parse().unwrap_or(0)));
+                    // Find IP (not a number ending in 'ms' and not '*')
+                    let ip = parts.iter().skip(1)
+                        .find(|s| !s.ends_with("ms") && **s != "*" && s.contains('.'))
+                        .unwrap_or(&"*");
+                    rec.insert("ip".to_string(), Value::Str(ip.to_string()));
+                    let rtts: Vec<Value> = parts.iter().skip(1)
+                        .filter_map(|s| s.trim_end_matches("ms").parse::<f64>().ok())
+                        .map(Value::Float)
+                        .collect();
+                    rec.insert("rtt_ms".to_string(), Value::Array(rtts));
+                    Some(Value::Record(rec))
+                } else { None }
+            })
+            .collect();
+        return Ok(Value::Array(hops));
     }
 }
 
@@ -15616,77 +15725,160 @@ fn bi_net_close(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_net_ports(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Use netstat on all platforms (available everywhere)
-    #[cfg(target_os = "windows")]
-    {
-        let output = std::process::Command::new("netstat")
-            .args(["-an"])
-            .output()?;
-        return Ok(Value::Str(
-            String::from_utf8_lossy(&output.stdout).to_string(),
-        ));
-    }
-    #[cfg(target_os = "linux")]
-    {
-        // Prefer ss on Linux (faster than netstat)
-        let output = std::process::Command::new("ss").args(["-tuln"]).output()?;
-        return Ok(Value::Str(
-            String::from_utf8_lossy(&output.stdout).to_string(),
-        ));
-    }
-    #[cfg(target_os = "macos")]
-    {
-        // macOS: ss not available, use netstat
-        let output = std::process::Command::new("netstat")
-            .args(["-an"])
-            .output()?;
-        return Ok(Value::Str(
-            String::from_utf8_lossy(&output.stdout).to_string(),
-        ));
-    }
-    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-    {
-        Ok(Value::Str(String::new()))
-    }
+    // Delegate to net_connections which already returns structured data
+    bi_net_connections(vec![], None)
 }
 
 fn bi_net_arp(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("arp").args(["-a"]).output()?;
-    Ok(Value::Str(
-        String::from_utf8_lossy(&output.stdout).to_string(),
-    ))
+    let text = String::from_utf8_lossy(&output.stdout);
+    let entries: Vec<Value> = text.lines()
+        .filter(|l| !l.trim().is_empty())
+        .filter_map(|l| {
+            let parts: Vec<&str> = l.split_whitespace().collect();
+            if parts.len() < 2 { return None; }
+            let mut rec = std::collections::BTreeMap::new();
+            // Unix format: "hostname (ip) at mac [ether] on interface"
+            // Windows format: "ip  mac  type"
+            if l.contains('(') && l.contains(')') {
+                // Unix format
+                if let Some(start) = l.find('(') {
+                    if let Some(end) = l.find(')') {
+                        rec.insert("ip".to_string(), Value::Str(l[start+1..end].to_string()));
+                    }
+                }
+                // MAC is typically after "at"
+                if let Some(at_pos) = parts.iter().position(|&p| p == "at") {
+                    if let Some(mac) = parts.get(at_pos + 1) {
+                        rec.insert("mac".to_string(), Value::Str(mac.to_string()));
+                    }
+                }
+                // Interface is after "on"
+                if let Some(on_pos) = parts.iter().position(|&p| p == "on") {
+                    if let Some(iface) = parts.get(on_pos + 1) {
+                        rec.insert("interface".to_string(), Value::Str(iface.to_string()));
+                    }
+                }
+            } else if parts.len() >= 3 {
+                // Windows format: "IP  MAC  Type" (skip header lines)
+                let ip = parts[0];
+                // Skip header and separator lines
+                if ip.contains('.') || ip.contains(':') {
+                    rec.insert("ip".to_string(), Value::Str(ip.to_string()));
+                    rec.insert("mac".to_string(), Value::Str(parts[1].to_string()));
+                    rec.insert("type".to_string(), Value::Str(parts[2].to_string()));
+                } else {
+                    return None;
+                }
+            }
+            if rec.is_empty() { None } else { Some(Value::Record(rec)) }
+        })
+        .collect();
+    Ok(Value::Array(entries))
 }
 
 fn bi_net_route(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
-        let output = std::process::Command::new("route")
-            .args(["print"])
+        let output = std::process::Command::new("powershell")
+            .args(["-Command", "Get-NetRoute | Select-Object DestinationPrefix,NextHop,InterfaceAlias,RouteMetric | ConvertTo-Json"])
             .output()?;
-        return Ok(Value::Str(
-            String::from_utf8_lossy(&output.stdout).to_string(),
-        ));
+        if output.status.success() {
+            let json_str = String::from_utf8_lossy(&output.stdout);
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                let items = match &json {
+                    serde_json::Value::Array(arr) => arr.clone(),
+                    obj @ serde_json::Value::Object(_) => vec![obj.clone()],
+                    _ => vec![],
+                };
+                let routes: Vec<Value> = items.iter().filter_map(|obj| {
+                    let o = obj.as_object()?;
+                    let mut rec = std::collections::BTreeMap::new();
+                    if let Some(v) = o.get("DestinationPrefix") { rec.insert("destination".to_string(), json_to_value(v.clone())); }
+                    if let Some(v) = o.get("NextHop") { rec.insert("gateway".to_string(), json_to_value(v.clone())); }
+                    if let Some(v) = o.get("InterfaceAlias") { rec.insert("interface".to_string(), json_to_value(v.clone())); }
+                    if let Some(v) = o.get("RouteMetric") { rec.insert("metric".to_string(), json_to_value(v.clone())); }
+                    Some(Value::Record(rec))
+                }).collect();
+                return Ok(Value::Array(routes));
+            }
+        }
+        return Ok(Value::Array(vec![]));
     }
     #[cfg(target_os = "linux")]
     {
+        let output = std::process::Command::new("ip")
+            .args(["-j", "route"])
+            .output()?;
+        if output.status.success() {
+            if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
+                let items = match &json {
+                    serde_json::Value::Array(arr) => arr.clone(),
+                    _ => vec![],
+                };
+                let routes: Vec<Value> = items.iter().filter_map(|obj| {
+                    let o = obj.as_object()?;
+                    let mut rec = std::collections::BTreeMap::new();
+                    if let Some(v) = o.get("dst") { rec.insert("destination".to_string(), json_to_value(v.clone())); }
+                    if let Some(v) = o.get("gateway") { rec.insert("gateway".to_string(), json_to_value(v.clone())); }
+                    if let Some(v) = o.get("dev") { rec.insert("interface".to_string(), json_to_value(v.clone())); }
+                    if let Some(v) = o.get("metric") { rec.insert("metric".to_string(), json_to_value(v.clone())); }
+                    Some(Value::Record(rec))
+                }).collect();
+                return Ok(Value::Array(routes));
+            }
+        }
+        // Fallback to text parsing
         let output = std::process::Command::new("ip").args(["route"]).output()?;
-        return Ok(Value::Str(
-            String::from_utf8_lossy(&output.stdout).to_string(),
-        ));
+        let text = String::from_utf8_lossy(&output.stdout);
+        let routes: Vec<Value> = text.lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| {
+                let parts: Vec<&str> = l.split_whitespace().collect();
+                let mut rec = std::collections::BTreeMap::new();
+                rec.insert("destination".to_string(), Value::Str(parts.first().unwrap_or(&"").to_string()));
+                // Find "via" for gateway, "dev" for interface
+                if let Some(pos) = parts.iter().position(|&p| p == "via") {
+                    if let Some(gw) = parts.get(pos + 1) {
+                        rec.insert("gateway".to_string(), Value::Str(gw.to_string()));
+                    }
+                }
+                if let Some(pos) = parts.iter().position(|&p| p == "dev") {
+                    if let Some(dev) = parts.get(pos + 1) {
+                        rec.insert("interface".to_string(), Value::Str(dev.to_string()));
+                    }
+                }
+                Value::Record(rec)
+            })
+            .collect();
+        return Ok(Value::Array(routes));
     }
     #[cfg(target_os = "macos")]
     {
-        // macOS: ip command not available, use netstat -rn
         let output = std::process::Command::new("netstat")
             .args(["-rn"])
             .output()?;
-        return Ok(Value::Str(
-            String::from_utf8_lossy(&output.stdout).to_string(),
-        ));
+        let text = String::from_utf8_lossy(&output.stdout);
+        let routes: Vec<Value> = text.lines()
+            .skip(4) // skip header lines
+            .filter(|l| !l.trim().is_empty())
+            .filter_map(|l| {
+                let parts: Vec<&str> = l.split_whitespace().collect();
+                if parts.len() >= 4 {
+                    let mut rec = std::collections::BTreeMap::new();
+                    rec.insert("destination".to_string(), Value::Str(parts[0].to_string()));
+                    rec.insert("gateway".to_string(), Value::Str(parts[1].to_string()));
+                    rec.insert("flags".to_string(), Value::Str(parts[2].to_string()));
+                    rec.insert("interface".to_string(), Value::Str(parts.last().unwrap_or(&"").to_string()));
+                    Some(Value::Record(rec))
+                } else { None }
+            })
+            .collect();
+        return Ok(Value::Array(routes));
     }
     #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
     {
-        Ok(Value::Str(String::new()))
+        Ok(Value::Array(vec![]))
     }
 }
 
@@ -17066,23 +17258,68 @@ fn bi_svc_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args([
                 "-Command",
                 &format!(
-                    "Get-EventLog -LogName Application -Source '{}' -Newest {}",
+                    "Get-EventLog -LogName Application -Source '{}' -Newest {} | Select-Object TimeGenerated,EntryType,Message | ConvertTo-Json",
                     name, lines
                 ),
             ])
             .output()?;
-        return Ok(Value::Str(
-            String::from_utf8_lossy(&output.stdout).to_string(),
-        ));
+        if output.status.success() {
+            let json_str = String::from_utf8_lossy(&output.stdout);
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                let items = match &json {
+                    serde_json::Value::Array(arr) => arr.clone(),
+                    obj @ serde_json::Value::Object(_) => vec![obj.clone()],
+                    _ => vec![],
+                };
+                let entries: Vec<Value> = items.iter().filter_map(|obj| {
+                    let o = obj.as_object()?;
+                    let mut rec = std::collections::BTreeMap::new();
+                    if let Some(v) = o.get("TimeGenerated") { rec.insert("timestamp".to_string(), json_to_value(v.clone())); }
+                    if let Some(v) = o.get("EntryType") { rec.insert("level".to_string(), json_to_value(v.clone())); }
+                    if let Some(v) = o.get("Message") { rec.insert("message".to_string(), json_to_value(v.clone())); }
+                    Some(Value::Record(rec))
+                }).collect();
+                return Ok(Value::Array(entries));
+            }
+        }
+        return Ok(Value::Array(vec![]));
     }
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("journalctl")
+            .args(["-u", &name, "-n", &lines.to_string(), "--no-pager", "-o", "json"])
+            .output()?;
+        if output.status.success() {
+            let text = String::from_utf8_lossy(&output.stdout);
+            let entries: Vec<Value> = text.lines()
+                .filter_map(|line| {
+                    serde_json::from_str::<serde_json::Value>(line).ok().and_then(|obj| {
+                        let o = obj.as_object()?;
+                        let mut rec = std::collections::BTreeMap::new();
+                        if let Some(v) = o.get("__REALTIME_TIMESTAMP") { rec.insert("timestamp".to_string(), json_to_value(v.clone())); }
+                        if let Some(v) = o.get("PRIORITY") { rec.insert("level".to_string(), json_to_value(v.clone())); }
+                        if let Some(v) = o.get("MESSAGE") { rec.insert("message".to_string(), json_to_value(v.clone())); }
+                        if let Some(v) = o.get("_PID") { rec.insert("pid".to_string(), json_to_value(v.clone())); }
+                        Some(Value::Record(rec))
+                    })
+                })
+                .collect();
+            return Ok(Value::Array(entries));
+        }
+        // Fallback: text parsing
+        let output = std::process::Command::new("journalctl")
             .args(["-u", &name, "-n", &lines.to_string(), "--no-pager"])
             .output()?;
-        return Ok(Value::Str(
-            String::from_utf8_lossy(&output.stdout).to_string(),
-        ));
+        let text = String::from_utf8_lossy(&output.stdout);
+        let entries: Vec<Value> = text.lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| {
+                let mut rec = std::collections::BTreeMap::new();
+                rec.insert("message".to_string(), Value::Str(l.to_string()));
+                Value::Record(rec)
+            })
+            .collect();
+        return Ok(Value::Array(entries));
     }
     #[cfg(target_os = "macos")]
     {
@@ -17098,12 +17335,25 @@ fn bi_svc_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             ])
             .output()?;
         let text = String::from_utf8_lossy(&output.stdout);
-        let result: String = text
-            .lines()
+        let entries: Vec<Value> = text.lines()
             .take(lines as usize)
-            .collect::<Vec<_>>()
-            .join("\n");
-        return Ok(Value::Str(result));
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| {
+                let mut rec = std::collections::BTreeMap::new();
+                // macOS log compact format: "timestamp  processName[pid]  message"
+                // Try to split at known boundaries
+                let parts: Vec<&str> = l.splitn(3, "  ").collect();
+                if parts.len() >= 2 {
+                    rec.insert("timestamp".to_string(), Value::Str(parts[0].trim().to_string()));
+                    let msg = if parts.len() >= 3 { parts[2] } else { parts[1] };
+                    rec.insert("message".to_string(), Value::Str(msg.trim().to_string()));
+                } else {
+                    rec.insert("message".to_string(), Value::Str(l.to_string()));
+                }
+                Value::Record(rec)
+            })
+            .collect();
+        return Ok(Value::Array(entries));
     }
     #[allow(unreachable_code)]
     {
@@ -17131,21 +17381,52 @@ fn bi_svc_delete(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_cron_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
-        let output = std::process::Command::new("schtasks")
-            .args(["/Query", "/FO", "LIST"])
+        let output = std::process::Command::new("powershell")
+            .args(["-Command", "Get-ScheduledTask | Select-Object TaskName,State,TaskPath | ConvertTo-Json"])
             .output()?;
-        return Ok(Value::Str(
-            String::from_utf8_lossy(&output.stdout).to_string(),
-        ));
+        if output.status.success() {
+            let json_str = String::from_utf8_lossy(&output.stdout);
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                let items = match &json {
+                    serde_json::Value::Array(arr) => arr.clone(),
+                    obj @ serde_json::Value::Object(_) => vec![obj.clone()],
+                    _ => vec![],
+                };
+                let tasks: Vec<Value> = items.iter().filter_map(|obj| {
+                    let o = obj.as_object()?;
+                    let mut rec = std::collections::BTreeMap::new();
+                    if let Some(v) = o.get("TaskName") { rec.insert("name".to_string(), json_to_value(v.clone())); }
+                    if let Some(v) = o.get("State") { rec.insert("state".to_string(), json_to_value(v.clone())); }
+                    if let Some(v) = o.get("TaskPath") { rec.insert("path".to_string(), json_to_value(v.clone())); }
+                    Some(Value::Record(rec))
+                }).collect();
+                return Ok(Value::Array(tasks));
+            }
+        }
+        return Ok(Value::Array(vec![]));
     }
     #[cfg(not(target_os = "windows"))]
     {
         let output = std::process::Command::new("crontab")
             .args(["-l"])
             .output()?;
-        return Ok(Value::Str(
-            String::from_utf8_lossy(&output.stdout).to_string(),
-        ));
+        let text = String::from_utf8_lossy(&output.stdout);
+        let entries: Vec<Value> = text.lines()
+            .filter(|l| !l.trim().is_empty() && !l.trim().starts_with('#'))
+            .map(|l| {
+                let mut rec = std::collections::BTreeMap::new();
+                let parts: Vec<&str> = l.splitn(6, char::is_whitespace).collect();
+                if parts.len() >= 6 {
+                    // Standard cron format: min hour dom month dow command
+                    rec.insert("schedule".to_string(), Value::Str(parts[..5].join(" ")));
+                    rec.insert("command".to_string(), Value::Str(parts[5].to_string()));
+                } else {
+                    rec.insert("command".to_string(), Value::Str(l.to_string()));
+                }
+                Value::Record(rec)
+            })
+            .collect();
+        return Ok(Value::Array(entries));
     }
 }
 
@@ -18185,9 +18466,19 @@ fn bi_pkg_files(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         _ => return Ok(Value::Array(vec![])),
     };
 
-    Ok(Value::Str(
-        String::from_utf8_lossy(&output.stdout).to_string(),
-    ))
+    let text = String::from_utf8_lossy(&output.stdout);
+    let files: Vec<Value> = text.lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| {
+            // pacman -Ql format: "package /path/to/file", dpkg -L format: "/path/to/file"
+            if let Some((_pkg, path)) = l.split_once(' ') {
+                Value::Str(path.to_string())
+            } else {
+                Value::Str(l.trim().to_string())
+            }
+        })
+        .collect();
+    Ok(Value::Array(files))
 }
 
 fn bi_pkg_owner(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -18207,9 +18498,37 @@ fn bi_pkg_owner(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         _ => return Ok(Value::Null),
     };
 
-    Ok(Value::Str(
-        String::from_utf8_lossy(&output.stdout).trim().to_string(),
-    ))
+    let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let mut rec = std::collections::BTreeMap::new();
+    // dpkg -S format: "package: /path/to/file"
+    // pacman -Qo format: "/path/to/file is owned by package version"
+    if pm == "apt" {
+        if let Some((pkg, path)) = text.split_once(": ") {
+            rec.insert("package".to_string(), Value::Str(pkg.to_string()));
+            rec.insert("file".to_string(), Value::Str(path.to_string()));
+        } else {
+            rec.insert("package".to_string(), Value::Str(text));
+            rec.insert("file".to_string(), Value::Str(file));
+        }
+    } else if pm == "pacman" {
+        // "/path/to/file is owned by package version"
+        if let Some(pos) = text.find(" is owned by ") {
+            let owned_by = &text[pos + 13..];
+            let parts: Vec<&str> = owned_by.split_whitespace().collect();
+            rec.insert("file".to_string(), Value::Str(text[..pos].to_string()));
+            rec.insert("package".to_string(), Value::Str(parts.first().unwrap_or(&"").to_string()));
+            if let Some(ver) = parts.get(1) {
+                rec.insert("version".to_string(), Value::Str(ver.to_string()));
+            }
+        } else {
+            rec.insert("package".to_string(), Value::Str(text));
+            rec.insert("file".to_string(), Value::Str(file));
+        }
+    } else {
+        rec.insert("package".to_string(), Value::Str(text));
+        rec.insert("file".to_string(), Value::Str(file));
+    }
+    Ok(Value::Record(rec))
 }
 
 fn bi_pkg_verify(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -32179,9 +32498,9 @@ pub fn bi_file_checksum(args: Vec<Value>, _input: Option<Value>) -> Result<Value
     Ok(Value::Record(rec))
 }
 
-/// 970: bi_dd_copy - Disk copy (Linux only).
+/// 970: bi_dd_copy - Disk copy (Unix).
 pub fn bi_dd_copy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    #[cfg(target_os = "linux")]
+    #[cfg(not(target_os = "windows"))]
     {
         let src = match args.first() {
             Some(Value::Str(s)) => s.clone(),
@@ -32209,9 +32528,9 @@ pub fn bi_dd_copy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         rec.insert("output".to_string(), Value::Str(stderr));
         Ok(Value::Record(rec))
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "windows")]
     {
-        Err(anyhow!("dd_copy: only supported on Linux"))
+        Err(anyhow!("dd_copy: only supported on Unix (Linux/macOS)"))
     }
 }
 
@@ -32410,9 +32729,9 @@ pub fn bi_mount_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Array(entries))
 }
 
-/// 976: bi_chroot - Change root (Linux only).
+/// 976: bi_chroot - Change root (Unix).
 pub fn bi_chroot(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    #[cfg(target_os = "linux")]
+    #[cfg(not(target_os = "windows"))]
     {
         let dir = match args.first() {
             Some(Value::Str(s)) => s.clone(),
@@ -32439,9 +32758,9 @@ pub fn bi_chroot(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         );
         Ok(Value::Record(rec))
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "windows")]
     {
-        Err(anyhow!("chroot: only supported on Linux"))
+        Err(anyhow!("chroot: only supported on Unix (Linux/macOS)"))
     }
 }
 
