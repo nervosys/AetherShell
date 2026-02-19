@@ -1,6 +1,6 @@
 # AetherShell Roadmap
 
-> **Last Updated:** February 17, 2026
+> **Last Updated:** February 18, 2026
 
 This document tracks the development progress of AetherShell, the world's first agentic shell with typed functional pipelines and multi-modal AI.
 
@@ -40,6 +40,12 @@ This document tracks the development progress of AetherShell, the world's first 
 
 ### v0.3.1 (Current) — February 2026
 - [x] Cross-platform OS commands: 219 new builtins for containers, Kubernetes, VMs/hypervisors, cloud/IaC, remote access, security, and monitoring
+- [x] Cross-platform consistency audit: 100+ `cfg` blocks across 6 files reviewed, 40+ functions fixed for OS parity
+- [x] Structured output: converted 20+ builtins from raw text to typed Records/Arrays (net_ping, net_traceroute, net_arp, net_route, net_ports, net_connections, net_bandwidth, svc_logs, cron_list, pkg_list, pkg_search, pkg_info, pkg_files, pkg_owner, sys_uptime, sys_info, proc_children, startup_list, and more)
+- [x] PascalCase normalization: all Windows builtins using `json_to_value()` now return consistent lowercase field names (10 sites fixed)
+- [x] macOS support: added missing implementations for 15+ builtins (tcpdump, ss_info→netstat, sys_uptime→sysctl, sys_info→sw_vers, net_bandwidth→netstat -ib, dmesg, fdisk_list→diskutil, proc_children→pgrep, startup_list→launchctl)
+- [x] Cfg gate fixes: `dd_copy` and `chroot` widened from Linux-only to Unix (not(windows)), since both tools ship natively on macOS
+- [x] Unified 20 builtins to use cross-platform Rust crates (sysinfo, chrono, sha2, md5, which) instead of OS-specific commands
 - [x] Published to crates.io as `aethershell v0.3.1`
 - [x] Published `aethershell-lsp v0.2.0` to crates.io
 - [x] VS Code extension v0.3.1 on Marketplace (`admercs.aethershell`)
@@ -134,6 +140,7 @@ This document tracks the development progress of AetherShell, the world's first 
 - [x] `ssh`, `scp`, `rsync`, `rdp` — Remote access
 - [x] `firewall`, `selinux`, `apparmor`, `ssl` — Security
 - [x] `monitor`, `perf`, `netstat` — System monitoring
+- [x] Cross-platform consistency: all builtins return structured typed output (Records/Arrays), consistent field names across Windows/Linux/macOS
 
 ### AI & Agents
 - [x] Multi-provider: OpenAI, Anthropic, Ollama, vLLM, compatible
@@ -245,6 +252,8 @@ This document tracks the development progress of AetherShell, the world's first 
 
 ### Open
 - [ ] VS Code marketplace PAT expired (publisher `admercs`)
+- [ ] Pre-existing flaky test: `cfg_feature_enabled` (env var race in parallel test runs)
+- [ ] 9 LOW-severity builtins still return raw text (`net_whois`, `at_list`, `pkg_sources`, `pkg_history`, `strace`, `sar`, `dmesg` fallback, `fdisk_list` macOS fallback, `capabilities`)
 
 ---
 
