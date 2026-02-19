@@ -270,6 +270,7 @@ ai("anthropic:claude-3-opus", "prompt")   # Anthropic
 ai("ollama:llama3.2:3b", "prompt")        # Local Ollama
 ai("ollama:codellama:7b", "prompt")       # Local code model
 ai("vllm:mistral-7b", "prompt")           # vLLM
+ai("lmstudio:model-name", "prompt")       # LM Studio local
 ai("compat:local-model", "prompt")        # Any OpenAI-compatible
 ```
 
@@ -279,8 +280,9 @@ ai("compat:local-model", "prompt")        # Any OpenAI-compatible
 |---|---|
 | `OPENAI_API_KEY` | OpenAI API key |
 | `ANTHROPIC_API_KEY` | Anthropic Claude API key |
-| `AETHER_AI` | Default AI provider (`openai`, `ollama`, `compat`, `tgi`) |
+| `AETHER_AI` | Default AI provider (`openai`, `ollama`, `lmstudio`, `compat`, `tgi`) |
 | `OLLAMA_HOST` | Ollama server URL |
+| `LMSTUDIO_API_BASE` | LM Studio server endpoint (default: http://localhost:1234) |
 | `VLLM_API_BASE` | vLLM server endpoint |
 | `COMPAT_API_BASE` | Custom OpenAI-compatible endpoint |
 | `AGENT_ALLOW_CMDS` | Whitelist of shell commands for agents |
@@ -356,7 +358,7 @@ Start with `ae agent serve` (default port 3002). The Agent API provides structur
 
 The `/api/v1/schema/:format` endpoint supports 25+ AI providers:
 
-`json_schema`, `openai`, `claude`, `gemini`, `llama`, `mistral`, `cohere`, `grok`, `deepseek`, `bedrock`, `azure_openai`, `qwen`, `ollama`, `vllm`, `huggingface`, `openrouter`, `kimi`, `yi`, `glm`, `reka`, `ai21`, `perplexity`, `together`, `groq`, `fireworks`, `ontology`
+`json_schema`, `openai`, `claude`, `gemini`, `llama`, `mistral`, `cohere`, `grok`, `deepseek`, `bedrock`, `azure_openai`, `qwen`, `ollama`, `lmstudio`, `vllm`, `huggingface`, `openrouter`, `kimi`, `yi`, `glm`, `reka`, `ai21`, `perplexity`, `together`, `groq`, `fireworks`, `ontology`
 
 ---
 

@@ -37,7 +37,8 @@ use std::time::Duration;
 
 // Fast builtin lookup using hash map
 lazy_static::lazy_static! {
-    static ref BUILTIN_LOOKUP: HashMap<&'static str, usize> = {
+    /// Public accessor for builtin lookup table (used by agent_api for dynamic discovery)
+    pub static ref BUILTIN_LOOKUP: HashMap<&'static str, usize> = {
         let mut map = HashMap::new();
 
         // General functions

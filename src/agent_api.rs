@@ -36,6 +36,8 @@ use crate::eval::eval_program;
 use crate::marketplace::{RegistryClient, SearchQuery, SortBy};
 use crate::parser::parse_program;
 use crate::value::Value;
+use crate::builtins::BUILTIN_LOOKUP;
+use crate::modules::all_modules;
 
 // ============================================================================
 // Core API Types
@@ -179,12 +181,16 @@ pub struct AgentResponse {
 /// Complete language ontology for AI agents
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LanguageOntology {
+    /// Ontology schema version (semver)
+    pub ontology_version: String,
     /// Language metadata
     pub language: LanguageInfo,
     /// Type system
     pub types: Vec<TypeDefinition>,
     /// All builtin functions
     pub builtins: Vec<BuiltinDefinition>,
+    /// Module definitions with their function mappings
+    pub modules: Vec<ModuleDefinition>,
     /// Operators
     pub operators: Vec<OperatorDefinition>,
     /// Syntax patterns
@@ -281,6 +287,28 @@ pub struct CategoryInfo {
     pub name: String,
     pub description: String,
     pub builtin_count: usize,
+}
+
+/// Module definition for the ontology — represents a namespace like `sys`, `net`, `file`
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModuleDefinition {
+    /// Module name (e.g., "sys", "net", "file")
+    pub name: String,
+    /// Human-readable description
+    pub description: String,
+    /// Functions exposed by this module
+    pub functions: Vec<ModuleFunctionDef>,
+}
+
+/// A function within a module
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModuleFunctionDef {
+    /// Public method name (e.g., "hostname" in `sys.hostname()`)
+    pub method: String,
+    /// Internal builtin name it maps to
+    pub builtin: String,
+    /// Calling syntax
+    pub syntax: String,
 }
 
 // ============================================================================
@@ -720,6 +748,7 @@ fn value_type_name(value: &Value) -> String {
 /// Build the complete language ontology
 pub fn build_language_ontology() -> LanguageOntology {
     LanguageOntology {
+        ontology_version: "1.0.0".to_string(),
         language: LanguageInfo {
             name: "AetherShell".to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
@@ -732,7 +761,8 @@ pub fn build_language_ontology() -> LanguageOntology {
             typing: "Hindley-Milner type inference".to_string(),
         },
         types: get_type_definitions(),
-        builtins: get_builtin_definitions(),
+        builtins: get_all_builtin_definitions(),
+        modules: get_module_definitions(),
         operators: get_operator_definitions(),
         syntax: SyntaxPatterns {
             variable_declaration: "let <name> = <expr>".to_string(),
@@ -1410,51 +1440,488 @@ fn get_builtin_definitions() -> Vec<BuiltinDefinition> {
     builtins
 }
 
-/// Categorize a builtin by name
-#[allow(dead_code)]
+/// Categorize a builtin by name using comprehensive prefix and name matching
 fn categorize_builtin(name: &str) -> String {
     match name {
+        // AI & Agents
+        n if n.starts_with("ai") || n.starts_with("agent") || n.starts_with("swarm") => "AI".to_string(),
+        // MCP Protocol
         n if n.starts_with("mcp_") => "MCP".to_string(),
-        n if n.starts_with("ai") || n.starts_with("agent") || n.starts_with("swarm") => {
-            "AI".to_string()
-        }
-        n if n.starts_with("http") || n.starts_with("fetch") => "Network".to_string(),
-        n if n.starts_with("nn_") || n.starts_with("rl_") => "ML".to_string(),
-        n if n.starts_with("kg_") || n.starts_with("rag_") => "Knowledge".to_string(),
-        n if [
-            "ls",
-            "cat",
-            "pwd",
-            "cd",
-            "mkdir",
-            "rm",
-            "exists",
-            "read_text",
-            "write",
-        ]
-        .contains(&n) =>
-        {
-            "FileSystem".to_string()
-        }
-        n if [
-            "map", "where", "reduce", "filter", "each", "any", "all", "take", "first", "last",
-        ]
-        .contains(&n) =>
-        {
-            "Functional".to_string()
-        }
-        n if ["sum", "avg", "mean", "min", "max", "count", "product"].contains(&n) => {
-            "Aggregation".to_string()
-        }
-        n if [
-            "split", "join", "trim", "upper", "lower", "replace", "contains",
-        ]
-        .contains(&n) =>
-        {
-            "String".to_string()
-        }
+        // A2A / A2UI / NANDA protocols
+        n if n.starts_with("a2a_") => "A2A".to_string(),
+        n if n.starts_with("a2ui_") => "A2UI".to_string(),
+        n if n.starts_with("nanda_") => "NANDA".to_string(),
+        // ML / Neural Nets / Evolution / RL
+        n if n.starts_with("nn_") => "NeuralNet".to_string(),
+        n if n.starts_with("evo_") => "Evolution".to_string(),
+        n if n.starts_with("rl_") => "ReinforcementLearning".to_string(),
+        n if n.starts_with("kg_") || n.starts_with("rag_") || n.starts_with("semantic_cache") || n.starts_with("fine_tune") => "Knowledge".to_string(),
+        // Network & HTTP
+        n if n.starts_with("http_") || n.starts_with("net_") || n == "http_get" || n == "fetch" => "Network".to_string(),
+        // System info
+        n if n.starts_with("sys_") || n == "whoami" || n == "hostname" || n == "uptime" => "System".to_string(),
+        // Process management
+        n if n.starts_with("proc_") || n.starts_with("ps") || n == "kill" || n == "killall" => "Process".to_string(),
+        // File system
+        n if n.starts_with("file_") || n.starts_with("fs_") || ["ls", "cat", "pwd", "cd", "mkdir", "rm", "mv", "cp", "find", "head", "tail", "wc", "sort", "uniq", "grep", "touch", "chmod", "chown", "stat", "glob", "tree", "exists", "read_text", "write", "list", "dir"].contains(&n) => "FileSystem".to_string(),
+        // Services & daemons
+        n if n.starts_with("svc_") || n.starts_with("service_") || n.starts_with("systemctl") => "Service".to_string(),
+        // Cron/scheduling
+        n if n.starts_with("cron_") || n.starts_with("at_") => "Scheduling".to_string(),
+        // Archive/compression
+        n if n.starts_with("archive_") || n.starts_with("zip") || n.starts_with("tar") || n.starts_with("gzip") || n.starts_with("bzip2") || n.starts_with("xz") => "Archive".to_string(),
+        // User/permission management
+        n if n.starts_with("user_") || n.starts_with("perm_") || n.starts_with("group_") => "UserManagement".to_string(),
+        // Package management
+        n if n.starts_with("pkg_") => "Package".to_string(),
+        // Hardware/device
+        n if n.starts_with("hw_") || n.starts_with("device_") => "Hardware".to_string(),
+        // GUI automation
+        n if n.starts_with("gui_") || n.starts_with("screen") || n.starts_with("click") || n.starts_with("type_text") => "GUI".to_string(),
+        // Web automation
+        n if n.starts_with("web_") || n.starts_with("browser_") => "Web".to_string(),
+        // Clipboard & input
+        n if n.starts_with("clip_") || n.starts_with("input_") => "Input".to_string(),
+        // Database
+        n if n.starts_with("db_") || n.starts_with("sqlite_") || n.starts_with("sql_") => "Database".to_string(),
+        // Security & Crypto
+        n if n.starts_with("crypto_") || n.starts_with("hash") || n.starts_with("encrypt") || n.starts_with("decrypt") || n.starts_with("sign") || n.starts_with("verify") || n.starts_with("ssl_") => "Crypto".to_string(),
+        // Containers
+        n if n.starts_with("docker_") || n.starts_with("podman_") || n.starts_with("container_") || n.starts_with("lxc_") => "Container".to_string(),
+        // Kubernetes
+        n if n.starts_with("k8s_") || n.starts_with("helm_") || n.starts_with("kubectl_") => "Kubernetes".to_string(),
+        // VM/Hypervisor
+        n if n.starts_with("vm_") || n.starts_with("hyperv_") || n.starts_with("virsh_") || n.starts_with("qemu_") || n.starts_with("wsl_") => "Virtualization".to_string(),
+        // Cloud/IaC
+        n if n.starts_with("terraform_") || n.starts_with("ansible_") || n.starts_with("pulumi_") || n.starts_with("vagrant_") || n.starts_with("packer_") || n.starts_with("cloud_") => "Cloud".to_string(),
+        // Remote access
+        n if n.starts_with("ssh_") || n.starts_with("scp_") || n.starts_with("rsync_") || n.starts_with("rdp_") => "RemoteAccess".to_string(),
+        // Security
+        n if n.starts_with("firewall_") || n.starts_with("selinux_") || n.starts_with("apparmor_") => "Security".to_string(),
+        // Monitoring
+        n if n.starts_with("monitor_") || n.starts_with("perf_") || n.starts_with("netstat_") || n.starts_with("watch_") => "Monitoring".to_string(),
+        // Enterprise
+        n if n.starts_with("rbac_") => "RBAC".to_string(),
+        n if n.starts_with("audit_") => "Audit".to_string(),
+        n if n.starts_with("sso_") => "SSO".to_string(),
+        // Cluster/distributed
+        n if n.starts_with("cluster_") || n.starts_with("job_") => "Cluster".to_string(),
+        // Cloud & Scale
+        n if n.starts_with("repl_") => "REPL".to_string(),
+        n if n.starts_with("workspace_") => "Workspace".to_string(),
+        n if n.starts_with("marketplace_") => "Marketplace".to_string(),
+        n if n.starts_with("telemetry_") => "Telemetry".to_string(),
+        // Git/code/dev tools
+        n if n.starts_with("git_") => "Git".to_string(),
+        n if n.starts_with("code_") => "Code".to_string(),
+        n if n.starts_with("project_") => "Project".to_string(),
+        n if n.starts_with("search_") => "Search".to_string(),
+        n if n.starts_with("test_") => "Testing".to_string(),
+        n if n.starts_with("diag_") => "Diagnostics".to_string(),
+        n if n.starts_with("refactor_") => "Refactoring".to_string(),
+        n if n.starts_with("session_") => "Session".to_string(),
+        n if n.starts_with("docs_") || n.starts_with("doc_") => "Documentation".to_string(),
+        n if n.starts_with("devenv_") => "DevEnvironment".to_string(),
+        n if n.starts_with("platform_") => "Platform".to_string(),
+        // Math
+        n if n.starts_with("math_") || ["sqrt", "pow", "abs", "ceil", "floor", "round", "sin", "cos", "tan", "log", "exp", "pi", "e"].contains(&n) => "Math".to_string(),
+        // String
+        n if n.starts_with("str_") || ["split", "join", "trim", "upper", "lower", "replace", "contains", "starts_with", "ends_with", "pad_left", "pad_right", "repeat", "reverse", "slice", "format", "to_upper", "to_lower", "capitalize", "char_at", "substr", "str_replace"].contains(&n) => "String".to_string(),
+        // Array/collection
+        n if n.starts_with("arr_") || ["range", "flatten", "zip", "unique", "sort_by", "group_by", "chunk", "window", "scan", "zip_with", "interleave", "partition"].contains(&n) => "Array".to_string(),
+        // JSON
+        n if n.starts_with("json_") || n == "to_json" || n == "from_json" => "JSON".to_string(),
+        // Shell
+        n if n.starts_with("shell_") || n == "exec" || n == "source" || n == "eval_bash" => "Shell".to_string(),
+        // Functional
+        n if ["map", "where", "reduce", "filter", "each", "any", "all", "take", "first", "last", "keys", "values", "select", "reject", "flat_map", "fold"].contains(&n) => "Functional".to_string(),
+        // Aggregation
+        n if ["sum", "avg", "mean", "min", "max", "count", "product", "len"].contains(&n) => "Aggregation".to_string(),
+        // Core utilities
         _ => "Core".to_string(),
     }
+}
+
+/// Generate a human-readable description from a builtin name
+fn describe_builtin_name(name: &str) -> String {
+    // Convert snake_case to "Title Case Description"
+    let words: Vec<&str> = name.split('_').collect();
+    if words.len() <= 1 {
+        // Single word builtins
+        return match name {
+            "ls" => "List directory contents".to_string(),
+            "cat" => "Read file contents".to_string(),
+            "pwd" => "Print working directory".to_string(),
+            "cd" => "Change directory".to_string(),
+            "rm" => "Remove file or directory".to_string(),
+            "mv" => "Move or rename file".to_string(),
+            "cp" => "Copy file or directory".to_string(),
+            "grep" => "Search for pattern in text".to_string(),
+            "sort" => "Sort lines or array elements".to_string(),
+            "uniq" => "Remove duplicate elements".to_string(),
+            "wc" => "Count lines, words, and bytes".to_string(),
+            "head" => "Show first N lines".to_string(),
+            "tail" => "Show last N lines".to_string(),
+            "find" => "Find files by pattern".to_string(),
+            "mkdir" => "Create directory".to_string(),
+            "touch" => "Create empty file or update timestamp".to_string(),
+            "echo" => "Print value to output".to_string(),
+            "print" => "Print formatted output".to_string(),
+            "help" => "Show available commands and help".to_string(),
+            "clear" => "Clear terminal screen".to_string(),
+            "map" => "Transform each element with a function".to_string(),
+            "where" | "filter" => "Filter elements by predicate".to_string(),
+            "reduce" => "Reduce array to single value".to_string(),
+            "sum" => "Sum numeric values".to_string(),
+            "avg" => "Calculate average of numeric values".to_string(),
+            "len" => "Get length of array or string".to_string(),
+            "keys" => "Get keys of a record".to_string(),
+            "values" => "Get values of a record".to_string(),
+            "first" => "Get first element".to_string(),
+            "last" => "Get last element".to_string(),
+            "any" => "Check if any element matches".to_string(),
+            "all" => "Check if all elements match".to_string(),
+            "take" => "Take first N elements".to_string(),
+            "each" => "Execute function for each element".to_string(),
+            "split" => "Split string by delimiter".to_string(),
+            "join" => "Join array elements with delimiter".to_string(),
+            "trim" => "Remove whitespace from string".to_string(),
+            "upper" => "Convert string to uppercase".to_string(),
+            "lower" => "Convert string to lowercase".to_string(),
+            "contains" => "Check if string contains substring".to_string(),
+            "replace" => "Replace occurrences in string".to_string(),
+            "min" => "Get minimum value".to_string(),
+            "max" => "Get maximum value".to_string(),
+            "count" => "Count elements".to_string(),
+            "flatten" => "Flatten nested arrays".to_string(),
+            "range" => "Generate a range of numbers".to_string(),
+            "unique" => "Remove duplicate elements".to_string(),
+            "reverse" => "Reverse array or string".to_string(),
+            "select" => "Select fields from records".to_string(),
+            "reject" => "Remove fields from records".to_string(),
+            "call" => "Call a named builtin dynamically".to_string(),
+            "type" => "Get the type of a value".to_string(),
+            "whoami" => "Get current username".to_string(),
+            "hostname" => "Get system hostname".to_string(),
+            "uptime" => "Get system uptime".to_string(),
+            "kill" => "Terminate a process".to_string(),
+            "exec" => "Execute external command".to_string(),
+            "fetch" => "Fetch URL contents".to_string(),
+            "glob" => "Match files by glob pattern".to_string(),
+            _ => format!("{}", capitalize_first(name)),
+        };
+    }
+
+    // Multi-word: use module prefix as context
+    let prefix = words[0];
+    let rest: Vec<&str> = words[1..].to_vec();
+    let action = rest.join(" ");
+
+    match prefix {
+        "sys" => format!("System: {}", action),
+        "proc" => format!("Process: {}", action),
+        "net" => format!("Network: {}", action),
+        "http" => format!("HTTP: {}", action),
+        "file" => format!("File: {}", action),
+        "fs" => format!("Filesystem: {}", action),
+        "gui" => format!("GUI: {}", action),
+        "web" => format!("Web: {}", action),
+        "db" | "sqlite" => format!("Database: {}", action),
+        "crypto" => format!("Crypto: {}", action),
+        "svc" | "service" => format!("Service: {}", action),
+        "cron" => format!("Schedule: {}", action),
+        "archive" => format!("Archive: {}", action),
+        "user" => format!("User: {}", action),
+        "perm" => format!("Permission: {}", action),
+        "pkg" => format!("Package: {}", action),
+        "hw" => format!("Hardware: {}", action),
+        "clip" => format!("Clipboard: {}", action),
+        "input" => format!("Input: {}", action),
+        "docker" => format!("Docker: {}", action),
+        "podman" => format!("Podman: {}", action),
+        "container" => format!("Container: {}", action),
+        "k8s" | "kubectl" => format!("Kubernetes: {}", action),
+        "helm" => format!("Helm: {}", action),
+        "vm" => format!("VM: {}", action),
+        "hyperv" => format!("Hyper-V: {}", action),
+        "virsh" => format!("Libvirt: {}", action),
+        "qemu" => format!("QEMU: {}", action),
+        "wsl" => format!("WSL: {}", action),
+        "lxc" => format!("LXC: {}", action),
+        "terraform" => format!("Terraform: {}", action),
+        "ansible" => format!("Ansible: {}", action),
+        "pulumi" => format!("Pulumi: {}", action),
+        "vagrant" => format!("Vagrant: {}", action),
+        "packer" => format!("Packer: {}", action),
+        "ssh" => format!("SSH: {}", action),
+        "scp" => format!("SCP: {}", action),
+        "rsync" => format!("Rsync: {}", action),
+        "rdp" => format!("RDP: {}", action),
+        "firewall" => format!("Firewall: {}", action),
+        "selinux" => format!("SELinux: {}", action),
+        "apparmor" => format!("AppArmor: {}", action),
+        "ssl" => format!("SSL/TLS: {}", action),
+        "monitor" => format!("Monitor: {}", action),
+        "perf" => format!("Performance: {}", action),
+        "git" => format!("Git: {}", action),
+        "code" => format!("Code: {}", action),
+        "project" => format!("Project: {}", action),
+        "search" => format!("Search: {}", action),
+        "test" => format!("Test: {}", action),
+        "diag" => format!("Diagnostics: {}", action),
+        "refactor" => format!("Refactor: {}", action),
+        "session" => format!("Session: {}", action),
+        "docs" | "doc" => format!("Documentation: {}", action),
+        "devenv" => format!("Dev environment: {}", action),
+        "platform" => format!("Platform: {}", action),
+        "math" => format!("Math: {}", action),
+        "str" => format!("String: {}", action),
+        "arr" => format!("Array: {}", action),
+        "json" => format!("JSON: {}", action),
+        "shell" => format!("Shell: {}", action),
+        "mcp" => format!("MCP: {}", action),
+        "a2a" => format!("Agent-to-Agent: {}", action),
+        "a2ui" => format!("Agent-to-UI: {}", action),
+        "nanda" => format!("NANDA: {}", action),
+        "nn" => format!("Neural net: {}", action),
+        "evo" => format!("Evolution: {}", action),
+        "rl" => format!("Reinforcement learning: {}", action),
+        "rbac" => format!("RBAC: {}", action),
+        "audit" => format!("Audit: {}", action),
+        "sso" => format!("SSO: {}", action),
+        "cluster" => format!("Cluster: {}", action),
+        "cloud" => format!("Cloud: {}", action),
+        "repl" => format!("REPL: {}", action),
+        "workspace" => format!("Workspace: {}", action),
+        "marketplace" => format!("Marketplace: {}", action),
+        "telemetry" => format!("Telemetry: {}", action),
+        _ => {
+            let full = words.join(" ");
+            capitalize_first(&full)
+        }
+    }
+}
+
+/// Capitalize the first letter of a string
+fn capitalize_first(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(c) => c.to_uppercase().to_string() + chars.as_str(),
+    }
+}
+
+/// Infer a basic return type from the builtin name
+fn infer_return_type(name: &str) -> String {
+    match name {
+        // Known return types for common builtins
+        n if n == "ls" || n == "find" || n == "glob" || n == "tree" => "Array<Record>".to_string(),
+        n if n == "cat" || n == "pwd" || n == "whoami" || n == "hostname" || n == "echo" || n == "print" => "String".to_string(),
+        n if n == "len" || n == "count" || n == "wc" => "Int".to_string(),
+        n if n == "sum" || n == "avg" || n == "min" || n == "max" || n == "product" => "Number".to_string(),
+        n if n == "any" || n == "all" || n == "exists" || n == "contains" => "Bool".to_string(),
+        n if n == "first" || n == "last" || n == "reduce" => "Value".to_string(),
+        n if n == "map" || n == "where" || n == "filter" || n == "take" || n == "sort" || n == "uniq" || n == "unique" || n == "flatten" || n == "range" || n == "reverse" || n == "select" || n == "reject" || n == "keys" || n == "values" || n == "each" => "Array".to_string(),
+        n if n == "split" => "Array<String>".to_string(),
+        n if n == "join" || n == "trim" || n == "upper" || n == "lower" || n == "replace" || n == "format" => "String".to_string(),
+        // Module-prefix patterns
+        n if n.ends_with("_list") || n.ends_with("_all") || n.ends_with("_search") || n.ends_with("_query") => "Array<Record>".to_string(),
+        n if n.ends_with("_info") || n.ends_with("_status") || n.ends_with("_config") || n.ends_with("_stats") || n.ends_with("_details") => "Record".to_string(),
+        n if n.ends_with("_count") || n.ends_with("_size") || n.ends_with("_pid") || n.ends_with("_port") => "Int".to_string(),
+        n if n.ends_with("_exists") || n.ends_with("_check") || n.ends_with("_validate") || n.ends_with("_enabled") || n.ends_with("_available") => "Bool".to_string(),
+        n if n.ends_with("_read") || n.ends_with("_get") || n.ends_with("_name") || n.ends_with("_version") || n.ends_with("_path") || n.ends_with("_hostname") => "String".to_string(),
+        // Prefix patterns for structured output
+        n if n.starts_with("sys_") || n.starts_with("hw_") || n.starts_with("platform_") => "Record".to_string(),
+        n if n.starts_with("proc_") && n.ends_with("s") => "Array<Record>".to_string(),
+        n if n.starts_with("net_") => "Record".to_string(),
+        _ => "Value".to_string(),
+    }
+}
+
+/// Generate all builtin definitions dynamically from BUILTIN_LOOKUP.
+/// Enriched hand-coded definitions for core builtins are preserved;
+/// all remaining builtins get auto-generated schemas.
+fn get_all_builtin_definitions() -> Vec<BuiltinDefinition> {
+    // Start with hand-coded enriched definitions
+    let enriched = get_builtin_definitions();
+    let enriched_names: std::collections::HashSet<String> = enriched.iter().map(|b| b.name.clone()).collect();
+
+    // Build reverse lookup: index → Vec<name> to detect aliases
+    let mut index_to_names: HashMap<usize, Vec<String>> = HashMap::new();
+    for (name, &idx) in BUILTIN_LOOKUP.iter() {
+        index_to_names.entry(idx).or_default().push(name.to_string());
+    }
+
+    // Determine the "canonical" name for each index (shortest non-alias name)
+    let mut canonical: HashMap<usize, String> = HashMap::new();
+    for (idx, names) in &index_to_names {
+        let mut sorted = names.clone();
+        sorted.sort_by(|a, b| a.len().cmp(&b.len()).then(a.cmp(b)));
+        canonical.insert(*idx, sorted[0].clone());
+    }
+
+    // Build final list
+    let mut all = enriched;
+    let mut seen_indices: std::collections::HashSet<usize> = std::collections::HashSet::new();
+
+    // Mark enriched indices as seen
+    for name in &enriched_names {
+        if let Some(&idx) = BUILTIN_LOOKUP.get(name.as_str()) {
+            seen_indices.insert(idx);
+        }
+    }
+
+    // Generate definitions for all remaining builtins
+    for (idx, primary_name) in &canonical {
+        if seen_indices.contains(idx) {
+            continue;
+        }
+        seen_indices.insert(*idx);
+
+        let category = categorize_builtin(primary_name);
+        let description = describe_builtin_name(primary_name);
+        let return_type = infer_return_type(primary_name);
+
+        // Collect aliases (other names mapping to same index)
+        let aliases: Vec<String> = index_to_names
+            .get(idx)
+            .map(|names| {
+                names.iter()
+                    .filter(|n| *n != primary_name)
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let signature = format!("{}() -> {}", primary_name, return_type);
+
+        all.push(BuiltinDefinition {
+            name: primary_name.clone(),
+            description,
+            category,
+            signature,
+            parameters: vec![],
+            return_type,
+            examples: vec![],
+            aliases: if aliases.is_empty() { None } else { Some(aliases) },
+            json_schema: json!({
+                "type": "object",
+                "properties": {}
+            }),
+        });
+    }
+
+    // Sort by category then name for consistent output
+    all.sort_by(|a, b| a.category.cmp(&b.category).then(a.name.cmp(&b.name)));
+    all
+}
+
+/// Module descriptions for the ontology
+fn module_description(name: &str) -> &str {
+    match name {
+        "sys" => "System information — hostname, OS, CPU, memory, uptime",
+        "proc" => "Process management — list, kill, monitor processes",
+        "fs" => "Filesystem operations — mount, disk, symlink",
+        "file" => "File I/O — read, write, append, copy, move, edit",
+        "net" => "Network — ping, DNS, interfaces, connections",
+        "http" => "HTTP client — get, post, put, delete, request",
+        "gui" => "GUI automation — screenshot, click, type, window control",
+        "web" => "Web automation — browser control, scraping",
+        "crypto" => "Cryptography — hash, encrypt, decrypt, sign, UUID",
+        "db" => "Database — SQLite queries, connections",
+        "svc" => "Service management — start, stop, status, enable",
+        "cron" => "Scheduling — cron jobs, scheduled tasks",
+        "archive" => "Compression — zip, tar, gzip, extract",
+        "user" => "User management — create, delete, modify users",
+        "perm" => "Permissions — chmod, chown, ACLs",
+        "pkg" => "Package management — install, remove, search, update",
+        "hw" => "Hardware info — CPU, GPU, disk, memory, battery",
+        "clip" => "Clipboard — copy, paste, history",
+        "input" => "User input — prompt, confirm, select",
+        "ai" => "AI queries — multi-provider LLM completion",
+        "agent" => "Agent framework — autonomous agents with tools",
+        "math" => "Mathematics — sqrt, pow, trig, constants",
+        "str" => "String manipulation — upper, lower, split, join, replace",
+        "arr" => "Array operations — range, flatten, unique, chunk",
+        "json" => "JSON — parse, stringify, query, patch",
+        "mcp" => "Model Context Protocol — tool discovery and invocation",
+        "shell" => "Shell operations — exec, source, environment",
+        "a2ui" => "Agent-to-UI — notifications, progress, confirmations",
+        "a2a" => "Agent-to-Agent — inter-agent messaging",
+        "nanda" => "NANDA consensus protocol",
+        "git" => "Git operations — status, commit, push, pull, branch",
+        "code" => "Code intelligence — analysis, completion, generation",
+        "project" => "Project management — scaffold, dependencies",
+        "search" => "Code search — find symbols, references, definitions",
+        "test" => "Testing — run, discover, analyze test results",
+        "diag" => "Diagnostics — linting, type checking, profiling",
+        "refactor" => "Refactoring — rename, extract, inline, organize",
+        "session" => "Session management — save, restore, history",
+        "docs" => "Documentation — generate, browse, search docs",
+        "devenv" => "Dev environment — setup, tools, configuration",
+        "platform" => "Platform detection — OS, arch, features, libraries",
+        "rbac" => "Role-based access control — roles, permissions, grants",
+        "audit" => "Audit logging — log, query, export events",
+        "sso" => "Single sign-on — OIDC/SAML authentication",
+        "cluster" => "Distributed computing — cluster, job scheduling",
+        "nn" => "Neural networks — create, train, predict",
+        "evo" => "Evolutionary algorithms — population, evolve, fitness",
+        "rl" => "Reinforcement learning — Q-learning, DQN, policy",
+        "monitor" => "System monitoring — metrics, alerts, dashboards",
+        "cloud" => "Cloud platform — deploy, instances, regions",
+        "repl" => "Remote REPL — serve, connect, broadcast via WebSocket",
+        "workspace" => "Team workspaces — create, share agents, collaborate",
+        "marketplace" => "Plugin marketplace — publish, search, install",
+        "telemetry" => "Usage telemetry — opt-in analytics and reporting",
+        "docker" => "Docker — containers, images, compose",
+        "podman" => "Podman — rootless containers",
+        "container" => "Container abstraction — runtime-agnostic container ops",
+        "k8s" => "Kubernetes — pods, services, deployments",
+        "helm" => "Helm — chart management and releases",
+        "vm" => "Virtual machines — create, start, stop, snapshot",
+        "hyperv" => "Hyper-V — Windows VM management",
+        "virsh" => "Libvirt — Linux VM management",
+        "wsl" => "WSL — Windows Subsystem for Linux",
+        _ => "Module functions",
+    }
+}
+
+/// Get module definitions from the module system for the ontology
+fn get_module_definitions() -> Vec<ModuleDefinition> {
+    let all = all_modules();
+    let mut modules = Vec::new();
+
+    for (name, value) in &all {
+        if let Value::Record(map) = value {
+            let mut functions = Vec::new();
+            for (method, _builtin_val) in map {
+                // Extract the builtin name from the Value::Builtin
+                let builtin_name = if let Value::Builtin(bref) = _builtin_val {
+                    bref.name.clone()
+                } else {
+                    method.clone()
+                };
+                functions.push(ModuleFunctionDef {
+                    method: method.clone(),
+                    builtin: builtin_name.clone(),
+                    syntax: format!("{}.{}()", name, method),
+                });
+            }
+            functions.sort_by(|a, b| a.method.cmp(&b.method));
+
+            modules.push(ModuleDefinition {
+                name: name.to_string(),
+                description: module_description(name).to_string(),
+                functions,
+            });
+        }
+    }
+
+    // Deduplicate modules (e.g., "platform" appears 3 times in all_modules)
+    modules.sort_by(|a, b| a.name.cmp(&b.name));
+    modules.dedup_by(|a, b| a.name == b.name);
+
+    modules
 }
 
 /// Get operator definitions
@@ -1561,7 +2028,7 @@ fn get_operator_definitions() -> Vec<OperatorDefinition> {
 
 /// Get category information
 fn get_category_info() -> Vec<CategoryInfo> {
-    let builtins = get_builtin_definitions();
+    let builtins = get_all_builtin_definitions();
     let mut categories: HashMap<String, usize> = HashMap::new();
 
     for b in &builtins {
@@ -1570,30 +2037,77 @@ fn get_category_info() -> Vec<CategoryInfo> {
 
     let descriptions: HashMap<&str, &str> = [
         ("FileSystem", "File and directory operations"),
-        (
-            "Functional",
-            "Higher-order functions for data transformation",
-        ),
+        ("Functional", "Higher-order functions for data transformation"),
         ("Aggregation", "Statistical and aggregation functions"),
         ("String", "String manipulation functions"),
+        ("Array", "Array and collection operations"),
         ("Network", "HTTP and network operations"),
         ("AI", "AI model queries and agent operations"),
         ("MCP", "Model Context Protocol tools"),
-        ("ML", "Machine learning and neural network operations"),
+        ("NeuralNet", "Neural network creation and training"),
+        ("Evolution", "Evolutionary algorithm operations"),
+        ("ReinforcementLearning", "Reinforcement learning agents"),
         ("Knowledge", "Knowledge graphs and RAG operations"),
-        ("Core", "Core language utilities"),
+        ("System", "System info — hostname, OS, CPU, memory"),
+        ("Process", "Process management — list, kill, monitor"),
+        ("Service", "Service/daemon management"),
+        ("Database", "Database queries and connections"),
+        ("Crypto", "Cryptography, hashing, and encryption"),
+        ("Container", "Docker/Podman container management"),
+        ("Kubernetes", "Kubernetes cluster operations"),
+        ("Virtualization", "VM and hypervisor management"),
+        ("Cloud", "Cloud infrastructure and IaC"),
+        ("RemoteAccess", "SSH, SCP, and remote connectivity"),
+        ("Security", "Firewall, SELinux, AppArmor"),
+        ("Monitoring", "System monitoring and performance"),
+        ("GUI", "GUI automation — screenshots, clicks"),
+        ("Web", "Web automation and browser control"),
+        ("Archive", "Compression and archive operations"),
+        ("Scheduling", "Cron jobs and scheduled tasks"),
+        ("UserManagement", "User and group management"),
+        ("Package", "Package management"),
+        ("Hardware", "Hardware info and device access"),
+        ("Input", "Clipboard and user input"),
+        ("JSON", "JSON parsing and manipulation"),
+        ("Math", "Mathematical operations and constants"),
+        ("Shell", "Shell operations and command execution"),
+        ("Git", "Git version control operations"),
+        ("Code", "Code intelligence and analysis"),
+        ("Project", "Project scaffolding and management"),
+        ("Search", "Code search and symbol lookup"),
+        ("Testing", "Test execution and analysis"),
+        ("Diagnostics", "Linting, profiling, type checking"),
+        ("Refactoring", "Code refactoring operations"),
+        ("Session", "Session save/restore and history"),
+        ("Documentation", "Documentation generation and browsing"),
+        ("DevEnvironment", "Development environment setup"),
+        ("Platform", "Platform detection and capabilities"),
+        ("A2A", "Agent-to-Agent messaging protocol"),
+        ("A2UI", "Agent-to-UI notification protocol"),
+        ("NANDA", "NANDA consensus protocol"),
+        ("RBAC", "Role-based access control"),
+        ("Audit", "Audit logging and compliance"),
+        ("SSO", "Single sign-on authentication"),
+        ("Cluster", "Distributed computing and job scheduling"),
+        ("REPL", "Remote REPL and WebSocket sessions"),
+        ("Workspace", "Team workspace management"),
+        ("Marketplace", "Plugin marketplace"),
+        ("Telemetry", "Usage telemetry and analytics"),
+        ("Core", "Core language utilities and builtins"),
     ]
     .into_iter()
     .collect();
 
-    categories
+    let mut result: Vec<CategoryInfo> = categories
         .into_iter()
         .map(|(name, count)| CategoryInfo {
             description: descriptions.get(name.as_str()).unwrap_or(&"").to_string(),
             name,
             builtin_count: count,
         })
-        .collect()
+        .collect();
+    result.sort_by(|a, b| a.name.cmp(&b.name));
+    result
 }
 
 // ============================================================================
@@ -1693,11 +2207,30 @@ fn build_compact_ontology(ontology: &LanguageOntology) -> JsonValue {
         .builtins
         .iter()
         .map(|b| {
-            json!({
+            let mut entry = json!({
                 "n": b.name,
                 "d": b.description,
                 "s": b.signature,
                 "c": b.category
+            });
+            if let Some(aliases) = &b.aliases {
+                if !aliases.is_empty() {
+                    entry["a"] = json!(aliases);
+                }
+            }
+            entry
+        })
+        .collect();
+
+    let modules_compact: Vec<JsonValue> = ontology
+        .modules
+        .iter()
+        .map(|m| {
+            let fns: Vec<String> = m.functions.iter().map(|f| f.method.clone()).collect();
+            json!({
+                "n": m.name,
+                "d": m.description,
+                "fns": fns
             })
         })
         .collect();
@@ -1705,6 +2238,7 @@ fn build_compact_ontology(ontology: &LanguageOntology) -> JsonValue {
     json!({
         "lang": "AetherShell",
         "ver": ontology.language.version,
+        "ontology_ver": ontology.ontology_version,
         "types": ["Int", "Float", "String", "Bool", "Array", "Record", "Lambda", "Table", "Option"],
         "ops": ["|", "+", "-", "*", "/", "==", "!=", ">", "<", ">=", "<=", "&&", "||", "."],
         "syntax": {
@@ -1716,7 +2250,13 @@ fn build_compact_ontology(ontology: &LanguageOntology) -> JsonValue {
             "if": "if cond then a else b",
             "match": "match x { p => r }"
         },
-        "builtins": builtins_compact
+        "modules": modules_compact,
+        "builtins": builtins_compact,
+        "stats": {
+            "total_builtins": ontology.builtins.len(),
+            "total_modules": ontology.modules.len(),
+            "categories": ontology.categories.len()
+        }
     })
 }
 

@@ -1229,3 +1229,426 @@ impl ModelProvider for LlamaCppProvider {
         "llama.cpp"
     }
 }
+
+// ============================================================================
+// Ollama Provider
+// ============================================================================
+
+/// Ollama provider — local model serving via ollama (http://localhost:11434)
+pub struct OllamaProvider {
+    client: Client,
+    base_url: String,
+}
+
+impl OllamaProvider {
+    pub fn new(base_url: Option<&str>) -> Self {
+        Self {
+            client: create_secure_client(),
+            base_url: base_url
+                .unwrap_or("http://localhost:11434")
+                .trim_end_matches('/')
+                .to_string(),
+        }
+    }
+
+    /// Pull a model if not already available (auto-pull)
+    pub async fn pull_model(&self, model: &str) -> Result<()> {
+        let response = self
+            .client
+            .post(&format!("{}/api/pull", self.base_url))
+            .json(&json!({ "name": model, "stream": false }))
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let error_text = response.text().await?;
+            return Err(anyhow::anyhow!("Ollama pull failed for '{}': {}", model, error_text));
+        }
+        Ok(())
+    }
+
+    /// Check if a specific model is available locally
+    pub async fn has_model(&self, model: &str) -> bool {
+        if let Ok(models) = self.list_models().await {
+            models.iter().any(|m| m.id == model || m.id.starts_with(&format!("{}:", model)))
+        } else {
+            false
+        }
+    }
+}
+
+#[async_trait]
+impl ModelProvider for OllamaProvider {
+    async fn list_models(&self) -> Result<Vec<ModelInfo>> {
+        let response = self
+            .client
+            .get(&format!("{}/api/tags", self.base_url))
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            return Ok(vec![]);
+        }
+
+        let body: serde_json::Value = response.json().await?;
+        let models = body
+            .get("models")
+            .and_then(|m| m.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        Ok(models
+            .iter()
+            .filter_map(|m| {
+                let name = m.get("name")?.as_str()?.to_string();
+                let size = m
+                    .get("size")
+                    .and_then(|s| s.as_u64())
+                    .unwrap_or(0);
+                let modified = m
+                    .get("modified_at")
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("")
+                    .to_string();
+
+                // Infer context length from model family
+                let context_length = if name.contains("llama") {
+                    131072
+                } else if name.contains("mistral") || name.contains("mixtral") {
+                    32768
+                } else if name.contains("gemma") {
+                    8192
+                } else if name.contains("phi") {
+                    131072
+                } else if name.contains("qwen") {
+                    131072
+                } else if name.contains("deepseek") {
+                    131072
+                } else {
+                    4096
+                };
+
+                Some(ModelInfo {
+                    id: name.clone(),
+                    object: "model".to_string(),
+                    created: 0,
+                    owned_by: "local".to_string(),
+                    provider: "ollama".to_string(),
+                    context_length: Some(context_length),
+                    max_output: None,
+                    per_request_limits: None,
+                    pricing: None,
+                    capabilities: ModelCapabilities {
+                        chat: true,
+                        completions: true,
+                        embeddings: true,
+                        image_generation: false,
+                        image_understanding: name.contains("llava") || name.contains("vision"),
+                        audio_generation: false,
+                        audio_understanding: false,
+                        video_understanding: false,
+                        function_calling: name.contains("llama") || name.contains("mistral"),
+                        streaming: true,
+                    },
+                    local_path: None,
+                    format: ModelFormat::GGUF,
+                    size_bytes: Some(size),
+                    metadata: {
+                        let mut m = HashMap::new();
+                        if !modified.is_empty() {
+                            m.insert("modified_at".to_string(), serde_json::Value::String(modified));
+                        }
+                        m
+                    },
+                })
+            })
+            .collect())
+    }
+
+    async fn chat_completion(
+        &self,
+        request: ChatCompletionRequest,
+    ) -> Result<ChatCompletionResponse> {
+        // Convert to Ollama /api/chat format
+        let messages: Vec<serde_json::Value> = request
+            .messages
+            .iter()
+            .map(|m| json!({ "role": m.role, "content": m.content }))
+            .collect();
+
+        let mut body = json!({
+            "model": request.model,
+            "messages": messages,
+            "stream": false
+        });
+
+        if let Some(temp) = request.temperature {
+            body["options"] = json!({ "temperature": temp });
+        }
+        if let Some(max) = request.max_tokens {
+            if let Some(opts) = body.get_mut("options") {
+                opts["num_predict"] = json!(max);
+            } else {
+                body["options"] = json!({ "num_predict": max });
+            }
+        }
+
+        let response = self
+            .client
+            .post(&format!("{}/api/chat", self.base_url))
+            .json(&body)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await?;
+
+            // Auto-pull if model not found
+            if status.as_u16() == 404 || error_text.contains("not found") {
+                return Err(anyhow::anyhow!(
+                    "Model '{}' not found. Use ollama pull {} or set auto_pull: true. Error: {}",
+                    request.model,
+                    request.model,
+                    error_text
+                ));
+            }
+            return Err(anyhow::anyhow!("Ollama chat error ({}): {}", status, error_text));
+        }
+
+        let ollama_resp: serde_json::Value = response.json().await?;
+
+        let content = ollama_resp
+            .get("message")
+            .and_then(|m| m.get("content"))
+            .and_then(|c| c.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        let eval_count = ollama_resp
+            .get("eval_count")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(content.split_whitespace().count() as u64) as u32;
+        let prompt_eval_count = ollama_resp
+            .get("prompt_eval_count")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32;
+
+        Ok(ChatCompletionResponse {
+            id: format!("ollama-{}", chrono::Utc::now().timestamp()),
+            object: "chat.completion".to_string(),
+            created: chrono::Utc::now().timestamp(),
+            model: request.model,
+            choices: vec![ChatChoice {
+                index: 0,
+                message: ChatMessage {
+                    role: "assistant".to_string(),
+                    content: Some(content),
+                    name: None,
+                    function_call: None,
+                    tool_calls: None,
+                    tool_call_id: None,
+                },
+                finish_reason: Some("stop".to_string()),
+                delta: None,
+            }],
+            usage: Some(Usage {
+                prompt_tokens: prompt_eval_count,
+                completion_tokens: eval_count,
+                total_tokens: prompt_eval_count + eval_count,
+            }),
+            system_fingerprint: None,
+        })
+    }
+
+    async fn embeddings(&self, request: EmbeddingRequest) -> Result<EmbeddingResponse> {
+        let input_text = request.input.join(" ");
+
+        let response = self
+            .client
+            .post(&format!("{}/api/embeddings", self.base_url))
+            .json(&json!({
+                "model": request.model,
+                "prompt": input_text
+            }))
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let error_text = response.text().await?;
+            return Err(anyhow::anyhow!("Ollama embedding error: {}", error_text));
+        }
+
+        let ollama_resp: serde_json::Value = response.json().await?;
+
+        let embedding = ollama_resp
+            .get("embedding")
+            .and_then(|e| e.as_array())
+            .unwrap_or(&vec![])
+            .iter()
+            .filter_map(|v| v.as_f64().map(|f| f as f32))
+            .collect::<Vec<f32>>();
+
+        Ok(EmbeddingResponse {
+            object: "list".to_string(),
+            data: vec![EmbeddingData {
+                object: "embedding".to_string(),
+                index: 0,
+                embedding,
+            }],
+            model: request.model,
+            usage: Usage {
+                prompt_tokens: input_text.split_whitespace().count() as u32,
+                completion_tokens: 0,
+                total_tokens: input_text.split_whitespace().count() as u32,
+            },
+        })
+    }
+
+    async fn validate_api_key(&self) -> Result<bool> {
+        // Ollama doesn't use API keys. Check if server is reachable.
+        let response = self
+            .client
+            .get(&self.base_url)
+            .timeout(std::time::Duration::from_secs(2))
+            .send()
+            .await;
+
+        Ok(response.is_ok())
+    }
+
+    fn get_provider_name(&self) -> &str {
+        "ollama"
+    }
+}
+
+// ============================================================================
+// LM Studio Provider
+// ============================================================================
+
+/// LM Studio provider — local models via OpenAI-compatible API (http://localhost:1234)
+pub struct LMStudioProvider {
+    client: Client,
+    base_url: String,
+}
+
+impl LMStudioProvider {
+    pub fn new(base_url: Option<&str>) -> Self {
+        Self {
+            client: create_secure_client(),
+            base_url: base_url
+                .unwrap_or("http://localhost:1234")
+                .trim_end_matches('/')
+                .to_string(),
+        }
+    }
+}
+
+#[async_trait]
+impl ModelProvider for LMStudioProvider {
+    async fn list_models(&self) -> Result<Vec<ModelInfo>> {
+        let response = self
+            .client
+            .get(&format!("{}/v1/models", self.base_url))
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            return Ok(vec![]);
+        }
+
+        let body: serde_json::Value = response.json().await?;
+        let models = body
+            .get("data")
+            .and_then(|d| d.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        Ok(models
+            .iter()
+            .filter_map(|m| {
+                let id = m.get("id")?.as_str()?.to_string();
+                Some(ModelInfo {
+                    id: id.clone(),
+                    object: "model".to_string(),
+                    created: m.get("created").and_then(|c| c.as_i64()).unwrap_or(0),
+                    owned_by: "lmstudio".to_string(),
+                    provider: "lmstudio".to_string(),
+                    context_length: Some(4096),
+                    max_output: None,
+                    per_request_limits: None,
+                    pricing: None,
+                    capabilities: ModelCapabilities {
+                        chat: true,
+                        completions: true,
+                        embeddings: true,
+                        image_generation: false,
+                        image_understanding: false,
+                        audio_generation: false,
+                        audio_understanding: false,
+                        video_understanding: false,
+                        function_calling: true,
+                        streaming: true,
+                    },
+                    local_path: None,
+                    format: ModelFormat::GGUF,
+                    size_bytes: None,
+                    metadata: HashMap::new(),
+                })
+            })
+            .collect())
+    }
+
+    async fn chat_completion(
+        &self,
+        request: ChatCompletionRequest,
+    ) -> Result<ChatCompletionResponse> {
+        // LM Studio speaks OpenAI-compatible API
+        let response = self
+            .client
+            .post(&format!("{}/v1/chat/completions", self.base_url))
+            .json(&request)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let error_text = response.text().await?;
+            return Err(anyhow::anyhow!("LM Studio error: {}", error_text));
+        }
+
+        let result: ChatCompletionResponse = response.json().await?;
+        Ok(result)
+    }
+
+    async fn embeddings(&self, request: EmbeddingRequest) -> Result<EmbeddingResponse> {
+        let response = self
+            .client
+            .post(&format!("{}/v1/embeddings", self.base_url))
+            .json(&request)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let error_text = response.text().await?;
+            return Err(anyhow::anyhow!("LM Studio embedding error: {}", error_text));
+        }
+
+        let result: EmbeddingResponse = response.json().await?;
+        Ok(result)
+    }
+
+    async fn validate_api_key(&self) -> Result<bool> {
+        let response = self
+            .client
+            .get(&format!("{}/v1/models", self.base_url))
+            .timeout(std::time::Duration::from_secs(2))
+            .send()
+            .await;
+
+        Ok(response.map(|r| r.status().is_success()).unwrap_or(false))
+    }
+
+    fn get_provider_name(&self) -> &str {
+        "lmstudio"
+    }
+}
