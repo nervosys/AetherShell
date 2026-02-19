@@ -796,6 +796,11 @@ impl ExternalToolRegistry {
                     libc::kill(child_id as i32, libc::SIGKILL);
                 }
             }
+            #[cfg(not(any(windows, unix)))]
+            {
+                // Best-effort: no platform-specific kill available
+                let _ = child_id;
+            }
         });
 
         let output = child

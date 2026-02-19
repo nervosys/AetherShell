@@ -17092,17 +17092,25 @@ fn bi_zip_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     #[cfg(target_os = "windows")]
     {
-        let cmd = format!(
-            "(Get-ChildItem -Path '{}' -Filter *.* | ForEach-Object {{ $_.FullName }}) -join \"`n\"",
-            archive
-        );
         let output = std::process::Command::new("powershell")
-            .args(["-Command", &format!("Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::OpenRead('{}').Entries | Select-Object FullName | ConvertTo-Json", archive)])
+            .args(["-Command", &format!("Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::OpenRead('{}').Entries | Select-Object FullName,Length | ConvertTo-Json", archive)])
             .output()?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                return Ok(json_to_value(json));
+                let items = match &json {
+                    serde_json::Value::Array(arr) => arr.clone(),
+                    obj @ serde_json::Value::Object(_) => vec![obj.clone()],
+                    _ => vec![],
+                };
+                let entries: Vec<Value> = items.iter().filter_map(|obj| {
+                    let o = obj.as_object()?;
+                    let mut rec = std::collections::BTreeMap::new();
+                    if let Some(v) = o.get("FullName") { rec.insert("name".to_string(), json_to_value(v.clone())); }
+                    if let Some(v) = o.get("Length") { rec.insert("size".to_string(), json_to_value(v.clone())); }
+                    Some(Value::Record(rec))
+                }).collect();
+                return Ok(Value::Array(entries));
             }
         }
     }
@@ -17111,9 +17119,30 @@ fn bi_zip_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let output = std::process::Command::new("unzip")
             .args(["-l", &archive])
             .output()?;
-        return Ok(Value::Str(
-            String::from_utf8_lossy(&output.stdout).to_string(),
-        ));
+        if output.status.success() {
+            let text = String::from_utf8_lossy(&output.stdout);
+            // Parse unzip -l output: "  Length  Date  Time  Name" format
+            let entries: Vec<Value> = text.lines()
+                .filter(|line| {
+                    let trimmed = line.trim();
+                    !trimmed.is_empty() && !trimmed.starts_with("Archive") && !trimmed.starts_with("Length") && !trimmed.starts_with("---") && !trimmed.contains("files")
+                })
+                .filter_map(|line| {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() >= 4 {
+                        let mut rec = std::collections::BTreeMap::new();
+                        rec.insert("name".to_string(), Value::Str(parts[3..].join(" ")));
+                        if let Ok(size) = parts[0].parse::<i64>() {
+                            rec.insert("size".to_string(), Value::Int(size));
+                        }
+                        Some(Value::Record(rec))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            return Ok(Value::Array(entries));
+        }
     }
     Ok(Value::Array(vec![]))
 }
@@ -18033,16 +18062,57 @@ fn bi_hw_usb(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                return Ok(json_to_value(json));
+                let items = match &json {
+                    serde_json::Value::Array(arr) => arr.clone(),
+                    obj @ serde_json::Value::Object(_) => vec![obj.clone()],
+                    _ => vec![],
+                };
+                let devices: Vec<Value> = items.iter().filter_map(|obj| {
+                    let o = obj.as_object()?;
+                    let mut rec = std::collections::BTreeMap::new();
+                    if let Some(v) = o.get("FriendlyName") { rec.insert("name".to_string(), json_to_value(v.clone())); }
+                    if let Some(v) = o.get("Status") { rec.insert("status".to_string(), json_to_value(v.clone())); }
+                    Some(Value::Record(rec))
+                }).collect();
+                return Ok(Value::Array(devices));
             }
         }
     }
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("lsusb").output()?;
-        return Ok(Value::Str(
-            String::from_utf8_lossy(&output.stdout).to_string(),
-        ));
+        if output.status.success() {
+            let devices: Vec<Value> = String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .map(|line| {
+                    let mut rec = std::collections::BTreeMap::new();
+                    rec.insert("name".to_string(), Value::Str(line.to_string()));
+                    Value::Record(rec)
+                })
+                .collect();
+            return Ok(Value::Array(devices));
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let output = std::process::Command::new("system_profiler")
+            .args(["SPUSBDataType", "-json"])
+            .output()?;
+        if output.status.success() {
+            let json_str = String::from_utf8_lossy(&output.stdout);
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                if let Some(items) = json.get("SPUSBDataType").and_then(|v| v.as_array()) {
+                    let devices: Vec<Value> = items.iter().filter_map(|item| {
+                        let o = item.as_object()?;
+                        let mut rec = std::collections::BTreeMap::new();
+                        if let Some(v) = o.get("_name") { rec.insert("name".to_string(), json_to_value(v.clone())); }
+                        if let Some(v) = o.get("manufacturer") { rec.insert("vendor".to_string(), json_to_value(v.clone())); }
+                        Some(Value::Record(rec))
+                    }).collect();
+                    return Ok(Value::Array(devices));
+                }
+            }
+        }
     }
     Ok(Value::Null)
 }
@@ -18051,9 +18121,22 @@ fn bi_hw_pci(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("lspci").output()?;
-        return Ok(Value::Str(
-            String::from_utf8_lossy(&output.stdout).to_string(),
-        ));
+        if output.status.success() {
+            let devices: Vec<Value> = String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .filter_map(|line| {
+                    let mut rec = std::collections::BTreeMap::new();
+                    if let Some(pos) = line.find(' ') {
+                        rec.insert("address".to_string(), Value::Str(line[..pos].to_string()));
+                        rec.insert("name".to_string(), Value::Str(line[pos + 1..].to_string()));
+                    } else {
+                        rec.insert("name".to_string(), Value::Str(line.to_string()));
+                    }
+                    Some(Value::Record(rec))
+                })
+                .collect();
+            return Ok(Value::Array(devices));
+        }
     }
     #[cfg(target_os = "windows")]
     {
@@ -18064,9 +18147,43 @@ fn bi_hw_pci(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             ])
             .output()?;
         if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).to_string(),
-            ));
+            let json_str = String::from_utf8_lossy(&output.stdout);
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                let items = match &json {
+                    serde_json::Value::Array(arr) => arr.clone(),
+                    obj @ serde_json::Value::Object(_) => vec![obj.clone()],
+                    _ => vec![],
+                };
+                let devices: Vec<Value> = items.iter().filter_map(|obj| {
+                    let o = obj.as_object()?;
+                    let mut rec = std::collections::BTreeMap::new();
+                    if let Some(v) = o.get("FriendlyName") { rec.insert("name".to_string(), json_to_value(v.clone())); }
+                    if let Some(v) = o.get("Class") { rec.insert("class".to_string(), json_to_value(v.clone())); }
+                    Some(Value::Record(rec))
+                }).collect();
+                return Ok(Value::Array(devices));
+            }
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let output = std::process::Command::new("system_profiler")
+            .args(["SPPCIDataType", "-json"])
+            .output()?;
+        if output.status.success() {
+            let json_str = String::from_utf8_lossy(&output.stdout);
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                if let Some(items) = json.get("SPPCIDataType").and_then(|v| v.as_array()) {
+                    let devices: Vec<Value> = items.iter().filter_map(|item| {
+                        let o = item.as_object()?;
+                        let mut rec = std::collections::BTreeMap::new();
+                        if let Some(v) = o.get("sppci_name") { rec.insert("name".to_string(), json_to_value(v.clone())); }
+                        if let Some(v) = o.get("sppci_vendor") { rec.insert("vendor".to_string(), json_to_value(v.clone())); }
+                        Some(Value::Record(rec))
+                    }).collect();
+                    return Ok(Value::Array(devices));
+                }
+            }
         }
     }
     Ok(Value::Null)
@@ -18084,21 +18201,64 @@ fn bi_hw_audio(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                return Ok(json_to_value(json));
+                let items = match &json {
+                    serde_json::Value::Array(arr) => arr.clone(),
+                    obj @ serde_json::Value::Object(_) => vec![obj.clone()],
+                    _ => vec![],
+                };
+                let devices: Vec<Value> = items.iter().filter_map(|obj| {
+                    let o = obj.as_object()?;
+                    let mut rec = std::collections::BTreeMap::new();
+                    if let Some(v) = o.get("Name") { rec.insert("name".to_string(), json_to_value(v.clone())); }
+                    if let Some(v) = o.get("Status") { rec.insert("status".to_string(), json_to_value(v.clone())); }
+                    Some(Value::Record(rec))
+                }).collect();
+                return Ok(Value::Array(devices));
             }
         }
     }
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("aplay").args(["-l"]).output()?;
-        return Ok(Value::Str(
-            String::from_utf8_lossy(&output.stdout).to_string(),
-        ));
+        if output.status.success() {
+            let devices: Vec<Value> = String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .filter(|line| line.starts_with("card "))
+                .map(|line| {
+                    let mut rec = std::collections::BTreeMap::new();
+                    rec.insert("name".to_string(), Value::Str(line.to_string()));
+                    Value::Record(rec)
+                })
+                .collect();
+            return Ok(Value::Array(devices));
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let output = std::process::Command::new("system_profiler")
+            .args(["SPAudioDataType", "-json"])
+            .output()?;
+        if output.status.success() {
+            let json_str = String::from_utf8_lossy(&output.stdout);
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                if let Some(items) = json.get("SPAudioDataType").and_then(|v| v.as_array()) {
+                    let devices: Vec<Value> = items.iter().filter_map(|item| {
+                        let o = item.as_object()?;
+                        let mut rec = std::collections::BTreeMap::new();
+                        if let Some(v) = o.get("_name") { rec.insert("name".to_string(), json_to_value(v.clone())); }
+                        if let Some(v) = o.get("coreaudio_default_audio_output_device") { rec.insert("default_output".to_string(), json_to_value(v.clone())); }
+                        Some(Value::Record(rec))
+                    }).collect();
+                    return Ok(Value::Array(devices));
+                }
+            }
+        }
     }
     Ok(Value::Null)
 }
 
 fn bi_hw_battery(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    // Returns consistent Record {capacity: Int (%), status: String}
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
@@ -18107,7 +18267,25 @@ fn bi_hw_battery(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                return Ok(json_to_value(json));
+                let obj = match &json {
+                    serde_json::Value::Object(o) => Some(o),
+                    serde_json::Value::Array(arr) => arr.first().and_then(|v| v.as_object()),
+                    _ => None,
+                };
+                if let Some(obj) = obj {
+                    let mut rec = std::collections::BTreeMap::new();
+                    if let Some(v) = obj.get("EstimatedChargeRemaining").and_then(|v| v.as_i64()) {
+                        rec.insert("capacity".to_string(), Value::Int(v));
+                    }
+                    let status = match obj.get("BatteryStatus").and_then(|v| v.as_i64()) {
+                        Some(1) => "discharging",
+                        Some(2) => "charging",
+                        Some(3) => "full",
+                        _ => "unknown",
+                    };
+                    rec.insert("status".to_string(), Value::Str(status.to_string()));
+                    return Ok(Value::Record(rec));
+                }
             }
         }
     }
@@ -18123,32 +18301,131 @@ fn bi_hw_battery(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
         }
         if let Ok(status) = std::fs::read_to_string(status_path) {
-            rec.insert("status".to_string(), Value::Str(status.trim().to_string()));
+            rec.insert("status".to_string(), Value::Str(status.trim().to_lowercase()));
         }
         if !rec.is_empty() {
             return Ok(Value::Record(rec));
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let output = std::process::Command::new("pmset")
+            .args(["-g", "batt"])
+            .output()?;
+        if output.status.success() {
+            let text = String::from_utf8_lossy(&output.stdout);
+            let mut rec = std::collections::BTreeMap::new();
+            // Format: "... XX%; charging/discharging/charged; ..."
+            for line in text.lines() {
+                if let Some(pct_pos) = line.find('%') {
+                    // Walk backwards from % to find the number
+                    let before = &line[..pct_pos];
+                    let num_str: String = before.chars().rev().take_while(|c| c.is_ascii_digit()).collect::<String>().chars().rev().collect();
+                    if let Ok(cap) = num_str.parse::<i64>() {
+                        rec.insert("capacity".to_string(), Value::Int(cap));
+                    }
+                    // Status is after %; like "charging" or "discharging"
+                    let after = &line[pct_pos + 1..];
+                    for part in after.split(';') {
+                        let part = part.trim().to_lowercase();
+                        if part.contains("charging") || part.contains("charged") || part.contains("discharging") {
+                            let status = if part.contains("discharging") { "discharging" }
+                                else if part.contains("charged") { "full" }
+                                else { "charging" };
+                            rec.insert("status".to_string(), Value::Str(status.to_string()));
+                            break;
+                        }
+                    }
+                }
+            }
+            if !rec.is_empty() {
+                return Ok(Value::Record(rec));
+            }
         }
     }
     Ok(Value::Null)
 }
 
 fn bi_hw_sensors(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    // Returns consistent Array of Records {name: String, temp_c: Float}
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
-            .args(["-Command", "Get-CimInstance MSAcpi_ThermalZoneTemperature -Namespace root/wmi 2>$null | Select-Object CurrentTemperature | ConvertTo-Json"])
+            .args(["-Command", "Get-CimInstance MSAcpi_ThermalZoneTemperature -Namespace root/wmi 2>$null | Select-Object InstanceName,CurrentTemperature | ConvertTo-Json"])
             .output()?;
         if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).to_string(),
-            ));
+            let json_str = String::from_utf8_lossy(&output.stdout);
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                let items = match &json {
+                    serde_json::Value::Array(arr) => arr.clone(),
+                    obj @ serde_json::Value::Object(_) => vec![obj.clone()],
+                    _ => vec![],
+                };
+                let sensors: Vec<Value> = items.iter().filter_map(|obj| {
+                    let o = obj.as_object()?;
+                    let mut rec = std::collections::BTreeMap::new();
+                    if let Some(v) = o.get("InstanceName") { rec.insert("name".to_string(), json_to_value(v.clone())); }
+                    // WMI returns tenths of kelvin
+                    if let Some(v) = o.get("CurrentTemperature").and_then(|v| v.as_f64()) {
+                        rec.insert("temp_c".to_string(), Value::Float((v / 10.0) - 273.15));
+                    }
+                    Some(Value::Record(rec))
+                }).collect();
+                return Ok(Value::Array(sensors));
+            }
         }
     }
     #[cfg(target_os = "linux")]
     {
-        let output = std::process::Command::new("sensors").output();
+        // Try /sys/class/thermal first for structured data
+        let thermal_dir = std::path::Path::new("/sys/class/thermal");
+        if thermal_dir.exists() {
+            let mut sensors = Vec::new();
+            if let Ok(entries) = std::fs::read_dir(thermal_dir) {
+                for entry in entries.flatten() {
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    if name.starts_with("thermal_zone") {
+                        let temp_path = entry.path().join("temp");
+                        let type_path = entry.path().join("type");
+                        let mut rec = std::collections::BTreeMap::new();
+                        let zone_name = std::fs::read_to_string(&type_path)
+                            .unwrap_or_else(|_| name.clone())
+                            .trim()
+                            .to_string();
+                        rec.insert("name".to_string(), Value::Str(zone_name));
+                        if let Ok(temp_str) = std::fs::read_to_string(&temp_path) {
+                            if let Ok(millideg) = temp_str.trim().parse::<f64>() {
+                                rec.insert("temp_c".to_string(), Value::Float(millideg / 1000.0));
+                            }
+                        }
+                        sensors.push(Value::Record(rec));
+                    }
+                }
+            }
+            if !sensors.is_empty() {
+                return Ok(Value::Array(sensors));
+            }
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        // macOS doesn't expose thermal sensors easily without IOKit bindings;
+        // use powermetrics or osx-cpu-temp if available, fallback to empty
+        let output = std::process::Command::new("sh")
+            .args(["-c", "which osx-cpu-temp && osx-cpu-temp"])
+            .output();
         if let Ok(out) = output {
-            return Ok(Value::Str(String::from_utf8_lossy(&out.stdout).to_string()));
+            if out.status.success() {
+                let text = String::from_utf8_lossy(&out.stdout);
+                let mut rec = std::collections::BTreeMap::new();
+                rec.insert("name".to_string(), Value::Str("CPU".to_string()));
+                // Parse "65.0°C" style output
+                let temp_str: String = text.chars().take_while(|c| c.is_ascii_digit() || *c == '.').collect();
+                if let Ok(temp) = temp_str.parse::<f64>() {
+                    rec.insert("temp_c".to_string(), Value::Float(temp));
+                }
+                return Ok(Value::Array(vec![Value::Record(rec)]));
+            }
         }
     }
     Ok(Value::Null)
