@@ -224,11 +224,11 @@ This document tracks the development progress of AetherShell, the world's first 
 - [x] CLI flags `--zsh`/`-z`, `--pwsh`/`-p` and auto-detection by file extension
 
 ### Q4 2026 — Cloud & Scale
-- [ ] Cloud platform (hosted AetherShell instances)
-- [ ] Remote REPL via WebSocket
-- [ ] Team workspaces with shared agents
-- [ ] Marketplace for community plugins and agents
-- [ ] Telemetry and usage analytics (opt-in)
+- [x] Cloud platform (hosted AetherShell instances) — `cloud` module: 8 builtins (deploy, instances, instance_create/destroy/status/connect, regions, config)
+- [x] Remote REPL via WebSocket — `repl` module: 5 builtins (serve, connect, sessions, disconnect, broadcast)
+- [x] Team workspaces with shared agents — `workspace` module: 8 builtins (create, list, join, leave, members, share_agent, agents, sync)
+- [x] Marketplace for community plugins and agents — `marketplace` module: 8 builtins (publish, search, install, uninstall, list, info, rate, update)
+- [x] Telemetry and usage analytics (opt-in) — `telemetry` module: 6 builtins (enable, disable, status, report, events, reset)
 
 ### v1.0.0 — Production Release
 - [x] Stability freeze and backward compatibility guarantees

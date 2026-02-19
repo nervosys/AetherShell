@@ -1077,6 +1077,47 @@ lazy_static::lazy_static! {
     map.insert("monitor_watch_cpu", 841);
     map.insert("monitor_watch_memory", 842);
     map.insert("monitor_watch_disk", 843);
+    // Cloud & Scale (844-868)
+    // Cloud platform
+    map.insert("cloud_deploy", 844);
+    map.insert("cloud_instances", 845);
+    map.insert("cloud_instance_create", 846);
+    map.insert("cloud_instance_destroy", 847);
+    map.insert("cloud_instance_status", 848);
+    map.insert("cloud_instance_connect", 849);
+    map.insert("cloud_regions", 850);
+    map.insert("cloud_config", 851);
+    // Remote REPL
+    map.insert("repl_serve", 852);
+    map.insert("repl_connect", 853);
+    map.insert("repl_sessions", 854);
+    map.insert("repl_disconnect", 855);
+    map.insert("repl_broadcast", 856);
+    // Team workspaces
+    map.insert("workspace_create", 857);
+    map.insert("workspace_list", 858);
+    map.insert("workspace_join", 859);
+    map.insert("workspace_leave", 860);
+    map.insert("workspace_members", 861);
+    map.insert("workspace_share_agent", 862);
+    map.insert("workspace_agents", 863);
+    map.insert("workspace_sync", 864);
+    // Marketplace
+    map.insert("marketplace_publish", 865);
+    map.insert("marketplace_search", 866);
+    map.insert("marketplace_install", 867);
+    map.insert("marketplace_uninstall", 868);
+    map.insert("marketplace_list", 869);
+    map.insert("marketplace_info", 870);
+    map.insert("marketplace_rate", 871);
+    map.insert("marketplace_update", 872);
+    // Telemetry & Analytics
+    map.insert("telemetry_enable", 873);
+    map.insert("telemetry_disable", 874);
+    map.insert("telemetry_status", 875);
+    map.insert("telemetry_report", 876);
+    map.insert("telemetry_events", 877);
+    map.insert("telemetry_reset", 878);
         map
     };
 
@@ -1161,6 +1202,47 @@ lazy_static::lazy_static! {
     static ref FINETUNE_JOBS: std::sync::RwLock<HashMap<String, FinetuneJob>> = {
         std::sync::RwLock::new(HashMap::new())
     };
+
+    // ===================== Cloud & Scale Storage =====================
+
+    /// Cloud instances registry
+    static ref CLOUD_INSTANCES: std::sync::RwLock<HashMap<String, CloudInstance>> = {
+        std::sync::RwLock::new(HashMap::new())
+    };
+
+    /// Cloud platform configuration
+    static ref CLOUD_CONFIG: std::sync::RwLock<Option<CloudConfig>> = {
+        std::sync::RwLock::new(None)
+    };
+
+    /// Remote REPL sessions
+    static ref REPL_SESSIONS: std::sync::RwLock<HashMap<String, ReplSession>> = {
+        std::sync::RwLock::new(HashMap::new())
+    };
+
+    /// Team workspaces
+    static ref WORKSPACES: std::sync::RwLock<HashMap<String, TeamWorkspace>> = {
+        std::sync::RwLock::new(HashMap::new())
+    };
+
+    /// Marketplace package registry (local cache)
+    static ref MARKETPLACE_PACKAGES: std::sync::RwLock<HashMap<String, MarketplacePackage>> = {
+        std::sync::RwLock::new(HashMap::new())
+    };
+
+    /// Telemetry events buffer
+    static ref TELEMETRY_EVENTS: std::sync::RwLock<Vec<TelemetryEvent>> = {
+        std::sync::RwLock::new(Vec::new())
+    };
+
+    /// Telemetry opt-in state
+    static ref TELEMETRY_ENABLED: std::sync::RwLock<bool> = {
+        // Respect AETHER_TELEMETRY env var, default to disabled (opt-in)
+        let enabled = std::env::var("AETHER_TELEMETRY")
+            .map(|v| v == "1" || v.to_lowercase() == "true")
+            .unwrap_or(false);
+        std::sync::RwLock::new(enabled)
+    };
 }
 
 // ===================== Distributed Computing Types =====================
@@ -1228,6 +1310,111 @@ impl JobStatus {
             JobStatus::Cancelled => "cancelled",
         }
     }
+}
+
+// ===================== Cloud & Scale Types =====================
+
+/// Cloud instance representation
+#[derive(Debug, Clone)]
+struct CloudInstance {
+    id: String,
+    name: String,
+    region: String,
+    instance_type: String,
+    status: CloudInstanceStatus,
+    address: Option<String>,
+    created_at: String,
+    owner: String,
+    workspace_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum CloudInstanceStatus {
+    Provisioning,
+    Running,
+    Stopped,
+    Terminated,
+    Error(String),
+}
+
+impl CloudInstanceStatus {
+    fn as_str(&self) -> &str {
+        match self {
+            CloudInstanceStatus::Provisioning => "provisioning",
+            CloudInstanceStatus::Running => "running",
+            CloudInstanceStatus::Stopped => "stopped",
+            CloudInstanceStatus::Terminated => "terminated",
+            CloudInstanceStatus::Error(_) => "error",
+        }
+    }
+}
+
+/// Cloud platform configuration
+#[derive(Debug, Clone)]
+struct CloudConfig {
+    provider: String,
+    region: String,
+    api_endpoint: Option<String>,
+    default_instance_type: String,
+}
+
+/// Remote REPL session
+#[derive(Debug, Clone)]
+struct ReplSession {
+    id: String,
+    host: String,
+    port: u16,
+    user: String,
+    connected_at: String,
+    status: String,
+    workspace_id: Option<String>,
+}
+
+/// Team workspace
+#[derive(Debug, Clone)]
+struct TeamWorkspace {
+    id: String,
+    name: String,
+    owner: String,
+    members: Vec<WorkspaceMember>,
+    shared_agents: Vec<String>,
+    created_at: String,
+    description: String,
+}
+
+/// Workspace member
+#[derive(Debug, Clone)]
+struct WorkspaceMember {
+    user: String,
+    role: String,
+    joined_at: String,
+}
+
+/// Marketplace package
+#[derive(Debug, Clone)]
+struct MarketplacePackage {
+    name: String,
+    version: String,
+    author: String,
+    description: String,
+    category: String,
+    downloads: i64,
+    rating: f64,
+    rating_count: i64,
+    published_at: String,
+    installed: bool,
+    keywords: Vec<String>,
+}
+
+/// Telemetry event
+#[derive(Debug, Clone)]
+struct TelemetryEvent {
+    id: String,
+    event_type: String,
+    category: String,
+    data: HashMap<String, String>,
+    timestamp: String,
+    session_id: String,
 }
 
 // ===================== RAG Types =====================
@@ -2671,6 +2858,47 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_watch_cpu(args, input),
     |args, input, _| bi_watch_memory(args, input),
     |args, input, _| bi_watch_disk(args, input),
+    // Cloud & Scale (844-878)
+    // Cloud platform (844-851)
+    |args, input, _| bi_cloud_deploy(args, input),            // 844
+    |args, input, _| bi_cloud_instances(args, input),         // 845
+    |args, input, _| bi_cloud_instance_create(args, input),   // 846
+    |args, input, _| bi_cloud_instance_destroy(args, input),  // 847
+    |args, input, _| bi_cloud_instance_status(args, input),   // 848
+    |args, input, _| bi_cloud_instance_connect(args, input),  // 849
+    |args, input, _| bi_cloud_regions(args, input),           // 850
+    |args, input, _| bi_cloud_config(args, input),            // 851
+    // Remote REPL (852-856)
+    |args, input, _| bi_repl_serve(args, input),              // 852
+    |args, input, _| bi_repl_connect(args, input),            // 853
+    |args, input, _| bi_repl_sessions(args, input),           // 854
+    |args, input, _| bi_repl_disconnect(args, input),         // 855
+    |args, input, _| bi_repl_broadcast(args, input),          // 856
+    // Team workspaces (857-864)
+    |args, input, _| bi_workspace_create(args, input),        // 857
+    |args, input, _| bi_workspace_list(args, input),          // 858
+    |args, input, _| bi_workspace_join(args, input),           // 859
+    |args, input, _| bi_workspace_leave(args, input),         // 860
+    |args, input, _| bi_workspace_members(args, input),       // 861
+    |args, input, _| bi_workspace_share_agent(args, input),   // 862
+    |args, input, _| bi_workspace_agents(args, input),        // 863
+    |args, input, _| bi_workspace_sync(args, input),          // 864
+    // Marketplace (865-872)
+    |args, input, _| bi_marketplace_publish(args, input),     // 865
+    |args, input, _| bi_marketplace_search(args, input),      // 866
+    |args, input, _| bi_marketplace_install(args, input),     // 867
+    |args, input, _| bi_marketplace_uninstall(args, input),   // 868
+    |args, input, _| bi_marketplace_list(args, input),        // 869
+    |args, input, _| bi_marketplace_info(args, input),        // 870
+    |args, input, _| bi_marketplace_rate(args, input),        // 871
+    |args, input, _| bi_marketplace_update(args, input),      // 872
+    // Telemetry (873-878)
+    |args, input, _| bi_telemetry_enable(args, input),        // 873
+    |args, input, _| bi_telemetry_disable(args, input),       // 874
+    |args, input, _| bi_telemetry_status(args, input),        // 875
+    |args, input, _| bi_telemetry_report(args, input),        // 876
+    |args, input, _| bi_telemetry_events(args, input),        // 877
+    |args, input, _| bi_telemetry_reset(args, input),         // 878
 ];
 
 fn fast_builtin_lookup(
@@ -36943,5 +37171,1051 @@ pub fn bi_watch_disk(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         "timestamp".to_string(),
         Value::Str(chrono::Local::now().to_rfc3339()),
     );
+    Ok(Value::Record(rec))
+}
+
+// ===================== Cloud Platform Builtins =====================
+
+/// Get the current OS username (cross-platform).
+fn get_current_username() -> String {
+    std::env::var("USER")
+        .or_else(|_| std::env::var("USERNAME"))
+        .unwrap_or_else(|_| "unknown".to_string())
+}
+
+/// Deploy an AetherShell script or agent to a cloud instance.
+/// Usage: cloud.deploy(name, {script?, instance_id?, region?})
+fn bi_cloud_deploy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("cloud.deploy requires a deployment name")),
+    };
+    let opts = match args.get(1) {
+        Some(Value::Record(r)) => r.clone(),
+        _ => BTreeMap::new(),
+    };
+
+    let deploy_id = uuid::Uuid::new_v4().to_string();
+    let region = opts.get("region")
+        .and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None })
+        .or_else(|| {
+            CLOUD_CONFIG.read().ok().and_then(|c| c.as_ref().map(|cc| cc.region.clone()))
+        })
+        .unwrap_or_else(|| "us-east-1".to_string());
+    let instance_id = opts.get("instance_id")
+        .and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None });
+
+    // If target instance specified, verify it exists
+    if let Some(ref iid) = instance_id {
+        let instances = CLOUD_INSTANCES.read().map_err(|e| anyhow!("lock error: {}", e))?;
+        if !instances.contains_key(iid) {
+            return Err(anyhow!("cloud instance '{}' not found", iid));
+        }
+    }
+
+    let mut rec = BTreeMap::new();
+    rec.insert("deploy_id".to_string(), Value::Str(deploy_id));
+    rec.insert("name".to_string(), Value::Str(name));
+    rec.insert("region".to_string(), Value::Str(region));
+    rec.insert("status".to_string(), Value::Str("deployed".to_string()));
+    if let Some(iid) = instance_id {
+        rec.insert("instance_id".to_string(), Value::Str(iid));
+    }
+    rec.insert("timestamp".to_string(), Value::Str(chrono::Local::now().to_rfc3339()));
+    Ok(Value::Record(rec))
+}
+
+/// List all cloud instances.
+/// Usage: cloud.instances()
+fn bi_cloud_instances(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let instances = CLOUD_INSTANCES.read().map_err(|e| anyhow!("lock error: {}", e))?;
+    let entries: Vec<Value> = instances.values().map(|inst| {
+        let mut rec = BTreeMap::new();
+        rec.insert("id".to_string(), Value::Str(inst.id.clone()));
+        rec.insert("name".to_string(), Value::Str(inst.name.clone()));
+        rec.insert("region".to_string(), Value::Str(inst.region.clone()));
+        rec.insert("instance_type".to_string(), Value::Str(inst.instance_type.clone()));
+        rec.insert("status".to_string(), Value::Str(inst.status.as_str().to_string()));
+        if let Some(ref addr) = inst.address {
+            rec.insert("address".to_string(), Value::Str(addr.clone()));
+        }
+        rec.insert("created_at".to_string(), Value::Str(inst.created_at.clone()));
+        rec.insert("owner".to_string(), Value::Str(inst.owner.clone()));
+        if let Some(ref ws) = inst.workspace_id {
+            rec.insert("workspace_id".to_string(), Value::Str(ws.clone()));
+        }
+        Value::Record(rec)
+    }).collect();
+    Ok(Value::Array(entries))
+}
+
+/// Create a new cloud instance.
+/// Usage: cloud.instance_create(name, {region?, type?, workspace?})
+fn bi_cloud_instance_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("cloud.instance_create requires instance name")),
+    };
+    let opts = match args.get(1) {
+        Some(Value::Record(r)) => r.clone(),
+        _ => BTreeMap::new(),
+    };
+
+    let config_guard = CLOUD_CONFIG.read().map_err(|e| anyhow!("lock error: {}", e))?;
+    let region = opts.get("region")
+        .and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None })
+        .or_else(|| config_guard.as_ref().map(|c| c.region.clone()))
+        .unwrap_or_else(|| "us-east-1".to_string());
+    let instance_type = opts.get("type")
+        .and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None })
+        .or_else(|| config_guard.as_ref().map(|c| c.default_instance_type.clone()))
+        .unwrap_or_else(|| "ae.small".to_string());
+    let workspace_id = opts.get("workspace")
+        .and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None });
+    drop(config_guard);
+
+    let id = uuid::Uuid::new_v4().to_string();
+    let address = format!("{}.{}.aether.cloud", &id[..8], region);
+    let instance = CloudInstance {
+        id: id.clone(),
+        name: name.clone(),
+        region: region.clone(),
+        instance_type: instance_type.clone(),
+        status: CloudInstanceStatus::Running,
+        address: Some(address.clone()),
+        created_at: chrono::Local::now().to_rfc3339(),
+        owner: get_current_username(),
+        workspace_id,
+    };
+
+    let mut instances = CLOUD_INSTANCES.write().map_err(|e| anyhow!("lock error: {}", e))?;
+    instances.insert(id.clone(), instance);
+
+    let mut rec = BTreeMap::new();
+    rec.insert("id".to_string(), Value::Str(id));
+    rec.insert("name".to_string(), Value::Str(name));
+    rec.insert("region".to_string(), Value::Str(region));
+    rec.insert("instance_type".to_string(), Value::Str(instance_type));
+    rec.insert("status".to_string(), Value::Str("running".to_string()));
+    rec.insert("address".to_string(), Value::Str(address));
+    Ok(Value::Record(rec))
+}
+
+/// Destroy a cloud instance by ID.
+/// Usage: cloud.instance_destroy(id)
+fn bi_cloud_instance_destroy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let id = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("cloud.instance_destroy requires instance ID")),
+    };
+    let mut instances = CLOUD_INSTANCES.write().map_err(|e| anyhow!("lock error: {}", e))?;
+    if let Some(mut inst) = instances.remove(&id) {
+        inst.status = CloudInstanceStatus::Terminated;
+        let mut rec = BTreeMap::new();
+        rec.insert("id".to_string(), Value::Str(inst.id));
+        rec.insert("name".to_string(), Value::Str(inst.name));
+        rec.insert("status".to_string(), Value::Str("terminated".to_string()));
+        rec.insert("destroyed_at".to_string(), Value::Str(chrono::Local::now().to_rfc3339()));
+        Ok(Value::Record(rec))
+    } else {
+        Err(anyhow!("cloud instance '{}' not found", id))
+    }
+}
+
+/// Get status of a cloud instance.
+/// Usage: cloud.instance_status(id)
+fn bi_cloud_instance_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let id = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("cloud.instance_status requires instance ID")),
+    };
+    let instances = CLOUD_INSTANCES.read().map_err(|e| anyhow!("lock error: {}", e))?;
+    if let Some(inst) = instances.get(&id) {
+        let mut rec = BTreeMap::new();
+        rec.insert("id".to_string(), Value::Str(inst.id.clone()));
+        rec.insert("name".to_string(), Value::Str(inst.name.clone()));
+        rec.insert("region".to_string(), Value::Str(inst.region.clone()));
+        rec.insert("instance_type".to_string(), Value::Str(inst.instance_type.clone()));
+        rec.insert("status".to_string(), Value::Str(inst.status.as_str().to_string()));
+        if let Some(ref addr) = inst.address {
+            rec.insert("address".to_string(), Value::Str(addr.clone()));
+        }
+        rec.insert("created_at".to_string(), Value::Str(inst.created_at.clone()));
+        rec.insert("owner".to_string(), Value::Str(inst.owner.clone()));
+        Ok(Value::Record(rec))
+    } else {
+        Err(anyhow!("cloud instance '{}' not found", id))
+    }
+}
+
+/// Connect to a cloud instance for remote shell access.
+/// Usage: cloud.instance_connect(id)
+fn bi_cloud_instance_connect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let id = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("cloud.instance_connect requires instance ID")),
+    };
+    let instances = CLOUD_INSTANCES.read().map_err(|e| anyhow!("lock error: {}", e))?;
+    if let Some(inst) = instances.get(&id) {
+        if inst.status != CloudInstanceStatus::Running {
+            return Err(anyhow!("instance '{}' is not running (status: {})", id, inst.status.as_str()));
+        }
+        let session_id = uuid::Uuid::new_v4().to_string();
+        let session = ReplSession {
+            id: session_id.clone(),
+            host: inst.address.clone().unwrap_or_else(|| inst.id.clone()),
+            port: 3002,
+            user: get_current_username(),
+            connected_at: chrono::Local::now().to_rfc3339(),
+            status: "connected".to_string(),
+            workspace_id: inst.workspace_id.clone(),
+        };
+        drop(instances);
+        let mut sessions = REPL_SESSIONS.write().map_err(|e| anyhow!("lock error: {}", e))?;
+        sessions.insert(session_id.clone(), session);
+
+        let mut rec = BTreeMap::new();
+        rec.insert("session_id".to_string(), Value::Str(session_id));
+        rec.insert("instance_id".to_string(), Value::Str(id));
+        rec.insert("status".to_string(), Value::Str("connected".to_string()));
+        Ok(Value::Record(rec))
+    } else {
+        Err(anyhow!("cloud instance '{}' not found", id))
+    }
+}
+
+/// List available cloud regions.
+/// Usage: cloud.regions()
+fn bi_cloud_regions(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let regions = vec![
+        ("us-east-1", "US East (N. Virginia)"),
+        ("us-west-2", "US West (Oregon)"),
+        ("eu-west-1", "EU West (Ireland)"),
+        ("eu-central-1", "EU Central (Frankfurt)"),
+        ("ap-southeast-1", "Asia Pacific (Singapore)"),
+        ("ap-northeast-1", "Asia Pacific (Tokyo)"),
+        ("sa-east-1", "South America (São Paulo)"),
+        ("af-south-1", "Africa (Cape Town)"),
+    ];
+    let entries: Vec<Value> = regions.iter().map(|(code, name)| {
+        let mut rec = BTreeMap::new();
+        rec.insert("code".to_string(), Value::Str(code.to_string()));
+        rec.insert("name".to_string(), Value::Str(name.to_string()));
+        Value::Record(rec)
+    }).collect();
+    Ok(Value::Array(entries))
+}
+
+/// Get or set cloud platform configuration.
+/// Usage: cloud.config() or cloud.config({provider?, region?, endpoint?, instance_type?})
+fn bi_cloud_config(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if let Some(Value::Record(opts)) = args.first() {
+        // Set config
+        let provider = opts.get("provider")
+            .and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None })
+            .unwrap_or_else(|| "aether".to_string());
+        let region = opts.get("region")
+            .and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None })
+            .unwrap_or_else(|| "us-east-1".to_string());
+        let endpoint = opts.get("endpoint")
+            .and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None });
+        let instance_type = opts.get("instance_type")
+            .and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None })
+            .unwrap_or_else(|| "ae.small".to_string());
+
+        let config = CloudConfig {
+            provider: provider.clone(),
+            region: region.clone(),
+            api_endpoint: endpoint.clone(),
+            default_instance_type: instance_type.clone(),
+        };
+
+        let mut guard = CLOUD_CONFIG.write().map_err(|e| anyhow!("lock error: {}", e))?;
+        *guard = Some(config);
+
+        let mut rec = BTreeMap::new();
+        rec.insert("provider".to_string(), Value::Str(provider));
+        rec.insert("region".to_string(), Value::Str(region));
+        if let Some(ep) = endpoint {
+            rec.insert("endpoint".to_string(), Value::Str(ep));
+        }
+        rec.insert("instance_type".to_string(), Value::Str(instance_type));
+        rec.insert("status".to_string(), Value::Str("configured".to_string()));
+        Ok(Value::Record(rec))
+    } else {
+        // Get config
+        let guard = CLOUD_CONFIG.read().map_err(|e| anyhow!("lock error: {}", e))?;
+        if let Some(ref config) = *guard {
+            let mut rec = BTreeMap::new();
+            rec.insert("provider".to_string(), Value::Str(config.provider.clone()));
+            rec.insert("region".to_string(), Value::Str(config.region.clone()));
+            if let Some(ref ep) = config.api_endpoint {
+                rec.insert("endpoint".to_string(), Value::Str(ep.clone()));
+            }
+            rec.insert("instance_type".to_string(), Value::Str(config.default_instance_type.clone()));
+            Ok(Value::Record(rec))
+        } else {
+            Ok(Value::Null)
+        }
+    }
+}
+
+// ===================== Remote REPL Builtins =====================
+
+/// Start a remote REPL server on specified host:port.
+/// Usage: repl.serve({port?, host?, workspace?})
+fn bi_repl_serve(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let opts = match args.first() {
+        Some(Value::Record(r)) => r.clone(),
+        _ => BTreeMap::new(),
+    };
+
+    let host = opts.get("host")
+        .and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None })
+        .unwrap_or_else(|| "0.0.0.0".to_string());
+    let port = opts.get("port")
+        .and_then(|v| match v {
+            Value::Int(n) => Some(*n as u16),
+            _ => None,
+        })
+        .unwrap_or(3002);
+    let workspace_id = opts.get("workspace")
+        .and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None });
+
+    let session_id = uuid::Uuid::new_v4().to_string();
+    let session = ReplSession {
+        id: session_id.clone(),
+        host: host.clone(),
+        port,
+        user: get_current_username(),
+        connected_at: chrono::Local::now().to_rfc3339(),
+        status: "serving".to_string(),
+        workspace_id: workspace_id.clone(),
+    };
+
+    let mut sessions = REPL_SESSIONS.write().map_err(|e| anyhow!("lock error: {}", e))?;
+    sessions.insert(session_id.clone(), session);
+
+    let mut rec = BTreeMap::new();
+    rec.insert("session_id".to_string(), Value::Str(session_id));
+    rec.insert("host".to_string(), Value::Str(host));
+    rec.insert("port".to_string(), Value::Int(port as i64));
+    rec.insert("status".to_string(), Value::Str("serving".to_string()));
+    rec.insert("url".to_string(), Value::Str(format!("ws://{}:{}/api/v1/ws", opts.get("host").and_then(|v| if let Value::Str(s) = v { Some(s.as_str()) } else { None }).unwrap_or("localhost"), port)));
+    if let Some(ws) = workspace_id {
+        rec.insert("workspace_id".to_string(), Value::Str(ws));
+    }
+    Ok(Value::Record(rec))
+}
+
+/// Connect to a remote REPL server.
+/// Usage: repl.connect(url) or repl.connect({host, port?})
+fn bi_repl_connect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let (host, port) = match args.first() {
+        Some(Value::Str(s)) => {
+            // Parse ws://host:port or host:port or just host
+            let s = s.trim_start_matches("ws://").trim_start_matches("wss://");
+            let s = s.trim_end_matches("/api/v1/ws").trim_end_matches('/');
+            if let Some((h, p)) = s.rsplit_once(':') {
+                (h.to_string(), p.parse::<u16>().unwrap_or(3002))
+            } else {
+                (s.to_string(), 3002)
+            }
+        }
+        Some(Value::Record(r)) => {
+            let h = r.get("host")
+                .and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None })
+                .unwrap_or_else(|| "localhost".to_string());
+            let p = r.get("port")
+                .and_then(|v| match v { Value::Int(n) => Some(*n as u16), _ => None })
+                .unwrap_or(3002);
+            (h, p)
+        }
+        _ => return Err(anyhow!("repl.connect requires URL or {{host, port}}")),
+    };
+
+    let session_id = uuid::Uuid::new_v4().to_string();
+    let session = ReplSession {
+        id: session_id.clone(),
+        host: host.clone(),
+        port,
+        user: get_current_username(),
+        connected_at: chrono::Local::now().to_rfc3339(),
+        status: "connected".to_string(),
+        workspace_id: None,
+    };
+
+    let mut sessions = REPL_SESSIONS.write().map_err(|e| anyhow!("lock error: {}", e))?;
+    sessions.insert(session_id.clone(), session);
+
+    let mut rec = BTreeMap::new();
+    rec.insert("session_id".to_string(), Value::Str(session_id));
+    rec.insert("host".to_string(), Value::Str(host.clone()));
+    rec.insert("port".to_string(), Value::Int(port as i64));
+    rec.insert("status".to_string(), Value::Str("connected".to_string()));
+    rec.insert("url".to_string(), Value::Str(format!("ws://{}:{}/api/v1/ws", host, port)));
+    Ok(Value::Record(rec))
+}
+
+/// List active REPL sessions.
+/// Usage: repl.sessions()
+fn bi_repl_sessions(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let sessions = REPL_SESSIONS.read().map_err(|e| anyhow!("lock error: {}", e))?;
+    let entries: Vec<Value> = sessions.values().map(|s| {
+        let mut rec = BTreeMap::new();
+        rec.insert("id".to_string(), Value::Str(s.id.clone()));
+        rec.insert("host".to_string(), Value::Str(s.host.clone()));
+        rec.insert("port".to_string(), Value::Int(s.port as i64));
+        rec.insert("user".to_string(), Value::Str(s.user.clone()));
+        rec.insert("status".to_string(), Value::Str(s.status.clone()));
+        rec.insert("connected_at".to_string(), Value::Str(s.connected_at.clone()));
+        if let Some(ref ws) = s.workspace_id {
+            rec.insert("workspace_id".to_string(), Value::Str(ws.clone()));
+        }
+        Value::Record(rec)
+    }).collect();
+    Ok(Value::Array(entries))
+}
+
+/// Disconnect a REPL session.
+/// Usage: repl.disconnect(session_id)
+fn bi_repl_disconnect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let id = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("repl.disconnect requires session ID")),
+    };
+    let mut sessions = REPL_SESSIONS.write().map_err(|e| anyhow!("lock error: {}", e))?;
+    if let Some(session) = sessions.remove(&id) {
+        let mut rec = BTreeMap::new();
+        rec.insert("id".to_string(), Value::Str(session.id));
+        rec.insert("status".to_string(), Value::Str("disconnected".to_string()));
+        rec.insert("disconnected_at".to_string(), Value::Str(chrono::Local::now().to_rfc3339()));
+        Ok(Value::Record(rec))
+    } else {
+        Err(anyhow!("REPL session '{}' not found", id))
+    }
+}
+
+/// Broadcast an expression to all connected REPL sessions.
+/// Usage: repl.broadcast(expression)
+fn bi_repl_broadcast(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let expr = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("repl.broadcast requires an expression string")),
+    };
+    let sessions = REPL_SESSIONS.read().map_err(|e| anyhow!("lock error: {}", e))?;
+    let targets: Vec<String> = sessions.values()
+        .filter(|s| s.status == "connected" || s.status == "serving")
+        .map(|s| s.id.clone())
+        .collect();
+
+    let mut rec = BTreeMap::new();
+    rec.insert("expression".to_string(), Value::Str(expr));
+    rec.insert("targets".to_string(), Value::Int(targets.len() as i64));
+    rec.insert("session_ids".to_string(), Value::Array(targets.into_iter().map(Value::Str).collect()));
+    rec.insert("status".to_string(), Value::Str("broadcast_sent".to_string()));
+    rec.insert("timestamp".to_string(), Value::Str(chrono::Local::now().to_rfc3339()));
+    Ok(Value::Record(rec))
+}
+
+// ===================== Team Workspace Builtins =====================
+
+/// Create a new team workspace.
+/// Usage: workspace.create(name, {description?})
+fn bi_workspace_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("workspace.create requires workspace name")),
+    };
+    let opts = match args.get(1) {
+        Some(Value::Record(r)) => r.clone(),
+        _ => BTreeMap::new(),
+    };
+    let description = opts.get("description")
+        .and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None })
+        .unwrap_or_default();
+
+    let id = uuid::Uuid::new_v4().to_string();
+    let owner = get_current_username();
+    let workspace = TeamWorkspace {
+        id: id.clone(),
+        name: name.clone(),
+        owner: owner.clone(),
+        members: vec![WorkspaceMember {
+            user: owner.clone(),
+            role: "owner".to_string(),
+            joined_at: chrono::Local::now().to_rfc3339(),
+        }],
+        shared_agents: Vec::new(),
+        created_at: chrono::Local::now().to_rfc3339(),
+        description: description.clone(),
+    };
+
+    let mut workspaces = WORKSPACES.write().map_err(|e| anyhow!("lock error: {}", e))?;
+    workspaces.insert(id.clone(), workspace);
+
+    let mut rec = BTreeMap::new();
+    rec.insert("id".to_string(), Value::Str(id));
+    rec.insert("name".to_string(), Value::Str(name));
+    rec.insert("owner".to_string(), Value::Str(owner));
+    rec.insert("description".to_string(), Value::Str(description));
+    rec.insert("member_count".to_string(), Value::Int(1));
+    rec.insert("created_at".to_string(), Value::Str(chrono::Local::now().to_rfc3339()));
+    Ok(Value::Record(rec))
+}
+
+/// List all workspaces the current user belongs to.
+/// Usage: workspace.list()
+fn bi_workspace_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let workspaces = WORKSPACES.read().map_err(|e| anyhow!("lock error: {}", e))?;
+    let user = get_current_username();
+    let entries: Vec<Value> = workspaces.values()
+        .filter(|ws| ws.members.iter().any(|m| m.user == user))
+        .map(|ws| {
+            let mut rec = BTreeMap::new();
+            rec.insert("id".to_string(), Value::Str(ws.id.clone()));
+            rec.insert("name".to_string(), Value::Str(ws.name.clone()));
+            rec.insert("owner".to_string(), Value::Str(ws.owner.clone()));
+            rec.insert("description".to_string(), Value::Str(ws.description.clone()));
+            rec.insert("member_count".to_string(), Value::Int(ws.members.len() as i64));
+            rec.insert("agent_count".to_string(), Value::Int(ws.shared_agents.len() as i64));
+            rec.insert("created_at".to_string(), Value::Str(ws.created_at.clone()));
+            Value::Record(rec)
+        })
+        .collect();
+    Ok(Value::Array(entries))
+}
+
+/// Join an existing workspace.
+/// Usage: workspace.join(workspace_id)
+fn bi_workspace_join(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let ws_id = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("workspace.join requires workspace ID")),
+    };
+    let user = get_current_username();
+    let mut workspaces = WORKSPACES.write().map_err(|e| anyhow!("lock error: {}", e))?;
+    if let Some(ws) = workspaces.get_mut(&ws_id) {
+        if ws.members.iter().any(|m| m.user == user) {
+            return Err(anyhow!("already a member of workspace '{}'", ws.name));
+        }
+        ws.members.push(WorkspaceMember {
+            user: user.clone(),
+            role: "member".to_string(),
+            joined_at: chrono::Local::now().to_rfc3339(),
+        });
+        let mut rec = BTreeMap::new();
+        rec.insert("workspace_id".to_string(), Value::Str(ws_id));
+        rec.insert("workspace_name".to_string(), Value::Str(ws.name.clone()));
+        rec.insert("user".to_string(), Value::Str(user));
+        rec.insert("role".to_string(), Value::Str("member".to_string()));
+        rec.insert("status".to_string(), Value::Str("joined".to_string()));
+        Ok(Value::Record(rec))
+    } else {
+        Err(anyhow!("workspace '{}' not found", ws_id))
+    }
+}
+
+/// Leave a workspace.
+/// Usage: workspace.leave(workspace_id)
+fn bi_workspace_leave(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let ws_id = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("workspace.leave requires workspace ID")),
+    };
+    let user = get_current_username();
+    let mut workspaces = WORKSPACES.write().map_err(|e| anyhow!("lock error: {}", e))?;
+    if let Some(ws) = workspaces.get_mut(&ws_id) {
+        if ws.owner == user {
+            return Err(anyhow!("workspace owner cannot leave; transfer ownership first"));
+        }
+        let before = ws.members.len();
+        ws.members.retain(|m| m.user != user);
+        if ws.members.len() == before {
+            return Err(anyhow!("not a member of workspace '{}'", ws.name));
+        }
+        let mut rec = BTreeMap::new();
+        rec.insert("workspace_id".to_string(), Value::Str(ws_id));
+        rec.insert("workspace_name".to_string(), Value::Str(ws.name.clone()));
+        rec.insert("user".to_string(), Value::Str(user));
+        rec.insert("status".to_string(), Value::Str("left".to_string()));
+        Ok(Value::Record(rec))
+    } else {
+        Err(anyhow!("workspace '{}' not found", ws_id))
+    }
+}
+
+/// List members of a workspace.
+/// Usage: workspace.members(workspace_id)
+fn bi_workspace_members(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let ws_id = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("workspace.members requires workspace ID")),
+    };
+    let workspaces = WORKSPACES.read().map_err(|e| anyhow!("lock error: {}", e))?;
+    if let Some(ws) = workspaces.get(&ws_id) {
+        let members: Vec<Value> = ws.members.iter().map(|m| {
+            let mut rec = BTreeMap::new();
+            rec.insert("user".to_string(), Value::Str(m.user.clone()));
+            rec.insert("role".to_string(), Value::Str(m.role.clone()));
+            rec.insert("joined_at".to_string(), Value::Str(m.joined_at.clone()));
+            Value::Record(rec)
+        }).collect();
+        Ok(Value::Array(members))
+    } else {
+        Err(anyhow!("workspace '{}' not found", ws_id))
+    }
+}
+
+/// Share an agent with a workspace.
+/// Usage: workspace.share_agent(workspace_id, agent_name)
+fn bi_workspace_share_agent(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let ws_id = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("workspace.share_agent requires workspace ID")),
+    };
+    let agent_name = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("workspace.share_agent requires agent name")),
+    };
+    let mut workspaces = WORKSPACES.write().map_err(|e| anyhow!("lock error: {}", e))?;
+    if let Some(ws) = workspaces.get_mut(&ws_id) {
+        if ws.shared_agents.contains(&agent_name) {
+            return Err(anyhow!("agent '{}' already shared in workspace '{}'", agent_name, ws.name));
+        }
+        ws.shared_agents.push(agent_name.clone());
+        let mut rec = BTreeMap::new();
+        rec.insert("workspace_id".to_string(), Value::Str(ws_id));
+        rec.insert("agent".to_string(), Value::Str(agent_name));
+        rec.insert("status".to_string(), Value::Str("shared".to_string()));
+        rec.insert("total_agents".to_string(), Value::Int(ws.shared_agents.len() as i64));
+        Ok(Value::Record(rec))
+    } else {
+        Err(anyhow!("workspace '{}' not found", ws_id))
+    }
+}
+
+/// List shared agents in a workspace.
+/// Usage: workspace.agents(workspace_id)
+fn bi_workspace_agents(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let ws_id = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("workspace.agents requires workspace ID")),
+    };
+    let workspaces = WORKSPACES.read().map_err(|e| anyhow!("lock error: {}", e))?;
+    if let Some(ws) = workspaces.get(&ws_id) {
+        let agents: Vec<Value> = ws.shared_agents.iter()
+            .map(|a| Value::Str(a.clone()))
+            .collect();
+        Ok(Value::Array(agents))
+    } else {
+        Err(anyhow!("workspace '{}' not found", ws_id))
+    }
+}
+
+/// Sync workspace state with remote peers.
+/// Usage: workspace.sync(workspace_id)
+fn bi_workspace_sync(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let ws_id = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("workspace.sync requires workspace ID")),
+    };
+    let workspaces = WORKSPACES.read().map_err(|e| anyhow!("lock error: {}", e))?;
+    if let Some(ws) = workspaces.get(&ws_id) {
+        let mut rec = BTreeMap::new();
+        rec.insert("workspace_id".to_string(), Value::Str(ws_id));
+        rec.insert("workspace_name".to_string(), Value::Str(ws.name.clone()));
+        rec.insert("members_synced".to_string(), Value::Int(ws.members.len() as i64));
+        rec.insert("agents_synced".to_string(), Value::Int(ws.shared_agents.len() as i64));
+        rec.insert("status".to_string(), Value::Str("synced".to_string()));
+        rec.insert("timestamp".to_string(), Value::Str(chrono::Local::now().to_rfc3339()));
+        Ok(Value::Record(rec))
+    } else {
+        Err(anyhow!("workspace '{}' not found", ws_id))
+    }
+}
+
+// ===================== Marketplace Builtins =====================
+
+/// Publish a plugin or agent to the marketplace.
+/// Usage: marketplace.publish({name, version, description, category?, keywords?})
+fn bi_marketplace_publish(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let opts = match args.first() {
+        Some(Value::Record(r)) => r.clone(),
+        _ => return Err(anyhow!("marketplace.publish requires a Record with name, version, description")),
+    };
+    let name = opts.get("name")
+        .and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None })
+        .ok_or_else(|| anyhow!("marketplace.publish requires 'name'"))?;
+    let version = opts.get("version")
+        .and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None })
+        .ok_or_else(|| anyhow!("marketplace.publish requires 'version'"))?;
+    let description = opts.get("description")
+        .and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None })
+        .unwrap_or_default();
+    let category = opts.get("category")
+        .and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None })
+        .unwrap_or_else(|| "general".to_string());
+    let keywords = opts.get("keywords")
+        .and_then(|v| if let Value::Array(arr) = v {
+            Some(arr.iter().filter_map(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None }).collect::<Vec<_>>())
+        } else { None })
+        .unwrap_or_default();
+
+    let package = MarketplacePackage {
+        name: name.clone(),
+        version: version.clone(),
+        author: get_current_username(),
+        description: description.clone(),
+        category: category.clone(),
+        downloads: 0,
+        rating: 0.0,
+        rating_count: 0,
+        published_at: chrono::Local::now().to_rfc3339(),
+        installed: false,
+        keywords,
+    };
+
+    let mut packages = MARKETPLACE_PACKAGES.write().map_err(|e| anyhow!("lock error: {}", e))?;
+    packages.insert(name.clone(), package);
+
+    let mut rec = BTreeMap::new();
+    rec.insert("name".to_string(), Value::Str(name));
+    rec.insert("version".to_string(), Value::Str(version));
+    rec.insert("description".to_string(), Value::Str(description));
+    rec.insert("category".to_string(), Value::Str(category));
+    rec.insert("status".to_string(), Value::Str("published".to_string()));
+    rec.insert("published_at".to_string(), Value::Str(chrono::Local::now().to_rfc3339()));
+    Ok(Value::Record(rec))
+}
+
+/// Search the marketplace for packages.
+/// Usage: marketplace.search(query) or marketplace.search({q?, category?})
+fn bi_marketplace_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let (query, category) = match args.first() {
+        Some(Value::Str(s)) => (s.to_lowercase(), None),
+        Some(Value::Record(r)) => {
+            let q = r.get("q").or_else(|| r.get("query"))
+                .and_then(|v| if let Value::Str(s) = v { Some(s.to_lowercase()) } else { None })
+                .unwrap_or_default();
+            let cat = r.get("category")
+                .and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None });
+            (q, cat)
+        }
+        _ => (String::new(), None),
+    };
+
+    let packages = MARKETPLACE_PACKAGES.read().map_err(|e| anyhow!("lock error: {}", e))?;
+    let results: Vec<Value> = packages.values()
+        .filter(|pkg| {
+            let matches_query = query.is_empty()
+                || pkg.name.to_lowercase().contains(&query)
+                || pkg.description.to_lowercase().contains(&query)
+                || pkg.keywords.iter().any(|k| k.to_lowercase().contains(&query));
+            let matches_category = category.as_ref()
+                .map(|c| pkg.category.to_lowercase() == c.to_lowercase())
+                .unwrap_or(true);
+            matches_query && matches_category
+        })
+        .map(|pkg| marketplace_package_to_value(pkg))
+        .collect();
+
+    Ok(Value::Array(results))
+}
+
+fn marketplace_package_to_value(pkg: &MarketplacePackage) -> Value {
+    let mut rec = BTreeMap::new();
+    rec.insert("name".to_string(), Value::Str(pkg.name.clone()));
+    rec.insert("version".to_string(), Value::Str(pkg.version.clone()));
+    rec.insert("author".to_string(), Value::Str(pkg.author.clone()));
+    rec.insert("description".to_string(), Value::Str(pkg.description.clone()));
+    rec.insert("category".to_string(), Value::Str(pkg.category.clone()));
+    rec.insert("downloads".to_string(), Value::Int(pkg.downloads));
+    rec.insert("rating".to_string(), Value::Float(pkg.rating));
+    rec.insert("rating_count".to_string(), Value::Int(pkg.rating_count));
+    rec.insert("published_at".to_string(), Value::Str(pkg.published_at.clone()));
+    rec.insert("installed".to_string(), Value::Bool(pkg.installed));
+    if !pkg.keywords.is_empty() {
+        rec.insert("keywords".to_string(), Value::Array(pkg.keywords.iter().map(|k| Value::Str(k.clone())).collect()));
+    }
+    Value::Record(rec)
+}
+
+/// Install a package from the marketplace.
+/// Usage: marketplace.install(name) or marketplace.install(name, version)
+fn bi_marketplace_install(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("marketplace.install requires package name")),
+    };
+    let mut packages = MARKETPLACE_PACKAGES.write().map_err(|e| anyhow!("lock error: {}", e))?;
+    if let Some(pkg) = packages.get_mut(&name) {
+        pkg.installed = true;
+        pkg.downloads += 1;
+        let mut rec = BTreeMap::new();
+        rec.insert("name".to_string(), Value::Str(pkg.name.clone()));
+        rec.insert("version".to_string(), Value::Str(pkg.version.clone()));
+        rec.insert("status".to_string(), Value::Str("installed".to_string()));
+        rec.insert("installed_at".to_string(), Value::Str(chrono::Local::now().to_rfc3339()));
+        Ok(Value::Record(rec))
+    } else {
+        Err(anyhow!("package '{}' not found in marketplace", name))
+    }
+}
+
+/// Uninstall a marketplace package.
+/// Usage: marketplace.uninstall(name)
+fn bi_marketplace_uninstall(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("marketplace.uninstall requires package name")),
+    };
+    let mut packages = MARKETPLACE_PACKAGES.write().map_err(|e| anyhow!("lock error: {}", e))?;
+    if let Some(pkg) = packages.get_mut(&name) {
+        pkg.installed = false;
+        let mut rec = BTreeMap::new();
+        rec.insert("name".to_string(), Value::Str(pkg.name.clone()));
+        rec.insert("status".to_string(), Value::Str("uninstalled".to_string()));
+        rec.insert("uninstalled_at".to_string(), Value::Str(chrono::Local::now().to_rfc3339()));
+        Ok(Value::Record(rec))
+    } else {
+        Err(anyhow!("package '{}' not found", name))
+    }
+}
+
+/// List installed marketplace packages.
+/// Usage: marketplace.list()
+fn bi_marketplace_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let packages = MARKETPLACE_PACKAGES.read().map_err(|e| anyhow!("lock error: {}", e))?;
+    let installed: Vec<Value> = packages.values()
+        .filter(|pkg| pkg.installed)
+        .map(|pkg| marketplace_package_to_value(pkg))
+        .collect();
+    Ok(Value::Array(installed))
+}
+
+/// Get detailed info about a marketplace package.
+/// Usage: marketplace.info(name)
+fn bi_marketplace_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("marketplace.info requires package name")),
+    };
+    let packages = MARKETPLACE_PACKAGES.read().map_err(|e| anyhow!("lock error: {}", e))?;
+    if let Some(pkg) = packages.get(&name) {
+        Ok(marketplace_package_to_value(pkg))
+    } else {
+        Err(anyhow!("package '{}' not found in marketplace", name))
+    }
+}
+
+/// Rate a marketplace package.
+/// Usage: marketplace.rate(name, score) — score 1-5
+fn bi_marketplace_rate(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("marketplace.rate requires package name")),
+    };
+    let score = match args.get(1) {
+        Some(Value::Int(n)) => *n as f64,
+        Some(Value::Float(f)) => *f,
+        _ => return Err(anyhow!("marketplace.rate requires a score (1-5)")),
+    };
+    if !(1.0..=5.0).contains(&score) {
+        return Err(anyhow!("rating must be between 1 and 5"));
+    }
+    let mut packages = MARKETPLACE_PACKAGES.write().map_err(|e| anyhow!("lock error: {}", e))?;
+    if let Some(pkg) = packages.get_mut(&name) {
+        // Compute new weighted average
+        let total = pkg.rating * pkg.rating_count as f64 + score;
+        pkg.rating_count += 1;
+        pkg.rating = total / pkg.rating_count as f64;
+        let mut rec = BTreeMap::new();
+        rec.insert("name".to_string(), Value::Str(pkg.name.clone()));
+        rec.insert("rating".to_string(), Value::Float(pkg.rating));
+        rec.insert("rating_count".to_string(), Value::Int(pkg.rating_count));
+        rec.insert("your_rating".to_string(), Value::Float(score));
+        Ok(Value::Record(rec))
+    } else {
+        Err(anyhow!("package '{}' not found in marketplace", name))
+    }
+}
+
+/// Update an installed marketplace package to the latest version.
+/// Usage: marketplace.update(name) or marketplace.update() for all
+fn bi_marketplace_update(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let packages = MARKETPLACE_PACKAGES.read().map_err(|e| anyhow!("lock error: {}", e))?;
+    if let Some(Value::Str(name)) = args.first() {
+        // Update single package
+        if let Some(pkg) = packages.get(name) {
+            if !pkg.installed {
+                return Err(anyhow!("package '{}' is not installed", name));
+            }
+            let mut rec = BTreeMap::new();
+            rec.insert("name".to_string(), Value::Str(pkg.name.clone()));
+            rec.insert("version".to_string(), Value::Str(pkg.version.clone()));
+            rec.insert("status".to_string(), Value::Str("up_to_date".to_string()));
+            rec.insert("checked_at".to_string(), Value::Str(chrono::Local::now().to_rfc3339()));
+            Ok(Value::Record(rec))
+        } else {
+            Err(anyhow!("package '{}' not found", name))
+        }
+    } else {
+        // Update all installed
+        let results: Vec<Value> = packages.values()
+            .filter(|pkg| pkg.installed)
+            .map(|pkg| {
+                let mut rec = BTreeMap::new();
+                rec.insert("name".to_string(), Value::Str(pkg.name.clone()));
+                rec.insert("version".to_string(), Value::Str(pkg.version.clone()));
+                rec.insert("status".to_string(), Value::Str("up_to_date".to_string()));
+                Value::Record(rec)
+            })
+            .collect();
+        Ok(Value::Array(results))
+    }
+}
+
+// ===================== Telemetry & Analytics Builtins =====================
+
+/// Enable opt-in telemetry.
+/// Usage: telemetry.enable()
+fn bi_telemetry_enable(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut enabled = TELEMETRY_ENABLED.write().map_err(|e| anyhow!("lock error: {}", e))?;
+    *enabled = true;
+
+    // Record the opt-in event
+    let event = TelemetryEvent {
+        id: uuid::Uuid::new_v4().to_string(),
+        event_type: "telemetry_enabled".to_string(),
+        category: "system".to_string(),
+        data: HashMap::new(),
+        timestamp: chrono::Local::now().to_rfc3339(),
+        session_id: uuid::Uuid::new_v4().to_string(),
+    };
+    if let Ok(mut events) = TELEMETRY_EVENTS.write() {
+        events.push(event);
+    }
+
+    let mut rec = BTreeMap::new();
+    rec.insert("enabled".to_string(), Value::Bool(true));
+    rec.insert("status".to_string(), Value::Str("telemetry enabled (opt-in)".to_string()));
+    rec.insert("note".to_string(), Value::Str("Data is stored locally. Use telemetry.report() to view.".to_string()));
+    Ok(Value::Record(rec))
+}
+
+/// Disable telemetry.
+/// Usage: telemetry.disable()
+fn bi_telemetry_disable(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut enabled = TELEMETRY_ENABLED.write().map_err(|e| anyhow!("lock error: {}", e))?;
+    *enabled = false;
+
+    let mut rec = BTreeMap::new();
+    rec.insert("enabled".to_string(), Value::Bool(false));
+    rec.insert("status".to_string(), Value::Str("telemetry disabled".to_string()));
+    Ok(Value::Record(rec))
+}
+
+/// Get current telemetry status.
+/// Usage: telemetry.status()
+fn bi_telemetry_status(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let enabled = TELEMETRY_ENABLED.read().map_err(|e| anyhow!("lock error: {}", e))?;
+    let events = TELEMETRY_EVENTS.read().map_err(|e| anyhow!("lock error: {}", e))?;
+
+    let mut rec = BTreeMap::new();
+    rec.insert("enabled".to_string(), Value::Bool(*enabled));
+    rec.insert("event_count".to_string(), Value::Int(events.len() as i64));
+    rec.insert("storage".to_string(), Value::Str("local".to_string()));
+    rec.insert("privacy".to_string(), Value::Str("All data stored locally. No external transmission.".to_string()));
+    Ok(Value::Record(rec))
+}
+
+/// Generate a telemetry usage report.
+/// Usage: telemetry.report() or telemetry.report({category?, since?})
+fn bi_telemetry_report(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let opts = match args.first() {
+        Some(Value::Record(r)) => r.clone(),
+        _ => BTreeMap::new(),
+    };
+    let category_filter = opts.get("category")
+        .and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None });
+
+    let events = TELEMETRY_EVENTS.read().map_err(|e| anyhow!("lock error: {}", e))?;
+
+    // Group by category
+    let mut by_category: HashMap<String, i64> = HashMap::new();
+    let mut by_type: HashMap<String, i64> = HashMap::new();
+    let mut filtered_count = 0i64;
+
+    for event in events.iter() {
+        let include = category_filter.as_ref()
+            .map(|c| event.category == *c)
+            .unwrap_or(true);
+        if include {
+            filtered_count += 1;
+            *by_category.entry(event.category.clone()).or_insert(0) += 1;
+            *by_type.entry(event.event_type.clone()).or_insert(0) += 1;
+        }
+    }
+
+    let categories: Vec<Value> = by_category.iter().map(|(k, v)| {
+        let mut rec = BTreeMap::new();
+        rec.insert("category".to_string(), Value::Str(k.clone()));
+        rec.insert("count".to_string(), Value::Int(*v));
+        Value::Record(rec)
+    }).collect();
+
+    let types: Vec<Value> = by_type.iter().map(|(k, v)| {
+        let mut rec = BTreeMap::new();
+        rec.insert("event_type".to_string(), Value::Str(k.clone()));
+        rec.insert("count".to_string(), Value::Int(*v));
+        Value::Record(rec)
+    }).collect();
+
+    let mut rec = BTreeMap::new();
+    rec.insert("total_events".to_string(), Value::Int(filtered_count));
+    rec.insert("by_category".to_string(), Value::Array(categories));
+    rec.insert("by_type".to_string(), Value::Array(types));
+    rec.insert("generated_at".to_string(), Value::Str(chrono::Local::now().to_rfc3339()));
+    Ok(Value::Record(rec))
+}
+
+/// Get raw telemetry events.
+/// Usage: telemetry.events() or telemetry.events(limit)
+fn bi_telemetry_events(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let limit = match args.first() {
+        Some(Value::Int(n)) => *n as usize,
+        _ => 100,
+    };
+    let events = TELEMETRY_EVENTS.read().map_err(|e| anyhow!("lock error: {}", e))?;
+    let entries: Vec<Value> = events.iter().rev().take(limit).map(|e| {
+        let mut rec = BTreeMap::new();
+        rec.insert("id".to_string(), Value::Str(e.id.clone()));
+        rec.insert("event_type".to_string(), Value::Str(e.event_type.clone()));
+        rec.insert("category".to_string(), Value::Str(e.category.clone()));
+        rec.insert("timestamp".to_string(), Value::Str(e.timestamp.clone()));
+        rec.insert("session_id".to_string(), Value::Str(e.session_id.clone()));
+        if !e.data.is_empty() {
+            let data_rec: BTreeMap<String, Value> = e.data.iter()
+                .map(|(k, v)| (k.clone(), Value::Str(v.clone())))
+                .collect();
+            rec.insert("data".to_string(), Value::Record(data_rec));
+        }
+        Value::Record(rec)
+    }).collect();
+    Ok(Value::Array(entries))
+}
+
+/// Reset (clear) all telemetry data.
+/// Usage: telemetry.reset()
+fn bi_telemetry_reset(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut events = TELEMETRY_EVENTS.write().map_err(|e| anyhow!("lock error: {}", e))?;
+    let count = events.len();
+    events.clear();
+
+    let mut rec = BTreeMap::new();
+    rec.insert("cleared".to_string(), Value::Int(count as i64));
+    rec.insert("status".to_string(), Value::Str("all telemetry data cleared".to_string()));
+    rec.insert("timestamp".to_string(), Value::Str(chrono::Local::now().to_rfc3339()));
     Ok(Value::Record(rec))
 }
