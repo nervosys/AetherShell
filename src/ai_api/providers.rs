@@ -229,31 +229,148 @@ impl ModelProvider for OpenAIProvider {
 impl OpenAIProvider {
     fn get_context_length(&self, model_id: &str) -> Option<u32> {
         match model_id {
-            "gpt-4-turbo" | "gpt-4-turbo-preview" => Some(128000),
-            "gpt-4" => Some(8192),
-            "gpt-3.5-turbo" => Some(4096),
+            // GPT-4o family
+            "gpt-4o" | "gpt-4o-2024-11-20" | "gpt-4o-2024-08-06" | "gpt-4o-2024-05-13" => {
+                Some(128000)
+            }
+            "gpt-4o-mini" | "gpt-4o-mini-2024-07-18" => Some(128000),
+            "gpt-4o-audio-preview" | "gpt-4o-realtime-preview" => Some(128000),
+            // GPT-4.5
+            "gpt-4.5-preview" | "gpt-4.5-preview-2025-02-27" => Some(128000),
+            // o-series reasoning models
+            "o3" | "o3-2025-04-16" => Some(200000),
+            "o3-mini" | "o3-mini-2025-01-31" => Some(200000),
+            "o4-mini" | "o4-mini-2025-04-16" => Some(200000),
+            "o1" | "o1-2024-12-17" => Some(200000),
+            "o1-mini" | "o1-mini-2024-09-12" => Some(128000),
+            "o1-preview" | "o1-preview-2024-09-12" => Some(128000),
+            // GPT-4 Turbo
+            "gpt-4-turbo" | "gpt-4-turbo-2024-04-09" | "gpt-4-turbo-preview" => Some(128000),
+            "gpt-4-1106-preview" | "gpt-4-0125-preview" => Some(128000),
+            // GPT-4
+            "gpt-4" | "gpt-4-0613" => Some(8192),
+            "gpt-4-32k" | "gpt-4-32k-0613" => Some(32768),
+            // GPT-3.5
+            "gpt-3.5-turbo" | "gpt-3.5-turbo-0125" => Some(16385),
             "gpt-3.5-turbo-16k" => Some(16384),
-            _ => None,
+            "gpt-3.5-turbo-instruct" => Some(4096),
+            // Embeddings
+            "text-embedding-3-large" => Some(8191),
+            "text-embedding-3-small" => Some(8191),
+            "text-embedding-ada-002" => Some(8191),
+            _ => {
+                // Heuristic for unknown models
+                if model_id.starts_with("gpt-4o") || model_id.starts_with("gpt-4.5") {
+                    Some(128000)
+                } else if model_id.starts_with("o1")
+                    || model_id.starts_with("o3")
+                    || model_id.starts_with("o4")
+                {
+                    Some(200000)
+                } else {
+                    None
+                }
+            }
         }
     }
 
     fn get_pricing(&self, model_id: &str) -> Option<ModelPricing> {
+        // Prices per 1K tokens (as of Feb 2026)
         match model_id {
-            "gpt-4-turbo" => Some(ModelPricing {
+            // GPT-4o (latest)
+            "gpt-4o" | "gpt-4o-2024-11-20" | "gpt-4o-2024-08-06" => Some(ModelPricing {
+                prompt: 0.0025,
+                completion: 0.01,
+                image: Some(0.003613),
+                request: None,
+            }),
+            "gpt-4o-mini" | "gpt-4o-mini-2024-07-18" => Some(ModelPricing {
+                prompt: 0.00015,
+                completion: 0.0006,
+                image: Some(0.001838),
+                request: None,
+            }),
+            "gpt-4o-audio-preview" => Some(ModelPricing {
+                prompt: 0.0025,
+                completion: 0.01,
+                image: None,
+                request: None,
+            }),
+            // GPT-4.5
+            "gpt-4.5-preview" | "gpt-4.5-preview-2025-02-27" => Some(ModelPricing {
+                prompt: 0.075,
+                completion: 0.15,
+                image: None,
+                request: None,
+            }),
+            // o-series reasoning
+            "o3" | "o3-2025-04-16" => Some(ModelPricing {
+                prompt: 0.01,
+                completion: 0.04,
+                image: None,
+                request: None,
+            }),
+            "o3-mini" | "o3-mini-2025-01-31" => Some(ModelPricing {
+                prompt: 0.0011,
+                completion: 0.0044,
+                image: None,
+                request: None,
+            }),
+            "o4-mini" | "o4-mini-2025-04-16" => Some(ModelPricing {
+                prompt: 0.0011,
+                completion: 0.0044,
+                image: None,
+                request: None,
+            }),
+            "o1" | "o1-2024-12-17" => Some(ModelPricing {
+                prompt: 0.015,
+                completion: 0.06,
+                image: None,
+                request: None,
+            }),
+            "o1-mini" | "o1-mini-2024-09-12" => Some(ModelPricing {
+                prompt: 0.003,
+                completion: 0.012,
+                image: None,
+                request: None,
+            }),
+            // GPT-4 Turbo
+            "gpt-4-turbo" | "gpt-4-turbo-2024-04-09" => Some(ModelPricing {
                 prompt: 0.01,
                 completion: 0.03,
                 image: None,
                 request: None,
             }),
-            "gpt-4" => Some(ModelPricing {
+            // GPT-4
+            "gpt-4" | "gpt-4-0613" => Some(ModelPricing {
                 prompt: 0.03,
                 completion: 0.06,
                 image: None,
                 request: None,
             }),
-            "gpt-3.5-turbo" => Some(ModelPricing {
-                prompt: 0.0015,
-                completion: 0.002,
+            "gpt-4-32k" => Some(ModelPricing {
+                prompt: 0.06,
+                completion: 0.12,
+                image: None,
+                request: None,
+            }),
+            // GPT-3.5
+            "gpt-3.5-turbo" | "gpt-3.5-turbo-0125" => Some(ModelPricing {
+                prompt: 0.0005,
+                completion: 0.0015,
+                image: None,
+                request: None,
+            }),
+            // Embeddings
+            "text-embedding-3-large" => Some(ModelPricing {
+                prompt: 0.00013,
+                completion: 0.0,
+                image: None,
+                request: None,
+            }),
+            "text-embedding-3-small" => Some(ModelPricing {
+                prompt: 0.00002,
+                completion: 0.0,
                 image: None,
                 request: None,
             }),
@@ -262,17 +379,25 @@ impl OpenAIProvider {
     }
 
     fn get_capabilities(&self, model_id: &str) -> ModelCapabilities {
+        let is_o_series =
+            model_id.starts_with("o1") || model_id.starts_with("o3") || model_id.starts_with("o4");
         ModelCapabilities {
             chat: true,
-            completions: true,
+            completions: !model_id.contains("embedding"),
             embeddings: model_id.contains("embedding"),
-            image_generation: model_id.contains("dall-e"),
-            image_understanding: model_id.contains("vision") || model_id.contains("gpt-4"),
-            audio_generation: false,
-            audio_understanding: false,
+            image_generation: model_id.contains("dall-e") || model_id.contains("gpt-image"),
+            image_understanding: model_id.contains("gpt-4o")
+                || model_id.contains("gpt-4-turbo")
+                || model_id.contains("gpt-4.5")
+                || is_o_series,
+            audio_generation: model_id.contains("tts") || model_id.contains("audio"),
+            audio_understanding: model_id.contains("whisper") || model_id.contains("audio"),
             video_understanding: false,
-            function_calling: !model_id.contains("embedding"),
-            streaming: true,
+            function_calling: !model_id.contains("embedding")
+                && !model_id.contains("dall-e")
+                && !model_id.contains("tts")
+                && !model_id.contains("whisper"),
+            streaming: !is_o_series,
         }
     }
 }
@@ -330,10 +455,143 @@ impl ModelProvider for AnthropicProvider {
     async fn list_models(&self) -> Result<Vec<ModelInfo>> {
         // Anthropic doesn't have a public models endpoint, so we return known models
         let models = vec![
+            // Claude 4 (Opus) — latest flagship
+            ModelInfo {
+                id: "claude-sonnet-4-20250514".to_string(),
+                object: "model".to_string(),
+                created: 1747267200,
+                owned_by: "anthropic".to_string(),
+                provider: "anthropic".to_string(),
+                context_length: Some(200000),
+                max_output: Some(16384),
+                per_request_limits: None,
+                pricing: Some(ModelPricing {
+                    prompt: 0.003,
+                    completion: 0.015,
+                    image: None,
+                    request: None,
+                }),
+                capabilities: ModelCapabilities {
+                    chat: true,
+                    completions: true,
+                    embeddings: false,
+                    image_generation: false,
+                    image_understanding: true,
+                    audio_generation: false,
+                    audio_understanding: false,
+                    video_understanding: false,
+                    function_calling: true,
+                    streaming: true,
+                },
+                local_path: None,
+                format: ModelFormat::Anthropic,
+                size_bytes: None,
+                metadata: HashMap::new(),
+            },
+            // Claude 4 Opus
+            ModelInfo {
+                id: "claude-opus-4-20250514".to_string(),
+                object: "model".to_string(),
+                created: 1747267200,
+                owned_by: "anthropic".to_string(),
+                provider: "anthropic".to_string(),
+                context_length: Some(200000),
+                max_output: Some(32000),
+                per_request_limits: None,
+                pricing: Some(ModelPricing {
+                    prompt: 0.015,
+                    completion: 0.075,
+                    image: None,
+                    request: None,
+                }),
+                capabilities: ModelCapabilities {
+                    chat: true,
+                    completions: true,
+                    embeddings: false,
+                    image_generation: false,
+                    image_understanding: true,
+                    audio_generation: false,
+                    audio_understanding: false,
+                    video_understanding: false,
+                    function_calling: true,
+                    streaming: true,
+                },
+                local_path: None,
+                format: ModelFormat::Anthropic,
+                size_bytes: None,
+                metadata: HashMap::new(),
+            },
+            // Claude 3.5 Sonnet (latest GA)
+            ModelInfo {
+                id: "claude-3-5-sonnet-20241022".to_string(),
+                object: "model".to_string(),
+                created: 1729555200,
+                owned_by: "anthropic".to_string(),
+                provider: "anthropic".to_string(),
+                context_length: Some(200000),
+                max_output: Some(8192),
+                per_request_limits: None,
+                pricing: Some(ModelPricing {
+                    prompt: 0.003,
+                    completion: 0.015,
+                    image: None,
+                    request: None,
+                }),
+                capabilities: ModelCapabilities {
+                    chat: true,
+                    completions: true,
+                    embeddings: false,
+                    image_generation: false,
+                    image_understanding: true,
+                    audio_generation: false,
+                    audio_understanding: false,
+                    video_understanding: false,
+                    function_calling: true,
+                    streaming: true,
+                },
+                local_path: None,
+                format: ModelFormat::Anthropic,
+                size_bytes: None,
+                metadata: HashMap::new(),
+            },
+            // Claude 3.5 Haiku
+            ModelInfo {
+                id: "claude-3-5-haiku-20241022".to_string(),
+                object: "model".to_string(),
+                created: 1729555200,
+                owned_by: "anthropic".to_string(),
+                provider: "anthropic".to_string(),
+                context_length: Some(200000),
+                max_output: Some(8192),
+                per_request_limits: None,
+                pricing: Some(ModelPricing {
+                    prompt: 0.0008,
+                    completion: 0.004,
+                    image: None,
+                    request: None,
+                }),
+                capabilities: ModelCapabilities {
+                    chat: true,
+                    completions: true,
+                    embeddings: false,
+                    image_generation: false,
+                    image_understanding: true,
+                    audio_generation: false,
+                    audio_understanding: false,
+                    video_understanding: false,
+                    function_calling: true,
+                    streaming: true,
+                },
+                local_path: None,
+                format: ModelFormat::Anthropic,
+                size_bytes: None,
+                metadata: HashMap::new(),
+            },
+            // Claude 3 Opus
             ModelInfo {
                 id: "claude-3-opus-20240229".to_string(),
                 object: "model".to_string(),
-                created: 1709251200, // Approximate
+                created: 1709251200,
                 owned_by: "anthropic".to_string(),
                 provider: "anthropic".to_string(),
                 context_length: Some(200000),
@@ -362,6 +620,7 @@ impl ModelProvider for AnthropicProvider {
                 size_bytes: None,
                 metadata: HashMap::new(),
             },
+            // Claude 3 Sonnet
             ModelInfo {
                 id: "claude-3-sonnet-20240229".to_string(),
                 object: "model".to_string(),
@@ -551,40 +810,481 @@ impl ModelProvider for AnthropicProvider {
 }
 
 /// Local model provider for GGUF and other local formats
+///
+/// Scans XDG-standard model directories for locally downloaded models and
+/// delegates inference to a local llama.cpp server if available.
 pub struct LocalProvider {
-    // This would integrate with llama.cpp, candle, or other local inference engines
+    client: Client,
+    model_dirs: Vec<std::path::PathBuf>,
+    llama_cpp_url: Option<String>,
 }
 
 impl LocalProvider {
     pub fn new() -> Self {
-        Self {}
+        let mut model_dirs = Vec::new();
+
+        // XDG data directories
+        if let Ok(data_home) = std::env::var("XDG_DATA_HOME") {
+            model_dirs.push(std::path::PathBuf::from(&data_home).join("aethershell/models"));
+        }
+        // Default: ~/.local/share/aethershell/models (Unix) or %APPDATA%/aethershell/models (Windows)
+        if let Some(home) = dirs_next_home() {
+            #[cfg(not(target_os = "windows"))]
+            model_dirs.push(home.join(".local/share/aethershell/models"));
+            #[cfg(target_os = "windows")]
+            {
+                if let Ok(appdata) = std::env::var("APPDATA") {
+                    model_dirs.push(std::path::PathBuf::from(appdata).join("aethershell\\models"));
+                }
+            }
+            model_dirs.push(home.join(".cache/lm-studio/models"));
+            model_dirs.push(home.join(".ollama/models"));
+        }
+
+        // Also support AETHER_MODEL_DIR env var
+        if let Ok(dir) = std::env::var("AETHER_MODEL_DIR") {
+            model_dirs.push(std::path::PathBuf::from(dir));
+        }
+
+        // Detect local llama.cpp server
+        let llama_cpp_url = std::env::var("LLAMA_CPP_URL").ok().or_else(|| {
+            // Try default port
+            Some("http://127.0.0.1:8080".to_string())
+        });
+
+        Self {
+            client: Client::new(),
+            model_dirs,
+            llama_cpp_url,
+        }
+    }
+
+    /// Scan model directories for GGUF, SafeTensors, and ONNX model files
+    fn scan_local_models(&self) -> Vec<ModelInfo> {
+        let mut models = Vec::new();
+        let extensions = ["gguf", "safetensors", "onnx", "bin", "pt"];
+
+        for dir in &self.model_dirs {
+            if !dir.exists() {
+                continue;
+            }
+            if let Ok(entries) = std::fs::read_dir(dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    let ext = path
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .unwrap_or("")
+                        .to_lowercase();
+                    if extensions.contains(&ext.as_str()) {
+                        let filename = path
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("unknown")
+                            .to_string();
+                        let size_bytes = std::fs::metadata(&path).ok().map(|m| m.len());
+                        let format = match ext.as_str() {
+                            "gguf" => ModelFormat::GGUF,
+                            "safetensors" => ModelFormat::SafeTensors,
+                            "onnx" => ModelFormat::ONNX,
+                            _ => ModelFormat::Other(ext.clone()),
+                        };
+
+                        // Estimate context length from model name heuristics
+                        let context_length = if filename.contains("128k") {
+                            Some(131072)
+                        } else if filename.contains("32k") {
+                            Some(32768)
+                        } else if filename.contains("16k") {
+                            Some(16384)
+                        } else if filename.contains("8k") {
+                            Some(8192)
+                        } else {
+                            Some(4096) // conservative default
+                        };
+
+                        models.push(ModelInfo {
+                            id: format!("local:{}", filename),
+                            object: "model".to_string(),
+                            created: path
+                                .metadata()
+                                .ok()
+                                .and_then(|m| {
+                                    m.modified().ok().map(|t| {
+                                        t.duration_since(std::time::UNIX_EPOCH)
+                                            .unwrap_or_default()
+                                            .as_secs()
+                                            as i64
+                                    })
+                                })
+                                .unwrap_or(0),
+                            owned_by: "local".to_string(),
+                            provider: "local".to_string(),
+                            context_length,
+                            max_output: context_length.map(|c| c / 4),
+                            per_request_limits: None,
+                            pricing: Some(ModelPricing {
+                                prompt: 0.0,
+                                completion: 0.0,
+                                image: None,
+                                request: None,
+                            }),
+                            capabilities: ModelCapabilities {
+                                chat: true,
+                                completions: true,
+                                embeddings: filename.contains("embed"),
+                                image_generation: false,
+                                image_understanding: filename.contains("vision")
+                                    || filename.contains("llava"),
+                                audio_generation: false,
+                                audio_understanding: filename.contains("whisper"),
+                                video_understanding: false,
+                                function_calling: false,
+                                streaming: true,
+                            },
+                            local_path: Some(path.to_string_lossy().to_string()),
+                            format,
+                            size_bytes,
+                            metadata: HashMap::new(),
+                        });
+                    }
+                }
+            }
+            // Also scan subdirectories one level deep
+            if let Ok(entries) = std::fs::read_dir(dir) {
+                for entry in entries.flatten() {
+                    let subdir = entry.path();
+                    if subdir.is_dir() {
+                        if let Ok(sub_entries) = std::fs::read_dir(&subdir) {
+                            for sub_entry in sub_entries.flatten() {
+                                let path = sub_entry.path();
+                                let ext = path
+                                    .extension()
+                                    .and_then(|e| e.to_str())
+                                    .unwrap_or("")
+                                    .to_lowercase();
+                                if extensions.contains(&ext.as_str()) {
+                                    let dirname = subdir
+                                        .file_name()
+                                        .and_then(|s| s.to_str())
+                                        .unwrap_or("unknown");
+                                    let filename = path
+                                        .file_stem()
+                                        .and_then(|s| s.to_str())
+                                        .unwrap_or("unknown");
+                                    let model_id = format!("local:{}/{}", dirname, filename);
+                                    let size_bytes = std::fs::metadata(&path).ok().map(|m| m.len());
+                                    let format = match ext.as_str() {
+                                        "gguf" => ModelFormat::GGUF,
+                                        "safetensors" => ModelFormat::SafeTensors,
+                                        "onnx" => ModelFormat::ONNX,
+                                        _ => ModelFormat::Other(ext.clone()),
+                                    };
+
+                                    models.push(ModelInfo {
+                                        id: model_id,
+                                        object: "model".to_string(),
+                                        created: 0,
+                                        owned_by: "local".to_string(),
+                                        provider: "local".to_string(),
+                                        context_length: Some(4096),
+                                        max_output: Some(1024),
+                                        per_request_limits: None,
+                                        pricing: Some(ModelPricing {
+                                            prompt: 0.0,
+                                            completion: 0.0,
+                                            image: None,
+                                            request: None,
+                                        }),
+                                        capabilities: ModelCapabilities {
+                                            chat: true,
+                                            completions: true,
+                                            embeddings: false,
+                                            image_generation: false,
+                                            image_understanding: false,
+                                            audio_generation: false,
+                                            audio_understanding: false,
+                                            video_understanding: false,
+                                            function_calling: false,
+                                            streaming: true,
+                                        },
+                                        local_path: Some(path.to_string_lossy().to_string()),
+                                        format,
+                                        size_bytes,
+                                        metadata: HashMap::new(),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        models
+    }
+
+    /// Check if llama.cpp server is running and healthy
+    async fn check_llama_cpp_health(&self) -> bool {
+        if let Some(url) = &self.llama_cpp_url {
+            if let Ok(resp) = self
+                .client
+                .get(format!("{}/health", url))
+                .timeout(std::time::Duration::from_secs(2))
+                .send()
+                .await
+            {
+                return resp.status().is_success();
+            }
+        }
+        false
+    }
+}
+
+/// Get the user's home directory
+fn dirs_next_home() -> Option<std::path::PathBuf> {
+    #[cfg(target_os = "windows")]
+    {
+        std::env::var("USERPROFILE")
+            .ok()
+            .map(std::path::PathBuf::from)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        std::env::var("HOME").ok().map(std::path::PathBuf::from)
     }
 }
 
 #[async_trait]
 impl ModelProvider for LocalProvider {
     async fn list_models(&self) -> Result<Vec<ModelInfo>> {
-        // Return locally available models
-        // This would scan the XDG model directory
-        Ok(vec![])
+        // Scan local model directories for available models
+        let mut models = self.scan_local_models();
+
+        // Also check llama.cpp server for loaded models
+        if self.check_llama_cpp_health().await {
+            if let Some(url) = &self.llama_cpp_url {
+                if let Ok(resp) = self
+                    .client
+                    .get(format!("{}/v1/models", url))
+                    .timeout(std::time::Duration::from_secs(5))
+                    .send()
+                    .await
+                {
+                    if let Ok(body) = resp.json::<serde_json::Value>().await {
+                        if let Some(data) = body.get("data").and_then(|d| d.as_array()) {
+                            for model in data {
+                                let id = model
+                                    .get("id")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("unknown")
+                                    .to_string();
+                                // Don't duplicate if already found in scan
+                                if !models.iter().any(|m| m.id.contains(&id)) {
+                                    models.push(ModelInfo {
+                                        id: format!("local:{}", id),
+                                        object: "model".to_string(),
+                                        created: 0,
+                                        owned_by: "local".to_string(),
+                                        provider: "local".to_string(),
+                                        context_length: Some(4096),
+                                        max_output: Some(1024),
+                                        per_request_limits: None,
+                                        pricing: Some(ModelPricing {
+                                            prompt: 0.0,
+                                            completion: 0.0,
+                                            image: None,
+                                            request: None,
+                                        }),
+                                        capabilities: ModelCapabilities {
+                                            chat: true,
+                                            completions: true,
+                                            embeddings: false,
+                                            image_generation: false,
+                                            image_understanding: false,
+                                            audio_generation: false,
+                                            audio_understanding: false,
+                                            video_understanding: false,
+                                            function_calling: false,
+                                            streaming: true,
+                                        },
+                                        local_path: None,
+                                        format: ModelFormat::GGUF,
+                                        size_bytes: None,
+                                        metadata: HashMap::new(),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(models)
     }
 
     async fn chat_completion(
         &self,
-        _request: ChatCompletionRequest,
+        request: ChatCompletionRequest,
     ) -> Result<ChatCompletionResponse> {
-        // Implement local inference
-        Err(anyhow::anyhow!("Local inference not yet implemented"))
+        // Delegate to llama.cpp server if available
+        if let Some(url) = &self.llama_cpp_url {
+            if self.check_llama_cpp_health().await {
+                let body = json!({
+                    "model": request.model,
+                    "messages": request.messages.iter().map(|m| json!({
+                        "role": m.role,
+                        "content": m.content.as_ref().unwrap_or(&String::new())
+                    })).collect::<Vec<_>>(),
+                    "temperature": request.temperature.unwrap_or(0.7),
+                    "max_tokens": request.max_tokens.unwrap_or(2048),
+                    "stream": false
+                });
+
+                let resp = self
+                    .client
+                    .post(format!("{}/v1/chat/completions", url))
+                    .json(&body)
+                    .timeout(std::time::Duration::from_secs(300))
+                    .send()
+                    .await?;
+
+                if resp.status().is_success() {
+                    let result: serde_json::Value = resp.json().await?;
+                    let content = result
+                        .get("choices")
+                        .and_then(|c| c.get(0))
+                        .and_then(|c| c.get("message"))
+                        .and_then(|m| m.get("content"))
+                        .and_then(|c| c.as_str())
+                        .unwrap_or("")
+                        .to_string();
+
+                    let usage = result.get("usage").cloned().unwrap_or(json!({}));
+
+                    return Ok(ChatCompletionResponse {
+                        id: result
+                            .get("id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("local-0")
+                            .to_string(),
+                        object: "chat.completion".to_string(),
+                        created: chrono::Utc::now().timestamp(),
+                        model: request.model.clone(),
+                        choices: vec![ChatChoice {
+                            index: 0,
+                            message: ChatMessage {
+                                role: "assistant".to_string(),
+                                content: Some(content),
+                                name: None,
+                                tool_calls: None,
+                                function_call: None,
+                                tool_call_id: None,
+                            },
+                            finish_reason: Some("stop".to_string()),
+                            delta: None,
+                        }],
+                        usage: Some(Usage {
+                            prompt_tokens: usage
+                                .get("prompt_tokens")
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(0) as u32,
+                            completion_tokens: usage
+                                .get("completion_tokens")
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(0) as u32,
+                            total_tokens: usage
+                                .get("total_tokens")
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(0) as u32,
+                        }),
+                        system_fingerprint: None,
+                    });
+                }
+            }
+        }
+
+        Err(anyhow::anyhow!(
+            "Local inference requires a running llama.cpp server. \
+             Start one with: llama-server -m <model.gguf> --port 8080\n\
+             Or set LLAMA_CPP_URL to point to your server."
+        ))
     }
 
-    async fn embeddings(&self, _request: EmbeddingRequest) -> Result<EmbeddingResponse> {
-        // Implement local embeddings
-        Err(anyhow::anyhow!("Local embeddings not yet implemented"))
+    async fn embeddings(&self, request: EmbeddingRequest) -> Result<EmbeddingResponse> {
+        // Delegate embeddings to llama.cpp server if available
+        if let Some(url) = &self.llama_cpp_url {
+            if self.check_llama_cpp_health().await {
+                let body = json!({
+                    "model": request.model,
+                    "input": request.input
+                });
+
+                let resp = self
+                    .client
+                    .post(format!("{}/v1/embeddings", url))
+                    .json(&body)
+                    .timeout(std::time::Duration::from_secs(60))
+                    .send()
+                    .await?;
+
+                if resp.status().is_success() {
+                    let result: serde_json::Value = resp.json().await?;
+                    let data = result
+                        .get("data")
+                        .and_then(|d| d.as_array())
+                        .cloned()
+                        .unwrap_or_default();
+
+                    let embeddings: Vec<EmbeddingData> = data
+                        .iter()
+                        .enumerate()
+                        .map(|(i, d)| EmbeddingData {
+                            object: "embedding".to_string(),
+                            index: i as u32,
+                            embedding: d
+                                .get("embedding")
+                                .and_then(|e| e.as_array())
+                                .map(|arr| {
+                                    arr.iter()
+                                        .filter_map(|v| v.as_f64())
+                                        .map(|v| v as f32)
+                                        .collect()
+                                })
+                                .unwrap_or_default(),
+                        })
+                        .collect();
+
+                    return Ok(EmbeddingResponse {
+                        object: "list".to_string(),
+                        data: embeddings,
+                        model: request.model,
+                        usage: Usage {
+                            prompt_tokens: result
+                                .get("usage")
+                                .and_then(|u| u.get("prompt_tokens"))
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(0) as u32,
+                            completion_tokens: 0,
+                            total_tokens: result
+                                .get("usage")
+                                .and_then(|u| u.get("total_tokens"))
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(0) as u32,
+                        },
+                    });
+                }
+            }
+        }
+
+        Err(anyhow::anyhow!(
+            "Local embeddings require a running llama.cpp server with embedding support."
+        ))
     }
 
     async fn validate_api_key(&self) -> Result<bool> {
-        // Local provider doesn't need API keys
-        Ok(true)
+        // Local provider doesn't need API keys — check if server is available
+        Ok(self.check_llama_cpp_health().await)
     }
 
     fn get_provider_name(&self) -> &str {
@@ -1262,7 +1962,11 @@ impl OllamaProvider {
 
         if !response.status().is_success() {
             let error_text = response.text().await?;
-            return Err(anyhow::anyhow!("Ollama pull failed for '{}': {}", model, error_text));
+            return Err(anyhow::anyhow!(
+                "Ollama pull failed for '{}': {}",
+                model,
+                error_text
+            ));
         }
         Ok(())
     }
@@ -1270,7 +1974,9 @@ impl OllamaProvider {
     /// Check if a specific model is available locally
     pub async fn has_model(&self, model: &str) -> bool {
         if let Ok(models) = self.list_models().await {
-            models.iter().any(|m| m.id == model || m.id.starts_with(&format!("{}:", model)))
+            models
+                .iter()
+                .any(|m| m.id == model || m.id.starts_with(&format!("{}:", model)))
         } else {
             false
         }
@@ -1301,10 +2007,7 @@ impl ModelProvider for OllamaProvider {
             .iter()
             .filter_map(|m| {
                 let name = m.get("name")?.as_str()?.to_string();
-                let size = m
-                    .get("size")
-                    .and_then(|s| s.as_u64())
-                    .unwrap_or(0);
+                let size = m.get("size").and_then(|s| s.as_u64()).unwrap_or(0);
                 let modified = m
                     .get("modified_at")
                     .and_then(|s| s.as_str())
@@ -1356,7 +2059,10 @@ impl ModelProvider for OllamaProvider {
                     metadata: {
                         let mut m = HashMap::new();
                         if !modified.is_empty() {
-                            m.insert("modified_at".to_string(), serde_json::Value::String(modified));
+                            m.insert(
+                                "modified_at".to_string(),
+                                serde_json::Value::String(modified),
+                            );
                         }
                         m
                     },
@@ -1413,7 +2119,11 @@ impl ModelProvider for OllamaProvider {
                     error_text
                 ));
             }
-            return Err(anyhow::anyhow!("Ollama chat error ({}): {}", status, error_text));
+            return Err(anyhow::anyhow!(
+                "Ollama chat error ({}): {}",
+                status,
+                error_text
+            ));
         }
 
         let ollama_resp: serde_json::Value = response.json().await?;
