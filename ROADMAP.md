@@ -1,6 +1,6 @@
 # AetherShell Roadmap
 
-> **Last Updated:** February 18, 2026
+> **Last Updated:** February 19, 2026
 
 This document tracks the development progress of AetherShell, the world's first agentic shell with typed functional pipelines and multi-modal AI.
 
@@ -12,10 +12,10 @@ This document tracks the development progress of AetherShell, the world's first 
 | ----------------- | ---------- | ----------------------------- |
 | Core Language     | ✅ Complete | AST-based, Hindley-Milner     |
 | Type System       | ✅ Complete | Full inference                |
-| Builtins Library  | ✅ Complete | 870+ functions, 55 modules    |
+| Builtins Library  | ✅ Complete | 1,100+ functions, 106 modules |
 | AI Integration    | 🔄 Active   | 9 providers, unifying stacks  |
 | Agent Framework   | ✅ Complete | Single + swarm + A2A          |
-| AI Ontology       | 🔄 Active   | 870+/870+ builtins, 55 modules discoverable |
+| AI Ontology       | 🔄 Active   | 1,100+/1,100+ builtins, 106 modules discoverable |
 | TUI Interface     | ✅ Complete | Tabs, chat, dashboard         |
 | Theme System      | ✅ Complete | 38 themes                     |
 | Config System     | ✅ Complete | XDG-compliant                 |
@@ -40,6 +40,7 @@ This document tracks the development progress of AetherShell, the world's first 
 ## Version History
 
 ### v0.3.1 (Current) — February 2026
+- [x] CLI tool wrappers (tools 1-150): 200+ builtins wrapping common CLI tools — process management (tmux, screen, htop), disk/filesystem (ncdu, duf, dust), debugging (gdb, valgrind, strace, ltrace), binary inspection (objdump, readelf, nm, ldd, strings, file), networking (iperf3, nmap, mtr, dig, nc), modern CLI replacements (bat, fd, rg, sd, zoxide, fzf, jq, yq, delta, hyperfine, tokei, just, direnv), version/runtime managers (asdf, mise, nvm, pyenv, rbenv), language toolchains (cargo, rustup, go, node, npm, pnpm, yarn, bun, deno, uv, pipx, poetry, pytest), dev tools (gh, glab, pre-commit, make, cmake, ninja, nodemon), containers (buildah, skopeo, trivy, podman-compose, docker-compose), linters/formatters (shellcheck, shfmt, black, ruff, eslint, prettier, clippy, rustfmt, golangci-lint)
 - [x] Cross-platform OS commands: 219 new builtins for containers, Kubernetes, VMs/hypervisors, cloud/IaC, remote access, security, and monitoring
 - [x] Cross-platform consistency audit: 100+ `cfg` blocks across 6 files reviewed, 40+ functions fixed for OS parity
 - [x] Structured output: converted 20+ builtins from raw text to typed Records/Arrays (net_ping, net_traceroute, net_arp, net_route, net_ports, net_connections, net_bandwidth, svc_logs, cron_list, pkg_list, pkg_search, pkg_info, pkg_files, pkg_owner, sys_uptime, sys_info, proc_children, startup_list, and more)
@@ -128,7 +129,7 @@ This document tracks the development progress of AetherShell, the world's first 
 - [x] Module cache with cycle detection
 - [x] Standard library (7 modules: prelude, math, string, collection, functional, io, test_stdlib)
 
-### Builtins (430+ functions in 50 modules)
+### Builtins (1,100+ functions in 106 modules)
 - [x] `file`, `sys`, `proc`, `fs`, `net`, `http`, `gui`, `web`
 - [x] `crypto`, `db`, `svc`, `cron`, `archive`, `user`, `perm`, `pkg`
 - [x] `hw`, `clip`, `input`, `ai`, `agent`, `math`, `str`, `arr`, `json`
@@ -141,6 +142,13 @@ This document tracks the development progress of AetherShell, the world's first 
 - [x] `ssh`, `scp`, `rsync`, `rdp` — Remote access
 - [x] `firewall`, `selinux`, `apparmor`, `ssl` — Security
 - [x] `monitor`, `perf`, `netstat` — System monitoring
+- [x] `tmux`, `screen`, `valgrind`, `gdb`, `objdump`, `readelf` — Process/debug/binary tools
+- [x] `zoxide`, `just`, `direnv`, `asdf`, `mise` — Modern CLI & runtime managers
+- [x] `uv`, `pipx`, `poetry`, `cargo`, `rustup`, `go` — Language toolchains
+- [x] `node`, `npm`, `pnpm`, `yarn`, `bun`, `deno` — JS/TS ecosystem
+- [x] `gh`, `glab`, `pre_commit` — Dev tools
+- [x] `buildah`, `skopeo`, `trivy`, `ruff` — Container & lint tools
+- [x] `iperf3`, `nc`/`netcat` — Network testing
 - [x] Cross-platform consistency: all builtins return structured typed output (Records/Arrays), consistent field names across Windows/Linux/macOS
 
 ### AI & Agents
@@ -260,10 +268,11 @@ This document tracks the development progress of AetherShell, the world's first 
 - [ ] **Model format conversion** — wire up `ai_api/converters.rs` for GGUF ↔ SafeTensors ↔ ONNX conversion in `ae aimodel convert`
 
 #### Ontology & Discoverability
-- [x] **Dynamic builtin discovery** — `get_all_builtin_definitions()` auto-generates schemas from `BUILTIN_LOOKUP` for all 870+ builtins with categories, descriptions, return types, and alias detection
+- [x] **Dynamic builtin discovery** — `get_all_builtin_definitions()` auto-generates schemas from `BUILTIN_LOOKUP` for all 1,100+ builtins with categories, descriptions, return types, and alias detection
 - [ ] **Connect OS ontology to Agent API** — wire `providers/ontology.rs` (19 capability domains, 2,287 lines) into `agent_api.rs` schema endpoints so agents can discover platform-specific operations
 - [ ] **Unify tool schema systems** — merge `providers/schema.rs` (`ToolSchema` with builder pattern) and `agent_api.rs` (`BuiltinDefinition` + `json_schema`) into a single source of truth
-- [x] **Module-level schemas** — `get_module_definitions()` exposes typed signatures for all 55 modules with function mappings; `build_compact_ontology()` includes module data
+- [ ] **CLI tool ontology mappings** — auto-detect installed CLI tools (150+ wrappers) and expose availability/version in ontology schema
+- [x] **Module-level schemas** — `get_module_definitions()` exposes typed signatures for all 106 modules with function mappings; `build_compact_ontology()` includes module data
 - [ ] **Runtime type introspection** — derive parameter types and return types from `typecheck.rs` Hindley-Milner inference, attach to schema automatically
 - [x] **Ontology versioning** — `ontology_version` field on `LanguageOntology`, included in compact and full schema exports
 - [ ] **Ontology export formats** — add OWL/RDF, JSON-LD, and SHACL exports alongside existing JSON Schema and provider-specific formats
@@ -286,7 +295,7 @@ This document tracks the development progress of AetherShell, the world's first 
 - [ ] Pre-existing flaky test: `cfg_feature_enabled` (env var race in parallel test runs)
 - [ ] 9 LOW-severity builtins still return raw text (`net_whois`, `at_list`, `pkg_sources`, `pkg_history`, `strace`, `sar`, `dmesg` fallback, `fdisk_list` macOS fallback, `capabilities`)
 - [ ] Three parallel provider systems (`ai.rs`, `ai_api/providers.rs`, `providers/`) with overlapping but inconsistent coverage
-- [ ] Only 19 of 465+ builtins exposed in Agent API schema (`get_builtin_definitions()` is hand-coded)
+- [ ] Only 19 of 1,100+ builtins exposed in Agent API schema (`get_builtin_definitions()` is hand-coded)
 - [ ] OS ontology (`providers/ontology.rs`) disconnected from Agent API schema endpoints
 - [ ] `LocalProvider` in `ai_api/providers.rs` is a stub (no inference, empty model list)
 - [ ] Model pricing/metadata outdated (GPT-3.5/4 era, Anthropic hardcoded to 2 models)
@@ -304,10 +313,10 @@ This document tracks the development progress of AetherShell, the world's first 
 
 ### Codebase
 - **Language:** Rust
-- **Source Lines:** ~86,000 (src/)
-- **Test Lines:** ~14,000 (tests/)
-- **Builtins:** 465+
-- **Modules:** 55
+- **Source Lines:** ~106,000 (src/)
+- **Test Lines:** ~15,000 (tests/)
+- **Builtins:** 1,100+ (1,381 names including aliases)
+- **Modules:** 106
 - **Themes:** 38
 
 ### Distribution
@@ -326,7 +335,7 @@ We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 **Priority areas:**
 1. **Critical** — AI provider unification (merge `ai.rs` + `ai_api/providers.rs` + `providers/` into single registry)
-2. **Critical** — Dynamic ontology (auto-generate schemas for all 465+ builtins from source)
+2. **Critical** — Dynamic ontology (auto-generate schemas for all 1,100+ builtins from source)
 3. **High** — `LLMProvider` trait implementations (19 providers declared, need concrete impls)
 4. **High** — Local AI infrastructure (Candle/ONNX inference, Ollama auto-pull, GPU scheduling)
 5. **Medium** — Ecosystem growth (`.ae` scripts, tutorials, blog posts)

@@ -7,12 +7,14 @@
 //! - `crypto.hash()`, `crypto.encrypt()`, `crypto.sign()`
 //! - etc.
 
+use crate::value::{BuiltinRef, Value};
 use std::collections::BTreeMap;
-use crate::value::{Value, BuiltinRef};
 
 /// Create a builtin reference value
 pub fn builtin_ref(name: &str) -> Value {
-    Value::Builtin(BuiltinRef { name: name.to_string() })
+    Value::Builtin(BuiltinRef {
+        name: name.to_string(),
+    })
 }
 
 /// Create a module record with the given functions
@@ -136,7 +138,6 @@ pub fn file_module() -> Value {
         ("mkdir", "file_mkdir"),
     ])
 }
-
 
 /// Network module: net.interfaces(), net.ping(), net.dns_lookup(), etc.
 pub fn net_module() -> Value {
@@ -480,10 +481,7 @@ pub fn ai_module() -> Value {
 
 /// Agent module: agent.with_mcp(), agent.run(), etc.
 pub fn agent_module() -> Value {
-    module(&[
-        ("run", "agent"),
-        ("with_mcp", "agent_with_mcp"),
-    ])
+    module(&[("run", "agent"), ("with_mcp", "agent_with_mcp")])
 }
 pub fn math_module() -> Value {
     module(&[
@@ -809,7 +807,6 @@ pub fn sso_module() -> Value {
     ])
 }
 
-
 // ============== AI CODING ASSISTANT MODULES ==============
 
 /// Git operations module for AI coding assistants
@@ -1030,13 +1027,11 @@ pub fn platform_module() -> Value {
         ("arch", "platform_arch"),
         ("hostname", "platform_hostname"),
         ("machine_id", "platform_machine_id"),
-        
         // Tool versioning
         ("tool_version", "platform_tool_version"),
         ("tool_versions", "platform_tool_versions"),
         ("detect_tools", "platform_detect_tools"),
         ("has_tool", "platform_has_tool"),
-        
         // Capabilities
         ("capabilities", "platform_capabilities"),
         ("has_admin", "platform_has_admin"),
@@ -1045,23 +1040,19 @@ pub fn platform_module() -> Value {
         ("has_network", "platform_has_network"),
         ("has_container", "platform_has_container"),
         ("pkg_managers", "platform_pkg_managers"),
-        
         // Normalization
         ("normalize_path", "platform_normalize_path"),
         ("normalize_output", "platform_normalize_output"),
         ("path_sep", "platform_path_sep"),
         ("line_ending", "platform_line_ending"),
         ("shell_type", "platform_shell_type"),
-        
         // Requirements
         ("require", "platform_require"),
         ("check_reqs", "platform_check_reqs"),
         ("satisfies", "platform_satisfies"),
-        
         // Diff/compare
         ("diff", "platform_diff"),
         ("compatible", "platform_compatible"),
-        
         // Database operations
         ("db_init", "platform_db_init"),
         ("db_store", "platform_db_store"),
@@ -1071,11 +1062,9 @@ pub fn platform_module() -> Value {
         ("db_compare", "platform_db_compare"),
         ("db_export", "platform_db_export"),
         ("db_import", "platform_db_import"),
-        
         // Fingerprinting
         ("fingerprint", "platform_fingerprint"),
         ("hash", "platform_hash"),
-        
         // Categorized tool queries
         ("compilers", "platform_compilers"),
         ("build_systems", "platform_build_systems"),
@@ -1087,19 +1076,16 @@ pub fn platform_module() -> Value {
         ("linters", "platform_linters"),
         ("vcs", "platform_vcs"),
         ("iac_tools", "platform_iac_tools"),
-        
         // Library detection
         ("libs", "platform_libs"),
         ("lib_version", "platform_lib_version"),
         ("system_libs", "platform_system_libs"),
         ("sdk_version", "platform_sdk_version"),
-        
         // Runtime info
         ("libc", "platform_libc"),
         ("libcpp", "platform_libcpp"),
         ("ssl_version", "platform_ssl_version"),
         ("cuda_version", "platform_cuda_version"),
-        
         // Hardware detection
         ("cpu", "platform_cpu"),
         ("cpu_count", "platform_cpu_count"),
@@ -1169,16 +1155,11 @@ pub fn ssh_module() -> Value {
 }
 
 pub fn rsync_module() -> Value {
-    module(&[
-        ("sync", "rsync_sync"),
-    ])
+    module(&[("sync", "rsync_sync")])
 }
 
 pub fn scp_module() -> Value {
-    module(&[
-        ("upload", "scp_upload"),
-        ("download", "scp_download"),
-    ])
+    module(&[("upload", "scp_upload"), ("download", "scp_download")])
 }
 
 pub fn openssl_module() -> Value {
@@ -1306,49 +1287,31 @@ pub fn ansible_module() -> Value {
 }
 
 pub fn rg_module() -> Value {
-    module(&[
-        ("search", "rg_search"),
-    ])
+    module(&[("search", "rg_search")])
 }
 
 pub fn jq_module() -> Value {
-    module(&[
-        ("query", "jq_query"),
-        ("filter", "jq_filter"),
-    ])
+    module(&[("query", "jq_query"), ("filter", "jq_filter")])
 }
 
 pub fn yq_module() -> Value {
-    module(&[
-        ("query", "yq_query"),
-    ])
+    module(&[("query", "yq_query")])
 }
 
 pub fn make_module() -> Value {
-    module(&[
-        ("run", "make_run"),
-        ("targets", "make_targets"),
-    ])
+    module(&[("run", "make_run"), ("targets", "make_targets")])
 }
 
 pub fn cmake_module() -> Value {
-    module(&[
-        ("configure", "cmake_configure"),
-        ("build", "cmake_build"),
-    ])
+    module(&[("configure", "cmake_configure"), ("build", "cmake_build")])
 }
 
 pub fn ninja_module() -> Value {
-    module(&[
-        ("build", "ninja_build"),
-    ])
+    module(&[("build", "ninja_build")])
 }
 
 pub fn nmap_module() -> Value {
-    module(&[
-        ("scan", "nmap_scan"),
-        ("quick", "nmap_quick"),
-    ])
+    module(&[("scan", "nmap_scan"), ("quick", "nmap_quick")])
 }
 
 // ============================================================
@@ -1373,24 +1336,15 @@ pub fn screen_module() -> Value {
 }
 
 pub fn valgrind_module() -> Value {
-    module(&[
-        ("run", "valgrind_run"),
-        ("memcheck", "valgrind_memcheck"),
-    ])
+    module(&[("run", "valgrind_run"), ("memcheck", "valgrind_memcheck")])
 }
 
 pub fn gdb_module() -> Value {
-    module(&[
-        ("run", "gdb_run"),
-        ("bt", "gdb_bt"),
-    ])
+    module(&[("run", "gdb_run"), ("bt", "gdb_bt")])
 }
 
 pub fn objdump_module() -> Value {
-    module(&[
-        ("disasm", "objdump_disasm"),
-        ("headers", "objdump_headers"),
-    ])
+    module(&[("disasm", "objdump_disasm"), ("headers", "objdump_headers")])
 }
 
 pub fn readelf_module() -> Value {
@@ -1401,94 +1355,55 @@ pub fn readelf_module() -> Value {
 }
 
 pub fn zoxide_module() -> Value {
-    module(&[
-        ("add", "zoxide_add"),
-        ("query", "zoxide_query"),
-    ])
+    module(&[("add", "zoxide_add"), ("query", "zoxide_query")])
 }
 
 pub fn just_module() -> Value {
-    module(&[
-        ("run", "just_run"),
-        ("list", "just_list"),
-    ])
+    module(&[("run", "just_run"), ("list", "just_list")])
 }
 
 pub fn taskfile_module() -> Value {
-    module(&[
-        ("run", "task_run"),
-        ("list", "task_list"),
-    ])
+    module(&[("run", "task_run"), ("list", "task_list")])
 }
 
 pub fn direnv_module() -> Value {
-    module(&[
-        ("allow", "direnv_allow"),
-        ("status", "direnv_status"),
-    ])
+    module(&[("allow", "direnv_allow"), ("status", "direnv_status")])
 }
 
 pub fn asdf_module() -> Value {
-    module(&[
-        ("list", "asdf_list"),
-        ("install", "asdf_install"),
-    ])
+    module(&[("list", "asdf_list"), ("install", "asdf_install")])
 }
 
 pub fn mise_module() -> Value {
-    module(&[
-        ("use_version", "mise_use"),
-        ("list", "mise_list"),
-    ])
+    module(&[("use_version", "mise_use"), ("list", "mise_list")])
 }
 
 pub fn uv_module() -> Value {
-    module(&[
-        ("run", "uv_run"),
-        ("pip", "uv_pip"),
-        ("venv", "uv_venv"),
-    ])
+    module(&[("run", "uv_run"), ("pip", "uv_pip"), ("venv", "uv_venv")])
 }
 
 pub fn pipx_module() -> Value {
-    module(&[
-        ("install", "pipx_install"),
-        ("list", "pipx_list"),
-    ])
+    module(&[("install", "pipx_install"), ("list", "pipx_list")])
 }
 
 pub fn poetry_module() -> Value {
-    module(&[
-        ("run", "poetry_run"),
-        ("install", "poetry_install"),
-    ])
+    module(&[("run", "poetry_run"), ("install", "poetry_install")])
 }
 
 pub fn node_module() -> Value {
-    module(&[
-        ("run", "node_run"),
-    ])
+    module(&[("run", "node_run")])
 }
 
 pub fn npm_module() -> Value {
-    module(&[
-        ("run", "npm_run"),
-        ("install", "npm_install"),
-    ])
+    module(&[("run", "npm_run"), ("install", "npm_install")])
 }
 
 pub fn pnpm_module() -> Value {
-    module(&[
-        ("run", "pnpm_run"),
-        ("install", "pnpm_install"),
-    ])
+    module(&[("run", "pnpm_run"), ("install", "pnpm_install")])
 }
 
 pub fn yarn_module() -> Value {
-    module(&[
-        ("run", "yarn_run"),
-        ("install", "yarn_install"),
-    ])
+    module(&[("run", "yarn_run"), ("install", "yarn_install")])
 }
 
 pub fn cargo_module() -> Value {
@@ -1500,10 +1415,7 @@ pub fn cargo_module() -> Value {
 }
 
 pub fn rustup_module() -> Value {
-    module(&[
-        ("show", "rustup_show"),
-        ("update", "rustup_update"),
-    ])
+    module(&[("show", "rustup_show"), ("update", "rustup_update")])
 }
 
 pub fn go_module() -> Value {
@@ -1515,17 +1427,11 @@ pub fn go_module() -> Value {
 }
 
 pub fn bun_module() -> Value {
-    module(&[
-        ("run", "bun_run"),
-        ("install", "bun_install"),
-    ])
+    module(&[("run", "bun_run"), ("install", "bun_install")])
 }
 
 pub fn deno_module() -> Value {
-    module(&[
-        ("run", "deno_run"),
-        ("task", "deno_task"),
-    ])
+    module(&[("run", "deno_run"), ("task", "deno_task")])
 }
 
 pub fn gh_module() -> Value {
@@ -1537,59 +1443,35 @@ pub fn gh_module() -> Value {
 }
 
 pub fn glab_module() -> Value {
-    module(&[
-        ("mr", "glab_mr"),
-        ("issue", "glab_issue"),
-    ])
+    module(&[("mr", "glab_mr"), ("issue", "glab_issue")])
 }
 
 pub fn pre_commit_module() -> Value {
-    module(&[
-        ("run", "pre_commit_run"),
-        ("install", "pre_commit_install"),
-    ])
+    module(&[("run", "pre_commit_run"), ("install", "pre_commit_install")])
 }
 
 pub fn buildah_module() -> Value {
-    module(&[
-        ("build", "buildah_build"),
-        ("images", "buildah_images"),
-    ])
+    module(&[("build", "buildah_build"), ("images", "buildah_images")])
 }
 
 pub fn skopeo_module() -> Value {
-    module(&[
-        ("copy", "skopeo_copy"),
-        ("inspect", "skopeo_inspect"),
-    ])
+    module(&[("copy", "skopeo_copy"), ("inspect", "skopeo_inspect")])
 }
 
 pub fn trivy_module() -> Value {
-    module(&[
-        ("scan", "trivy_scan"),
-        ("image", "trivy_image"),
-    ])
+    module(&[("scan", "trivy_scan"), ("image", "trivy_image")])
 }
 
 pub fn ruff_module() -> Value {
-    module(&[
-        ("check", "ruff_check"),
-        ("format", "ruff_format"),
-    ])
+    module(&[("check", "ruff_check"), ("format", "ruff_format")])
 }
 
 pub fn iperf3_module() -> Value {
-    module(&[
-        ("server", "iperf3_server"),
-        ("client", "iperf3_client"),
-    ])
+    module(&[("server", "iperf3_server"), ("client", "iperf3_client")])
 }
 
 pub fn nc_module() -> Value {
-    module(&[
-        ("connect", "nc_connect"),
-        ("listen", "nc_listen"),
-    ])
+    module(&[("connect", "nc_connect"), ("listen", "nc_listen")])
 }
 
 pub fn all_modules() -> Vec<(&'static str, Value)> {
@@ -1637,7 +1519,6 @@ pub fn all_modules() -> Vec<(&'static str, Value)> {
         ("platform", platform_module()),
         ("platform", platform_module()),
         ("platform", platform_module()),
-
         ("rbac", rbac_module()),
         ("audit", audit_module()),
         ("sso", sso_module()),
@@ -1651,7 +1532,6 @@ pub fn all_modules() -> Vec<(&'static str, Value)> {
         ("workspace", workspace_module()),
         ("marketplace", marketplace_module()),
         ("telemetry", telemetry_module()),
-
         // ── CLI Tool Wrapper Modules ────────────────────────────
         ("ssh", ssh_module()),
         ("rsync", rsync_module()),
@@ -1662,7 +1542,7 @@ pub fn all_modules() -> Vec<(&'static str, Value)> {
         ("docker", docker_module()),
         ("podman", podman_module()),
         ("k8s", k8s_module()),
-        ("kubectl", k8s_module()),   // alias
+        ("kubectl", k8s_module()), // alias
         ("helm", helm_module()),
         ("terraform", terraform_module()),
         ("ansible", ansible_module()),
