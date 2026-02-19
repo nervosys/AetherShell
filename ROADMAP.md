@@ -12,9 +12,10 @@ This document tracks the development progress of AetherShell, the world's first 
 | ----------------- | ---------- | ---------------------------- |
 | Core Language     | ✅ Complete | AST-based, Hindley-Milner    |
 | Type System       | ✅ Complete | Full inference               |
-| Builtins Library  | ✅ Complete | 430+ functions, 50 modules   |
-| AI Integration    | ✅ Complete | Multi-provider, multi-modal  |
+| Builtins Library  | ✅ Complete | 465+ functions, 55 modules   |
+| AI Integration    | 🔄 Active  | 19 providers, unifying stacks|
 | Agent Framework   | ✅ Complete | Single + swarm + A2A         |
+| AI Ontology       | 🔄 Active  | 19/465+ builtins discoverable|
 | TUI Interface     | ✅ Complete | Tabs, chat, dashboard        |
 | Theme System      | ✅ Complete | 38 themes                    |
 | Config System     | ✅ Complete | XDG-compliant                |
@@ -29,7 +30,7 @@ This document tracks the development progress of AetherShell, the world's first 
 | LSP Server        | ✅ Complete | tower-lsp, crates.io         |
 | VS Code Extension | ✅ Complete | Marketplace published        |
 | MCP Protocol      | ✅ Complete | 130+ tools, HTTP server      |
-| Agent API         | ✅ Complete | OpenAI/Claude/Gemini schemas |
+| Agent API         | ✅ Complete | 27 provider schema formats   |
 | Distribution      | ✅ Complete | Homebrew, Docker, npm        |
 | CI/CD             | ✅ Complete | GitHub Actions, CLA check    |
 | Licensing         | ✅ Complete | AGPL-3.0 + commercial        |
@@ -238,6 +239,36 @@ This document tracks the development progress of AetherShell, the world's first 
 - [x] Migration guide from bash/zsh/PowerShell
 - [x] Shell transpilers for seamless adoption (Bash, Zsh, PowerShell)
 
+### v1.1.0 — AI Provider Unification & Ontology
+
+**Goal:** Make every builtin, module, and AI provider machine-discoverable through a unified ontology, and consolidate the three parallel provider systems into one.
+
+#### Provider Architecture
+- [ ] **Unify dual provider systems** — merge `ai.rs` (sync, 7 backends), `ai_api/providers.rs` (6 async providers), and `providers/` (19 declared, trait-based) into a single `ProviderRegistry` with sync and async paths
+- [ ] **Implement `LLMProvider` trait** for all 19 declared providers: OpenAI, Anthropic, Google/Gemini, Azure OpenAI, AWS Bedrock, Ollama, Together, Groq, Mistral, Cohere, Perplexity, Fireworks, DeepSeek, xAI/Grok, OpenRouter, vLLM, TGI, llama.cpp, Local/Custom
+- [ ] **Activate provider routing & fallback** — connect `RoutingRule`/`RoutingCondition` engine (model pattern, has-tools, has-vision, token count, time range, All/Any/Not composable logic) to live completions
+- [ ] **Add Ollama to `ai_api` server** — currently missing despite being the most common local provider
+- [ ] **LM Studio explicit detection** — auto-detect at `:1234` (OpenAI-compatible)
+- [ ] **Model cost tracking** — connect `UsageStats` in `ProviderRegistry` to actual completion calls
+- [ ] **Update model metadata** — current pricing/context-length data is GPT-3.5/4 era; update for GPT-4o, Claude 3.5/4, Gemini 2.x, Llama 3.x, Mistral Large, etc.
+
+#### Local AI Infrastructure
+- [ ] **Implement `LocalProvider`** — currently stubbed (returns empty model list, errors on chat/embeddings); add Candle and/or ONNX runtime inference
+- [ ] **Ollama model auto-pull** — automatically pull models on first use when Ollama is detected
+- [ ] **Backend health monitoring** — continuous health checks with automatic failover to next-best provider
+- [ ] **GPU memory management** — model scheduling, memory estimation, and multi-model orchestration for local inference
+- [ ] **Model format conversion** — wire up `ai_api/converters.rs` for GGUF ↔ SafeTensors ↔ ONNX conversion in `ae aimodel convert`
+
+#### Ontology & Discoverability
+- [ ] **Dynamic builtin discovery** — auto-generate `BuiltinDefinition` schemas from `BUILTIN_LOOKUP` + type signatures for all 465+ builtins (currently only 19 are hand-coded in `get_builtin_definitions()`)
+- [ ] **Connect OS ontology to Agent API** — wire `providers/ontology.rs` (19 capability domains, 2,287 lines) into `agent_api.rs` schema endpoints so agents can discover platform-specific operations
+- [ ] **Unify tool schema systems** — merge `providers/schema.rs` (`ToolSchema` with builder pattern) and `agent_api.rs` (`BuiltinDefinition` + `json_schema`) into a single source of truth
+- [ ] **Module-level schemas** — expose typed signatures for all 55 modules (file, sys, net, cloud, repl, workspace, marketplace, telemetry, etc.) including parameter types and return types
+- [ ] **Runtime type introspection** — derive parameter types and return types from `typecheck.rs` Hindley-Milner inference, attach to schema automatically
+- [ ] **Ontology versioning** — version the ontology schema so agents can detect breaking changes across AetherShell releases
+- [ ] **Ontology export formats** — add OWL/RDF, JSON-LD, and SHACL exports alongside existing JSON Schema and provider-specific formats
+- [ ] **Update AI discoverability files** — sync `llms.txt`, `llms-full.txt`, `AGENTS.md` with full 19-provider list, 55-module inventory, and ontology endpoints
+
 ---
 
 ## Known Issues
@@ -254,6 +285,11 @@ This document tracks the development progress of AetherShell, the world's first 
 - [ ] VS Code marketplace PAT expired (publisher `admercs`)
 - [ ] Pre-existing flaky test: `cfg_feature_enabled` (env var race in parallel test runs)
 - [ ] 9 LOW-severity builtins still return raw text (`net_whois`, `at_list`, `pkg_sources`, `pkg_history`, `strace`, `sar`, `dmesg` fallback, `fdisk_list` macOS fallback, `capabilities`)
+- [ ] Three parallel provider systems (`ai.rs`, `ai_api/providers.rs`, `providers/`) with overlapping but inconsistent coverage
+- [ ] Only 19 of 465+ builtins exposed in Agent API schema (`get_builtin_definitions()` is hand-coded)
+- [ ] OS ontology (`providers/ontology.rs`) disconnected from Agent API schema endpoints
+- [ ] `LocalProvider` in `ai_api/providers.rs` is a stub (no inference, empty model list)
+- [ ] Model pricing/metadata outdated (GPT-3.5/4 era, Anthropic hardcoded to 2 models)
 
 ---
 
@@ -270,8 +306,8 @@ This document tracks the development progress of AetherShell, the world's first 
 - **Language:** Rust
 - **Source Lines:** ~86,000 (src/)
 - **Test Lines:** ~14,000 (tests/)
-- **Builtins:** 430+
-- **Modules:** 50
+- **Builtins:** 465+
+- **Modules:** 55
 - **Themes:** 38
 
 ### Distribution
@@ -289,11 +325,12 @@ This document tracks the development progress of AetherShell, the world's first 
 We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines. All contributions require a signed [CLA](CLA.md).
 
 **Priority areas:**
-1. **High** — Ecosystem growth (`.ae` scripts, tutorials, blog posts)
-2. **High** — Documentation improvements and examples
-3. **Medium** — New builtins and module extensions
-4. **Medium** — Platform-specific integrations (Linux packages, Windows Terminal)
-5. **Good First Issues** — Theme additions, example scripts, typo fixes
+1. **Critical** — AI provider unification (merge `ai.rs` + `ai_api/providers.rs` + `providers/` into single registry)
+2. **Critical** — Dynamic ontology (auto-generate schemas for all 465+ builtins from source)
+3. **High** — `LLMProvider` trait implementations (19 providers declared, need concrete impls)
+4. **High** — Local AI infrastructure (Candle/ONNX inference, Ollama auto-pull, GPU scheduling)
+5. **Medium** — Ecosystem growth (`.ae` scripts, tutorials, blog posts)
+6. **Good First Issues** — Update model metadata/pricing, theme additions, example scripts
 
 ---
 
