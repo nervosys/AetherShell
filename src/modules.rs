@@ -1154,6 +1154,203 @@ pub fn monitor_module() -> Value {
     ])
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// CLI Tool Wrapper Modules
+// ═══════════════════════════════════════════════════════════════════════════
+
+pub fn ssh_module() -> Value {
+    module(&[
+        ("exec", "ssh_exec"),
+        ("tunnel", "ssh_tunnel"),
+        ("keygen", "ssh_keygen"),
+        ("copy_id", "ssh_copy_id"),
+        ("config", "ssh_config"),
+    ])
+}
+
+pub fn rsync_module() -> Value {
+    module(&[
+        ("sync", "rsync_sync"),
+    ])
+}
+
+pub fn scp_module() -> Value {
+    module(&[
+        ("upload", "scp_upload"),
+        ("download", "scp_download"),
+    ])
+}
+
+pub fn openssl_module() -> Value {
+    module(&[
+        ("cert_info", "openssl_cert_info"),
+        ("genrsa", "openssl_genrsa"),
+    ])
+}
+
+pub fn gpg_module() -> Value {
+    module(&[
+        ("list_keys", "gpg_list_keys"),
+        ("encrypt", "gpg_encrypt"),
+        ("decrypt", "gpg_decrypt"),
+    ])
+}
+
+pub fn age_module() -> Value {
+    module(&[
+        ("encrypt", "age_encrypt"),
+        ("decrypt", "age_decrypt"),
+        ("keygen", "age_keygen"),
+    ])
+}
+
+pub fn docker_module() -> Value {
+    module(&[
+        ("ps", "docker_ps"),
+        ("images", "docker_images"),
+        ("run", "docker_run"),
+        ("exec", "docker_exec"),
+        ("logs", "docker_logs"),
+        ("stop", "docker_stop"),
+        ("rm", "docker_rm"),
+        ("build", "docker_build"),
+        ("pull", "docker_pull"),
+        ("push", "docker_push"),
+        ("inspect", "docker_inspect"),
+        ("volumes", "docker_volumes"),
+        ("networks", "docker_networks"),
+        ("compose_up", "docker_compose_up"),
+        ("compose_down", "docker_compose_down"),
+        ("compose_ps", "docker_compose_ps"),
+        ("stats", "docker_stats"),
+        ("top", "docker_top"),
+        ("cp", "docker_cp"),
+        ("tag", "docker_tag"),
+    ])
+}
+
+pub fn podman_module() -> Value {
+    module(&[
+        ("ps", "podman_ps"),
+        ("images", "podman_images"),
+        ("run", "podman_run"),
+        ("exec", "podman_exec"),
+        ("logs", "podman_logs"),
+        ("stop", "podman_stop"),
+        ("rm", "podman_rm"),
+        ("build", "podman_build"),
+        ("pull", "podman_pull"),
+    ])
+}
+
+pub fn k8s_module() -> Value {
+    module(&[
+        ("get", "k8s_get"),
+        ("apply", "k8s_apply"),
+        ("delete", "k8s_delete"),
+        ("describe", "k8s_describe"),
+        ("logs", "k8s_logs"),
+        ("exec", "k8s_exec"),
+        ("pods", "k8s_pods"),
+        ("services", "k8s_services"),
+        ("deployments", "k8s_deployments"),
+        ("namespaces", "k8s_namespaces"),
+        ("nodes", "k8s_nodes"),
+        ("events", "k8s_events"),
+        ("configmaps", "k8s_configmaps"),
+        ("secrets", "k8s_secrets"),
+        ("ingresses", "k8s_ingresses"),
+        ("rollout_status", "k8s_rollout_status"),
+        ("rollout_restart", "k8s_rollout_restart"),
+        ("scale", "k8s_scale"),
+        ("top_pods", "k8s_top_pods"),
+        ("top_nodes", "k8s_top_nodes"),
+        ("context", "k8s_context"),
+        ("contexts", "k8s_contexts"),
+        ("cluster_info", "k8s_cluster_info"),
+    ])
+}
+
+pub fn helm_module() -> Value {
+    module(&[
+        ("list", "helm_list"),
+        ("install", "helm_install"),
+        ("upgrade", "helm_upgrade"),
+        ("uninstall", "helm_uninstall"),
+        ("repos", "helm_repos"),
+        ("search", "helm_search"),
+        ("status", "helm_status"),
+    ])
+}
+
+pub fn terraform_module() -> Value {
+    module(&[
+        ("init", "terraform_init"),
+        ("plan", "terraform_plan"),
+        ("apply", "terraform_apply"),
+        ("destroy", "terraform_destroy"),
+        ("state", "terraform_state"),
+        ("output", "terraform_output"),
+        ("workspace", "terraform_workspace"),
+        ("validate", "terraform_validate"),
+    ])
+}
+
+pub fn ansible_module() -> Value {
+    module(&[
+        ("playbook", "ansible_playbook"),
+        ("inventory", "ansible_inventory"),
+        ("galaxy", "ansible_galaxy"),
+        ("vault", "ansible_vault"),
+    ])
+}
+
+pub fn rg_module() -> Value {
+    module(&[
+        ("search", "rg_search"),
+    ])
+}
+
+pub fn jq_module() -> Value {
+    module(&[
+        ("query", "jq_query"),
+        ("filter", "jq_filter"),
+    ])
+}
+
+pub fn yq_module() -> Value {
+    module(&[
+        ("query", "yq_query"),
+    ])
+}
+
+pub fn make_module() -> Value {
+    module(&[
+        ("run", "make_run"),
+        ("targets", "make_targets"),
+    ])
+}
+
+pub fn cmake_module() -> Value {
+    module(&[
+        ("configure", "cmake_configure"),
+        ("build", "cmake_build"),
+    ])
+}
+
+pub fn ninja_module() -> Value {
+    module(&[
+        ("build", "ninja_build"),
+    ])
+}
+
+pub fn nmap_module() -> Value {
+    module(&[
+        ("scan", "nmap_scan"),
+        ("quick", "nmap_quick"),
+    ])
+}
+
 pub fn all_modules() -> Vec<(&'static str, Value)> {
     vec![
         ("sys", sys_module()),
@@ -1213,5 +1410,27 @@ pub fn all_modules() -> Vec<(&'static str, Value)> {
         ("workspace", workspace_module()),
         ("marketplace", marketplace_module()),
         ("telemetry", telemetry_module()),
+
+        // ── CLI Tool Wrapper Modules ────────────────────────────
+        ("ssh", ssh_module()),
+        ("rsync", rsync_module()),
+        ("scp", scp_module()),
+        ("openssl", openssl_module()),
+        ("gpg", gpg_module()),
+        ("age", age_module()),
+        ("docker", docker_module()),
+        ("podman", podman_module()),
+        ("k8s", k8s_module()),
+        ("kubectl", k8s_module()),   // alias
+        ("helm", helm_module()),
+        ("terraform", terraform_module()),
+        ("ansible", ansible_module()),
+        ("rg", rg_module()),
+        ("jq", jq_module()),
+        ("yq", yq_module()),
+        ("make", make_module()),
+        ("cmake", cmake_module()),
+        ("ninja", ninja_module()),
+        ("nmap", nmap_module()),
     ]
 }

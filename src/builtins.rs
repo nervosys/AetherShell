@@ -1119,6 +1119,167 @@ lazy_static::lazy_static! {
     map.insert("telemetry_report", 876);
     map.insert("telemetry_events", 877);
     map.insert("telemetry_reset", 878);
+    // ── CLI Tool Wrappers (879-987) ──────────────────────────
+    // SSH (879-883)
+    map.insert("ssh_exec", 879);
+    map.insert("ssh_tunnel", 880);
+    map.insert("ssh_keygen", 881);
+    map.insert("ssh_copy_id", 882);
+    map.insert("ssh_config", 883);
+    // rsync (884)
+    map.insert("rsync_sync", 884);
+    map.insert("rsync", 884);
+    // scp (885-886)
+    map.insert("scp_upload", 885);
+    map.insert("scp_download", 886);
+    // openssl (887-888)
+    map.insert("openssl_cert_info", 887);
+    map.insert("openssl_genrsa", 888);
+    // gpg (889-891)
+    map.insert("gpg_list_keys", 889);
+    map.insert("gpg_encrypt", 890);
+    map.insert("gpg_decrypt", 891);
+    // Docker (892-911)
+    map.insert("docker_ps", 892);
+    map.insert("docker_images", 893);
+    map.insert("docker_run", 894);
+    map.insert("docker_exec", 895);
+    map.insert("docker_logs", 896);
+    map.insert("docker_stop", 897);
+    map.insert("docker_rm", 898);
+    map.insert("docker_build", 899);
+    map.insert("docker_pull", 900);
+    map.insert("docker_push", 901);
+    map.insert("docker_inspect", 902);
+    map.insert("docker_volumes", 903);
+    map.insert("docker_networks", 904);
+    map.insert("docker_compose_up", 905);
+    map.insert("docker_compose_down", 906);
+    map.insert("docker_compose_ps", 907);
+    map.insert("docker_stats", 908);
+    map.insert("docker_top", 909);
+    map.insert("docker_cp", 910);
+    map.insert("docker_tag", 911);
+    // Podman (912-920)
+    map.insert("podman_ps", 912);
+    map.insert("podman_images", 913);
+    map.insert("podman_run", 914);
+    map.insert("podman_exec", 915);
+    map.insert("podman_logs", 916);
+    map.insert("podman_stop", 917);
+    map.insert("podman_rm", 918);
+    map.insert("podman_build", 919);
+    map.insert("podman_pull", 920);
+    // Kubernetes / kubectl (921-943)
+    map.insert("k8s_get", 921);
+    map.insert("kubectl_get", 921);
+    map.insert("k8s_apply", 922);
+    map.insert("kubectl_apply", 922);
+    map.insert("k8s_delete", 923);
+    map.insert("kubectl_delete", 923);
+    map.insert("k8s_describe", 924);
+    map.insert("kubectl_describe", 924);
+    map.insert("k8s_logs", 925);
+    map.insert("kubectl_logs", 925);
+    map.insert("k8s_exec", 926);
+    map.insert("kubectl_exec", 926);
+    map.insert("k8s_pods", 927);
+    map.insert("k8s_services", 928);
+    map.insert("k8s_deployments", 929);
+    map.insert("k8s_namespaces", 930);
+    map.insert("k8s_nodes", 931);
+    map.insert("k8s_events", 932);
+    map.insert("k8s_configmaps", 933);
+    map.insert("k8s_secrets", 934);
+    map.insert("k8s_ingresses", 935);
+    map.insert("k8s_rollout_status", 936);
+    map.insert("k8s_rollout_restart", 937);
+    map.insert("k8s_scale", 938);
+    map.insert("k8s_top_pods", 939);
+    map.insert("k8s_top_nodes", 940);
+    map.insert("k8s_context", 941);
+    map.insert("k8s_contexts", 942);
+    map.insert("k8s_cluster_info", 943);
+    // Helm (944-950)
+    map.insert("helm_list", 944);
+    map.insert("helm_install", 945);
+    map.insert("helm_upgrade", 946);
+    map.insert("helm_uninstall", 947);
+    map.insert("helm_repos", 948);
+    map.insert("helm_search", 949);
+    map.insert("helm_status", 950);
+    // Terraform (951-958)
+    map.insert("terraform_init", 951);
+    map.insert("terraform_plan", 952);
+    map.insert("terraform_apply", 953);
+    map.insert("terraform_destroy", 954);
+    map.insert("terraform_state", 955);
+    map.insert("terraform_output", 956);
+    map.insert("terraform_workspace", 957);
+    map.insert("terraform_validate", 958);
+    // Ansible (959-962)
+    map.insert("ansible_playbook", 959);
+    map.insert("ansible_inventory", 960);
+    map.insert("ansible_galaxy", 961);
+    map.insert("ansible_vault", 962);
+    // journalctl (963)
+    map.insert("journalctl", 963);
+    // lsof (964)
+    map.insert("lsof", 964);
+    // ── New cross-platform tool implementations (965-987) ────
+    // wget (965)
+    map.insert("wget", 965);
+    map.insert("wget_download", 965);
+    // age encryption (966-968)
+    map.insert("age_encrypt", 966);
+    map.insert("age_decrypt", 967);
+    map.insert("age_keygen", 968);
+    // ripgrep (969)
+    map.insert("rg", 969);
+    map.insert("rg_search", 969);
+    map.insert("ripgrep", 969);
+    // fd (970)
+    map.insert("fd", 970);
+    map.insert("fd_find", 970);
+    // sed (971)
+    map.insert("sed", 971);
+    map.insert("sed_replace", 971);
+    // awk (972)
+    map.insert("awk", 972);
+    map.insert("awk_process", 972);
+    // cut (973)
+    map.insert("cut", 973);
+    map.insert("cut_columns", 973);
+    // xargs (974)
+    map.insert("xargs", 974);
+    map.insert("xargs_exec", 974);
+    // jq (975-976)
+    map.insert("jq", 975);
+    map.insert("jq_query", 975);
+    map.insert("jq_filter", 976);
+    // yq (977)
+    map.insert("yq", 977);
+    map.insert("yq_query", 977);
+    // pager/less (978)
+    map.insert("less", 978);
+    map.insert("pager", 978);
+    // tee (979)
+    map.insert("tee", 979);
+    map.insert("tee_output", 979);
+    // make (980-981)
+    map.insert("make_run", 980);
+    map.insert("make_targets", 981);
+    // cmake (982-983)
+    map.insert("cmake_configure", 982);
+    map.insert("cmake_build", 983);
+    // ninja (984)
+    map.insert("ninja_build", 984);
+    // netstat (985)
+    map.insert("netstat", 985);
+    map.insert("netstat_info", 985);
+    // nmap (986-987)
+    map.insert("nmap_scan", 986);
+    map.insert("nmap_quick", 987);
         map
     };
 
@@ -2900,6 +3061,147 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_telemetry_report(args, input),        // 876
     |args, input, _| bi_telemetry_events(args, input),        // 877
     |args, input, _| bi_telemetry_reset(args, input),         // 878
+    // ── CLI Tool Wrappers (879-987) ──────────────────────────
+    // SSH (879-883)
+    |args, input, _| bi_ssh_exec(args, input),                // 879
+    |args, input, _| bi_ssh_tunnel(args, input),              // 880
+    |args, input, _| bi_ssh_keygen(args, input),              // 881
+    |args, input, _| bi_ssh_copy_id(args, input),             // 882
+    |args, input, _| bi_ssh_config(args, input),              // 883
+    // rsync (884)
+    |args, input, _| bi_rsync_sync(args, input),              // 884
+    // scp (885-886)
+    |args, input, _| bi_scp_upload(args, input),              // 885
+    |args, input, _| bi_scp_download(args, input),            // 886
+    // openssl (887-888)
+    |args, input, _| bi_openssl_cert_info(args, input),       // 887
+    |args, input, _| bi_openssl_genrsa(args, input),          // 888
+    // gpg (889-891)
+    |args, input, _| bi_gpg_list_keys(args, input),           // 889
+    |args, input, _| bi_gpg_encrypt(args, input),             // 890
+    |args, input, _| bi_gpg_decrypt(args, input),             // 891
+    // Docker (892-911)
+    |args, input, _| bi_docker_ps(args, input),               // 892
+    |args, input, _| bi_docker_images(args, input),           // 893
+    |args, input, _| bi_docker_run(args, input),              // 894
+    |args, input, _| bi_docker_exec(args, input),             // 895
+    |args, input, _| bi_docker_logs(args, input),             // 896
+    |args, input, _| bi_docker_stop(args, input),             // 897
+    |args, input, _| bi_docker_rm(args, input),               // 898
+    |args, input, _| bi_docker_build(args, input),            // 899
+    |args, input, _| bi_docker_pull(args, input),             // 900
+    |args, input, _| bi_docker_push(args, input),             // 901
+    |args, input, _| bi_docker_inspect(args, input),          // 902
+    |args, input, _| bi_docker_volumes(args, input),          // 903
+    |args, input, _| bi_docker_networks(args, input),         // 904
+    |args, input, _| bi_docker_compose_up(args, input),       // 905
+    |args, input, _| bi_docker_compose_down(args, input),     // 906
+    |args, input, _| bi_docker_compose_ps(args, input),       // 907
+    |args, input, _| bi_docker_stats(args, input),            // 908
+    |args, input, _| bi_docker_top(args, input),              // 909
+    |args, input, _| bi_docker_cp(args, input),               // 910
+    |args, input, _| bi_docker_tag(args, input),              // 911
+    // Podman (912-920)
+    |args, input, _| bi_podman_ps(args, input),               // 912
+    |args, input, _| bi_podman_images(args, input),           // 913
+    |args, input, _| bi_podman_run(args, input),              // 914
+    |args, input, _| bi_podman_exec(args, input),             // 915
+    |args, input, _| bi_podman_logs(args, input),             // 916
+    |args, input, _| bi_podman_stop(args, input),             // 917
+    |args, input, _| bi_podman_rm(args, input),               // 918
+    |args, input, _| bi_podman_build(args, input),            // 919
+    |args, input, _| bi_podman_pull(args, input),             // 920
+    // Kubernetes / kubectl (921-943)
+    |args, input, _| bi_k8s_get(args, input),                 // 921
+    |args, input, _| bi_k8s_apply(args, input),               // 922
+    |args, input, _| bi_k8s_delete(args, input),              // 923
+    |args, input, _| bi_k8s_describe(args, input),            // 924
+    |args, input, _| bi_k8s_logs(args, input),                // 925
+    |args, input, _| bi_k8s_exec(args, input),                // 926
+    |args, input, _| bi_k8s_pods(args, input),                // 927
+    |args, input, _| bi_k8s_services(args, input),            // 928
+    |args, input, _| bi_k8s_deployments(args, input),         // 929
+    |args, input, _| bi_k8s_namespaces(args, input),          // 930
+    |args, input, _| bi_k8s_nodes(args, input),               // 931
+    |args, input, _| bi_k8s_events(args, input),              // 932
+    |args, input, _| bi_k8s_configmaps(args, input),          // 933
+    |args, input, _| bi_k8s_secrets(args, input),             // 934
+    |args, input, _| bi_k8s_ingresses(args, input),           // 935
+    |args, input, _| bi_k8s_rollout_status(args, input),      // 936
+    |args, input, _| bi_k8s_rollout_restart(args, input),     // 937
+    |args, input, _| bi_k8s_scale(args, input),               // 938
+    |args, input, _| bi_k8s_top_pods(args, input),            // 939
+    |args, input, _| bi_k8s_top_nodes(args, input),           // 940
+    |args, input, _| bi_k8s_context(args, input),             // 941
+    |args, input, _| bi_k8s_contexts(args, input),            // 942
+    |args, input, _| bi_k8s_cluster_info(args, input),        // 943
+    // Helm (944-950)
+    |args, input, _| bi_helm_list(args, input),               // 944
+    |args, input, _| bi_helm_install(args, input),            // 945
+    |args, input, _| bi_helm_upgrade(args, input),            // 946
+    |args, input, _| bi_helm_uninstall(args, input),          // 947
+    |args, input, _| bi_helm_repos(args, input),              // 948
+    |args, input, _| bi_helm_search(args, input),             // 949
+    |args, input, _| bi_helm_status(args, input),             // 950
+    // Terraform (951-958)
+    |args, input, _| bi_terraform_init(args, input),          // 951
+    |args, input, _| bi_terraform_plan(args, input),          // 952
+    |args, input, _| bi_terraform_apply(args, input),         // 953
+    |args, input, _| bi_terraform_destroy(args, input),       // 954
+    |args, input, _| bi_terraform_state(args, input),         // 955
+    |args, input, _| bi_terraform_output(args, input),        // 956
+    |args, input, _| bi_terraform_workspace(args, input),     // 957
+    |args, input, _| bi_terraform_validate(args, input),      // 958
+    // Ansible (959-962)
+    |args, input, _| bi_ansible_playbook(args, input),        // 959
+    |args, input, _| bi_ansible_inventory(args, input),       // 960
+    |args, input, _| bi_ansible_galaxy(args, input),          // 961
+    |args, input, _| bi_ansible_vault(args, input),           // 962
+    // journalctl (963)
+    |args, input, _| bi_journalctl(args, input),              // 963
+    // lsof (964)
+    |args, input, _| bi_lsof(args, input),                    // 964
+    // ── New cross-platform tool implementations (965-987) ────
+    // wget (965)
+    |args, input, _| bi_wget_download(args, input),           // 965
+    // age encryption (966-968)
+    |args, input, _| bi_age_encrypt(args, input),             // 966
+    |args, input, _| bi_age_decrypt(args, input),             // 967
+    |args, input, _| bi_age_keygen(args, input),              // 968
+    // ripgrep (969)
+    |args, input, _| bi_rg_search(args, input),               // 969
+    // fd (970)
+    |args, input, _| bi_fd_find(args, input),                 // 970
+    // sed (971)
+    |args, input, _| bi_sed_replace(args, input),             // 971
+    // awk (972)
+    |args, input, _| bi_awk_process(args, input),             // 972
+    // cut (973)
+    |args, input, _| bi_cut_columns(args, input),             // 973
+    // xargs (974)
+    |args, input, _| bi_xargs_exec(args, input),              // 974
+    // jq (975-976)
+    |args, input, _| bi_jq_query(args, input),                // 975
+    |args, input, _| bi_jq_filter(args, input),               // 976
+    // yq (977)
+    |args, input, _| bi_yq_query(args, input),                // 977
+    // pager/less (978)
+    |args, input, _| bi_pager(args, input),                   // 978
+    // tee (979)
+    |args, input, _| bi_tee_output(args, input),              // 979
+    // make (980-981)
+    |args, input, _| bi_make_run(args, input),                // 980
+    |args, input, _| bi_make_targets(args, input),            // 981
+    // cmake (982-983)
+    |args, input, _| bi_cmake_configure(args, input),         // 982
+    |args, input, _| bi_cmake_build(args, input),             // 983
+    // ninja (984)
+    |args, input, _| bi_ninja_build(args, input),             // 984
+    // netstat (985)
+    |args, input, _| bi_netstat_info(args, input),            // 985
+    // nmap (986-987)
+    |args, input, _| bi_nmap_scan(args, input),               // 986
+    |args, input, _| bi_nmap_quick(args, input),              // 987
 ];
 
 fn fast_builtin_lookup(
@@ -38219,4 +38521,1070 @@ fn bi_telemetry_reset(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     rec.insert("status".to_string(), Value::Str("all telemetry data cleared".to_string()));
     rec.insert("timestamp".to_string(), Value::Str(chrono::Local::now().to_rfc3339()));
     Ok(Value::Record(rec))
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CLI Tool Wrappers — New cross-platform implementations (965-987)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// wget — Download a file from a URL.
+/// Usage: wget(url) or wget(url, output_path)
+/// Cross-platform: uses curl on all platforms as fallback, native HTTP when possible.
+fn bi_wget_download(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let url = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("wget requires a URL string")),
+    };
+    let output = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => {
+            // Extract filename from URL
+            url.split('/').last().unwrap_or("download").to_string()
+        }
+    };
+    // Try wget first, fall back to curl
+    let result = std::process::Command::new("wget")
+        .args(&["-q", "-O", &output, &url])
+        .output();
+    match result {
+        Ok(out) if out.status.success() => {
+            let size = std::fs::metadata(&output).map(|m| m.len()).unwrap_or(0);
+            let mut rec = BTreeMap::new();
+            rec.insert("url".to_string(), Value::Str(url));
+            rec.insert("output".to_string(), Value::Str(output));
+            rec.insert("size".to_string(), Value::Int(size as i64));
+            rec.insert("status".to_string(), Value::Str("downloaded".to_string()));
+            Ok(Value::Record(rec))
+        }
+        _ => {
+            // Fallback to curl
+            let out = std::process::Command::new("curl")
+                .args(&["-sS", "-L", "-o", &output, &url])
+                .output()
+                .map_err(|e| anyhow!("Neither wget nor curl available: {}", e))?;
+            if !out.status.success() {
+                return Err(anyhow!("Download failed: {}", String::from_utf8_lossy(&out.stderr)));
+            }
+            let size = std::fs::metadata(&output).map(|m| m.len()).unwrap_or(0);
+            let mut rec = BTreeMap::new();
+            rec.insert("url".to_string(), Value::Str(url));
+            rec.insert("output".to_string(), Value::Str(output));
+            rec.insert("size".to_string(), Value::Int(size as i64));
+            rec.insert("status".to_string(), Value::Str("downloaded".to_string()));
+            rec.insert("tool".to_string(), Value::Str("curl (fallback)".to_string()));
+            Ok(Value::Record(rec))
+        }
+    }
+}
+
+/// age — Encrypt a file using age encryption.
+/// Usage: age_encrypt(input_file, output_file, recipient)
+fn bi_age_encrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let input_file = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("age_encrypt requires input_file, output_file, recipient")),
+    };
+    let output_file = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => format!("{}.age", input_file),
+    };
+    let recipient = match args.get(2) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("age_encrypt requires a recipient (public key or identity file)")),
+    };
+    let out = std::process::Command::new("age")
+        .args(&["-r", &recipient, "-o", &output_file, &input_file])
+        .output()
+        .map_err(|e| anyhow!("age not found: {}. Install: https://github.com/FiloSottile/age", e))?;
+    if !out.status.success() {
+        return Err(anyhow!("age encrypt failed: {}", String::from_utf8_lossy(&out.stderr)));
+    }
+    let mut rec = BTreeMap::new();
+    rec.insert("input".to_string(), Value::Str(input_file));
+    rec.insert("output".to_string(), Value::Str(output_file));
+    rec.insert("recipient".to_string(), Value::Str(recipient));
+    rec.insert("status".to_string(), Value::Str("encrypted".to_string()));
+    Ok(Value::Record(rec))
+}
+
+/// age — Decrypt a file using age encryption.
+/// Usage: age_decrypt(input_file, output_file, identity_file)
+fn bi_age_decrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let input_file = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("age_decrypt requires input_file")),
+    };
+    let output_file = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => input_file.trim_end_matches(".age").to_string(),
+    };
+    let identity = match args.get(2) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => {
+            let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default();
+            format!("{}/.age/key.txt", home)
+        }
+    };
+    let out = std::process::Command::new("age")
+        .args(&["-d", "-i", &identity, "-o", &output_file, &input_file])
+        .output()
+        .map_err(|e| anyhow!("age not found: {}", e))?;
+    if !out.status.success() {
+        return Err(anyhow!("age decrypt failed: {}", String::from_utf8_lossy(&out.stderr)));
+    }
+    let mut rec = BTreeMap::new();
+    rec.insert("input".to_string(), Value::Str(input_file));
+    rec.insert("output".to_string(), Value::Str(output_file));
+    rec.insert("status".to_string(), Value::Str("decrypted".to_string()));
+    Ok(Value::Record(rec))
+}
+
+/// age — Generate a new age key pair.
+/// Usage: age_keygen() or age_keygen(output_file)
+fn bi_age_keygen(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = match args.first() {
+        Some(Value::Str(s)) => Some(s.clone()),
+        _ => None,
+    };
+    let mut cmd = std::process::Command::new("age-keygen");
+    if let Some(ref out_file) = output {
+        cmd.args(&["-o", out_file]);
+    }
+    let out = cmd.output()
+        .map_err(|e| anyhow!("age-keygen not found: {}", e))?;
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    // age-keygen outputs public key to stderr and private key to stdout
+    let public_key = stderr.lines()
+        .find(|l| l.starts_with("Public key:"))
+        .map(|l| l.trim_start_matches("Public key:").trim().to_string())
+        .unwrap_or_default();
+    let mut rec = BTreeMap::new();
+    rec.insert("public_key".to_string(), Value::Str(public_key));
+    if let Some(f) = output {
+        rec.insert("identity_file".to_string(), Value::Str(f));
+    } else {
+        rec.insert("private_key".to_string(), Value::Str(stdout.trim().to_string()));
+    }
+    rec.insert("status".to_string(), Value::Str("generated".to_string()));
+    Ok(Value::Record(rec))
+}
+
+/// ripgrep (rg) — Fast regex-based code search.
+/// Usage: rg(pattern) or rg(pattern, path) or rg(pattern, path, flags_record)
+/// Cross-platform: tries `rg` first, falls back to native grep.
+fn bi_rg_search(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let pattern = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("rg requires a search pattern")),
+    };
+    let path = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => ".".to_string(),
+    };
+    // Extract flags from optional record arg
+    let ignore_case = match args.get(2) {
+        Some(Value::Record(r)) => r.get("ignore_case").map(|v| matches!(v, Value::Bool(true))).unwrap_or(false),
+        _ => false,
+    };
+    let mut cmd_args = vec!["--json".to_string()];
+    if ignore_case { cmd_args.push("-i".to_string()); }
+    cmd_args.push(pattern.clone());
+    cmd_args.push(path.clone());
+
+    let result = std::process::Command::new("rg")
+        .args(&cmd_args)
+        .output();
+    match result {
+        Ok(out) if out.status.success() || out.status.code() == Some(1) => {
+            // rg --json outputs one JSON object per line
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            let mut matches = Vec::new();
+            for line in stdout.lines() {
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(line) {
+                    if parsed.get("type").and_then(|t| t.as_str()) == Some("match") {
+                        if let Some(data) = parsed.get("data") {
+                            let mut rec = BTreeMap::new();
+                            if let Some(p) = data.get("path").and_then(|p| p.get("text")).and_then(|t| t.as_str()) {
+                                rec.insert("file".to_string(), Value::Str(p.to_string()));
+                            }
+                            if let Some(n) = data.get("line_number").and_then(|n| n.as_i64()) {
+                                rec.insert("line".to_string(), Value::Int(n));
+                            }
+                            if let Some(t) = data.get("lines").and_then(|l| l.get("text")).and_then(|t| t.as_str()) {
+                                rec.insert("text".to_string(), Value::Str(t.trim_end().to_string()));
+                            }
+                            matches.push(Value::Record(rec));
+                        }
+                    }
+                }
+            }
+            Ok(Value::Array(matches))
+        }
+        _ => {
+            // Fallback to native grep implementation
+            bi_grep(vec![Value::Str(pattern), Value::Str(path)], input)
+        }
+    }
+}
+
+/// fd — Fast, user-friendly file finder.
+/// Usage: fd(pattern) or fd(pattern, path) or fd(pattern, path, {type?, extension?})
+/// Cross-platform: tries `fd` first, falls back to native find.
+fn bi_fd_find(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let pattern = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("fd requires a search pattern")),
+    };
+    let path = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => ".".to_string(),
+    };
+    let mut cmd_args = vec![pattern.clone()];
+    cmd_args.push(path.clone());
+    // Extract type/extension from optional record arg
+    if let Some(Value::Record(r)) = args.get(2) {
+        if let Some(Value::Str(t)) = r.get("type") {
+            cmd_args.insert(0, t.clone());
+            cmd_args.insert(0, "-t".to_string());
+        }
+        if let Some(Value::Str(ext)) = r.get("extension") {
+            cmd_args.insert(0, ext.clone());
+            cmd_args.insert(0, "-e".to_string());
+        }
+    }
+    let result = std::process::Command::new("fd")
+        .args(&cmd_args)
+        .output();
+    match result {
+        Ok(out) if out.status.success() => {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            let files: Vec<Value> = stdout.lines()
+                .filter(|l| !l.is_empty())
+                .map(|l| Value::Str(l.to_string()))
+                .collect();
+            Ok(Value::Array(files))
+        }
+        _ => {
+            // Fallback to native find
+            bi_find(vec![Value::Str(path), Value::Str(pattern)], input)
+        }
+    }
+}
+
+/// sed — Stream editor for text substitution (cross-platform, native Rust).
+/// Usage: sed(pattern, replacement, input_text) or sed(pattern, replacement, input_text, {global?, file?})
+fn bi_sed_replace(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let pattern = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("sed requires pattern, replacement, and input")),
+    };
+    let replacement = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("sed requires a replacement string")),
+    };
+    let text = match args.get(2) {
+        Some(Value::Str(s)) => s.clone(),
+        None => match &input {
+            Some(Value::Str(s)) => s.clone(),
+            _ => return Err(anyhow!("sed requires input text (3rd arg or piped input)")),
+        },
+        _ => return Err(anyhow!("sed input must be a string")),
+    };
+    let global = match args.get(3) {
+        Some(Value::Record(r)) => r.get("global").map(|v| matches!(v, Value::Bool(true))).unwrap_or(true),
+        _ => true,
+    };
+    let file_mode = match args.get(3) {
+        Some(Value::Record(r)) => r.get("file").map(|v| matches!(v, Value::Bool(true))).unwrap_or(false),
+        _ => false,
+    };
+    let re = regex::Regex::new(&pattern)
+        .map_err(|e| anyhow!("Invalid regex pattern '{}': {}", pattern, e))?;
+    let input_text = if file_mode {
+        std::fs::read_to_string(&text)
+            .map_err(|e| anyhow!("Cannot read file '{}': {}", text, e))?
+    } else {
+        text.clone()
+    };
+    let result = if global {
+        re.replace_all(&input_text, replacement.as_str()).to_string()
+    } else {
+        re.replace(&input_text, replacement.as_str()).to_string()
+    };
+    if file_mode {
+        std::fs::write(&text, &result)
+            .map_err(|e| anyhow!("Cannot write file '{}': {}", text, e))?;
+        let mut rec = BTreeMap::new();
+        rec.insert("file".to_string(), Value::Str(text));
+        rec.insert("status".to_string(), Value::Str("modified".to_string()));
+        Ok(Value::Record(rec))
+    } else {
+        Ok(Value::Str(result))
+    }
+}
+
+/// awk — Text processing with field extraction (cross-platform, native Rust).
+/// Usage: awk(program, input_text) or piped: text | awk(program)
+/// Supports simple awk patterns: '{print $N}', '/pattern/{print $N}', field separator via {fs: ","}
+fn bi_awk_process(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let program = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("awk requires a program string")),
+    };
+    let text = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        None => match &input {
+            Some(Value::Str(s)) => s.clone(),
+            _ => return Err(anyhow!("awk requires input text")),
+        },
+        _ => return Err(anyhow!("awk input must be a string")),
+    };
+    let fs = match args.get(2) {
+        Some(Value::Record(r)) => r.get("fs").and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None }).unwrap_or_else(|| " ".to_string()),
+        _ => " ".to_string(),
+    };
+    // Parse simple awk programs: '{print $1}', '{print $1, $3}', '/pattern/{print $2}'
+    let (filter_pattern, field_indices) = parse_simple_awk(&program);
+    let mut results = Vec::new();
+    for line in text.lines() {
+        // Apply filter pattern if present
+        if let Some(ref pat) = filter_pattern {
+            if !line.contains(pat.as_str()) {
+                continue;
+            }
+        }
+        let fields: Vec<&str> = if fs == " " {
+            line.split_whitespace().collect()
+        } else {
+            line.split(&fs).collect()
+        };
+        if field_indices.is_empty() {
+            results.push(Value::Str(line.to_string()));
+        } else {
+            let selected: Vec<String> = field_indices.iter()
+                .filter_map(|&i| {
+                    if i == 0 { Some(line.to_string()) }
+                    else { fields.get(i - 1).map(|s| s.to_string()) }
+                })
+                .collect();
+            results.push(Value::Str(selected.join("\t")));
+        }
+    }
+    Ok(Value::Array(results))
+}
+
+/// Parse a simple awk program into (optional_filter, field_indices).
+fn parse_simple_awk(program: &str) -> (Option<String>, Vec<usize>) {
+    let prog = program.trim();
+    let mut filter = None;
+    let mut body = prog;
+    // Check for /pattern/{...} form
+    if prog.starts_with('/') {
+        if let Some(end) = prog[1..].find('/') {
+            filter = Some(prog[1..=end].to_string());
+            body = prog[end + 2..].trim();
+        }
+    }
+    // Extract field references from {print $N, $M, ...}
+    let mut fields = Vec::new();
+    let inner = body.trim_start_matches('{').trim_end_matches('}').trim();
+    let print_part = if inner.starts_with("print ") {
+        &inner[6..]
+    } else {
+        inner
+    };
+    for part in print_part.split(',') {
+        let part = part.trim();
+        if part.starts_with('$') {
+            if let Ok(n) = part[1..].parse::<usize>() {
+                fields.push(n);
+            }
+        }
+    }
+    (filter, fields)
+}
+
+/// cut — Extract columns/fields from text (cross-platform, native Rust).
+/// Usage: cut(delimiter, fields, input_text) or piped: text | cut(delimiter, fields)
+/// fields is a string like "1,3" or "1-3" (1-based)
+fn bi_cut_columns(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let delimiter = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("cut requires delimiter, fields, and input")),
+    };
+    let fields_spec = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        Some(Value::Int(n)) => n.to_string(),
+        _ => return Err(anyhow!("cut requires a fields specification (e.g., '1,3' or '1-3')")),
+    };
+    let text = match args.get(2) {
+        Some(Value::Str(s)) => s.clone(),
+        None => match &input {
+            Some(Value::Str(s)) => s.clone(),
+            _ => return Err(anyhow!("cut requires input text")),
+        },
+        _ => return Err(anyhow!("cut input must be a string")),
+    };
+    // Parse field spec: "1,3,5" or "1-3" or "2"
+    let field_indices = parse_field_spec(&fields_spec)?;
+    let mut results = Vec::new();
+    for line in text.lines() {
+        let cols: Vec<&str> = line.split(&delimiter).collect();
+        let selected: Vec<String> = field_indices.iter()
+            .filter_map(|&i| cols.get(i.saturating_sub(1)).map(|s| s.to_string()))
+            .collect();
+        results.push(Value::Str(selected.join(&delimiter)));
+    }
+    Ok(Value::Array(results))
+}
+
+/// Parse a field specification like "1,3,5" or "1-3" into a Vec of 1-based indices.
+fn parse_field_spec(spec: &str) -> Result<Vec<usize>> {
+    let mut indices = Vec::new();
+    for part in spec.split(',') {
+        let part = part.trim();
+        if part.contains('-') {
+            let range_parts: Vec<&str> = part.split('-').collect();
+            if range_parts.len() == 2 {
+                let start: usize = range_parts[0].parse().map_err(|_| anyhow!("Invalid field spec: {}", spec))?;
+                let end: usize = range_parts[1].parse().map_err(|_| anyhow!("Invalid field spec: {}", spec))?;
+                for i in start..=end { indices.push(i); }
+            }
+        } else {
+            let n: usize = part.parse().map_err(|_| anyhow!("Invalid field number: {}", part))?;
+            indices.push(n);
+        }
+    }
+    Ok(indices)
+}
+
+/// xargs — Execute a command for each line of input (cross-platform).
+/// Usage: xargs(command, input_array) or piped: array | xargs(command)
+fn bi_xargs_exec(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let command = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("xargs requires a command string")),
+    };
+    let items: Vec<String> = match args.get(1) {
+        Some(Value::Array(arr)) => arr.iter().map(|v| format!("{}", v)).collect(),
+        Some(Value::Str(s)) => s.lines().map(|l| l.to_string()).collect(),
+        None => match &input {
+            Some(Value::Array(arr)) => arr.iter().map(|v| format!("{}", v)).collect(),
+            Some(Value::Str(s)) => s.lines().map(|l| l.to_string()).collect(),
+            _ => return Err(anyhow!("xargs requires input items")),
+        },
+        _ => return Err(anyhow!("xargs input must be an array or string")),
+    };
+    let mut results = Vec::new();
+    for item in &items {
+        let full_cmd = format!("{} {}", command, item);
+        let out = if cfg!(target_os = "windows") {
+            std::process::Command::new("cmd").args(&["/C", &full_cmd]).output()
+        } else {
+            std::process::Command::new("sh").args(&["-c", &full_cmd]).output()
+        };
+        match out {
+            Ok(output) => {
+                let mut rec = BTreeMap::new();
+                rec.insert("item".to_string(), Value::Str(item.clone()));
+                rec.insert("exit_code".to_string(), Value::Int(output.status.code().unwrap_or(-1) as i64));
+                rec.insert("stdout".to_string(), Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()));
+                if !output.stderr.is_empty() {
+                    rec.insert("stderr".to_string(), Value::Str(String::from_utf8_lossy(&output.stderr).trim().to_string()));
+                }
+                results.push(Value::Record(rec));
+            }
+            Err(e) => {
+                let mut rec = BTreeMap::new();
+                rec.insert("item".to_string(), Value::Str(item.clone()));
+                rec.insert("error".to_string(), Value::Str(e.to_string()));
+                results.push(Value::Record(rec));
+            }
+        }
+    }
+    Ok(Value::Array(results))
+}
+
+/// jq — Query and transform JSON data (cross-platform, native Rust).
+/// Usage: jq(expression, json_string) or piped: json_str | jq(expression)
+fn bi_jq_query(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let expr = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("jq requires a query expression")),
+    };
+    let json_str = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        None => match &input {
+            Some(Value::Str(s)) => s.clone(),
+            _ => return Err(anyhow!("jq requires JSON input")),
+        },
+        _ => return Err(anyhow!("jq input must be a JSON string")),
+    };
+    let parsed: serde_json::Value = serde_json::from_str(&json_str)
+        .map_err(|e| anyhow!("Invalid JSON: {}", e))?;
+    // Native jq-like expression evaluation
+    let result = eval_jq_expr(&expr, &parsed)?;
+    Ok(json_to_value(result))
+}
+
+/// jq filter — Apply a jq filter to JSON (shells out to jq if available).
+/// Usage: jq_filter(filter, json_string)
+fn bi_jq_filter(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let filter = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("jq_filter requires a filter expression")),
+    };
+    let json_str = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        None => match &input {
+            Some(Value::Str(s)) => s.clone(),
+            _ => return Err(anyhow!("jq_filter requires JSON input")),
+        },
+        _ => return Err(anyhow!("jq_filter input must be a JSON string")),
+    };
+    // Try external jq first for complex filters
+    let result = std::process::Command::new("jq")
+        .arg(&filter)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn();
+    match result {
+        Ok(mut child) => {
+            use std::io::Write;
+            if let Some(ref mut stdin) = child.stdin {
+                let _ = stdin.write_all(json_str.as_bytes());
+            }
+            let output = child.wait_with_output()?;
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                // Try to parse the output as JSON → Value
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&stdout) {
+                    Ok(json_to_value(parsed))
+                } else {
+                    Ok(Value::Str(stdout))
+                }
+            } else {
+                Err(anyhow!("jq error: {}", String::from_utf8_lossy(&output.stderr)))
+            }
+        }
+        Err(_) => {
+            // Fallback to native evaluation
+            bi_jq_query(args, input)
+        }
+    }
+}
+
+/// Native jq expression evaluator (supports . .key .key.subkey .[n] .[] | keys length)
+fn eval_jq_expr(expr: &str, data: &serde_json::Value) -> Result<serde_json::Value> {
+    let expr = expr.trim();
+    if expr == "." {
+        return Ok(data.clone());
+    }
+    if expr == "keys" {
+        if let serde_json::Value::Object(m) = data {
+            return Ok(serde_json::Value::Array(
+                m.keys().map(|k| serde_json::Value::String(k.clone())).collect()
+            ));
+        }
+        return Err(anyhow!("keys requires an object"));
+    }
+    if expr == "length" {
+        return Ok(match data {
+            serde_json::Value::Array(a) => serde_json::json!(a.len()),
+            serde_json::Value::Object(m) => serde_json::json!(m.len()),
+            serde_json::Value::String(s) => serde_json::json!(s.len()),
+            _ => serde_json::json!(0),
+        });
+    }
+    if expr == ".[]" {
+        if let serde_json::Value::Array(a) = data {
+            return Ok(serde_json::Value::Array(a.clone()));
+        }
+        if let serde_json::Value::Object(m) = data {
+            return Ok(serde_json::Value::Array(m.values().cloned().collect()));
+        }
+        return Err(anyhow!(".[] requires an array or object"));
+    }
+    // Handle pipe: .key | .subkey
+    if let Some(pipe_pos) = expr.find(" | ") {
+        let left = &expr[..pipe_pos];
+        let right = &expr[pipe_pos + 3..];
+        let intermediate = eval_jq_expr(left, data)?;
+        return eval_jq_expr(right, &intermediate);
+    }
+    // Dot-path: .key.subkey or .key
+    if expr.starts_with('.') {
+        let path = &expr[1..];
+        // Handle array index: .[0]
+        if path.starts_with('[') && path.ends_with(']') {
+            let idx_str = &path[1..path.len()-1];
+            if let Ok(idx) = idx_str.parse::<usize>() {
+                if let serde_json::Value::Array(a) = data {
+                    return a.get(idx).cloned().ok_or_else(|| anyhow!("Index {} out of bounds", idx));
+                }
+            }
+            return Err(anyhow!("Cannot index into non-array"));
+        }
+        let mut current = data;
+        for key in path.split('.') {
+            if key.is_empty() { continue; }
+            // Handle key[n] notation
+            if key.contains('[') && key.ends_with(']') {
+                let bracket = key.find('[').unwrap();
+                let obj_key = &key[..bracket];
+                let idx_str = &key[bracket+1..key.len()-1];
+                if !obj_key.is_empty() {
+                    current = current.get(obj_key)
+                        .ok_or_else(|| anyhow!("Key '{}' not found", obj_key))?;
+                }
+                if let Ok(idx) = idx_str.parse::<usize>() {
+                    current = current.get(idx)
+                        .ok_or_else(|| anyhow!("Index {} out of bounds", idx))?;
+                }
+            } else {
+                current = current.get(key)
+                    .ok_or_else(|| anyhow!("Key '{}' not found", key))?;
+            }
+        }
+        return Ok(current.clone());
+    }
+    Err(anyhow!("Unsupported jq expression: {}", expr))
+}
+
+/// yq — Query/transform YAML, TOML, XML data.
+/// Usage: yq(expression, input_string) or piped input.
+/// Shells out to `yq` if available, otherwise parses as YAML natively via serde.
+fn bi_yq_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let expr = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("yq requires an expression")),
+    };
+    let input_str = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("yq requires input data")),
+    };
+    // Try external yq first
+    let result = std::process::Command::new("yq")
+        .arg(&expr)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn();
+    match result {
+        Ok(mut child) => {
+            use std::io::Write;
+            if let Some(ref mut stdin) = child.stdin {
+                let _ = stdin.write_all(input_str.as_bytes());
+            }
+            let output = child.wait_with_output()?;
+            if output.status.success() {
+                Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()))
+            } else {
+                Err(anyhow!("yq error: {}", String::from_utf8_lossy(&output.stderr)))
+            }
+        }
+        Err(_) => {
+            // Fallback: try to parse as JSON and apply query
+            let parsed: serde_json::Value = serde_json::from_str(&input_str)
+                .map_err(|e| anyhow!("Cannot parse input (install yq for YAML support): {}", e))?;
+            let result = eval_jq_expr(&expr, &parsed)?;
+            Ok(json_to_value(result))
+        }
+    }
+}
+
+/// pager/less — Display text with pagination (cross-platform).
+/// Usage: less(text) or less(file_path, {file: true})
+fn bi_pager(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let text = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        None => match &input {
+            Some(Value::Str(s)) => s.clone(),
+            _ => return Err(anyhow!("pager requires text input")),
+        },
+        _ => return Err(anyhow!("pager input must be a string")),
+    };
+    let is_file = match args.get(1) {
+        Some(Value::Record(r)) => r.get("file").map(|v| matches!(v, Value::Bool(true))).unwrap_or(false),
+        _ => false,
+    };
+    let content = if is_file {
+        std::fs::read_to_string(&text)
+            .map_err(|e| anyhow!("Cannot read file '{}': {}", text, e))?
+    } else {
+        text.clone()
+    };
+    // In a shell context, output paginated content
+    let lines: Vec<&str> = content.lines().collect();
+    let total = lines.len();
+    let page_size: usize = 40; // Default terminal height
+    if total <= page_size {
+        // No pagination needed
+        return Ok(Value::Str(content));
+    }
+    // Return structured output with pagination info
+    let first_page: String = lines[..page_size.min(total)].join("\n");
+    let mut rec = BTreeMap::new();
+    rec.insert("content".to_string(), Value::Str(first_page));
+    rec.insert("total_lines".to_string(), Value::Int(total as i64));
+    rec.insert("page_size".to_string(), Value::Int(page_size as i64));
+    rec.insert("pages".to_string(), Value::Int(((total + page_size - 1) / page_size) as i64));
+    rec.insert("hint".to_string(), Value::Str("Use head/tail for specific line ranges".to_string()));
+    Ok(Value::Record(rec))
+}
+
+/// tee — Write input to both a file and return it (cross-platform, native Rust).
+/// Usage: tee(file_path, text) or piped: text | tee(file_path)
+fn bi_tee_output(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let file_path = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("tee requires a file path")),
+    };
+    let text = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        Some(v) => format!("{}", v),
+        None => match &input {
+            Some(Value::Str(s)) => s.clone(),
+            Some(v) => format!("{}", v),
+            None => return Err(anyhow!("tee requires input data")),
+        },
+    };
+    let append = match args.get(2) {
+        Some(Value::Record(r)) => r.get("append").map(|v| matches!(v, Value::Bool(true))).unwrap_or(false),
+        _ => false,
+    };
+    if append {
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new()
+            .create(true).append(true).open(&file_path)
+            .map_err(|e| anyhow!("Cannot open '{}': {}", file_path, e))?;
+        file.write_all(text.as_bytes())
+            .map_err(|e| anyhow!("Cannot write to '{}': {}", file_path, e))?;
+    } else {
+        std::fs::write(&file_path, &text)
+            .map_err(|e| anyhow!("Cannot write to '{}': {}", file_path, e))?;
+    }
+    // Return the same input (tee semantics: pass-through)
+    Ok(Value::Str(text))
+}
+
+/// make — Run make targets (cross-platform).
+/// Usage: make_run() or make_run(target) or make_run(target, {dir?, file?, jobs?})
+fn bi_make_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let target = match args.first() {
+        Some(Value::Str(s)) => Some(s.clone()),
+        _ => None,
+    };
+    let mut cmd = std::process::Command::new("make");
+    if let Some(Value::Record(r)) = args.get(1) {
+        if let Some(Value::Str(d)) = r.get("dir") { cmd.current_dir(d); }
+        if let Some(Value::Str(f)) = r.get("file") { cmd.args(&["-f", f]); }
+        if let Some(Value::Int(j)) = r.get("jobs") { cmd.arg(format!("-j{}", j)); }
+    }
+    if let Some(t) = &target { cmd.arg(t); }
+    let out = cmd.output()
+        .map_err(|e| anyhow!("make not found: {}", e))?;
+    let mut rec = BTreeMap::new();
+    rec.insert("exit_code".to_string(), Value::Int(out.status.code().unwrap_or(-1) as i64));
+    rec.insert("stdout".to_string(), Value::Str(String::from_utf8_lossy(&out.stdout).to_string()));
+    if !out.stderr.is_empty() {
+        rec.insert("stderr".to_string(), Value::Str(String::from_utf8_lossy(&out.stderr).to_string()));
+    }
+    rec.insert("success".to_string(), Value::Bool(out.status.success()));
+    if let Some(t) = target {
+        rec.insert("target".to_string(), Value::Str(t));
+    }
+    Ok(Value::Record(rec))
+}
+
+/// make — List available make targets from a Makefile (cross-platform, native Rust).
+/// Usage: make_targets() or make_targets(makefile_path)
+fn bi_make_targets(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let makefile = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => "Makefile".to_string(),
+    };
+    let content = std::fs::read_to_string(&makefile)
+        .map_err(|e| anyhow!("Cannot read '{}': {}", makefile, e))?;
+    let re = regex::Regex::new(r"^([a-zA-Z_][a-zA-Z0-9_.-]*)\s*:").unwrap();
+    let targets: Vec<Value> = content.lines()
+        .filter_map(|line| {
+            re.captures(line).map(|cap| Value::Str(cap[1].to_string()))
+        })
+        .collect();
+    Ok(Value::Array(targets))
+}
+
+/// cmake — Configure a build with CMake.
+/// Usage: cmake_configure(source_dir) or cmake_configure(source_dir, build_dir, {generator?, defines?})
+fn bi_cmake_configure(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let source_dir = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => ".".to_string(),
+    };
+    let build_dir = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => "build".to_string(),
+    };
+    // Create build dir if needed
+    let _ = std::fs::create_dir_all(&build_dir);
+    let mut cmd = std::process::Command::new("cmake");
+    cmd.args(&["-S", &source_dir, "-B", &build_dir]);
+    if let Some(Value::Record(r)) = args.get(2) {
+        if let Some(Value::Str(g)) = r.get("generator") {
+            cmd.args(&["-G", g]);
+        }
+        if let Some(Value::Record(defs)) = r.get("defines") {
+            for (k, v) in defs {
+                cmd.arg(format!("-D{}={}", k, v));
+            }
+        }
+    }
+    let out = cmd.output()
+        .map_err(|e| anyhow!("cmake not found: {}", e))?;
+    let mut rec = BTreeMap::new();
+    rec.insert("source_dir".to_string(), Value::Str(source_dir));
+    rec.insert("build_dir".to_string(), Value::Str(build_dir));
+    rec.insert("success".to_string(), Value::Bool(out.status.success()));
+    rec.insert("stdout".to_string(), Value::Str(String::from_utf8_lossy(&out.stdout).to_string()));
+    if !out.stderr.is_empty() {
+        rec.insert("stderr".to_string(), Value::Str(String::from_utf8_lossy(&out.stderr).to_string()));
+    }
+    Ok(Value::Record(rec))
+}
+
+/// cmake — Build a CMake project.
+/// Usage: cmake_build(build_dir) or cmake_build(build_dir, {target?, config?, jobs?})
+fn bi_cmake_build(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let build_dir = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => "build".to_string(),
+    };
+    let mut cmd = std::process::Command::new("cmake");
+    cmd.args(&["--build", &build_dir]);
+    if let Some(Value::Record(r)) = args.get(1) {
+        if let Some(Value::Str(t)) = r.get("target") {
+            cmd.args(&["--target", t]);
+        }
+        if let Some(Value::Str(c)) = r.get("config") {
+            cmd.args(&["--config", c]);
+        }
+        if let Some(Value::Int(j)) = r.get("jobs") {
+            cmd.args(&["-j", &j.to_string()]);
+        }
+    }
+    let out = cmd.output()
+        .map_err(|e| anyhow!("cmake not found: {}", e))?;
+    let mut rec = BTreeMap::new();
+    rec.insert("build_dir".to_string(), Value::Str(build_dir));
+    rec.insert("success".to_string(), Value::Bool(out.status.success()));
+    rec.insert("stdout".to_string(), Value::Str(String::from_utf8_lossy(&out.stdout).to_string()));
+    if !out.stderr.is_empty() {
+        rec.insert("stderr".to_string(), Value::Str(String::from_utf8_lossy(&out.stderr).to_string()));
+    }
+    Ok(Value::Record(rec))
+}
+
+/// ninja — Fast build system.
+/// Usage: ninja_build() or ninja_build({dir?, target?, jobs?})
+fn bi_ninja_build(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut cmd = std::process::Command::new("ninja");
+    if let Some(Value::Record(r)) = args.first() {
+        if let Some(Value::Str(d)) = r.get("dir") {
+            cmd.args(&["-C", d]);
+        }
+        if let Some(Value::Str(t)) = r.get("target") {
+            cmd.arg(t);
+        }
+        if let Some(Value::Int(j)) = r.get("jobs") {
+            cmd.arg(format!("-j{}", j));
+        }
+    } else if let Some(Value::Str(dir)) = args.first() {
+        cmd.args(&["-C", dir]);
+    }
+    let out = cmd.output()
+        .map_err(|e| anyhow!("ninja not found: {}", e))?;
+    let mut rec = BTreeMap::new();
+    rec.insert("success".to_string(), Value::Bool(out.status.success()));
+    rec.insert("exit_code".to_string(), Value::Int(out.status.code().unwrap_or(-1) as i64));
+    rec.insert("stdout".to_string(), Value::Str(String::from_utf8_lossy(&out.stdout).to_string()));
+    if !out.stderr.is_empty() {
+        rec.insert("stderr".to_string(), Value::Str(String::from_utf8_lossy(&out.stderr).to_string()));
+    }
+    Ok(Value::Record(rec))
+}
+
+/// netstat — Display network connections and socket information (cross-platform).
+/// Usage: netstat() or netstat({proto?, state?, port?})
+fn bi_netstat_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let flags = if cfg!(target_os = "windows") {
+        vec!["-an".to_string()]
+    } else {
+        vec!["-tuln".to_string()]
+    };
+    let out = std::process::Command::new("netstat")
+        .args(&flags)
+        .output()
+        .map_err(|e| anyhow!("netstat not available: {}", e))?;
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    // Parse netstat output into structured records
+    let filter_proto = match args.first() {
+        Some(Value::Record(r)) => r.get("proto").and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None }),
+        _ => None,
+    };
+    let filter_state = match args.first() {
+        Some(Value::Record(r)) => r.get("state").and_then(|v| if let Value::Str(s) = v { Some(s.to_uppercase()) } else { None }),
+        _ => None,
+    };
+    let filter_port = match args.first() {
+        Some(Value::Record(r)) => r.get("port").and_then(|v| if let Value::Int(n) = v { Some(*n) } else { None }),
+        _ => None,
+    };
+    let mut connections = Vec::new();
+    for line in stdout.lines().skip(2) {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() < 4 { continue; }
+        let proto = parts[0].to_string();
+        let local_addr = if parts.len() > 3 { parts[3].to_string() } else { parts[1].to_string() };
+        let foreign_addr = if parts.len() > 4 { parts[4].to_string() } else { parts[2].to_string() };
+        let state = if parts.len() > 5 { parts[5].to_string() } else { String::new() };
+        // Apply filters
+        if let Some(ref fp) = filter_proto {
+            if !proto.to_lowercase().contains(&fp.to_lowercase()) { continue; }
+        }
+        if let Some(ref fs) = filter_state {
+            if !state.to_uppercase().contains(fs) { continue; }
+        }
+        if let Some(fp) = filter_port {
+            let port_str = format!(":{}", fp);
+            if !local_addr.contains(&port_str) && !foreign_addr.contains(&port_str) { continue; }
+        }
+        let mut rec = BTreeMap::new();
+        rec.insert("proto".to_string(), Value::Str(proto));
+        rec.insert("local_address".to_string(), Value::Str(local_addr));
+        rec.insert("foreign_address".to_string(), Value::Str(foreign_addr));
+        if !state.is_empty() {
+            rec.insert("state".to_string(), Value::Str(state));
+        }
+        connections.push(Value::Record(rec));
+    }
+    Ok(Value::Array(connections))
+}
+
+/// nmap — Network port scanning.
+/// Usage: nmap_scan(host) or nmap_scan(host, {ports?, flags?})
+fn bi_nmap_scan(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let host = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("nmap_scan requires a host")),
+    };
+    let mut cmd_args = vec!["-oX".to_string(), "-".to_string()];
+    if let Some(Value::Record(r)) = args.get(1) {
+        if let Some(Value::Str(ports)) = r.get("ports") {
+            cmd_args.push("-p".to_string());
+            cmd_args.push(ports.clone());
+        }
+        if let Some(Value::Str(flags)) = r.get("flags") {
+            for flag in flags.split_whitespace() {
+                cmd_args.push(flag.to_string());
+            }
+        }
+    }
+    cmd_args.push(host.clone());
+    let out = std::process::Command::new("nmap")
+        .args(&cmd_args)
+        .output()
+        .map_err(|e| anyhow!("nmap not found: {}. Install from https://nmap.org", e))?;
+    if !out.status.success() {
+        return Err(anyhow!("nmap failed: {}", String::from_utf8_lossy(&out.stderr)));
+    }
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    // Parse XML output for structured results
+    let mut ports = Vec::new();
+    for line in stdout.lines() {
+        let line = line.trim();
+        if line.starts_with("<port ") {
+            let mut rec = BTreeMap::new();
+            // Extract portid and protocol
+            if let Some(portid) = extract_xml_attr(line, "portid") {
+                rec.insert("port".to_string(), Value::Int(portid.parse::<i64>().unwrap_or(0)));
+            }
+            if let Some(proto) = extract_xml_attr(line, "protocol") {
+                rec.insert("protocol".to_string(), Value::Str(proto));
+            }
+            ports.push(Value::Record(rec));
+        }
+        if line.starts_with("<state ") {
+            if let Some(last) = ports.last_mut() {
+                if let Value::Record(ref mut rec) = last {
+                    if let Some(state) = extract_xml_attr(line, "state") {
+                        rec.insert("state".to_string(), Value::Str(state));
+                    }
+                    if let Some(reason) = extract_xml_attr(line, "reason") {
+                        rec.insert("reason".to_string(), Value::Str(reason));
+                    }
+                }
+            }
+        }
+        if line.starts_with("<service ") {
+            if let Some(last) = ports.last_mut() {
+                if let Value::Record(ref mut rec) = last {
+                    if let Some(name) = extract_xml_attr(line, "name") {
+                        rec.insert("service".to_string(), Value::Str(name));
+                    }
+                }
+            }
+        }
+    }
+    let mut result = BTreeMap::new();
+    result.insert("host".to_string(), Value::Str(host));
+    result.insert("ports".to_string(), Value::Array(ports));
+    Ok(Value::Record(result))
+}
+
+/// nmap — Quick scan (common ports only).
+/// Usage: nmap_quick(host)
+fn bi_nmap_quick(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let host = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("nmap_quick requires a host")),
+    };
+    let out = std::process::Command::new("nmap")
+        .args(&["-F", "--open", &host])
+        .output()
+        .map_err(|e| anyhow!("nmap not found: {}", e))?;
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    // Parse text output
+    let mut ports = Vec::new();
+    for line in stdout.lines() {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() >= 3 && parts[0].contains('/') {
+            let port_proto: Vec<&str> = parts[0].split('/').collect();
+            let mut rec = BTreeMap::new();
+            rec.insert("port".to_string(), Value::Int(port_proto[0].parse::<i64>().unwrap_or(0)));
+            rec.insert("protocol".to_string(), Value::Str(port_proto.get(1).unwrap_or(&"").to_string()));
+            rec.insert("state".to_string(), Value::Str(parts[1].to_string()));
+            rec.insert("service".to_string(), Value::Str(parts[2].to_string()));
+            ports.push(Value::Record(rec));
+        }
+    }
+    let mut result = BTreeMap::new();
+    result.insert("host".to_string(), Value::Str(host));
+    result.insert("ports".to_string(), Value::Array(ports));
+    result.insert("scan_type".to_string(), Value::Str("quick (-F --open)".to_string()));
+    Ok(Value::Record(result))
+}
+
+/// Helper: extract an XML attribute value from a tag line.
+fn extract_xml_attr(line: &str, attr: &str) -> Option<String> {
+    let pattern = format!("{}=\"", attr);
+    if let Some(start) = line.find(&pattern) {
+        let val_start = start + pattern.len();
+        if let Some(end) = line[val_start..].find('"') {
+            return Some(line[val_start..val_start + end].to_string());
+        }
+    }
+    None
 }

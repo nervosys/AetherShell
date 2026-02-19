@@ -118,6 +118,7 @@ libloading = "0.8"
 notify = "6.1"
 md5 = "0.7"
 sysinfo = "0.33"
+regex = "1.10"
 
 # Native-only dependencies (terminal, TUI, system interaction)
 walkdir = { version = "2", optional = true }
