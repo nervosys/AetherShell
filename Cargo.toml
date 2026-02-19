@@ -218,10 +218,26 @@ structured data pipelines, multi-provider LLM support, agent swarms, \
 TUI interface, MCP server, and bash compatibility."""
 depends = "$auto"
 assets = [
-    ["target/release/ae", "usr/bin/ae", "755"],
-    ["target/release/aimodel", "usr/bin/aimodel", "755"],
-    ["README.md", "usr/share/doc/aethershell/README.md", "644"],
-    ["LICENSE", "usr/share/doc/aethershell/LICENSE", "644"],
+    [
+        "target/release/ae",
+        "usr/bin/ae",
+        "755",
+    ],
+    [
+        "target/release/aimodel",
+        "usr/bin/aimodel",
+        "755",
+    ],
+    [
+        "README.md",
+        "usr/share/doc/aethershell/README.md",
+        "644",
+    ],
+    [
+        "LICENSE",
+        "usr/share/doc/aethershell/LICENSE",
+        "644",
+    ],
 ]
 
 [package.metadata.generate-rpm]

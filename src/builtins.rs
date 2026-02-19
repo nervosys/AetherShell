@@ -1280,6 +1280,245 @@ lazy_static::lazy_static! {
     // nmap (986-987)
     map.insert("nmap_scan", 986);
     map.insert("nmap_quick", 987);
+    // ============================================================
+    // CLI Tool Wrappers — Tools 51-150 (indices 988-1103)
+    // ============================================================
+    // Dead-code activations (988-994)
+    map.insert("file_type", 988);
+    map.insert("dd_copy", 989);
+    map.insert("lsblk", 990);
+    map.insert("blkid", 991);
+    map.insert("strace_cmd", 992);
+    map.insert("strace", 992);
+    map.insert("mount_info", 993);
+    map.insert("top_snapshot", 994);
+    // tmux (995-998)
+    map.insert("tmux_new", 995);
+    map.insert("tmux_list", 996);
+    map.insert("tmux_attach", 997);
+    map.insert("tmux_send", 998);
+    // screen (999-1001)
+    map.insert("screen_new", 999);
+    map.insert("screen_list", 1000);
+    map.insert("screen_attach", 1001);
+    // timeout (1002)
+    map.insert("timeout_cmd", 1002);
+    map.insert("timeout", 1002);
+    // pkill (1003)
+    map.insert("pkill", 1003);
+    // pgrep (1004)
+    map.insert("pgrep", 1004);
+    // lnav (1005)
+    map.insert("lnav_open", 1005);
+    map.insert("lnav", 1005);
+    // multitail (1006)
+    map.insert("multitail_open", 1006);
+    map.insert("multitail", 1006);
+    // logrotate (1007)
+    map.insert("logrotate_run", 1007);
+    map.insert("logrotate", 1007);
+    // ltrace (1008)
+    map.insert("ltrace_cmd", 1008);
+    map.insert("ltrace", 1008);
+    // valgrind (1009-1010)
+    map.insert("valgrind_run", 1009);
+    map.insert("valgrind", 1009);
+    map.insert("valgrind_memcheck", 1010);
+    // gdb (1011-1012)
+    map.insert("gdb_run", 1011);
+    map.insert("gdb", 1011);
+    map.insert("gdb_bt", 1012);
+    // lldb (1013)
+    map.insert("lldb_run", 1013);
+    map.insert("lldb", 1013);
+    // objdump (1014-1015)
+    map.insert("objdump_disasm", 1014);
+    map.insert("objdump", 1014);
+    map.insert("objdump_headers", 1015);
+    // nm (1016)
+    map.insert("nm_symbols", 1016);
+    map.insert("nm", 1016);
+    // readelf (1017-1018)
+    map.insert("readelf_headers", 1017);
+    map.insert("readelf", 1017);
+    map.insert("readelf_sections", 1018);
+    // strings (1019)
+    map.insert("strings_extract", 1019);
+    map.insert("strings", 1019);
+    // chgrp (1020)
+    map.insert("chgrp", 1020);
+    // mtr (1021)
+    map.insert("mtr_trace", 1021);
+    map.insert("mtr", 1021);
+    // host (1022)
+    map.insert("host_lookup", 1022);
+    map.insert("host", 1022);
+    // nc/netcat (1023-1024)
+    map.insert("nc_connect", 1023);
+    map.insert("nc", 1023);
+    map.insert("netcat", 1023);
+    map.insert("nc_listen", 1024);
+    // socat (1025)
+    map.insert("socat_relay", 1025);
+    map.insert("socat", 1025);
+    // iperf3 (1026-1027)
+    map.insert("iperf3_server", 1026);
+    map.insert("iperf3_client", 1027);
+    map.insert("iperf3", 1027);
+    // bat (1028)
+    map.insert("bat_view", 1028);
+    map.insert("bat", 1028);
+    // eza (1029)
+    map.insert("eza_list", 1029);
+    map.insert("eza", 1029);
+    // zoxide (1030-1031)
+    map.insert("zoxide_add", 1030);
+    map.insert("zoxide_query", 1031);
+    map.insert("zoxide", 1031);
+    // delta (1032)
+    map.insert("delta_diff", 1032);
+    map.insert("delta", 1032);
+    // lazygit (1033)
+    map.insert("lazygit_open", 1033);
+    map.insert("lazygit", 1033);
+    // fzf (1034)
+    map.insert("fzf_select", 1034);
+    map.insert("fzf", 1034);
+    // rga (1035)
+    map.insert("rga_search", 1035);
+    map.insert("rga", 1035);
+    // sd (1036)
+    map.insert("sd_replace", 1036);
+    map.insert("sd", 1036);
+    // hyperfine (1037)
+    map.insert("hyperfine_bench", 1037);
+    map.insert("hyperfine", 1037);
+    // tokei (1038)
+    map.insert("tokei_count", 1038);
+    map.insert("tokei", 1038);
+    // entr (1039)
+    map.insert("entr_watch", 1039);
+    map.insert("entr", 1039);
+    // watchexec (1040)
+    map.insert("watchexec_run", 1040);
+    map.insert("watchexec", 1040);
+    // just (1041-1042)
+    map.insert("just_run", 1041);
+    map.insert("just", 1041);
+    map.insert("just_list", 1042);
+    // task (1043-1044)
+    map.insert("task_run", 1043);
+    map.insert("task_list", 1044);
+    // direnv (1045-1046)
+    map.insert("direnv_allow", 1045);
+    map.insert("direnv_status", 1046);
+    map.insert("direnv", 1046);
+    // asdf (1047-1048)
+    map.insert("asdf_list", 1047);
+    map.insert("asdf_install", 1048);
+    map.insert("asdf", 1047);
+    // mise (1049-1050)
+    map.insert("mise_use", 1049);
+    map.insert("mise_list", 1050);
+    map.insert("mise", 1050);
+    // uv (1051-1053)
+    map.insert("uv_run", 1051);
+    map.insert("uv_pip", 1052);
+    map.insert("uv_venv", 1053);
+    // pipx (1054-1055)
+    map.insert("pipx_install", 1054);
+    map.insert("pipx_list", 1055);
+    map.insert("pipx", 1055);
+    // poetry (1056-1057)
+    map.insert("poetry_run", 1056);
+    map.insert("poetry_install", 1057);
+    // node (1058)
+    map.insert("node_run", 1058);
+    // npm (1059-1060)
+    map.insert("npm_run", 1059);
+    map.insert("npm_install", 1060);
+    // pnpm (1061-1062)
+    map.insert("pnpm_run", 1061);
+    map.insert("pnpm_install", 1062);
+    // yarn (1063-1064)
+    map.insert("yarn_run", 1063);
+    map.insert("yarn_install", 1064);
+    // cargo (1065-1067)
+    map.insert("cargo_run", 1065);
+    map.insert("cargo_build_cmd", 1066);
+    map.insert("cargo_test_cmd", 1067);
+    // rustup (1068-1069)
+    map.insert("rustup_show", 1068);
+    map.insert("rustup_update", 1069);
+    // go (1070-1072)
+    map.insert("go_run", 1070);
+    map.insert("go_build", 1071);
+    map.insert("go_test", 1072);
+    // mage (1073)
+    map.insert("mage_run", 1073);
+    map.insert("mage", 1073);
+    // bun (1074-1075)
+    map.insert("bun_run", 1074);
+    map.insert("bun_install", 1075);
+    // deno (1076-1077)
+    map.insert("deno_run", 1076);
+    map.insert("deno_task", 1077);
+    // gh (1078-1080)
+    map.insert("gh_pr", 1078);
+    map.insert("gh_issue", 1079);
+    map.insert("gh_repo_cmd", 1080);
+    map.insert("gh_repo", 1080);
+    // glab (1081-1082)
+    map.insert("glab_mr", 1081);
+    map.insert("glab_issue", 1082);
+    // act (1083)
+    map.insert("act_run", 1083);
+    map.insert("act", 1083);
+    // pre-commit (1084-1085)
+    map.insert("pre_commit_run", 1084);
+    map.insert("pre_commit_install", 1085);
+    // buildah (1086-1087)
+    map.insert("buildah_build", 1086);
+    map.insert("buildah_images", 1087);
+    // skopeo (1088-1089)
+    map.insert("skopeo_copy", 1088);
+    map.insert("skopeo_inspect", 1089);
+    // trivy (1090-1091)
+    map.insert("trivy_scan", 1090);
+    map.insert("trivy_image", 1091);
+    // hadolint (1092)
+    map.insert("hadolint_check", 1092);
+    map.insert("hadolint", 1092);
+    // shellcheck (1093)
+    map.insert("shellcheck_check", 1093);
+    map.insert("shellcheck", 1093);
+    // shfmt (1094)
+    map.insert("shfmt_format", 1094);
+    map.insert("shfmt", 1094);
+    // yamllint (1095)
+    map.insert("yamllint_check", 1095);
+    map.insert("yamllint", 1095);
+    // prettier (1096)
+    map.insert("prettier_format", 1096);
+    map.insert("prettier", 1096);
+    // eslint (1097)
+    map.insert("eslint_check", 1097);
+    map.insert("eslint", 1097);
+    // ruff (1098-1099)
+    map.insert("ruff_check", 1098);
+    map.insert("ruff_format", 1099);
+    // black (1100)
+    map.insert("black_format", 1100);
+    map.insert("black", 1100);
+    // mypy (1101)
+    map.insert("mypy_check", 1101);
+    map.insert("mypy", 1101);
+    // pytest (1102)
+    map.insert("pytest_run", 1102);
+    map.insert("pytest", 1102);
+    // nodemon (1103)
+    map.insert("nodemon_run", 1103);
+    map.insert("nodemon", 1103);
         map
     };
 
@@ -3022,186 +3261,376 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_watch_disk(args, input),
     // Cloud & Scale (844-878)
     // Cloud platform (844-851)
-    |args, input, _| bi_cloud_deploy(args, input),            // 844
-    |args, input, _| bi_cloud_instances(args, input),         // 845
-    |args, input, _| bi_cloud_instance_create(args, input),   // 846
-    |args, input, _| bi_cloud_instance_destroy(args, input),  // 847
-    |args, input, _| bi_cloud_instance_status(args, input),   // 848
-    |args, input, _| bi_cloud_instance_connect(args, input),  // 849
-    |args, input, _| bi_cloud_regions(args, input),           // 850
-    |args, input, _| bi_cloud_config(args, input),            // 851
+    |args, input, _| bi_cloud_deploy(args, input), // 844
+    |args, input, _| bi_cloud_instances(args, input), // 845
+    |args, input, _| bi_cloud_instance_create(args, input), // 846
+    |args, input, _| bi_cloud_instance_destroy(args, input), // 847
+    |args, input, _| bi_cloud_instance_status(args, input), // 848
+    |args, input, _| bi_cloud_instance_connect(args, input), // 849
+    |args, input, _| bi_cloud_regions(args, input), // 850
+    |args, input, _| bi_cloud_config(args, input), // 851
     // Remote REPL (852-856)
-    |args, input, _| bi_repl_serve(args, input),              // 852
-    |args, input, _| bi_repl_connect(args, input),            // 853
-    |args, input, _| bi_repl_sessions(args, input),           // 854
-    |args, input, _| bi_repl_disconnect(args, input),         // 855
-    |args, input, _| bi_repl_broadcast(args, input),          // 856
+    |args, input, _| bi_repl_serve(args, input),    // 852
+    |args, input, _| bi_repl_connect(args, input),  // 853
+    |args, input, _| bi_repl_sessions(args, input), // 854
+    |args, input, _| bi_repl_disconnect(args, input), // 855
+    |args, input, _| bi_repl_broadcast(args, input), // 856
     // Team workspaces (857-864)
-    |args, input, _| bi_workspace_create(args, input),        // 857
-    |args, input, _| bi_workspace_list(args, input),          // 858
-    |args, input, _| bi_workspace_join(args, input),           // 859
-    |args, input, _| bi_workspace_leave(args, input),         // 860
-    |args, input, _| bi_workspace_members(args, input),       // 861
-    |args, input, _| bi_workspace_share_agent(args, input),   // 862
-    |args, input, _| bi_workspace_agents(args, input),        // 863
-    |args, input, _| bi_workspace_sync(args, input),          // 864
+    |args, input, _| bi_workspace_create(args, input), // 857
+    |args, input, _| bi_workspace_list(args, input),   // 858
+    |args, input, _| bi_workspace_join(args, input),   // 859
+    |args, input, _| bi_workspace_leave(args, input),  // 860
+    |args, input, _| bi_workspace_members(args, input), // 861
+    |args, input, _| bi_workspace_share_agent(args, input), // 862
+    |args, input, _| bi_workspace_agents(args, input), // 863
+    |args, input, _| bi_workspace_sync(args, input),   // 864
     // Marketplace (865-872)
-    |args, input, _| bi_marketplace_publish(args, input),     // 865
-    |args, input, _| bi_marketplace_search(args, input),      // 866
-    |args, input, _| bi_marketplace_install(args, input),     // 867
-    |args, input, _| bi_marketplace_uninstall(args, input),   // 868
-    |args, input, _| bi_marketplace_list(args, input),        // 869
-    |args, input, _| bi_marketplace_info(args, input),        // 870
-    |args, input, _| bi_marketplace_rate(args, input),        // 871
-    |args, input, _| bi_marketplace_update(args, input),      // 872
+    |args, input, _| bi_marketplace_publish(args, input), // 865
+    |args, input, _| bi_marketplace_search(args, input),  // 866
+    |args, input, _| bi_marketplace_install(args, input), // 867
+    |args, input, _| bi_marketplace_uninstall(args, input), // 868
+    |args, input, _| bi_marketplace_list(args, input),    // 869
+    |args, input, _| bi_marketplace_info(args, input),    // 870
+    |args, input, _| bi_marketplace_rate(args, input),    // 871
+    |args, input, _| bi_marketplace_update(args, input),  // 872
     // Telemetry (873-878)
-    |args, input, _| bi_telemetry_enable(args, input),        // 873
-    |args, input, _| bi_telemetry_disable(args, input),       // 874
-    |args, input, _| bi_telemetry_status(args, input),        // 875
-    |args, input, _| bi_telemetry_report(args, input),        // 876
-    |args, input, _| bi_telemetry_events(args, input),        // 877
-    |args, input, _| bi_telemetry_reset(args, input),         // 878
+    |args, input, _| bi_telemetry_enable(args, input), // 873
+    |args, input, _| bi_telemetry_disable(args, input), // 874
+    |args, input, _| bi_telemetry_status(args, input), // 875
+    |args, input, _| bi_telemetry_report(args, input), // 876
+    |args, input, _| bi_telemetry_events(args, input), // 877
+    |args, input, _| bi_telemetry_reset(args, input),  // 878
     // ── CLI Tool Wrappers (879-987) ──────────────────────────
     // SSH (879-883)
-    |args, input, _| bi_ssh_exec(args, input),                // 879
-    |args, input, _| bi_ssh_tunnel(args, input),              // 880
-    |args, input, _| bi_ssh_keygen(args, input),              // 881
-    |args, input, _| bi_ssh_copy_id(args, input),             // 882
-    |args, input, _| bi_ssh_config(args, input),              // 883
+    |args, input, _| bi_ssh_exec(args, input),    // 879
+    |args, input, _| bi_ssh_tunnel(args, input),  // 880
+    |args, input, _| bi_ssh_keygen(args, input),  // 881
+    |args, input, _| bi_ssh_copy_id(args, input), // 882
+    |args, input, _| bi_ssh_config(args, input),  // 883
     // rsync (884)
-    |args, input, _| bi_rsync_sync(args, input),              // 884
+    |args, input, _| bi_rsync_sync(args, input), // 884
     // scp (885-886)
-    |args, input, _| bi_scp_upload(args, input),              // 885
-    |args, input, _| bi_scp_download(args, input),            // 886
+    |args, input, _| bi_scp_upload(args, input),   // 885
+    |args, input, _| bi_scp_download(args, input), // 886
     // openssl (887-888)
-    |args, input, _| bi_openssl_cert_info(args, input),       // 887
-    |args, input, _| bi_openssl_genrsa(args, input),          // 888
+    |args, input, _| bi_openssl_cert_info(args, input), // 887
+    |args, input, _| bi_openssl_genrsa(args, input),    // 888
     // gpg (889-891)
-    |args, input, _| bi_gpg_list_keys(args, input),           // 889
-    |args, input, _| bi_gpg_encrypt(args, input),             // 890
-    |args, input, _| bi_gpg_decrypt(args, input),             // 891
+    |args, input, _| bi_gpg_list_keys(args, input), // 889
+    |args, input, _| bi_gpg_encrypt(args, input),   // 890
+    |args, input, _| bi_gpg_decrypt(args, input),   // 891
     // Docker (892-911)
-    |args, input, _| bi_docker_ps(args, input),               // 892
-    |args, input, _| bi_docker_images(args, input),           // 893
-    |args, input, _| bi_docker_run(args, input),              // 894
-    |args, input, _| bi_docker_exec(args, input),             // 895
-    |args, input, _| bi_docker_logs(args, input),             // 896
-    |args, input, _| bi_docker_stop(args, input),             // 897
-    |args, input, _| bi_docker_rm(args, input),               // 898
-    |args, input, _| bi_docker_build(args, input),            // 899
-    |args, input, _| bi_docker_pull(args, input),             // 900
-    |args, input, _| bi_docker_push(args, input),             // 901
-    |args, input, _| bi_docker_inspect(args, input),          // 902
-    |args, input, _| bi_docker_volumes(args, input),          // 903
-    |args, input, _| bi_docker_networks(args, input),         // 904
-    |args, input, _| bi_docker_compose_up(args, input),       // 905
-    |args, input, _| bi_docker_compose_down(args, input),     // 906
-    |args, input, _| bi_docker_compose_ps(args, input),       // 907
-    |args, input, _| bi_docker_stats(args, input),            // 908
-    |args, input, _| bi_docker_top(args, input),              // 909
-    |args, input, _| bi_docker_cp(args, input),               // 910
-    |args, input, _| bi_docker_tag(args, input),              // 911
+    |args, input, _| bi_docker_ps(args, input),      // 892
+    |args, input, _| bi_docker_images(args, input),  // 893
+    |args, input, _| bi_docker_run(args, input),     // 894
+    |args, input, _| bi_docker_exec(args, input),    // 895
+    |args, input, _| bi_docker_logs(args, input),    // 896
+    |args, input, _| bi_docker_stop(args, input),    // 897
+    |args, input, _| bi_docker_rm(args, input),      // 898
+    |args, input, _| bi_docker_build(args, input),   // 899
+    |args, input, _| bi_docker_pull(args, input),    // 900
+    |args, input, _| bi_docker_push(args, input),    // 901
+    |args, input, _| bi_docker_inspect(args, input), // 902
+    |args, input, _| bi_docker_volumes(args, input), // 903
+    |args, input, _| bi_docker_networks(args, input), // 904
+    |args, input, _| bi_docker_compose_up(args, input), // 905
+    |args, input, _| bi_docker_compose_down(args, input), // 906
+    |args, input, _| bi_docker_compose_ps(args, input), // 907
+    |args, input, _| bi_docker_stats(args, input),   // 908
+    |args, input, _| bi_docker_top(args, input),     // 909
+    |args, input, _| bi_docker_cp(args, input),      // 910
+    |args, input, _| bi_docker_tag(args, input),     // 911
     // Podman (912-920)
-    |args, input, _| bi_podman_ps(args, input),               // 912
-    |args, input, _| bi_podman_images(args, input),           // 913
-    |args, input, _| bi_podman_run(args, input),              // 914
-    |args, input, _| bi_podman_exec(args, input),             // 915
-    |args, input, _| bi_podman_logs(args, input),             // 916
-    |args, input, _| bi_podman_stop(args, input),             // 917
-    |args, input, _| bi_podman_rm(args, input),               // 918
-    |args, input, _| bi_podman_build(args, input),            // 919
-    |args, input, _| bi_podman_pull(args, input),             // 920
+    |args, input, _| bi_podman_ps(args, input),     // 912
+    |args, input, _| bi_podman_images(args, input), // 913
+    |args, input, _| bi_podman_run(args, input),    // 914
+    |args, input, _| bi_podman_exec(args, input),   // 915
+    |args, input, _| bi_podman_logs(args, input),   // 916
+    |args, input, _| bi_podman_stop(args, input),   // 917
+    |args, input, _| bi_podman_rm(args, input),     // 918
+    |args, input, _| bi_podman_build(args, input),  // 919
+    |args, input, _| bi_podman_pull(args, input),   // 920
     // Kubernetes / kubectl (921-943)
-    |args, input, _| bi_k8s_get(args, input),                 // 921
-    |args, input, _| bi_k8s_apply(args, input),               // 922
-    |args, input, _| bi_k8s_delete(args, input),              // 923
-    |args, input, _| bi_k8s_describe(args, input),            // 924
-    |args, input, _| bi_k8s_logs(args, input),                // 925
-    |args, input, _| bi_k8s_exec(args, input),                // 926
-    |args, input, _| bi_k8s_pods(args, input),                // 927
-    |args, input, _| bi_k8s_services(args, input),            // 928
-    |args, input, _| bi_k8s_deployments(args, input),         // 929
-    |args, input, _| bi_k8s_namespaces(args, input),          // 930
-    |args, input, _| bi_k8s_nodes(args, input),               // 931
-    |args, input, _| bi_k8s_events(args, input),              // 932
-    |args, input, _| bi_k8s_configmaps(args, input),          // 933
-    |args, input, _| bi_k8s_secrets(args, input),             // 934
-    |args, input, _| bi_k8s_ingresses(args, input),           // 935
-    |args, input, _| bi_k8s_rollout_status(args, input),      // 936
-    |args, input, _| bi_k8s_rollout_restart(args, input),     // 937
-    |args, input, _| bi_k8s_scale(args, input),               // 938
-    |args, input, _| bi_k8s_top_pods(args, input),            // 939
-    |args, input, _| bi_k8s_top_nodes(args, input),           // 940
-    |args, input, _| bi_k8s_context(args, input),             // 941
-    |args, input, _| bi_k8s_contexts(args, input),            // 942
-    |args, input, _| bi_k8s_cluster_info(args, input),        // 943
+    |args, input, _| bi_k8s_get(args, input),         // 921
+    |args, input, _| bi_k8s_apply(args, input),       // 922
+    |args, input, _| bi_k8s_delete(args, input),      // 923
+    |args, input, _| bi_k8s_describe(args, input),    // 924
+    |args, input, _| bi_k8s_logs(args, input),        // 925
+    |args, input, _| bi_k8s_exec(args, input),        // 926
+    |args, input, _| bi_k8s_pods(args, input),        // 927
+    |args, input, _| bi_k8s_services(args, input),    // 928
+    |args, input, _| bi_k8s_deployments(args, input), // 929
+    |args, input, _| bi_k8s_namespaces(args, input),  // 930
+    |args, input, _| bi_k8s_nodes(args, input),       // 931
+    |args, input, _| bi_k8s_events(args, input),      // 932
+    |args, input, _| bi_k8s_configmaps(args, input),  // 933
+    |args, input, _| bi_k8s_secrets(args, input),     // 934
+    |args, input, _| bi_k8s_ingresses(args, input),   // 935
+    |args, input, _| bi_k8s_rollout_status(args, input), // 936
+    |args, input, _| bi_k8s_rollout_restart(args, input), // 937
+    |args, input, _| bi_k8s_scale(args, input),       // 938
+    |args, input, _| bi_k8s_top_pods(args, input),    // 939
+    |args, input, _| bi_k8s_top_nodes(args, input),   // 940
+    |args, input, _| bi_k8s_context(args, input),     // 941
+    |args, input, _| bi_k8s_contexts(args, input),    // 942
+    |args, input, _| bi_k8s_cluster_info(args, input), // 943
     // Helm (944-950)
-    |args, input, _| bi_helm_list(args, input),               // 944
-    |args, input, _| bi_helm_install(args, input),            // 945
-    |args, input, _| bi_helm_upgrade(args, input),            // 946
-    |args, input, _| bi_helm_uninstall(args, input),          // 947
-    |args, input, _| bi_helm_repos(args, input),              // 948
-    |args, input, _| bi_helm_search(args, input),             // 949
-    |args, input, _| bi_helm_status(args, input),             // 950
+    |args, input, _| bi_helm_list(args, input),      // 944
+    |args, input, _| bi_helm_install(args, input),   // 945
+    |args, input, _| bi_helm_upgrade(args, input),   // 946
+    |args, input, _| bi_helm_uninstall(args, input), // 947
+    |args, input, _| bi_helm_repos(args, input),     // 948
+    |args, input, _| bi_helm_search(args, input),    // 949
+    |args, input, _| bi_helm_status(args, input),    // 950
     // Terraform (951-958)
-    |args, input, _| bi_terraform_init(args, input),          // 951
-    |args, input, _| bi_terraform_plan(args, input),          // 952
-    |args, input, _| bi_terraform_apply(args, input),         // 953
-    |args, input, _| bi_terraform_destroy(args, input),       // 954
-    |args, input, _| bi_terraform_state(args, input),         // 955
-    |args, input, _| bi_terraform_output(args, input),        // 956
-    |args, input, _| bi_terraform_workspace(args, input),     // 957
-    |args, input, _| bi_terraform_validate(args, input),      // 958
+    |args, input, _| bi_terraform_init(args, input), // 951
+    |args, input, _| bi_terraform_plan(args, input), // 952
+    |args, input, _| bi_terraform_apply(args, input), // 953
+    |args, input, _| bi_terraform_destroy(args, input), // 954
+    |args, input, _| bi_terraform_state(args, input), // 955
+    |args, input, _| bi_terraform_output(args, input), // 956
+    |args, input, _| bi_terraform_workspace(args, input), // 957
+    |args, input, _| bi_terraform_validate(args, input), // 958
     // Ansible (959-962)
-    |args, input, _| bi_ansible_playbook(args, input),        // 959
-    |args, input, _| bi_ansible_inventory(args, input),       // 960
-    |args, input, _| bi_ansible_galaxy(args, input),          // 961
-    |args, input, _| bi_ansible_vault(args, input),           // 962
+    |args, input, _| bi_ansible_playbook(args, input), // 959
+    |args, input, _| bi_ansible_inventory(args, input), // 960
+    |args, input, _| bi_ansible_galaxy(args, input),   // 961
+    |args, input, _| bi_ansible_vault(args, input),    // 962
     // journalctl (963)
-    |args, input, _| bi_journalctl(args, input),              // 963
+    |args, input, _| bi_journalctl(args, input), // 963
     // lsof (964)
-    |args, input, _| bi_lsof(args, input),                    // 964
+    |args, input, _| bi_lsof(args, input), // 964
     // ── New cross-platform tool implementations (965-987) ────
     // wget (965)
-    |args, input, _| bi_wget_download(args, input),           // 965
+    |args, input, _| bi_wget_download(args, input), // 965
     // age encryption (966-968)
-    |args, input, _| bi_age_encrypt(args, input),             // 966
-    |args, input, _| bi_age_decrypt(args, input),             // 967
-    |args, input, _| bi_age_keygen(args, input),              // 968
+    |args, input, _| bi_age_encrypt(args, input), // 966
+    |args, input, _| bi_age_decrypt(args, input), // 967
+    |args, input, _| bi_age_keygen(args, input),  // 968
     // ripgrep (969)
-    |args, input, _| bi_rg_search(args, input),               // 969
+    |args, input, _| bi_rg_search(args, input), // 969
     // fd (970)
-    |args, input, _| bi_fd_find(args, input),                 // 970
+    |args, input, _| bi_fd_find(args, input), // 970
     // sed (971)
-    |args, input, _| bi_sed_replace(args, input),             // 971
+    |args, input, _| bi_sed_replace(args, input), // 971
     // awk (972)
-    |args, input, _| bi_awk_process(args, input),             // 972
+    |args, input, _| bi_awk_process(args, input), // 972
     // cut (973)
-    |args, input, _| bi_cut_columns(args, input),             // 973
+    |args, input, _| bi_cut_columns(args, input), // 973
     // xargs (974)
-    |args, input, _| bi_xargs_exec(args, input),              // 974
+    |args, input, _| bi_xargs_exec(args, input), // 974
     // jq (975-976)
-    |args, input, _| bi_jq_query(args, input),                // 975
-    |args, input, _| bi_jq_filter(args, input),               // 976
+    |args, input, _| bi_jq_query(args, input),  // 975
+    |args, input, _| bi_jq_filter(args, input), // 976
     // yq (977)
-    |args, input, _| bi_yq_query(args, input),                // 977
+    |args, input, _| bi_yq_query(args, input), // 977
     // pager/less (978)
-    |args, input, _| bi_pager(args, input),                   // 978
+    |args, input, _| bi_pager(args, input), // 978
     // tee (979)
-    |args, input, _| bi_tee_output(args, input),              // 979
+    |args, input, _| bi_tee_output(args, input), // 979
     // make (980-981)
-    |args, input, _| bi_make_run(args, input),                // 980
-    |args, input, _| bi_make_targets(args, input),            // 981
+    |args, input, _| bi_make_run(args, input),     // 980
+    |args, input, _| bi_make_targets(args, input), // 981
     // cmake (982-983)
-    |args, input, _| bi_cmake_configure(args, input),         // 982
-    |args, input, _| bi_cmake_build(args, input),             // 983
+    |args, input, _| bi_cmake_configure(args, input), // 982
+    |args, input, _| bi_cmake_build(args, input),     // 983
     // ninja (984)
-    |args, input, _| bi_ninja_build(args, input),             // 984
+    |args, input, _| bi_ninja_build(args, input), // 984
     // netstat (985)
-    |args, input, _| bi_netstat_info(args, input),            // 985
+    |args, input, _| bi_netstat_info(args, input), // 985
     // nmap (986-987)
-    |args, input, _| bi_nmap_scan(args, input),               // 986
-    |args, input, _| bi_nmap_quick(args, input),              // 987
+    |args, input, _| bi_nmap_scan(args, input),  // 986
+    |args, input, _| bi_nmap_quick(args, input), // 987
+    // ============================================================
+    // CLI Tool Wrappers — Tools 51-150 (indices 988-1103)
+    // ============================================================
+    // Dead-code activations (988-994)
+    |args, input, _| bi_file_type(args, input),    // 988
+    |args, input, _| bi_dd_copy(args, input),      // 989
+    |args, input, _| bi_lsblk(args, input),        // 990
+    |args, input, _| bi_blkid(args, input),        // 991
+    |args, input, _| bi_strace_cmd(args, input),   // 992
+    |args, input, _| bi_mount_info(args, input),   // 993
+    |args, input, _| bi_top_snapshot(args, input), // 994
+    // tmux (995-998)
+    |args, input, _| bi_tmux_new(args, input),    // 995
+    |args, input, _| bi_tmux_list(args, input),   // 996
+    |args, input, _| bi_tmux_attach(args, input), // 997
+    |args, input, _| bi_tmux_send(args, input),   // 998
+    // screen (999-1001)
+    |args, input, _| bi_screen_new(args, input),    // 999
+    |args, input, _| bi_screen_list(args, input),   // 1000
+    |args, input, _| bi_screen_attach(args, input), // 1001
+    // timeout (1002)
+    |args, input, _| bi_timeout_cmd(args, input), // 1002
+    // pkill (1003)
+    |args, input, _| bi_pkill(args, input), // 1003
+    // pgrep (1004)
+    |args, input, _| bi_pgrep(args, input), // 1004
+    // lnav (1005)
+    |args, input, _| bi_lnav_open(args, input), // 1005
+    // multitail (1006)
+    |args, input, _| bi_multitail_open(args, input), // 1006
+    // logrotate (1007)
+    |args, input, _| bi_logrotate_run(args, input), // 1007
+    // ltrace (1008)
+    |args, input, _| bi_ltrace_cmd(args, input), // 1008
+    // valgrind (1009-1010)
+    |args, input, _| bi_valgrind_run(args, input),      // 1009
+    |args, input, _| bi_valgrind_memcheck(args, input), // 1010
+    // gdb (1011-1012)
+    |args, input, _| bi_gdb_run(args, input), // 1011
+    |args, input, _| bi_gdb_bt(args, input),  // 1012
+    // lldb (1013)
+    |args, input, _| bi_lldb_run(args, input), // 1013
+    // objdump (1014-1015)
+    |args, input, _| bi_objdump_disasm(args, input),   // 1014
+    |args, input, _| bi_objdump_headers(args, input), // 1015
+    // nm (1016)
+    |args, input, _| bi_nm_symbols(args, input), // 1016
+    // readelf (1017-1018)
+    |args, input, _| bi_readelf_headers(args, input),  // 1017
+    |args, input, _| bi_readelf_sections(args, input), // 1018
+    // strings (1019)
+    |args, input, _| bi_strings_extract(args, input), // 1019
+    // chgrp (1020)
+    |args, input, _| bi_chgrp(args, input), // 1020
+    // mtr (1021)
+    |args, input, _| bi_mtr_trace(args, input), // 1021
+    // host (1022)
+    |args, input, _| bi_host_lookup(args, input), // 1022
+    // nc/netcat (1023-1024)
+    |args, input, _| bi_nc_connect(args, input), // 1023
+    |args, input, _| bi_nc_listen(args, input),  // 1024
+    // socat (1025)
+    |args, input, _| bi_socat_relay(args, input), // 1025
+    // iperf3 (1026-1027)
+    |args, input, _| bi_iperf3_server(args, input), // 1026
+    |args, input, _| bi_iperf3_client(args, input), // 1027
+    // bat (1028)
+    |args, input, _| bi_bat_view(args, input), // 1028
+    // eza (1029)
+    |args, input, _| bi_eza_list(args, input), // 1029
+    // zoxide (1030-1031)
+    |args, input, _| bi_zoxide_add(args, input),   // 1030
+    |args, input, _| bi_zoxide_query(args, input), // 1031
+    // delta (1032)
+    |args, input, _| bi_delta_diff(args, input), // 1032
+    // lazygit (1033)
+    |args, input, _| bi_lazygit_open(args, input), // 1033
+    // fzf (1034)
+    |args, input, _| bi_fzf_select(args, input), // 1034
+    // rga (1035)
+    |args, input, _| bi_rga_search(args, input), // 1035
+    // sd (1036)
+    |args, input, _| bi_sd_replace(args, input), // 1036
+    // hyperfine (1037)
+    |args, input, _| bi_hyperfine_bench(args, input), // 1037
+    // tokei (1038)
+    |args, input, _| bi_tokei_count(args, input), // 1038
+    // entr (1039)
+    |args, input, _| bi_entr_watch(args, input), // 1039
+    // watchexec (1040)
+    |args, input, _| bi_watchexec_run(args, input), // 1040
+    // just (1041-1042)
+    |args, input, _| bi_just_run(args, input),  // 1041
+    |args, input, _| bi_just_list(args, input), // 1042
+    // task (1043-1044)
+    |args, input, _| bi_task_run(args, input),  // 1043
+    |args, input, _| bi_task_list(args, input), // 1044
+    // direnv (1045-1046)
+    |args, input, _| bi_direnv_allow(args, input),  // 1045
+    |args, input, _| bi_direnv_status(args, input), // 1046
+    // asdf (1047-1048)
+    |args, input, _| bi_asdf_list(args, input),    // 1047
+    |args, input, _| bi_asdf_install(args, input), // 1048
+    // mise (1049-1050)
+    |args, input, _| bi_mise_use(args, input),  // 1049
+    |args, input, _| bi_mise_list(args, input), // 1050
+    // uv (1051-1053)
+    |args, input, _| bi_uv_run(args, input),  // 1051
+    |args, input, _| bi_uv_pip(args, input),  // 1052
+    |args, input, _| bi_uv_venv(args, input), // 1053
+    // pipx (1054-1055)
+    |args, input, _| bi_pipx_install(args, input), // 1054
+    |args, input, _| bi_pipx_list(args, input),    // 1055
+    // poetry (1056-1057)
+    |args, input, _| bi_poetry_run(args, input),     // 1056
+    |args, input, _| bi_poetry_install(args, input), // 1057
+    // node (1058)
+    |args, input, _| bi_node_run(args, input), // 1058
+    // npm (1059-1060)
+    |args, input, _| bi_npm_run(args, input),     // 1059
+    |args, input, _| bi_npm_install(args, input), // 1060
+    // pnpm (1061-1062)
+    |args, input, _| bi_pnpm_run(args, input),     // 1061
+    |args, input, _| bi_pnpm_install(args, input), // 1062
+    // yarn (1063-1064)
+    |args, input, _| bi_yarn_run(args, input),     // 1063
+    |args, input, _| bi_yarn_install(args, input), // 1064
+    // cargo (1065-1067)
+    |args, input, _| bi_cargo_run(args, input),       // 1065
+    |args, input, _| bi_cargo_build_cmd(args, input), // 1066
+    |args, input, _| bi_cargo_test_cmd(args, input),  // 1067
+    // rustup (1068-1069)
+    |args, input, _| bi_rustup_show(args, input),   // 1068
+    |args, input, _| bi_rustup_update(args, input), // 1069
+    // go (1070-1072)
+    |args, input, _| bi_go_run(args, input),   // 1070
+    |args, input, _| bi_go_build(args, input), // 1071
+    |args, input, _| bi_go_test(args, input),  // 1072
+    // mage (1073)
+    |args, input, _| bi_mage_run(args, input), // 1073
+    // bun (1074-1075)
+    |args, input, _| bi_bun_run(args, input),     // 1074
+    |args, input, _| bi_bun_install(args, input), // 1075
+    // deno (1076-1077)
+    |args, input, _| bi_deno_run(args, input),  // 1076
+    |args, input, _| bi_deno_task(args, input), // 1077
+    // gh (1078-1080)
+    |args, input, _| bi_gh_pr(args, input),       // 1078
+    |args, input, _| bi_gh_issue(args, input),    // 1079
+    |args, input, _| bi_gh_repo_cmd(args, input), // 1080
+    // glab (1081-1082)
+    |args, input, _| bi_glab_mr(args, input),    // 1081
+    |args, input, _| bi_glab_issue(args, input), // 1082
+    // act (1083)
+    |args, input, _| bi_act_run(args, input), // 1083
+    // pre-commit (1084-1085)
+    |args, input, _| bi_pre_commit_run(args, input),     // 1084
+    |args, input, _| bi_pre_commit_install(args, input), // 1085
+    // buildah (1086-1087)
+    |args, input, _| bi_buildah_build(args, input),  // 1086
+    |args, input, _| bi_buildah_images(args, input), // 1087
+    // skopeo (1088-1089)
+    |args, input, _| bi_skopeo_copy(args, input),    // 1088
+    |args, input, _| bi_skopeo_inspect(args, input), // 1089
+    // trivy (1090-1091)
+    |args, input, _| bi_trivy_scan(args, input),  // 1090
+    |args, input, _| bi_trivy_image(args, input), // 1091
+    // hadolint (1092)
+    |args, input, _| bi_hadolint_check(args, input), // 1092
+    // shellcheck (1093)
+    |args, input, _| bi_shellcheck_check(args, input), // 1093
+    // shfmt (1094)
+    |args, input, _| bi_shfmt_format(args, input), // 1094
+    // yamllint (1095)
+    |args, input, _| bi_yamllint_check(args, input), // 1095
+    // prettier (1096)
+    |args, input, _| bi_prettier_format(args, input), // 1096
+    // eslint (1097)
+    |args, input, _| bi_eslint_check(args, input), // 1097
+    // ruff (1098-1099)
+    |args, input, _| bi_ruff_check(args, input),  // 1098
+    |args, input, _| bi_ruff_format(args, input), // 1099
+    // black (1100)
+    |args, input, _| bi_black_format(args, input), // 1100
+    // mypy (1101)
+    |args, input, _| bi_mypy_check(args, input), // 1101
+    // pytest (1102)
+    |args, input, _| bi_pytest_run(args, input), // 1102
+    // nodemon (1103)
+    |args, input, _| bi_nodemon_run(args, input), // 1103
 ];
 
 fn fast_builtin_lookup(
@@ -14482,9 +14911,10 @@ fn bi_proc_children(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     obj @ serde_json::Value::Object(_) => vec![obj.clone()],
                     _ => vec![],
                 };
-                let children: Vec<Value> = items.iter().filter_map(|obj| {
-                    obj.as_object()?.get("ProcessId")?.as_i64().map(Value::Int)
-                }).collect();
+                let children: Vec<Value> = items
+                    .iter()
+                    .filter_map(|obj| obj.as_object()?.get("ProcessId")?.as_i64().map(Value::Int))
+                    .collect();
                 return Ok(Value::Array(children));
             }
         }
@@ -15828,13 +16258,20 @@ fn bi_net_ip(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     obj @ serde_json::Value::Object(_) => vec![obj.clone()],
                     _ => vec![],
                 };
-                let addrs: Vec<Value> = items.iter().filter_map(|obj| {
-                    let o = obj.as_object()?;
-                    let mut rec = std::collections::BTreeMap::new();
-                    if let Some(v) = o.get("IPAddress") { rec.insert("ip".to_string(), json_to_value(v.clone())); }
-                    if let Some(v) = o.get("InterfaceAlias") { rec.insert("interface".to_string(), json_to_value(v.clone())); }
-                    Some(Value::Record(rec))
-                }).collect();
+                let addrs: Vec<Value> = items
+                    .iter()
+                    .filter_map(|obj| {
+                        let o = obj.as_object()?;
+                        let mut rec = std::collections::BTreeMap::new();
+                        if let Some(v) = o.get("IPAddress") {
+                            rec.insert("ip".to_string(), json_to_value(v.clone()));
+                        }
+                        if let Some(v) = o.get("InterfaceAlias") {
+                            rec.insert("interface".to_string(), json_to_value(v.clone()));
+                        }
+                        Some(Value::Record(rec))
+                    })
+                    .collect();
                 if addrs.len() == 1 {
                     // Single interface: return just the IP string for consistency with Linux/macOS
                     if let Some(Value::Record(rec)) = addrs.first() {
@@ -15901,9 +16338,15 @@ fn bi_net_dns_lookup(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     obj @ serde_json::Value::Object(_) => vec![obj.clone()],
                     _ => vec![],
                 };
-                let ips: Vec<Value> = items.iter().filter_map(|obj| {
-                    obj.as_object()?.get("IPAddress")?.as_str().map(|s| Value::Str(s.to_string()))
-                }).collect();
+                let ips: Vec<Value> = items
+                    .iter()
+                    .filter_map(|obj| {
+                        obj.as_object()?
+                            .get("IPAddress")?
+                            .as_str()
+                            .map(|s| Value::Str(s.to_string()))
+                    })
+                    .collect();
                 return Ok(Value::Array(ips));
             }
         }
@@ -15953,7 +16396,11 @@ fn bi_net_dns_reverse(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
                     _ => vec![],
                 };
                 for obj in &items {
-                    if let Some(name) = obj.as_object().and_then(|o| o.get("NameHost")).and_then(|v| v.as_str()) {
+                    if let Some(name) = obj
+                        .as_object()
+                        .and_then(|o| o.get("NameHost"))
+                        .and_then(|v| v.as_str())
+                    {
                         return Ok(Value::Str(name.to_string()));
                     }
                 }
@@ -15999,7 +16446,10 @@ fn parse_ping_output(text: &str, host: &str) -> Value {
             // Extract loss percentage
             if let Some(pct_pos) = line.find('%') {
                 let before = &line[..pct_pos];
-                let loss_str = before.rsplit(|c: char| !c.is_ascii_digit() && c != '.').next().unwrap_or("0");
+                let loss_str = before
+                    .rsplit(|c: char| !c.is_ascii_digit() && c != '.')
+                    .next()
+                    .unwrap_or("0");
                 if let Ok(loss) = loss_str.parse::<f64>() {
                     rec.insert("packet_loss_pct".to_string(), Value::Float(loss));
                 }
@@ -16091,7 +16541,8 @@ fn bi_net_traceroute(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args(["-d", &host])
             .output()?;
         let text = String::from_utf8_lossy(&output.stdout);
-        let hops: Vec<Value> = text.lines()
+        let hops: Vec<Value> = text
+            .lines()
             .filter(|l| {
                 let trimmed = l.trim();
                 !trimmed.is_empty() && trimmed.chars().next().map_or(false, |c| c.is_ascii_digit())
@@ -16102,15 +16553,21 @@ fn bi_net_traceroute(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     let mut rec = std::collections::BTreeMap::new();
                     rec.insert("hop".to_string(), Value::Int(parts[0].parse().unwrap_or(0)));
                     // Last token is the IP
-                    rec.insert("ip".to_string(), Value::Str(parts.last().unwrap_or(&"").to_string()));
+                    rec.insert(
+                        "ip".to_string(),
+                        Value::Str(parts.last().unwrap_or(&"").to_string()),
+                    );
                     // RTT values (ms) — typically 3 values between hop number and IP
-                    let rtts: Vec<Value> = parts[1..parts.len()-1].iter()
+                    let rtts: Vec<Value> = parts[1..parts.len() - 1]
+                        .iter()
                         .filter_map(|s| s.trim_end_matches("ms").parse::<f64>().ok())
                         .map(Value::Float)
                         .collect();
                     rec.insert("rtt_ms".to_string(), Value::Array(rtts));
                     Some(Value::Record(rec))
-                } else { None }
+                } else {
+                    None
+                }
             })
             .collect();
         return Ok(Value::Array(hops));
@@ -16121,7 +16578,8 @@ fn bi_net_traceroute(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args(["-n", &host])
             .output()?;
         let text = String::from_utf8_lossy(&output.stdout);
-        let hops: Vec<Value> = text.lines()
+        let hops: Vec<Value> = text
+            .lines()
             .filter(|l| {
                 let trimmed = l.trim();
                 !trimmed.is_empty() && trimmed.chars().next().map_or(false, |c| c.is_ascii_digit())
@@ -16132,17 +16590,23 @@ fn bi_net_traceroute(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     let mut rec = std::collections::BTreeMap::new();
                     rec.insert("hop".to_string(), Value::Int(parts[0].parse().unwrap_or(0)));
                     // Find IP (not a number ending in 'ms' and not '*')
-                    let ip = parts.iter().skip(1)
+                    let ip = parts
+                        .iter()
+                        .skip(1)
                         .find(|s| !s.ends_with("ms") && **s != "*" && s.contains('.'))
                         .unwrap_or(&"*");
                     rec.insert("ip".to_string(), Value::Str(ip.to_string()));
-                    let rtts: Vec<Value> = parts.iter().skip(1)
+                    let rtts: Vec<Value> = parts
+                        .iter()
+                        .skip(1)
                         .filter_map(|s| s.trim_end_matches("ms").parse::<f64>().ok())
                         .map(Value::Float)
                         .collect();
                     rec.insert("rtt_ms".to_string(), Value::Array(rtts));
                     Some(Value::Record(rec))
-                } else { None }
+                } else {
+                    None
+                }
             })
             .collect();
         return Ok(Value::Array(hops));
@@ -16163,26 +16627,47 @@ fn bi_net_connections(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
                     obj @ serde_json::Value::Object(_) => vec![obj.clone()],
                     _ => vec![],
                 };
-                let conns: Vec<Value> = items.iter().filter_map(|obj| {
-                    let o = obj.as_object()?;
-                    let mut rec = std::collections::BTreeMap::new();
-                    // Map Windows State codes to readable strings
-                    let state = match o.get("State").and_then(|v| v.as_i64()) {
-                        Some(1) => "closed", Some(2) => "listen", Some(3) => "syn_sent",
-                        Some(4) => "syn_received", Some(5) => "established", Some(6) => "fin_wait_1",
-                        Some(7) => "fin_wait_2", Some(8) => "close_wait", Some(9) => "closing",
-                        Some(10) => "last_ack", Some(11) => "time_wait", Some(12) => "delete_tcb",
-                        _ => "unknown",
-                    };
-                    rec.insert("state".to_string(), Value::Str(state.to_string()));
-                    let local_addr = o.get("LocalAddress").and_then(|v| v.as_str()).unwrap_or("");
-                    let local_port = o.get("LocalPort").and_then(|v| v.as_i64()).unwrap_or(0);
-                    rec.insert("local".to_string(), Value::Str(format!("{}:{}", local_addr, local_port)));
-                    let remote_addr = o.get("RemoteAddress").and_then(|v| v.as_str()).unwrap_or("");
-                    let remote_port = o.get("RemotePort").and_then(|v| v.as_i64()).unwrap_or(0);
-                    rec.insert("peer".to_string(), Value::Str(format!("{}:{}", remote_addr, remote_port)));
-                    Some(Value::Record(rec))
-                }).collect();
+                let conns: Vec<Value> = items
+                    .iter()
+                    .filter_map(|obj| {
+                        let o = obj.as_object()?;
+                        let mut rec = std::collections::BTreeMap::new();
+                        // Map Windows State codes to readable strings
+                        let state = match o.get("State").and_then(|v| v.as_i64()) {
+                            Some(1) => "closed",
+                            Some(2) => "listen",
+                            Some(3) => "syn_sent",
+                            Some(4) => "syn_received",
+                            Some(5) => "established",
+                            Some(6) => "fin_wait_1",
+                            Some(7) => "fin_wait_2",
+                            Some(8) => "close_wait",
+                            Some(9) => "closing",
+                            Some(10) => "last_ack",
+                            Some(11) => "time_wait",
+                            Some(12) => "delete_tcb",
+                            _ => "unknown",
+                        };
+                        rec.insert("state".to_string(), Value::Str(state.to_string()));
+                        let local_addr =
+                            o.get("LocalAddress").and_then(|v| v.as_str()).unwrap_or("");
+                        let local_port = o.get("LocalPort").and_then(|v| v.as_i64()).unwrap_or(0);
+                        rec.insert(
+                            "local".to_string(),
+                            Value::Str(format!("{}:{}", local_addr, local_port)),
+                        );
+                        let remote_addr = o
+                            .get("RemoteAddress")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        let remote_port = o.get("RemotePort").and_then(|v| v.as_i64()).unwrap_or(0);
+                        rec.insert(
+                            "peer".to_string(),
+                            Value::Str(format!("{}:{}", remote_addr, remote_port)),
+                        );
+                        Some(Value::Record(rec))
+                    })
+                    .collect();
                 return Ok(Value::Array(conns));
             }
         }
@@ -16263,11 +16748,14 @@ fn bi_net_ports(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_net_arp(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("arp").args(["-a"]).output()?;
     let text = String::from_utf8_lossy(&output.stdout);
-    let entries: Vec<Value> = text.lines()
+    let entries: Vec<Value> = text
+        .lines()
         .filter(|l| !l.trim().is_empty())
         .filter_map(|l| {
             let parts: Vec<&str> = l.split_whitespace().collect();
-            if parts.len() < 2 { return None; }
+            if parts.len() < 2 {
+                return None;
+            }
             let mut rec = std::collections::BTreeMap::new();
             // Unix format: "hostname (ip) at mac [ether] on interface"
             // Windows format: "ip  mac  type"
@@ -16275,7 +16763,7 @@ fn bi_net_arp(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 // Unix format
                 if let Some(start) = l.find('(') {
                     if let Some(end) = l.find(')') {
-                        rec.insert("ip".to_string(), Value::Str(l[start+1..end].to_string()));
+                        rec.insert("ip".to_string(), Value::Str(l[start + 1..end].to_string()));
                     }
                 }
                 // MAC is typically after "at"
@@ -16302,7 +16790,11 @@ fn bi_net_arp(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     return None;
                 }
             }
-            if rec.is_empty() { None } else { Some(Value::Record(rec)) }
+            if rec.is_empty() {
+                None
+            } else {
+                Some(Value::Record(rec))
+            }
         })
         .collect();
     Ok(Value::Array(entries))
@@ -16322,15 +16814,26 @@ fn bi_net_route(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     obj @ serde_json::Value::Object(_) => vec![obj.clone()],
                     _ => vec![],
                 };
-                let routes: Vec<Value> = items.iter().filter_map(|obj| {
-                    let o = obj.as_object()?;
-                    let mut rec = std::collections::BTreeMap::new();
-                    if let Some(v) = o.get("DestinationPrefix") { rec.insert("destination".to_string(), json_to_value(v.clone())); }
-                    if let Some(v) = o.get("NextHop") { rec.insert("gateway".to_string(), json_to_value(v.clone())); }
-                    if let Some(v) = o.get("InterfaceAlias") { rec.insert("interface".to_string(), json_to_value(v.clone())); }
-                    if let Some(v) = o.get("RouteMetric") { rec.insert("metric".to_string(), json_to_value(v.clone())); }
-                    Some(Value::Record(rec))
-                }).collect();
+                let routes: Vec<Value> = items
+                    .iter()
+                    .filter_map(|obj| {
+                        let o = obj.as_object()?;
+                        let mut rec = std::collections::BTreeMap::new();
+                        if let Some(v) = o.get("DestinationPrefix") {
+                            rec.insert("destination".to_string(), json_to_value(v.clone()));
+                        }
+                        if let Some(v) = o.get("NextHop") {
+                            rec.insert("gateway".to_string(), json_to_value(v.clone()));
+                        }
+                        if let Some(v) = o.get("InterfaceAlias") {
+                            rec.insert("interface".to_string(), json_to_value(v.clone()));
+                        }
+                        if let Some(v) = o.get("RouteMetric") {
+                            rec.insert("metric".to_string(), json_to_value(v.clone()));
+                        }
+                        Some(Value::Record(rec))
+                    })
+                    .collect();
                 return Ok(Value::Array(routes));
             }
         }
@@ -16347,27 +16850,42 @@ fn bi_net_route(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     serde_json::Value::Array(arr) => arr.clone(),
                     _ => vec![],
                 };
-                let routes: Vec<Value> = items.iter().filter_map(|obj| {
-                    let o = obj.as_object()?;
-                    let mut rec = std::collections::BTreeMap::new();
-                    if let Some(v) = o.get("dst") { rec.insert("destination".to_string(), json_to_value(v.clone())); }
-                    if let Some(v) = o.get("gateway") { rec.insert("gateway".to_string(), json_to_value(v.clone())); }
-                    if let Some(v) = o.get("dev") { rec.insert("interface".to_string(), json_to_value(v.clone())); }
-                    if let Some(v) = o.get("metric") { rec.insert("metric".to_string(), json_to_value(v.clone())); }
-                    Some(Value::Record(rec))
-                }).collect();
+                let routes: Vec<Value> = items
+                    .iter()
+                    .filter_map(|obj| {
+                        let o = obj.as_object()?;
+                        let mut rec = std::collections::BTreeMap::new();
+                        if let Some(v) = o.get("dst") {
+                            rec.insert("destination".to_string(), json_to_value(v.clone()));
+                        }
+                        if let Some(v) = o.get("gateway") {
+                            rec.insert("gateway".to_string(), json_to_value(v.clone()));
+                        }
+                        if let Some(v) = o.get("dev") {
+                            rec.insert("interface".to_string(), json_to_value(v.clone()));
+                        }
+                        if let Some(v) = o.get("metric") {
+                            rec.insert("metric".to_string(), json_to_value(v.clone()));
+                        }
+                        Some(Value::Record(rec))
+                    })
+                    .collect();
                 return Ok(Value::Array(routes));
             }
         }
         // Fallback to text parsing
         let output = std::process::Command::new("ip").args(["route"]).output()?;
         let text = String::from_utf8_lossy(&output.stdout);
-        let routes: Vec<Value> = text.lines()
+        let routes: Vec<Value> = text
+            .lines()
             .filter(|l| !l.trim().is_empty())
             .map(|l| {
                 let parts: Vec<&str> = l.split_whitespace().collect();
                 let mut rec = std::collections::BTreeMap::new();
-                rec.insert("destination".to_string(), Value::Str(parts.first().unwrap_or(&"").to_string()));
+                rec.insert(
+                    "destination".to_string(),
+                    Value::Str(parts.first().unwrap_or(&"").to_string()),
+                );
                 // Find "via" for gateway, "dev" for interface
                 if let Some(pos) = parts.iter().position(|&p| p == "via") {
                     if let Some(gw) = parts.get(pos + 1) {
@@ -16390,7 +16908,8 @@ fn bi_net_route(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args(["-rn"])
             .output()?;
         let text = String::from_utf8_lossy(&output.stdout);
-        let routes: Vec<Value> = text.lines()
+        let routes: Vec<Value> = text
+            .lines()
             .skip(4) // skip header lines
             .filter(|l| !l.trim().is_empty())
             .filter_map(|l| {
@@ -16400,9 +16919,14 @@ fn bi_net_route(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     rec.insert("destination".to_string(), Value::Str(parts[0].to_string()));
                     rec.insert("gateway".to_string(), Value::Str(parts[1].to_string()));
                     rec.insert("flags".to_string(), Value::Str(parts[2].to_string()));
-                    rec.insert("interface".to_string(), Value::Str(parts.last().unwrap_or(&"").to_string()));
+                    rec.insert(
+                        "interface".to_string(),
+                        Value::Str(parts.last().unwrap_or(&"").to_string()),
+                    );
                     Some(Value::Record(rec))
-                } else { None }
+                } else {
+                    None
+                }
             })
             .collect();
         return Ok(Value::Array(routes));
@@ -16434,16 +16958,32 @@ fn bi_net_bandwidth(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 .filter(|l| l.contains(':'))
                 .filter_map(|l| {
                     let parts: Vec<&str> = l.split(':').collect();
-                    if parts.len() < 2 { return None; }
+                    if parts.len() < 2 {
+                        return None;
+                    }
                     let iface = parts[0].trim();
                     let stats: Vec<&str> = parts[1].split_whitespace().collect();
-                    if stats.len() < 9 { return None; }
+                    if stats.len() < 9 {
+                        return None;
+                    }
                     let mut rec = std::collections::BTreeMap::new();
                     rec.insert("interface".to_string(), Value::Str(iface.to_string()));
-                    rec.insert("rx_bytes".to_string(), Value::Int(stats[0].parse().unwrap_or(0)));
-                    rec.insert("rx_packets".to_string(), Value::Int(stats[1].parse().unwrap_or(0)));
-                    rec.insert("tx_bytes".to_string(), Value::Int(stats[8].parse().unwrap_or(0)));
-                    rec.insert("tx_packets".to_string(), Value::Int(stats[9].parse().unwrap_or(0)));
+                    rec.insert(
+                        "rx_bytes".to_string(),
+                        Value::Int(stats[0].parse().unwrap_or(0)),
+                    );
+                    rec.insert(
+                        "rx_packets".to_string(),
+                        Value::Int(stats[1].parse().unwrap_or(0)),
+                    );
+                    rec.insert(
+                        "tx_bytes".to_string(),
+                        Value::Int(stats[8].parse().unwrap_or(0)),
+                    );
+                    rec.insert(
+                        "tx_packets".to_string(),
+                        Value::Int(stats[9].parse().unwrap_or(0)),
+                    );
                     Some(Value::Record(rec))
                 })
                 .collect();
@@ -16459,18 +16999,34 @@ fn bi_net_bandwidth(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
             let lines: Vec<&str> = text.lines().collect();
-            let interfaces: Vec<Value> = lines.iter().skip(1)
+            let interfaces: Vec<Value> = lines
+                .iter()
+                .skip(1)
                 .filter(|l| !l.trim().is_empty())
                 .filter_map(|l| {
                     let parts: Vec<&str> = l.split_whitespace().collect();
-                    if parts.len() < 7 { return None; }
+                    if parts.len() < 7 {
+                        return None;
+                    }
                     // netstat -ib columns: Name Mtu Network Address Ipkts Ierrs Ibytes Opkts Oerrs Obytes
                     let mut rec = std::collections::BTreeMap::new();
                     rec.insert("interface".to_string(), Value::Str(parts[0].to_string()));
-                    rec.insert("rx_bytes".to_string(), Value::Int(parts.get(6).and_then(|s| s.parse().ok()).unwrap_or(0)));
-                    rec.insert("rx_packets".to_string(), Value::Int(parts.get(4).and_then(|s| s.parse().ok()).unwrap_or(0)));
-                    rec.insert("tx_bytes".to_string(), Value::Int(parts.get(9).and_then(|s| s.parse().ok()).unwrap_or(0)));
-                    rec.insert("tx_packets".to_string(), Value::Int(parts.get(7).and_then(|s| s.parse().ok()).unwrap_or(0)));
+                    rec.insert(
+                        "rx_bytes".to_string(),
+                        Value::Int(parts.get(6).and_then(|s| s.parse().ok()).unwrap_or(0)),
+                    );
+                    rec.insert(
+                        "rx_packets".to_string(),
+                        Value::Int(parts.get(4).and_then(|s| s.parse().ok()).unwrap_or(0)),
+                    );
+                    rec.insert(
+                        "tx_bytes".to_string(),
+                        Value::Int(parts.get(9).and_then(|s| s.parse().ok()).unwrap_or(0)),
+                    );
+                    rec.insert(
+                        "tx_packets".to_string(),
+                        Value::Int(parts.get(7).and_then(|s| s.parse().ok()).unwrap_or(0)),
+                    );
                     Some(Value::Record(rec))
                 })
                 .collect();
@@ -16490,16 +17046,34 @@ fn bi_net_bandwidth(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     obj @ serde_json::Value::Object(_) => vec![obj.clone()],
                     _ => vec![],
                 };
-                let interfaces: Vec<Value> = items.iter().filter_map(|obj| {
-                    let o = obj.as_object()?;
-                    let mut rec = std::collections::BTreeMap::new();
-                    rec.insert("interface".to_string(), json_to_value(o.get("Name")?.clone()));
-                    rec.insert("rx_bytes".to_string(), Value::Int(o.get("ReceivedBytes")?.as_i64().unwrap_or(0)));
-                    rec.insert("tx_bytes".to_string(), Value::Int(o.get("SentBytes")?.as_i64().unwrap_or(0)));
-                    rec.insert("rx_packets".to_string(), Value::Int(o.get("ReceivedUnicastPackets")?.as_i64().unwrap_or(0)));
-                    rec.insert("tx_packets".to_string(), Value::Int(o.get("SentUnicastPackets")?.as_i64().unwrap_or(0)));
-                    Some(Value::Record(rec))
-                }).collect();
+                let interfaces: Vec<Value> = items
+                    .iter()
+                    .filter_map(|obj| {
+                        let o = obj.as_object()?;
+                        let mut rec = std::collections::BTreeMap::new();
+                        rec.insert(
+                            "interface".to_string(),
+                            json_to_value(o.get("Name")?.clone()),
+                        );
+                        rec.insert(
+                            "rx_bytes".to_string(),
+                            Value::Int(o.get("ReceivedBytes")?.as_i64().unwrap_or(0)),
+                        );
+                        rec.insert(
+                            "tx_bytes".to_string(),
+                            Value::Int(o.get("SentBytes")?.as_i64().unwrap_or(0)),
+                        );
+                        rec.insert(
+                            "rx_packets".to_string(),
+                            Value::Int(o.get("ReceivedUnicastPackets")?.as_i64().unwrap_or(0)),
+                        );
+                        rec.insert(
+                            "tx_packets".to_string(),
+                            Value::Int(o.get("SentUnicastPackets")?.as_i64().unwrap_or(0)),
+                        );
+                        Some(Value::Record(rec))
+                    })
+                    .collect();
                 return Ok(Value::Array(interfaces));
             }
         }
@@ -16721,7 +17295,11 @@ fn bi_sys_uptime(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             // Parse "{ sec = 1234567890, usec = 0 }" or "sec = 1234567890"
             if let Some(sec_pos) = text.find("sec = ") {
                 let rest = &text[sec_pos + 6..];
-                if let Some(end) = rest.find(',').or_else(|| rest.find(' ')).or_else(|| rest.find('}')) {
+                if let Some(end) = rest
+                    .find(',')
+                    .or_else(|| rest.find(' '))
+                    .or_else(|| rest.find('}'))
+                {
                     if let Ok(boot_sec) = rest[..end].trim().parse::<i64>() {
                         let now = std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
@@ -17248,14 +17826,23 @@ fn bi_sys_users(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     obj @ serde_json::Value::Object(_) => vec![obj.clone()],
                     _ => vec![],
                 };
-                let users: Vec<Value> = items.iter().filter_map(|obj| {
-                    let o = obj.as_object()?;
-                    let mut rec = std::collections::BTreeMap::new();
-                    if let Some(v) = o.get("Name") { rec.insert("name".to_string(), json_to_value(v.clone())); }
-                    if let Some(v) = o.get("Enabled") { rec.insert("enabled".to_string(), json_to_value(v.clone())); }
-                    if let Some(v) = o.get("LastLogon") { rec.insert("last_logon".to_string(), json_to_value(v.clone())); }
-                    Some(Value::Record(rec))
-                }).collect();
+                let users: Vec<Value> = items
+                    .iter()
+                    .filter_map(|obj| {
+                        let o = obj.as_object()?;
+                        let mut rec = std::collections::BTreeMap::new();
+                        if let Some(v) = o.get("Name") {
+                            rec.insert("name".to_string(), json_to_value(v.clone()));
+                        }
+                        if let Some(v) = o.get("Enabled") {
+                            rec.insert("enabled".to_string(), json_to_value(v.clone()));
+                        }
+                        if let Some(v) = o.get("LastLogon") {
+                            rec.insert("last_logon".to_string(), json_to_value(v.clone()));
+                        }
+                        Some(Value::Record(rec))
+                    })
+                    .collect();
                 return Ok(Value::Array(users));
             }
         }
@@ -17302,13 +17889,20 @@ fn bi_sys_groups(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     obj @ serde_json::Value::Object(_) => vec![obj.clone()],
                     _ => vec![],
                 };
-                let groups: Vec<Value> = items.iter().filter_map(|obj| {
-                    let o = obj.as_object()?;
-                    let mut rec = std::collections::BTreeMap::new();
-                    if let Some(v) = o.get("Name") { rec.insert("name".to_string(), json_to_value(v.clone())); }
-                    if let Some(v) = o.get("Description") { rec.insert("description".to_string(), json_to_value(v.clone())); }
-                    Some(Value::Record(rec))
-                }).collect();
+                let groups: Vec<Value> = items
+                    .iter()
+                    .filter_map(|obj| {
+                        let o = obj.as_object()?;
+                        let mut rec = std::collections::BTreeMap::new();
+                        if let Some(v) = o.get("Name") {
+                            rec.insert("name".to_string(), json_to_value(v.clone()));
+                        }
+                        if let Some(v) = o.get("Description") {
+                            rec.insert("description".to_string(), json_to_value(v.clone()));
+                        }
+                        Some(Value::Record(rec))
+                    })
+                    .collect();
                 return Ok(Value::Array(groups));
             }
         }
@@ -17802,14 +18396,23 @@ fn bi_svc_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     obj @ serde_json::Value::Object(_) => vec![obj.clone()],
                     _ => vec![],
                 };
-                let entries: Vec<Value> = items.iter().filter_map(|obj| {
-                    let o = obj.as_object()?;
-                    let mut rec = std::collections::BTreeMap::new();
-                    if let Some(v) = o.get("TimeGenerated") { rec.insert("timestamp".to_string(), json_to_value(v.clone())); }
-                    if let Some(v) = o.get("EntryType") { rec.insert("level".to_string(), json_to_value(v.clone())); }
-                    if let Some(v) = o.get("Message") { rec.insert("message".to_string(), json_to_value(v.clone())); }
-                    Some(Value::Record(rec))
-                }).collect();
+                let entries: Vec<Value> = items
+                    .iter()
+                    .filter_map(|obj| {
+                        let o = obj.as_object()?;
+                        let mut rec = std::collections::BTreeMap::new();
+                        if let Some(v) = o.get("TimeGenerated") {
+                            rec.insert("timestamp".to_string(), json_to_value(v.clone()));
+                        }
+                        if let Some(v) = o.get("EntryType") {
+                            rec.insert("level".to_string(), json_to_value(v.clone()));
+                        }
+                        if let Some(v) = o.get("Message") {
+                            rec.insert("message".to_string(), json_to_value(v.clone()));
+                        }
+                        Some(Value::Record(rec))
+                    })
+                    .collect();
                 return Ok(Value::Array(entries));
             }
         }
@@ -17818,21 +18421,40 @@ fn bi_svc_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("journalctl")
-            .args(["-u", &name, "-n", &lines.to_string(), "--no-pager", "-o", "json"])
+            .args([
+                "-u",
+                &name,
+                "-n",
+                &lines.to_string(),
+                "--no-pager",
+                "-o",
+                "json",
+            ])
             .output()?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
-            let entries: Vec<Value> = text.lines()
+            let entries: Vec<Value> = text
+                .lines()
                 .filter_map(|line| {
-                    serde_json::from_str::<serde_json::Value>(line).ok().and_then(|obj| {
-                        let o = obj.as_object()?;
-                        let mut rec = std::collections::BTreeMap::new();
-                        if let Some(v) = o.get("__REALTIME_TIMESTAMP") { rec.insert("timestamp".to_string(), json_to_value(v.clone())); }
-                        if let Some(v) = o.get("PRIORITY") { rec.insert("level".to_string(), json_to_value(v.clone())); }
-                        if let Some(v) = o.get("MESSAGE") { rec.insert("message".to_string(), json_to_value(v.clone())); }
-                        if let Some(v) = o.get("_PID") { rec.insert("pid".to_string(), json_to_value(v.clone())); }
-                        Some(Value::Record(rec))
-                    })
+                    serde_json::from_str::<serde_json::Value>(line)
+                        .ok()
+                        .and_then(|obj| {
+                            let o = obj.as_object()?;
+                            let mut rec = std::collections::BTreeMap::new();
+                            if let Some(v) = o.get("__REALTIME_TIMESTAMP") {
+                                rec.insert("timestamp".to_string(), json_to_value(v.clone()));
+                            }
+                            if let Some(v) = o.get("PRIORITY") {
+                                rec.insert("level".to_string(), json_to_value(v.clone()));
+                            }
+                            if let Some(v) = o.get("MESSAGE") {
+                                rec.insert("message".to_string(), json_to_value(v.clone()));
+                            }
+                            if let Some(v) = o.get("_PID") {
+                                rec.insert("pid".to_string(), json_to_value(v.clone()));
+                            }
+                            Some(Value::Record(rec))
+                        })
                 })
                 .collect();
             return Ok(Value::Array(entries));
@@ -17842,7 +18464,8 @@ fn bi_svc_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args(["-u", &name, "-n", &lines.to_string(), "--no-pager"])
             .output()?;
         let text = String::from_utf8_lossy(&output.stdout);
-        let entries: Vec<Value> = text.lines()
+        let entries: Vec<Value> = text
+            .lines()
             .filter(|l| !l.trim().is_empty())
             .map(|l| {
                 let mut rec = std::collections::BTreeMap::new();
@@ -17866,7 +18489,8 @@ fn bi_svc_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             ])
             .output()?;
         let text = String::from_utf8_lossy(&output.stdout);
-        let entries: Vec<Value> = text.lines()
+        let entries: Vec<Value> = text
+            .lines()
             .take(lines as usize)
             .filter(|l| !l.trim().is_empty())
             .map(|l| {
@@ -17875,7 +18499,10 @@ fn bi_svc_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 // Try to split at known boundaries
                 let parts: Vec<&str> = l.splitn(3, "  ").collect();
                 if parts.len() >= 2 {
-                    rec.insert("timestamp".to_string(), Value::Str(parts[0].trim().to_string()));
+                    rec.insert(
+                        "timestamp".to_string(),
+                        Value::Str(parts[0].trim().to_string()),
+                    );
                     let msg = if parts.len() >= 3 { parts[2] } else { parts[1] };
                     rec.insert("message".to_string(), Value::Str(msg.trim().to_string()));
                 } else {
@@ -17913,7 +18540,10 @@ fn bi_cron_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
-            .args(["-Command", "Get-ScheduledTask | Select-Object TaskName,State,TaskPath | ConvertTo-Json"])
+            .args([
+                "-Command",
+                "Get-ScheduledTask | Select-Object TaskName,State,TaskPath | ConvertTo-Json",
+            ])
             .output()?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
@@ -17923,14 +18553,23 @@ fn bi_cron_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     obj @ serde_json::Value::Object(_) => vec![obj.clone()],
                     _ => vec![],
                 };
-                let tasks: Vec<Value> = items.iter().filter_map(|obj| {
-                    let o = obj.as_object()?;
-                    let mut rec = std::collections::BTreeMap::new();
-                    if let Some(v) = o.get("TaskName") { rec.insert("name".to_string(), json_to_value(v.clone())); }
-                    if let Some(v) = o.get("State") { rec.insert("state".to_string(), json_to_value(v.clone())); }
-                    if let Some(v) = o.get("TaskPath") { rec.insert("path".to_string(), json_to_value(v.clone())); }
-                    Some(Value::Record(rec))
-                }).collect();
+                let tasks: Vec<Value> = items
+                    .iter()
+                    .filter_map(|obj| {
+                        let o = obj.as_object()?;
+                        let mut rec = std::collections::BTreeMap::new();
+                        if let Some(v) = o.get("TaskName") {
+                            rec.insert("name".to_string(), json_to_value(v.clone()));
+                        }
+                        if let Some(v) = o.get("State") {
+                            rec.insert("state".to_string(), json_to_value(v.clone()));
+                        }
+                        if let Some(v) = o.get("TaskPath") {
+                            rec.insert("path".to_string(), json_to_value(v.clone()));
+                        }
+                        Some(Value::Record(rec))
+                    })
+                    .collect();
                 return Ok(Value::Array(tasks));
             }
         }
@@ -17942,7 +18581,8 @@ fn bi_cron_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args(["-l"])
             .output()?;
         let text = String::from_utf8_lossy(&output.stdout);
-        let entries: Vec<Value> = text.lines()
+        let entries: Vec<Value> = text
+            .lines()
             .filter(|l| !l.trim().is_empty() && !l.trim().starts_with('#'))
             .map(|l| {
                 let mut rec = std::collections::BTreeMap::new();
@@ -18019,14 +18659,23 @@ fn bi_startup_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     obj @ serde_json::Value::Object(_) => vec![obj.clone()],
                     _ => vec![],
                 };
-                let startup: Vec<Value> = items.iter().filter_map(|obj| {
-                    let o = obj.as_object()?;
-                    let mut rec = std::collections::BTreeMap::new();
-                    if let Some(v) = o.get("Name") { rec.insert("name".to_string(), json_to_value(v.clone())); }
-                    if let Some(v) = o.get("Command") { rec.insert("command".to_string(), json_to_value(v.clone())); }
-                    if let Some(v) = o.get("Location") { rec.insert("location".to_string(), json_to_value(v.clone())); }
-                    Some(Value::Record(rec))
-                }).collect();
+                let startup: Vec<Value> = items
+                    .iter()
+                    .filter_map(|obj| {
+                        let o = obj.as_object()?;
+                        let mut rec = std::collections::BTreeMap::new();
+                        if let Some(v) = o.get("Name") {
+                            rec.insert("name".to_string(), json_to_value(v.clone()));
+                        }
+                        if let Some(v) = o.get("Command") {
+                            rec.insert("command".to_string(), json_to_value(v.clone()));
+                        }
+                        if let Some(v) = o.get("Location") {
+                            rec.insert("location".to_string(), json_to_value(v.clone()));
+                        }
+                        Some(Value::Record(rec))
+                    })
+                    .collect();
                 return Ok(Value::Array(startup));
             }
         }
@@ -18044,13 +18693,20 @@ fn bi_startup_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .output()?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
-            let services: Vec<Value> = text.lines()
+            let services: Vec<Value> = text
+                .lines()
                 .filter(|l| !l.trim().is_empty())
                 .map(|l| {
                     let parts: Vec<&str> = l.split_whitespace().collect();
                     let mut rec = std::collections::BTreeMap::new();
-                    rec.insert("name".to_string(), Value::Str(parts.first().unwrap_or(&"").to_string()));
-                    rec.insert("state".to_string(), Value::Str(parts.get(1).unwrap_or(&"").to_string()));
+                    rec.insert(
+                        "name".to_string(),
+                        Value::Str(parts.first().unwrap_or(&"").to_string()),
+                    );
+                    rec.insert(
+                        "state".to_string(),
+                        Value::Str(parts.get(1).unwrap_or(&"").to_string()),
+                    );
                     Value::Record(rec)
                 })
                 .collect();
@@ -18064,15 +18720,25 @@ fn bi_startup_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .output()?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
-            let services: Vec<Value> = text.lines()
+            let services: Vec<Value> = text
+                .lines()
                 .skip(1) // skip header
                 .filter(|l| !l.trim().is_empty())
                 .map(|l| {
                     let parts: Vec<&str> = l.split('\t').collect();
                     let mut rec = std::collections::BTreeMap::new();
-                    rec.insert("pid".to_string(), Value::Str(parts.first().unwrap_or(&"").trim().to_string()));
-                    rec.insert("exit_code".to_string(), Value::Str(parts.get(1).unwrap_or(&"").trim().to_string()));
-                    rec.insert("name".to_string(), Value::Str(parts.get(2).unwrap_or(&"").trim().to_string()));
+                    rec.insert(
+                        "pid".to_string(),
+                        Value::Str(parts.first().unwrap_or(&"").trim().to_string()),
+                    );
+                    rec.insert(
+                        "exit_code".to_string(),
+                        Value::Str(parts.get(1).unwrap_or(&"").trim().to_string()),
+                    );
+                    rec.insert(
+                        "name".to_string(),
+                        Value::Str(parts.get(2).unwrap_or(&"").trim().to_string()),
+                    );
                     Value::Record(rec)
                 })
                 .collect();
@@ -18178,13 +18844,20 @@ fn bi_zip_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     obj @ serde_json::Value::Object(_) => vec![obj.clone()],
                     _ => vec![],
                 };
-                let entries: Vec<Value> = items.iter().filter_map(|obj| {
-                    let o = obj.as_object()?;
-                    let mut rec = std::collections::BTreeMap::new();
-                    if let Some(v) = o.get("FullName") { rec.insert("name".to_string(), json_to_value(v.clone())); }
-                    if let Some(v) = o.get("Length") { rec.insert("size".to_string(), json_to_value(v.clone())); }
-                    Some(Value::Record(rec))
-                }).collect();
+                let entries: Vec<Value> = items
+                    .iter()
+                    .filter_map(|obj| {
+                        let o = obj.as_object()?;
+                        let mut rec = std::collections::BTreeMap::new();
+                        if let Some(v) = o.get("FullName") {
+                            rec.insert("name".to_string(), json_to_value(v.clone()));
+                        }
+                        if let Some(v) = o.get("Length") {
+                            rec.insert("size".to_string(), json_to_value(v.clone()));
+                        }
+                        Some(Value::Record(rec))
+                    })
+                    .collect();
                 return Ok(Value::Array(entries));
             }
         }
@@ -18197,10 +18870,15 @@ fn bi_zip_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
             // Parse unzip -l output: "  Length  Date  Time  Name" format
-            let entries: Vec<Value> = text.lines()
+            let entries: Vec<Value> = text
+                .lines()
                 .filter(|line| {
                     let trimmed = line.trim();
-                    !trimmed.is_empty() && !trimmed.starts_with("Archive") && !trimmed.starts_with("Length") && !trimmed.starts_with("---") && !trimmed.contains("files")
+                    !trimmed.is_empty()
+                        && !trimmed.starts_with("Archive")
+                        && !trimmed.starts_with("Length")
+                        && !trimmed.starts_with("---")
+                        && !trimmed.contains("files")
                 })
                 .filter_map(|line| {
                     let parts: Vec<&str> = line.split_whitespace().collect();
@@ -18554,9 +19232,15 @@ fn bi_group_members(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     obj @ serde_json::Value::Object(_) => vec![obj.clone()],
                     _ => vec![],
                 };
-                let members: Vec<Value> = items.iter().filter_map(|obj| {
-                    obj.as_object()?.get("Name")?.as_str().map(|s| Value::Str(s.to_string()))
-                }).collect();
+                let members: Vec<Value> = items
+                    .iter()
+                    .filter_map(|obj| {
+                        obj.as_object()?
+                            .get("Name")?
+                            .as_str()
+                            .map(|s| Value::Str(s.to_string()))
+                    })
+                    .collect();
                 return Ok(Value::Array(members));
             }
         }
@@ -18738,7 +19422,9 @@ fn bi_pkg_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args(["list", "installed"])
             .output()?,
         "pacman" => std::process::Command::new("pacman").args(["-Q"]).output()?,
-        "brew" => std::process::Command::new("brew").args(["list", "--versions"]).output()?,
+        "brew" => std::process::Command::new("brew")
+            .args(["list", "--versions"])
+            .output()?,
         "winget" => std::process::Command::new("winget")
             .args(["list"])
             .output()?,
@@ -18760,10 +19446,12 @@ fn bi_pkg_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                         rec.insert("version".to_string(), Value::Str(parts[2].to_string()));
                         rec.insert("arch".to_string(), Value::Str(parts[3].to_string()));
                         Some(Value::Record(rec))
-                    } else { None }
+                    } else {
+                        None
+                    }
                 })
                 .collect()
-        },
+        }
         "pacman" => {
             // pacman -Q: "name version"
             text.lines()
@@ -18775,10 +19463,12 @@ fn bi_pkg_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                         rec.insert("name".to_string(), Value::Str(parts[0].to_string()));
                         rec.insert("version".to_string(), Value::Str(parts[1].to_string()));
                         Some(Value::Record(rec))
-                    } else { None }
+                    } else {
+                        None
+                    }
                 })
                 .collect()
-        },
+        }
         "brew" => {
             // brew list --versions: "name version1 version2"
             text.lines()
@@ -18788,12 +19478,15 @@ fn bi_pkg_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     let mut rec = std::collections::BTreeMap::new();
                     rec.insert("name".to_string(), Value::Str(parts[0].to_string()));
                     if parts.len() >= 2 {
-                        rec.insert("version".to_string(), Value::Str(parts[1].trim().to_string()));
+                        rec.insert(
+                            "version".to_string(),
+                            Value::Str(parts[1].trim().to_string()),
+                        );
                     }
                     Some(Value::Record(rec))
                 })
                 .collect()
-        },
+        }
         _ => {
             // dnf/yum/winget: parse as whitespace-separated lines
             text.lines()
@@ -18805,10 +19498,12 @@ fn bi_pkg_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                         rec.insert("name".to_string(), Value::Str(parts[0].to_string()));
                         rec.insert("version".to_string(), Value::Str(parts[1].to_string()));
                         Some(Value::Record(rec))
-                    } else { None }
+                    } else {
+                        None
+                    }
                 })
                 .collect()
-        },
+        }
     };
     Ok(Value::Array(packages))
 }
@@ -18850,12 +19545,15 @@ fn bi_pkg_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     let mut rec = std::collections::BTreeMap::new();
                     rec.insert("name".to_string(), Value::Str(parts[0].trim().to_string()));
                     if parts.len() >= 2 {
-                        rec.insert("description".to_string(), Value::Str(parts[1].trim().to_string()));
+                        rec.insert(
+                            "description".to_string(),
+                            Value::Str(parts[1].trim().to_string()),
+                        );
                     }
                     Some(Value::Record(rec))
                 })
                 .collect()
-        },
+        }
         "brew" => {
             // brew search: one name per line
             text.lines()
@@ -18866,7 +19564,7 @@ fn bi_pkg_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     Value::Record(rec)
                 })
                 .collect()
-        },
+        }
         _ => {
             // Generic: parse as whitespace-separated
             text.lines()
@@ -18877,7 +19575,7 @@ fn bi_pkg_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     Value::Record(rec)
                 })
                 .collect()
-        },
+        }
     };
     Ok(Value::Array(results))
 }
@@ -18998,7 +19696,8 @@ fn bi_pkg_files(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     };
 
     let text = String::from_utf8_lossy(&output.stdout);
-    let files: Vec<Value> = text.lines()
+    let files: Vec<Value> = text
+        .lines()
         .filter(|l| !l.trim().is_empty())
         .map(|l| {
             // pacman -Ql format: "package /path/to/file", dpkg -L format: "/path/to/file"
@@ -19047,7 +19746,10 @@ fn bi_pkg_owner(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             let owned_by = &text[pos + 13..];
             let parts: Vec<&str> = owned_by.split_whitespace().collect();
             rec.insert("file".to_string(), Value::Str(text[..pos].to_string()));
-            rec.insert("package".to_string(), Value::Str(parts.first().unwrap_or(&"").to_string()));
+            rec.insert(
+                "package".to_string(),
+                Value::Str(parts.first().unwrap_or(&"").to_string()),
+            );
             if let Some(ver) = parts.get(1) {
                 rec.insert("version".to_string(), Value::Str(ver.to_string()));
             }
@@ -19306,13 +20008,20 @@ fn bi_hw_usb(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     obj @ serde_json::Value::Object(_) => vec![obj.clone()],
                     _ => vec![],
                 };
-                let devices: Vec<Value> = items.iter().filter_map(|obj| {
-                    let o = obj.as_object()?;
-                    let mut rec = std::collections::BTreeMap::new();
-                    if let Some(v) = o.get("FriendlyName") { rec.insert("name".to_string(), json_to_value(v.clone())); }
-                    if let Some(v) = o.get("Status") { rec.insert("status".to_string(), json_to_value(v.clone())); }
-                    Some(Value::Record(rec))
-                }).collect();
+                let devices: Vec<Value> = items
+                    .iter()
+                    .filter_map(|obj| {
+                        let o = obj.as_object()?;
+                        let mut rec = std::collections::BTreeMap::new();
+                        if let Some(v) = o.get("FriendlyName") {
+                            rec.insert("name".to_string(), json_to_value(v.clone()));
+                        }
+                        if let Some(v) = o.get("Status") {
+                            rec.insert("status".to_string(), json_to_value(v.clone()));
+                        }
+                        Some(Value::Record(rec))
+                    })
+                    .collect();
                 return Ok(Value::Array(devices));
             }
         }
@@ -19341,13 +20050,20 @@ fn bi_hw_usb(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
                 if let Some(items) = json.get("SPUSBDataType").and_then(|v| v.as_array()) {
-                    let devices: Vec<Value> = items.iter().filter_map(|item| {
-                        let o = item.as_object()?;
-                        let mut rec = std::collections::BTreeMap::new();
-                        if let Some(v) = o.get("_name") { rec.insert("name".to_string(), json_to_value(v.clone())); }
-                        if let Some(v) = o.get("manufacturer") { rec.insert("vendor".to_string(), json_to_value(v.clone())); }
-                        Some(Value::Record(rec))
-                    }).collect();
+                    let devices: Vec<Value> = items
+                        .iter()
+                        .filter_map(|item| {
+                            let o = item.as_object()?;
+                            let mut rec = std::collections::BTreeMap::new();
+                            if let Some(v) = o.get("_name") {
+                                rec.insert("name".to_string(), json_to_value(v.clone()));
+                            }
+                            if let Some(v) = o.get("manufacturer") {
+                                rec.insert("vendor".to_string(), json_to_value(v.clone()));
+                            }
+                            Some(Value::Record(rec))
+                        })
+                        .collect();
                     return Ok(Value::Array(devices));
                 }
             }
@@ -19393,13 +20109,20 @@ fn bi_hw_pci(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     obj @ serde_json::Value::Object(_) => vec![obj.clone()],
                     _ => vec![],
                 };
-                let devices: Vec<Value> = items.iter().filter_map(|obj| {
-                    let o = obj.as_object()?;
-                    let mut rec = std::collections::BTreeMap::new();
-                    if let Some(v) = o.get("FriendlyName") { rec.insert("name".to_string(), json_to_value(v.clone())); }
-                    if let Some(v) = o.get("Class") { rec.insert("class".to_string(), json_to_value(v.clone())); }
-                    Some(Value::Record(rec))
-                }).collect();
+                let devices: Vec<Value> = items
+                    .iter()
+                    .filter_map(|obj| {
+                        let o = obj.as_object()?;
+                        let mut rec = std::collections::BTreeMap::new();
+                        if let Some(v) = o.get("FriendlyName") {
+                            rec.insert("name".to_string(), json_to_value(v.clone()));
+                        }
+                        if let Some(v) = o.get("Class") {
+                            rec.insert("class".to_string(), json_to_value(v.clone()));
+                        }
+                        Some(Value::Record(rec))
+                    })
+                    .collect();
                 return Ok(Value::Array(devices));
             }
         }
@@ -19413,13 +20136,20 @@ fn bi_hw_pci(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
                 if let Some(items) = json.get("SPPCIDataType").and_then(|v| v.as_array()) {
-                    let devices: Vec<Value> = items.iter().filter_map(|item| {
-                        let o = item.as_object()?;
-                        let mut rec = std::collections::BTreeMap::new();
-                        if let Some(v) = o.get("sppci_name") { rec.insert("name".to_string(), json_to_value(v.clone())); }
-                        if let Some(v) = o.get("sppci_vendor") { rec.insert("vendor".to_string(), json_to_value(v.clone())); }
-                        Some(Value::Record(rec))
-                    }).collect();
+                    let devices: Vec<Value> = items
+                        .iter()
+                        .filter_map(|item| {
+                            let o = item.as_object()?;
+                            let mut rec = std::collections::BTreeMap::new();
+                            if let Some(v) = o.get("sppci_name") {
+                                rec.insert("name".to_string(), json_to_value(v.clone()));
+                            }
+                            if let Some(v) = o.get("sppci_vendor") {
+                                rec.insert("vendor".to_string(), json_to_value(v.clone()));
+                            }
+                            Some(Value::Record(rec))
+                        })
+                        .collect();
                     return Ok(Value::Array(devices));
                 }
             }
@@ -19445,13 +20175,20 @@ fn bi_hw_audio(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     obj @ serde_json::Value::Object(_) => vec![obj.clone()],
                     _ => vec![],
                 };
-                let devices: Vec<Value> = items.iter().filter_map(|obj| {
-                    let o = obj.as_object()?;
-                    let mut rec = std::collections::BTreeMap::new();
-                    if let Some(v) = o.get("Name") { rec.insert("name".to_string(), json_to_value(v.clone())); }
-                    if let Some(v) = o.get("Status") { rec.insert("status".to_string(), json_to_value(v.clone())); }
-                    Some(Value::Record(rec))
-                }).collect();
+                let devices: Vec<Value> = items
+                    .iter()
+                    .filter_map(|obj| {
+                        let o = obj.as_object()?;
+                        let mut rec = std::collections::BTreeMap::new();
+                        if let Some(v) = o.get("Name") {
+                            rec.insert("name".to_string(), json_to_value(v.clone()));
+                        }
+                        if let Some(v) = o.get("Status") {
+                            rec.insert("status".to_string(), json_to_value(v.clone()));
+                        }
+                        Some(Value::Record(rec))
+                    })
+                    .collect();
                 return Ok(Value::Array(devices));
             }
         }
@@ -19481,13 +20218,20 @@ fn bi_hw_audio(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
                 if let Some(items) = json.get("SPAudioDataType").and_then(|v| v.as_array()) {
-                    let devices: Vec<Value> = items.iter().filter_map(|item| {
-                        let o = item.as_object()?;
-                        let mut rec = std::collections::BTreeMap::new();
-                        if let Some(v) = o.get("_name") { rec.insert("name".to_string(), json_to_value(v.clone())); }
-                        if let Some(v) = o.get("coreaudio_default_audio_output_device") { rec.insert("default_output".to_string(), json_to_value(v.clone())); }
-                        Some(Value::Record(rec))
-                    }).collect();
+                    let devices: Vec<Value> = items
+                        .iter()
+                        .filter_map(|item| {
+                            let o = item.as_object()?;
+                            let mut rec = std::collections::BTreeMap::new();
+                            if let Some(v) = o.get("_name") {
+                                rec.insert("name".to_string(), json_to_value(v.clone()));
+                            }
+                            if let Some(v) = o.get("coreaudio_default_audio_output_device") {
+                                rec.insert("default_output".to_string(), json_to_value(v.clone()));
+                            }
+                            Some(Value::Record(rec))
+                        })
+                        .collect();
                     return Ok(Value::Array(devices));
                 }
             }
@@ -19540,7 +20284,10 @@ fn bi_hw_battery(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
         }
         if let Ok(status) = std::fs::read_to_string(status_path) {
-            rec.insert("status".to_string(), Value::Str(status.trim().to_lowercase()));
+            rec.insert(
+                "status".to_string(),
+                Value::Str(status.trim().to_lowercase()),
+            );
         }
         if !rec.is_empty() {
             return Ok(Value::Record(rec));
@@ -19559,7 +20306,14 @@ fn bi_hw_battery(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 if let Some(pct_pos) = line.find('%') {
                     // Walk backwards from % to find the number
                     let before = &line[..pct_pos];
-                    let num_str: String = before.chars().rev().take_while(|c| c.is_ascii_digit()).collect::<String>().chars().rev().collect();
+                    let num_str: String = before
+                        .chars()
+                        .rev()
+                        .take_while(|c| c.is_ascii_digit())
+                        .collect::<String>()
+                        .chars()
+                        .rev()
+                        .collect();
                     if let Ok(cap) = num_str.parse::<i64>() {
                         rec.insert("capacity".to_string(), Value::Int(cap));
                     }
@@ -19567,10 +20321,17 @@ fn bi_hw_battery(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     let after = &line[pct_pos + 1..];
                     for part in after.split(';') {
                         let part = part.trim().to_lowercase();
-                        if part.contains("charging") || part.contains("charged") || part.contains("discharging") {
-                            let status = if part.contains("discharging") { "discharging" }
-                                else if part.contains("charged") { "full" }
-                                else { "charging" };
+                        if part.contains("charging")
+                            || part.contains("charged")
+                            || part.contains("discharging")
+                        {
+                            let status = if part.contains("discharging") {
+                                "discharging"
+                            } else if part.contains("charged") {
+                                "full"
+                            } else {
+                                "charging"
+                            };
                             rec.insert("status".to_string(), Value::Str(status.to_string()));
                             break;
                         }
@@ -19600,16 +20361,21 @@ fn bi_hw_sensors(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     obj @ serde_json::Value::Object(_) => vec![obj.clone()],
                     _ => vec![],
                 };
-                let sensors: Vec<Value> = items.iter().filter_map(|obj| {
-                    let o = obj.as_object()?;
-                    let mut rec = std::collections::BTreeMap::new();
-                    if let Some(v) = o.get("InstanceName") { rec.insert("name".to_string(), json_to_value(v.clone())); }
-                    // WMI returns tenths of kelvin
-                    if let Some(v) = o.get("CurrentTemperature").and_then(|v| v.as_f64()) {
-                        rec.insert("temp_c".to_string(), Value::Float((v / 10.0) - 273.15));
-                    }
-                    Some(Value::Record(rec))
-                }).collect();
+                let sensors: Vec<Value> = items
+                    .iter()
+                    .filter_map(|obj| {
+                        let o = obj.as_object()?;
+                        let mut rec = std::collections::BTreeMap::new();
+                        if let Some(v) = o.get("InstanceName") {
+                            rec.insert("name".to_string(), json_to_value(v.clone()));
+                        }
+                        // WMI returns tenths of kelvin
+                        if let Some(v) = o.get("CurrentTemperature").and_then(|v| v.as_f64()) {
+                            rec.insert("temp_c".to_string(), Value::Float((v / 10.0) - 273.15));
+                        }
+                        Some(Value::Record(rec))
+                    })
+                    .collect();
                 return Ok(Value::Array(sensors));
             }
         }
@@ -19659,7 +20425,10 @@ fn bi_hw_sensors(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 let mut rec = std::collections::BTreeMap::new();
                 rec.insert("name".to_string(), Value::Str("CPU".to_string()));
                 // Parse "65.0°C" style output
-                let temp_str: String = text.chars().take_while(|c| c.is_ascii_digit() || *c == '.').collect();
+                let temp_str: String = text
+                    .chars()
+                    .take_while(|c| c.is_ascii_digit() || *c == '.')
+                    .collect();
                 if let Ok(temp) = temp_str.parse::<f64>() {
                     rec.insert("temp_c".to_string(), Value::Float(temp));
                 }
@@ -34728,14 +35497,15 @@ pub fn bi_selinux_mode(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
             let out = sec_run_cmd("getenforce", &[])?;
             return Ok(rec(vec![("mode", s(out.trim())), ("action", s("get"))]));
         }
-        let new_mode =
-            match &args[0] {
-                Value::Str(s) => s.clone(),
-                other => return Err(anyhow!(
+        let new_mode = match &args[0] {
+            Value::Str(s) => s.clone(),
+            other => {
+                return Err(anyhow!(
                     "selinux_mode: expected String mode (Enforcing/Permissive/Disabled), got {:?}",
                     other
-                )),
-            };
+                ))
+            }
+        };
         let mode_lower = new_mode.to_lowercase();
         if !["enforcing", "permissive", "0", "1"].contains(&mode_lower.as_str()) {
             return Err(anyhow!(
@@ -37499,18 +38269,35 @@ fn bi_cloud_deploy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     };
 
     let deploy_id = uuid::Uuid::new_v4().to_string();
-    let region = opts.get("region")
-        .and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None })
+    let region = opts
+        .get("region")
+        .and_then(|v| {
+            if let Value::Str(s) = v {
+                Some(s.clone())
+            } else {
+                None
+            }
+        })
         .or_else(|| {
-            CLOUD_CONFIG.read().ok().and_then(|c| c.as_ref().map(|cc| cc.region.clone()))
+            CLOUD_CONFIG
+                .read()
+                .ok()
+                .and_then(|c| c.as_ref().map(|cc| cc.region.clone()))
         })
         .unwrap_or_else(|| "us-east-1".to_string());
-    let instance_id = opts.get("instance_id")
-        .and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None });
+    let instance_id = opts.get("instance_id").and_then(|v| {
+        if let Value::Str(s) = v {
+            Some(s.clone())
+        } else {
+            None
+        }
+    });
 
     // If target instance specified, verify it exists
     if let Some(ref iid) = instance_id {
-        let instances = CLOUD_INSTANCES.read().map_err(|e| anyhow!("lock error: {}", e))?;
+        let instances = CLOUD_INSTANCES
+            .read()
+            .map_err(|e| anyhow!("lock error: {}", e))?;
         if !instances.contains_key(iid) {
             return Err(anyhow!("cloud instance '{}' not found", iid));
         }
@@ -37524,31 +38311,48 @@ fn bi_cloud_deploy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if let Some(iid) = instance_id {
         rec.insert("instance_id".to_string(), Value::Str(iid));
     }
-    rec.insert("timestamp".to_string(), Value::Str(chrono::Local::now().to_rfc3339()));
+    rec.insert(
+        "timestamp".to_string(),
+        Value::Str(chrono::Local::now().to_rfc3339()),
+    );
     Ok(Value::Record(rec))
 }
 
 /// List all cloud instances.
 /// Usage: cloud.instances()
 fn bi_cloud_instances(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let instances = CLOUD_INSTANCES.read().map_err(|e| anyhow!("lock error: {}", e))?;
-    let entries: Vec<Value> = instances.values().map(|inst| {
-        let mut rec = BTreeMap::new();
-        rec.insert("id".to_string(), Value::Str(inst.id.clone()));
-        rec.insert("name".to_string(), Value::Str(inst.name.clone()));
-        rec.insert("region".to_string(), Value::Str(inst.region.clone()));
-        rec.insert("instance_type".to_string(), Value::Str(inst.instance_type.clone()));
-        rec.insert("status".to_string(), Value::Str(inst.status.as_str().to_string()));
-        if let Some(ref addr) = inst.address {
-            rec.insert("address".to_string(), Value::Str(addr.clone()));
-        }
-        rec.insert("created_at".to_string(), Value::Str(inst.created_at.clone()));
-        rec.insert("owner".to_string(), Value::Str(inst.owner.clone()));
-        if let Some(ref ws) = inst.workspace_id {
-            rec.insert("workspace_id".to_string(), Value::Str(ws.clone()));
-        }
-        Value::Record(rec)
-    }).collect();
+    let instances = CLOUD_INSTANCES
+        .read()
+        .map_err(|e| anyhow!("lock error: {}", e))?;
+    let entries: Vec<Value> = instances
+        .values()
+        .map(|inst| {
+            let mut rec = BTreeMap::new();
+            rec.insert("id".to_string(), Value::Str(inst.id.clone()));
+            rec.insert("name".to_string(), Value::Str(inst.name.clone()));
+            rec.insert("region".to_string(), Value::Str(inst.region.clone()));
+            rec.insert(
+                "instance_type".to_string(),
+                Value::Str(inst.instance_type.clone()),
+            );
+            rec.insert(
+                "status".to_string(),
+                Value::Str(inst.status.as_str().to_string()),
+            );
+            if let Some(ref addr) = inst.address {
+                rec.insert("address".to_string(), Value::Str(addr.clone()));
+            }
+            rec.insert(
+                "created_at".to_string(),
+                Value::Str(inst.created_at.clone()),
+            );
+            rec.insert("owner".to_string(), Value::Str(inst.owner.clone()));
+            if let Some(ref ws) = inst.workspace_id {
+                rec.insert("workspace_id".to_string(), Value::Str(ws.clone()));
+            }
+            Value::Record(rec)
+        })
+        .collect();
     Ok(Value::Array(entries))
 }
 
@@ -37564,17 +38368,42 @@ fn bi_cloud_instance_create(args: Vec<Value>, _input: Option<Value>) -> Result<V
         _ => BTreeMap::new(),
     };
 
-    let config_guard = CLOUD_CONFIG.read().map_err(|e| anyhow!("lock error: {}", e))?;
-    let region = opts.get("region")
-        .and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None })
+    let config_guard = CLOUD_CONFIG
+        .read()
+        .map_err(|e| anyhow!("lock error: {}", e))?;
+    let region = opts
+        .get("region")
+        .and_then(|v| {
+            if let Value::Str(s) = v {
+                Some(s.clone())
+            } else {
+                None
+            }
+        })
         .or_else(|| config_guard.as_ref().map(|c| c.region.clone()))
         .unwrap_or_else(|| "us-east-1".to_string());
-    let instance_type = opts.get("type")
-        .and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None })
-        .or_else(|| config_guard.as_ref().map(|c| c.default_instance_type.clone()))
+    let instance_type = opts
+        .get("type")
+        .and_then(|v| {
+            if let Value::Str(s) = v {
+                Some(s.clone())
+            } else {
+                None
+            }
+        })
+        .or_else(|| {
+            config_guard
+                .as_ref()
+                .map(|c| c.default_instance_type.clone())
+        })
         .unwrap_or_else(|| "ae.small".to_string());
-    let workspace_id = opts.get("workspace")
-        .and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None });
+    let workspace_id = opts.get("workspace").and_then(|v| {
+        if let Value::Str(s) = v {
+            Some(s.clone())
+        } else {
+            None
+        }
+    });
     drop(config_guard);
 
     let id = uuid::Uuid::new_v4().to_string();
@@ -37591,7 +38420,9 @@ fn bi_cloud_instance_create(args: Vec<Value>, _input: Option<Value>) -> Result<V
         workspace_id,
     };
 
-    let mut instances = CLOUD_INSTANCES.write().map_err(|e| anyhow!("lock error: {}", e))?;
+    let mut instances = CLOUD_INSTANCES
+        .write()
+        .map_err(|e| anyhow!("lock error: {}", e))?;
     instances.insert(id.clone(), instance);
 
     let mut rec = BTreeMap::new();
@@ -37611,14 +38442,19 @@ fn bi_cloud_instance_destroy(args: Vec<Value>, _input: Option<Value>) -> Result<
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(anyhow!("cloud.instance_destroy requires instance ID")),
     };
-    let mut instances = CLOUD_INSTANCES.write().map_err(|e| anyhow!("lock error: {}", e))?;
+    let mut instances = CLOUD_INSTANCES
+        .write()
+        .map_err(|e| anyhow!("lock error: {}", e))?;
     if let Some(mut inst) = instances.remove(&id) {
         inst.status = CloudInstanceStatus::Terminated;
         let mut rec = BTreeMap::new();
         rec.insert("id".to_string(), Value::Str(inst.id));
         rec.insert("name".to_string(), Value::Str(inst.name));
         rec.insert("status".to_string(), Value::Str("terminated".to_string()));
-        rec.insert("destroyed_at".to_string(), Value::Str(chrono::Local::now().to_rfc3339()));
+        rec.insert(
+            "destroyed_at".to_string(),
+            Value::Str(chrono::Local::now().to_rfc3339()),
+        );
         Ok(Value::Record(rec))
     } else {
         Err(anyhow!("cloud instance '{}' not found", id))
@@ -37632,18 +38468,29 @@ fn bi_cloud_instance_status(args: Vec<Value>, _input: Option<Value>) -> Result<V
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(anyhow!("cloud.instance_status requires instance ID")),
     };
-    let instances = CLOUD_INSTANCES.read().map_err(|e| anyhow!("lock error: {}", e))?;
+    let instances = CLOUD_INSTANCES
+        .read()
+        .map_err(|e| anyhow!("lock error: {}", e))?;
     if let Some(inst) = instances.get(&id) {
         let mut rec = BTreeMap::new();
         rec.insert("id".to_string(), Value::Str(inst.id.clone()));
         rec.insert("name".to_string(), Value::Str(inst.name.clone()));
         rec.insert("region".to_string(), Value::Str(inst.region.clone()));
-        rec.insert("instance_type".to_string(), Value::Str(inst.instance_type.clone()));
-        rec.insert("status".to_string(), Value::Str(inst.status.as_str().to_string()));
+        rec.insert(
+            "instance_type".to_string(),
+            Value::Str(inst.instance_type.clone()),
+        );
+        rec.insert(
+            "status".to_string(),
+            Value::Str(inst.status.as_str().to_string()),
+        );
         if let Some(ref addr) = inst.address {
             rec.insert("address".to_string(), Value::Str(addr.clone()));
         }
-        rec.insert("created_at".to_string(), Value::Str(inst.created_at.clone()));
+        rec.insert(
+            "created_at".to_string(),
+            Value::Str(inst.created_at.clone()),
+        );
         rec.insert("owner".to_string(), Value::Str(inst.owner.clone()));
         Ok(Value::Record(rec))
     } else {
@@ -37658,10 +38505,16 @@ fn bi_cloud_instance_connect(args: Vec<Value>, _input: Option<Value>) -> Result<
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(anyhow!("cloud.instance_connect requires instance ID")),
     };
-    let instances = CLOUD_INSTANCES.read().map_err(|e| anyhow!("lock error: {}", e))?;
+    let instances = CLOUD_INSTANCES
+        .read()
+        .map_err(|e| anyhow!("lock error: {}", e))?;
     if let Some(inst) = instances.get(&id) {
         if inst.status != CloudInstanceStatus::Running {
-            return Err(anyhow!("instance '{}' is not running (status: {})", id, inst.status.as_str()));
+            return Err(anyhow!(
+                "instance '{}' is not running (status: {})",
+                id,
+                inst.status.as_str()
+            ));
         }
         let session_id = uuid::Uuid::new_v4().to_string();
         let session = ReplSession {
@@ -37674,7 +38527,9 @@ fn bi_cloud_instance_connect(args: Vec<Value>, _input: Option<Value>) -> Result<
             workspace_id: inst.workspace_id.clone(),
         };
         drop(instances);
-        let mut sessions = REPL_SESSIONS.write().map_err(|e| anyhow!("lock error: {}", e))?;
+        let mut sessions = REPL_SESSIONS
+            .write()
+            .map_err(|e| anyhow!("lock error: {}", e))?;
         sessions.insert(session_id.clone(), session);
 
         let mut rec = BTreeMap::new();
@@ -37700,12 +38555,15 @@ fn bi_cloud_regions(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         ("sa-east-1", "South America (São Paulo)"),
         ("af-south-1", "Africa (Cape Town)"),
     ];
-    let entries: Vec<Value> = regions.iter().map(|(code, name)| {
-        let mut rec = BTreeMap::new();
-        rec.insert("code".to_string(), Value::Str(code.to_string()));
-        rec.insert("name".to_string(), Value::Str(name.to_string()));
-        Value::Record(rec)
-    }).collect();
+    let entries: Vec<Value> = regions
+        .iter()
+        .map(|(code, name)| {
+            let mut rec = BTreeMap::new();
+            rec.insert("code".to_string(), Value::Str(code.to_string()));
+            rec.insert("name".to_string(), Value::Str(name.to_string()));
+            Value::Record(rec)
+        })
+        .collect();
     Ok(Value::Array(entries))
 }
 
@@ -37714,16 +38572,42 @@ fn bi_cloud_regions(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_cloud_config(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if let Some(Value::Record(opts)) = args.first() {
         // Set config
-        let provider = opts.get("provider")
-            .and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None })
+        let provider = opts
+            .get("provider")
+            .and_then(|v| {
+                if let Value::Str(s) = v {
+                    Some(s.clone())
+                } else {
+                    None
+                }
+            })
             .unwrap_or_else(|| "aether".to_string());
-        let region = opts.get("region")
-            .and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None })
+        let region = opts
+            .get("region")
+            .and_then(|v| {
+                if let Value::Str(s) = v {
+                    Some(s.clone())
+                } else {
+                    None
+                }
+            })
             .unwrap_or_else(|| "us-east-1".to_string());
-        let endpoint = opts.get("endpoint")
-            .and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None });
-        let instance_type = opts.get("instance_type")
-            .and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None })
+        let endpoint = opts.get("endpoint").and_then(|v| {
+            if let Value::Str(s) = v {
+                Some(s.clone())
+            } else {
+                None
+            }
+        });
+        let instance_type = opts
+            .get("instance_type")
+            .and_then(|v| {
+                if let Value::Str(s) = v {
+                    Some(s.clone())
+                } else {
+                    None
+                }
+            })
             .unwrap_or_else(|| "ae.small".to_string());
 
         let config = CloudConfig {
@@ -37733,7 +38617,9 @@ fn bi_cloud_config(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             default_instance_type: instance_type.clone(),
         };
 
-        let mut guard = CLOUD_CONFIG.write().map_err(|e| anyhow!("lock error: {}", e))?;
+        let mut guard = CLOUD_CONFIG
+            .write()
+            .map_err(|e| anyhow!("lock error: {}", e))?;
         *guard = Some(config);
 
         let mut rec = BTreeMap::new();
@@ -37747,7 +38633,9 @@ fn bi_cloud_config(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Ok(Value::Record(rec))
     } else {
         // Get config
-        let guard = CLOUD_CONFIG.read().map_err(|e| anyhow!("lock error: {}", e))?;
+        let guard = CLOUD_CONFIG
+            .read()
+            .map_err(|e| anyhow!("lock error: {}", e))?;
         if let Some(ref config) = *guard {
             let mut rec = BTreeMap::new();
             rec.insert("provider".to_string(), Value::Str(config.provider.clone()));
@@ -37755,7 +38643,10 @@ fn bi_cloud_config(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             if let Some(ref ep) = config.api_endpoint {
                 rec.insert("endpoint".to_string(), Value::Str(ep.clone()));
             }
-            rec.insert("instance_type".to_string(), Value::Str(config.default_instance_type.clone()));
+            rec.insert(
+                "instance_type".to_string(),
+                Value::Str(config.default_instance_type.clone()),
+            );
             Ok(Value::Record(rec))
         } else {
             Ok(Value::Null)
@@ -37773,17 +38664,30 @@ fn bi_repl_serve(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         _ => BTreeMap::new(),
     };
 
-    let host = opts.get("host")
-        .and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None })
+    let host = opts
+        .get("host")
+        .and_then(|v| {
+            if let Value::Str(s) = v {
+                Some(s.clone())
+            } else {
+                None
+            }
+        })
         .unwrap_or_else(|| "0.0.0.0".to_string());
-    let port = opts.get("port")
+    let port = opts
+        .get("port")
         .and_then(|v| match v {
             Value::Int(n) => Some(*n as u16),
             _ => None,
         })
         .unwrap_or(3002);
-    let workspace_id = opts.get("workspace")
-        .and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None });
+    let workspace_id = opts.get("workspace").and_then(|v| {
+        if let Value::Str(s) = v {
+            Some(s.clone())
+        } else {
+            None
+        }
+    });
 
     let session_id = uuid::Uuid::new_v4().to_string();
     let session = ReplSession {
@@ -37796,7 +38700,9 @@ fn bi_repl_serve(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         workspace_id: workspace_id.clone(),
     };
 
-    let mut sessions = REPL_SESSIONS.write().map_err(|e| anyhow!("lock error: {}", e))?;
+    let mut sessions = REPL_SESSIONS
+        .write()
+        .map_err(|e| anyhow!("lock error: {}", e))?;
     sessions.insert(session_id.clone(), session);
 
     let mut rec = BTreeMap::new();
@@ -37804,7 +38710,20 @@ fn bi_repl_serve(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     rec.insert("host".to_string(), Value::Str(host));
     rec.insert("port".to_string(), Value::Int(port as i64));
     rec.insert("status".to_string(), Value::Str("serving".to_string()));
-    rec.insert("url".to_string(), Value::Str(format!("ws://{}:{}/api/v1/ws", opts.get("host").and_then(|v| if let Value::Str(s) = v { Some(s.as_str()) } else { None }).unwrap_or("localhost"), port)));
+    rec.insert(
+        "url".to_string(),
+        Value::Str(format!(
+            "ws://{}:{}/api/v1/ws",
+            opts.get("host")
+                .and_then(|v| if let Value::Str(s) = v {
+                    Some(s.as_str())
+                } else {
+                    None
+                })
+                .unwrap_or("localhost"),
+            port
+        )),
+    );
     if let Some(ws) = workspace_id {
         rec.insert("workspace_id".to_string(), Value::Str(ws));
     }
@@ -37826,11 +38745,22 @@ fn bi_repl_connect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             }
         }
         Some(Value::Record(r)) => {
-            let h = r.get("host")
-                .and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None })
+            let h = r
+                .get("host")
+                .and_then(|v| {
+                    if let Value::Str(s) = v {
+                        Some(s.clone())
+                    } else {
+                        None
+                    }
+                })
                 .unwrap_or_else(|| "localhost".to_string());
-            let p = r.get("port")
-                .and_then(|v| match v { Value::Int(n) => Some(*n as u16), _ => None })
+            let p = r
+                .get("port")
+                .and_then(|v| match v {
+                    Value::Int(n) => Some(*n as u16),
+                    _ => None,
+                })
                 .unwrap_or(3002);
             (h, p)
         }
@@ -37848,7 +38778,9 @@ fn bi_repl_connect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         workspace_id: None,
     };
 
-    let mut sessions = REPL_SESSIONS.write().map_err(|e| anyhow!("lock error: {}", e))?;
+    let mut sessions = REPL_SESSIONS
+        .write()
+        .map_err(|e| anyhow!("lock error: {}", e))?;
     sessions.insert(session_id.clone(), session);
 
     let mut rec = BTreeMap::new();
@@ -37856,27 +38788,38 @@ fn bi_repl_connect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     rec.insert("host".to_string(), Value::Str(host.clone()));
     rec.insert("port".to_string(), Value::Int(port as i64));
     rec.insert("status".to_string(), Value::Str("connected".to_string()));
-    rec.insert("url".to_string(), Value::Str(format!("ws://{}:{}/api/v1/ws", host, port)));
+    rec.insert(
+        "url".to_string(),
+        Value::Str(format!("ws://{}:{}/api/v1/ws", host, port)),
+    );
     Ok(Value::Record(rec))
 }
 
 /// List active REPL sessions.
 /// Usage: repl.sessions()
 fn bi_repl_sessions(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let sessions = REPL_SESSIONS.read().map_err(|e| anyhow!("lock error: {}", e))?;
-    let entries: Vec<Value> = sessions.values().map(|s| {
-        let mut rec = BTreeMap::new();
-        rec.insert("id".to_string(), Value::Str(s.id.clone()));
-        rec.insert("host".to_string(), Value::Str(s.host.clone()));
-        rec.insert("port".to_string(), Value::Int(s.port as i64));
-        rec.insert("user".to_string(), Value::Str(s.user.clone()));
-        rec.insert("status".to_string(), Value::Str(s.status.clone()));
-        rec.insert("connected_at".to_string(), Value::Str(s.connected_at.clone()));
-        if let Some(ref ws) = s.workspace_id {
-            rec.insert("workspace_id".to_string(), Value::Str(ws.clone()));
-        }
-        Value::Record(rec)
-    }).collect();
+    let sessions = REPL_SESSIONS
+        .read()
+        .map_err(|e| anyhow!("lock error: {}", e))?;
+    let entries: Vec<Value> = sessions
+        .values()
+        .map(|s| {
+            let mut rec = BTreeMap::new();
+            rec.insert("id".to_string(), Value::Str(s.id.clone()));
+            rec.insert("host".to_string(), Value::Str(s.host.clone()));
+            rec.insert("port".to_string(), Value::Int(s.port as i64));
+            rec.insert("user".to_string(), Value::Str(s.user.clone()));
+            rec.insert("status".to_string(), Value::Str(s.status.clone()));
+            rec.insert(
+                "connected_at".to_string(),
+                Value::Str(s.connected_at.clone()),
+            );
+            if let Some(ref ws) = s.workspace_id {
+                rec.insert("workspace_id".to_string(), Value::Str(ws.clone()));
+            }
+            Value::Record(rec)
+        })
+        .collect();
     Ok(Value::Array(entries))
 }
 
@@ -37887,12 +38830,17 @@ fn bi_repl_disconnect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(anyhow!("repl.disconnect requires session ID")),
     };
-    let mut sessions = REPL_SESSIONS.write().map_err(|e| anyhow!("lock error: {}", e))?;
+    let mut sessions = REPL_SESSIONS
+        .write()
+        .map_err(|e| anyhow!("lock error: {}", e))?;
     if let Some(session) = sessions.remove(&id) {
         let mut rec = BTreeMap::new();
         rec.insert("id".to_string(), Value::Str(session.id));
         rec.insert("status".to_string(), Value::Str("disconnected".to_string()));
-        rec.insert("disconnected_at".to_string(), Value::Str(chrono::Local::now().to_rfc3339()));
+        rec.insert(
+            "disconnected_at".to_string(),
+            Value::Str(chrono::Local::now().to_rfc3339()),
+        );
         Ok(Value::Record(rec))
     } else {
         Err(anyhow!("REPL session '{}' not found", id))
@@ -37906,8 +38854,11 @@ fn bi_repl_broadcast(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(anyhow!("repl.broadcast requires an expression string")),
     };
-    let sessions = REPL_SESSIONS.read().map_err(|e| anyhow!("lock error: {}", e))?;
-    let targets: Vec<String> = sessions.values()
+    let sessions = REPL_SESSIONS
+        .read()
+        .map_err(|e| anyhow!("lock error: {}", e))?;
+    let targets: Vec<String> = sessions
+        .values()
         .filter(|s| s.status == "connected" || s.status == "serving")
         .map(|s| s.id.clone())
         .collect();
@@ -37915,9 +38866,18 @@ fn bi_repl_broadcast(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut rec = BTreeMap::new();
     rec.insert("expression".to_string(), Value::Str(expr));
     rec.insert("targets".to_string(), Value::Int(targets.len() as i64));
-    rec.insert("session_ids".to_string(), Value::Array(targets.into_iter().map(Value::Str).collect()));
-    rec.insert("status".to_string(), Value::Str("broadcast_sent".to_string()));
-    rec.insert("timestamp".to_string(), Value::Str(chrono::Local::now().to_rfc3339()));
+    rec.insert(
+        "session_ids".to_string(),
+        Value::Array(targets.into_iter().map(Value::Str).collect()),
+    );
+    rec.insert(
+        "status".to_string(),
+        Value::Str("broadcast_sent".to_string()),
+    );
+    rec.insert(
+        "timestamp".to_string(),
+        Value::Str(chrono::Local::now().to_rfc3339()),
+    );
     Ok(Value::Record(rec))
 }
 
@@ -37934,8 +38894,15 @@ fn bi_workspace_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         Some(Value::Record(r)) => r.clone(),
         _ => BTreeMap::new(),
     };
-    let description = opts.get("description")
-        .and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None })
+    let description = opts
+        .get("description")
+        .and_then(|v| {
+            if let Value::Str(s) = v {
+                Some(s.clone())
+            } else {
+                None
+            }
+        })
         .unwrap_or_default();
 
     let id = uuid::Uuid::new_v4().to_string();
@@ -37954,7 +38921,9 @@ fn bi_workspace_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         description: description.clone(),
     };
 
-    let mut workspaces = WORKSPACES.write().map_err(|e| anyhow!("lock error: {}", e))?;
+    let mut workspaces = WORKSPACES
+        .write()
+        .map_err(|e| anyhow!("lock error: {}", e))?;
     workspaces.insert(id.clone(), workspace);
 
     let mut rec = BTreeMap::new();
@@ -37963,25 +38932,40 @@ fn bi_workspace_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     rec.insert("owner".to_string(), Value::Str(owner));
     rec.insert("description".to_string(), Value::Str(description));
     rec.insert("member_count".to_string(), Value::Int(1));
-    rec.insert("created_at".to_string(), Value::Str(chrono::Local::now().to_rfc3339()));
+    rec.insert(
+        "created_at".to_string(),
+        Value::Str(chrono::Local::now().to_rfc3339()),
+    );
     Ok(Value::Record(rec))
 }
 
 /// List all workspaces the current user belongs to.
 /// Usage: workspace.list()
 fn bi_workspace_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let workspaces = WORKSPACES.read().map_err(|e| anyhow!("lock error: {}", e))?;
+    let workspaces = WORKSPACES
+        .read()
+        .map_err(|e| anyhow!("lock error: {}", e))?;
     let user = get_current_username();
-    let entries: Vec<Value> = workspaces.values()
+    let entries: Vec<Value> = workspaces
+        .values()
         .filter(|ws| ws.members.iter().any(|m| m.user == user))
         .map(|ws| {
             let mut rec = BTreeMap::new();
             rec.insert("id".to_string(), Value::Str(ws.id.clone()));
             rec.insert("name".to_string(), Value::Str(ws.name.clone()));
             rec.insert("owner".to_string(), Value::Str(ws.owner.clone()));
-            rec.insert("description".to_string(), Value::Str(ws.description.clone()));
-            rec.insert("member_count".to_string(), Value::Int(ws.members.len() as i64));
-            rec.insert("agent_count".to_string(), Value::Int(ws.shared_agents.len() as i64));
+            rec.insert(
+                "description".to_string(),
+                Value::Str(ws.description.clone()),
+            );
+            rec.insert(
+                "member_count".to_string(),
+                Value::Int(ws.members.len() as i64),
+            );
+            rec.insert(
+                "agent_count".to_string(),
+                Value::Int(ws.shared_agents.len() as i64),
+            );
             rec.insert("created_at".to_string(), Value::Str(ws.created_at.clone()));
             Value::Record(rec)
         })
@@ -37997,7 +38981,9 @@ fn bi_workspace_join(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         _ => return Err(anyhow!("workspace.join requires workspace ID")),
     };
     let user = get_current_username();
-    let mut workspaces = WORKSPACES.write().map_err(|e| anyhow!("lock error: {}", e))?;
+    let mut workspaces = WORKSPACES
+        .write()
+        .map_err(|e| anyhow!("lock error: {}", e))?;
     if let Some(ws) = workspaces.get_mut(&ws_id) {
         if ws.members.iter().any(|m| m.user == user) {
             return Err(anyhow!("already a member of workspace '{}'", ws.name));
@@ -38027,10 +39013,14 @@ fn bi_workspace_leave(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
         _ => return Err(anyhow!("workspace.leave requires workspace ID")),
     };
     let user = get_current_username();
-    let mut workspaces = WORKSPACES.write().map_err(|e| anyhow!("lock error: {}", e))?;
+    let mut workspaces = WORKSPACES
+        .write()
+        .map_err(|e| anyhow!("lock error: {}", e))?;
     if let Some(ws) = workspaces.get_mut(&ws_id) {
         if ws.owner == user {
-            return Err(anyhow!("workspace owner cannot leave; transfer ownership first"));
+            return Err(anyhow!(
+                "workspace owner cannot leave; transfer ownership first"
+            ));
         }
         let before = ws.members.len();
         ws.members.retain(|m| m.user != user);
@@ -38055,15 +39045,21 @@ fn bi_workspace_members(args: Vec<Value>, _input: Option<Value>) -> Result<Value
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(anyhow!("workspace.members requires workspace ID")),
     };
-    let workspaces = WORKSPACES.read().map_err(|e| anyhow!("lock error: {}", e))?;
+    let workspaces = WORKSPACES
+        .read()
+        .map_err(|e| anyhow!("lock error: {}", e))?;
     if let Some(ws) = workspaces.get(&ws_id) {
-        let members: Vec<Value> = ws.members.iter().map(|m| {
-            let mut rec = BTreeMap::new();
-            rec.insert("user".to_string(), Value::Str(m.user.clone()));
-            rec.insert("role".to_string(), Value::Str(m.role.clone()));
-            rec.insert("joined_at".to_string(), Value::Str(m.joined_at.clone()));
-            Value::Record(rec)
-        }).collect();
+        let members: Vec<Value> = ws
+            .members
+            .iter()
+            .map(|m| {
+                let mut rec = BTreeMap::new();
+                rec.insert("user".to_string(), Value::Str(m.user.clone()));
+                rec.insert("role".to_string(), Value::Str(m.role.clone()));
+                rec.insert("joined_at".to_string(), Value::Str(m.joined_at.clone()));
+                Value::Record(rec)
+            })
+            .collect();
         Ok(Value::Array(members))
     } else {
         Err(anyhow!("workspace '{}' not found", ws_id))
@@ -38081,17 +39077,26 @@ fn bi_workspace_share_agent(args: Vec<Value>, _input: Option<Value>) -> Result<V
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(anyhow!("workspace.share_agent requires agent name")),
     };
-    let mut workspaces = WORKSPACES.write().map_err(|e| anyhow!("lock error: {}", e))?;
+    let mut workspaces = WORKSPACES
+        .write()
+        .map_err(|e| anyhow!("lock error: {}", e))?;
     if let Some(ws) = workspaces.get_mut(&ws_id) {
         if ws.shared_agents.contains(&agent_name) {
-            return Err(anyhow!("agent '{}' already shared in workspace '{}'", agent_name, ws.name));
+            return Err(anyhow!(
+                "agent '{}' already shared in workspace '{}'",
+                agent_name,
+                ws.name
+            ));
         }
         ws.shared_agents.push(agent_name.clone());
         let mut rec = BTreeMap::new();
         rec.insert("workspace_id".to_string(), Value::Str(ws_id));
         rec.insert("agent".to_string(), Value::Str(agent_name));
         rec.insert("status".to_string(), Value::Str("shared".to_string()));
-        rec.insert("total_agents".to_string(), Value::Int(ws.shared_agents.len() as i64));
+        rec.insert(
+            "total_agents".to_string(),
+            Value::Int(ws.shared_agents.len() as i64),
+        );
         Ok(Value::Record(rec))
     } else {
         Err(anyhow!("workspace '{}' not found", ws_id))
@@ -38105,9 +39110,13 @@ fn bi_workspace_agents(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(anyhow!("workspace.agents requires workspace ID")),
     };
-    let workspaces = WORKSPACES.read().map_err(|e| anyhow!("lock error: {}", e))?;
+    let workspaces = WORKSPACES
+        .read()
+        .map_err(|e| anyhow!("lock error: {}", e))?;
     if let Some(ws) = workspaces.get(&ws_id) {
-        let agents: Vec<Value> = ws.shared_agents.iter()
+        let agents: Vec<Value> = ws
+            .shared_agents
+            .iter()
             .map(|a| Value::Str(a.clone()))
             .collect();
         Ok(Value::Array(agents))
@@ -38123,15 +39132,26 @@ fn bi_workspace_sync(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(anyhow!("workspace.sync requires workspace ID")),
     };
-    let workspaces = WORKSPACES.read().map_err(|e| anyhow!("lock error: {}", e))?;
+    let workspaces = WORKSPACES
+        .read()
+        .map_err(|e| anyhow!("lock error: {}", e))?;
     if let Some(ws) = workspaces.get(&ws_id) {
         let mut rec = BTreeMap::new();
         rec.insert("workspace_id".to_string(), Value::Str(ws_id));
         rec.insert("workspace_name".to_string(), Value::Str(ws.name.clone()));
-        rec.insert("members_synced".to_string(), Value::Int(ws.members.len() as i64));
-        rec.insert("agents_synced".to_string(), Value::Int(ws.shared_agents.len() as i64));
+        rec.insert(
+            "members_synced".to_string(),
+            Value::Int(ws.members.len() as i64),
+        );
+        rec.insert(
+            "agents_synced".to_string(),
+            Value::Int(ws.shared_agents.len() as i64),
+        );
         rec.insert("status".to_string(), Value::Str("synced".to_string()));
-        rec.insert("timestamp".to_string(), Value::Str(chrono::Local::now().to_rfc3339()));
+        rec.insert(
+            "timestamp".to_string(),
+            Value::Str(chrono::Local::now().to_rfc3339()),
+        );
         Ok(Value::Record(rec))
     } else {
         Err(anyhow!("workspace '{}' not found", ws_id))
@@ -38145,24 +39165,71 @@ fn bi_workspace_sync(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_marketplace_publish(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let opts = match args.first() {
         Some(Value::Record(r)) => r.clone(),
-        _ => return Err(anyhow!("marketplace.publish requires a Record with name, version, description")),
+        _ => {
+            return Err(anyhow!(
+                "marketplace.publish requires a Record with name, version, description"
+            ))
+        }
     };
-    let name = opts.get("name")
-        .and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None })
+    let name = opts
+        .get("name")
+        .and_then(|v| {
+            if let Value::Str(s) = v {
+                Some(s.clone())
+            } else {
+                None
+            }
+        })
         .ok_or_else(|| anyhow!("marketplace.publish requires 'name'"))?;
-    let version = opts.get("version")
-        .and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None })
+    let version = opts
+        .get("version")
+        .and_then(|v| {
+            if let Value::Str(s) = v {
+                Some(s.clone())
+            } else {
+                None
+            }
+        })
         .ok_or_else(|| anyhow!("marketplace.publish requires 'version'"))?;
-    let description = opts.get("description")
-        .and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None })
+    let description = opts
+        .get("description")
+        .and_then(|v| {
+            if let Value::Str(s) = v {
+                Some(s.clone())
+            } else {
+                None
+            }
+        })
         .unwrap_or_default();
-    let category = opts.get("category")
-        .and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None })
+    let category = opts
+        .get("category")
+        .and_then(|v| {
+            if let Value::Str(s) = v {
+                Some(s.clone())
+            } else {
+                None
+            }
+        })
         .unwrap_or_else(|| "general".to_string());
-    let keywords = opts.get("keywords")
-        .and_then(|v| if let Value::Array(arr) = v {
-            Some(arr.iter().filter_map(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None }).collect::<Vec<_>>())
-        } else { None })
+    let keywords = opts
+        .get("keywords")
+        .and_then(|v| {
+            if let Value::Array(arr) = v {
+                Some(
+                    arr.iter()
+                        .filter_map(|v| {
+                            if let Value::Str(s) = v {
+                                Some(s.clone())
+                            } else {
+                                None
+                            }
+                        })
+                        .collect::<Vec<_>>(),
+                )
+            } else {
+                None
+            }
+        })
         .unwrap_or_default();
 
     let package = MarketplacePackage {
@@ -38179,7 +39246,9 @@ fn bi_marketplace_publish(args: Vec<Value>, _input: Option<Value>) -> Result<Val
         keywords,
     };
 
-    let mut packages = MARKETPLACE_PACKAGES.write().map_err(|e| anyhow!("lock error: {}", e))?;
+    let mut packages = MARKETPLACE_PACKAGES
+        .write()
+        .map_err(|e| anyhow!("lock error: {}", e))?;
     packages.insert(name.clone(), package);
 
     let mut rec = BTreeMap::new();
@@ -38188,7 +39257,10 @@ fn bi_marketplace_publish(args: Vec<Value>, _input: Option<Value>) -> Result<Val
     rec.insert("description".to_string(), Value::Str(description));
     rec.insert("category".to_string(), Value::Str(category));
     rec.insert("status".to_string(), Value::Str("published".to_string()));
-    rec.insert("published_at".to_string(), Value::Str(chrono::Local::now().to_rfc3339()));
+    rec.insert(
+        "published_at".to_string(),
+        Value::Str(chrono::Local::now().to_rfc3339()),
+    );
     Ok(Value::Record(rec))
 }
 
@@ -38198,24 +39270,44 @@ fn bi_marketplace_search(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
     let (query, category) = match args.first() {
         Some(Value::Str(s)) => (s.to_lowercase(), None),
         Some(Value::Record(r)) => {
-            let q = r.get("q").or_else(|| r.get("query"))
-                .and_then(|v| if let Value::Str(s) = v { Some(s.to_lowercase()) } else { None })
+            let q = r
+                .get("q")
+                .or_else(|| r.get("query"))
+                .and_then(|v| {
+                    if let Value::Str(s) = v {
+                        Some(s.to_lowercase())
+                    } else {
+                        None
+                    }
+                })
                 .unwrap_or_default();
-            let cat = r.get("category")
-                .and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None });
+            let cat = r.get("category").and_then(|v| {
+                if let Value::Str(s) = v {
+                    Some(s.clone())
+                } else {
+                    None
+                }
+            });
             (q, cat)
         }
         _ => (String::new(), None),
     };
 
-    let packages = MARKETPLACE_PACKAGES.read().map_err(|e| anyhow!("lock error: {}", e))?;
-    let results: Vec<Value> = packages.values()
+    let packages = MARKETPLACE_PACKAGES
+        .read()
+        .map_err(|e| anyhow!("lock error: {}", e))?;
+    let results: Vec<Value> = packages
+        .values()
         .filter(|pkg| {
             let matches_query = query.is_empty()
                 || pkg.name.to_lowercase().contains(&query)
                 || pkg.description.to_lowercase().contains(&query)
-                || pkg.keywords.iter().any(|k| k.to_lowercase().contains(&query));
-            let matches_category = category.as_ref()
+                || pkg
+                    .keywords
+                    .iter()
+                    .any(|k| k.to_lowercase().contains(&query));
+            let matches_category = category
+                .as_ref()
                 .map(|c| pkg.category.to_lowercase() == c.to_lowercase())
                 .unwrap_or(true);
             matches_query && matches_category
@@ -38231,15 +39323,24 @@ fn marketplace_package_to_value(pkg: &MarketplacePackage) -> Value {
     rec.insert("name".to_string(), Value::Str(pkg.name.clone()));
     rec.insert("version".to_string(), Value::Str(pkg.version.clone()));
     rec.insert("author".to_string(), Value::Str(pkg.author.clone()));
-    rec.insert("description".to_string(), Value::Str(pkg.description.clone()));
+    rec.insert(
+        "description".to_string(),
+        Value::Str(pkg.description.clone()),
+    );
     rec.insert("category".to_string(), Value::Str(pkg.category.clone()));
     rec.insert("downloads".to_string(), Value::Int(pkg.downloads));
     rec.insert("rating".to_string(), Value::Float(pkg.rating));
     rec.insert("rating_count".to_string(), Value::Int(pkg.rating_count));
-    rec.insert("published_at".to_string(), Value::Str(pkg.published_at.clone()));
+    rec.insert(
+        "published_at".to_string(),
+        Value::Str(pkg.published_at.clone()),
+    );
     rec.insert("installed".to_string(), Value::Bool(pkg.installed));
     if !pkg.keywords.is_empty() {
-        rec.insert("keywords".to_string(), Value::Array(pkg.keywords.iter().map(|k| Value::Str(k.clone())).collect()));
+        rec.insert(
+            "keywords".to_string(),
+            Value::Array(pkg.keywords.iter().map(|k| Value::Str(k.clone())).collect()),
+        );
     }
     Value::Record(rec)
 }
@@ -38251,7 +39352,9 @@ fn bi_marketplace_install(args: Vec<Value>, _input: Option<Value>) -> Result<Val
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(anyhow!("marketplace.install requires package name")),
     };
-    let mut packages = MARKETPLACE_PACKAGES.write().map_err(|e| anyhow!("lock error: {}", e))?;
+    let mut packages = MARKETPLACE_PACKAGES
+        .write()
+        .map_err(|e| anyhow!("lock error: {}", e))?;
     if let Some(pkg) = packages.get_mut(&name) {
         pkg.installed = true;
         pkg.downloads += 1;
@@ -38259,7 +39362,10 @@ fn bi_marketplace_install(args: Vec<Value>, _input: Option<Value>) -> Result<Val
         rec.insert("name".to_string(), Value::Str(pkg.name.clone()));
         rec.insert("version".to_string(), Value::Str(pkg.version.clone()));
         rec.insert("status".to_string(), Value::Str("installed".to_string()));
-        rec.insert("installed_at".to_string(), Value::Str(chrono::Local::now().to_rfc3339()));
+        rec.insert(
+            "installed_at".to_string(),
+            Value::Str(chrono::Local::now().to_rfc3339()),
+        );
         Ok(Value::Record(rec))
     } else {
         Err(anyhow!("package '{}' not found in marketplace", name))
@@ -38273,13 +39379,18 @@ fn bi_marketplace_uninstall(args: Vec<Value>, _input: Option<Value>) -> Result<V
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(anyhow!("marketplace.uninstall requires package name")),
     };
-    let mut packages = MARKETPLACE_PACKAGES.write().map_err(|e| anyhow!("lock error: {}", e))?;
+    let mut packages = MARKETPLACE_PACKAGES
+        .write()
+        .map_err(|e| anyhow!("lock error: {}", e))?;
     if let Some(pkg) = packages.get_mut(&name) {
         pkg.installed = false;
         let mut rec = BTreeMap::new();
         rec.insert("name".to_string(), Value::Str(pkg.name.clone()));
         rec.insert("status".to_string(), Value::Str("uninstalled".to_string()));
-        rec.insert("uninstalled_at".to_string(), Value::Str(chrono::Local::now().to_rfc3339()));
+        rec.insert(
+            "uninstalled_at".to_string(),
+            Value::Str(chrono::Local::now().to_rfc3339()),
+        );
         Ok(Value::Record(rec))
     } else {
         Err(anyhow!("package '{}' not found", name))
@@ -38289,8 +39400,11 @@ fn bi_marketplace_uninstall(args: Vec<Value>, _input: Option<Value>) -> Result<V
 /// List installed marketplace packages.
 /// Usage: marketplace.list()
 fn bi_marketplace_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let packages = MARKETPLACE_PACKAGES.read().map_err(|e| anyhow!("lock error: {}", e))?;
-    let installed: Vec<Value> = packages.values()
+    let packages = MARKETPLACE_PACKAGES
+        .read()
+        .map_err(|e| anyhow!("lock error: {}", e))?;
+    let installed: Vec<Value> = packages
+        .values()
         .filter(|pkg| pkg.installed)
         .map(|pkg| marketplace_package_to_value(pkg))
         .collect();
@@ -38304,7 +39418,9 @@ fn bi_marketplace_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(anyhow!("marketplace.info requires package name")),
     };
-    let packages = MARKETPLACE_PACKAGES.read().map_err(|e| anyhow!("lock error: {}", e))?;
+    let packages = MARKETPLACE_PACKAGES
+        .read()
+        .map_err(|e| anyhow!("lock error: {}", e))?;
     if let Some(pkg) = packages.get(&name) {
         Ok(marketplace_package_to_value(pkg))
     } else {
@@ -38327,7 +39443,9 @@ fn bi_marketplace_rate(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     if !(1.0..=5.0).contains(&score) {
         return Err(anyhow!("rating must be between 1 and 5"));
     }
-    let mut packages = MARKETPLACE_PACKAGES.write().map_err(|e| anyhow!("lock error: {}", e))?;
+    let mut packages = MARKETPLACE_PACKAGES
+        .write()
+        .map_err(|e| anyhow!("lock error: {}", e))?;
     if let Some(pkg) = packages.get_mut(&name) {
         // Compute new weighted average
         let total = pkg.rating * pkg.rating_count as f64 + score;
@@ -38347,7 +39465,9 @@ fn bi_marketplace_rate(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 /// Update an installed marketplace package to the latest version.
 /// Usage: marketplace.update(name) or marketplace.update() for all
 fn bi_marketplace_update(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let packages = MARKETPLACE_PACKAGES.read().map_err(|e| anyhow!("lock error: {}", e))?;
+    let packages = MARKETPLACE_PACKAGES
+        .read()
+        .map_err(|e| anyhow!("lock error: {}", e))?;
     if let Some(Value::Str(name)) = args.first() {
         // Update single package
         if let Some(pkg) = packages.get(name) {
@@ -38358,14 +39478,18 @@ fn bi_marketplace_update(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
             rec.insert("name".to_string(), Value::Str(pkg.name.clone()));
             rec.insert("version".to_string(), Value::Str(pkg.version.clone()));
             rec.insert("status".to_string(), Value::Str("up_to_date".to_string()));
-            rec.insert("checked_at".to_string(), Value::Str(chrono::Local::now().to_rfc3339()));
+            rec.insert(
+                "checked_at".to_string(),
+                Value::Str(chrono::Local::now().to_rfc3339()),
+            );
             Ok(Value::Record(rec))
         } else {
             Err(anyhow!("package '{}' not found", name))
         }
     } else {
         // Update all installed
-        let results: Vec<Value> = packages.values()
+        let results: Vec<Value> = packages
+            .values()
             .filter(|pkg| pkg.installed)
             .map(|pkg| {
                 let mut rec = BTreeMap::new();
@@ -38384,7 +39508,9 @@ fn bi_marketplace_update(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
 /// Enable opt-in telemetry.
 /// Usage: telemetry.enable()
 fn bi_telemetry_enable(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut enabled = TELEMETRY_ENABLED.write().map_err(|e| anyhow!("lock error: {}", e))?;
+    let mut enabled = TELEMETRY_ENABLED
+        .write()
+        .map_err(|e| anyhow!("lock error: {}", e))?;
     *enabled = true;
 
     // Record the opt-in event
@@ -38402,34 +39528,52 @@ fn bi_telemetry_enable(_args: Vec<Value>, _input: Option<Value>) -> Result<Value
 
     let mut rec = BTreeMap::new();
     rec.insert("enabled".to_string(), Value::Bool(true));
-    rec.insert("status".to_string(), Value::Str("telemetry enabled (opt-in)".to_string()));
-    rec.insert("note".to_string(), Value::Str("Data is stored locally. Use telemetry.report() to view.".to_string()));
+    rec.insert(
+        "status".to_string(),
+        Value::Str("telemetry enabled (opt-in)".to_string()),
+    );
+    rec.insert(
+        "note".to_string(),
+        Value::Str("Data is stored locally. Use telemetry.report() to view.".to_string()),
+    );
     Ok(Value::Record(rec))
 }
 
 /// Disable telemetry.
 /// Usage: telemetry.disable()
 fn bi_telemetry_disable(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut enabled = TELEMETRY_ENABLED.write().map_err(|e| anyhow!("lock error: {}", e))?;
+    let mut enabled = TELEMETRY_ENABLED
+        .write()
+        .map_err(|e| anyhow!("lock error: {}", e))?;
     *enabled = false;
 
     let mut rec = BTreeMap::new();
     rec.insert("enabled".to_string(), Value::Bool(false));
-    rec.insert("status".to_string(), Value::Str("telemetry disabled".to_string()));
+    rec.insert(
+        "status".to_string(),
+        Value::Str("telemetry disabled".to_string()),
+    );
     Ok(Value::Record(rec))
 }
 
 /// Get current telemetry status.
 /// Usage: telemetry.status()
 fn bi_telemetry_status(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let enabled = TELEMETRY_ENABLED.read().map_err(|e| anyhow!("lock error: {}", e))?;
-    let events = TELEMETRY_EVENTS.read().map_err(|e| anyhow!("lock error: {}", e))?;
+    let enabled = TELEMETRY_ENABLED
+        .read()
+        .map_err(|e| anyhow!("lock error: {}", e))?;
+    let events = TELEMETRY_EVENTS
+        .read()
+        .map_err(|e| anyhow!("lock error: {}", e))?;
 
     let mut rec = BTreeMap::new();
     rec.insert("enabled".to_string(), Value::Bool(*enabled));
     rec.insert("event_count".to_string(), Value::Int(events.len() as i64));
     rec.insert("storage".to_string(), Value::Str("local".to_string()));
-    rec.insert("privacy".to_string(), Value::Str("All data stored locally. No external transmission.".to_string()));
+    rec.insert(
+        "privacy".to_string(),
+        Value::Str("All data stored locally. No external transmission.".to_string()),
+    );
     Ok(Value::Record(rec))
 }
 
@@ -38440,10 +39584,17 @@ fn bi_telemetry_report(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         Some(Value::Record(r)) => r.clone(),
         _ => BTreeMap::new(),
     };
-    let category_filter = opts.get("category")
-        .and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None });
+    let category_filter = opts.get("category").and_then(|v| {
+        if let Value::Str(s) = v {
+            Some(s.clone())
+        } else {
+            None
+        }
+    });
 
-    let events = TELEMETRY_EVENTS.read().map_err(|e| anyhow!("lock error: {}", e))?;
+    let events = TELEMETRY_EVENTS
+        .read()
+        .map_err(|e| anyhow!("lock error: {}", e))?;
 
     // Group by category
     let mut by_category: HashMap<String, i64> = HashMap::new();
@@ -38451,7 +39602,8 @@ fn bi_telemetry_report(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     let mut filtered_count = 0i64;
 
     for event in events.iter() {
-        let include = category_filter.as_ref()
+        let include = category_filter
+            .as_ref()
             .map(|c| event.category == *c)
             .unwrap_or(true);
         if include {
@@ -38461,25 +39613,34 @@ fn bi_telemetry_report(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         }
     }
 
-    let categories: Vec<Value> = by_category.iter().map(|(k, v)| {
-        let mut rec = BTreeMap::new();
-        rec.insert("category".to_string(), Value::Str(k.clone()));
-        rec.insert("count".to_string(), Value::Int(*v));
-        Value::Record(rec)
-    }).collect();
+    let categories: Vec<Value> = by_category
+        .iter()
+        .map(|(k, v)| {
+            let mut rec = BTreeMap::new();
+            rec.insert("category".to_string(), Value::Str(k.clone()));
+            rec.insert("count".to_string(), Value::Int(*v));
+            Value::Record(rec)
+        })
+        .collect();
 
-    let types: Vec<Value> = by_type.iter().map(|(k, v)| {
-        let mut rec = BTreeMap::new();
-        rec.insert("event_type".to_string(), Value::Str(k.clone()));
-        rec.insert("count".to_string(), Value::Int(*v));
-        Value::Record(rec)
-    }).collect();
+    let types: Vec<Value> = by_type
+        .iter()
+        .map(|(k, v)| {
+            let mut rec = BTreeMap::new();
+            rec.insert("event_type".to_string(), Value::Str(k.clone()));
+            rec.insert("count".to_string(), Value::Int(*v));
+            Value::Record(rec)
+        })
+        .collect();
 
     let mut rec = BTreeMap::new();
     rec.insert("total_events".to_string(), Value::Int(filtered_count));
     rec.insert("by_category".to_string(), Value::Array(categories));
     rec.insert("by_type".to_string(), Value::Array(types));
-    rec.insert("generated_at".to_string(), Value::Str(chrono::Local::now().to_rfc3339()));
+    rec.insert(
+        "generated_at".to_string(),
+        Value::Str(chrono::Local::now().to_rfc3339()),
+    );
     Ok(Value::Record(rec))
 }
 
@@ -38490,36 +39651,53 @@ fn bi_telemetry_events(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         Some(Value::Int(n)) => *n as usize,
         _ => 100,
     };
-    let events = TELEMETRY_EVENTS.read().map_err(|e| anyhow!("lock error: {}", e))?;
-    let entries: Vec<Value> = events.iter().rev().take(limit).map(|e| {
-        let mut rec = BTreeMap::new();
-        rec.insert("id".to_string(), Value::Str(e.id.clone()));
-        rec.insert("event_type".to_string(), Value::Str(e.event_type.clone()));
-        rec.insert("category".to_string(), Value::Str(e.category.clone()));
-        rec.insert("timestamp".to_string(), Value::Str(e.timestamp.clone()));
-        rec.insert("session_id".to_string(), Value::Str(e.session_id.clone()));
-        if !e.data.is_empty() {
-            let data_rec: BTreeMap<String, Value> = e.data.iter()
-                .map(|(k, v)| (k.clone(), Value::Str(v.clone())))
-                .collect();
-            rec.insert("data".to_string(), Value::Record(data_rec));
-        }
-        Value::Record(rec)
-    }).collect();
+    let events = TELEMETRY_EVENTS
+        .read()
+        .map_err(|e| anyhow!("lock error: {}", e))?;
+    let entries: Vec<Value> = events
+        .iter()
+        .rev()
+        .take(limit)
+        .map(|e| {
+            let mut rec = BTreeMap::new();
+            rec.insert("id".to_string(), Value::Str(e.id.clone()));
+            rec.insert("event_type".to_string(), Value::Str(e.event_type.clone()));
+            rec.insert("category".to_string(), Value::Str(e.category.clone()));
+            rec.insert("timestamp".to_string(), Value::Str(e.timestamp.clone()));
+            rec.insert("session_id".to_string(), Value::Str(e.session_id.clone()));
+            if !e.data.is_empty() {
+                let data_rec: BTreeMap<String, Value> = e
+                    .data
+                    .iter()
+                    .map(|(k, v)| (k.clone(), Value::Str(v.clone())))
+                    .collect();
+                rec.insert("data".to_string(), Value::Record(data_rec));
+            }
+            Value::Record(rec)
+        })
+        .collect();
     Ok(Value::Array(entries))
 }
 
 /// Reset (clear) all telemetry data.
 /// Usage: telemetry.reset()
 fn bi_telemetry_reset(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut events = TELEMETRY_EVENTS.write().map_err(|e| anyhow!("lock error: {}", e))?;
+    let mut events = TELEMETRY_EVENTS
+        .write()
+        .map_err(|e| anyhow!("lock error: {}", e))?;
     let count = events.len();
     events.clear();
 
     let mut rec = BTreeMap::new();
     rec.insert("cleared".to_string(), Value::Int(count as i64));
-    rec.insert("status".to_string(), Value::Str("all telemetry data cleared".to_string()));
-    rec.insert("timestamp".to_string(), Value::Str(chrono::Local::now().to_rfc3339()));
+    rec.insert(
+        "status".to_string(),
+        Value::Str("all telemetry data cleared".to_string()),
+    );
+    rec.insert(
+        "timestamp".to_string(),
+        Value::Str(chrono::Local::now().to_rfc3339()),
+    );
     Ok(Value::Record(rec))
 }
 
@@ -38563,7 +39741,10 @@ fn bi_wget_download(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 .output()
                 .map_err(|e| anyhow!("Neither wget nor curl available: {}", e))?;
             if !out.status.success() {
-                return Err(anyhow!("Download failed: {}", String::from_utf8_lossy(&out.stderr)));
+                return Err(anyhow!(
+                    "Download failed: {}",
+                    String::from_utf8_lossy(&out.stderr)
+                ));
             }
             let size = std::fs::metadata(&output).map(|m| m.len()).unwrap_or(0);
             let mut rec = BTreeMap::new();
@@ -38571,7 +39752,10 @@ fn bi_wget_download(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             rec.insert("output".to_string(), Value::Str(output));
             rec.insert("size".to_string(), Value::Int(size as i64));
             rec.insert("status".to_string(), Value::Str("downloaded".to_string()));
-            rec.insert("tool".to_string(), Value::Str("curl (fallback)".to_string()));
+            rec.insert(
+                "tool".to_string(),
+                Value::Str("curl (fallback)".to_string()),
+            );
             Ok(Value::Record(rec))
         }
     }
@@ -38582,7 +39766,11 @@ fn bi_wget_download(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_age_encrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let input_file = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("age_encrypt requires input_file, output_file, recipient")),
+        _ => {
+            return Err(anyhow!(
+                "age_encrypt requires input_file, output_file, recipient"
+            ))
+        }
     };
     let output_file = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
@@ -38590,14 +39778,26 @@ fn bi_age_encrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     };
     let recipient = match args.get(2) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("age_encrypt requires a recipient (public key or identity file)")),
+        _ => {
+            return Err(anyhow!(
+                "age_encrypt requires a recipient (public key or identity file)"
+            ))
+        }
     };
     let out = std::process::Command::new("age")
         .args(&["-r", &recipient, "-o", &output_file, &input_file])
         .output()
-        .map_err(|e| anyhow!("age not found: {}. Install: https://github.com/FiloSottile/age", e))?;
+        .map_err(|e| {
+            anyhow!(
+                "age not found: {}. Install: https://github.com/FiloSottile/age",
+                e
+            )
+        })?;
     if !out.status.success() {
-        return Err(anyhow!("age encrypt failed: {}", String::from_utf8_lossy(&out.stderr)));
+        return Err(anyhow!(
+            "age encrypt failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        ));
     }
     let mut rec = BTreeMap::new();
     rec.insert("input".to_string(), Value::Str(input_file));
@@ -38621,7 +39821,9 @@ fn bi_age_decrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let identity = match args.get(2) {
         Some(Value::Str(s)) => s.clone(),
         _ => {
-            let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default();
+            let home = std::env::var("HOME")
+                .or_else(|_| std::env::var("USERPROFILE"))
+                .unwrap_or_default();
             format!("{}/.age/key.txt", home)
         }
     };
@@ -38630,7 +39832,10 @@ fn bi_age_decrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .output()
         .map_err(|e| anyhow!("age not found: {}", e))?;
     if !out.status.success() {
-        return Err(anyhow!("age decrypt failed: {}", String::from_utf8_lossy(&out.stderr)));
+        return Err(anyhow!(
+            "age decrypt failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        ));
     }
     let mut rec = BTreeMap::new();
     rec.insert("input".to_string(), Value::Str(input_file));
@@ -38650,12 +39855,14 @@ fn bi_age_keygen(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if let Some(ref out_file) = output {
         cmd.args(&["-o", out_file]);
     }
-    let out = cmd.output()
+    let out = cmd
+        .output()
         .map_err(|e| anyhow!("age-keygen not found: {}", e))?;
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     let stderr = String::from_utf8_lossy(&out.stderr).to_string();
     // age-keygen outputs public key to stderr and private key to stdout
-    let public_key = stderr.lines()
+    let public_key = stderr
+        .lines()
         .find(|l| l.starts_with("Public key:"))
         .map(|l| l.trim_start_matches("Public key:").trim().to_string())
         .unwrap_or_default();
@@ -38664,7 +39871,10 @@ fn bi_age_keygen(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if let Some(f) = output {
         rec.insert("identity_file".to_string(), Value::Str(f));
     } else {
-        rec.insert("private_key".to_string(), Value::Str(stdout.trim().to_string()));
+        rec.insert(
+            "private_key".to_string(),
+            Value::Str(stdout.trim().to_string()),
+        );
     }
     rec.insert("status".to_string(), Value::Str("generated".to_string()));
     Ok(Value::Record(rec))
@@ -38684,17 +39894,20 @@ fn bi_rg_search(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     };
     // Extract flags from optional record arg
     let ignore_case = match args.get(2) {
-        Some(Value::Record(r)) => r.get("ignore_case").map(|v| matches!(v, Value::Bool(true))).unwrap_or(false),
+        Some(Value::Record(r)) => r
+            .get("ignore_case")
+            .map(|v| matches!(v, Value::Bool(true)))
+            .unwrap_or(false),
         _ => false,
     };
     let mut cmd_args = vec!["--json".to_string()];
-    if ignore_case { cmd_args.push("-i".to_string()); }
+    if ignore_case {
+        cmd_args.push("-i".to_string());
+    }
     cmd_args.push(pattern.clone());
     cmd_args.push(path.clone());
 
-    let result = std::process::Command::new("rg")
-        .args(&cmd_args)
-        .output();
+    let result = std::process::Command::new("rg").args(&cmd_args).output();
     match result {
         Ok(out) if out.status.success() || out.status.code() == Some(1) => {
             // rg --json outputs one JSON object per line
@@ -38705,14 +39918,25 @@ fn bi_rg_search(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                     if parsed.get("type").and_then(|t| t.as_str()) == Some("match") {
                         if let Some(data) = parsed.get("data") {
                             let mut rec = BTreeMap::new();
-                            if let Some(p) = data.get("path").and_then(|p| p.get("text")).and_then(|t| t.as_str()) {
+                            if let Some(p) = data
+                                .get("path")
+                                .and_then(|p| p.get("text"))
+                                .and_then(|t| t.as_str())
+                            {
                                 rec.insert("file".to_string(), Value::Str(p.to_string()));
                             }
                             if let Some(n) = data.get("line_number").and_then(|n| n.as_i64()) {
                                 rec.insert("line".to_string(), Value::Int(n));
                             }
-                            if let Some(t) = data.get("lines").and_then(|l| l.get("text")).and_then(|t| t.as_str()) {
-                                rec.insert("text".to_string(), Value::Str(t.trim_end().to_string()));
+                            if let Some(t) = data
+                                .get("lines")
+                                .and_then(|l| l.get("text"))
+                                .and_then(|t| t.as_str())
+                            {
+                                rec.insert(
+                                    "text".to_string(),
+                                    Value::Str(t.trim_end().to_string()),
+                                );
                             }
                             matches.push(Value::Record(rec));
                         }
@@ -38753,13 +39977,12 @@ fn bi_fd_find(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             cmd_args.insert(0, "-e".to_string());
         }
     }
-    let result = std::process::Command::new("fd")
-        .args(&cmd_args)
-        .output();
+    let result = std::process::Command::new("fd").args(&cmd_args).output();
     match result {
         Ok(out) if out.status.success() => {
             let stdout = String::from_utf8_lossy(&out.stdout);
-            let files: Vec<Value> = stdout.lines()
+            let files: Vec<Value> = stdout
+                .lines()
                 .filter(|l| !l.is_empty())
                 .map(|l| Value::Str(l.to_string()))
                 .collect();
@@ -38792,23 +40015,29 @@ fn bi_sed_replace(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         _ => return Err(anyhow!("sed input must be a string")),
     };
     let global = match args.get(3) {
-        Some(Value::Record(r)) => r.get("global").map(|v| matches!(v, Value::Bool(true))).unwrap_or(true),
+        Some(Value::Record(r)) => r
+            .get("global")
+            .map(|v| matches!(v, Value::Bool(true)))
+            .unwrap_or(true),
         _ => true,
     };
     let file_mode = match args.get(3) {
-        Some(Value::Record(r)) => r.get("file").map(|v| matches!(v, Value::Bool(true))).unwrap_or(false),
+        Some(Value::Record(r)) => r
+            .get("file")
+            .map(|v| matches!(v, Value::Bool(true)))
+            .unwrap_or(false),
         _ => false,
     };
     let re = regex::Regex::new(&pattern)
         .map_err(|e| anyhow!("Invalid regex pattern '{}': {}", pattern, e))?;
     let input_text = if file_mode {
-        std::fs::read_to_string(&text)
-            .map_err(|e| anyhow!("Cannot read file '{}': {}", text, e))?
+        std::fs::read_to_string(&text).map_err(|e| anyhow!("Cannot read file '{}': {}", text, e))?
     } else {
         text.clone()
     };
     let result = if global {
-        re.replace_all(&input_text, replacement.as_str()).to_string()
+        re.replace_all(&input_text, replacement.as_str())
+            .to_string()
     } else {
         re.replace(&input_text, replacement.as_str()).to_string()
     };
@@ -38841,7 +40070,16 @@ fn bi_awk_process(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         _ => return Err(anyhow!("awk input must be a string")),
     };
     let fs = match args.get(2) {
-        Some(Value::Record(r)) => r.get("fs").and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None }).unwrap_or_else(|| " ".to_string()),
+        Some(Value::Record(r)) => r
+            .get("fs")
+            .and_then(|v| {
+                if let Value::Str(s) = v {
+                    Some(s.clone())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_else(|| " ".to_string()),
         _ => " ".to_string(),
     };
     // Parse simple awk programs: '{print $1}', '{print $1, $3}', '/pattern/{print $2}'
@@ -38862,10 +40100,14 @@ fn bi_awk_process(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         if field_indices.is_empty() {
             results.push(Value::Str(line.to_string()));
         } else {
-            let selected: Vec<String> = field_indices.iter()
+            let selected: Vec<String> = field_indices
+                .iter()
                 .filter_map(|&i| {
-                    if i == 0 { Some(line.to_string()) }
-                    else { fields.get(i - 1).map(|s| s.to_string()) }
+                    if i == 0 {
+                        Some(line.to_string())
+                    } else {
+                        fields.get(i - 1).map(|s| s.to_string())
+                    }
                 })
                 .collect();
             results.push(Value::Str(selected.join("\t")));
@@ -38916,7 +40158,11 @@ fn bi_cut_columns(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let fields_spec = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
         Some(Value::Int(n)) => n.to_string(),
-        _ => return Err(anyhow!("cut requires a fields specification (e.g., '1,3' or '1-3')")),
+        _ => {
+            return Err(anyhow!(
+                "cut requires a fields specification (e.g., '1,3' or '1-3')"
+            ))
+        }
     };
     let text = match args.get(2) {
         Some(Value::Str(s)) => s.clone(),
@@ -38931,7 +40177,8 @@ fn bi_cut_columns(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let mut results = Vec::new();
     for line in text.lines() {
         let cols: Vec<&str> = line.split(&delimiter).collect();
-        let selected: Vec<String> = field_indices.iter()
+        let selected: Vec<String> = field_indices
+            .iter()
             .filter_map(|&i| cols.get(i.saturating_sub(1)).map(|s| s.to_string()))
             .collect();
         results.push(Value::Str(selected.join(&delimiter)));
@@ -38947,12 +40194,20 @@ fn parse_field_spec(spec: &str) -> Result<Vec<usize>> {
         if part.contains('-') {
             let range_parts: Vec<&str> = part.split('-').collect();
             if range_parts.len() == 2 {
-                let start: usize = range_parts[0].parse().map_err(|_| anyhow!("Invalid field spec: {}", spec))?;
-                let end: usize = range_parts[1].parse().map_err(|_| anyhow!("Invalid field spec: {}", spec))?;
-                for i in start..=end { indices.push(i); }
+                let start: usize = range_parts[0]
+                    .parse()
+                    .map_err(|_| anyhow!("Invalid field spec: {}", spec))?;
+                let end: usize = range_parts[1]
+                    .parse()
+                    .map_err(|_| anyhow!("Invalid field spec: {}", spec))?;
+                for i in start..=end {
+                    indices.push(i);
+                }
             }
         } else {
-            let n: usize = part.parse().map_err(|_| anyhow!("Invalid field number: {}", part))?;
+            let n: usize = part
+                .parse()
+                .map_err(|_| anyhow!("Invalid field number: {}", part))?;
             indices.push(n);
         }
     }
@@ -38980,18 +40235,31 @@ fn bi_xargs_exec(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     for item in &items {
         let full_cmd = format!("{} {}", command, item);
         let out = if cfg!(target_os = "windows") {
-            std::process::Command::new("cmd").args(&["/C", &full_cmd]).output()
+            std::process::Command::new("cmd")
+                .args(&["/C", &full_cmd])
+                .output()
         } else {
-            std::process::Command::new("sh").args(&["-c", &full_cmd]).output()
+            std::process::Command::new("sh")
+                .args(&["-c", &full_cmd])
+                .output()
         };
         match out {
             Ok(output) => {
                 let mut rec = BTreeMap::new();
                 rec.insert("item".to_string(), Value::Str(item.clone()));
-                rec.insert("exit_code".to_string(), Value::Int(output.status.code().unwrap_or(-1) as i64));
-                rec.insert("stdout".to_string(), Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()));
+                rec.insert(
+                    "exit_code".to_string(),
+                    Value::Int(output.status.code().unwrap_or(-1) as i64),
+                );
+                rec.insert(
+                    "stdout".to_string(),
+                    Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()),
+                );
                 if !output.stderr.is_empty() {
-                    rec.insert("stderr".to_string(), Value::Str(String::from_utf8_lossy(&output.stderr).trim().to_string()));
+                    rec.insert(
+                        "stderr".to_string(),
+                        Value::Str(String::from_utf8_lossy(&output.stderr).trim().to_string()),
+                    );
                 }
                 results.push(Value::Record(rec));
             }
@@ -39021,8 +40289,8 @@ fn bi_jq_query(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         },
         _ => return Err(anyhow!("jq input must be a JSON string")),
     };
-    let parsed: serde_json::Value = serde_json::from_str(&json_str)
-        .map_err(|e| anyhow!("Invalid JSON: {}", e))?;
+    let parsed: serde_json::Value =
+        serde_json::from_str(&json_str).map_err(|e| anyhow!("Invalid JSON: {}", e))?;
     // Native jq-like expression evaluation
     let result = eval_jq_expr(&expr, &parsed)?;
     Ok(json_to_value(result))
@@ -39066,7 +40334,10 @@ fn bi_jq_filter(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                     Ok(Value::Str(stdout))
                 }
             } else {
-                Err(anyhow!("jq error: {}", String::from_utf8_lossy(&output.stderr)))
+                Err(anyhow!(
+                    "jq error: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                ))
             }
         }
         Err(_) => {
@@ -39085,7 +40356,9 @@ fn eval_jq_expr(expr: &str, data: &serde_json::Value) -> Result<serde_json::Valu
     if expr == "keys" {
         if let serde_json::Value::Object(m) = data {
             return Ok(serde_json::Value::Array(
-                m.keys().map(|k| serde_json::Value::String(k.clone())).collect()
+                m.keys()
+                    .map(|k| serde_json::Value::String(k.clone()))
+                    .collect(),
             ));
         }
         return Err(anyhow!("keys requires an object"));
@@ -39119,32 +40392,40 @@ fn eval_jq_expr(expr: &str, data: &serde_json::Value) -> Result<serde_json::Valu
         let path = &expr[1..];
         // Handle array index: .[0]
         if path.starts_with('[') && path.ends_with(']') {
-            let idx_str = &path[1..path.len()-1];
+            let idx_str = &path[1..path.len() - 1];
             if let Ok(idx) = idx_str.parse::<usize>() {
                 if let serde_json::Value::Array(a) = data {
-                    return a.get(idx).cloned().ok_or_else(|| anyhow!("Index {} out of bounds", idx));
+                    return a
+                        .get(idx)
+                        .cloned()
+                        .ok_or_else(|| anyhow!("Index {} out of bounds", idx));
                 }
             }
             return Err(anyhow!("Cannot index into non-array"));
         }
         let mut current = data;
         for key in path.split('.') {
-            if key.is_empty() { continue; }
+            if key.is_empty() {
+                continue;
+            }
             // Handle key[n] notation
             if key.contains('[') && key.ends_with(']') {
                 let bracket = key.find('[').unwrap();
                 let obj_key = &key[..bracket];
-                let idx_str = &key[bracket+1..key.len()-1];
+                let idx_str = &key[bracket + 1..key.len() - 1];
                 if !obj_key.is_empty() {
-                    current = current.get(obj_key)
+                    current = current
+                        .get(obj_key)
                         .ok_or_else(|| anyhow!("Key '{}' not found", obj_key))?;
                 }
                 if let Ok(idx) = idx_str.parse::<usize>() {
-                    current = current.get(idx)
+                    current = current
+                        .get(idx)
                         .ok_or_else(|| anyhow!("Index {} out of bounds", idx))?;
                 }
             } else {
-                current = current.get(key)
+                current = current
+                    .get(key)
                     .ok_or_else(|| anyhow!("Key '{}' not found", key))?;
             }
         }
@@ -39180,9 +40461,14 @@ fn bi_yq_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             }
             let output = child.wait_with_output()?;
             if output.status.success() {
-                Ok(Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()))
+                Ok(Value::Str(
+                    String::from_utf8_lossy(&output.stdout).trim().to_string(),
+                ))
             } else {
-                Err(anyhow!("yq error: {}", String::from_utf8_lossy(&output.stderr)))
+                Err(anyhow!(
+                    "yq error: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                ))
             }
         }
         Err(_) => {
@@ -39207,12 +40493,14 @@ fn bi_pager(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         _ => return Err(anyhow!("pager input must be a string")),
     };
     let is_file = match args.get(1) {
-        Some(Value::Record(r)) => r.get("file").map(|v| matches!(v, Value::Bool(true))).unwrap_or(false),
+        Some(Value::Record(r)) => r
+            .get("file")
+            .map(|v| matches!(v, Value::Bool(true)))
+            .unwrap_or(false),
         _ => false,
     };
     let content = if is_file {
-        std::fs::read_to_string(&text)
-            .map_err(|e| anyhow!("Cannot read file '{}': {}", text, e))?
+        std::fs::read_to_string(&text).map_err(|e| anyhow!("Cannot read file '{}': {}", text, e))?
     } else {
         text.clone()
     };
@@ -39230,8 +40518,14 @@ fn bi_pager(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     rec.insert("content".to_string(), Value::Str(first_page));
     rec.insert("total_lines".to_string(), Value::Int(total as i64));
     rec.insert("page_size".to_string(), Value::Int(page_size as i64));
-    rec.insert("pages".to_string(), Value::Int(((total + page_size - 1) / page_size) as i64));
-    rec.insert("hint".to_string(), Value::Str("Use head/tail for specific line ranges".to_string()));
+    rec.insert(
+        "pages".to_string(),
+        Value::Int(((total + page_size - 1) / page_size) as i64),
+    );
+    rec.insert(
+        "hint".to_string(),
+        Value::Str("Use head/tail for specific line ranges".to_string()),
+    );
     Ok(Value::Record(rec))
 }
 
@@ -39252,13 +40546,18 @@ fn bi_tee_output(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         },
     };
     let append = match args.get(2) {
-        Some(Value::Record(r)) => r.get("append").map(|v| matches!(v, Value::Bool(true))).unwrap_or(false),
+        Some(Value::Record(r)) => r
+            .get("append")
+            .map(|v| matches!(v, Value::Bool(true)))
+            .unwrap_or(false),
         _ => false,
     };
     if append {
         use std::io::Write;
         let mut file = std::fs::OpenOptions::new()
-            .create(true).append(true).open(&file_path)
+            .create(true)
+            .append(true)
+            .open(&file_path)
             .map_err(|e| anyhow!("Cannot open '{}': {}", file_path, e))?;
         file.write_all(text.as_bytes())
             .map_err(|e| anyhow!("Cannot write to '{}': {}", file_path, e))?;
@@ -39279,18 +40578,34 @@ fn bi_make_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     };
     let mut cmd = std::process::Command::new("make");
     if let Some(Value::Record(r)) = args.get(1) {
-        if let Some(Value::Str(d)) = r.get("dir") { cmd.current_dir(d); }
-        if let Some(Value::Str(f)) = r.get("file") { cmd.args(&["-f", f]); }
-        if let Some(Value::Int(j)) = r.get("jobs") { cmd.arg(format!("-j{}", j)); }
+        if let Some(Value::Str(d)) = r.get("dir") {
+            cmd.current_dir(d);
+        }
+        if let Some(Value::Str(f)) = r.get("file") {
+            cmd.args(&["-f", f]);
+        }
+        if let Some(Value::Int(j)) = r.get("jobs") {
+            cmd.arg(format!("-j{}", j));
+        }
     }
-    if let Some(t) = &target { cmd.arg(t); }
-    let out = cmd.output()
-        .map_err(|e| anyhow!("make not found: {}", e))?;
+    if let Some(t) = &target {
+        cmd.arg(t);
+    }
+    let out = cmd.output().map_err(|e| anyhow!("make not found: {}", e))?;
     let mut rec = BTreeMap::new();
-    rec.insert("exit_code".to_string(), Value::Int(out.status.code().unwrap_or(-1) as i64));
-    rec.insert("stdout".to_string(), Value::Str(String::from_utf8_lossy(&out.stdout).to_string()));
+    rec.insert(
+        "exit_code".to_string(),
+        Value::Int(out.status.code().unwrap_or(-1) as i64),
+    );
+    rec.insert(
+        "stdout".to_string(),
+        Value::Str(String::from_utf8_lossy(&out.stdout).to_string()),
+    );
     if !out.stderr.is_empty() {
-        rec.insert("stderr".to_string(), Value::Str(String::from_utf8_lossy(&out.stderr).to_string()));
+        rec.insert(
+            "stderr".to_string(),
+            Value::Str(String::from_utf8_lossy(&out.stderr).to_string()),
+        );
     }
     rec.insert("success".to_string(), Value::Bool(out.status.success()));
     if let Some(t) = target {
@@ -39309,10 +40624,9 @@ fn bi_make_targets(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let content = std::fs::read_to_string(&makefile)
         .map_err(|e| anyhow!("Cannot read '{}': {}", makefile, e))?;
     let re = regex::Regex::new(r"^([a-zA-Z_][a-zA-Z0-9_.-]*)\s*:").unwrap();
-    let targets: Vec<Value> = content.lines()
-        .filter_map(|line| {
-            re.captures(line).map(|cap| Value::Str(cap[1].to_string()))
-        })
+    let targets: Vec<Value> = content
+        .lines()
+        .filter_map(|line| re.captures(line).map(|cap| Value::Str(cap[1].to_string())))
         .collect();
     Ok(Value::Array(targets))
 }
@@ -39342,15 +40656,22 @@ fn bi_cmake_configure(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
             }
         }
     }
-    let out = cmd.output()
+    let out = cmd
+        .output()
         .map_err(|e| anyhow!("cmake not found: {}", e))?;
     let mut rec = BTreeMap::new();
     rec.insert("source_dir".to_string(), Value::Str(source_dir));
     rec.insert("build_dir".to_string(), Value::Str(build_dir));
     rec.insert("success".to_string(), Value::Bool(out.status.success()));
-    rec.insert("stdout".to_string(), Value::Str(String::from_utf8_lossy(&out.stdout).to_string()));
+    rec.insert(
+        "stdout".to_string(),
+        Value::Str(String::from_utf8_lossy(&out.stdout).to_string()),
+    );
     if !out.stderr.is_empty() {
-        rec.insert("stderr".to_string(), Value::Str(String::from_utf8_lossy(&out.stderr).to_string()));
+        rec.insert(
+            "stderr".to_string(),
+            Value::Str(String::from_utf8_lossy(&out.stderr).to_string()),
+        );
     }
     Ok(Value::Record(rec))
 }
@@ -39375,14 +40696,21 @@ fn bi_cmake_build(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             cmd.args(&["-j", &j.to_string()]);
         }
     }
-    let out = cmd.output()
+    let out = cmd
+        .output()
         .map_err(|e| anyhow!("cmake not found: {}", e))?;
     let mut rec = BTreeMap::new();
     rec.insert("build_dir".to_string(), Value::Str(build_dir));
     rec.insert("success".to_string(), Value::Bool(out.status.success()));
-    rec.insert("stdout".to_string(), Value::Str(String::from_utf8_lossy(&out.stdout).to_string()));
+    rec.insert(
+        "stdout".to_string(),
+        Value::Str(String::from_utf8_lossy(&out.stdout).to_string()),
+    );
     if !out.stderr.is_empty() {
-        rec.insert("stderr".to_string(), Value::Str(String::from_utf8_lossy(&out.stderr).to_string()));
+        rec.insert(
+            "stderr".to_string(),
+            Value::Str(String::from_utf8_lossy(&out.stderr).to_string()),
+        );
     }
     Ok(Value::Record(rec))
 }
@@ -39404,14 +40732,24 @@ fn bi_ninja_build(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     } else if let Some(Value::Str(dir)) = args.first() {
         cmd.args(&["-C", dir]);
     }
-    let out = cmd.output()
+    let out = cmd
+        .output()
         .map_err(|e| anyhow!("ninja not found: {}", e))?;
     let mut rec = BTreeMap::new();
     rec.insert("success".to_string(), Value::Bool(out.status.success()));
-    rec.insert("exit_code".to_string(), Value::Int(out.status.code().unwrap_or(-1) as i64));
-    rec.insert("stdout".to_string(), Value::Str(String::from_utf8_lossy(&out.stdout).to_string()));
+    rec.insert(
+        "exit_code".to_string(),
+        Value::Int(out.status.code().unwrap_or(-1) as i64),
+    );
+    rec.insert(
+        "stdout".to_string(),
+        Value::Str(String::from_utf8_lossy(&out.stdout).to_string()),
+    );
     if !out.stderr.is_empty() {
-        rec.insert("stderr".to_string(), Value::Str(String::from_utf8_lossy(&out.stderr).to_string()));
+        rec.insert(
+            "stderr".to_string(),
+            Value::Str(String::from_utf8_lossy(&out.stderr).to_string()),
+        );
     }
     Ok(Value::Record(rec))
 }
@@ -39431,35 +40769,73 @@ fn bi_netstat_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     // Parse netstat output into structured records
     let filter_proto = match args.first() {
-        Some(Value::Record(r)) => r.get("proto").and_then(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None }),
+        Some(Value::Record(r)) => r.get("proto").and_then(|v| {
+            if let Value::Str(s) = v {
+                Some(s.clone())
+            } else {
+                None
+            }
+        }),
         _ => None,
     };
     let filter_state = match args.first() {
-        Some(Value::Record(r)) => r.get("state").and_then(|v| if let Value::Str(s) = v { Some(s.to_uppercase()) } else { None }),
+        Some(Value::Record(r)) => r.get("state").and_then(|v| {
+            if let Value::Str(s) = v {
+                Some(s.to_uppercase())
+            } else {
+                None
+            }
+        }),
         _ => None,
     };
     let filter_port = match args.first() {
-        Some(Value::Record(r)) => r.get("port").and_then(|v| if let Value::Int(n) = v { Some(*n) } else { None }),
+        Some(Value::Record(r)) => r.get("port").and_then(|v| {
+            if let Value::Int(n) = v {
+                Some(*n)
+            } else {
+                None
+            }
+        }),
         _ => None,
     };
     let mut connections = Vec::new();
     for line in stdout.lines().skip(2) {
         let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.len() < 4 { continue; }
+        if parts.len() < 4 {
+            continue;
+        }
         let proto = parts[0].to_string();
-        let local_addr = if parts.len() > 3 { parts[3].to_string() } else { parts[1].to_string() };
-        let foreign_addr = if parts.len() > 4 { parts[4].to_string() } else { parts[2].to_string() };
-        let state = if parts.len() > 5 { parts[5].to_string() } else { String::new() };
+        let local_addr = if parts.len() > 3 {
+            parts[3].to_string()
+        } else {
+            parts[1].to_string()
+        };
+        let foreign_addr = if parts.len() > 4 {
+            parts[4].to_string()
+        } else {
+            parts[2].to_string()
+        };
+        let state = if parts.len() > 5 {
+            parts[5].to_string()
+        } else {
+            String::new()
+        };
         // Apply filters
         if let Some(ref fp) = filter_proto {
-            if !proto.to_lowercase().contains(&fp.to_lowercase()) { continue; }
+            if !proto.to_lowercase().contains(&fp.to_lowercase()) {
+                continue;
+            }
         }
         if let Some(ref fs) = filter_state {
-            if !state.to_uppercase().contains(fs) { continue; }
+            if !state.to_uppercase().contains(fs) {
+                continue;
+            }
         }
         if let Some(fp) = filter_port {
             let port_str = format!(":{}", fp);
-            if !local_addr.contains(&port_str) && !foreign_addr.contains(&port_str) { continue; }
+            if !local_addr.contains(&port_str) && !foreign_addr.contains(&port_str) {
+                continue;
+            }
         }
         let mut rec = BTreeMap::new();
         rec.insert("proto".to_string(), Value::Str(proto));
@@ -39498,7 +40874,10 @@ fn bi_nmap_scan(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .output()
         .map_err(|e| anyhow!("nmap not found: {}. Install from https://nmap.org", e))?;
     if !out.status.success() {
-        return Err(anyhow!("nmap failed: {}", String::from_utf8_lossy(&out.stderr)));
+        return Err(anyhow!(
+            "nmap failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        ));
     }
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     // Parse XML output for structured results
@@ -39509,7 +40888,10 @@ fn bi_nmap_scan(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             let mut rec = BTreeMap::new();
             // Extract portid and protocol
             if let Some(portid) = extract_xml_attr(line, "portid") {
-                rec.insert("port".to_string(), Value::Int(portid.parse::<i64>().unwrap_or(0)));
+                rec.insert(
+                    "port".to_string(),
+                    Value::Int(portid.parse::<i64>().unwrap_or(0)),
+                );
             }
             if let Some(proto) = extract_xml_attr(line, "protocol") {
                 rec.insert("protocol".to_string(), Value::Str(proto));
@@ -39563,8 +40945,14 @@ fn bi_nmap_quick(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         if parts.len() >= 3 && parts[0].contains('/') {
             let port_proto: Vec<&str> = parts[0].split('/').collect();
             let mut rec = BTreeMap::new();
-            rec.insert("port".to_string(), Value::Int(port_proto[0].parse::<i64>().unwrap_or(0)));
-            rec.insert("protocol".to_string(), Value::Str(port_proto.get(1).unwrap_or(&"").to_string()));
+            rec.insert(
+                "port".to_string(),
+                Value::Int(port_proto[0].parse::<i64>().unwrap_or(0)),
+            );
+            rec.insert(
+                "protocol".to_string(),
+                Value::Str(port_proto.get(1).unwrap_or(&"").to_string()),
+            );
             rec.insert("state".to_string(), Value::Str(parts[1].to_string()));
             rec.insert("service".to_string(), Value::Str(parts[2].to_string()));
             ports.push(Value::Record(rec));
@@ -39573,7 +40961,10 @@ fn bi_nmap_quick(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut result = BTreeMap::new();
     result.insert("host".to_string(), Value::Str(host));
     result.insert("ports".to_string(), Value::Array(ports));
-    result.insert("scan_type".to_string(), Value::Str("quick (-F --open)".to_string()));
+    result.insert(
+        "scan_type".to_string(),
+        Value::Str("quick (-F --open)".to_string()),
+    );
     Ok(Value::Record(result))
 }
 
@@ -39587,4 +40978,3406 @@ fn extract_xml_attr(line: &str, attr: &str) -> Option<String> {
         }
     }
     None
+}
+// ============================================================
+// CLI Tool Wrappers — Tools 51-150 (indices 988-1103)
+// ============================================================
+
+// --- Dead-code activations (988-994) ---
+// bi_file_type (988) — already defined at ~L32793
+// bi_dd_copy (989) — already defined at ~L33373
+// bi_lsblk (990) — already defined at ~L32948
+// bi_blkid (991) — already defined at ~L32983
+// bi_strace_cmd (992) — already defined at ~L33146
+// bi_mount_info (993) — already defined at ~L33569
+// bi_top_snapshot (994) — already defined at ~L33270
+
+// --- tmux (995-998) ---
+
+/// tmux new-session — Create a new tmux session.
+/// Usage: tmux_new(session_name) or tmux_new(session_name, command)
+fn bi_tmux_new(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("tmux_new requires a session name")),
+    };
+    let _cmd_args = vec!["new-session", "-d", "-s"];
+    let name_ref: &str = &name;
+    let cmd_str;
+    let full_args: Vec<&str>;
+    if let Some(Value::Str(c)) = args.get(1) {
+        cmd_str = c.clone();
+        full_args = vec!["new-session", "-d", "-s", name_ref, &cmd_str];
+    } else {
+        full_args = vec!["new-session", "-d", "-s", name_ref];
+    }
+    let output = std::process::Command::new("tmux").args(&full_args).output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("session".to_string(), Value::Str(name));
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            if !o.stderr.is_empty() {
+                rec.insert(
+                    "stderr".to_string(),
+                    Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+                );
+            }
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("tmux not found: {}", e)),
+    }
+}
+
+/// tmux list-sessions — List active tmux sessions.
+fn bi_tmux_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("tmux")
+        .args(&[
+            "list-sessions",
+            "-F",
+            "#{session_name}:#{session_windows}:#{session_attached}",
+        ])
+        .output();
+    match output {
+        Ok(o) if o.status.success() => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            let sessions: Vec<Value> = stdout
+                .lines()
+                .filter(|l| !l.is_empty())
+                .map(|line| {
+                    let parts: Vec<&str> = line.splitn(3, ':').collect();
+                    let mut rec = BTreeMap::new();
+                    rec.insert(
+                        "name".to_string(),
+                        Value::Str(parts.get(0).unwrap_or(&"").to_string()),
+                    );
+                    rec.insert(
+                        "windows".to_string(),
+                        Value::Int(parts.get(1).unwrap_or(&"0").parse().unwrap_or(0)),
+                    );
+                    rec.insert(
+                        "attached".to_string(),
+                        Value::Bool(parts.get(2).unwrap_or(&"0") == &"1"),
+                    );
+                    Value::Record(rec)
+                })
+                .collect();
+            Ok(Value::Array(sessions))
+        }
+        Ok(o) => Ok(Value::Str(
+            String::from_utf8_lossy(&o.stderr).trim().to_string(),
+        )),
+        Err(e) => Err(anyhow!("tmux not found: {}", e)),
+    }
+}
+
+/// tmux attach — Attach to a tmux session.
+fn bi_tmux_attach(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("tmux_attach requires a session name")),
+    };
+    let output = std::process::Command::new("tmux")
+        .args(&["attach-session", "-t", &name])
+        .output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("session".to_string(), Value::Str(name));
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("tmux not found: {}", e)),
+    }
+}
+
+/// tmux send-keys — Send keys/command to a tmux session.
+fn bi_tmux_send(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let target = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("tmux_send requires a target session")),
+    };
+    let keys = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("tmux_send requires keys to send")),
+    };
+    let output = std::process::Command::new("tmux")
+        .args(&["send-keys", "-t", &target, &keys, "Enter"])
+        .output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("target".to_string(), Value::Str(target));
+            rec.insert("keys".to_string(), Value::Str(keys));
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("tmux not found: {}", e)),
+    }
+}
+
+// --- screen (999-1001) ---
+
+/// screen — Create a new screen session.
+fn bi_screen_new(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("screen_new requires a session name")),
+    };
+    let output = std::process::Command::new("screen")
+        .args(&["-dmS", &name])
+        .output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("session".to_string(), Value::Str(name));
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("screen not found: {}", e)),
+    }
+}
+
+/// screen list — List screen sessions.
+fn bi_screen_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("screen").args(&["-ls"]).output();
+    match output {
+        Ok(o) => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            let sessions: Vec<Value> = stdout
+                .lines()
+                .filter(|l| l.contains('('))
+                .map(|line| {
+                    let trimmed = line.trim();
+                    let mut rec = BTreeMap::new();
+                    rec.insert("line".to_string(), Value::Str(trimmed.to_string()));
+                    if let Some(name_part) = trimmed.split_whitespace().next() {
+                        rec.insert("id".to_string(), Value::Str(name_part.to_string()));
+                    }
+                    Value::Record(rec)
+                })
+                .collect();
+            Ok(Value::Array(sessions))
+        }
+        Err(e) => Err(anyhow!("screen not found: {}", e)),
+    }
+}
+
+/// screen attach — Reattach to a screen session.
+fn bi_screen_attach(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("screen_attach requires a session name")),
+    };
+    let output = std::process::Command::new("screen")
+        .args(&["-r", &name])
+        .output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("session".to_string(), Value::Str(name));
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("screen not found: {}", e)),
+    }
+}
+
+// --- timeout (1002) ---
+
+/// timeout — Run a command with a time limit.
+/// Usage: timeout(seconds, command)
+fn bi_timeout_cmd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let seconds = match args.first() {
+        Some(Value::Int(n)) => *n,
+        Some(Value::Float(f)) => *f as i64,
+        _ => return Err(anyhow!("timeout requires seconds as first argument")),
+    };
+    let command = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("timeout requires a command string")),
+    };
+    let timeout_str = seconds.to_string();
+    let output = if cfg!(target_os = "windows") {
+        // Windows: use Start-Process with timeout via powershell
+        std::process::Command::new("powershell")
+            .args(&["-Command", &format!(
+                "$p = Start-Process -FilePath cmd -ArgumentList '/C {}' -PassThru -NoNewWindow; if(!$p.WaitForExit({}000)){{ $p.Kill(); 'TIMEOUT' }} else {{ $p.ExitCode }}",
+                command, seconds
+            )])
+            .output()
+    } else {
+        std::process::Command::new("timeout")
+            .args(&[&timeout_str, "sh", "-c", &command])
+            .output()
+    };
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert(
+                "exit_code".to_string(),
+                Value::Int(o.status.code().unwrap_or(-1) as i64),
+            );
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "stderr".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            rec.insert(
+                "timed_out".to_string(),
+                Value::Bool(o.status.code() == Some(124)),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("timeout failed: {}", e)),
+    }
+}
+
+// --- pkill (1003) ---
+
+/// pkill — Kill processes by name pattern.
+fn bi_pkill(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let pattern = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("pkill requires a process name pattern")),
+    };
+    if cfg!(target_os = "windows") {
+        let output = std::process::Command::new("taskkill")
+            .args(&["/IM", &format!("{}*", pattern), "/F"])
+            .output();
+        match output {
+            Ok(o) => {
+                let mut rec = BTreeMap::new();
+                rec.insert("pattern".to_string(), Value::Str(pattern));
+                rec.insert("success".to_string(), Value::Bool(o.status.success()));
+                rec.insert(
+                    "stdout".to_string(),
+                    Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+                );
+                Ok(Value::Record(rec))
+            }
+            Err(e) => Err(anyhow!("taskkill failed: {}", e)),
+        }
+    } else {
+        let output = std::process::Command::new("pkill").arg(&pattern).output();
+        match output {
+            Ok(o) => {
+                let mut rec = BTreeMap::new();
+                rec.insert("pattern".to_string(), Value::Str(pattern));
+                rec.insert("success".to_string(), Value::Bool(o.status.success()));
+                Ok(Value::Record(rec))
+            }
+            Err(e) => Err(anyhow!("pkill not found: {}", e)),
+        }
+    }
+}
+
+// --- pgrep (1004) ---
+
+/// pgrep — Find processes by name pattern.
+fn bi_pgrep(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let pattern = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("pgrep requires a process name pattern")),
+    };
+    if cfg!(target_os = "windows") {
+        let output = std::process::Command::new("tasklist")
+            .args(&[
+                "/FI",
+                &format!("IMAGENAME eq {}*", pattern),
+                "/FO",
+                "CSV",
+                "/NH",
+            ])
+            .output();
+        match output {
+            Ok(o) if o.status.success() => {
+                let stdout = String::from_utf8_lossy(&o.stdout);
+                let procs: Vec<Value> = stdout
+                    .lines()
+                    .filter(|l| !l.is_empty() && !l.contains("No tasks"))
+                    .map(|line| {
+                        let parts: Vec<&str> = line.split(',').collect();
+                        let mut rec = BTreeMap::new();
+                        rec.insert(
+                            "name".to_string(),
+                            Value::Str(parts.get(0).unwrap_or(&"").trim_matches('"').to_string()),
+                        );
+                        rec.insert(
+                            "pid".to_string(),
+                            Value::Str(parts.get(1).unwrap_or(&"").trim_matches('"').to_string()),
+                        );
+                        Value::Record(rec)
+                    })
+                    .collect();
+                Ok(Value::Array(procs))
+            }
+            Ok(o) => Ok(Value::Array(vec![])),
+            Err(e) => Err(anyhow!("tasklist failed: {}", e)),
+        }
+    } else {
+        let output = std::process::Command::new("pgrep")
+            .args(&["-la", &pattern])
+            .output();
+        match output {
+            Ok(o) if o.status.success() => {
+                let stdout = String::from_utf8_lossy(&o.stdout);
+                let procs: Vec<Value> = stdout
+                    .lines()
+                    .filter(|l| !l.is_empty())
+                    .map(|line| {
+                        let parts: Vec<&str> = line.splitn(2, ' ').collect();
+                        let mut rec = BTreeMap::new();
+                        rec.insert(
+                            "pid".to_string(),
+                            Value::Int(parts.get(0).unwrap_or(&"0").parse().unwrap_or(0)),
+                        );
+                        rec.insert(
+                            "name".to_string(),
+                            Value::Str(parts.get(1).unwrap_or(&"").to_string()),
+                        );
+                        Value::Record(rec)
+                    })
+                    .collect();
+                Ok(Value::Array(procs))
+            }
+            Ok(_) => Ok(Value::Array(vec![])),
+            Err(e) => Err(anyhow!("pgrep not found: {}", e)),
+        }
+    }
+}
+
+// --- lnav (1005) ---
+
+/// lnav — Open log files in lnav viewer.
+fn bi_lnav_open(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let path = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("lnav_open requires a log file path")),
+    };
+    let output = std::process::Command::new("lnav").arg(&path).output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("path".to_string(), Value::Str(path));
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("lnav not found: {}", e)),
+    }
+}
+
+// --- multitail (1006) ---
+
+/// multitail — Tail multiple files simultaneously.
+fn bi_multitail_open(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let files: Vec<String> = args
+        .iter()
+        .filter_map(|a| match a {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .collect();
+    if files.is_empty() {
+        return Err(anyhow!("multitail requires at least one file path"));
+    }
+    let output = std::process::Command::new("multitail")
+        .args(&files)
+        .output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert(
+                "files".to_string(),
+                Value::Array(files.iter().map(|f| Value::Str(f.clone())).collect()),
+            );
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("multitail not found: {}", e)),
+    }
+}
+
+// --- logrotate (1007) ---
+
+/// logrotate — Run logrotate with a config file.
+fn bi_logrotate_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let config = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("logrotate requires a config file path")),
+    };
+    let mut cmd_args = vec![config.as_str()];
+    if args
+        .iter()
+        .any(|a| matches!(a, Value::Str(s) if s == "--force" || s == "-f"))
+    {
+        cmd_args.insert(0, "-f");
+    }
+    let output = std::process::Command::new("logrotate")
+        .args(&cmd_args)
+        .output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("config".to_string(), Value::Str(config));
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "stderr".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("logrotate not found: {}", e)),
+    }
+}
+
+// --- ltrace (1008) ---
+
+/// ltrace — Trace library calls of a program.
+fn bi_ltrace_cmd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let command = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("ltrace requires a command to trace")),
+    };
+    let output = std::process::Command::new("ltrace")
+        .args(&["-c", &command])
+        .output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("command".to_string(), Value::Str(command));
+            rec.insert(
+                "exit_code".to_string(),
+                Value::Int(o.status.code().unwrap_or(-1) as i64),
+            );
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "trace".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("ltrace not found: {}", e)),
+    }
+}
+
+// --- valgrind (1009-1010) ---
+
+/// valgrind — Run a program under Valgrind.
+fn bi_valgrind_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let command = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("valgrind_run requires a command")),
+    };
+    let output = std::process::Command::new("valgrind")
+        .args(&["--tool=memcheck", &command])
+        .output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("command".to_string(), Value::Str(command));
+            rec.insert(
+                "exit_code".to_string(),
+                Value::Int(o.status.code().unwrap_or(-1) as i64),
+            );
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "report".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("valgrind not found: {}", e)),
+    }
+}
+
+/// valgrind memcheck — Run memcheck analysis.
+fn bi_valgrind_memcheck(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let command = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("valgrind_memcheck requires a command")),
+    };
+    let output = std::process::Command::new("valgrind")
+        .args(&[
+            "--tool=memcheck",
+            "--leak-check=full",
+            "--show-leak-kinds=all",
+            &command,
+        ])
+        .output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("command".to_string(), Value::Str(command));
+            rec.insert(
+                "exit_code".to_string(),
+                Value::Int(o.status.code().unwrap_or(-1) as i64),
+            );
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "report".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("valgrind not found: {}", e)),
+    }
+}
+
+// --- gdb (1011-1012) ---
+
+/// gdb run — Run a program under GDB with optional arguments.
+fn bi_gdb_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let program = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("gdb_run requires a program path")),
+    };
+    let gdb_cmds = args
+        .get(1)
+        .and_then(|a| match a {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| "run\nbt\nquit".to_string());
+    let output = std::process::Command::new("gdb")
+        .args(&["--batch", "-ex", &gdb_cmds, &program])
+        .output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("program".to_string(), Value::Str(program));
+            rec.insert(
+                "exit_code".to_string(),
+                Value::Int(o.status.code().unwrap_or(-1) as i64),
+            );
+            rec.insert(
+                "output".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "stderr".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("gdb not found: {}", e)),
+    }
+}
+
+/// gdb backtrace — Get a backtrace from a core dump.
+fn bi_gdb_bt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let program = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("gdb_bt requires a program path")),
+    };
+    let corefile = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("gdb_bt requires a core file path")),
+    };
+    let output = std::process::Command::new("gdb")
+        .args(&["--batch", "-ex", "bt full", &program, &corefile])
+        .output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("program".to_string(), Value::Str(program));
+            rec.insert("core".to_string(), Value::Str(corefile));
+            rec.insert(
+                "backtrace".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("gdb not found: {}", e)),
+    }
+}
+
+// --- lldb (1013) ---
+
+/// lldb — Run a program under LLDB.
+fn bi_lldb_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let program = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("lldb_run requires a program path")),
+    };
+    let output = std::process::Command::new("lldb")
+        .args(&["--batch", "-o", "run", "-o", "bt", "-o", "quit", &program])
+        .output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("program".to_string(), Value::Str(program));
+            rec.insert(
+                "exit_code".to_string(),
+                Value::Int(o.status.code().unwrap_or(-1) as i64),
+            );
+            rec.insert(
+                "output".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("lldb not found: {}", e)),
+    }
+}
+
+// --- objdump (1014-1015) ---
+
+/// objdump disassemble — Disassemble a binary.
+fn bi_objdump_disasm(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let path = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("objdump_disasm requires a binary path")),
+    };
+    let output = std::process::Command::new("objdump")
+        .args(&["-d", &path])
+        .output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("path".to_string(), Value::Str(path));
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            rec.insert(
+                "disassembly".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("objdump not found: {}", e)),
+    }
+}
+
+/// objdump headers — Show binary headers.
+fn bi_objdump_headers(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let path = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("objdump_headers requires a binary path")),
+    };
+    let output = std::process::Command::new("objdump")
+        .args(&["-h", &path])
+        .output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("path".to_string(), Value::Str(path));
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            rec.insert(
+                "headers".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("objdump not found: {}", e)),
+    }
+}
+
+// --- nm (1016) ---
+
+/// nm — List symbols from an object file.
+fn bi_nm_symbols(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let path = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("nm_symbols requires an object file path")),
+    };
+    let output = std::process::Command::new("nm")
+        .args(&["--demangle", &path])
+        .output();
+    match output {
+        Ok(o) if o.status.success() => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            let symbols: Vec<Value> = stdout
+                .lines()
+                .filter(|l| !l.is_empty())
+                .map(|line| {
+                    let parts: Vec<&str> = line.splitn(3, ' ').collect();
+                    let mut rec = BTreeMap::new();
+                    if parts.len() >= 3 {
+                        rec.insert("address".to_string(), Value::Str(parts[0].to_string()));
+                        rec.insert("type".to_string(), Value::Str(parts[1].to_string()));
+                        rec.insert("name".to_string(), Value::Str(parts[2].to_string()));
+                    } else {
+                        rec.insert("line".to_string(), Value::Str(line.to_string()));
+                    }
+                    Value::Record(rec)
+                })
+                .collect();
+            Ok(Value::Array(symbols))
+        }
+        Ok(o) => Err(anyhow!("nm failed: {}", String::from_utf8_lossy(&o.stderr))),
+        Err(e) => Err(anyhow!("nm not found: {}", e)),
+    }
+}
+
+// --- readelf (1017-1018) ---
+
+/// readelf headers — Show ELF file headers.
+fn bi_readelf_headers(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let path = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("readelf_headers requires an ELF file path")),
+    };
+    let output = std::process::Command::new("readelf")
+        .args(&["-h", &path])
+        .output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("path".to_string(), Value::Str(path));
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            rec.insert(
+                "headers".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("readelf not found: {}", e)),
+    }
+}
+
+/// readelf sections — Show ELF section headers.
+fn bi_readelf_sections(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let path = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("readelf_sections requires an ELF file path")),
+    };
+    let output = std::process::Command::new("readelf")
+        .args(&["-S", &path])
+        .output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("path".to_string(), Value::Str(path));
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            rec.insert(
+                "sections".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("readelf not found: {}", e)),
+    }
+}
+
+// --- strings (1019) ---
+
+/// strings — Extract printable strings from a binary file.
+fn bi_strings_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let path = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("strings requires a file path")),
+    };
+    let min_len = match args.get(1) {
+        Some(Value::Int(n)) => *n as usize,
+        _ => 4,
+    };
+    // Cross-platform: try `strings` command, fallback to native Rust
+    let output = std::process::Command::new("strings")
+        .args(&["-n", &min_len.to_string(), &path])
+        .output();
+    match output {
+        Ok(o) if o.status.success() => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            let strings: Vec<Value> = stdout.lines().map(|l| Value::Str(l.to_string())).collect();
+            Ok(Value::Array(strings))
+        }
+        _ => {
+            // Fallback: native Rust implementation
+            let data = std::fs::read(&path).map_err(|e| anyhow!("Cannot read file: {}", e))?;
+            let mut result = Vec::new();
+            let mut current = String::new();
+            for &byte in &data {
+                if byte >= 0x20 && byte < 0x7f {
+                    current.push(byte as char);
+                } else {
+                    if current.len() >= min_len {
+                        result.push(Value::Str(current.clone()));
+                    }
+                    current.clear();
+                }
+            }
+            if current.len() >= min_len {
+                result.push(Value::Str(current));
+            }
+            Ok(Value::Array(result))
+        }
+    }
+}
+
+// --- chgrp (1020) ---
+
+/// chgrp — Change group ownership of a file.
+fn bi_chgrp(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let group = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("chgrp requires a group name")),
+    };
+    let path = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("chgrp requires a file path")),
+    };
+    if cfg!(target_os = "windows") {
+        return Err(anyhow!("chgrp is not supported on Windows"));
+    }
+    let output = std::process::Command::new("chgrp")
+        .args(&[&group, &path])
+        .output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("group".to_string(), Value::Str(group));
+            rec.insert("path".to_string(), Value::Str(path));
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("chgrp failed: {}", e)),
+    }
+}
+
+// --- mtr (1021) ---
+
+/// mtr — Network diagnostic tool combining traceroute and ping.
+fn bi_mtr_trace(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let host = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("mtr requires a hostname")),
+    };
+    let count = match args.get(1) {
+        Some(Value::Int(n)) => n.to_string(),
+        _ => "5".to_string(),
+    };
+    let output = std::process::Command::new("mtr")
+        .args(&["--report", "--report-cycles", &count, &host])
+        .output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("host".to_string(), Value::Str(host));
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            rec.insert(
+                "report".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("mtr not found: {}", e)),
+    }
+}
+
+// --- host (1022) ---
+
+/// host — DNS lookup utility.
+fn bi_host_lookup(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let hostname = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("host requires a hostname")),
+    };
+    let output = if cfg!(target_os = "windows") {
+        std::process::Command::new("nslookup")
+            .arg(&hostname)
+            .output()
+    } else {
+        std::process::Command::new("host").arg(&hostname).output()
+    };
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("hostname".to_string(), Value::Str(hostname));
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            rec.insert(
+                "result".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("host lookup failed: {}", e)),
+    }
+}
+
+// --- nc/netcat (1023-1024) ---
+
+/// nc connect — Connect to a host:port via netcat.
+fn bi_nc_connect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let host = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("nc_connect requires a host")),
+    };
+    let port = match args.get(1) {
+        Some(Value::Int(n)) => n.to_string(),
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("nc_connect requires a port")),
+    };
+    let output = std::process::Command::new("nc")
+        .args(&["-z", "-v", "-w", "5", &host, &port])
+        .output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("host".to_string(), Value::Str(host));
+            rec.insert("port".to_string(), Value::Str(port));
+            rec.insert("open".to_string(), Value::Bool(o.status.success()));
+            let combined = format!(
+                "{}{}",
+                String::from_utf8_lossy(&o.stdout),
+                String::from_utf8_lossy(&o.stderr)
+            );
+            rec.insert(
+                "output".to_string(),
+                Value::Str(combined.trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("nc/netcat not found: {}", e)),
+    }
+}
+
+/// nc listen — Listen on a port via netcat.
+fn bi_nc_listen(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let port = match args.first() {
+        Some(Value::Int(n)) => n.to_string(),
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("nc_listen requires a port")),
+    };
+    let mut rec = BTreeMap::new();
+    rec.insert("port".to_string(), Value::Str(port.clone()));
+    rec.insert(
+        "info".to_string(),
+        Value::Str(format!(
+            "Use `nc -l {}` to listen. This is an interactive command.",
+            port
+        )),
+    );
+    Ok(Value::Record(rec))
+}
+
+// --- socat (1025) ---
+
+/// socat — Multipurpose relay (socket + socket).
+fn bi_socat_relay(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let addr1 = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("socat requires a first address")),
+    };
+    let addr2 = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("socat requires a second address")),
+    };
+    let output = std::process::Command::new("socat")
+        .args(&[&addr1, &addr2])
+        .output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("addr1".to_string(), Value::Str(addr1));
+            rec.insert("addr2".to_string(), Value::Str(addr2));
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("socat not found: {}", e)),
+    }
+}
+
+// --- iperf3 (1026-1027) ---
+
+/// iperf3 server — Start iperf3 in server mode (info only).
+fn bi_iperf3_server(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let port = match args.first() {
+        Some(Value::Int(n)) => n.to_string(),
+        _ => "5201".to_string(),
+    };
+    let mut rec = BTreeMap::new();
+    rec.insert("mode".to_string(), Value::Str("server".to_string()));
+    rec.insert("port".to_string(), Value::Str(port.clone()));
+    rec.insert(
+        "info".to_string(),
+        Value::Str(format!(
+            "Use `iperf3 -s -p {}` to start server. This is a long-running command.",
+            port
+        )),
+    );
+    Ok(Value::Record(rec))
+}
+
+/// iperf3 client — Run iperf3 client bandwidth test.
+fn bi_iperf3_client(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let host = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("iperf3_client requires a server host")),
+    };
+    let output = std::process::Command::new("iperf3")
+        .args(&["-c", &host, "-J"])
+        .output();
+    match output {
+        Ok(o) if o.status.success() => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            match serde_json::from_str::<serde_json::Value>(&stdout) {
+                Ok(json) => Ok(json_to_value(json)),
+                Err(_) => {
+                    let mut rec = BTreeMap::new();
+                    rec.insert("host".to_string(), Value::Str(host));
+                    rec.insert("output".to_string(), Value::Str(stdout.trim().to_string()));
+                    Ok(Value::Record(rec))
+                }
+            }
+        }
+        Ok(o) => Err(anyhow!(
+            "iperf3 failed: {}",
+            String::from_utf8_lossy(&o.stderr)
+        )),
+        Err(e) => Err(anyhow!("iperf3 not found: {}", e)),
+    }
+}
+
+// --- bat (1028) ---
+
+/// bat — Cat clone with syntax highlighting.
+fn bi_bat_view(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let path = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("bat requires a file path")),
+    };
+    let output = std::process::Command::new("bat")
+        .args(&["--plain", "--color=never", &path])
+        .output();
+    match output {
+        Ok(o) if o.status.success() => {
+            Ok(Value::Str(String::from_utf8_lossy(&o.stdout).to_string()))
+        }
+        _ => {
+            // Fallback to cat/native read
+            let content =
+                std::fs::read_to_string(&path).map_err(|e| anyhow!("Cannot read file: {}", e))?;
+            Ok(Value::Str(content))
+        }
+    }
+}
+
+// --- eza (1029) ---
+
+/// eza — Modern replacement for ls.
+fn bi_eza_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let path = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => ".".to_string(),
+    };
+    let output = std::process::Command::new("eza")
+        .args(&["-la", "--git", "--no-user", "--time-style=long-iso", &path])
+        .output();
+    match output {
+        Ok(o) if o.status.success() => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            let entries: Vec<Value> = stdout
+                .lines()
+                .filter(|l| !l.is_empty())
+                .map(|line| Value::Str(line.to_string()))
+                .collect();
+            Ok(Value::Array(entries))
+        }
+        _ => {
+            // Fallback: use native ls builtin behavior
+            Err(anyhow!("eza not found; use ls() instead"))
+        }
+    }
+}
+
+// --- zoxide (1030-1031) ---
+
+/// zoxide add — Add a directory to zoxide database.
+fn bi_zoxide_add(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let path = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => ".".to_string(),
+    };
+    let output = std::process::Command::new("zoxide")
+        .args(&["add", &path])
+        .output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("path".to_string(), Value::Str(path));
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("zoxide not found: {}", e)),
+    }
+}
+
+/// zoxide query — Query zoxide for best matching directory.
+fn bi_zoxide_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let query = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("zoxide_query requires a search term")),
+    };
+    let output = std::process::Command::new("zoxide")
+        .args(&["query", &query])
+        .output();
+    match output {
+        Ok(o) if o.status.success() => Ok(Value::Str(
+            String::from_utf8_lossy(&o.stdout).trim().to_string(),
+        )),
+        Ok(o) => Err(anyhow!(
+            "No match found: {}",
+            String::from_utf8_lossy(&o.stderr)
+        )),
+        Err(e) => Err(anyhow!("zoxide not found: {}", e)),
+    }
+}
+
+// --- delta (1032) ---
+
+/// delta — Syntax-highlighting diff viewer.
+fn bi_delta_diff(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let file_a = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("delta requires two file paths")),
+    };
+    let file_b = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("delta requires two file paths")),
+    };
+    let output = std::process::Command::new("delta")
+        .args(&[&file_a, &file_b])
+        .output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("file_a".to_string(), Value::Str(file_a));
+            rec.insert("file_b".to_string(), Value::Str(file_b));
+            rec.insert(
+                "diff".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).to_string()),
+            );
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("delta not found: {}", e)),
+    }
+}
+
+// --- lazygit (1033) ---
+
+/// lazygit — Launch lazygit terminal UI (interactive).
+fn bi_lazygit_open(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let path = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => ".".to_string(),
+    };
+    let mut rec = BTreeMap::new();
+    rec.insert("path".to_string(), Value::Str(path));
+    rec.insert(
+        "info".to_string(),
+        Value::Str(
+            "lazygit is an interactive TUI application. Run `lazygit` in terminal.".to_string(),
+        ),
+    );
+    Ok(Value::Record(rec))
+}
+
+// --- fzf (1034) ---
+
+/// fzf — Fuzzy finder. Searches input or files.
+fn bi_fzf_select(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let query = args.first().and_then(|a| match a {
+        Value::Str(s) => Some(s.clone()),
+        _ => None,
+    });
+    let items: Vec<String> = match &input {
+        Some(Value::Array(arr)) => arr.iter().map(|v| format!("{}", v)).collect(),
+        Some(Value::Str(s)) => s.lines().map(|l| l.to_string()).collect(),
+        _ => vec![],
+    };
+    if items.is_empty() {
+        let mut cmd = std::process::Command::new("fzf");
+        if let Some(q) = &query {
+            cmd.args(&["--query", q]);
+        }
+        cmd.arg("--filter").arg(query.as_deref().unwrap_or(""));
+        let output = cmd.output();
+        match output {
+            Ok(o) => {
+                let stdout = String::from_utf8_lossy(&o.stdout);
+                let results: Vec<Value> =
+                    stdout.lines().map(|l| Value::Str(l.to_string())).collect();
+                Ok(Value::Array(results))
+            }
+            Err(e) => Err(anyhow!("fzf not found: {}", e)),
+        }
+    } else {
+        // Filter items with the query
+        if let Some(q) = &query {
+            let q_lower = q.to_lowercase();
+            let filtered: Vec<Value> = items
+                .iter()
+                .filter(|item| item.to_lowercase().contains(&q_lower))
+                .map(|item| Value::Str(item.clone()))
+                .collect();
+            Ok(Value::Array(filtered))
+        } else {
+            Ok(Value::Array(items.into_iter().map(Value::Str).collect()))
+        }
+    }
+}
+
+// --- rga (1035) ---
+
+/// rga — ripgrep-all: search in PDFs, archives, etc.
+fn bi_rga_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let pattern = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("rga requires a search pattern")),
+    };
+    let path = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => ".".to_string(),
+    };
+    let output = std::process::Command::new("rga")
+        .args(&["--json", &pattern, &path])
+        .output();
+    match output {
+        Ok(o) if o.status.success() => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            let lines: Vec<Value> = stdout
+                .lines()
+                .filter(|l| !l.is_empty())
+                .map(
+                    |line| match serde_json::from_str::<serde_json::Value>(line) {
+                        Ok(json) => json_to_value(json),
+                        Err(_) => Value::Str(line.to_string()),
+                    },
+                )
+                .collect();
+            Ok(Value::Array(lines))
+        }
+        _ => {
+            // Fallback to ripgrep
+            let output = std::process::Command::new("rg")
+                .args(&["--json", &pattern, &path])
+                .output();
+            match output {
+                Ok(o) => {
+                    let stdout = String::from_utf8_lossy(&o.stdout);
+                    let lines: Vec<Value> = stdout
+                        .lines()
+                        .filter(|l| !l.is_empty())
+                        .filter_map(|line| {
+                            serde_json::from_str::<serde_json::Value>(line)
+                                .ok()
+                                .map(|j| json_to_value(j))
+                        })
+                        .collect();
+                    Ok(Value::Array(lines))
+                }
+                Err(e) => Err(anyhow!("rga/rg not found: {}", e)),
+            }
+        }
+    }
+}
+
+// --- sd (1036) ---
+
+/// sd — Intuitive find-and-replace CLI.
+fn bi_sd_replace(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let find = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("sd requires a find pattern")),
+    };
+    let replace = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("sd requires a replacement string")),
+    };
+    let text = match args.get(2) {
+        Some(Value::Str(s)) => s.clone(),
+        None => match &input {
+            Some(Value::Str(s)) => s.clone(),
+            _ => return Err(anyhow!("sd requires input text")),
+        },
+        _ => return Err(anyhow!("sd input must be a string")),
+    };
+    // Use sd if available, otherwise fallback to Rust regex
+    let child = std::process::Command::new("sd")
+        .args(&[&find, &replace])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn();
+    match child {
+        Ok(mut c) => {
+            use std::io::Write;
+            if let Some(ref mut stdin) = c.stdin {
+                let _ = stdin.write_all(text.as_bytes());
+            }
+            let output = c.wait_with_output()?;
+            Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).to_string(),
+            ))
+        }
+        Err(_) => {
+            // Fallback: simple string replace
+            Ok(Value::Str(text.replace(&find, &replace)))
+        }
+    }
+}
+
+// --- hyperfine (1037) ---
+
+/// hyperfine — Command-line benchmarking tool.
+fn bi_hyperfine_bench(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let commands: Vec<String> = args
+        .iter()
+        .filter_map(|a| match a {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .collect();
+    if commands.is_empty() {
+        return Err(anyhow!(
+            "hyperfine requires at least one command to benchmark"
+        ));
+    }
+    let mut cmd = std::process::Command::new("hyperfine");
+    cmd.arg("--export-json").arg("/dev/stdout");
+    for c in &commands {
+        cmd.arg(c);
+    }
+    let output = cmd.output();
+    match output {
+        Ok(o) if o.status.success() => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            match serde_json::from_str::<serde_json::Value>(&stdout) {
+                Ok(json) => Ok(json_to_value(json)),
+                Err(_) => Ok(Value::Str(stdout.trim().to_string())),
+            }
+        }
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "stderr".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("hyperfine not found: {}", e)),
+    }
+}
+
+// --- tokei (1038) ---
+
+/// tokei — Count lines of code by language.
+fn bi_tokei_count(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let path = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => ".".to_string(),
+    };
+    let output = std::process::Command::new("tokei")
+        .args(&["--output", "json", &path])
+        .output();
+    match output {
+        Ok(o) if o.status.success() => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            match serde_json::from_str::<serde_json::Value>(&stdout) {
+                Ok(json) => Ok(json_to_value(json)),
+                Err(_) => Ok(Value::Str(stdout.trim().to_string())),
+            }
+        }
+        Ok(o) => Ok(Value::Str(
+            String::from_utf8_lossy(&o.stdout).trim().to_string(),
+        )),
+        Err(e) => Err(anyhow!("tokei not found: {}", e)),
+    }
+}
+
+// --- entr (1039) ---
+
+/// entr — Run a command when files change.
+fn bi_entr_watch(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let command = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("entr requires a command to run")),
+    };
+    let mut rec = BTreeMap::new();
+    rec.insert("command".to_string(), Value::Str(command.clone()));
+    rec.insert(
+        "info".to_string(),
+        Value::Str(format!(
+            "Use `find . | entr {}` to watch for changes. This is a long-running command.",
+            command
+        )),
+    );
+    Ok(Value::Record(rec))
+}
+
+// --- watchexec (1040) ---
+
+/// watchexec — Execute commands in response to file changes.
+fn bi_watchexec_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let command = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("watchexec requires a command")),
+    };
+    let mut rec = BTreeMap::new();
+    rec.insert("command".to_string(), Value::Str(command.clone()));
+    rec.insert(
+        "info".to_string(),
+        Value::Str(format!(
+            "Use `watchexec -- {}` to watch and re-run. This is a long-running command.",
+            command
+        )),
+    );
+    Ok(Value::Record(rec))
+}
+
+// --- just (1041-1042) ---
+
+/// just — Run a justfile recipe.
+fn bi_just_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let recipe = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("just_run requires a recipe name")),
+    };
+    let extra_args: Vec<String> = args
+        .iter()
+        .skip(1)
+        .filter_map(|a| match a {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .collect();
+    let mut cmd = std::process::Command::new("just");
+    cmd.arg(&recipe);
+    for a in &extra_args {
+        cmd.arg(a);
+    }
+    let output = cmd.output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("recipe".to_string(), Value::Str(recipe));
+            rec.insert(
+                "exit_code".to_string(),
+                Value::Int(o.status.code().unwrap_or(-1) as i64),
+            );
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "stderr".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("just not found: {}", e)),
+    }
+}
+
+/// just list — List available recipes.
+fn bi_just_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("just").arg("--list").output();
+    match output {
+        Ok(o) if o.status.success() => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            let recipes: Vec<Value> = stdout
+                .lines()
+                .filter(|l| !l.is_empty() && !l.starts_with("Available"))
+                .map(|line| {
+                    let trimmed = line.trim();
+                    let parts: Vec<&str> = trimmed.splitn(2, '#').collect();
+                    let mut rec = BTreeMap::new();
+                    rec.insert("name".to_string(), Value::Str(parts[0].trim().to_string()));
+                    if let Some(desc) = parts.get(1) {
+                        rec.insert(
+                            "description".to_string(),
+                            Value::Str(desc.trim().to_string()),
+                        );
+                    }
+                    Value::Record(rec)
+                })
+                .collect();
+            Ok(Value::Array(recipes))
+        }
+        Ok(o) => Ok(Value::Str(
+            String::from_utf8_lossy(&o.stderr).trim().to_string(),
+        )),
+        Err(e) => Err(anyhow!("just not found: {}", e)),
+    }
+}
+
+// --- task (1043-1044) ---
+
+/// task — Run a Taskfile task.
+fn bi_task_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let task_name = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("task_run requires a task name")),
+    };
+    let output = std::process::Command::new("task").arg(&task_name).output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("task".to_string(), Value::Str(task_name));
+            rec.insert(
+                "exit_code".to_string(),
+                Value::Int(o.status.code().unwrap_or(-1) as i64),
+            );
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "stderr".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("task not found: {}", e)),
+    }
+}
+
+/// task list — List available tasks.
+fn bi_task_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("task").arg("--list").output();
+    match output {
+        Ok(o) if o.status.success() => Ok(Value::Str(
+            String::from_utf8_lossy(&o.stdout).trim().to_string(),
+        )),
+        Ok(o) => Ok(Value::Str(
+            String::from_utf8_lossy(&o.stderr).trim().to_string(),
+        )),
+        Err(e) => Err(anyhow!("task not found: {}", e)),
+    }
+}
+
+// --- direnv (1045-1046) ---
+
+/// direnv allow — Allow the current .envrc.
+fn bi_direnv_allow(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let path = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => ".".to_string(),
+    };
+    let output = std::process::Command::new("direnv")
+        .args(&["allow", &path])
+        .output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("path".to_string(), Value::Str(path));
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("direnv not found: {}", e)),
+    }
+}
+
+/// direnv status — Show direnv status.
+fn bi_direnv_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("direnv").arg("status").output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            rec.insert(
+                "status".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("direnv not found: {}", e)),
+    }
+}
+
+// --- asdf (1047-1048) ---
+
+/// asdf list — List installed versions of a tool.
+fn bi_asdf_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut cmd = std::process::Command::new("asdf");
+    cmd.arg("list");
+    if let Some(Value::Str(plugin)) = args.first() {
+        cmd.arg(plugin);
+    }
+    let output = cmd.output();
+    match output {
+        Ok(o) if o.status.success() => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            let items: Vec<Value> = stdout
+                .lines()
+                .filter(|l| !l.is_empty())
+                .map(|line| Value::Str(line.trim().to_string()))
+                .collect();
+            Ok(Value::Array(items))
+        }
+        Ok(o) => Ok(Value::Str(
+            String::from_utf8_lossy(&o.stderr).trim().to_string(),
+        )),
+        Err(e) => Err(anyhow!("asdf not found: {}", e)),
+    }
+}
+
+/// asdf install — Install a tool version.
+fn bi_asdf_install(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let plugin = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("asdf_install requires a plugin name")),
+    };
+    let version = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => "latest".to_string(),
+    };
+    let output = std::process::Command::new("asdf")
+        .args(&["install", &plugin, &version])
+        .output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("plugin".to_string(), Value::Str(plugin));
+            rec.insert("version".to_string(), Value::Str(version));
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("asdf not found: {}", e)),
+    }
+}
+
+// --- mise (1049-1050) ---
+
+/// mise use — Set a tool version for the current directory.
+fn bi_mise_use(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let tool = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("mise_use requires a tool@version")),
+    };
+    let output = std::process::Command::new("mise")
+        .args(&["use", &tool])
+        .output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("tool".to_string(), Value::Str(tool));
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("mise not found: {}", e)),
+    }
+}
+
+/// mise list — List installed tool versions.
+fn bi_mise_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("mise").arg("list").output();
+    match output {
+        Ok(o) if o.status.success() => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            let items: Vec<Value> = stdout
+                .lines()
+                .filter(|l| !l.is_empty())
+                .map(|line| Value::Str(line.trim().to_string()))
+                .collect();
+            Ok(Value::Array(items))
+        }
+        Ok(o) => Ok(Value::Str(
+            String::from_utf8_lossy(&o.stderr).trim().to_string(),
+        )),
+        Err(e) => Err(anyhow!("mise not found: {}", e)),
+    }
+}
+
+// --- uv (1051-1053) ---
+
+/// uv run — Run a Python script with uv.
+fn bi_uv_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let script = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("uv_run requires a script or command")),
+    };
+    let extra: Vec<String> = args
+        .iter()
+        .skip(1)
+        .filter_map(|a| match a {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .collect();
+    let mut cmd = std::process::Command::new("uv");
+    cmd.arg("run").arg(&script);
+    for a in &extra {
+        cmd.arg(a);
+    }
+    let output = cmd.output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert(
+                "exit_code".to_string(),
+                Value::Int(o.status.code().unwrap_or(-1) as i64),
+            );
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "stderr".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("uv not found: {}", e)),
+    }
+}
+
+/// uv pip — Install packages with uv pip.
+fn bi_uv_pip(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let subcmd = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => "install".to_string(),
+    };
+    let packages: Vec<String> = args
+        .iter()
+        .skip(1)
+        .filter_map(|a| match a {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .collect();
+    let mut cmd = std::process::Command::new("uv");
+    cmd.arg("pip").arg(&subcmd);
+    for p in &packages {
+        cmd.arg(p);
+    }
+    let output = cmd.output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("subcmd".to_string(), Value::Str(subcmd));
+            rec.insert(
+                "exit_code".to_string(),
+                Value::Int(o.status.code().unwrap_or(-1) as i64),
+            );
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "stderr".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("uv not found: {}", e)),
+    }
+}
+
+/// uv venv — Create a virtual environment with uv.
+fn bi_uv_venv(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let path = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => ".venv".to_string(),
+    };
+    let output = std::process::Command::new("uv")
+        .args(&["venv", &path])
+        .output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("path".to_string(), Value::Str(path));
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("uv not found: {}", e)),
+    }
+}
+
+// --- pipx (1054-1055) ---
+
+/// pipx install — Install a Python CLI tool.
+fn bi_pipx_install(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let package = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("pipx_install requires a package name")),
+    };
+    let output = std::process::Command::new("pipx")
+        .args(&["install", &package])
+        .output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("package".to_string(), Value::Str(package));
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("pipx not found: {}", e)),
+    }
+}
+
+/// pipx list — List pipx-installed packages.
+fn bi_pipx_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("pipx").arg("list").output();
+    match output {
+        Ok(o) if o.status.success() => Ok(Value::Str(
+            String::from_utf8_lossy(&o.stdout).trim().to_string(),
+        )),
+        Ok(o) => Ok(Value::Str(
+            String::from_utf8_lossy(&o.stderr).trim().to_string(),
+        )),
+        Err(e) => Err(anyhow!("pipx not found: {}", e)),
+    }
+}
+
+// --- poetry (1056-1057) ---
+
+/// poetry run — Run a command in a Poetry environment.
+fn bi_poetry_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let command = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("poetry_run requires a command")),
+    };
+    let extra: Vec<String> = args
+        .iter()
+        .skip(1)
+        .filter_map(|a| match a {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .collect();
+    let mut cmd = std::process::Command::new("poetry");
+    cmd.arg("run").arg(&command);
+    for a in &extra {
+        cmd.arg(a);
+    }
+    let output = cmd.output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert(
+                "exit_code".to_string(),
+                Value::Int(o.status.code().unwrap_or(-1) as i64),
+            );
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "stderr".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("poetry not found: {}", e)),
+    }
+}
+
+/// poetry install — Install Poetry project dependencies.
+fn bi_poetry_install(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("poetry").arg("install").output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "stderr".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("poetry not found: {}", e)),
+    }
+}
+
+// --- node (1058) ---
+
+/// node — Run a Node.js script.
+fn bi_node_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let script = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("node_run requires a script path or expression")),
+    };
+    let output = if script.ends_with(".js") || script.ends_with(".mjs") || script.ends_with(".ts") {
+        std::process::Command::new("node").arg(&script).output()
+    } else {
+        std::process::Command::new("node")
+            .args(&["-e", &script])
+            .output()
+    };
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert(
+                "exit_code".to_string(),
+                Value::Int(o.status.code().unwrap_or(-1) as i64),
+            );
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "stderr".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("node not found: {}", e)),
+    }
+}
+
+// --- npm (1059-1060) ---
+
+/// npm run — Run an npm script.
+fn bi_npm_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let script = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("npm_run requires a script name")),
+    };
+    let output = std::process::Command::new("npm")
+        .args(&["run", &script])
+        .output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("script".to_string(), Value::Str(script));
+            rec.insert(
+                "exit_code".to_string(),
+                Value::Int(o.status.code().unwrap_or(-1) as i64),
+            );
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "stderr".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("npm not found: {}", e)),
+    }
+}
+
+/// npm install — Install npm packages.
+fn bi_npm_install(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let packages: Vec<String> = args
+        .iter()
+        .filter_map(|a| match a {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .collect();
+    let mut cmd = std::process::Command::new("npm");
+    cmd.arg("install");
+    for p in &packages {
+        cmd.arg(p);
+    }
+    let output = cmd.output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "stderr".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("npm not found: {}", e)),
+    }
+}
+
+// --- pnpm (1061-1062) ---
+
+/// pnpm run — Run a pnpm script.
+fn bi_pnpm_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let script = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("pnpm_run requires a script name")),
+    };
+    let output = std::process::Command::new("pnpm")
+        .args(&["run", &script])
+        .output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("script".to_string(), Value::Str(script));
+            rec.insert(
+                "exit_code".to_string(),
+                Value::Int(o.status.code().unwrap_or(-1) as i64),
+            );
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "stderr".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("pnpm not found: {}", e)),
+    }
+}
+
+/// pnpm install — Install pnpm packages.
+fn bi_pnpm_install(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let packages: Vec<String> = args
+        .iter()
+        .filter_map(|a| match a {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .collect();
+    let mut cmd = std::process::Command::new("pnpm");
+    cmd.arg("install");
+    for p in &packages {
+        cmd.arg(p);
+    }
+    let output = cmd.output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "stderr".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("pnpm not found: {}", e)),
+    }
+}
+
+// --- yarn (1063-1064) ---
+
+/// yarn run — Run a yarn script.
+fn bi_yarn_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let script = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("yarn_run requires a script name")),
+    };
+    let output = std::process::Command::new("yarn")
+        .args(&["run", &script])
+        .output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("script".to_string(), Value::Str(script));
+            rec.insert(
+                "exit_code".to_string(),
+                Value::Int(o.status.code().unwrap_or(-1) as i64),
+            );
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "stderr".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("yarn not found: {}", e)),
+    }
+}
+
+/// yarn install — Install yarn packages.
+fn bi_yarn_install(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let packages: Vec<String> = args
+        .iter()
+        .filter_map(|a| match a {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .collect();
+    let mut cmd = std::process::Command::new("yarn");
+    if packages.is_empty() {
+        cmd.arg("install");
+    } else {
+        cmd.arg("add");
+        for p in &packages {
+            cmd.arg(p);
+        }
+    }
+    let output = cmd.output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "stderr".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("yarn not found: {}", e)),
+    }
+}
+
+// --- cargo (1065-1067) ---
+
+/// cargo run — Run a Rust project.
+fn bi_cargo_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let extra: Vec<String> = args
+        .iter()
+        .filter_map(|a| match a {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .collect();
+    let mut cmd = std::process::Command::new("cargo");
+    cmd.arg("run");
+    for a in &extra {
+        cmd.arg(a);
+    }
+    let output = cmd.output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert(
+                "exit_code".to_string(),
+                Value::Int(o.status.code().unwrap_or(-1) as i64),
+            );
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "stderr".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("cargo not found: {}", e)),
+    }
+}
+
+/// cargo build — Build a Rust project.
+fn bi_cargo_build_cmd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut cmd = std::process::Command::new("cargo");
+    cmd.arg("build");
+    if args
+        .iter()
+        .any(|a| matches!(a, Value::Str(s) if s == "--release"))
+    {
+        cmd.arg("--release");
+    }
+    let output = cmd.output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "stderr".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("cargo not found: {}", e)),
+    }
+}
+
+/// cargo test — Run Rust tests.
+fn bi_cargo_test_cmd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let extra: Vec<String> = args
+        .iter()
+        .filter_map(|a| match a {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .collect();
+    let mut cmd = std::process::Command::new("cargo");
+    cmd.arg("test");
+    for a in &extra {
+        cmd.arg(a);
+    }
+    let output = cmd.output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert(
+                "exit_code".to_string(),
+                Value::Int(o.status.code().unwrap_or(-1) as i64),
+            );
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "stderr".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("cargo not found: {}", e)),
+    }
+}
+
+// --- rustup (1068-1069) ---
+
+/// rustup show — Show installed Rust toolchains.
+fn bi_rustup_show(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("rustup").arg("show").output();
+    match output {
+        Ok(o) if o.status.success() => Ok(Value::Str(
+            String::from_utf8_lossy(&o.stdout).trim().to_string(),
+        )),
+        Ok(o) => Ok(Value::Str(
+            String::from_utf8_lossy(&o.stderr).trim().to_string(),
+        )),
+        Err(e) => Err(anyhow!("rustup not found: {}", e)),
+    }
+}
+
+/// rustup update — Update Rust toolchains.
+fn bi_rustup_update(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("rustup").arg("update").output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "stderr".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("rustup not found: {}", e)),
+    }
+}
+
+// --- go (1070-1072) ---
+
+/// go run — Run a Go program.
+fn bi_go_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let target = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => ".".to_string(),
+    };
+    let output = std::process::Command::new("go")
+        .args(&["run", &target])
+        .output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert(
+                "exit_code".to_string(),
+                Value::Int(o.status.code().unwrap_or(-1) as i64),
+            );
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "stderr".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("go not found: {}", e)),
+    }
+}
+
+/// go build — Build a Go project.
+fn bi_go_build(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let extra: Vec<String> = args
+        .iter()
+        .filter_map(|a| match a {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .collect();
+    let mut cmd = std::process::Command::new("go");
+    cmd.arg("build");
+    for a in &extra {
+        cmd.arg(a);
+    }
+    let output = cmd.output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "stderr".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("go not found: {}", e)),
+    }
+}
+
+/// go test — Run Go tests.
+fn bi_go_test(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let target = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => "./...".to_string(),
+    };
+    let output = std::process::Command::new("go")
+        .args(&["test", "-v", &target])
+        .output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert(
+                "exit_code".to_string(),
+                Value::Int(o.status.code().unwrap_or(-1) as i64),
+            );
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "stderr".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("go not found: {}", e)),
+    }
+}
+
+// --- mage (1073) ---
+
+/// mage — Run a mage target (Go task runner).
+fn bi_mage_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let target = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("mage_run requires a target name")),
+    };
+    let output = std::process::Command::new("mage").arg(&target).output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("target".to_string(), Value::Str(target));
+            rec.insert(
+                "exit_code".to_string(),
+                Value::Int(o.status.code().unwrap_or(-1) as i64),
+            );
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "stderr".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("mage not found: {}", e)),
+    }
+}
+
+// --- bun (1074-1075) ---
+
+/// bun run — Run a script or file with Bun.
+fn bi_bun_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let script = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("bun_run requires a script name or path")),
+    };
+    let output = std::process::Command::new("bun")
+        .args(&["run", &script])
+        .output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert(
+                "exit_code".to_string(),
+                Value::Int(o.status.code().unwrap_or(-1) as i64),
+            );
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "stderr".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("bun not found: {}", e)),
+    }
+}
+
+/// bun install — Install packages with Bun.
+fn bi_bun_install(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let packages: Vec<String> = args
+        .iter()
+        .filter_map(|a| match a {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .collect();
+    let mut cmd = std::process::Command::new("bun");
+    if packages.is_empty() {
+        cmd.arg("install");
+    } else {
+        cmd.arg("add");
+        for p in &packages {
+            cmd.arg(p);
+        }
+    }
+    let output = cmd.output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "stderr".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("bun not found: {}", e)),
+    }
+}
+
+// --- deno (1076-1077) ---
+
+/// deno run — Run a script with Deno.
+fn bi_deno_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let script = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("deno_run requires a script path")),
+    };
+    let output = std::process::Command::new("deno")
+        .args(&["run", "--allow-all", &script])
+        .output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert(
+                "exit_code".to_string(),
+                Value::Int(o.status.code().unwrap_or(-1) as i64),
+            );
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "stderr".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("deno not found: {}", e)),
+    }
+}
+
+/// deno task — Run a deno task.
+fn bi_deno_task(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let task_name = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("deno_task requires a task name")),
+    };
+    let output = std::process::Command::new("deno")
+        .args(&["task", &task_name])
+        .output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("task".to_string(), Value::Str(task_name));
+            rec.insert(
+                "exit_code".to_string(),
+                Value::Int(o.status.code().unwrap_or(-1) as i64),
+            );
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "stderr".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("deno not found: {}", e)),
+    }
+}
+
+// --- gh (1078-1080) ---
+
+/// gh pr — Manage GitHub pull requests.
+fn bi_gh_pr(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let subcmd = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => "list".to_string(),
+    };
+    let extra: Vec<String> = args
+        .iter()
+        .skip(1)
+        .filter_map(|a| match a {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .collect();
+    let mut cmd = std::process::Command::new("gh");
+    cmd.arg("pr").arg(&subcmd);
+    for a in &extra {
+        cmd.arg(a);
+    }
+    let output = cmd.output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("subcmd".to_string(), Value::Str(subcmd));
+            rec.insert(
+                "exit_code".to_string(),
+                Value::Int(o.status.code().unwrap_or(-1) as i64),
+            );
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "stderr".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("gh not found: {}", e)),
+    }
+}
+
+/// gh issue — Manage GitHub issues.
+fn bi_gh_issue(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let subcmd = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => "list".to_string(),
+    };
+    let extra: Vec<String> = args
+        .iter()
+        .skip(1)
+        .filter_map(|a| match a {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .collect();
+    let mut cmd = std::process::Command::new("gh");
+    cmd.arg("issue").arg(&subcmd);
+    for a in &extra {
+        cmd.arg(a);
+    }
+    let output = cmd.output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("subcmd".to_string(), Value::Str(subcmd));
+            rec.insert(
+                "exit_code".to_string(),
+                Value::Int(o.status.code().unwrap_or(-1) as i64),
+            );
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "stderr".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("gh not found: {}", e)),
+    }
+}
+
+/// gh repo — Manage GitHub repositories.
+fn bi_gh_repo_cmd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let subcmd = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => "list".to_string(),
+    };
+    let extra: Vec<String> = args
+        .iter()
+        .skip(1)
+        .filter_map(|a| match a {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .collect();
+    let mut cmd = std::process::Command::new("gh");
+    cmd.arg("repo").arg(&subcmd);
+    for a in &extra {
+        cmd.arg(a);
+    }
+    let output = cmd.output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("subcmd".to_string(), Value::Str(subcmd));
+            rec.insert(
+                "exit_code".to_string(),
+                Value::Int(o.status.code().unwrap_or(-1) as i64),
+            );
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "stderr".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("gh not found: {}", e)),
+    }
+}
+
+// --- glab (1081-1082) ---
+
+/// glab mr — Manage GitLab merge requests.
+fn bi_glab_mr(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let subcmd = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => "list".to_string(),
+    };
+    let extra: Vec<String> = args
+        .iter()
+        .skip(1)
+        .filter_map(|a| match a {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .collect();
+    let mut cmd = std::process::Command::new("glab");
+    cmd.arg("mr").arg(&subcmd);
+    for a in &extra {
+        cmd.arg(a);
+    }
+    let output = cmd.output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("subcmd".to_string(), Value::Str(subcmd));
+            rec.insert(
+                "exit_code".to_string(),
+                Value::Int(o.status.code().unwrap_or(-1) as i64),
+            );
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "stderr".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("glab not found: {}", e)),
+    }
+}
+
+/// glab issue — Manage GitLab issues.
+fn bi_glab_issue(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let subcmd = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => "list".to_string(),
+    };
+    let extra: Vec<String> = args
+        .iter()
+        .skip(1)
+        .filter_map(|a| match a {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .collect();
+    let mut cmd = std::process::Command::new("glab");
+    cmd.arg("issue").arg(&subcmd);
+    for a in &extra {
+        cmd.arg(a);
+    }
+    let output = cmd.output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("subcmd".to_string(), Value::Str(subcmd));
+            rec.insert(
+                "exit_code".to_string(),
+                Value::Int(o.status.code().unwrap_or(-1) as i64),
+            );
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "stderr".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("glab not found: {}", e)),
+    }
+}
+
+// --- act (1083) ---
+
+/// act — Run GitHub Actions locally.
+fn bi_act_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let workflow = args.first().and_then(|a| match a {
+        Value::Str(s) => Some(s.clone()),
+        _ => None,
+    });
+    let mut cmd = std::process::Command::new("act");
+    if let Some(w) = &workflow {
+        cmd.arg(w);
+    }
+    let output = cmd.output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert(
+                "exit_code".to_string(),
+                Value::Int(o.status.code().unwrap_or(-1) as i64),
+            );
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "stderr".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("act not found: {}", e)),
+    }
+}
+
+// --- pre-commit (1084-1085) ---
+
+/// pre-commit run — Run pre-commit hooks.
+fn bi_pre_commit_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut cmd = std::process::Command::new("pre-commit");
+    cmd.arg("run");
+    if args
+        .iter()
+        .any(|a| matches!(a, Value::Str(s) if s == "--all-files"))
+    {
+        cmd.arg("--all-files");
+    } else if let Some(Value::Str(hook)) = args.first() {
+        cmd.arg(hook);
+    }
+    let output = cmd.output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert(
+                "exit_code".to_string(),
+                Value::Int(o.status.code().unwrap_or(-1) as i64),
+            );
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "stderr".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("pre-commit not found: {}", e)),
+    }
+}
+
+/// pre-commit install — Install pre-commit hooks.
+fn bi_pre_commit_install(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("pre-commit")
+        .arg("install")
+        .output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("pre-commit not found: {}", e)),
+    }
+}
+
+// --- buildah (1086-1087) ---
+
+/// buildah build — Build a container image with Buildah.
+fn bi_buildah_build(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let tag = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("buildah_build requires an image tag")),
+    };
+    let context = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => ".".to_string(),
+    };
+    let output = std::process::Command::new("buildah")
+        .args(&["bud", "-t", &tag, &context])
+        .output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("tag".to_string(), Value::Str(tag));
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "stderr".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("buildah not found: {}", e)),
+    }
+}
+
+/// buildah images — List Buildah images.
+fn bi_buildah_images(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let output = std::process::Command::new("buildah")
+        .args(&["images", "--json"])
+        .output();
+    match output {
+        Ok(o) if o.status.success() => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            match serde_json::from_str::<serde_json::Value>(&stdout) {
+                Ok(json) => Ok(json_to_value(json)),
+                Err(_) => Ok(Value::Str(stdout.trim().to_string())),
+            }
+        }
+        Ok(o) => Ok(Value::Str(
+            String::from_utf8_lossy(&o.stderr).trim().to_string(),
+        )),
+        Err(e) => Err(anyhow!("buildah not found: {}", e)),
+    }
+}
+
+// --- skopeo (1088-1089) ---
+
+/// skopeo copy — Copy container images between registries.
+fn bi_skopeo_copy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let src = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("skopeo_copy requires a source image")),
+    };
+    let dst = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("skopeo_copy requires a destination")),
+    };
+    let output = std::process::Command::new("skopeo")
+        .args(&["copy", &src, &dst])
+        .output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("src".to_string(), Value::Str(src));
+            rec.insert("dst".to_string(), Value::Str(dst));
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("skopeo not found: {}", e)),
+    }
+}
+
+/// skopeo inspect — Inspect a container image.
+fn bi_skopeo_inspect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let image = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("skopeo_inspect requires an image reference")),
+    };
+    let output = std::process::Command::new("skopeo")
+        .args(&["inspect", &image])
+        .output();
+    match output {
+        Ok(o) if o.status.success() => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            match serde_json::from_str::<serde_json::Value>(&stdout) {
+                Ok(json) => Ok(json_to_value(json)),
+                Err(_) => Ok(Value::Str(stdout.trim().to_string())),
+            }
+        }
+        Ok(o) => Err(anyhow!(
+            "skopeo inspect failed: {}",
+            String::from_utf8_lossy(&o.stderr)
+        )),
+        Err(e) => Err(anyhow!("skopeo not found: {}", e)),
+    }
+}
+
+// --- trivy (1090-1091) ---
+
+/// trivy scan — Scan a filesystem path for vulnerabilities.
+fn bi_trivy_scan(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let path = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => ".".to_string(),
+    };
+    let output = std::process::Command::new("trivy")
+        .args(&["fs", "--format", "json", &path])
+        .output();
+    match output {
+        Ok(o) if o.status.success() => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            match serde_json::from_str::<serde_json::Value>(&stdout) {
+                Ok(json) => Ok(json_to_value(json)),
+                Err(_) => Ok(Value::Str(stdout.trim().to_string())),
+            }
+        }
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "stderr".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("trivy not found: {}", e)),
+    }
+}
+
+/// trivy image — Scan a container image for vulnerabilities.
+fn bi_trivy_image(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let image = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("trivy_image requires an image name")),
+    };
+    let output = std::process::Command::new("trivy")
+        .args(&["image", "--format", "json", &image])
+        .output();
+    match output {
+        Ok(o) if o.status.success() => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            match serde_json::from_str::<serde_json::Value>(&stdout) {
+                Ok(json) => Ok(json_to_value(json)),
+                Err(_) => Ok(Value::Str(stdout.trim().to_string())),
+            }
+        }
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "stderr".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("trivy not found: {}", e)),
+    }
+}
+
+// --- hadolint (1092) ---
+
+/// hadolint — Lint Dockerfiles.
+fn bi_hadolint_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let path = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => "Dockerfile".to_string(),
+    };
+    let output = std::process::Command::new("hadolint")
+        .args(&["--format", "json", &path])
+        .output();
+    match output {
+        Ok(o) => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            match serde_json::from_str::<serde_json::Value>(&stdout) {
+                Ok(json) => Ok(json_to_value(json)),
+                Err(_) => {
+                    let mut rec = BTreeMap::new();
+                    rec.insert("success".to_string(), Value::Bool(o.status.success()));
+                    rec.insert("output".to_string(), Value::Str(stdout.trim().to_string()));
+                    Ok(Value::Record(rec))
+                }
+            }
+        }
+        Err(e) => Err(anyhow!("hadolint not found: {}", e)),
+    }
+}
+
+// --- shellcheck (1093) ---
+
+/// shellcheck — Lint shell scripts.
+fn bi_shellcheck_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let path = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("shellcheck requires a script path")),
+    };
+    let output = std::process::Command::new("shellcheck")
+        .args(&["--format=json", &path])
+        .output();
+    match output {
+        Ok(o) => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            match serde_json::from_str::<serde_json::Value>(&stdout) {
+                Ok(json) => Ok(json_to_value(json)),
+                Err(_) => {
+                    let mut rec = BTreeMap::new();
+                    rec.insert("success".to_string(), Value::Bool(o.status.success()));
+                    rec.insert("output".to_string(), Value::Str(stdout.trim().to_string()));
+                    Ok(Value::Record(rec))
+                }
+            }
+        }
+        Err(e) => Err(anyhow!("shellcheck not found: {}", e)),
+    }
+}
+
+// --- shfmt (1094) ---
+
+/// shfmt — Format shell scripts.
+fn bi_shfmt_format(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let path = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("shfmt requires a script path")),
+    };
+    let output = std::process::Command::new("shfmt").arg(&path).output();
+    match output {
+        Ok(o) if o.status.success() => {
+            Ok(Value::Str(String::from_utf8_lossy(&o.stdout).to_string()))
+        }
+        Ok(o) => Err(anyhow!(
+            "shfmt error: {}",
+            String::from_utf8_lossy(&o.stderr)
+        )),
+        Err(e) => Err(anyhow!("shfmt not found: {}", e)),
+    }
+}
+
+// --- yamllint (1095) ---
+
+/// yamllint — Lint YAML files.
+fn bi_yamllint_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let path = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("yamllint requires a file path")),
+    };
+    let output = std::process::Command::new("yamllint")
+        .args(&["-f", "parsable", &path])
+        .output();
+    match output {
+        Ok(o) => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            let issues: Vec<Value> = stdout
+                .lines()
+                .filter(|l| !l.is_empty())
+                .map(|line| Value::Str(line.to_string()))
+                .collect();
+            let mut rec = BTreeMap::new();
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            rec.insert("issues".to_string(), Value::Array(issues));
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("yamllint not found: {}", e)),
+    }
+}
+
+// --- prettier (1096) ---
+
+/// prettier — Format code with Prettier.
+fn bi_prettier_format(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let path = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("prettier requires a file path")),
+    };
+    let write_flag = args
+        .iter()
+        .any(|a| matches!(a, Value::Str(s) if s == "--write"));
+    let mut cmd = std::process::Command::new("prettier");
+    if write_flag {
+        cmd.arg("--write");
+    }
+    cmd.arg(&path);
+    let output = cmd.output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("path".to_string(), Value::Str(path));
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("prettier not found: {}", e)),
+    }
+}
+
+// --- eslint (1097) ---
+
+/// eslint — Lint JavaScript/TypeScript files.
+fn bi_eslint_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let path = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => ".".to_string(),
+    };
+    let output = std::process::Command::new("eslint")
+        .args(&["--format=json", &path])
+        .output();
+    match output {
+        Ok(o) => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            match serde_json::from_str::<serde_json::Value>(&stdout) {
+                Ok(json) => Ok(json_to_value(json)),
+                Err(_) => {
+                    let mut rec = BTreeMap::new();
+                    rec.insert("success".to_string(), Value::Bool(o.status.success()));
+                    rec.insert("output".to_string(), Value::Str(stdout.trim().to_string()));
+                    Ok(Value::Record(rec))
+                }
+            }
+        }
+        Err(e) => Err(anyhow!("eslint not found: {}", e)),
+    }
+}
+
+// --- ruff (1098-1099) ---
+
+/// ruff check — Lint Python files with Ruff.
+fn bi_ruff_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let path = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => ".".to_string(),
+    };
+    let output = std::process::Command::new("ruff")
+        .args(&["check", "--output-format=json", &path])
+        .output();
+    match output {
+        Ok(o) => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            match serde_json::from_str::<serde_json::Value>(&stdout) {
+                Ok(json) => Ok(json_to_value(json)),
+                Err(_) => {
+                    let mut rec = BTreeMap::new();
+                    rec.insert("success".to_string(), Value::Bool(o.status.success()));
+                    rec.insert("output".to_string(), Value::Str(stdout.trim().to_string()));
+                    Ok(Value::Record(rec))
+                }
+            }
+        }
+        Err(e) => Err(anyhow!("ruff not found: {}", e)),
+    }
+}
+
+/// ruff format — Format Python files with Ruff.
+fn bi_ruff_format(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let path = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => ".".to_string(),
+    };
+    let output = std::process::Command::new("ruff")
+        .args(&["format", &path])
+        .output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("path".to_string(), Value::Str(path));
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "stderr".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("ruff not found: {}", e)),
+    }
+}
+
+// --- black (1100) ---
+
+/// black — Format Python code with Black.
+fn bi_black_format(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let path = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => ".".to_string(),
+    };
+    let output = std::process::Command::new("black").arg(&path).output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert("path".to_string(), Value::Str(path));
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            rec.insert(
+                "stderr".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("black not found: {}", e)),
+    }
+}
+
+// --- mypy (1101) ---
+
+/// mypy — Type check Python code.
+fn bi_mypy_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let path = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => ".".to_string(),
+    };
+    let output = std::process::Command::new("mypy").arg(&path).output();
+    match output {
+        Ok(o) => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            let issues: Vec<Value> = stdout
+                .lines()
+                .filter(|l| !l.is_empty())
+                .map(|line| Value::Str(line.to_string()))
+                .collect();
+            let mut rec = BTreeMap::new();
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            rec.insert("issues".to_string(), Value::Array(issues));
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("mypy not found: {}", e)),
+    }
+}
+
+// --- pytest (1102) ---
+
+/// pytest — Run Python tests.
+fn bi_pytest_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let extra: Vec<String> = args
+        .iter()
+        .filter_map(|a| match a {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .collect();
+    let mut cmd = std::process::Command::new("pytest");
+    cmd.arg("-v");
+    for a in &extra {
+        cmd.arg(a);
+    }
+    let output = cmd.output();
+    match output {
+        Ok(o) => {
+            let mut rec = BTreeMap::new();
+            rec.insert(
+                "exit_code".to_string(),
+                Value::Int(o.status.code().unwrap_or(-1) as i64),
+            );
+            rec.insert("success".to_string(), Value::Bool(o.status.success()));
+            rec.insert(
+                "stdout".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            );
+            rec.insert(
+                "stderr".to_string(),
+                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+            );
+            Ok(Value::Record(rec))
+        }
+        Err(e) => Err(anyhow!("pytest not found: {}", e)),
+    }
+}
+
+// --- nodemon (1103) ---
+
+/// nodemon — Auto-restart Node.js app on changes.
+fn bi_nodemon_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let script = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("nodemon requires a script path")),
+    };
+    let mut rec = BTreeMap::new();
+    rec.insert("script".to_string(), Value::Str(script.clone()));
+    rec.insert(
+        "info".to_string(),
+        Value::Str(format!(
+            "Use `nodemon {}` to start watching. This is a long-running command.",
+            script
+        )),
+    );
+    Ok(Value::Record(rec))
 }
