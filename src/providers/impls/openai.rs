@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use crate::providers::{
     ChatRequest, ChatResponse, ChatStream, ContentPart, EmbeddingRequest, EmbeddingResponse,
     FinishReason, ImageSource, LLMProvider, Message, ModelInfo, ProviderConfig, ProviderError,
-    ProviderType, TokenUsage, ToolCall, ToolFormat, ToolSchema,
+    ProviderType, StreamChunk, StreamDelta, TokenUsage, ToolCall, ToolFormat, ToolSchema,
 };
 
 /// OpenAI API provider (also handles OpenAI-compatible APIs)
@@ -320,10 +320,147 @@ impl LLMProvider for OpenAIProvider {
         self.parse_response(&json)
     }
 
-    async fn chat_stream(&self, _request: ChatRequest) -> Result<ChatStream, ProviderError> {
-        Err(ProviderError::Unavailable {
-            message: "Streaming not yet implemented".to_string(),
-        })
+    async fn chat_stream(&self, request: ChatRequest) -> Result<ChatStream, ProviderError> {
+        let url = format!("{}/chat/completions", self.base_url());
+
+        let mut body = json!({
+            "model": request.model.model,
+            "messages": self.build_messages(&request.messages),
+            "stream": true,
+        });
+
+        if let Some(temp) = request.temperature {
+            body["temperature"] = json!(temp);
+        }
+        if let Some(max) = request.max_tokens {
+            body["max_tokens"] = json!(max);
+        }
+        if let Some(ref tools) = request.tools {
+            if !tools.is_empty() {
+                body["tools"] = json!(self.build_tools(tools));
+            }
+        }
+
+        let mut req = self
+            .client
+            .post(&url)
+            .header("Content-Type", "application/json");
+
+        if let Some(key) = self.api_key() {
+            req = req.header("Authorization", format!("Bearer {}", key));
+        }
+
+        if self.config.provider == ProviderType::OpenRouter {
+            req = req.header("HTTP-Referer", "https://aethershell.dev");
+            req = req.header("X-Title", "AetherShell");
+        }
+
+        let response = req
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| ProviderError::NetworkError {
+                message: e.to_string(),
+            })?;
+
+        if !response.status().is_success() {
+            let status = response.status().as_u16();
+            let text = response.text().await.unwrap_or_default();
+            return Err(match status {
+                401 => ProviderError::AuthenticationFailed { message: text },
+                429 => ProviderError::RateLimited {
+                    message: text,
+                    retry_after: None,
+                },
+                _ => ProviderError::Unknown {
+                    message: format!("API error {}: {}", status, text),
+                },
+            });
+        }
+
+        use futures::StreamExt;
+        let byte_stream = response.bytes_stream();
+
+        let stream = async_stream::stream! {
+            let mut buffer = String::new();
+            futures::pin_mut!(byte_stream);
+
+            while let Some(chunk_result) = byte_stream.next().await {
+                let chunk = match chunk_result {
+                    Ok(c) => c,
+                    Err(e) => {
+                        yield Err(ProviderError::NetworkError { message: e.to_string() });
+                        break;
+                    }
+                };
+
+                buffer.push_str(&String::from_utf8_lossy(&chunk));
+
+                while let Some(line_end) = buffer.find('\n') {
+                    let line = buffer[..line_end].trim().to_string();
+                    buffer = buffer[line_end + 1..].to_string();
+
+                    if line.is_empty() || line.starts_with(':') {
+                        continue;
+                    }
+
+                    if let Some(data) = line.strip_prefix("data: ") {
+                        if data.trim() == "[DONE]" {
+                            return;
+                        }
+                        if let Ok(json) = serde_json::from_str::<JsonValue>(data) {
+                            if let Some(choices) = json["choices"].as_array() {
+                                if let Some(choice) = choices.first() {
+                                    let delta = &choice["delta"];
+                                    let finish = choice["finish_reason"].as_str();
+
+                                    let stream_delta = if let Some(content) = delta["content"].as_str() {
+                                        StreamDelta::Text(content.to_string())
+                                    } else if let Some(tool_calls) = delta["tool_calls"].as_array() {
+                                        if let Some(tc) = tool_calls.first() {
+                                            StreamDelta::ToolCall {
+                                                index: tc["index"].as_u64().unwrap_or(0) as usize,
+                                                id: tc["id"].as_str().map(String::from),
+                                                name: tc["function"]["name"].as_str().map(String::from),
+                                                arguments: tc["function"]["arguments"].as_str().map(String::from),
+                                            }
+                                        } else {
+                                            continue;
+                                        }
+                                    } else {
+                                        continue;
+                                    };
+
+                                    let finish_reason = finish.and_then(|f| match f {
+                                        "stop" => Some(FinishReason::Stop),
+                                        "length" => Some(FinishReason::Length),
+                                        "tool_calls" => Some(FinishReason::ToolCalls),
+                                        "content_filter" => Some(FinishReason::ContentFilter),
+                                        _ => None,
+                                    });
+
+                                    let usage = json["usage"].as_object().map(|u| TokenUsage {
+                                        prompt_tokens: u.get("prompt_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                                        completion_tokens: u.get("completion_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                                        total_tokens: u.get("total_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                                        cached_tokens: u.get("cached_tokens").and_then(|v| v.as_u64()).map(|v| v as u32),
+                                    });
+
+                                    yield Ok(StreamChunk {
+                                        id: json["id"].as_str().map(String::from),
+                                        delta: stream_delta,
+                                        finish_reason,
+                                        usage,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        Ok(Box::pin(stream))
     }
 
     async fn embed(&self, request: EmbeddingRequest) -> Result<EmbeddingResponse, ProviderError> {
@@ -394,7 +531,7 @@ impl LLMProvider for OpenAIProvider {
             "chat" | "embeddings" => true,
             "tools" => self.config.provider.supports_tools(),
             "vision" => self.config.provider.supports_vision(),
-            "streaming" => self.config.provider.supports_streaming(),
+            "streaming" => true,
             _ => false,
         }
     }

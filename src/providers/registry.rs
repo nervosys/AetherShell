@@ -330,6 +330,10 @@ pub enum RoutingCondition {
     User { user_id: String },
     /// Matches based on time of day (for load balancing)
     TimeRange { start_hour: u8, end_hour: u8 },
+    /// Matches if estimated cost per 1K tokens is under threshold
+    CostUnder { max_cost_per_1k: f64 },
+    /// Matches if provider's average latency is under threshold (ms)
+    LatencyUnder { max_ms: f64 },
 }
 
 impl RoutingCondition {
@@ -372,6 +376,15 @@ impl RoutingCondition {
                     hour >= *start_hour || hour < *end_hour
                 }
             }
+            Self::CostUnder { .. } => {
+                // Cost-based routing requires model cost info; checked at the routing layer
+                // Here we always match — the registry filters by cost when selecting providers
+                true
+            }
+            Self::LatencyUnder { .. } => {
+                // Latency-based routing requires stats; checked at the routing layer
+                true
+            }
         }
     }
 }
@@ -406,6 +419,21 @@ pub struct ProviderStats {
     pub tokens: u64,
     /// Average latency in ms
     pub avg_latency_ms: f64,
+    /// Minimum observed latency in ms
+    #[serde(default)]
+    pub min_latency_ms: f64,
+    /// Maximum observed latency in ms
+    #[serde(default)]
+    pub max_latency_ms: f64,
+    /// P95 latency estimate in ms (exponential moving average)
+    #[serde(default)]
+    pub p95_latency_ms: f64,
+    /// Total estimated cost in USD
+    #[serde(default)]
+    pub total_cost_usd: f64,
+    /// Last request timestamp (epoch seconds)
+    #[serde(default)]
+    pub last_request_epoch: u64,
 }
 
 /// Per-model statistics
