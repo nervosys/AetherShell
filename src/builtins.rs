@@ -3719,11 +3719,20 @@ pub fn call_with_input(
         "ai_add_route" | "ai-add-route" => bi_ai_add_route(args),
         "ai_set_default" | "ai-set-default" => bi_ai_set_default(args),
         "ai_registry_stats" | "ai-registry-stats" => bi_ai_registry_stats(),
+        "ai_set_load_balancing" | "ai-set-load-balancing" => bi_ai_set_load_balancing(args),
+        "ai_load_balancing" | "ai-load-balancing" => bi_ai_load_balancing(),
 
         // Model Format Conversion
         "ai_convert_model" | "ai-convert-model" => bi_ai_convert_model(args),
         "ai_supported_conversions" | "ai-supported-conversions" => bi_ai_supported_conversions(),
         "ai_detect_format" | "ai-detect-format" => bi_ai_detect_format(args),
+
+        // Local Inference
+        "ai_local_backends" | "ai-local-backends" => bi_ai_local_backends(),
+        "ai_local_load" | "ai-local-load" => bi_ai_local_load(args),
+        "ai_local_generate" | "ai-local-generate" => bi_ai_local_generate(args),
+        "ai_local_embed" | "ai-local-embed" => bi_ai_local_embed(args),
+        "ai_local_unload" | "ai-local-unload" => bi_ai_local_unload(args),
 
         // Runtime Type Introspection
         "typeof" | "type_of" => bi_typeof(args, input),
@@ -8872,11 +8881,119 @@ fn bi_ai_registry_stats() -> Result<Value> {
         prec.insert("successes".to_string(), Value::Int(ps.successes as i64));
         prec.insert("failures".to_string(), Value::Int(ps.failures as i64));
         prec.insert("tokens".to_string(), Value::Int(ps.tokens as i64));
+        prec.insert(
+            "avg_latency_ms".to_string(),
+            Value::Float(ps.avg_latency_ms),
+        );
+        prec.insert(
+            "min_latency_ms".to_string(),
+            Value::Float(ps.min_latency_ms),
+        );
+        prec.insert(
+            "max_latency_ms".to_string(),
+            Value::Float(ps.max_latency_ms),
+        );
+        prec.insert(
+            "p95_latency_ms".to_string(),
+            Value::Float(ps.p95_latency_ms),
+        );
+        prec.insert(
+            "total_cost_usd".to_string(),
+            Value::Float(ps.total_cost_usd),
+        );
         by_provider.insert(pt.scheme().to_string(), Value::Record(prec));
     }
     rec.insert("by_provider".to_string(), Value::Record(by_provider));
 
+    // Include load balancing strategy
+    let strategy = PROVIDER_REGISTRY.load_balancing_strategy();
+    rec.insert(
+        "load_balancing".to_string(),
+        Value::Str(format!("{:?}", strategy)),
+    );
+
     Ok(Value::Record(rec))
+}
+
+/// ai_set_load_balancing(strategy) - Set the load balancing strategy for AI providers
+/// Args: strategy string: "none", "round_robin", "least_latency", "least_requests", "adaptive"
+///       OR a record with {type: "weighted", weights: {openai: 3, anthropic: 1}}
+/// Returns: String confirmation
+///
+/// Example:
+///   ai_set_load_balancing("round_robin")
+///   ai_set_load_balancing("least_latency")
+///   ai_set_load_balancing({type: "weighted", weights: {openai: 3, anthropic: 1}})
+fn bi_ai_set_load_balancing(args: Vec<Value>) -> Result<Value> {
+    use crate::providers::registry::{LoadBalancingStrategy, PROVIDER_REGISTRY};
+    use crate::providers::ProviderType;
+
+    let strategy = match args.first() {
+        Some(Value::Str(s)) => match s.as_str() {
+            "none" => LoadBalancingStrategy::None,
+            "round_robin" | "roundrobin" | "rr" => LoadBalancingStrategy::RoundRobin,
+            "least_latency" | "latency" => LoadBalancingStrategy::LeastLatency,
+            "least_requests" | "requests" => LoadBalancingStrategy::LeastRequests,
+            "adaptive" | "auto" => LoadBalancingStrategy::Adaptive,
+            other => {
+                return Err(anyhow!(
+                    "ai_set_load_balancing: unknown strategy '{}'. Try: none, round_robin, least_latency, least_requests, adaptive, or a weighted config record",
+                    other
+                ))
+            }
+        },
+        Some(Value::Record(r)) => {
+            let lb_type = r
+                .get("type")
+                .and_then(|v| if let Value::Str(s) = v { Some(s.as_str()) } else { None })
+                .unwrap_or("weighted");
+            if lb_type == "weighted" {
+                let weights_rec = r
+                    .get("weights")
+                    .and_then(|v| if let Value::Record(wr) = v { Some(wr) } else { None })
+                    .ok_or_else(|| {
+                        anyhow!("ai_set_load_balancing: weighted strategy requires a 'weights' record")
+                    })?;
+                let mut weights = std::collections::HashMap::new();
+                for (k, v) in weights_rec {
+                    let pt = ProviderType::from_scheme(k)?;
+                    let w = match v {
+                        Value::Int(i) => *i as u32,
+                        Value::Float(f) => *f as u32,
+                        _ => 1,
+                    };
+                    weights.insert(pt, w);
+                }
+                LoadBalancingStrategy::Weighted { weights }
+            } else {
+                return Err(anyhow!(
+                    "ai_set_load_balancing: record config only supports type 'weighted'"
+                ));
+            }
+        }
+        _ => {
+            return Err(anyhow!(
+                "ai_set_load_balancing: requires a strategy string or config record"
+            ))
+        }
+    };
+
+    let label = format!("{:?}", strategy);
+    PROVIDER_REGISTRY.set_load_balancing(strategy);
+
+    Ok(Value::Str(format!("Load balancing set to {}", label)))
+}
+
+/// ai_load_balancing() - Get the current load balancing strategy
+/// Returns: String describing the active strategy
+///
+/// Example:
+///   ai_load_balancing()
+fn bi_ai_load_balancing() -> Result<Value> {
+    use crate::providers::registry::PROVIDER_REGISTRY;
+
+    let strategy = PROVIDER_REGISTRY.load_balancing_strategy();
+    Ok(Value::Str(format!("{:?}", strategy)))
 }
 
 /// ai_convert_model(config) - Convert a model between formats
@@ -9051,6 +9168,274 @@ fn bi_ai_detect_format(args: Vec<Value>) -> Result<Value> {
     };
 
     Ok(Value::Str(format.to_string()))
+}
+
+// ========== Local Inference Builtins ==========
+
+/// ai_local_backends() - List available local inference backends
+/// Returns: Array of Records with backend name and supported formats
+///
+/// Example:
+///   ai_local_backends()
+fn bi_ai_local_backends() -> Result<Value> {
+    use crate::local_inference;
+
+    let backends = local_inference::available_backends();
+    let names = local_inference::backend_names();
+
+    if backends.is_empty() {
+        return Ok(Value::Array(vec![Value::Record({
+            let mut r = std::collections::BTreeMap::new();
+            r.insert("status".to_string(), Value::Str("none".to_string()));
+            r.insert(
+                "message".to_string(),
+                Value::Str(
+                    "No local inference backends compiled. Rebuild with --features candle or --features onnx"
+                        .to_string(),
+                ),
+            );
+            r
+        })]));
+    }
+
+    let mut result = Vec::new();
+    for (backend, name) in backends.iter().zip(names.iter()) {
+        let mut rec = std::collections::BTreeMap::new();
+        rec.insert("name".to_string(), Value::Str(name.to_string()));
+        rec.insert(
+            "loaded_models".to_string(),
+            Value::Array(
+                backend
+                    .loaded_models()
+                    .into_iter()
+                    .map(Value::Str)
+                    .collect(),
+            ),
+        );
+        let formats: Vec<&str> = ["gguf", "safetensors", "onnx", "pt", "bin"]
+            .iter()
+            .copied()
+            .filter(|ext| backend.supports_format(ext))
+            .collect();
+        rec.insert(
+            "formats".to_string(),
+            Value::Array(
+                formats
+                    .into_iter()
+                    .map(|f| Value::Str(f.to_string()))
+                    .collect(),
+            ),
+        );
+        result.push(Value::Record(rec));
+    }
+
+    Ok(Value::Array(result))
+}
+
+/// ai_local_load(path) - Load a local model file into an inference backend
+/// Returns: Record with handle, backend name, and estimated memory
+///
+/// Example:
+///   ai_local_load("models/llama-3.2-1b-q4_k_m.gguf")
+fn bi_ai_local_load(args: Vec<Value>) -> Result<Value> {
+    use crate::local_inference;
+
+    let path = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("ai_local_load: requires a model file path string")),
+    };
+
+    let backend = local_inference::backend_for_model(&path).ok_or_else(|| {
+        anyhow!(
+            "ai_local_load: no backend supports this model format. Available: {:?}. \
+             Rebuild with --features candle (for .gguf/.safetensors) or --features onnx (for .onnx)",
+            local_inference::backend_names()
+        )
+    })?;
+
+    let memory_mb = backend.estimate_memory_mb(&path).unwrap_or(0);
+    let handle = backend.load_model(&path)?;
+
+    let mut rec = std::collections::BTreeMap::new();
+    rec.insert("handle".to_string(), Value::Str(handle));
+    rec.insert(
+        "backend".to_string(),
+        Value::Str(backend.name().to_string()),
+    );
+    rec.insert(
+        "estimated_memory_mb".to_string(),
+        Value::Int(memory_mb as i64),
+    );
+    rec.insert("path".to_string(), Value::Str(path));
+
+    Ok(Value::Record(rec))
+}
+
+/// ai_local_generate(handle, prompt, params?) - Generate text using a loaded local model
+/// Returns: Record with generated text, token counts, and performance metrics
+///
+/// Example:
+///   ai_local_generate("candle:llama", "What is Rust?")
+///   ai_local_generate("candle:llama", "Hello", {max_tokens: 100, temperature: 0.5})
+fn bi_ai_local_generate(args: Vec<Value>) -> Result<Value> {
+    use crate::local_inference::{self, GenerationParams};
+
+    let handle = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => {
+            return Err(anyhow!(
+                "ai_local_generate: requires handle string as first argument"
+            ))
+        }
+    };
+
+    let prompt = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => {
+            return Err(anyhow!(
+                "ai_local_generate: requires prompt string as second argument"
+            ))
+        }
+    };
+
+    let mut params = GenerationParams::default();
+    if let Some(Value::Record(r)) = args.get(2) {
+        if let Some(Value::Int(n)) = r.get("max_tokens") {
+            params.max_tokens = *n as u32;
+        }
+        if let Some(Value::Float(f)) = r.get("temperature") {
+            params.temperature = *f;
+        }
+        if let Some(Value::Float(f)) = r.get("top_p") {
+            params.top_p = *f;
+        }
+        if let Some(Value::Float(f)) = r.get("repetition_penalty") {
+            params.repetition_penalty = *f;
+        }
+        if let Some(Value::Int(s)) = r.get("seed") {
+            params.seed = Some(*s as u64);
+        }
+    }
+
+    // Find the right backend from the handle prefix
+    for backend in local_inference::available_backends() {
+        if handle.starts_with(&format!("{}:", backend.name())) {
+            let result = backend.generate(&handle, &prompt, &params)?;
+            let mut rec = std::collections::BTreeMap::new();
+            rec.insert("text".to_string(), Value::Str(result.text));
+            rec.insert(
+                "prompt_tokens".to_string(),
+                Value::Int(result.prompt_tokens as i64),
+            );
+            rec.insert(
+                "completion_tokens".to_string(),
+                Value::Int(result.completion_tokens as i64),
+            );
+            rec.insert(
+                "generation_ms".to_string(),
+                Value::Float(result.generation_ms),
+            );
+            rec.insert(
+                "tokens_per_second".to_string(),
+                Value::Float(result.tokens_per_second),
+            );
+            return Ok(Value::Record(rec));
+        }
+    }
+
+    Err(anyhow!(
+        "ai_local_generate: no backend found for handle '{}'. Load a model first with ai_local_load()",
+        handle
+    ))
+}
+
+/// ai_local_embed(handle, inputs) - Generate embeddings using a loaded local model
+/// Returns: Record with embeddings array and token count
+///
+/// Example:
+///   ai_local_embed("candle:embed-model", ["Hello world", "Rust is great"])
+fn bi_ai_local_embed(args: Vec<Value>) -> Result<Value> {
+    use crate::local_inference;
+
+    let handle = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => {
+            return Err(anyhow!(
+                "ai_local_embed: requires handle string as first argument"
+            ))
+        }
+    };
+
+    let inputs: Vec<String> = match args.get(1) {
+        Some(Value::Array(arr)) => arr
+            .iter()
+            .map(|v| match v {
+                Value::Str(s) => s.clone(),
+                other => other.to_string(),
+            })
+            .collect(),
+        Some(Value::Str(s)) => vec![s.clone()],
+        _ => {
+            return Err(anyhow!(
+                "ai_local_embed: requires input string or array of strings"
+            ))
+        }
+    };
+
+    for backend in local_inference::available_backends() {
+        if handle.starts_with(&format!("{}:", backend.name())) {
+            let result = backend.embed(&handle, &inputs)?;
+            let mut rec = std::collections::BTreeMap::new();
+            rec.insert(
+                "embeddings".to_string(),
+                Value::Array(
+                    result
+                        .embeddings
+                        .into_iter()
+                        .map(|emb| {
+                            Value::Array(emb.into_iter().map(|f| Value::Float(f as f64)).collect())
+                        })
+                        .collect(),
+                ),
+            );
+            rec.insert(
+                "total_tokens".to_string(),
+                Value::Int(result.total_tokens as i64),
+            );
+            return Ok(Value::Record(rec));
+        }
+    }
+
+    Err(anyhow!(
+        "ai_local_embed: no backend found for handle '{}'",
+        handle
+    ))
+}
+
+/// ai_local_unload(handle) - Unload a previously loaded local model
+/// Returns: String confirmation
+///
+/// Example:
+///   ai_local_unload("candle:llama")
+fn bi_ai_local_unload(args: Vec<Value>) -> Result<Value> {
+    use crate::local_inference;
+
+    let handle = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("ai_local_unload: requires handle string")),
+    };
+
+    for backend in local_inference::available_backends() {
+        if handle.starts_with(&format!("{}:", backend.name())) {
+            backend.unload_model(&handle)?;
+            return Ok(Value::Str(format!("Model '{}' unloaded", handle)));
+        }
+    }
+
+    Err(anyhow!(
+        "ai_local_unload: no backend found for handle '{}'",
+        handle
+    ))
 }
 
 // ========== Runtime Type Introspection ==========

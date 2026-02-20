@@ -28,7 +28,9 @@ pub fn transpile_zsh_to_ae(src: &str) -> Result<String> {
         let line = raw_line.trim();
 
         if line.is_empty() {
-            if block_depth > 0 { block_lines.push(raw_line.to_string()); }
+            if block_depth > 0 {
+                block_lines.push(raw_line.to_string());
+            }
             continue;
         }
         if line.starts_with('#') {
@@ -71,13 +73,20 @@ pub fn transpile_zsh_to_ae(src: &str) -> Result<String> {
             out.push_str(&format!("// [zsh] {}\n", line));
             continue;
         }
-        if line.starts_with("compdef ") || line.starts_with("compctl ") || line.starts_with("zstyle ") || line.starts_with("bindkey ") {
+        if line.starts_with("compdef ")
+            || line.starts_with("compctl ")
+            || line.starts_with("zstyle ")
+            || line.starts_with("bindkey ")
+        {
             out.push_str(&format!("// [zsh] {}\n", line));
             continue;
         }
 
         // typeset -A (associative array) → empty record
-        if line.starts_with("typeset -A ") || line.starts_with("declare -A ") || line.starts_with("local -A ") {
+        if line.starts_with("typeset -A ")
+            || line.starts_with("declare -A ")
+            || line.starts_with("local -A ")
+        {
             let rest = line.splitn(2, " -A ").nth(1).unwrap_or("").trim();
             if !rest.is_empty() {
                 let name = rest.split('=').next().unwrap_or(rest).trim();
@@ -89,7 +98,9 @@ pub fn transpile_zsh_to_ae(src: &str) -> Result<String> {
         }
 
         // typeset / local / declare (non-flag) → let
-        if (line.starts_with("local ") || line.starts_with("typeset ") || line.starts_with("declare "))
+        if (line.starts_with("local ")
+            || line.starts_with("typeset ")
+            || line.starts_with("declare "))
             && !line.contains(" -")
         {
             let rest = line.splitn(2, ' ').nth(1).unwrap_or("").trim();
@@ -99,11 +110,17 @@ pub fn transpile_zsh_to_ae(src: &str) -> Result<String> {
                 if is_ident(name) {
                     if val.starts_with('(') && val.ends_with(')') {
                         let inner = &val[1..val.len() - 1];
-                        let elems: Vec<String> = inner.split_whitespace()
+                        let elems: Vec<String> = inner
+                            .split_whitespace()
                             .map(|w| {
                                 let w = w.trim_matches(|c: char| c == '\'' || c == '"');
-                                if is_int_literal(w) { w.to_string() } else { json_string_literal(w) }
-                            }).collect();
+                                if is_int_literal(w) {
+                                    w.to_string()
+                                } else {
+                                    json_string_literal(w)
+                                }
+                            })
+                            .collect();
                         out.push_str(&format!("let {} = [{}];\n", name, elems.join(", ")));
                     } else if is_int_literal(val) {
                         out.push_str(&format!("let {} = {};\n", name, val));
@@ -111,7 +128,11 @@ pub fn transpile_zsh_to_ae(src: &str) -> Result<String> {
                         out.push_str(&format!("let {} = {};\n", name, val));
                     } else {
                         let cleaned = val.trim_matches(|c: char| c == '\'' || c == '"');
-                        out.push_str(&format!("let {} = {};\n", name, json_string_literal(cleaned)));
+                        out.push_str(&format!(
+                            "let {} = {};\n",
+                            name,
+                            json_string_literal(cleaned)
+                        ));
                     }
                     continue;
                 }
@@ -139,7 +160,11 @@ pub fn transpile_zsh_to_ae(src: &str) -> Result<String> {
                         }
                     } else {
                         let cleaned = rhs.trim_matches(|c: char| c == '\'' || c == '"');
-                        out.push_str(&format!("let {} = {};\n", lhs, json_string_literal(cleaned)));
+                        out.push_str(&format!(
+                            "let {} = {};\n",
+                            lhs,
+                            json_string_literal(cleaned)
+                        ));
                     }
                     continue;
                 }
@@ -274,13 +299,19 @@ fn parse_simple_assignment(line: &str) -> Option<String> {
             let lhs = line[..eq].trim();
             if !lhs.is_empty() && is_ident(lhs) {
                 let inner = &rhs_start[1..rhs_start.len() - 1];
-                let elems: Vec<String> = inner.split_whitespace()
+                let elems: Vec<String> = inner
+                    .split_whitespace()
                     .map(|w| {
                         let w = w.trim_matches(|c: char| c == '\'' || c == '"');
-                        if is_int_literal(w) { w.to_string() }
-                        else if is_float_literal(w) { w.to_string() }
-                        else { json_string_literal(w) }
-                    }).collect();
+                        if is_int_literal(w) {
+                            w.to_string()
+                        } else if is_float_literal(w) {
+                            w.to_string()
+                        } else {
+                            json_string_literal(w)
+                        }
+                    })
+                    .collect();
                 return Some(format!("let {} = [{}];", lhs, elems.join(", ")));
             }
         }
@@ -291,7 +322,9 @@ fn parse_simple_assignment(line: &str) -> Option<String> {
     let eq = line.find('=')?;
     let (lhs, rhs_with_eq) = line.split_at(eq);
     let lhs = lhs.trim();
-    if lhs.is_empty() || !is_ident(lhs) { return None; }
+    if lhs.is_empty() || !is_ident(lhs) {
+        return None;
+    }
     let rhs = rhs_with_eq[1..].trim();
 
     if rhs.is_empty() || rhs.contains(' ') || contains_zsh_complex(rhs) {
@@ -308,13 +341,19 @@ fn parse_simple_assignment(line: &str) -> Option<String> {
         return parse_var_ref(rhs).map(|var| format!("let {} = {};", lhs, var));
     } else if rhs.starts_with('(') && rhs.ends_with(')') {
         let inner = &rhs[1..rhs.len() - 1];
-        let elems: Vec<String> = inner.split_whitespace()
+        let elems: Vec<String> = inner
+            .split_whitespace()
             .map(|w| {
                 let w = w.trim_matches(|c: char| c == '\'' || c == '"');
-                if is_int_literal(w) { w.to_string() }
-                else if is_float_literal(w) { w.to_string() }
-                else { json_string_literal(w) }
-            }).collect();
+                if is_int_literal(w) {
+                    w.to_string()
+                } else if is_float_literal(w) {
+                    w.to_string()
+                } else {
+                    json_string_literal(w)
+                }
+            })
+            .collect();
         return Some(format!("let {} = [{}];", lhs, elems.join(", ")));
     } else if is_int_literal(rhs) {
         return Some(format!("let {} = {};", lhs, rhs));
@@ -333,7 +372,9 @@ fn parse_pipeline(s: &str) -> Result<Vec<Command>> {
     let mut cmds = Vec::new();
     for p in parts {
         let toks = split_shell_words(&p)?;
-        if toks.is_empty() { continue; }
+        if toks.is_empty() {
+            continue;
+        }
         let program = toks[0].clone();
         let args = toks[1..].to_vec();
         cmds.push(Command { program, args });
@@ -348,13 +389,24 @@ fn split_unquoted_pipes(s: &str) -> Result<Vec<String>> {
     let mut sq = false;
     for ch in s.chars() {
         match ch {
-            '\'' if !dq => { sq = !sq; cur.push(ch); }
-            '"' if !sq => { dq = !dq; cur.push(ch); }
-            '|' if !sq && !dq => { out.push(cur.trim().to_string()); cur.clear(); }
+            '\'' if !dq => {
+                sq = !sq;
+                cur.push(ch);
+            }
+            '"' if !sq => {
+                dq = !dq;
+                cur.push(ch);
+            }
+            '|' if !sq && !dq => {
+                out.push(cur.trim().to_string());
+                cur.clear();
+            }
             _ => cur.push(ch),
         }
     }
-    if !cur.trim().is_empty() { out.push(cur.trim().to_string()); }
+    if !cur.trim().is_empty() {
+        out.push(cur.trim().to_string());
+    }
     Ok(out)
 }
 
@@ -369,39 +421,69 @@ fn split_shell_words(s: &str) -> Result<Vec<Token>> {
     while let Some(ch) = chars.next() {
         match ch {
             '\'' if !dq => {
-                if !sq { sq = true; literal_sq = Some(String::new()); }
-                else { toks.push(Token::Single(literal_sq.take().unwrap_or_default())); sq = false; }
+                if !sq {
+                    sq = true;
+                    literal_sq = Some(String::new());
+                } else {
+                    toks.push(Token::Single(literal_sq.take().unwrap_or_default()));
+                    sq = false;
+                }
             }
             '"' if !sq => {
                 dq = !dq;
-                if !dq && !cur.is_empty() { toks.push(Token::Interp(std::mem::take(&mut cur))); }
+                if !dq && !cur.is_empty() {
+                    toks.push(Token::Interp(std::mem::take(&mut cur)));
+                }
             }
-            c if sq => { if let Some(ref mut lit) = literal_sq { lit.push(c); } }
+            c if sq => {
+                if let Some(ref mut lit) = literal_sq {
+                    lit.push(c);
+                }
+            }
             c if dq => {
                 if c == '$' {
-                    if let Some((var, _)) = read_var(&mut chars) { cur.push(Piece::Var(var)); }
-                    else { cur.push(Piece::Text("$".into())); }
-                } else { cur.push(Piece::Text(c.to_string())); }
+                    if let Some((var, _)) = read_var(&mut chars) {
+                        cur.push(Piece::Var(var));
+                    } else {
+                        cur.push(Piece::Text("$".into()));
+                    }
+                } else {
+                    cur.push(Piece::Text(c.to_string()));
+                }
             }
             c if c.is_whitespace() => {
-                if !cur.is_empty() { toks.push(Token::Interp(std::mem::take(&mut cur))); }
+                if !cur.is_empty() {
+                    toks.push(Token::Interp(std::mem::take(&mut cur)));
+                }
             }
             '$' => {
-                if let Some((var, _)) = read_var(&mut chars) { cur.push(Piece::Var(var)); }
-                else { cur.push(Piece::Text("$".into())); }
+                if let Some((var, _)) = read_var(&mut chars) {
+                    cur.push(Piece::Var(var));
+                } else {
+                    cur.push(Piece::Text("$".into()));
+                }
             }
-            _ => { cur.push(Piece::Text(ch.to_string())); }
+            _ => {
+                cur.push(Piece::Text(ch.to_string()));
+            }
         }
     }
-    if sq { toks.push(Token::Single(literal_sq.take().unwrap_or_default())); }
-    if !cur.is_empty() { toks.push(Token::Interp(cur)); }
+    if sq {
+        toks.push(Token::Single(literal_sq.take().unwrap_or_default()));
+    }
+    if !cur.is_empty() {
+        toks.push(Token::Interp(cur));
+    }
     Ok(toks)
 }
 
 fn parse_single_token(s: &str) -> Result<Token> {
     let toks = split_shell_words(s)?;
     if toks.len() == 1 {
-        Ok(toks.into_iter().next().ok_or_else(|| anyhow!("Expected single token"))?)
+        Ok(toks
+            .into_iter()
+            .next()
+            .ok_or_else(|| anyhow!("Expected single token"))?)
     } else {
         Err(anyhow!("expected single token, got {}", toks.len()))
     }
@@ -412,7 +494,8 @@ Rendering
 ============================================================================= */
 
 fn render_pipeline(cmds: &[Command]) -> String {
-    cmds.iter().enumerate()
+    cmds.iter()
+        .enumerate()
         .map(|(i, c)| render_command(c, i == 0))
         .collect::<Vec<_>>()
         .join(" | ")
@@ -422,9 +505,17 @@ fn render_command(cmd: &Command, _is_first: bool) -> String {
     let prog_name = token_to_plain_word(&cmd.program);
     if let Some(name) = prog_name.as_deref() {
         if let Some(builtin) = map_zsh_builtin(name) {
-            let args = cmd.args.iter().map(render_arg_expr).collect::<Vec<_>>().join(", ");
-            return if args.is_empty() { format!("{}()", builtin) }
-                   else { format!("{}({})", builtin, args) };
+            let args = cmd
+                .args
+                .iter()
+                .map(render_arg_expr)
+                .collect::<Vec<_>>()
+                .join(", ");
+            return if args.is_empty() {
+                format!("{}()", builtin)
+            } else {
+                format!("{}({})", builtin, args)
+            };
         }
     }
     render_external_call(cmd)
@@ -434,7 +525,9 @@ fn render_external_call(cmd: &Command) -> String {
     let mut arr = Vec::new();
     let prog = token_to_plain_word(&cmd.program).unwrap_or_else(|| token_to_string(&cmd.program));
     arr.push(json_string_literal(&prog));
-    for a in &cmd.args { arr.push(json_string_literal(&token_to_string(a))); }
+    for a in &cmd.args {
+        arr.push(json_string_literal(&token_to_string(a)));
+    }
     format!("sh([{}])", arr.join(", "))
 }
 
@@ -444,14 +537,20 @@ fn render_arg_expr(tok: &Token) -> String {
         Token::Interp(pcs) => {
             if pcs.len() == 1 {
                 if let Piece::Var(v) = &pcs[0] {
-                    if is_ident(v) { return v.clone(); }
+                    if is_ident(v) {
+                        return v.clone();
+                    }
                 }
             }
             let mut s = String::from("\"");
             for p in pcs {
                 match p {
                     Piece::Text(t) => s.push_str(&escape_in_double_quotes(t)),
-                    Piece::Var(v) => { s.push_str("${"); s.push_str(v); s.push('}'); }
+                    Piece::Var(v) => {
+                        s.push_str("${");
+                        s.push_str(v);
+                        s.push('}');
+                    }
                 }
             }
             s.push('"');
@@ -468,8 +567,12 @@ fn token_to_plain_word(tok: &Token) -> Option<String> {
         Token::Single(_) => None,
         Token::Interp(pcs) => {
             if pcs.iter().all(|p| matches!(p, Piece::Text(_))) {
-                let s: String = pcs.iter()
-                    .map(|p| match p { Piece::Text(t) => t.as_str(), _ => "" })
+                let s: String = pcs
+                    .iter()
+                    .map(|p| match p {
+                        Piece::Text(t) => t.as_str(),
+                        _ => "",
+                    })
                     .collect();
                 if !s.is_empty() && !s.chars().any(|c| c.is_whitespace()) {
                     return Some(s);
@@ -488,7 +591,10 @@ fn token_to_string(tok: &Token) -> String {
             for p in pcs {
                 match p {
                     Piece::Text(t) => s.push_str(t),
-                    Piece::Var(v) => { s.push('$'); s.push_str(v); }
+                    Piece::Var(v) => {
+                        s.push('$');
+                        s.push_str(v);
+                    }
                 }
             }
             s
@@ -505,19 +611,31 @@ fn read_var(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> Option<(Str
         while let Some(&ch) = chars.peek() {
             consumed += 1;
             let _ = chars.next();
-            if ch == '}' { break; }
+            if ch == '}' {
+                break;
+            }
             name.push(ch);
         }
-        if name.is_empty() { return None; }
+        if name.is_empty() {
+            return None;
+        }
         Some((name, consumed))
     } else {
         let mut name = String::new();
         while let Some(&ch) = chars.peek() {
             if ch == '_' || ch.is_ascii_alphanumeric() {
-                name.push(ch); let _ = chars.next(); consumed += 1;
-            } else { break; }
+                name.push(ch);
+                let _ = chars.next();
+                consumed += 1;
+            } else {
+                break;
+            }
         }
-        if name.is_empty() { None } else { Some((name, consumed)) }
+        if name.is_empty() {
+            None
+        } else {
+            Some((name, consumed))
+        }
     }
 }
 
@@ -525,11 +643,17 @@ fn parse_var_ref(s: &str) -> Option<String> {
     if let Some(rest) = s.strip_prefix("${") {
         if let Some(end) = rest.find('}') {
             let name = &rest[..end];
-            if is_ident(name) { return Some(name.to_string()); }
+            if is_ident(name) {
+                return Some(name.to_string());
+            }
         }
         None
     } else if let Some(name) = s.strip_prefix('$') {
-        if is_ident(name) { Some(name.to_string()) } else { None }
+        if is_ident(name) {
+            Some(name.to_string())
+        } else {
+            None
+        }
     } else {
         None
     }
@@ -702,7 +826,8 @@ fn map_zsh_builtin(name: &str) -> Option<&'static str> {
         "print" => Some("echo"),
         "whence" => Some("sys.which"),
         "vared" => Some("input.readline"),
-        "rehash" | "emulate" => Some("echo"),
+        "rehash" => Some("noop"),  // cache rebuild — no Aether equivalent
+        "emulate" => Some("noop"), // shell emulation mode — no Aether equivalent
 
         _ => None,
     }

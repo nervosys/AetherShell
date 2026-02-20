@@ -39,7 +39,9 @@ pub fn transpile_bash_to_ae(src: &str) -> Result<String> {
 
         // Inside a block: accumulate
         if line.is_empty() {
-            if block_depth > 0 { block_lines.push(raw_line.to_string()); }
+            if block_depth > 0 {
+                block_lines.push(raw_line.to_string());
+            }
             continue;
         }
         if line.starts_with('#') {
@@ -113,8 +115,6 @@ pub fn transpile_bash_to_ae(src: &str) -> Result<String> {
 
     Ok(out)
 }
-
-
 
 /* =============================================================================
 Representation
@@ -193,7 +193,6 @@ fn count_block_closers(line: &str) -> i32 {
     } else if first_word == "fi" || first_word == "done" || first_word == "esac" {
         count += 1;
     }
-
 
     count
 }
@@ -816,5 +815,86 @@ fn map_builtin(name: &str) -> Option<&'static str> {
         "read" => Some("input.readline"),
 
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_simple_echo() {
+        let r = transpile_bash_to_ae("echo hello").unwrap();
+        assert!(r.contains("echo(\"hello\")"), "got: {}", r);
+    }
+
+    #[test]
+    fn test_assignment() {
+        let r = transpile_bash_to_ae("FOO=bar").unwrap();
+        assert!(r.contains("let FOO ="), "got: {}", r);
+    }
+
+    #[test]
+    fn test_numeric_assignment() {
+        let r = transpile_bash_to_ae("x=42").unwrap();
+        assert!(r.contains("let x = 42;"), "got: {}", r);
+    }
+
+    #[test]
+    fn test_pipeline() {
+        let r = transpile_bash_to_ae("ls | grep foo").unwrap();
+        assert!(r.contains("ls()") && r.contains("|"), "got: {}", r);
+    }
+
+    #[test]
+    fn test_comment_preserved() {
+        let r = transpile_bash_to_ae("# hello world").unwrap();
+        assert!(r.contains("// hello world"), "got: {}", r);
+    }
+
+    #[test]
+    fn test_cat_maps_to_file_read() {
+        let r = transpile_bash_to_ae("cat file.txt").unwrap();
+        assert!(r.contains("file.read"), "got: {}", r);
+    }
+
+    #[test]
+    fn test_if_block_fallback() {
+        let script = "if true; then\n  echo yes\nfi";
+        let r = transpile_bash_to_ae(script).unwrap();
+        assert!(r.contains("sh([\"bash\""), "got: {}", r);
+    }
+
+    #[test]
+    fn test_empty_lines_and_shebang() {
+        let script = "#!/bin/bash\n\necho hello";
+        let r = transpile_bash_to_ae(script).unwrap();
+        assert!(r.contains("echo(\"hello\")"), "got: {}", r);
+    }
+
+    #[test]
+    fn test_hostname_maps() {
+        let r = transpile_bash_to_ae("hostname").unwrap();
+        assert!(r.contains("sys.hostname"), "got: {}", r);
+    }
+
+    #[test]
+    fn test_curl_maps_to_http_get() {
+        let r = transpile_bash_to_ae("curl https://example.com").unwrap();
+        assert!(r.contains("http.get"), "got: {}", r);
+    }
+
+    #[test]
+    fn test_for_loop_fallback() {
+        let script = "for i in 1 2 3; do\n  echo $i\ndone";
+        let r = transpile_bash_to_ae(script).unwrap();
+        assert!(r.contains("sh([\"bash\""), "got: {}", r);
+    }
+
+    #[test]
+    fn test_export_assignment() {
+        let r = transpile_bash_to_ae("export FOO=bar").unwrap();
+        // export should either map to set_env or be handled as export
+        assert!(r.contains("set_env") || r.contains("let FOO"), "got: {}", r);
     }
 }

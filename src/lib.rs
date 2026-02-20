@@ -87,6 +87,9 @@ pub mod evolution;
 /// External tools — integration with system-installed CLI tools.
 #[cfg(feature = "native")]
 pub mod external_tools;
+/// Local inference — Candle and ONNX Runtime backends for in-process model inference.
+#[cfg(feature = "native")]
+pub mod local_inference;
 /// Marketplace — community plugin and agent marketplace.
 #[cfg(feature = "native")]
 pub mod marketplace;

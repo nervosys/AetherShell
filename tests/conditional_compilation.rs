@@ -4,6 +4,11 @@ use aethershell::env::Env;
 use aethershell::eval::eval_program;
 use aethershell::parser::parse_program;
 use aethershell::value::Value;
+use std::sync::Mutex;
+
+/// Mutex to serialize tests that mutate the process-wide AETHER_FEATURES env var.
+/// Without this, parallel test execution causes a race condition.
+static FEATURE_ENV_LOCK: Mutex<()> = Mutex::new(());
 
 fn eval_with_env(src: &str) -> (Value, Env) {
     let stmts = parse_program(src).expect("parse failed");
@@ -114,6 +119,7 @@ fn cfg_unix_alias() {
 
 #[test]
 fn cfg_feature_enabled() {
+    let _lock = FEATURE_ENV_LOCK.lock().unwrap();
     // Use a unique feature name to avoid race conditions with other tests
     std::env::set_var("AETHER_FEATURES", "test_feature_enabled_unique");
 
@@ -136,6 +142,7 @@ fn cfg_feature_enabled() {
 
 #[test]
 fn cfg_feature_disabled() {
+    let _lock = FEATURE_ENV_LOCK.lock().unwrap();
     // Use AETHER_FEATURES_DISABLED to avoid race with cfg_feature_enabled
     std::env::set_var("AETHER_FEATURES", "some_other_feature");
 
@@ -152,6 +159,9 @@ fn cfg_feature_disabled() {
     // x should not exist because the feature is not enabled
     assert!(env.get_var("x").is_none());
     assert!(env.get_var("y").is_some());
+
+    // Clean up
+    std::env::remove_var("AETHER_FEATURES");
 }
 
 #[test]
