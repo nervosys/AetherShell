@@ -17988,7 +17988,67 @@ fn bi_net_whois(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     match output {
         Ok(out) if out.status.success() => {
-            Ok(Value::Str(String::from_utf8_lossy(&out.stdout).to_string()))
+            let text = String::from_utf8_lossy(&out.stdout).to_string();
+            let mut rec = std::collections::BTreeMap::new();
+            rec.insert("domain".to_string(), Value::Str(domain.to_string()));
+            // Parse common WHOIS fields
+            for line in text.lines() {
+                let line = line.trim();
+                if let Some((key, val)) = line.split_once(':') {
+                    let key = key
+                        .trim()
+                        .to_lowercase()
+                        .replace(' ', "_")
+                        .replace('-', "_");
+                    let val = val.trim().to_string();
+                    if !val.is_empty() {
+                        match key.as_str() {
+                            "registrar" => {
+                                rec.insert("registrar".to_string(), Value::Str(val));
+                            }
+                            "creation_date" | "created" => {
+                                rec.insert("creation_date".to_string(), Value::Str(val));
+                            }
+                            "registry_expiry_date" | "expiration_date" | "expires" => {
+                                rec.insert("expiration_date".to_string(), Value::Str(val));
+                            }
+                            "updated_date" => {
+                                rec.insert("updated_date".to_string(), Value::Str(val));
+                            }
+                            "domain_status" => {
+                                let statuses = rec
+                                    .entry("status".to_string())
+                                    .or_insert_with(|| Value::Array(vec![]));
+                                if let Value::Array(arr) = statuses {
+                                    arr.push(Value::Str(
+                                        val.split_whitespace().next().unwrap_or(&val).to_string(),
+                                    ));
+                                }
+                            }
+                            "name_server" => {
+                                let ns = rec
+                                    .entry("name_servers".to_string())
+                                    .or_insert_with(|| Value::Array(vec![]));
+                                if let Value::Array(arr) = ns {
+                                    arr.push(Value::Str(val.to_lowercase()));
+                                }
+                            }
+                            "registrant_organization" | "registrant_org" => {
+                                rec.insert("registrant_org".to_string(), Value::Str(val));
+                            }
+                            "registrant_country" => {
+                                rec.insert("registrant_country".to_string(), Value::Str(val));
+                            }
+                            "dnssec" => {
+                                rec.insert("dnssec".to_string(), Value::Str(val));
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            rec.insert("raw".to_string(), Value::Str(text));
+            Ok(Value::Record(rec))
         }
         _ => Ok(Value::Null),
     }
@@ -19485,13 +19545,32 @@ fn bi_at_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(not(target_os = "windows"))]
     {
         let output = std::process::Command::new("atq").output()?;
-        return Ok(Value::Str(
-            String::from_utf8_lossy(&output.stdout).to_string(),
-        ));
+        let text = String::from_utf8_lossy(&output.stdout).to_string();
+        let jobs: Vec<Value> = text
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|line| {
+                let mut rec = std::collections::BTreeMap::new();
+                let parts: Vec<&str> = line.splitn(2, '\t').collect();
+                if let Some(id_str) = parts.first() {
+                    rec.insert("job_id".to_string(), Value::Str(id_str.trim().to_string()));
+                }
+                if let Some(rest) = parts.get(1) {
+                    let tokens: Vec<&str> = rest.rsplitn(3, ' ').collect();
+                    if tokens.len() >= 2 {
+                        rec.insert("queue".to_string(), Value::Str(tokens[1].to_string()));
+                        rec.insert("user".to_string(), Value::Str(tokens[0].to_string()));
+                    }
+                    rec.insert("schedule".to_string(), Value::Str(rest.trim().to_string()));
+                }
+                Value::Record(rec)
+            })
+            .collect();
+        return Ok(Value::Array(jobs));
     }
     #[cfg(target_os = "windows")]
     {
-        return Ok(Value::Str("Use schtasks on Windows".to_string()));
+        return Ok(Value::Array(vec![]));
     }
 }
 
@@ -20229,9 +20308,81 @@ fn bi_capabilities(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let output = std::process::Command::new("capsh")
             .args(["--print"])
             .output()?;
-        return Ok(Value::Str(
-            String::from_utf8_lossy(&output.stdout).to_string(),
-        ));
+        let text = String::from_utf8_lossy(&output.stdout).to_string();
+        let mut rec = std::collections::BTreeMap::new();
+        for line in text.lines() {
+            let line = line.trim();
+            if let Some((key, val)) = line.split_once('=') {
+                let key = key.trim().to_lowercase();
+                let val = val.trim();
+                match key.as_str() {
+                    "current" => {
+                        let caps: Vec<Value> = val
+                            .split(',')
+                            .map(|c| Value::Str(c.trim().to_string()))
+                            .filter(|v| {
+                                if let Value::Str(s) = v {
+                                    !s.is_empty()
+                                } else {
+                                    false
+                                }
+                            })
+                            .collect();
+                        rec.insert("current".to_string(), Value::Array(caps));
+                    }
+                    "bounding" | "bounding set" => {
+                        let caps: Vec<Value> = val
+                            .split(',')
+                            .map(|c| Value::Str(c.trim().to_string()))
+                            .filter(|v| {
+                                if let Value::Str(s) = v {
+                                    !s.is_empty()
+                                } else {
+                                    false
+                                }
+                            })
+                            .collect();
+                        rec.insert("bounding".to_string(), Value::Array(caps));
+                    }
+                    "ambient" | "ambient set" => {
+                        let caps: Vec<Value> = val
+                            .split(',')
+                            .map(|c| Value::Str(c.trim().to_string()))
+                            .filter(|v| {
+                                if let Value::Str(s) = v {
+                                    !s.is_empty()
+                                } else {
+                                    false
+                                }
+                            })
+                            .collect();
+                        rec.insert("ambient".to_string(), Value::Array(caps));
+                    }
+                    "securebits" => {
+                        rec.insert("securebits".to_string(), Value::Str(val.to_string()));
+                    }
+                    "uid" => {
+                        if let Ok(uid) = val.parse::<i64>() {
+                            rec.insert("uid".to_string(), Value::Int(uid));
+                        } else {
+                            rec.insert("uid".to_string(), Value::Str(val.to_string()));
+                        }
+                    }
+                    "gid" => {
+                        if let Ok(gid) = val.parse::<i64>() {
+                            rec.insert("gid".to_string(), Value::Int(gid));
+                        } else {
+                            rec.insert("gid".to_string(), Value::Str(val.to_string()));
+                        }
+                    }
+                    _ => {
+                        rec.insert(key, Value::Str(val.to_string()));
+                    }
+                }
+            }
+        }
+        rec.insert("raw".to_string(), Value::Str(text));
+        return Ok(Value::Record(rec));
     }
     Ok(Value::Null)
 }
@@ -20520,10 +20671,39 @@ fn bi_pkg_sources(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "linux")]
     {
         if let Ok(sources) = std::fs::read_to_string("/etc/apt/sources.list") {
-            return Ok(Value::Str(sources));
+            let entries: Vec<Value> = sources
+                .lines()
+                .filter(|l| {
+                    let t = l.trim();
+                    !t.is_empty() && !t.starts_with('#')
+                })
+                .map(|line| {
+                    let mut rec = std::collections::BTreeMap::new();
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if let Some(typ) = parts.first() {
+                        rec.insert("type".to_string(), Value::Str(typ.to_string()));
+                    }
+                    if let Some(uri) = parts.get(1) {
+                        rec.insert("uri".to_string(), Value::Str(uri.to_string()));
+                    }
+                    if let Some(dist) = parts.get(2) {
+                        rec.insert("distribution".to_string(), Value::Str(dist.to_string()));
+                    }
+                    if parts.len() > 3 {
+                        let components: Vec<Value> = parts[3..]
+                            .iter()
+                            .map(|c| Value::Str(c.to_string()))
+                            .collect();
+                        rec.insert("components".to_string(), Value::Array(components));
+                    }
+                    rec.insert("raw".to_string(), Value::Str(line.to_string()));
+                    Value::Record(rec)
+                })
+                .collect();
+            return Ok(Value::Array(entries));
         }
     }
-    Ok(Value::Null)
+    Ok(Value::Array(vec![]))
 }
 
 fn bi_pkg_add_source(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -20719,14 +20899,67 @@ fn bi_pkg_autoremove(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 fn bi_pkg_history(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "linux")]
     {
+        // Try dpkg.log first
         if let Ok(log) = std::fs::read_to_string("/var/log/dpkg.log") {
-            return Ok(Value::Str(log));
+            let entries: Vec<Value> = log
+                .lines()
+                .rev()
+                .take(200) // Last 200 entries
+                .filter(|l| !l.trim().is_empty())
+                .map(|line| {
+                    let mut rec = std::collections::BTreeMap::new();
+                    // dpkg.log format: "YYYY-MM-DD HH:MM:SS action package arch version"
+                    let parts: Vec<&str> = line.splitn(4, ' ').collect();
+                    if parts.len() >= 2 {
+                        rec.insert(
+                            "timestamp".to_string(),
+                            Value::Str(format!("{} {}", parts[0], parts[1])),
+                        );
+                    }
+                    if let Some(rest) = parts.get(2..).map(|s| s.join(" ")) {
+                        let tokens: Vec<&str> = rest.splitn(4, ' ').collect();
+                        if let Some(action) = tokens.first() {
+                            rec.insert("action".to_string(), Value::Str(action.to_string()));
+                        }
+                        if let Some(pkg) = tokens.get(1) {
+                            // Package may include :arch suffix
+                            let (name, arch) = pkg.split_once(':').unwrap_or((pkg, ""));
+                            rec.insert("package".to_string(), Value::Str(name.to_string()));
+                            if !arch.is_empty() {
+                                rec.insert("arch".to_string(), Value::Str(arch.to_string()));
+                            }
+                        }
+                        if let Some(ver) = tokens.get(2) {
+                            rec.insert("version".to_string(), Value::Str(ver.to_string()));
+                        }
+                    }
+                    Value::Record(rec)
+                })
+                .collect();
+            return Ok(Value::Array(entries));
         }
+        // Try dnf.log
         if let Ok(log) = std::fs::read_to_string("/var/log/dnf.log") {
-            return Ok(Value::Str(log));
+            let entries: Vec<Value> = log
+                .lines()
+                .rev()
+                .take(200)
+                .filter(|l| !l.trim().is_empty())
+                .map(|line| {
+                    let mut rec = std::collections::BTreeMap::new();
+                    rec.insert("raw".to_string(), Value::Str(line.to_string()));
+                    // dnf.log format varies, extract timestamp if present
+                    if let Some((ts, rest)) = line.split_once(' ') {
+                        rec.insert("timestamp".to_string(), Value::Str(ts.to_string()));
+                        rec.insert("message".to_string(), Value::Str(rest.to_string()));
+                    }
+                    Value::Record(rec)
+                })
+                .collect();
+            return Ok(Value::Array(entries));
         }
     }
-    Ok(Value::Null)
+    Ok(Value::Array(vec![]))
 }
 
 // ============================================================================
@@ -34305,7 +34538,29 @@ pub fn bi_dmesg(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 let out = Command::new("dmesg")
                     .output()
                     .map_err(|e| anyhow!("dmesg: {}", e))?;
-                Ok(Value::Str(String::from_utf8_lossy(&out.stdout).to_string()))
+                let text = String::from_utf8_lossy(&out.stdout).to_string();
+                let entries: Vec<Value> = text
+                    .lines()
+                    .filter(|l| !l.trim().is_empty())
+                    .map(|line| {
+                        let mut rec = BTreeMap::new();
+                        // dmesg lines: [timestamp] message or [ timestamp] facility.level: message
+                        if line.starts_with('[') {
+                            if let Some(end) = line.find(']') {
+                                let ts = line[1..end].trim();
+                                rec.insert("timestamp".to_string(), Value::Str(ts.to_string()));
+                                let rest = line[end + 1..].trim();
+                                rec.insert("message".to_string(), Value::Str(rest.to_string()));
+                            } else {
+                                rec.insert("message".to_string(), Value::Str(line.to_string()));
+                            }
+                        } else {
+                            rec.insert("message".to_string(), Value::Str(line.to_string()));
+                        }
+                        Value::Record(rec)
+                    })
+                    .collect();
+                Ok(Value::Array(entries))
             }
         }
     }
@@ -34339,7 +34594,27 @@ pub fn bi_dmesg(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args(&["show", "--last", "5m", "--style", "compact"])
             .output()
             .map_err(|e| anyhow!("dmesg: {}", e))?;
-        Ok(Value::Str(String::from_utf8_lossy(&out.stdout).to_string()))
+        let text = String::from_utf8_lossy(&out.stdout).to_string();
+        let entries: Vec<Value> = text
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|line| {
+                let mut rec = BTreeMap::new();
+                // compact format: "timestamp process[pid] message"
+                let parts: Vec<&str> = line.splitn(3, ' ').collect();
+                if parts.len() >= 1 {
+                    rec.insert("timestamp".to_string(), Value::Str(parts[0].to_string()));
+                }
+                if parts.len() >= 2 {
+                    rec.insert("process".to_string(), Value::Str(parts[1].to_string()));
+                }
+                if parts.len() >= 3 {
+                    rec.insert("message".to_string(), Value::Str(parts[2].to_string()));
+                }
+                Value::Record(rec)
+            })
+            .collect();
+        Ok(Value::Array(entries))
     }
 }
 
@@ -34438,9 +34713,57 @@ pub fn bi_strace_cmd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .arg(&command)
             .output()
             .map_err(|e| anyhow!("strace_cmd: {}", e))?;
-        // strace outputs to stderr
+        // strace -c outputs summary to stderr
         let text = String::from_utf8_lossy(&out.stderr).to_string();
-        Ok(Value::Str(text))
+        let mut rec = BTreeMap::new();
+        rec.insert("command".to_string(), Value::Str(command));
+        rec.insert(
+            "exit_code".to_string(),
+            Value::Int(out.status.code().unwrap_or(-1) as i64),
+        );
+        // Parse strace -c summary table
+        let mut syscalls = Vec::new();
+        let mut in_table = false;
+        for line in text.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("------") || trimmed.starts_with("% time") {
+                in_table = true;
+                continue;
+            }
+            if in_table && trimmed.starts_with("------") {
+                break;
+            }
+            if in_table && !trimmed.is_empty() {
+                let cols: Vec<&str> = trimmed.split_whitespace().collect();
+                if cols.len() >= 5 {
+                    let mut srec = BTreeMap::new();
+                    srec.insert(
+                        "percent".to_string(),
+                        Value::Float(cols[0].parse().unwrap_or(0.0)),
+                    );
+                    srec.insert(
+                        "time_us".to_string(),
+                        Value::Float(cols[1].parse().unwrap_or(0.0)),
+                    );
+                    srec.insert(
+                        "calls".to_string(),
+                        Value::Int(cols[3].parse().unwrap_or(0)),
+                    );
+                    srec.insert(
+                        "errors".to_string(),
+                        Value::Int(cols.get(4).and_then(|s| s.parse().ok()).unwrap_or(0)),
+                    );
+                    srec.insert(
+                        "name".to_string(),
+                        Value::Str(cols.last().unwrap_or(&"").to_string()),
+                    );
+                    syscalls.push(Value::Record(srec));
+                }
+            }
+        }
+        rec.insert("syscalls".to_string(), Value::Array(syscalls));
+        rec.insert("raw".to_string(), Value::Str(text));
+        Ok(Value::Record(rec))
     }
     #[cfg(target_os = "macos")]
     {
@@ -34448,7 +34771,31 @@ pub fn bi_strace_cmd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .arg(&command)
             .output()
             .map_err(|e| anyhow!("strace_cmd: {}", e))?;
-        Ok(Value::Str(String::from_utf8_lossy(&out.stderr).to_string()))
+        let text = String::from_utf8_lossy(&out.stderr).to_string();
+        let mut rec = BTreeMap::new();
+        rec.insert("command".to_string(), Value::Str(command));
+        rec.insert(
+            "exit_code".to_string(),
+            Value::Int(out.status.code().unwrap_or(-1) as i64),
+        );
+        let syscalls: Vec<Value> = text
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| {
+                let mut srec = BTreeMap::new();
+                srec.insert("raw".to_string(), Value::Str(l.to_string()));
+                if let Some((call, rest)) = l.split_once('(') {
+                    srec.insert("name".to_string(), Value::Str(call.trim().to_string()));
+                    if let Some((_, ret)) = rest.rsplit_once('=') {
+                        srec.insert("result".to_string(), Value::Str(ret.trim().to_string()));
+                    }
+                }
+                Value::Record(srec)
+            })
+            .collect();
+        rec.insert("syscalls".to_string(), Value::Array(syscalls));
+        rec.insert("raw".to_string(), Value::Str(text));
+        Ok(Value::Record(rec))
     }
     #[cfg(target_os = "windows")]
     {
@@ -34536,7 +34883,50 @@ pub fn bi_sar(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args(&["1", "1"])
             .output()
             .map_err(|e| anyhow!("sar: {}", e))?;
-        Ok(Value::Str(String::from_utf8_lossy(&out.stdout).to_string()))
+        let text = String::from_utf8_lossy(&out.stdout).to_string();
+        let mut rec = BTreeMap::new();
+        // Parse sar output: look for the "Average:" line or last data line
+        for line in text.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("Average:")
+                || (!trimmed.is_empty()
+                    && trimmed.chars().next().map_or(false, |c| c.is_ascii_digit()))
+            {
+                let parts: Vec<&str> = trimmed.split_whitespace().collect();
+                // sar CPU output: time CPU %user %nice %system %iowait %steal %idle
+                if parts.len() >= 8 {
+                    let offset = if trimmed.starts_with("Average:") {
+                        2
+                    } else {
+                        2
+                    };
+                    if let Ok(v) = parts.get(offset).unwrap_or(&"0").parse::<f64>() {
+                        rec.insert("cpu_user".to_string(), Value::Float(v));
+                    }
+                    if let Ok(v) = parts.get(offset + 1).unwrap_or(&"0").parse::<f64>() {
+                        rec.insert("cpu_nice".to_string(), Value::Float(v));
+                    }
+                    if let Ok(v) = parts.get(offset + 2).unwrap_or(&"0").parse::<f64>() {
+                        rec.insert("cpu_system".to_string(), Value::Float(v));
+                    }
+                    if let Ok(v) = parts.get(offset + 3).unwrap_or(&"0").parse::<f64>() {
+                        rec.insert("cpu_iowait".to_string(), Value::Float(v));
+                    }
+                    if let Ok(v) = parts.get(offset + 4).unwrap_or(&"0").parse::<f64>() {
+                        rec.insert("cpu_steal".to_string(), Value::Float(v));
+                    }
+                    if let Ok(v) = parts.get(offset + 5).unwrap_or(&"0").parse::<f64>() {
+                        rec.insert("cpu_idle".to_string(), Value::Float(v));
+                    }
+                    rec.insert(
+                        "timestamp".to_string(),
+                        Value::Str(parts.first().unwrap_or(&"").to_string()),
+                    );
+                }
+            }
+        }
+        rec.insert("raw".to_string(), Value::Str(text));
+        Ok(Value::Record(rec))
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -34747,7 +35137,48 @@ pub fn bi_fdisk_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&out.stdout) {
             Ok(json_to_value(json))
         } else {
-            Ok(Value::Str(String::from_utf8_lossy(&out.stdout).to_string()))
+            // Parse raw fdisk -l output into structured records
+            let text = String::from_utf8_lossy(&out.stdout).to_string();
+            let mut devices = Vec::new();
+            let mut current_device = BTreeMap::new();
+            let mut partitions: Vec<Value> = Vec::new();
+            for line in text.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with("Disk /") && trimmed.contains(':') {
+                    // Save previous device
+                    if !current_device.is_empty() {
+                        if !partitions.is_empty() {
+                            current_device
+                                .insert("partitions".to_string(), Value::Array(partitions.clone()));
+                            partitions.clear();
+                        }
+                        devices.push(Value::Record(current_device.clone()));
+                    }
+                    current_device.clear();
+                    if let Some((dev, rest)) = trimmed.split_once(':') {
+                        current_device
+                            .insert("device".to_string(), Value::Str(dev.replace("Disk ", "")));
+                        current_device
+                            .insert("info".to_string(), Value::Str(rest.trim().to_string()));
+                    }
+                } else if trimmed.starts_with("/dev/") {
+                    // Partition line
+                    let parts: Vec<&str> = trimmed.split_whitespace().collect();
+                    let mut prec = BTreeMap::new();
+                    if let Some(dev) = parts.first() {
+                        prec.insert("device".to_string(), Value::Str(dev.to_string()));
+                    }
+                    prec.insert("raw".to_string(), Value::Str(trimmed.to_string()));
+                    partitions.push(Value::Record(prec));
+                }
+            }
+            if !current_device.is_empty() {
+                if !partitions.is_empty() {
+                    current_device.insert("partitions".to_string(), Value::Array(partitions));
+                }
+                devices.push(Value::Record(current_device));
+            }
+            Ok(Value::Array(devices))
         }
     }
     #[cfg(target_os = "windows")]
@@ -34793,7 +35224,69 @@ pub fn bi_fdisk_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .arg("list")
             .output()
             .map_err(|e| anyhow!("fdisk_list: {}", e))?;
-        Ok(Value::Str(String::from_utf8_lossy(&out.stdout).to_string()))
+        let text = String::from_utf8_lossy(&out.stdout).to_string();
+        let mut disks = Vec::new();
+        let mut current_disk = BTreeMap::new();
+        let mut partitions: Vec<Value> = Vec::new();
+        for line in text.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("/dev/") {
+                // Save previous disk
+                if !current_disk.is_empty() {
+                    if !partitions.is_empty() {
+                        current_disk
+                            .insert("partitions".to_string(), Value::Array(partitions.clone()));
+                        partitions.clear();
+                    }
+                    disks.push(Value::Record(current_disk.clone()));
+                }
+                current_disk.clear();
+                // /dev/disk0 (internal):
+                let parts: Vec<&str> = trimmed.splitn(2, ' ').collect();
+                if let Some(dev) = parts.first() {
+                    current_disk.insert(
+                        "device".to_string(),
+                        Value::Str(dev.trim_end_matches(':').to_string()),
+                    );
+                }
+                if let Some(info) = parts.get(1) {
+                    current_disk.insert(
+                        "info".to_string(),
+                        Value::Str(
+                            info.trim_matches(|c| c == '(' || c == ')' || c == ':')
+                                .to_string(),
+                        ),
+                    );
+                }
+            } else if !trimmed.is_empty()
+                && !current_disk.is_empty()
+                && (trimmed.starts_with("#:")
+                    || trimmed.chars().next().map_or(false, |c| c.is_ascii_digit()))
+            {
+                if !trimmed.starts_with("#:") {
+                    let mut prec = BTreeMap::new();
+                    prec.insert("raw".to_string(), Value::Str(trimmed.to_string()));
+                    let cols: Vec<&str> = trimmed.split_whitespace().collect();
+                    if let Some(idx) = cols.first() {
+                        prec.insert(
+                            "index".to_string(),
+                            Value::Str(idx.trim_end_matches(':').to_string()),
+                        );
+                    }
+                    if let Some(name) = cols.last() {
+                        prec.insert("name".to_string(), Value::Str(name.to_string()));
+                    }
+                    partitions.push(Value::Record(prec));
+                }
+            }
+        }
+        if !current_disk.is_empty() {
+            if !partitions.is_empty() {
+                current_disk.insert("partitions".to_string(), Value::Array(partitions));
+            }
+            disks.push(Value::Record(current_disk));
+        }
+        Ok(Value::Array(disks))
     }
 }
 

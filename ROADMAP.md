@@ -1,6 +1,6 @@
 # AetherShell Roadmap
 
-> **Last Updated:** February 19, 2026
+> **Last Updated:** February 20, 2026
 
 This document tracks the development progress of AetherShell, the world's first agentic shell with typed functional pipelines and multi-modal AI.
 
@@ -13,9 +13,9 @@ This document tracks the development progress of AetherShell, the world's first 
 | Core Language     | ✅ Complete | AST-based, Hindley-Milner                        |
 | Type System       | ✅ Complete | Full inference                                   |
 | Builtins Library  | ✅ Complete | 1,100+ functions, 106 modules                    |
-| AI Integration    | 🔄 Active   | 9 providers, unifying stacks                     |
+| AI Integration    | ✅ Complete | 9 providers, unified stack, streaming             |
 | Agent Framework   | ✅ Complete | Single + swarm + A2A                             |
-| AI Ontology       | 🔄 Active   | 1,100+/1,100+ builtins, 106 modules discoverable |
+| AI Ontology       | ✅ Complete | 1,100+ builtins, 106 modules discoverable         |
 | TUI Interface     | ✅ Complete | Tabs, chat, dashboard                            |
 | Theme System      | ✅ Complete | 38 themes                                        |
 | Config System     | ✅ Complete | XDG-compliant                                    |
@@ -39,7 +39,16 @@ This document tracks the development progress of AetherShell, the world's first 
 
 ## Version History
 
-### v0.3.1 (Current) — February 2026
+### v1.2.0 (Current) — February 2026
+- [x] **Streaming support** — `chat_stream()` implemented for all 4 providers: OpenAI (SSE), Anthropic (SSE with event types), Google Gemini (SSE), Ollama (NDJSON); `StreamChunk`/`StreamDelta` types; `supports("streaming")` returns true on all providers
+- [x] **Cost-based routing** — added `CostUnder { max_cost_per_1k }` and `LatencyUnder { max_ms }` conditions to `RoutingCondition` enum (13 total variants)
+- [x] **Latency tracking** — extended `ProviderStats` with `min_latency_ms`, `max_latency_ms`, `p95_latency_ms`, `total_cost_usd`, and `last_request_epoch` fields
+- [x] **Structured output fix** — converted 9 remaining raw-text builtins to typed Records/Arrays: `net_whois`, `at_list`, `pkg_sources`, `pkg_history`, `capabilities`, `strace`, `sar`, `dmesg` fallback, `fdisk_list` fallback
+- [x] **Platform module fix** — removed triple-registration of `platform` module in `all_modules()`
+- [x] **VS Code Web extension** — full scaffold with syntax highlighting, eval command, hover/completion providers, Agent API integration
+- [x] **JupyterLab extension** — Jupyter kernel with Agent API proxy, code completion, `.ae` file type registration
+
+### v0.3.1 — February 2026
 - [x] CLI tool wrappers (tools 1-150): 200+ builtins wrapping common CLI tools — process management (tmux, screen, htop), disk/filesystem (ncdu, duf, dust), debugging (gdb, valgrind, strace, ltrace), binary inspection (objdump, readelf, nm, ldd, strings, file), networking (iperf3, nmap, mtr, dig, nc), modern CLI replacements (bat, fd, rg, sd, zoxide, fzf, jq, yq, delta, hyperfine, tokei, just, direnv), version/runtime managers (asdf, mise, nvm, pyenv, rbenv), language toolchains (cargo, rustup, go, node, npm, pnpm, yarn, bun, deno, uv, pipx, poetry, pytest), dev tools (gh, glab, pre-commit, make, cmake, ninja, nodemon), containers (buildah, skopeo, trivy, podman-compose, docker-compose), linters/formatters (shellcheck, shfmt, black, ruff, eslint, prettier, clippy, rustfmt, golangci-lint)
 - [x] Cross-platform OS commands: 219 new builtins for containers, Kubernetes, VMs/hypervisors, cloud/IaC, remote access, security, and monitoring
 - [x] Cross-platform consistency audit: 100+ `cfg` blocks across 6 files reviewed, 40+ functions fixed for OS parity
@@ -215,10 +224,10 @@ This document tracks the development progress of AetherShell, the world's first 
 ### Q2 2026 — Polish & Ecosystem
 - [x] Linux packages (.deb, .rpm)
 - [x] Windows Terminal integration (custom profile)
-- [ ] VS Code Web extension
+- [x] VS Code Web extension
 - [ ] PyPI distribution for Python SDK
 - [x] LangChain tool integration
-- [ ] JupyterLab extension
+- [x] JupyterLab extension
 - [ ] Publish Linguist PR (pending ecosystem growth)
 - [x] AI discoverability (llms.txt, AGENTS.md, ai-plugin.json, OpenAPI, IDE rules)
 - [x] PyPI distribution for Python SDK
@@ -293,11 +302,11 @@ This document tracks the development progress of AetherShell, the world's first 
 ### Open
 - [ ] VS Code marketplace PAT expired (publisher `admercs`)
 - [ ] Pre-existing flaky test: `cfg_feature_enabled` (env var race in parallel test runs)
-- [ ] 9 LOW-severity builtins still return raw text (`net_whois`, `at_list`, `pkg_sources`, `pkg_history`, `strace`, `sar`, `dmesg` fallback, `fdisk_list` macOS fallback, `capabilities`)
+- [x] 9 LOW-severity builtins converted to structured output (v1.2.0)
 - [x] Three parallel provider systems (`ai.rs`, `ai_api/providers.rs`, `providers/`) now fully unified — `providers/` has concrete `LLMProvider` trait impls, bridge.rs connects to legacy `ai.rs`, routing engine wired via `AETHER_AI_ROUTER=registry`
 - [x] `bridge.rs` and `impls/` in providers/ fully aligned with `LLMProvider` API (all 180 errors resolved)
 - [x] Provider routing rules wired to live completions via `complete_via_registry()`
-- [ ] `platform` module registered 3x in modules.rs `all_modules()`
+- [x] `platform` module triple-registration fixed (v1.2.0)
 
 ---
 
@@ -333,11 +342,10 @@ This document tracks the development progress of AetherShell, the world's first 
 We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines. All contributions require a signed [CLA](CLA.md).
 
 **Priority areas:**
-1. **High** — Streaming support (`chat_stream()` implementation for all providers)
-2. **High** — Advanced routing (cost-based routing, latency-aware provider selection, load balancing)
-3. **Medium** — Candle/ONNX local inference (replace llama.cpp delegation with native Rust)
-4. **Medium** — Ecosystem growth (`.ae` scripts, tutorials, blog posts)
-5. **Good First Issues** — Update model metadata/pricing, theme additions, example scripts
+1. **High** — Candle/ONNX local inference (replace llama.cpp delegation with native Rust)
+2. **Medium** — Ecosystem growth (`.ae` scripts, tutorials, blog posts)
+3. **Medium** — Load balancing across providers (round-robin, weighted, adaptive)
+4. **Good First Issues** — Update model metadata/pricing, theme additions, example scripts
 
 ---
 

@@ -1,0 +1,14 @@
+{
+    "argv": [
+        "python",
+        "-m",
+        "jupyterlab_aethershell.kernel",
+        "-f",
+        "{connection_file}"
+    ],
+    "display_name": "AetherShell",
+    "language": "aethershell",
+    "metadata": {
+        "debugger": false
+    }
+}

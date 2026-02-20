@@ -9,8 +9,8 @@ use std::collections::HashMap;
 
 use crate::providers::{
     ChatRequest, ChatResponse, ChatStream, ContentPart, EmbeddingRequest, EmbeddingResponse,
-    FinishReason, ImageSource, LLMProvider, Message, ModelInfo, ProviderConfig,
-    ProviderError, ProviderType, Role, TokenUsage, ToolCall, ToolFormat, ToolSchema,
+    FinishReason, ImageSource, LLMProvider, Message, ModelInfo, ProviderConfig, ProviderError,
+    ProviderType, Role, StreamChunk, StreamDelta, TokenUsage, ToolCall, ToolFormat, ToolSchema,
 };
 
 /// Google Gemini API provider
@@ -98,7 +98,9 @@ impl GoogleProvider {
 
             // Handle assistant messages with tool calls
             if msg.role == Role::Assistant {
-                let tool_uses: Vec<&ContentPart> = msg.content.iter()
+                let tool_uses: Vec<&ContentPart> = msg
+                    .content
+                    .iter()
                     .filter(|p| matches!(p, ContentPart::ToolUse { .. }))
                     .collect();
 
@@ -220,7 +222,12 @@ impl LLMProvider for GoogleProvider {
                 supports_json_mode: true,
                 input_cost_per_million: Some(0.10),
                 output_cost_per_million: Some(0.40),
-                capabilities: vec!["chat".to_string(), "vision".to_string(), "tools".to_string(), "audio".to_string()],
+                capabilities: vec![
+                    "chat".to_string(),
+                    "vision".to_string(),
+                    "tools".to_string(),
+                    "audio".to_string(),
+                ],
             },
             ModelInfo {
                 id: "gemini-2.5-pro".to_string(),
@@ -234,7 +241,12 @@ impl LLMProvider for GoogleProvider {
                 supports_json_mode: true,
                 input_cost_per_million: Some(1.25),
                 output_cost_per_million: Some(10.0),
-                capabilities: vec!["chat".to_string(), "vision".to_string(), "tools".to_string(), "audio".to_string()],
+                capabilities: vec![
+                    "chat".to_string(),
+                    "vision".to_string(),
+                    "tools".to_string(),
+                    "audio".to_string(),
+                ],
             },
             ModelInfo {
                 id: "gemini-2.5-flash".to_string(),
@@ -248,7 +260,12 @@ impl LLMProvider for GoogleProvider {
                 supports_json_mode: true,
                 input_cost_per_million: Some(0.15),
                 output_cost_per_million: Some(0.60),
-                capabilities: vec!["chat".to_string(), "vision".to_string(), "tools".to_string(), "audio".to_string()],
+                capabilities: vec![
+                    "chat".to_string(),
+                    "vision".to_string(),
+                    "tools".to_string(),
+                    "audio".to_string(),
+                ],
             },
         ])
     }
@@ -341,10 +358,149 @@ impl LLMProvider for GoogleProvider {
         self.parse_response(&json)
     }
 
-    async fn chat_stream(&self, _request: ChatRequest) -> Result<ChatStream, ProviderError> {
-        Err(ProviderError::Unavailable {
-            message: "Streaming not yet implemented".to_string(),
-        })
+    async fn chat_stream(&self, request: ChatRequest) -> Result<ChatStream, ProviderError> {
+        let api_key = self
+            .api_key()
+            .ok_or_else(|| ProviderError::AuthenticationFailed {
+                message: "Missing API key".to_string(),
+            })?;
+
+        let url = format!(
+            "{}/models/{}:streamGenerateContent?alt=sse&key={}",
+            self.base_url(),
+            request.model.model,
+            api_key
+        );
+
+        let (system_instruction, contents) = self.build_contents(&request.messages);
+
+        let mut body = json!({
+            "contents": contents,
+        });
+
+        if let Some(sys) = system_instruction {
+            body["system_instruction"] = sys;
+        }
+
+        let mut generation_config = json!({});
+        if let Some(temp) = request.temperature {
+            generation_config["temperature"] = json!(temp);
+        }
+        if let Some(max) = request.max_tokens {
+            generation_config["maxOutputTokens"] = json!(max);
+        }
+        if generation_config != json!({}) {
+            body["generationConfig"] = generation_config;
+        }
+
+        if let Some(ref tools) = request.tools {
+            if !tools.is_empty() {
+                body["tools"] = self.build_tools(tools);
+            }
+        }
+
+        let response = self
+            .client
+            .post(&url)
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| ProviderError::NetworkError {
+                message: e.to_string(),
+            })?;
+
+        if !response.status().is_success() {
+            let status = response.status().as_u16();
+            let text = response.text().await.unwrap_or_default();
+            return Err(match status {
+                401 | 403 => ProviderError::AuthenticationFailed { message: text },
+                429 => ProviderError::RateLimited {
+                    message: text,
+                    retry_after: None,
+                },
+                _ => ProviderError::Unknown {
+                    message: format!("API error {}: {}", status, text),
+                },
+            });
+        }
+
+        use futures::StreamExt;
+        let byte_stream = response.bytes_stream();
+
+        let stream = async_stream::stream! {
+            let mut buffer = String::new();
+            futures::pin_mut!(byte_stream);
+
+            while let Some(chunk_result) = byte_stream.next().await {
+                let chunk = match chunk_result {
+                    Ok(c) => c,
+                    Err(e) => {
+                        yield Err(ProviderError::NetworkError { message: e.to_string() });
+                        break;
+                    }
+                };
+
+                buffer.push_str(&String::from_utf8_lossy(&chunk));
+
+                while let Some(line_end) = buffer.find('\n') {
+                    let line = buffer[..line_end].trim().to_string();
+                    buffer = buffer[line_end + 1..].to_string();
+
+                    if line.is_empty() || line.starts_with(':') {
+                        continue;
+                    }
+
+                    if let Some(data) = line.strip_prefix("data: ") {
+                        if let Ok(json) = serde_json::from_str::<JsonValue>(data) {
+                            if let Some(candidates) = json["candidates"].as_array() {
+                                if let Some(candidate) = candidates.first() {
+                                    if let Some(parts) = candidate["content"]["parts"].as_array() {
+                                        for part in parts {
+                                            let stream_delta = if let Some(text) = part["text"].as_str() {
+                                                StreamDelta::Text(text.to_string())
+                                            } else if let Some(fc) = part["functionCall"].as_object() {
+                                                StreamDelta::ToolCall {
+                                                    index: 0,
+                                                    id: None,
+                                                    name: fc.get("name").and_then(|v| v.as_str()).map(String::from),
+                                                    arguments: fc.get("args").map(|v| v.to_string()),
+                                                }
+                                            } else {
+                                                continue;
+                                            };
+
+                                            let finish = candidate["finishReason"].as_str().and_then(|f| match f {
+                                                "STOP" => Some(FinishReason::Stop),
+                                                "MAX_TOKENS" => Some(FinishReason::Length),
+                                                "SAFETY" => Some(FinishReason::ContentFilter),
+                                                _ => None,
+                                            });
+
+                                            let usage = json["usageMetadata"].as_object().map(|u| TokenUsage {
+                                                prompt_tokens: u.get("promptTokenCount").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                                                completion_tokens: u.get("candidatesTokenCount").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                                                total_tokens: u.get("totalTokenCount").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                                                cached_tokens: u.get("cachedContentTokenCount").and_then(|v| v.as_u64()).map(|v| v as u32),
+                                            });
+
+                                            yield Ok(StreamChunk {
+                                                id: None,
+                                                delta: stream_delta,
+                                                finish_reason: finish,
+                                                usage,
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        Ok(Box::pin(stream))
     }
 
     async fn embed(&self, request: EmbeddingRequest) -> Result<EmbeddingResponse, ProviderError> {
@@ -432,7 +588,7 @@ impl LLMProvider for GoogleProvider {
     fn supports(&self, capability: &str) -> bool {
         match capability {
             "chat" | "tools" | "vision" | "embeddings" | "audio" | "json_mode" => true,
-            "streaming" => false,
+            "streaming" => true,
             _ => false,
         }
     }
@@ -479,15 +635,15 @@ impl LLMProvider for GoogleProvider {
                 prompt_tokens: u["promptTokenCount"].as_u64().unwrap_or(0) as u32,
                 completion_tokens: u["candidatesTokenCount"].as_u64().unwrap_or(0) as u32,
                 total_tokens: u["totalTokenCount"].as_u64().unwrap_or(0) as u32,
-                cached_tokens: u.get("cachedContentTokenCount").and_then(|v| v.as_u64().map(|n| n as u32)),
+                cached_tokens: u
+                    .get("cachedContentTokenCount")
+                    .and_then(|v| v.as_u64().map(|n| n as u32)),
             }
         } else {
             TokenUsage::default()
         };
 
-        let finish_reason = self.parse_finish_reason(
-            candidate["finishReason"].as_str(),
-        );
+        let finish_reason = self.parse_finish_reason(candidate["finishReason"].as_str());
 
         Ok(ChatResponse {
             id: "".to_string(),

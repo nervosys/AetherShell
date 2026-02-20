@@ -1,0 +1,76 @@
+{
+    "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+    "name": "AetherShell",
+    "scopeName": "source.aethershell",
+    "patterns": [
+        { "include": "#comments" },
+        { "include": "#strings" },
+        { "include": "#numbers" },
+        { "include": "#keywords" },
+        { "include": "#operators" },
+        { "include": "#functions" },
+        { "include": "#modules" },
+        { "include": "#constants" }
+    ],
+    "repository": {
+        "comments": {
+            "patterns": [
+                { "name": "comment.line.number-sign.aethershell", "match": "#.*$" },
+                { "name": "comment.block.aethershell", "begin": "/\\*", "end": "\\*/" }
+            ]
+        },
+        "strings": {
+            "patterns": [
+                {
+                    "name": "string.quoted.double.aethershell",
+                    "begin": "\"",
+                    "end": "\"",
+                    "patterns": [
+                        { "name": "constant.character.escape.aethershell", "match": "\\\\." },
+                        { "name": "variable.other.interpolation.aethershell", "match": "\\$\\{[^}]+\\}" }
+                    ]
+                },
+                { "name": "string.quoted.single.aethershell", "begin": "'", "end": "'" }
+            ]
+        },
+        "numbers": {
+            "patterns": [
+                { "name": "constant.numeric.float.aethershell", "match": "\\b\\d+\\.\\d+\\b" },
+                { "name": "constant.numeric.integer.aethershell", "match": "\\b\\d+\\b" }
+            ]
+        },
+        "keywords": {
+            "patterns": [
+                { "name": "keyword.control.aethershell", "match": "\\b(if|else|match|for|while|return|break|continue|try|catch|fn|let|mut)\\b" },
+                { "name": "keyword.other.aethershell", "match": "\\b(import|export|use|as|in|from|where|select|map|reduce|filter|each|agent|swarm)\\b" },
+                { "name": "storage.type.aethershell", "match": "\\b(Int|Float|String|Bool|Array|Record|Lambda|Null|Table)\\b" }
+            ]
+        },
+        "operators": {
+            "patterns": [
+                { "name": "keyword.operator.pipe.aethershell", "match": "\\|>" },
+                { "name": "keyword.operator.arrow.aethershell", "match": "=>" },
+                { "name": "keyword.operator.pipe.aethershell", "match": "\\|" },
+                { "name": "keyword.operator.comparison.aethershell", "match": "(==|!=|<=|>=|<|>)" },
+                { "name": "keyword.operator.logical.aethershell", "match": "(&&|\\|\\||!)" },
+                { "name": "keyword.operator.arithmetic.aethershell", "match": "(\\+|-|\\*|/|%)" },
+                { "name": "keyword.operator.assignment.aethershell", "match": "=" }
+            ]
+        },
+        "functions": {
+            "patterns": [
+                { "name": "entity.name.function.aethershell", "match": "\\b([a-z_][a-z0-9_]*)\\s*(?=\\()" }
+            ]
+        },
+        "modules": {
+            "patterns": [
+                { "name": "entity.name.namespace.aethershell", "match": "\\b(file|sys|proc|net|http|crypto|db|math|str|arr|json|platform|ai|agent|mcp|a2a|a2ui|nanda|rbac|audit|sso|nn|evo|rl|docker|k8s|helm|cargo|git|gh)\\b(?=\\.)" }
+            ]
+        },
+        "constants": {
+            "patterns": [
+                { "name": "constant.language.aethershell", "match": "\\b(true|false|null)\\b" }
+            ]
+        }
+    }
+}

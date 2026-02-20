@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use crate::providers::{
     ChatRequest, ChatResponse, ChatStream, ContentPart, EmbeddingRequest, EmbeddingResponse,
     FinishReason, ImageSource, LLMProvider, Message, ModelInfo, ProviderConfig,
-    ProviderError, ProviderType, Role, TokenUsage, ToolCall, ToolFormat, ToolSchema,
+    ProviderError, ProviderType, Role, StreamChunk, StreamDelta, TokenUsage, ToolCall, ToolFormat, ToolSchema,
 };
 
 /// Ollama local LLM provider
@@ -229,10 +229,112 @@ impl LLMProvider for OllamaProvider {
         self.parse_response(&json)
     }
 
-    async fn chat_stream(&self, _request: ChatRequest) -> Result<ChatStream, ProviderError> {
-        Err(ProviderError::Unavailable {
-            message: "Streaming not yet implemented".to_string(),
-        })
+    async fn chat_stream(&self, request: ChatRequest) -> Result<ChatStream, ProviderError> {
+        let url = format!("{}/api/chat", self.base_url());
+
+        let mut body = json!({
+            "model": request.model.model,
+            "messages": self.build_messages(&request.messages),
+            "stream": true,
+        });
+
+        if let Some(temp) = request.temperature {
+            body["options"] = json!({"temperature": temp});
+        }
+        if let Some(ref tools) = request.tools {
+            if !tools.is_empty() {
+                body["tools"] = json!(self.build_tools(tools));
+            }
+        }
+
+        let response = self
+            .client
+            .post(&url)
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| ProviderError::NetworkError {
+                message: e.to_string(),
+            })?;
+
+        if !response.status().is_success() {
+            let status = response.status().as_u16();
+            let text = response.text().await.unwrap_or_default();
+            return Err(ProviderError::Unknown {
+                message: format!("API error {}: {}", status, text),
+            });
+        }
+
+        use futures::StreamExt;
+        let byte_stream = response.bytes_stream();
+
+        // Ollama streams NDJSON (one JSON object per line), not SSE
+        let stream = async_stream::stream! {
+            let mut buffer = String::new();
+            futures::pin_mut!(byte_stream);
+
+            while let Some(chunk_result) = byte_stream.next().await {
+                let chunk = match chunk_result {
+                    Ok(c) => c,
+                    Err(e) => {
+                        yield Err(ProviderError::NetworkError { message: e.to_string() });
+                        break;
+                    }
+                };
+
+                buffer.push_str(&String::from_utf8_lossy(&chunk));
+
+                while let Some(line_end) = buffer.find('\n') {
+                    let line = buffer[..line_end].trim().to_string();
+                    buffer = buffer[line_end + 1..].to_string();
+
+                    if line.is_empty() {
+                        continue;
+                    }
+
+                    if let Ok(json) = serde_json::from_str::<JsonValue>(&line) {
+                        let done = json["done"].as_bool().unwrap_or(false);
+
+                        let stream_delta = if let Some(content) = json["message"]["content"].as_str() {
+                            if content.is_empty() && !done {
+                                continue;
+                            }
+                            StreamDelta::Text(content.to_string())
+                        } else {
+                            StreamDelta::Text(String::new())
+                        };
+
+                        let finish_reason = if done { Some(FinishReason::Stop) } else { None };
+
+                        let usage = if done {
+                            Some(TokenUsage {
+                                prompt_tokens: json["prompt_eval_count"].as_u64().unwrap_or(0) as u32,
+                                completion_tokens: json["eval_count"].as_u64().unwrap_or(0) as u32,
+                                total_tokens: (json["prompt_eval_count"].as_u64().unwrap_or(0)
+                                    + json["eval_count"].as_u64().unwrap_or(0)) as u32,
+                                cached_tokens: None,
+                            })
+                        } else {
+                            None
+                        };
+
+                        yield Ok(StreamChunk {
+                            id: None,
+                            delta: stream_delta,
+                            finish_reason,
+                            usage,
+                        });
+
+                        if done {
+                            return;
+                        }
+                    }
+                }
+            }
+        };
+
+        Ok(Box::pin(stream))
     }
 
     async fn embed(&self, request: EmbeddingRequest) -> Result<EmbeddingResponse, ProviderError> {
@@ -302,7 +404,8 @@ impl LLMProvider for OllamaProvider {
     fn supports(&self, capability: &str) -> bool {
         match capability {
             "chat" | "tools" | "embeddings" | "json_mode" => true,
-            "vision" | "audio" | "streaming" => false,
+            "vision" | "audio" => false,
+            "streaming" => true,
             _ => false,
         }
     }

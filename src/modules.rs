@@ -1517,8 +1517,6 @@ pub fn all_modules() -> Vec<(&'static str, Value)> {
         ("docs", docs_module()),
         ("devenv", devenv_module()),
         ("platform", platform_module()),
-        ("platform", platform_module()),
-        ("platform", platform_module()),
         ("rbac", rbac_module()),
         ("audit", audit_module()),
         ("sso", sso_module()),

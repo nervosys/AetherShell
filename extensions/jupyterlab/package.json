@@ -1,0 +1,43 @@
+{
+  "name": "jupyterlab-aethershell",
+  "version": "0.1.0",
+  "description": "AetherShell kernel and language support for JupyterLab",
+  "license": "AGPL-3.0-or-later",
+  "author": "Nervosys",
+  "homepage": "https://github.com/nervosys/AetherShell",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nervosys/AetherShell"
+  },
+  "keywords": [
+    "jupyter",
+    "jupyterlab",
+    "jupyterlab-extension",
+    "aethershell",
+    "shell",
+    "ai"
+  ],
+  "jupyterlab": {
+    "extension": true,
+    "outputDir": "jupyterlab_aethershell/labextension",
+    "mimeExtension": true
+  },
+  "scripts": {
+    "build": "jlpm run build:lib && jlpm run build:labextension",
+    "build:lib": "tsc",
+    "build:labextension": "jupyter labextension build .",
+    "clean": "rimraf lib tsconfig.tsbuildinfo jupyterlab_aethershell/labextension",
+    "watch": "tsc -w"
+  },
+  "dependencies": {
+    "@jupyterlab/application": "^4.0.0",
+    "@jupyterlab/coreutils": "^6.0.0",
+    "@jupyterlab/services": "^7.0.0",
+    "@jupyterlab/codeeditor": "^4.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0",
+    "rimraf": "^5.0.0",
+    "@jupyterlab/builder": "^4.0.0"
+  }
+}

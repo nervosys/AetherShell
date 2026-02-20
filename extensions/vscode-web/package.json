@@ -1,0 +1,88 @@
+{
+  "name": "aethershell-web",
+  "displayName": "AetherShell Web",
+  "description": "AetherShell terminal and language support for VS Code Web (vscode.dev)",
+  "version": "0.1.0",
+  "publisher": "admercs",
+  "license": "AGPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nervosys/AetherShell"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Other"
+  ],
+  "keywords": [
+    "shell",
+    "terminal",
+    "ai",
+    "aethershell",
+    "typed-shell"
+  ],
+  "extensionKind": [
+    "web"
+  ],
+  "browser": "./dist/web/extension.js",
+  "activationEvents": [
+    "onLanguage:aethershell"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "aethershell",
+        "aliases": [
+          "AetherShell",
+          "ae"
+        ],
+        "extensions": [
+          ".ae"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "aethershell",
+        "scopeName": "source.aethershell",
+        "path": "./syntaxes/aethershell.tmLanguage.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "aethershell.eval",
+        "title": "AetherShell: Evaluate Selection"
+      },
+      {
+        "command": "aethershell.connectAgent",
+        "title": "AetherShell: Connect to Agent API"
+      }
+    ],
+    "configuration": {
+      "title": "AetherShell",
+      "properties": {
+        "aethershell.agentApiUrl": {
+          "type": "string",
+          "default": "http://localhost:3002",
+          "description": "URL of the AetherShell Agent API server"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "esbuild src/extension.ts --bundle --outfile=dist/web/extension.js --external:vscode --format=cjs --platform=browser",
+    "watch": "esbuild src/extension.ts --bundle --outfile=dist/web/extension.js --external:vscode --format=cjs --platform=browser --watch",
+    "lint": "eslint src --ext ts",
+    "package": "vsce package --target web"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.3.0",
+    "@vscode/vsce": "^2.22.0"
+  }
+}
