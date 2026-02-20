@@ -2,9 +2,12 @@
 //!
 //! Central registry for managing LLM providers, their configurations,
 //! and intelligent routing of requests to the best available provider.
+//! Supports multiple load balancing strategies: round-robin, weighted,
+//! least-latency, least-requests, and adaptive.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 
 use super::traits::{ChatRequest, LLMProvider, ModelInfo, ProviderError};
@@ -24,6 +27,8 @@ pub struct ProviderRegistry {
     routing_rules: RwLock<Vec<RoutingRule>>,
     /// Usage statistics
     stats: RwLock<UsageStats>,
+    /// Load balancer
+    load_balancer: LoadBalancer,
 }
 
 /// Entry for a registered provider
@@ -68,6 +73,7 @@ impl ProviderRegistry {
             default_provider: RwLock::new(None),
             routing_rules: RwLock::new(Vec::new()),
             stats: RwLock::new(UsageStats::default()),
+            load_balancer: LoadBalancer::default(),
         }
     }
 
@@ -229,19 +235,21 @@ impl ProviderRegistry {
     ) -> Result<ProviderType, ProviderError> {
         let providers = self.providers.read().unwrap();
 
-        // Find any ready provider
-        for (provider_type, entry) in providers.iter() {
-            if matches!(
-                entry.status,
-                ProviderStatus::Ready | ProviderStatus::Unchecked
-            ) {
-                return Ok(provider_type.clone());
-            }
+        // Collect all ready providers
+        let candidates: Vec<ProviderType> = providers
+            .iter()
+            .filter(|(_, e)| matches!(e.status, ProviderStatus::Ready | ProviderStatus::Unchecked))
+            .map(|(k, _)| k.clone())
+            .collect();
+
+        if candidates.is_empty() {
+            return Err(ProviderError::Unavailable {
+                message: "No fallback providers available".to_string(),
+            });
         }
 
-        Err(ProviderError::Unavailable {
-            message: "No fallback providers available".to_string(),
-        })
+        // Use load balancer to pick from ready candidates
+        Ok(self.select_balanced(&candidates).unwrap_or(candidates[0]))
     }
 
     /// Add a routing rule
@@ -252,6 +260,23 @@ impl ProviderRegistry {
         rules.sort_by(|a, b| b.priority.cmp(&a.priority));
     }
 
+    /// Set the load balancing strategy
+    pub fn set_load_balancing(&self, strategy: LoadBalancingStrategy) {
+        self.load_balancer.set_strategy(strategy);
+    }
+
+    /// Get the current load balancing strategy
+    pub fn load_balancing_strategy(&self) -> LoadBalancingStrategy {
+        self.load_balancer.strategy()
+    }
+
+    /// Select the best provider from available candidates using load balancing.
+    /// Called when multiple providers could serve a request.
+    pub fn select_balanced(&self, candidates: &[ProviderType]) -> Option<ProviderType> {
+        let stats = self.stats.read().unwrap();
+        self.load_balancer.select(candidates, &stats.by_provider)
+    }
+
     /// Get usage statistics
     pub fn stats(&self) -> UsageStats {
         self.stats.read().unwrap().clone()
@@ -259,6 +284,18 @@ impl ProviderRegistry {
 
     /// Record a request
     pub fn record_request(&self, provider: &ProviderType, tokens: u32, success: bool) {
+        self.record_request_with_latency(provider, tokens, success, None, None);
+    }
+
+    /// Record a request with optional latency and cost data
+    pub fn record_request_with_latency(
+        &self,
+        provider: &ProviderType,
+        tokens: u32,
+        success: bool,
+        latency_ms: Option<f64>,
+        cost_usd: Option<f64>,
+    ) {
         let mut stats = self.stats.write().unwrap();
         stats.total_requests += 1;
         stats.total_tokens += tokens as u64;
@@ -275,6 +312,35 @@ impl ProviderRegistry {
         } else {
             provider_stats.failures += 1;
         }
+
+        if let Some(lat) = latency_ms {
+            // Update latency stats
+            if provider_stats.min_latency_ms == 0.0 || lat < provider_stats.min_latency_ms {
+                provider_stats.min_latency_ms = lat;
+            }
+            if lat > provider_stats.max_latency_ms {
+                provider_stats.max_latency_ms = lat;
+            }
+            // Exponential moving average for avg latency (alpha = 0.1)
+            if provider_stats.avg_latency_ms == 0.0 {
+                provider_stats.avg_latency_ms = lat;
+            } else {
+                provider_stats.avg_latency_ms = provider_stats.avg_latency_ms * 0.9 + lat * 0.1;
+            }
+            // P95 estimate via exponential moving maximum (alpha = 0.05)
+            if lat > provider_stats.p95_latency_ms {
+                provider_stats.p95_latency_ms = provider_stats.p95_latency_ms * 0.95 + lat * 0.05;
+            }
+        }
+
+        if let Some(cost) = cost_usd {
+            provider_stats.total_cost_usd += cost;
+        }
+
+        provider_stats.last_request_epoch = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
     }
 }
 
@@ -550,6 +616,173 @@ impl ModelAliases {
     /// List all aliases
     pub fn list(&self) -> Vec<(&String, &ModelUri)> {
         self.aliases.iter().collect()
+    }
+}
+
+// ============================================================================
+// LOAD BALANCING
+// ============================================================================
+
+/// Load balancing strategy for distributing requests across providers
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum LoadBalancingStrategy {
+    /// No balancing — use the first matching provider
+    None,
+    /// Cycle through providers in order
+    RoundRobin,
+    /// Distribute based on assigned weights (higher weight = more traffic)
+    Weighted { weights: HashMap<ProviderType, u32> },
+    /// Route to the provider with lowest average latency
+    LeastLatency,
+    /// Route to the provider with fewest in-flight / total requests
+    LeastRequests,
+    /// Adaptive: starts with round-robin, converges on the provider with
+    /// the best success-rate-to-latency ratio over a sliding window
+    Adaptive,
+}
+
+impl Default for LoadBalancingStrategy {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+/// Load balancer state
+pub struct LoadBalancer {
+    /// Active strategy
+    strategy: RwLock<LoadBalancingStrategy>,
+    /// Round-robin counter (atomic for lock-free increment)
+    rr_counter: AtomicU64,
+    /// Weighted counter for deterministic weighted distribution
+    weighted_counter: AtomicU64,
+}
+
+impl Default for LoadBalancer {
+    fn default() -> Self {
+        Self::new(LoadBalancingStrategy::None)
+    }
+}
+
+impl LoadBalancer {
+    /// Create a new load balancer with the given strategy
+    pub fn new(strategy: LoadBalancingStrategy) -> Self {
+        Self {
+            strategy: RwLock::new(strategy),
+            rr_counter: AtomicU64::new(0),
+            weighted_counter: AtomicU64::new(0),
+        }
+    }
+
+    /// Change the active strategy
+    pub fn set_strategy(&self, strategy: LoadBalancingStrategy) {
+        let mut s = self.strategy.write().unwrap();
+        *s = strategy;
+    }
+
+    /// Get the current strategy
+    pub fn strategy(&self) -> LoadBalancingStrategy {
+        self.strategy.read().unwrap().clone()
+    }
+
+    /// Select a provider from `candidates` according to the active strategy.
+    /// `stats` provides per-provider metrics for latency / request-based strategies.
+    pub fn select(
+        &self,
+        candidates: &[ProviderType],
+        stats: &HashMap<ProviderType, ProviderStats>,
+    ) -> Option<ProviderType> {
+        if candidates.is_empty() {
+            return None;
+        }
+        if candidates.len() == 1 {
+            return Some(candidates[0]);
+        }
+
+        let strategy = self.strategy.read().unwrap();
+        match &*strategy {
+            LoadBalancingStrategy::None => Some(candidates[0]),
+
+            LoadBalancingStrategy::RoundRobin => {
+                let idx = self.rr_counter.fetch_add(1, Ordering::Relaxed) as usize;
+                Some(candidates[idx % candidates.len()])
+            }
+
+            LoadBalancingStrategy::Weighted { weights } => {
+                // Build a cumulative weight table
+                let total_weight: u32 = candidates
+                    .iter()
+                    .map(|c| weights.get(c).copied().unwrap_or(1))
+                    .sum();
+                if total_weight == 0 {
+                    return Some(candidates[0]);
+                }
+                let counter = self.weighted_counter.fetch_add(1, Ordering::Relaxed);
+                let slot = (counter % total_weight as u64) as u32;
+                let mut cumulative = 0u32;
+                for c in candidates {
+                    cumulative += weights.get(c).copied().unwrap_or(1);
+                    if slot < cumulative {
+                        return Some(*c);
+                    }
+                }
+                Some(candidates[candidates.len() - 1])
+            }
+
+            LoadBalancingStrategy::LeastLatency => {
+                // Pick the candidate with the lowest average latency
+                let mut best = candidates[0];
+                let mut best_latency = f64::MAX;
+                for c in candidates {
+                    let latency = stats.get(c).map(|s| s.avg_latency_ms).unwrap_or(0.0);
+                    // Treat 0 (no data) as "unknown, try it" — give it priority
+                    if latency < best_latency || (latency == 0.0 && best_latency != 0.0) {
+                        best_latency = latency;
+                        best = *c;
+                    }
+                }
+                Some(best)
+            }
+
+            LoadBalancingStrategy::LeastRequests => {
+                let mut best = candidates[0];
+                let mut best_requests = u64::MAX;
+                for c in candidates {
+                    let reqs = stats.get(c).map(|s| s.requests).unwrap_or(0);
+                    if reqs < best_requests {
+                        best_requests = reqs;
+                        best = *c;
+                    }
+                }
+                Some(best)
+            }
+
+            LoadBalancingStrategy::Adaptive => {
+                // Score = success_rate / (avg_latency + 1.0)
+                // Higher is better. Unknown providers get a bonus to be explored.
+                let mut best = candidates[0];
+                let mut best_score = f64::NEG_INFINITY;
+                for c in candidates {
+                    let score = if let Some(s) = stats.get(c) {
+                        if s.requests == 0 {
+                            // No data — assign exploration bonus
+                            1000.0
+                        } else {
+                            let success_rate = s.successes as f64 / s.requests as f64;
+                            success_rate / (s.avg_latency_ms + 1.0) * 1000.0
+                        }
+                    } else {
+                        // Never seen — exploration bonus
+                        1000.0
+                    };
+                    if score > best_score {
+                        best_score = score;
+                        best = *c;
+                    }
+                }
+                Some(best)
+            }
+        }
     }
 }
 

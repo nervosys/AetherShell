@@ -68,6 +68,14 @@ native = [
     "dep:utoipa-swagger-ui",
     "dep:jsonschema",
 ]
+candle = [
+    "dep:candle-core",
+    "dep:candle-nn",
+    "dep:candle-transformers",
+    "dep:hf-hub",
+    "dep:tokenizers",
+]
+onnx = ["dep:ort"]
 web = [
     "dep:wasm-bindgen",
     "dep:console_error_panic_hook",
@@ -149,6 +157,14 @@ utoipa = { version = "4.0", features = ["axum_extras"], optional = true }
 utoipa-swagger-ui = { version = "6.0", features = ["axum"], optional = true }
 tokio-stream = "0.1"
 jsonschema = { version = "0.17", optional = true }
+
+# Local inference backends (optional)
+candle-core = { version = "0.8", optional = true }
+candle-nn = { version = "0.8", optional = true }
+candle-transformers = { version = "0.8", optional = true }
+hf-hub = { version = "0.3", optional = true }
+tokenizers = { version = "0.21", optional = true }
+ort = { version = "2.0.0-rc.9", optional = true }
 
 # Unix-only dependencies (Linux, macOS, BSD)
 [target.'cfg(unix)'.dependencies]

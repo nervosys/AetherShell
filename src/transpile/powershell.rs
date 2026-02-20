@@ -52,7 +52,9 @@ pub fn transpile_powershell_to_ae(src: &str) -> Result<String> {
         }
 
         if line.is_empty() {
-            if brace_depth > 0 { block_lines.push(raw_line.to_string()); }
+            if brace_depth > 0 {
+                block_lines.push(raw_line.to_string());
+            }
             continue;
         }
 
@@ -141,7 +143,6 @@ pub fn transpile_powershell_to_ae(src: &str) -> Result<String> {
     Ok(out)
 }
 
-
 /* =============================================================================
 Representation
 ============================================================================= */
@@ -187,9 +188,13 @@ fn count_ps_brace_openers(line: &str) -> i32 {
             i += 2; // skip escaped char
             continue;
         }
-        if ch == '\'' && !in_dq { in_sq = !in_sq; }
-        else if ch == '\"' && !in_sq { in_dq = !in_dq; }
-        else if ch == '{' && !in_sq && !in_dq { count += 1; }
+        if ch == '\'' && !in_dq {
+            in_sq = !in_sq;
+        } else if ch == '\"' && !in_sq {
+            in_dq = !in_dq;
+        } else if ch == '{' && !in_sq && !in_dq {
+            count += 1;
+        }
         i += 1;
     }
     count
@@ -208,9 +213,13 @@ fn count_ps_brace_closers(line: &str) -> i32 {
             i += 2;
             continue;
         }
-        if ch == '\'' && !in_dq { in_sq = !in_sq; }
-        else if ch == '\"' && !in_sq { in_dq = !in_dq; }
-        else if ch == '}' && !in_sq && !in_dq { count += 1; }
+        if ch == '\'' && !in_dq {
+            in_sq = !in_sq;
+        } else if ch == '\"' && !in_sq {
+            in_dq = !in_dq;
+        } else if ch == '}' && !in_sq && !in_dq {
+            count += 1;
+        }
         i += 1;
     }
     count
@@ -751,45 +760,156 @@ Cmdlet mapping
 
 fn map_ps_cmdlet(name: &str) -> Option<&'static str> {
     // Map common PowerShell cmdlets to Aether builtins
-    // Case-insensitive matching
+    // Case-insensitive matching — uses module.func dot notation for consistency
     match name.to_lowercase().as_str() {
+        // Output
         "write-host" | "write-output" | "echo" => Some("echo"),
+
+        // Navigation
         "get-location" | "pwd" => Some("pwd"),
-        "set-location" | "cd" => Some("cd"),
+        "set-location" | "cd" | "sl" | "chdir" => Some("cd"),
+        "push-location" | "pushd" => Some("cd"),
+        "pop-location" | "popd" => Some("cd"),
+
+        // File operations
         "get-childitem" | "dir" | "ls" | "gci" => Some("ls"),
-        "get-content" | "cat" | "type" | "gc" => Some("read_text"),
-        "set-content" | "sc" => Some("write_text"),
-        "add-content" | "ac" => Some("append_text"),
-        "copy-item" | "copy" | "cp" | "cpi" => Some("cp"),
-        "move-item" | "move" | "mv" | "mi" => Some("mv"),
-        "remove-item" | "del" | "rm" | "ri" | "erase" => Some("rm"),
-        "new-item" | "ni" => Some("touch"),
-        "test-path" => Some("exists"),
-        "get-process" | "ps" | "gps" => Some("proc_list"),
-        "stop-process" | "kill" | "spps" => Some("proc_kill"),
-        "start-process" | "saps" => Some("proc_spawn"),
-        "get-date" => Some("now"),
-        "get-random" => Some("random"),
+        "get-content" | "cat" | "type" | "gc" => Some("file.read"),
+        "set-content" | "sc" => Some("file.write"),
+        "add-content" | "ac" => Some("file.append"),
+        "copy-item" | "copy" | "cp" | "cpi" => Some("file.copy"),
+        "move-item" | "move" | "mv" | "mi" => Some("file.move"),
+        "remove-item" | "del" | "rm" | "ri" | "erase" | "rd" | "rmdir" => Some("file.remove"),
+        "new-item" | "ni" => Some("file.touch"),
+        "test-path" => Some("file.exists"),
+        "rename-item" | "ren" | "rni" => Some("file.move"),
+        "resolve-path" | "rvpa" => Some("file.realpath"),
+        "get-item" | "gi" => Some("file.stat"),
+        "get-itempropertyvalue" => Some("file.stat"),
+        "get-filehash" => Some("crypto.hash"),
+        "select-string" | "sls" => Some("str.grep"),
+        "get-acl" => Some("perm.get"),
+        "set-acl" => Some("perm.set"),
+
+        // Process management
+        "get-process" | "ps" | "gps" => Some("proc.list"),
+        "stop-process" | "kill" | "spps" => Some("proc.kill"),
+        "start-process" | "saps" | "start" => Some("proc.spawn"),
+        "wait-process" | "wp" => Some("proc.wait"),
+        "debug-process" => Some("proc.debug"),
+
+        // Date/time
+        "get-date" => Some("sys.now"),
+        "new-timespan" => Some("sys.timespan"),
+
+        // Math/random
+        "get-random" => Some("math.random"),
+
+        // Pipeline operations
         "measure-object" => Some("len"),
         "select-object" | "select" => Some("select"),
         "where-object" | "where" | "?" => Some("where"),
         "foreach-object" | "foreach" | "%" => Some("map"),
         "sort-object" | "sort" => Some("sort"),
         "group-object" | "group" => Some("group"),
-        "convertto-json" => Some("to_json"),
-        "convertfrom-json" => Some("from_json"),
-        "invoke-webrequest" | "curl" | "wget" | "iwr" => Some("http_get"),
-        "invoke-restmethod" | "irm" => Some("http_request"),
-        "get-clipboard" | "gcb" => Some("clip_get"),
-        "set-clipboard" | "scb" => Some("clip_set"),
-        "get-service" | "gsv" => Some("svc_list"),
-        "start-service" | "sasv" => Some("svc_start"),
-        "stop-service" | "spsv" => Some("svc_stop"),
-        "restart-service" => Some("svc_restart"),
-        "get-host" => Some("sys_info"),
-        "hostname" => Some("sys_hostname"),
+        "tee-object" | "tee" => Some("file.tee"),
+        "out-file" => Some("file.write"),
+        "out-null" => Some("noop"),
+        "out-string" => Some("str.join"),
+        "format-list" | "fl" => Some("table"),
+        "format-table" | "ft" => Some("table"),
+
+        // JSON
+        "convertto-json" => Some("json.stringify"),
+        "convertfrom-json" => Some("json.parse"),
+
+        // CSV
+        "import-csv" => Some("file.read_csv"),
+        "export-csv" | "convertto-csv" => Some("file.write_csv"),
+
+        // XML
+        "convertto-xml" => Some("str.to_xml"),
+        "select-xml" => Some("str.xpath"),
+
+        // Web/HTTP
+        "invoke-webrequest" | "curl" | "wget" | "iwr" => Some("http.get"),
+        "invoke-restmethod" | "irm" => Some("http.request"),
+
+        // Clipboard
+        "get-clipboard" | "gcb" => Some("clip.get"),
+        "set-clipboard" | "scb" => Some("clip.set"),
+
+        // Services
+        "get-service" | "gsv" => Some("svc.list"),
+        "start-service" | "sasv" => Some("svc.start"),
+        "stop-service" | "spsv" => Some("svc.stop"),
+        "restart-service" => Some("svc.restart"),
+        "set-service" => Some("svc.set"),
+        "new-service" => Some("svc.create"),
+
+        // System info
+        "get-host" => Some("sys.info"),
+        "hostname" => Some("sys.hostname"),
+        "get-computerinfo" => Some("sys.info"),
+        "get-ciminstance" => Some("sys.wmi"),
+        "get-wmiobject" | "gwmi" => Some("sys.wmi"),
+        "get-culture" => Some("sys.locale"),
+        "get-uiculture" => Some("sys.locale"),
+        "get-uptime" => Some("sys.uptime"),
+
+        // Network
+        "test-connection" | "ping" => Some("net.ping"),
+        "test-netconnection" | "tnc" => Some("net.test_port"),
+        "resolve-dnsname" => Some("net.dns_lookup"),
+        "get-netadapter" => Some("net.interfaces"),
+        "get-netipaddress" => Some("net.ip"),
+        "get-netipinterface" => Some("net.interfaces"),
+        "get-nettcpconnection" => Some("net.connections"),
+        "get-netfirewallrule" => Some("firewall.rules"),
+        "new-netfirewallrule" => Some("firewall.allow"),
+        "remove-netfirewallrule" => Some("firewall.deny"),
+
+        // Disk/storage
+        "get-disk" => Some("sys.disk_usage"),
+        "get-volume" => Some("sys.disk_usage"),
+        "get-psdrive" | "gdr" => Some("sys.disk_usage"),
+
+        // Archive operations
+        "compress-archive" => Some("archive.compress"),
+        "expand-archive" => Some("archive.extract"),
+
+        // Environment
+        "get-variable" | "gv" => Some("sys.env"),
+        "set-variable" | "sv" | "set" => Some("set_env"),
+        "remove-variable" | "rv" => Some("set_env"),
+
+        // Help & discovery
+        "get-command" | "gcm" => Some("sys.which"),
+        "get-help" | "help" | "man" => Some("help"),
+        "get-alias" | "gal" => Some("alias"),
+        "set-alias" | "sal" | "nal" => Some("alias"),
+        "get-history" | "ghy" | "h" | "history" => Some("history"),
+        "get-member" | "gm" => Some("typeof"),
+
+        // User input
+        "read-host" => Some("input.readline"),
+
+        // Module management
+        "get-module" | "gmo" => Some("echo"),
+        "import-module" | "ipmo" => Some("echo"),
+
+        // Error handling
+        "write-error" => Some("echo"),
+        "write-warning" => Some("echo"),
+        "write-verbose" => Some("echo"),
+        "write-debug" => Some("echo"),
+        "write-information" => Some("echo"),
+
+        // Misc
         "clear-host" | "cls" | "clear" => Some("clear"),
         "exit" => Some("exit"),
+        "start-sleep" | "sleep" => Some("sleep"),
+        "get-unique" | "gu" => Some("arr.unique"),
+
         _ => None,
     }
 }
@@ -934,6 +1054,57 @@ mod tests {
     #[test]
     fn test_cmdlet_with_path() {
         let result = transpile_powershell_to_ae("Get-Content 'file.txt'").unwrap();
-        assert!(result.contains("read_text"));
+        assert!(result.contains("file.read"));
+    }
+
+    #[test]
+    fn test_get_process_maps_to_proc_list() {
+        let result = transpile_powershell_to_ae("Get-Process").unwrap();
+        assert!(result.contains("proc.list"));
+    }
+
+    #[test]
+    fn test_invoke_webrequest_maps_to_http_get() {
+        let result = transpile_powershell_to_ae("Invoke-WebRequest 'https://example.com'").unwrap();
+        assert!(result.contains("http.get"));
+    }
+
+    #[test]
+    fn test_get_service_maps_to_svc_list() {
+        let result = transpile_powershell_to_ae("Get-Service").unwrap();
+        assert!(result.contains("svc.list"));
+    }
+
+    #[test]
+    fn test_hostname_maps_to_sys_hostname() {
+        let result = transpile_powershell_to_ae("hostname").unwrap();
+        assert!(result.contains("sys.hostname"));
+    }
+
+    #[test]
+    fn test_comment_preservation() {
+        let result = transpile_powershell_to_ae("# This is a comment").unwrap();
+        assert!(result.contains("// This is a comment"));
+    }
+
+    #[test]
+    fn test_test_connection_maps_to_net_ping() {
+        let result = transpile_powershell_to_ae("Test-Connection 'google.com'").unwrap();
+        assert!(result.contains("net.ping"));
+    }
+
+    #[test]
+    fn test_compress_archive_maps() {
+        let result = transpile_powershell_to_ae(
+            "Compress-Archive -Path 'folder' -DestinationPath 'out.zip'",
+        )
+        .unwrap();
+        assert!(result.contains("archive.compress"));
+    }
+
+    #[test]
+    fn test_sleep_maps() {
+        let result = transpile_powershell_to_ae("Start-Sleep -Seconds 5").unwrap();
+        assert!(result.contains("sleep"));
     }
 }

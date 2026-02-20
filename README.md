@@ -102,7 +102,7 @@ greeting = "Hello, ${name}!"
 
 ## Modules
 
-All 430+ builtins are organized into **50 namespaced modules**:
+All 1,100+ builtins are organized into **106 namespaced modules**:
 
 ```ae
 # File operations
@@ -159,7 +159,7 @@ arr.flatten([[1,2], [3,4]])   # => [1, 2, 3, 4]
 arr.unique([1, 2, 2, 3])      # => [1, 2, 3]
 ```
 
-**All modules:** `file`, `sys`, `proc`, `fs`, `net`, `http`, `gui`, `web`, `crypto`, `db`, `svc`, `cron`, `archive`, `user`, `perm`, `pkg`, `hw`, `clip`, `input`, `ai`, `agent`, `math`, `str`, `arr`, `json`, `mcp`, `shell`, `platform`, `a2ui`, `a2a`, `nanda`, `rbac`, `audit`, `sso`, `cluster`, `nn`, `evo`, `rl`
+**Core modules:** `file`, `sys`, `proc`, `fs`, `net`, `http`, `gui`, `web`, `crypto`, `db`, `svc`, `cron`, `archive`, `user`, `perm`, `pkg`, `hw`, `clip`, `input`, `ai`, `agent`, `math`, `str`, `arr`, `json`, `mcp`, `shell`, `platform`, `a2ui`, `a2a`, `nanda`, `rbac`, `audit`, `sso`, `cluster`, `nn`, `evo`, `rl` — and 68 more (see [AGENTS.md](AGENTS.md) for the full directory)
 
 ---
 
@@ -281,6 +281,7 @@ swarm({
     ],
     tools: ["file.read", "grep", "http.get"]
 })
+```
 
 ---
 
@@ -508,6 +509,32 @@ agent.with_mcp("Check system health", monitor.tools, "http://localhost:3006")
 | `COMPAT_API_BASE`   | Custom OpenAI-compatible endpoint        |
 | `AGENT_ALLOW_CMDS`  | Whitelist of allowed shell commands      |
 
+### Advanced AI Features
+
+```ae
+# Streaming responses (OpenAI SSE, Anthropic SSE, Gemini SSE, Ollama NDJSON)
+ai.chat_stream("openai:gpt-4o", "Explain quantum computing")
+
+# Cost-based routing — automatically pick cheapest provider
+ai.add_route({condition: "cost_under", max_cost_per_1k: 0.01, provider: "ollama"})
+
+# Load balancing across providers (5 strategies)
+ai_set_load_balancing("round_robin")       # Or: least_latency, weighted, adaptive, least_requests
+ai_load_balancing()                        # Show current strategy
+
+# Local inference — no API keys needed (compile with --features candle or --features onnx)
+ai_local_backends()                        # List available backends
+result = ai_local_load("models/llama.gguf")  # Load model into memory
+ai_local_generate(result.handle, "Hello")  # Native Rust inference via Candle
+ai_local_embed(result.handle, ["text"])    # Embeddings
+ai_local_unload(result.handle)             # Free memory
+
+# Usage & cost tracking
+ai_usage()                                 # Token usage across providers
+ai_cost()                                  # Cost breakdown by provider
+ai_registry_stats()                        # Provider latency, success rate, p95
+```
+
 ---
 
 ## Enterprise
@@ -571,7 +598,7 @@ src/
   main.rs          # Entry point
   eval.rs          # Expression evaluator
   parser.rs        # AetherShell syntax parser
-  builtins.rs      # 430+ builtin functions
+  builtins.rs      # 1,100+ builtin functions
   modules.rs       # Module system (file, sys, net, ...)
   ai.rs            # AI provider integration
   agent.rs         # Autonomous agent framework

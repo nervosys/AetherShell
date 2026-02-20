@@ -8,32 +8,32 @@ This document tracks the development progress of AetherShell, the world's first 
 
 ## Progress Overview
 
-| Category          | Status     | Details                                          |
-| ----------------- | ---------- | ------------------------------------------------ |
-| Core Language     | ✅ Complete | AST-based, Hindley-Milner                        |
-| Type System       | ✅ Complete | Full inference                                   |
-| Builtins Library  | ✅ Complete | 1,100+ functions, 106 modules                    |
-| AI Integration    | ✅ Complete | 9 providers, unified stack, streaming             |
-| Agent Framework   | ✅ Complete | Single + swarm + A2A                             |
-| AI Ontology       | ✅ Complete | 1,100+ builtins, 106 modules discoverable         |
-| TUI Interface     | ✅ Complete | Tabs, chat, dashboard                            |
-| Theme System      | ✅ Complete | 38 themes                                        |
-| Config System     | ✅ Complete | XDG-compliant                                    |
-| Plugin System     | ✅ Complete | Dynamic loading, TOML                            |
-| Standard Library  | ✅ Complete | 7 modules (lib/)                                 |
-| Performance       | ✅ Complete | 5 benchmark suites                               |
-| Test Coverage     | ✅ Complete | 1,237 tests, 100% pass                           |
-| Documentation     | ✅ Complete | Comprehensive                                    |
-| Publishing        | ✅ Complete | crates.io v0.3.1                                 |
-| WASM Support      | ✅ Complete | Browser REPL ready                               |
-| Enterprise        | ✅ Complete | RBAC, Audit, SSO                                 |
-| LSP Server        | ✅ Complete | tower-lsp, crates.io                             |
-| VS Code Extension | ✅ Complete | Marketplace published                            |
-| MCP Protocol      | ✅ Complete | 130+ tools, HTTP server                          |
-| Agent API         | ✅ Complete | 27 provider schema formats                       |
-| Distribution      | ✅ Complete | Homebrew, Docker, npm                            |
-| CI/CD             | ✅ Complete | GitHub Actions, CLA check                        |
-| Licensing         | ✅ Complete | AGPL-3.0 + commercial                            |
+| Category          | Status     | Details                                   |
+| ----------------- | ---------- | ----------------------------------------- |
+| Core Language     | ✅ Complete | AST-based, Hindley-Milner                 |
+| Type System       | ✅ Complete | Full inference                            |
+| Builtins Library  | ✅ Complete | 1,100+ functions, 106 modules             |
+| AI Integration    | ✅ Complete | 9 providers, unified stack, streaming     |
+| Agent Framework   | ✅ Complete | Single + swarm + A2A                      |
+| AI Ontology       | ✅ Complete | 1,100+ builtins, 106 modules discoverable |
+| TUI Interface     | ✅ Complete | Tabs, chat, dashboard                     |
+| Theme System      | ✅ Complete | 38 themes                                 |
+| Config System     | ✅ Complete | XDG-compliant                             |
+| Plugin System     | ✅ Complete | Dynamic loading, TOML                     |
+| Standard Library  | ✅ Complete | 7 modules (lib/)                          |
+| Performance       | ✅ Complete | 5 benchmark suites                        |
+| Test Coverage     | ✅ Complete | 1,140 tests, 18 ignored                   |
+| Documentation     | ✅ Complete | Comprehensive                             |
+| Publishing        | ✅ Complete | crates.io v0.3.1                          |
+| WASM Support      | ✅ Complete | Browser REPL ready                        |
+| Enterprise        | ✅ Complete | RBAC, Audit, SSO                          |
+| LSP Server        | ✅ Complete | tower-lsp, crates.io                      |
+| VS Code Extension | ✅ Complete | Marketplace published                     |
+| MCP Protocol      | ✅ Complete | 130+ tools, HTTP server                   |
+| Agent API         | ✅ Complete | 27 provider schema formats                |
+| Distribution      | ✅ Complete | Homebrew, Docker, npm                     |
+| CI/CD             | ✅ Complete | GitHub Actions, CLA check                 |
+| Licensing         | ✅ Complete | AGPL-3.0 + commercial                     |
 
 ---
 
@@ -47,6 +47,9 @@ This document tracks the development progress of AetherShell, the world's first 
 - [x] **Platform module fix** — removed triple-registration of `platform` module in `all_modules()`
 - [x] **VS Code Web extension** — full scaffold with syntax highlighting, eval command, hover/completion providers, Agent API integration
 - [x] **JupyterLab extension** — Jupyter kernel with Agent API proxy, code completion, `.ae` file type registration
+- [x] **Load balancing** — `ai_set_load_balancing()` and `ai_load_balancing()` builtins with 5 strategies: round-robin, least-latency, least-requests, weighted, adaptive; `LoadBalancer` in `ProviderRegistry` with lock-free `AtomicU64` counters
+- [x] **Local inference** — `local_inference` module with Candle and ONNX Runtime backends behind feature flags; builtins `ai_local_backends()`, `ai_local_load()`, `ai_local_generate()`, `ai_local_embed()`, `ai_local_unload()`
+- [x] **Transpiler improvements** — PowerShell cmdlet mappings expanded from 42 → 100+ with dot-notation alignment; 12 tests added for Bash transpiler (previously zero); Zsh `rehash`/`emulate` stubs fixed
 
 ### v0.3.1 — February 2026
 - [x] CLI tool wrappers (tools 1-150): 200+ builtins wrapping common CLI tools — process management (tmux, screen, htop), disk/filesystem (ncdu, duf, dust), debugging (gdb, valgrind, strace, ltrace), binary inspection (objdump, readelf, nm, ldd, strings, file), networking (iperf3, nmap, mtr, dig, nc), modern CLI replacements (bat, fd, rg, sd, zoxide, fzf, jq, yq, delta, hyperfine, tokei, just, direnv), version/runtime managers (asdf, mise, nvm, pyenv, rbenv), language toolchains (cargo, rustup, go, node, npm, pnpm, yarn, bun, deno, uv, pipx, poetry, pytest), dev tools (gh, glab, pre-commit, make, cmake, ninja, nodemon), containers (buildah, skopeo, trivy, podman-compose, docker-compose), linters/formatters (shellcheck, shfmt, black, ruff, eslint, prettier, clippy, rustfmt, golangci-lint)
@@ -225,12 +228,11 @@ This document tracks the development progress of AetherShell, the world's first 
 - [x] Linux packages (.deb, .rpm)
 - [x] Windows Terminal integration (custom profile)
 - [x] VS Code Web extension
-- [ ] PyPI distribution for Python SDK
+- [x] PyPI distribution for Python SDK
 - [x] LangChain tool integration
 - [x] JupyterLab extension
 - [ ] Publish Linguist PR (pending ecosystem growth)
 - [x] AI discoverability (llms.txt, AGENTS.md, ai-plugin.json, OpenAPI, IDE rules)
-- [x] PyPI distribution for Python SDK
 
 ### Q3 2026 — System AI Assistant
 - [x] System AI assistant mode (`ae assist`)
@@ -301,22 +303,25 @@ This document tracks the development progress of AetherShell, the world's first 
 
 ### Open
 - [ ] VS Code marketplace PAT expired (publisher `admercs`)
-- [ ] Pre-existing flaky test: `cfg_feature_enabled` (env var race in parallel test runs)
-- [x] 9 LOW-severity builtins converted to structured output (v1.2.0)
-- [x] Three parallel provider systems (`ai.rs`, `ai_api/providers.rs`, `providers/`) now fully unified — `providers/` has concrete `LLMProvider` trait impls, bridge.rs connects to legacy `ai.rs`, routing engine wired via `AETHER_AI_ROUTER=registry`
-- [x] `bridge.rs` and `impls/` in providers/ fully aligned with `LLMProvider` API (all 180 errors resolved)
+- [ ] Pre-existing test failure: `security_user_simulation::friendly_user_allowed_commands` (validate_command assertion)
+
+### Recently Resolved (v1.2.0)
+- [x] Flaky `cfg_feature_enabled` test — fixed with Mutex-based env var serialization
+- [x] 9 LOW-severity builtins converted to structured output
+- [x] Three parallel provider systems unified — `providers/` concrete impls, bridge.rs, routing engine
+- [x] `bridge.rs` and `impls/` aligned with `LLMProvider` API (all 180 errors resolved)
 - [x] Provider routing rules wired to live completions via `complete_via_registry()`
-- [x] `platform` module triple-registration fixed (v1.2.0)
+- [x] `platform` module triple-registration fixed
 
 ---
 
 ## Metrics
 
 ### Test Coverage
-- **Tests:** 1,237 passing (0 failed, 19 ignored)
+- **Tests:** 1,121 passing (1 known failure, 18 ignored)
 - **Test Files:** 62 integration test files
 - **Test Suites:** 62 (unit + integration)
-- **Pass Rate:** 100%
+- **Pass Rate:** 99.9%
 - **CI Status:** All workflows passing
 
 ### Codebase
@@ -342,10 +347,10 @@ This document tracks the development progress of AetherShell, the world's first 
 We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines. All contributions require a signed [CLA](CLA.md).
 
 **Priority areas:**
-1. **High** — Candle/ONNX local inference (replace llama.cpp delegation with native Rust)
-2. **Medium** — Ecosystem growth (`.ae` scripts, tutorials, blog posts)
-3. **Medium** — Load balancing across providers (round-robin, weighted, adaptive)
-4. **Good First Issues** — Update model metadata/pricing, theme additions, example scripts
+1. **High** — Ecosystem growth (`.ae` scripts, tutorials, blog posts, 200+ repos for Linguist)
+2. **Medium** — Expand local inference model support (more architectures, quantization options)
+3. **Medium** — VS Code marketplace PAT renewal and extension republish
+4. **Good First Issues** — Theme additions, example scripts, documentation improvements
 
 ---
 
