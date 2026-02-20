@@ -8,7 +8,7 @@
 - **Tagline**: One language, every platform, deterministic typed output
 - **Binary**: `ae`
 - **Language**: Rust
-- **Version**: 0.3.1
+- **Version**: 1.2.0
 - **Repository**: https://github.com/nervosys/AetherShell
 - **License**: AGPL-3.0-or-later
 - **File Extension**: `.ae`
@@ -93,7 +93,7 @@ Transpilers map 100+ commands per shell to native AetherShell builtins, with blo
 x = 42                              # Int
 s = "hello"                         # String
 a = [1, 2, 3]                       # Array<Int>
-r = {name: "ae", version: "0.3.1"} # Record
+r = {name: "ae", version: "1.2.0"} # Record
 
 # Lambdas
 double = fn(x) => x * 2

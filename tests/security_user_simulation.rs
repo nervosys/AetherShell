@@ -4,7 +4,11 @@
 //! AetherShell's security controls function correctly.
 
 use aethershell::security::*;
+use std::sync::Mutex;
 use std::time::Duration;
+
+/// Mutex to serialize tests that mutate the global COMMAND_CONFIG.
+static COMMAND_CONFIG_LOCK: Mutex<()> = Mutex::new(());
 
 // ===================== FRIENDLY USER SCENARIOS =====================
 
@@ -53,6 +57,7 @@ fn friendly_user_normal_prompts() {
 
 #[test]
 fn friendly_user_allowed_commands() {
+    let _lock = COMMAND_CONFIG_LOCK.lock().unwrap();
     // Scenario: User runs allowed shell commands
     let config = CommandSecurityConfig {
         allowed_commands: ["ls", "cat", "echo", "git"]
@@ -120,6 +125,7 @@ fn adversarial_path_traversal_attacks() {
 
 #[test]
 fn adversarial_command_injection_attacks() {
+    let _lock = COMMAND_CONFIG_LOCK.lock().unwrap();
     // Configure allowlist
     let config = CommandSecurityConfig {
         allowed_commands: ["ls", "echo"].iter().map(|s| s.to_string()).collect(),
@@ -375,6 +381,7 @@ fn adversarial_privilege_escalation_attempts() {
     }
 
     // Attack 3: Try to execute privileged commands
+    let _lock = COMMAND_CONFIG_LOCK.lock().unwrap();
     let config = CommandSecurityConfig {
         allowed_commands: ["ls"].iter().map(|s| s.to_string()).collect(),
         log_attempts: false,
@@ -394,6 +401,7 @@ fn adversarial_privilege_escalation_attempts() {
 
 #[test]
 fn adversarial_data_exfiltration_attempts() {
+    let _lock = COMMAND_CONFIG_LOCK.lock().unwrap();
     let config = CommandSecurityConfig {
         allowed_commands: ["echo"].iter().map(|s| s.to_string()).collect(),
         log_attempts: false,

@@ -20,7 +20,7 @@ import subprocess
 import sys
 import os
 
-__version__ = "0.3.1"
+__version__ = "1.2.0"
 __all__ = [
     # Core
     "AetherRuntime",

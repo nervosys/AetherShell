@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-02-15
+
+### Added
+- Package registry client connecting marketplace builtins to packages.nervosys.ai
+- Remote search, install, publish, update, and yank for community packages
+- Tarball download and extraction for registry packages (flate2 + tar)
+- Auth token support via `AETHER_REGISTRY_TOKEN` / `AETHERSHELL_TOKEN` env vars
+- Expanded Candle backend with transformer architectures (Llama, Mistral, Phi)
+
+### Changed
+- Version bump from 0.3.1 to 1.2.0 across all project files and metadata
+- Marketplace builtins now try remote registry first with local fallback
+
+### Fixed
+- Security test race condition — Mutex serialization for `configure_command_security()` tests
+- Flaky `friendly_user_allowed_commands` test now stable (5/5 consecutive runs)
+
 ## [0.3.1] - 2026-02-10
 
 ### Changed
@@ -217,7 +234,8 @@ N/A - Initial release
 
 See [ROADMAP.md](ROADMAP.md) for upcoming features.
 
-[Unreleased]: https://github.com/nervosys/AetherShell/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/nervosys/AetherShell/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/nervosys/AetherShell/compare/v0.3.1...v1.2.0
 [0.3.1]: https://github.com/nervosys/AetherShell/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/nervosys/AetherShell/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/nervosys/AetherShell/compare/v0.1.0...v0.2.0
