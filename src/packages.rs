@@ -236,6 +236,380 @@ impl PackageRegistry {
     }
 }
 
+// ===================== Registry HTTP Client =====================
+
+/// Response types from the packages.nervosys.ai registry API
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegistryPackage {
+    pub name: String,
+    pub version: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub author: String,
+    #[serde(default)]
+    pub license: Option<String>,
+    #[serde(default)]
+    pub downloads: i64,
+    #[serde(default)]
+    pub created_at: String,
+    #[serde(default)]
+    pub updated_at: String,
+    #[serde(default)]
+    pub keywords: Vec<String>,
+    #[serde(default)]
+    pub category: Option<String>,
+    #[serde(default)]
+    pub checksum: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegistrySearchResponse {
+    #[serde(default)]
+    pub packages: Vec<RegistryPackage>,
+    #[serde(default)]
+    pub total: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegistryListResponse {
+    #[serde(default)]
+    pub packages: Vec<RegistryPackage>,
+    #[serde(default)]
+    pub next_token: Option<String>,
+}
+
+/// HTTP client for the AetherShell package registry at packages.nervosys.ai
+#[derive(Debug, Clone)]
+pub struct RegistryClient {
+    /// Base URL (e.g. "https://packages.nervosys.ai")
+    pub base_url: String,
+    /// Registry name (e.g. "aethershell")
+    pub registry: String,
+    /// Local cache directory
+    pub cache_dir: PathBuf,
+}
+
+impl Default for RegistryClient {
+    fn default() -> Self {
+        let cache_dir = dirs::cache_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("aethershell")
+            .join("packages");
+
+        Self {
+            base_url: "https://packages.nervosys.ai".to_string(),
+            registry: "aethershell".to_string(),
+            cache_dir,
+        }
+    }
+}
+
+impl RegistryClient {
+    /// Build the API base path: {base_url}/{registry}/api/v1
+    fn api_url(&self, path: &str) -> String {
+        format!("{}/{}/api/v1{}", self.base_url, self.registry, path)
+    }
+
+    /// Get the auth token from AETHER_REGISTRY_TOKEN or AETHERSHELL_TOKEN env var
+    fn auth_token() -> Option<String> {
+        std::env::var("AETHER_REGISTRY_TOKEN")
+            .or_else(|_| std::env::var("AETHERSHELL_TOKEN"))
+            .ok()
+    }
+
+    /// Search packages on the remote registry
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn search(&self, query: &str, category: Option<&str>) -> Result<Vec<RegistryPackage>> {
+        let mut url = self.api_url("/search");
+        url.push_str(&format!("?q={}", urlencoding::encode(query)));
+        if let Some(cat) = category {
+            url.push_str(&format!("&category={}", urlencoding::encode(cat)));
+        }
+
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(15))
+            .build()?;
+
+        let resp = client
+            .get(&url)
+            .header("User-Agent", "AetherShell/1.2.0")
+            .send()
+            .context("failed to connect to package registry")?;
+
+        if resp.status().is_success() {
+            let body: RegistrySearchResponse = resp
+                .json()
+                .context("failed to parse registry search response")?;
+            Ok(body.packages)
+        } else if resp.status().as_u16() == 404 {
+            Ok(vec![])
+        } else {
+            Err(anyhow!("registry search failed: HTTP {}", resp.status()))
+        }
+    }
+
+    /// List all packages on the remote registry
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn list_remote(&self) -> Result<Vec<RegistryPackage>> {
+        let url = self.api_url("/packages");
+
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(15))
+            .build()?;
+
+        let resp = client
+            .get(&url)
+            .header("User-Agent", "AetherShell/1.2.0")
+            .send()
+            .context("failed to connect to package registry")?;
+
+        if resp.status().is_success() {
+            let body: RegistryListResponse = resp
+                .json()
+                .context("failed to parse registry list response")?;
+            Ok(body.packages)
+        } else {
+            Err(anyhow!("registry list failed: HTTP {}", resp.status()))
+        }
+    }
+
+    /// Get package details from the remote registry
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn get_package(&self, name: &str) -> Result<RegistryPackage> {
+        let url = self.api_url(&format!("/packages/{}", urlencoding::encode(name)));
+
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(15))
+            .build()?;
+
+        let resp = client
+            .get(&url)
+            .header("User-Agent", "AetherShell/1.2.0")
+            .send()
+            .context("failed to connect to package registry")?;
+
+        if resp.status().is_success() {
+            let pkg: RegistryPackage = resp
+                .json()
+                .context("failed to parse registry package response")?;
+            Ok(pkg)
+        } else if resp.status().as_u16() == 404 {
+            Err(anyhow!("package '{}' not found in registry", name))
+        } else {
+            Err(anyhow!("registry get failed: HTTP {}", resp.status()))
+        }
+    }
+
+    /// Download a package tarball from the registry and cache it locally
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn download_package(&self, name: &str, version: &str) -> Result<PathBuf> {
+        let url = self.api_url(&format!(
+            "/packages/{}/{}/download",
+            urlencoding::encode(name),
+            urlencoding::encode(version)
+        ));
+
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(120))
+            .build()?;
+
+        let resp = client
+            .get(&url)
+            .header("User-Agent", "AetherShell/1.2.0")
+            .send()
+            .context("failed to download package from registry")?;
+
+        if !resp.status().is_success() {
+            return Err(anyhow!(
+                "download failed for {}@{}: HTTP {}",
+                name,
+                version,
+                resp.status()
+            ));
+        }
+
+        let bytes = resp.bytes().context("failed to read package bytes")?;
+
+        // Create cache directory: {cache_dir}/{name}/{version}/
+        let pkg_dir = self.cache_dir.join(name).join(version);
+        fs::create_dir_all(&pkg_dir).context("failed to create package cache directory")?;
+
+        // Save tarball
+        let tarball_path = pkg_dir.join(format!("{}-{}.tar.gz", name, version));
+        fs::write(&tarball_path, &bytes).context("failed to write package archive")?;
+
+        // Extract tarball
+        self.extract_tarball(&tarball_path, &pkg_dir)?;
+
+        Ok(pkg_dir)
+    }
+
+    /// Extract a .tar.gz archive into a directory
+    fn extract_tarball(&self, tarball: &Path, dest: &Path) -> Result<()> {
+        let file = fs::File::open(tarball)?;
+        let gz = flate2::read::GzDecoder::new(file);
+        let mut archive = tar::Archive::new(gz);
+        archive
+            .unpack(dest)
+            .context("failed to extract package archive")?;
+        Ok(())
+    }
+
+    /// Publish a package to the registry (requires auth token)
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn publish(&self, tarball_path: &Path, manifest: &PackageManifest) -> Result<()> {
+        let token = Self::auth_token().ok_or_else(|| {
+            anyhow!(
+                "authentication required. Set AETHER_REGISTRY_TOKEN or AETHERSHELL_TOKEN env var."
+            )
+        })?;
+
+        let url = self.api_url("/packages");
+        let tarball_bytes = fs::read(tarball_path).context("failed to read package tarball")?;
+
+        use base64::Engine;
+        let encoded = base64::engine::general_purpose::STANDARD.encode(&tarball_bytes);
+
+        let body = serde_json::json!({
+            "name": manifest.package.name,
+            "version": manifest.package.version,
+            "description": manifest.package.description,
+            "authors": manifest.package.authors,
+            "license": manifest.package.license,
+            "data": encoded,
+        });
+
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(60))
+            .build()?;
+
+        let resp = client
+            .post(&url)
+            .header("User-Agent", "AetherShell/1.2.0")
+            .header("Authorization", format!("Bearer {}", token))
+            .json(&body)
+            .send()
+            .context("failed to publish package to registry")?;
+
+        if resp.status().is_success() {
+            Ok(())
+        } else {
+            let status = resp.status();
+            let err_body = resp.text().unwrap_or_default();
+            Err(anyhow!("publish failed: HTTP {} — {}", status, err_body))
+        }
+    }
+
+    /// Yank (remove) a package version from the registry (requires auth token)
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn yank(&self, name: &str, version: &str) -> Result<()> {
+        let token = Self::auth_token().ok_or_else(|| {
+            anyhow!(
+                "authentication required. Set AETHER_REGISTRY_TOKEN or AETHERSHELL_TOKEN env var."
+            )
+        })?;
+
+        let url = self.api_url(&format!(
+            "/packages/{}/{}",
+            urlencoding::encode(name),
+            urlencoding::encode(version)
+        ));
+
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()?;
+
+        let resp = client
+            .delete(&url)
+            .header("User-Agent", "AetherShell/1.2.0")
+            .header("Authorization", format!("Bearer {}", token))
+            .send()
+            .context("failed to yank package from registry")?;
+
+        if resp.status().is_success() {
+            Ok(())
+        } else {
+            let status = resp.status();
+            let err_body = resp.text().unwrap_or_default();
+            Err(anyhow!("yank failed: HTTP {} — {}", status, err_body))
+        }
+    }
+
+    /// Convert a RegistryPackage to a Value::Record for pipeline consumption
+    pub fn package_to_value(pkg: &RegistryPackage) -> crate::value::Value {
+        let mut rec = BTreeMap::new();
+        rec.insert(
+            "name".to_string(),
+            crate::value::Value::Str(pkg.name.clone()),
+        );
+        rec.insert(
+            "version".to_string(),
+            crate::value::Value::Str(pkg.version.clone()),
+        );
+        rec.insert(
+            "description".to_string(),
+            crate::value::Value::Str(pkg.description.clone()),
+        );
+        rec.insert(
+            "author".to_string(),
+            crate::value::Value::Str(pkg.author.clone()),
+        );
+        rec.insert(
+            "downloads".to_string(),
+            crate::value::Value::Int(pkg.downloads),
+        );
+        rec.insert(
+            "created_at".to_string(),
+            crate::value::Value::Str(pkg.created_at.clone()),
+        );
+        if let Some(ref cat) = pkg.category {
+            rec.insert(
+                "category".to_string(),
+                crate::value::Value::Str(cat.clone()),
+            );
+        }
+        if !pkg.keywords.is_empty() {
+            rec.insert(
+                "keywords".to_string(),
+                crate::value::Value::Array(
+                    pkg.keywords
+                        .iter()
+                        .map(|k| crate::value::Value::Str(k.clone()))
+                        .collect(),
+                ),
+            );
+        }
+        if let Some(ref lic) = pkg.license {
+            rec.insert("license".to_string(), crate::value::Value::Str(lic.clone()));
+        }
+        crate::value::Value::Record(rec)
+    }
+}
+
+// Wasm stubs — no HTTP client available
+#[cfg(target_arch = "wasm32")]
+impl RegistryClient {
+    pub fn search(&self, _query: &str, _category: Option<&str>) -> Result<Vec<RegistryPackage>> {
+        Err(anyhow!("package registry not available in wasm"))
+    }
+    pub fn list_remote(&self) -> Result<Vec<RegistryPackage>> {
+        Err(anyhow!("package registry not available in wasm"))
+    }
+    pub fn get_package(&self, _name: &str) -> Result<RegistryPackage> {
+        Err(anyhow!("package registry not available in wasm"))
+    }
+    pub fn download_package(&self, _name: &str, _version: &str) -> Result<PathBuf> {
+        Err(anyhow!("package registry not available in wasm"))
+    }
+    pub fn publish(&self, _tarball_path: &Path, _manifest: &PackageManifest) -> Result<()> {
+        Err(anyhow!("package registry not available in wasm"))
+    }
+    pub fn yank(&self, _name: &str, _version: &str) -> Result<()> {
+        Err(anyhow!("package registry not available in wasm"))
+    }
+}
+
 /// Import resolver
 pub struct ImportResolver {
     /// Current working directory for relative imports

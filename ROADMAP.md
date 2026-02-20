@@ -24,7 +24,7 @@ This document tracks the development progress of AetherShell, the world's first 
 | Performance       | ✅ Complete | 5 benchmark suites                        |
 | Test Coverage     | ✅ Complete | 1,140 tests, 18 ignored                   |
 | Documentation     | ✅ Complete | Comprehensive                             |
-| Publishing        | ✅ Complete | crates.io v0.3.1                          |
+| Publishing        | ✅ Complete | crates.io v1.2.0                          |
 | WASM Support      | ✅ Complete | Browser REPL ready                        |
 | Enterprise        | ✅ Complete | RBAC, Audit, SSO                          |
 | LSP Server        | ✅ Complete | tower-lsp, crates.io                      |

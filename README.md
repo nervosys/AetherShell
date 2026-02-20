@@ -380,19 +380,19 @@ echo 'for f in *.log; do wc -l \$f; done' | ae --bash
 
 ### What Gets Transpiled
 
-| Shell Construct | AetherShell Output |
-|---|---|
-| `ls -la` | `ls("-la")` |
-| `grep "pattern" file` | `str.grep("pattern", "file")` |
-| `cat file.txt` | `file.read("file.txt")` |
-| `X=42` | `let X = 42;` |
-| `echo \$HOME` | `print(HOME);` |
-| `cmd1 \| cmd2` | `cmd1() \| cmd2()` |
-| Multi-line `if/for/while/case` | Single `sh([...])` block |
-| `setopt`, `autoload`, `compdef` (Zsh) | `# (zsh-only: ...)` |
-| `typeset -A arr` (Zsh) | `let arr = {};` |
-| `Get-ChildItem` (PS) | `ls()` |
-| `Write-Host` (PS) | `print()` |
+| Shell Construct                       | AetherShell Output            |
+| ------------------------------------- | ----------------------------- |
+| `ls -la`                              | `ls("-la")`                   |
+| `grep "pattern" file`                 | `str.grep("pattern", "file")` |
+| `cat file.txt`                        | `file.read("file.txt")`       |
+| `X=42`                                | `let X = 42;`                 |
+| `echo \$HOME`                         | `print(HOME);`                |
+| `cmd1 \| cmd2`                        | `cmd1() \| cmd2()`            |
+| Multi-line `if/for/while/case`        | Single `sh([...])` block      |
+| `setopt`, `autoload`, `compdef` (Zsh) | `# (zsh-only: ...)`           |
+| `typeset -A arr` (Zsh)                | `let arr = {};`               |
+| `Get-ChildItem` (PS)                  | `ls()`                        |
+| `Write-Host` (PS)                     | `print()`                     |
 
 The transpilers map **100+ commands** per shell to native AetherShell builtins, with block accumulation for multi-line constructs and fallback to `sh()` for anything unsupported.
 
@@ -593,7 +593,8 @@ code --install-extension admercs.aethershell
 ```
 
 ### Project Structure
-```
+
+```ae
 src/
   main.rs          # Entry point
   eval.rs          # Expression evaluator

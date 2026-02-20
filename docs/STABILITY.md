@@ -1,6 +1,6 @@
 # AetherShell Stability Policy
 
-> **Version:** Pre-1.0 (current: v0.3.1)
+> **Version:** v1.2.0
 > **Last Updated:** February 2026
 
 This document defines backward compatibility guarantees, deprecation policies, and the roadmap to a v1.0.0 stable release.
@@ -11,19 +11,19 @@ This document defines backward compatibility guarantees, deprecation policies, a
 
 AetherShell is in **pre-release** (v0.x). The language, builtins, and APIs are production-tested but may evolve. Breaking changes are possible between minor versions, but we minimize them and document all changes in CHANGELOG.md.
 
-| Component | Stability | Notes |
-|-----------|-----------|-------|
-| Core syntax | **Stable** | Variables, lambdas, pipelines, match, try/catch |
-| Value types | **Stable** | Int, Float, String, Array, Record, Lambda, Null, Bool |
-| Type inference | **Stable** | Hindley-Milner engine, type annotations |
-| Builtin signatures | **Stable** | Existing builtins won’t change return types |
-| Module system | **Stable** | `module.function()` syntax |
-| CLI flags | **Stable** | `--tui`, `-c`, `--version`, `--help` |
-| Agent API endpoints | **Provisional** | May add fields; won’t remove existing ones |
-| MCP tools | **Provisional** | Tool set may expand; won’t remove existing tools |
-| TUI interface | **Provisional** | Key bindings and layout may change |
-| Plugin TOML format | **Provisional** | Schema may evolve |
-| Internal Rust API | **Unstable** | `pub` items in `lib.rs` may change between versions |
+| Component           | Stability       | Notes                                                 |
+| ------------------- | --------------- | ----------------------------------------------------- |
+| Core syntax         | **Stable**      | Variables, lambdas, pipelines, match, try/catch       |
+| Value types         | **Stable**      | Int, Float, String, Array, Record, Lambda, Null, Bool |
+| Type inference      | **Stable**      | Hindley-Milner engine, type annotations               |
+| Builtin signatures  | **Stable**      | Existing builtins won’t change return types           |
+| Module system       | **Stable**      | `module.function()` syntax                            |
+| CLI flags           | **Stable**      | `--tui`, `-c`, `--version`, `--help`                  |
+| Agent API endpoints | **Provisional** | May add fields; won’t remove existing ones            |
+| MCP tools           | **Provisional** | Tool set may expand; won’t remove existing tools      |
+| TUI interface       | **Provisional** | Key bindings and layout may change                    |
+| Plugin TOML format  | **Provisional** | Schema may evolve                                     |
+| Internal Rust API   | **Unstable**    | `pub` items in `lib.rs` may change between versions   |
 
 ### Stability Levels
 
@@ -80,20 +80,20 @@ AetherShell follows [Semantic Versioning 2.0](https://semver.org/):
 
 ## v1.0.0 Release Criteria
 
-| Criterion | Status | Notes |
-|-----------|--------|-------|
-| Language syntax frozen | ✅ | No syntax changes planned |
-| Builtin return types documented | ✅ | All builtins return typed Values |
-| Comprehensive rustdoc | ✅ | All `pub mod` items documented |
-| Migration guide | ✅ | Bash/Zsh/PowerShell → AetherShell |
-| Stability policy | ✅ | This document |
-| Test coverage > 95% intent | ✅ | 1,237+ tests, 100% pass rate |
-| Security audit | ✅ | Internal audit completed June 2025 (see docs/security/SECURITY_AUDIT_V1.md) |
-| Performance benchmarks | ✅ | 5 benchmark suites |
-| Cross-platform CI | ✅ | Linux + Windows + macOS |
-| API documentation | ✅ | rustdoc on all public modules |
-| Deprecation policy defined | ✅ | See above |
-| LTS commitment | ✅ | LTS policy defined (see docs/LTS.md) |
+| Criterion                       | Status | Notes                                                                       |
+| ------------------------------- | ------ | --------------------------------------------------------------------------- |
+| Language syntax frozen          | ✅      | No syntax changes planned                                                   |
+| Builtin return types documented | ✅      | All builtins return typed Values                                            |
+| Comprehensive rustdoc           | ✅      | All `pub mod` items documented                                              |
+| Migration guide                 | ✅      | Bash/Zsh/PowerShell → AetherShell                                           |
+| Stability policy                | ✅      | This document                                                               |
+| Test coverage > 95% intent      | ✅      | 1,237+ tests, 100% pass rate                                                |
+| Security audit                  | ✅      | Internal audit completed June 2025 (see docs/security/SECURITY_AUDIT_V1.md) |
+| Performance benchmarks          | ✅      | 5 benchmark suites                                                          |
+| Cross-platform CI               | ✅      | Linux + Windows + macOS                                                     |
+| API documentation               | ✅      | rustdoc on all public modules                                               |
+| Deprecation policy defined      | ✅      | See above                                                                   |
+| LTS commitment                  | ✅      | LTS policy defined (see docs/LTS.md)                                        |
 
 ---
 
@@ -121,12 +121,12 @@ After v1.0.0:
 
 ```ae
 sys.version()
-# → "0.3.1"
+# → "1.2.0"
 ```
 
 ```bash
 ae --version
-# → ae 0.3.1
+# → ae 1.2.0
 ```
 
 ---

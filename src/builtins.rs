@@ -40893,7 +40893,8 @@ fn bi_workspace_sync(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // ===================== Marketplace Builtins =====================
 
 /// Publish a plugin or agent to the marketplace.
-/// Usage: marketplace.publish({name, version, description, category?, keywords?})
+/// Publishes to packages.nervosys.ai registry if auth token is set, otherwise local-only.
+/// Usage: marketplace.publish({name, version, description, category?, keywords?, path?})
 fn bi_marketplace_publish(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let opts = match args.first() {
         Some(Value::Record(r)) => r.clone(),
@@ -40983,12 +40984,41 @@ fn bi_marketplace_publish(args: Vec<Value>, _input: Option<Value>) -> Result<Val
         .map_err(|e| anyhow!("lock error: {}", e))?;
     packages.insert(name.clone(), package);
 
+    // Try publishing to remote registry if auth token is available
+    let mut publish_target = "local".to_string();
+    if let Some(tarball_path) = opts.get("path").and_then(|v| {
+        if let Value::Str(s) = v {
+            Some(std::path::PathBuf::from(s))
+        } else {
+            None
+        }
+    }) {
+        let manifest = crate::packages::PackageManifest {
+            package: crate::packages::PackageInfo {
+                name: name.clone(),
+                version: version.clone(),
+                description: description.clone(),
+                authors: vec![get_current_username()],
+                license: None,
+                repository: None,
+                main: "main.ae".to_string(),
+            },
+            dependencies: std::collections::HashMap::new(),
+        };
+        let client = crate::packages::RegistryClient::default();
+        match client.publish(&tarball_path, &manifest) {
+            Ok(()) => publish_target = "registry".to_string(),
+            Err(e) => eprintln!("registry publish skipped: {}", e),
+        }
+    }
+
     let mut rec = BTreeMap::new();
     rec.insert("name".to_string(), Value::Str(name));
     rec.insert("version".to_string(), Value::Str(version));
     rec.insert("description".to_string(), Value::Str(description));
     rec.insert("category".to_string(), Value::Str(category));
     rec.insert("status".to_string(), Value::Str("published".to_string()));
+    rec.insert("target".to_string(), Value::Str(publish_target));
     rec.insert(
         "published_at".to_string(),
         Value::Str(chrono::Local::now().to_rfc3339()),
@@ -40997,6 +41027,7 @@ fn bi_marketplace_publish(args: Vec<Value>, _input: Option<Value>) -> Result<Val
 }
 
 /// Search the marketplace for packages.
+/// Searches the remote registry at packages.nervosys.ai, falls back to local cache.
 /// Usage: marketplace.search(query) or marketplace.search({q?, category?})
 fn bi_marketplace_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let (query, category) = match args.first() {
@@ -41025,6 +41056,19 @@ fn bi_marketplace_search(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
         _ => (String::new(), None),
     };
 
+    // Try remote registry first
+    let client = crate::packages::RegistryClient::default();
+    if let Ok(remote_pkgs) = client.search(&query, category.as_deref()) {
+        if !remote_pkgs.is_empty() {
+            let results: Vec<Value> = remote_pkgs
+                .iter()
+                .map(|p| crate::packages::RegistryClient::package_to_value(p))
+                .collect();
+            return Ok(Value::Array(results));
+        }
+    }
+
+    // Fall back to local cache
     let packages = MARKETPLACE_PACKAGES
         .read()
         .map_err(|e| anyhow!("lock error: {}", e))?;
@@ -41078,12 +41122,71 @@ fn marketplace_package_to_value(pkg: &MarketplacePackage) -> Value {
 }
 
 /// Install a package from the marketplace.
+/// Downloads from packages.nervosys.ai registry, falls back to local cache.
 /// Usage: marketplace.install(name) or marketplace.install(name, version)
 fn bi_marketplace_install(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(anyhow!("marketplace.install requires package name")),
     };
+    let version = match args.get(1) {
+        Some(Value::Str(s)) => Some(s.clone()),
+        _ => None,
+    };
+
+    // Try remote registry first
+    let client = crate::packages::RegistryClient::default();
+    if let Ok(pkg_info) = client.get_package(&name) {
+        let ver = version.as_deref().unwrap_or(&pkg_info.version);
+        match client.download_package(&name, ver) {
+            Ok(install_path) => {
+                // Update local cache
+                if let Ok(mut packages) = MARKETPLACE_PACKAGES.write() {
+                    let existing =
+                        packages
+                            .entry(name.clone())
+                            .or_insert_with(|| MarketplacePackage {
+                                name: name.clone(),
+                                version: ver.to_string(),
+                                author: pkg_info.author.clone(),
+                                description: pkg_info.description.clone(),
+                                category: pkg_info
+                                    .category
+                                    .clone()
+                                    .unwrap_or_else(|| "general".to_string()),
+                                downloads: pkg_info.downloads,
+                                rating: 0.0,
+                                rating_count: 0,
+                                published_at: pkg_info.created_at.clone(),
+                                installed: false,
+                                keywords: pkg_info.keywords.clone(),
+                            });
+                    existing.installed = true;
+                    existing.downloads += 1;
+                }
+                let mut rec = BTreeMap::new();
+                rec.insert("name".to_string(), Value::Str(name));
+                rec.insert("version".to_string(), Value::Str(ver.to_string()));
+                rec.insert("status".to_string(), Value::Str("installed".to_string()));
+                rec.insert("source".to_string(), Value::Str("registry".to_string()));
+                rec.insert(
+                    "path".to_string(),
+                    Value::Str(install_path.display().to_string()),
+                );
+                rec.insert(
+                    "installed_at".to_string(),
+                    Value::Str(chrono::Local::now().to_rfc3339()),
+                );
+                return Ok(Value::Record(rec));
+            }
+            Err(e) => {
+                // Log but continue to local fallback
+                eprintln!("registry download failed: {}, trying local cache", e);
+            }
+        }
+    }
+
+    // Fall back to local cache
     let mut packages = MARKETPLACE_PACKAGES
         .write()
         .map_err(|e| anyhow!("lock error: {}", e))?;
@@ -41094,13 +41197,17 @@ fn bi_marketplace_install(args: Vec<Value>, _input: Option<Value>) -> Result<Val
         rec.insert("name".to_string(), Value::Str(pkg.name.clone()));
         rec.insert("version".to_string(), Value::Str(pkg.version.clone()));
         rec.insert("status".to_string(), Value::Str("installed".to_string()));
+        rec.insert("source".to_string(), Value::Str("local_cache".to_string()));
         rec.insert(
             "installed_at".to_string(),
             Value::Str(chrono::Local::now().to_rfc3339()),
         );
         Ok(Value::Record(rec))
     } else {
-        Err(anyhow!("package '{}' not found in marketplace", name))
+        Err(anyhow!(
+            "package '{}' not found in marketplace or registry",
+            name
+        ))
     }
 }
 
@@ -41144,19 +41251,31 @@ fn bi_marketplace_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value
 }
 
 /// Get detailed info about a marketplace package.
+/// Checks remote registry first, falls back to local cache.
 /// Usage: marketplace.info(name)
 fn bi_marketplace_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(anyhow!("marketplace.info requires package name")),
     };
+
+    // Try remote registry first
+    let client = crate::packages::RegistryClient::default();
+    if let Ok(pkg) = client.get_package(&name) {
+        return Ok(crate::packages::RegistryClient::package_to_value(&pkg));
+    }
+
+    // Fall back to local cache
     let packages = MARKETPLACE_PACKAGES
         .read()
         .map_err(|e| anyhow!("lock error: {}", e))?;
     if let Some(pkg) = packages.get(&name) {
         Ok(marketplace_package_to_value(pkg))
     } else {
-        Err(anyhow!("package '{}' not found in marketplace", name))
+        Err(anyhow!(
+            "package '{}' not found in marketplace or registry",
+            name
+        ))
     }
 }
 
@@ -41195,8 +41314,10 @@ fn bi_marketplace_rate(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 }
 
 /// Update an installed marketplace package to the latest version.
+/// Checks the remote registry for newer versions.
 /// Usage: marketplace.update(name) or marketplace.update() for all
 fn bi_marketplace_update(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let client = crate::packages::RegistryClient::default();
     let packages = MARKETPLACE_PACKAGES
         .read()
         .map_err(|e| anyhow!("lock error: {}", e))?;
@@ -41206,10 +41327,25 @@ fn bi_marketplace_update(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
             if !pkg.installed {
                 return Err(anyhow!("package '{}' is not installed", name));
             }
+            // Check remote for newer version
+            let mut remote_version = None;
+            if let Ok(remote_pkg) = client.get_package(name) {
+                if remote_pkg.version != pkg.version {
+                    remote_version = Some(remote_pkg.version);
+                }
+            }
             let mut rec = BTreeMap::new();
             rec.insert("name".to_string(), Value::Str(pkg.name.clone()));
             rec.insert("version".to_string(), Value::Str(pkg.version.clone()));
-            rec.insert("status".to_string(), Value::Str("up_to_date".to_string()));
+            if let Some(new_ver) = remote_version {
+                rec.insert("latest".to_string(), Value::Str(new_ver));
+                rec.insert(
+                    "status".to_string(),
+                    Value::Str("update_available".to_string()),
+                );
+            } else {
+                rec.insert("status".to_string(), Value::Str("up_to_date".to_string()));
+            }
             rec.insert(
                 "checked_at".to_string(),
                 Value::Str(chrono::Local::now().to_rfc3339()),
