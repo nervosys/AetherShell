@@ -24,6 +24,8 @@ enum Tok {
     Slash,
     Percent,
     Bang,
+    Tilde,    // ~ : terse lambda prefix (~x: body)
+    Question, // ? : terse match prefix (?scrutinee { arms })
     Lt,
     Lte,
     Gt,
@@ -233,6 +235,30 @@ fn lex(src: &str) -> Result<Vec<Spanned>> {
                 return (Tok::Float, acc);
             }
         }
+        // SI suffix on integer literals: 1k / 1M / 1G → scaled Int, in the lexer
+        // (Phase 5: terse numeric form lives in the grammar, not a text pre-pass).
+        // Only fires when the char after the suffix isn't alphanumeric/_, so
+        // identifiers like `1key` are unaffected.
+        if let Some(suffix) = peek(chars, *pos) {
+            let mult = match suffix {
+                'k' | 'K' => Some(1_000i64),
+                'M' => Some(1_000_000i64),
+                'G' => Some(1_000_000_000i64),
+                _ => None,
+            };
+            if let Some(m) = mult {
+                let after_ok = match peek_next(chars, *pos) {
+                    Some(c) => !c.is_alphanumeric() && c != '_',
+                    None => true,
+                };
+                if after_ok {
+                    if let Ok(n) = acc.parse::<i64>() {
+                        advance(chars, pos, line, col); // consume the suffix
+                        return (Tok::Int, n.saturating_mul(m).to_string());
+                    }
+                }
+            }
+        }
         (Tok::Int, acc)
     }
 
@@ -296,6 +322,24 @@ fn lex(src: &str) -> Result<Vec<Spanned>> {
                 out.push(Spanned {
                     kind: Tok::Dot,
                     text: ".".to_string(),
+                    line: start_line,
+                    col: start_col,
+                });
+            }
+            '~' => {
+                advance(&chars, &mut pos, &mut line, &mut col);
+                out.push(Spanned {
+                    kind: Tok::Tilde,
+                    text: "~".to_string(),
+                    line: start_line,
+                    col: start_col,
+                });
+            }
+            '?' => {
+                advance(&chars, &mut pos, &mut line, &mut col);
+                out.push(Spanned {
+                    kind: Tok::Question,
+                    text: "?".to_string(),
                     line: start_line,
                     col: start_col,
                 });
@@ -976,6 +1020,32 @@ impl Parser {
     fn parse_pipe(&mut self) -> Result<Expr> {
         let mut left = self.parse_logic_or()?;
         while self.match_tok(Tok::Pipe) {
+            // Field projection: `xs |.name` / `xs |.a.b` desugars to
+            // `xs | map(fn(__) => __.name)` directly in the grammar (Phase 5:
+            // the terse form lives in the parser, not a text pre-pass).
+            if self.check(Tok::Dot) {
+                let mut body = Expr::Ident("__".to_string());
+                while self.match_tok(Tok::Dot) {
+                    let field = self.need_ident("expected field name after '|.'")?;
+                    body = Expr::MemberAccess {
+                        object: Box::new(body),
+                        field,
+                    };
+                }
+                let projector = Expr::Call {
+                    callee: Box::new(Expr::Ident("map".to_string())),
+                    args: vec![Expr::Lambda {
+                        params: vec!["__".to_string()],
+                        body: Box::new(body),
+                    }],
+                    named: Vec::new(),
+                };
+                left = Expr::Pipe {
+                    left: Box::new(left),
+                    right: Box::new(projector),
+                };
+                continue;
+            }
             let right = self.parse_call_like()?;
             left = Expr::Pipe {
                 left: Box::new(left),
@@ -1383,6 +1453,14 @@ impl Parser {
         if self.match_tok(Tok::Match) {
             return self.parse_match();
         }
+        // `?scrutinee { arms }` is terse sugar for `match scrutinee { arms }`,
+        // parsed by the same routine (the `?`/`match` token is already consumed).
+        if self.match_tok(Tok::Question) {
+            return self.parse_match();
+        }
+        if self.match_tok(Tok::If) {
+            return self.parse_if_expr();
+        }
         if self.match_tok(Tok::Try) {
             return self.parse_try_catch();
         }
@@ -1392,6 +1470,9 @@ impl Parser {
         if self.match_tok(Tok::Async) {
             self.need(Tok::Fn, "expected 'fn' after 'async'")?;
             return self.parse_lambda_after_fn(true);
+        }
+        if self.match_tok(Tok::Tilde) {
+            return self.parse_tilde_lambda();
         }
         if self.match_tok(Tok::String) {
             let s = self.prev().text.clone();
@@ -1431,6 +1512,34 @@ impl Parser {
         self.need(Tok::Async, "expected 'async'")?;
         self.need(Tok::Fn, "expected 'fn' after 'async'")?;
         self.parse_lambda_after_fn(true)
+    }
+
+    /// Parse a terse lambda `~x: body` / `~x, y: body` (the `~` already consumed).
+    /// Body is parsed at logic-or precedence so it's bounded by `|`/`,`/`)`/`]`/`}`
+    /// and never swallows an enclosing pipeline. The implicit-parameter cipher
+    /// form `~.field` is intentionally left to the `.aeg` transpiler — the legible
+    /// grammar uses an explicit parameter.
+    fn parse_tilde_lambda(&mut self) -> Result<Expr> {
+        let mut params = Vec::new();
+        loop {
+            let p = self.need_ident("expected parameter name after '~'")?;
+            params.push(p);
+            if self.match_tok(Tok::Comma) {
+                continue;
+            }
+            break;
+        }
+        self.need(Tok::Colon, "expected ':' after '~' lambda parameters")?;
+        let prev_allow = self.allow_word_call;
+        self.allow_word_call = false;
+        self.lambda_param_stack.push(params.clone());
+        let body = self.parse_logic_or()?;
+        self.lambda_param_stack.pop();
+        self.allow_word_call = prev_allow;
+        Ok(Expr::Lambda {
+            params,
+            body: Box::new(body),
+        })
     }
 
     fn parse_lambda_after_fn(&mut self, is_async: bool) -> Result<Expr> {
@@ -1507,6 +1616,44 @@ impl Parser {
 
         self.need(Tok::RBrace, "expected '}' after match arms")?;
         Ok(Expr::Match { scrutinee, arms })
+    }
+
+    /// Parse an `if` expression: `if cond { then } [else { else }]`.
+    /// Desugars to a `match` on the boolean condition (the `if` is already
+    /// consumed). `else` is detected as an identifier — no global keyword
+    /// reservation. A missing `else` branch yields `null`.
+    fn parse_if_expr(&mut self) -> Result<Expr> {
+        let prev_allow = self.allow_word_call;
+        self.allow_word_call = false;
+        let cond = self.parse_pipe()?;
+        self.allow_word_call = prev_allow;
+        self.need(Tok::LBrace, "expected '{' after if condition")?;
+        let then_expr = self.parse_expr()?;
+        self.need(Tok::RBrace, "expected '}' after if branch")?;
+        let else_expr = if self.check(Tok::Ident) && self.peek().text == "else" {
+            self.i += 1; // consume 'else'
+            self.need(Tok::LBrace, "expected '{' after else")?;
+            let e = self.parse_expr()?;
+            self.need(Tok::RBrace, "expected '}' after else branch")?;
+            e
+        } else {
+            Expr::Null
+        };
+        Ok(Expr::Match {
+            scrutinee: Box::new(cond),
+            arms: vec![
+                crate::ast::MatchArm {
+                    pattern: crate::ast::Pattern::LitBool(true),
+                    guard: None,
+                    body: Box::new(then_expr),
+                },
+                crate::ast::MatchArm {
+                    pattern: crate::ast::Pattern::Wildcard,
+                    guard: None,
+                    body: Box::new(else_expr),
+                },
+            ],
+        })
     }
 
     /// Parse try/catch expression:

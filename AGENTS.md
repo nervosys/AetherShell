@@ -86,6 +86,69 @@ echo 'cat /etc/hosts' | ae --bash
 
 Transpilers map 100+ commands per shell to native AetherShell builtins, with block accumulation for multi-line constructs (`if`/`for`/`while`/`case`/`function`).
 
+### Option 5: Agentic Syntax (Token-Minimized for AI)
+
+Use the `.aeg` extension or `--agentic`/`-a` flag for a token-minimized syntax that reduces LLM token consumption by ~60-70%:
+
+```bash
+ae script.aeg                          # Auto-detected by extension
+ae --agentic -c 'l"./src"|w~.size>1k|m~.name'
+echo 'e"hello"' | ae --agentic
+```
+
+**Ultra-compressed syntax (v2) — maximum density:**
+
+| Ultra (v2)            | v1 Compat      | AetherShell                        | Savings  |
+| --------------------- | -------------- | ---------------------------------- | -------- |
+| `x=42`                | `x=42`         | `let x = 42`                       | 2 tokens |
+| `x:=0`                | `x:=0`         | `let mut x = 0`                    | 3 tokens |
+| `~x:x*2`              | `\x:x*2`       | `fn(x) => x * 2`                   | 4 tokens |
+| `~.size>1k`           | `\.size>1k`    | `fn(__) => __.size > 1000`         | 6 tokens |
+| `a\|b`                | `a > b`        | `a \| b`                           | same     |
+| `F.r("p")`            | `@f.r("p")`    | `file.read("p")`                   | 2 tokens |
+| `S.h()`               | `@s.h()`       | `sys.hostname()`                   | 2 tokens |
+| `H.g(url)`            | `@h.g(url)`    | `http.get(url)`                    | 2 tokens |
+| `DK.p()`              | `@dk.ps()`     | `docker.ps()`                      | 2 tokens |
+| `e"msg"`              | `#e "msg"`     | `echo("msg")`                      | 2 tokens |
+| `l"."`                | `#l "."`       | `ls(".")`                          | 2 tokens |
+| `w~.size>1k`          | `#w \.size>1k` | `where(fn(__) => __.size > 1000)`  | 8 tokens |
+| `m~x:x*2`             | `#m \x:x*2`    | `map(fn(x) => x * 2)`              | 6 tokens |
+| `t5`                  | `#t 5`         | `take(5)`                          | 2 tokens |
+| `1k` / `1M` / `1G`    | same           | `1000` / `1000000` / `1000000000`  | 1 token  |
+| `?val{A=>"x",_=>"z"}` | same           | `match val { A => "x", _ => "z" }` | 3 tokens |
+| `!{expr}{"fb"}`       | same           | `try { expr } catch e { "fb" }`    | 5 tokens |
+| `; comment`           | same           | `// comment`                       | same     |
+
+**v5 features — auto-parens and for-each:**
+
+| v5 Syntax             | AetherShell                            | Savings   |
+| --------------------- | -------------------------------------- | --------- |
+| `F.r"path"`           | `file.read("path")`                    | 2 chars   |
+| `H.g"https://api.io"` | `http.get("https://api.io")`           | 2 chars   |
+| `*[1,2,3]~x:echo(x)`  | `([1,2,3]) \| each(fn(x) => echo(x))`  | 10 tokens |
+| `*items~i:proc(i)`    | `(items) \| each(fn(i) => proc(i))`    | 8 tokens  |
+| `*arr.range(5)\n:n*n` | `(arr.range(5)) \| each(fn(n) => n*n)` | 8 tokens  |
+
+**Builtin shorthand map (single-char → builtin, used as `#x` or bare `x` — all 26 a–z assigned):**
+
+`a`=all `b`=flatten `c`=cat `d`=debug `e`=echo `f`=find `g`=grep `h`=head `i`=first `j`=join `k`=keys `l`=ls `m`=map `n`=len `o`=sort `p`=print `q`=reverse `r`=reduce `s`=select `t`=take `u`=uniq `v`=values `w`=where `x`=sh `y`=any `z`=last
+
+**Function abbreviation map (single-char → full name):**
+
+`a2a`:s=send | `a2ui`:n=notify | `ansible`:p=playbook | `arr`:f=flatten,l=len,r=range,s=sort,u=unique | `asdf`:i=install,l=list | `audit`:l=log | `buildah`:b=build,i=images | `bun`:i=install,r=run | `cargo`:b=build,r=run,t=test | `container`:p=ps,r=run | `crypto`:h=hash,u=uuid | `db`:o=sqlite_open,q=sqlite_query | `deno`:c=compile,r=run | `direnv`:a=allow,s=status | `docker`:i=images,l=logs,p=ps,r=run,s=stop | `evo`:p=population | `file`:a=append,c=copy,d=delete,l=lines,m=mkdir,r=read,w=write,x=exists | `firewall`:a=allow,r=rules | `gdb`:b=bt,r=run | `gh`:c=clone,i=issue_create,p=pr_list | `glab`:i=issue_create,m=mr_list | `go`:b=build,r=run,t=test | `helm`:i=install,l=list | `http`:d=delete,g=get,p=post,u=put | `hyperv`:l=list,s=start | `iperf3`:c=client,s=server | `json`:p=parse,s=stringify | `just`:l=list,r=run | `k8s`:a=apply,d=delete,l=logs,p=pods,s=services | `math`:a=abs,p=pow,s=sqrt | `mcp`:c=call,r=resources,t=tools | `mise`:i=install,l=list | `nanda`:p=propose | `nc`:c=connect,l=listen | `net`:d=dns_lookup,p=ping | `nn`:c=create | `node`:r=run,v=version | `npm`:i=install,r=run | `objdump`:d=disasm,h=headers | `pipx`:i=install,l=list | `platform`:a=arch,g=gpus,o=os | `pnpm`:i=install,r=run | `podman`:p=ps,r=run | `poetry`:a=add,i=install | `pre_commit`:i=install,r=run | `proc`:k=kill,l=list | `rbac`:c=create | `readelf`:h=headers,s=symbols | `rl`:a=agent | `ruff`:c=check,f=format | `rustup`:l=list,u=update | `screen`:l=list,n=new | `skopeo`:c=copy,i=inspect | `sso`:i=init | `str`:j=join,l=lower,r=replace,s=split,t=trim,u=upper | `sys`:c=cpu_info,e=env,h=hostname,u=uptime | `terraform`:a=apply,p=plan | `tmux`:l=list,n=new | `trivy`:i=image,s=scan | `uv`:i=install,r=run | `valgrind`:c=callgrind,r=run | `virsh`:l=list,s=start | `vm`:l=list,s=start | `wsl`:e=exec,l=list | `yarn`:a=add,i=install | `zoxide`:a=add,q=query
+
+**Module sigil map (uppercase abbreviation → module, used as `XX.func()` — 21 single-char, 71 two-char):**
+
+`A`=arr `A2`=a2a `AG`=agent `AN`=ansible `AR`=arr `AS`=asdf `AU`=audit `AZ`=archive `B`=bun `BD`=buildah `BN`=bun `C`=crypto `CG`=cargo `CL`=clip `CR`=cron `CT`=container `CX`=cluster `D`=db `DE`=direnv `DK`=docker `DN`=deno `E`=evo `EV`=evo `F`=file `FS`=fs `FW`=firewall `G`=gh `GD`=gdb `GL`=glab `GO`=go `GW`=gui `H`=http `HM`=helm `HV`=hyperv `HW`=hw `I`=ai `IN`=input `IP`=iperf3 `J`=json `JU`=just `K`=k8s `M`=math `MC`=mcp `MI`=mise `N`=net `NA`=nanda `NC`=nc `NN`=nn `NO`=node `NP`=npm `OD`=objdump `P`=platform `PC`=pre_commit `PD`=podman `PK`=pkg `PM`=perm `PN`=pnpm `PO`=poetry `PR`=proc `PX`=pipx `R`=str `RB`=rbac `RE`=readelf `RF`=ruff `RL`=rl `RU`=rustup `S`=sys `SC`=screen `SH`=shell `SK`=skopeo `SS`=sso `ST`=str `SV`=svc `TF`=terraform `TV`=trivy `TX`=tmux `U`=uv `UI`=a2ui `US`=user `UV`=uv `V`=vm `VG`=valgrind `VI`=virsh `VM`=vm `W`=wsl `WB`=web `WS`=wsl `Y`=yarn `YR`=yarn `Z`=zoxide `ZO`=zoxide
+
+**Symbol→value mapping (v3) — maximum density:**
+
+`T`→true `N`→null `'text'`→`"text"` `` `cmd` ``→`sh("cmd")` `l./src`→`ls("./src")` `l/usr/bin`→`ls("/usr/bin")` `g*.rs`→`grep("*.rs")`
+
+**Compactness + expandability (v4) — joint optimization:**
+
+`|.name`→`| map(fn(__) => __.name)` `|.data.items`→field chains `|.trim()`→method calls `$HOME`→`sys.env("HOME")` `^cond{then}`→`match (cond) { true => (then), _ => null }` `^cond{then}{else}`→`match (cond) { true => (then), _ => (else) }` `%def name expansion`→user alias
+
 ## AetherShell Syntax Quick Reference
 
 ```
@@ -233,20 +296,20 @@ cargo run -- -c 'expr'      # Quick eval
 
 ### Key Source Files
 
-| File               | Purpose                                   |
-| ------------------ | ----------------------------------------- |
-| `src/main.rs`      | CLI entry point                           |
-| `src/ast.rs`       | AST definitions                           |
-| `src/parser.rs`    | Parser                                    |
-| `src/eval.rs`      | Evaluator                                 |
-| `src/value.rs`     | Value types                               |
-| `src/builtins.rs`  | 1,100+ builtins                           |
-| `src/ai.rs`        | AI provider router                        |
-| `src/agent.rs`     | Agent framework                           |
-| `src/agent_api.rs` | Agent API + HTTP server                   |
-| `src/typecheck.rs` | Hindley-Milner inference                  |
-| `src/transpile/`   | Shell transpilers (Bash, Zsh, PowerShell) |
-| `src/tui/`         | Terminal UI                               |
+| File               | Purpose                                            |
+| ------------------ | -------------------------------------------------- |
+| `src/main.rs`      | CLI entry point                                    |
+| `src/ast.rs`       | AST definitions                                    |
+| `src/parser.rs`    | Parser                                             |
+| `src/eval.rs`      | Evaluator                                          |
+| `src/value.rs`     | Value types                                        |
+| `src/builtins.rs`  | 1,100+ builtins                                    |
+| `src/ai.rs`        | AI provider router                                 |
+| `src/agent.rs`     | Agent framework                                    |
+| `src/agent_api.rs` | Agent API + HTTP server                            |
+| `src/typecheck.rs` | Hindley-Milner inference                           |
+| `src/transpile/`   | Shell transpilers (Bash, Zsh, PowerShell, Agentic) |
+| `src/tui/`         | Terminal UI                                        |
 
 ## Context Files
 

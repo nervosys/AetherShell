@@ -99,6 +99,7 @@ builtin_bad() -> Value::String("raw text output")
 - **Bash compatibility**: `transpile/bash.rs` (keep separate from native features)
 - **Zsh compatibility**: `transpile/zsh.rs` (Zsh-specific constructs, 100+ builtins)
 - **PowerShell compatibility**: `transpile/powershell.rs` (cmdlet mappings, brace-based blocks)
+- **Agentic syntax**: `transpile/agentic.rs` (token-minimized AI agent syntax, `.aeg` files)
 
 ## Environment Setup
 

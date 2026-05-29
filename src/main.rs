@@ -36,9 +36,29 @@ struct Cli {
     #[arg(long, short = 'p')]
     pwsh: bool,
 
+    /// Agentic syntax mode (token-minimized for AI agents)
+    #[arg(long, short = 'a')]
+    agentic: bool,
+
     /// Execute a command string
     #[arg(long, short = 'c')]
     command: Option<String>,
+
+    /// Token budget for output: results over N estimated tokens are paged/truncated
+    #[arg(long, value_name = "N")]
+    budget: Option<usize>,
+
+    /// Agent mode: default-deny dangerous effect classes (gate behind approval)
+    #[arg(long)]
+    agent: bool,
+
+    /// Workspace root that confines destructive/write operations (the jail)
+    #[arg(long, value_name = "DIR")]
+    workspace: Option<String>,
+
+    /// Safety policy: "strict" (default) or "permissive" (allow-all in agent mode)
+    #[arg(long, value_name = "POLICY")]
+    policy: Option<String>,
 
     /// Script file to execute
     #[arg(value_name = "FILE")]
@@ -93,7 +113,6 @@ enum Commands {
         #[arg(long, short = 's')]
         suggest: bool,
     },
-
 }
 #[derive(Subcommand)]
 enum AiCommands {
@@ -234,6 +253,21 @@ enum AgentApiCommands {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    // An output token budget applies to all eval/print paths via the REPL.
+    if let Some(n) = cli.budget {
+        std::env::set_var("AE_TOKEN_BUDGET", n.to_string());
+    }
+    // Safety flags set the env vars the safety layer reads (see src/safety.rs).
+    if cli.agent {
+        std::env::set_var("AETHER_MODE", "agent");
+    }
+    if let Some(ws) = &cli.workspace {
+        std::env::set_var("AETHER_WORKSPACE", ws);
+    }
+    if let Some(p) = &cli.policy {
+        std::env::set_var("AETHER_POLICY", p);
+    }
+
     // Handle subcommands
     if let Some(cmd) = cli.subcommand {
         return match cmd {
@@ -279,6 +313,13 @@ fn main() -> Result<()> {
         let code = transpile::powershell::transpile_powershell_to_ae(&buf)?;
         return run_code(&code);
     }
+    // Handle agentic mode with stdin
+    if cli.agentic && cli.file.is_none() && cli.command.is_none() {
+        let mut buf = String::new();
+        io::stdin().read_to_string(&mut buf)?;
+        let code = transpile::agentic::transpile_agentic_to_ae(&buf)?;
+        return run_code(&code);
+    }
 
     // Handle -c/--command flag
     if let Some(cmd) = cli.command {
@@ -288,6 +329,8 @@ fn main() -> Result<()> {
             transpile::zsh::transpile_zsh_to_ae(&cmd)?
         } else if cli.pwsh {
             transpile::powershell::transpile_powershell_to_ae(&cmd)?
+        } else if cli.agentic {
+            transpile::agentic::transpile_agentic_to_ae(&cmd)?
         } else {
             cmd
         };
@@ -301,6 +344,8 @@ fn main() -> Result<()> {
         Some(TranspileMode::Zsh)
     } else if cli.pwsh {
         Some(TranspileMode::PowerShell)
+    } else if cli.agentic {
+        Some(TranspileMode::Agentic)
     } else {
         None
     };
@@ -619,11 +664,21 @@ fn handle_agent_api_command(command: AgentApiCommands) -> Result<()> {
         }
     }
 }
-fn handle_assist(query: Option<String>, execute: bool, interactive: bool, context: bool, suggest: bool) -> Result<()> {
+fn handle_assist(
+    query: Option<String>,
+    execute: bool,
+    interactive: bool,
+    context: bool,
+    suggest: bool,
+) -> Result<()> {
     use std::io::{BufRead, Write};
 
     let system_prompt = build_assist_prompt();
-    let ctx = if context { gather_system_context() } else { String::new() };
+    let ctx = if context {
+        gather_system_context()
+    } else {
+        String::new()
+    };
 
     // Suggest mode: analyze cwd and suggest useful commands
     if suggest {
@@ -671,7 +726,15 @@ fn handle_assist(query: Option<String>, execute: bool, interactive: bool, contex
 
             // Build context-aware prompt with conversation history
             let history_context = if !history.is_empty() {
-                let recent: Vec<String> = history.iter().rev().take(5).cloned().collect::<Vec<_>>().into_iter().rev().collect();
+                let recent: Vec<String> = history
+                    .iter()
+                    .rev()
+                    .take(5)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect();
                 format!("\nRecent conversation:\n{}\n", recent.join("\n"))
             } else {
                 String::new()
@@ -820,8 +883,13 @@ fn gather_system_context() -> String {
 
     // Relevant env vars (without values for security)
     let relevant_vars = [
-        "AETHER_AI", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
-        "OLLAMA_HOST", "EDITOR", "SHELL", "TERM",
+        "AETHER_AI",
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "OLLAMA_HOST",
+        "EDITOR",
+        "SHELL",
+        "TERM",
     ];
     let set_vars: Vec<&str> = relevant_vars
         .iter()
@@ -846,10 +914,19 @@ fn clean_ai_output(raw: &str) -> String {
     cleaned.to_string()
 }
 
-fn assist_once(system_prompt: &str, system_context: &str, history: &str, query: &str, execute: bool) -> Result<String> {
+fn assist_once(
+    system_prompt: &str,
+    system_context: &str,
+    history: &str,
+    query: &str,
+    execute: bool,
+) -> Result<String> {
     use aethershell::ai;
 
-    let prompt = format!("{}\n\n{}{}\nUser request: {}", system_prompt, system_context, history, query);
+    let prompt = format!(
+        "{}\n\n{}{}\nUser request: {}",
+        system_prompt, system_context, history, query
+    );
     let code = ai::complete_sync_router(&prompt)
         .context("AI completion failed — is AETHER_AI configured?")?;
 
@@ -904,13 +981,13 @@ fn repl() -> Result<()> {
     Ok(())
 }
 
-
 /// Transpilation mode for legacy shell compatibility.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TranspileMode {
     Bash,
     Zsh,
     PowerShell,
+    Agentic,
 }
 
 /// Detect transpile mode from file extension (when no explicit flag is given).
@@ -920,11 +997,10 @@ fn detect_transpile_mode(path: &str) -> Option<TranspileMode> {
         Some(TranspileMode::Bash)
     } else if lower.ends_with(".zsh") {
         Some(TranspileMode::Zsh)
-    } else if lower.ends_with(".ps1")
-        || lower.ends_with(".psm1")
-        || lower.ends_with(".psd1")
-    {
+    } else if lower.ends_with(".ps1") || lower.ends_with(".psm1") || lower.ends_with(".psd1") {
         Some(TranspileMode::PowerShell)
+    } else if lower.ends_with(".aeg") {
+        Some(TranspileMode::Agentic)
     } else {
         None
     }
@@ -943,7 +1019,11 @@ fn run_file(path: &str, explicit_mode: Option<TranspileMode>) -> Result<()> {
             TranspileMode::Zsh => transpile::zsh::transpile_zsh_to_ae(&code)
                 .with_context(|| format!("zsh\u{2192}aether transpile failed for {}", path))?,
             TranspileMode::PowerShell => transpile::powershell::transpile_powershell_to_ae(&code)
-                .with_context(|| format!("powershell\u{2192}aether transpile failed for {}", path))?,
+                .with_context(|| {
+                format!("powershell\u{2192}aether transpile failed for {}", path)
+            })?,
+            TranspileMode::Agentic => transpile::agentic::transpile_agentic_to_ae(&code)
+                .with_context(|| format!("agentic\u{2192}aether transpile failed for {}", path))?,
         };
     }
 

@@ -329,6 +329,12 @@ pub struct ModuleFunctionDef {
 
 /// Process an agent API request
 pub fn process_request(request: &AgentRequest) -> AgentResponse {
+    let mut resp = dispatch_request(request);
+    annotate_token_accounting(request, &mut resp);
+    resp
+}
+
+fn dispatch_request(request: &AgentRequest) -> AgentResponse {
     match request {
         AgentRequest::Call { builtin, args } => execute_call(builtin, args),
         AgentRequest::Pipeline { steps, input } => execute_pipeline(steps, input.as_ref()),
@@ -338,6 +344,34 @@ pub fn process_request(request: &AgentRequest) -> AgentResponse {
         AgentRequest::Schema { format } => get_schema(format),
         AgentRequest::TypeInfo { type_name } => get_type_info(type_name.as_deref()),
     }
+}
+
+/// Attach estimated `token_accounting { tokens_in, tokens_out, tokens_total }`
+/// to the response metadata (§6.1), so agents/supervisors get a budget signal
+/// per call without changing the response struct's required fields.
+fn annotate_token_accounting(request: &AgentRequest, resp: &mut AgentResponse) {
+    let tokens_in =
+        crate::builtins::est_token_count(&serde_json::to_string(request).unwrap_or_default());
+    let out_str = match (&resp.result, &resp.error) {
+        (Some(r), _) => serde_json::to_string(r).unwrap_or_default(),
+        (None, Some(e)) => e.clone(),
+        _ => String::new(),
+    };
+    let tokens_out = crate::builtins::est_token_count(&out_str);
+    let acct = json!({
+        "tokens_in": tokens_in,
+        "tokens_out": tokens_out,
+        "tokens_total": tokens_in + tokens_out,
+        "estimated": true,
+    });
+    resp.metadata = Some(match resp.metadata.take() {
+        Some(JsonValue::Object(mut m)) => {
+            m.insert("token_accounting".to_string(), acct);
+            JsonValue::Object(m)
+        }
+        Some(other) => json!({ "info": other, "token_accounting": acct }),
+        None => json!({ "token_accounting": acct }),
+    });
 }
 
 /// Execute a single builtin call
@@ -882,6 +916,21 @@ fn get_type_definitions() -> Vec<TypeDefinition> {
             fields: None,
         },
     ]
+}
+
+/// Annotate each builtin definition with its safety effect class (`pure`,
+/// `read_local`, `write_local`, `destructive`, `process`, `network`, `exec`,
+/// `privileged`) under the `x-effect` key of its `json_schema`, so an agent can
+/// see an operation's danger level from the ontology *before* calling it.
+/// See `crate::safety::effect_of`.
+fn annotate_effects(mut defs: Vec<BuiltinDefinition>) -> Vec<BuiltinDefinition> {
+    for d in &mut defs {
+        let eff = crate::safety::effect_of(&d.name).as_str();
+        if let JsonValue::Object(ref mut m) = d.json_schema {
+            m.insert("x-effect".to_string(), json!(eff));
+        }
+    }
+    defs
 }
 
 /// Get builtin definitions from documentation
@@ -1460,7 +1509,7 @@ fn get_builtin_definitions() -> Vec<BuiltinDefinition> {
 
     // More builtins can be added here or discovered dynamically
 
-    builtins
+    annotate_effects(builtins)
 }
 
 /// Categorize a builtin by name using comprehensive prefix and name matching
@@ -1836,7 +1885,125 @@ fn get_all_builtin_definitions() -> Vec<BuiltinDefinition> {
 
     // Sort by category then name for consistent output
     all.sort_by(|a, b| a.category.cmp(&b.category).then(a.name.cmp(&b.name)));
-    all
+    annotate_effects(all)
+}
+
+/// The effect class an annotated definition carries (from its `json_schema`).
+fn def_effect(d: &BuiltinDefinition) -> &str {
+    d.json_schema
+        .get("x-effect")
+        .and_then(|v| v.as_str())
+        .unwrap_or("pure")
+}
+
+/// Progressive ontology disclosure (§5.4): a compact root manifest — one entry
+/// per category with builtin count, the effect classes present, and a few
+/// sample names — plus the effect legend and a usage hint. Agents load this
+/// cheaply, then `ontology_describe` only the slice they need, instead of
+/// carrying the full multi-thousand-token ontology.
+pub fn ontology_manifest_json() -> JsonValue {
+    use std::collections::{BTreeMap, BTreeSet};
+    let defs = get_all_builtin_definitions();
+    // Keep the root deliberately tiny: per category, just the count and the
+    // effect classes present. Names/signatures live in ontology_describe so the
+    // root stays a cheap index (the standing-context win).
+    let mut by_cat: BTreeMap<String, (usize, BTreeSet<String>)> = BTreeMap::new();
+    for d in &defs {
+        let entry = by_cat
+            .entry(d.category.clone())
+            .or_insert((0, BTreeSet::new()));
+        entry.0 += 1;
+        entry.1.insert(def_effect(d).to_string());
+    }
+    let categories: Vec<JsonValue> = by_cat
+        .into_iter()
+        .map(|(cat, (count, effects))| {
+            json!({
+                "category": cat,
+                "builtins": count,
+                "effects": effects.into_iter().collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    json!({
+        "ontology": "manifest",
+        "total_builtins": defs.len(),
+        "categories": categories,
+        "effect_legend": [
+            "pure", "read_local", "write_local", "destructive",
+            "process", "network", "exec", "privileged"
+        ],
+        "hint": "ontology_describe(\"<category>\") lists a category's builtins; ontology_describe(\"<builtin>\") returns full detail"
+    })
+}
+
+/// Flat tool specs for every builtin — `{name, description, signature, effect}` —
+/// for exposing builtins as MCP tools annotated with their safety effect class.
+pub fn builtin_tool_specs() -> Vec<JsonValue> {
+    get_all_builtin_definitions()
+        .iter()
+        .map(|d| {
+            json!({
+                "name": d.name,
+                "description": d.description,
+                "signature": d.signature,
+                "effect": def_effect(d),
+            })
+        })
+        .collect()
+}
+
+/// Expand one slice of the ontology: a builtin name → full definition (with
+/// effect, params, examples); a category name → its builtins (name, signature,
+/// effect). Case-insensitive. Returns an `{error, hint}` record when unknown.
+pub fn ontology_describe_json(query: &str) -> JsonValue {
+    let defs = get_all_builtin_definitions();
+    let q = query.trim();
+
+    if let Some(d) = defs.iter().find(|d| d.name.eq_ignore_ascii_case(q)) {
+        let params: Vec<JsonValue> = d
+            .parameters
+            .iter()
+            .map(|p| {
+                json!({
+                    "name": p.name,
+                    "type": p.param_type,
+                    "required": p.required,
+                    "description": p.description,
+                })
+            })
+            .collect();
+        let examples: Vec<JsonValue> = d
+            .examples
+            .iter()
+            .map(|e| json!({ "code": e.code, "description": e.description }))
+            .collect();
+        return json!({
+            "builtin": d.name,
+            "category": d.category,
+            "signature": d.signature,
+            "effect": def_effect(d),
+            "return_type": d.return_type,
+            "description": d.description,
+            "parameters": params,
+            "examples": examples,
+            "aliases": d.aliases,
+        });
+    }
+
+    let in_cat: Vec<JsonValue> = defs
+        .iter()
+        .filter(|d| d.category.eq_ignore_ascii_case(q))
+        .map(|d| json!({ "name": d.name, "signature": d.signature, "effect": def_effect(d) }))
+        .collect();
+    if !in_cat.is_empty() {
+        return json!({ "category": q, "builtins": in_cat });
+    }
+
+    json!({
+        "error": format!("'{}' is not a known category or builtin", q),
+        "hint": "call ontology_manifest() to see categories"
+    })
 }
 
 /// Module descriptions for the ontology
@@ -3051,6 +3218,16 @@ pub mod server {
             }
         }
 
+        /// A chunk of an array/table result, streamed so clients consume rows
+        /// incrementally and can early-stop without buffering the whole result.
+        pub fn chunk(seq: usize, rows: &[JsonValue], total: usize) -> Self {
+            Self {
+                event: "chunk".to_string(),
+                data: json!({ "seq": seq, "rows": rows, "total": total }),
+                id: None,
+            }
+        }
+
         /// Format as SSE text
         pub fn to_sse(&self) -> String {
             let mut output = String::new();
@@ -3270,18 +3447,41 @@ pub mod server {
     async fn handle_stream_execute(Json(request): Json<AgentRequest>) -> impl IntoResponse {
         create_sse_response(async move {
             let response = process_request(&request);
-            vec![
-                StreamEvent::start("Processing request..."),
-                if response.success {
-                    StreamEvent::complete(
-                        response.result.unwrap_or(JsonValue::Null),
-                        response.result_type.as_deref(),
-                    )
-                } else {
-                    StreamEvent::error(&response.error.unwrap_or_else(|| "Unknown error".to_string()))
-                },
-            ]
+            stream_events_from_response(response, 50)
         })
+    }
+
+    /// Build streaming events from a response. A large array result is split into
+    /// ordered `chunk` events (default 50 rows) so a client consumes incrementally
+    /// and can early-stop instead of buffering the whole result; smaller results
+    /// and non-arrays emit a single `complete` event; failures emit `error`.
+    pub fn stream_events_from_response(
+        response: AgentResponse,
+        chunk_rows: usize,
+    ) -> Vec<StreamEvent> {
+        let mut events = vec![StreamEvent::start("Processing request...")];
+        if !response.success {
+            events.push(StreamEvent::error(
+                &response.error.unwrap_or_else(|| "Unknown error".to_string()),
+            ));
+            return events;
+        }
+        let result = response.result.unwrap_or(JsonValue::Null);
+        match &result {
+            JsonValue::Array(rows) if rows.len() > chunk_rows.max(1) => {
+                let n = chunk_rows.max(1);
+                let total = rows.len();
+                for (seq, chunk) in rows.chunks(n).enumerate() {
+                    events.push(StreamEvent::chunk(seq, chunk, total));
+                }
+                events.push(StreamEvent::complete(
+                    json!({ "streamed_rows": total }),
+                    response.result_type.as_deref(),
+                ));
+            }
+            _ => events.push(StreamEvent::complete(result, response.result_type.as_deref())),
+        }
+        events
     }
 
     /// Stream pipeline execution with progress updates

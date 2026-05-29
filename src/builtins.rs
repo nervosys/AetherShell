@@ -1519,6 +1519,44 @@ lazy_static::lazy_static! {
     // nodemon (1103)
     map.insert("nodemon_run", 1103);
     map.insert("nodemon", 1103);
+    // safety: approval + audit verification (1104-1105)
+    map.insert("approve", 1104);
+    map.insert("audit_verify", 1105);
+    // safety: RBAC principal authorization (1106-1108)
+    map.insert("rbac_principal", 1106);
+    map.insert("rbac_grant", 1107);
+    map.insert("rbac_can", 1108);
+    // output economy: compact rendering + token estimate (1109-1110)
+    map.insert("aecon", 1109);
+    map.insert("tokens", 1110);
+    // progressive ontology disclosure (1111-1112)
+    map.insert("ontology_manifest", 1111);
+    map.insert("ontology_describe", 1112);
+    // deterministic canonical serialization (1113)
+    map.insert("canonical", 1113);
+    // filesystem transactions / checkpoints (1114-1117)
+    map.insert("tx_begin", 1114);
+    map.insert("tx_commit", 1115);
+    map.insert("tx_rollback", 1116);
+    map.insert("tx_status", 1117);
+    // output budgeting / paging (1118)
+    map.insert("budget", 1118);
+    // plan / apply: atomic, approved, reviewable destructive batches (1119-1120)
+    map.insert("plan", 1119);
+    map.insert("apply", 1120);
+    // safety introspection (1121)
+    map.insert("safety_status", 1121);
+    // stateful sessions: persistent Env across calls (1122-1125)
+    map.insert("sess_open", 1122);
+    map.insert("sess_eval", 1123);
+    map.insert("sess_close", 1124);
+    map.insert("sess_usage", 1125);
+    // audit review (1126)
+    map.insert("audit_tail", 1126);
+    // output economy: structural digest (1127)
+    map.insert("digest", 1127);
+    // output economy: source-side field projection (1128)
+    map.insert("pick", 1128);
         map
     };
 
@@ -3631,6 +3669,44 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_pytest_run(args, input), // 1102
     // nodemon (1103)
     |args, input, _| bi_nodemon_run(args, input), // 1103
+    // safety: approval + audit verification (1104-1105)
+    |args, input, _| bi_approve(args, input),      // 1104
+    |args, input, _| bi_audit_verify(args, input), // 1105
+    // safety: RBAC principal authorization (1106-1108)
+    |args, input, _| bi_rbac_principal(args, input), // 1106
+    |args, input, _| bi_rbac_grant(args, input),     // 1107
+    |args, input, _| bi_rbac_can(args, input),       // 1108
+    // output economy: compact rendering + token estimate (1109-1110)
+    |args, input, _| bi_aecon(args, input),  // 1109
+    |args, input, _| bi_tokens(args, input), // 1110
+    // progressive ontology disclosure (1111-1112)
+    |args, input, _| bi_ontology_manifest(args, input), // 1111
+    |args, input, _| bi_ontology_describe(args, input), // 1112
+    // deterministic canonical serialization (1113)
+    |args, input, _| bi_canonical(args, input), // 1113
+    // filesystem transactions / checkpoints (1114-1117)
+    |args, input, _| bi_tx_begin(args, input),    // 1114
+    |args, input, _| bi_tx_commit(args, input),   // 1115
+    |args, input, _| bi_tx_rollback(args, input), // 1116
+    |args, input, _| bi_tx_status(args, input),   // 1117
+    // output budgeting / paging (1118)
+    |args, input, _| bi_budget(args, input), // 1118
+    // plan / apply (1119-1120)
+    |args, input, _| bi_plan(args, input),  // 1119
+    |args, input, _| bi_apply(args, input), // 1120
+    // safety introspection (1121)
+    |args, input, _| bi_safety_status(args, input), // 1121
+    // stateful sessions (1122-1125)
+    |args, input, _| bi_sess_open(args, input),  // 1122
+    |args, input, _| bi_sess_eval(args, input),  // 1123
+    |args, input, _| bi_sess_close(args, input), // 1124
+    |args, input, _| bi_sess_usage(args, input), // 1125
+    // audit review (1126)
+    |args, input, _| bi_audit_tail(args, input), // 1126
+    // output economy: structural digest (1127)
+    |args, input, _| bi_digest(args, input), // 1127
+    // output economy: source-side field projection (1128)
+    |args, input, _| bi_pick(args, input), // 1128
 ];
 
 fn fast_builtin_lookup(
@@ -14337,6 +14413,16 @@ fn bi_sh(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         _ => return Err(anyhow!("sh requires string or array of strings")),
     };
 
+    crate::safety::guard(crate::safety::GuardCtx {
+        builtin: "sh",
+        effect: crate::safety::Effect::Exec,
+        what: "exec",
+        targets: vec![format!("{} {}", program, cmd_args.join(" ")).trim().to_string()],
+        blast_radius: serde_json::json!({ "program": program, "args": cmd_args }),
+        reversible: false,
+        fs_paths: false,
+    })?;
+
     let output = Command::new(&program)
         .args(&cmd_args)
         .output()
@@ -14364,6 +14450,1155 @@ fn bi_sh(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     );
 
     Ok(Value::Record(record))
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Output economy (token efficiency): AECON compact rendering + token estimate.
+// See docs/AGENTIC_FIRST_DESIGN.md §6.2. The dominant agent output cost is
+// homogeneous record arrays (ls, proc.list, docker.ps, db queries); AECON emits
+// the field names ONCE as a header, then positional TSV rows — typically a
+// large output-token saving over repeating keys per row (as JSON does).
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Render one cell value compactly. Strings are emitted raw unless empty or
+/// containing the TSV delimiters (tab/newline), in which case they're JSON
+/// quoted; nested arrays/records are inlined as JSON to preserve row structure.
+fn aecon_atom(v: &Value) -> String {
+    match v {
+        Value::Str(s) => {
+            if s.is_empty() || s.contains('\t') || s.contains('\n') {
+                serde_json::to_string(s).unwrap_or_else(|_| format!("{:?}", s))
+            } else {
+                s.clone()
+            }
+        }
+        Value::Uri(u) => u.clone(),
+        Value::Int(n) => n.to_string(),
+        Value::Float(f) => f.to_string(),
+        Value::Bool(b) => b.to_string(),
+        Value::Null => "null".to_string(),
+        other => serde_json::to_string(&other.to_json()).unwrap_or_else(|_| "null".to_string()),
+    }
+}
+
+/// Render a Value as AECON (Aether Compact Object Notation). Tabular values
+/// (Table, or a homogeneous Array<Record>) become a `@aecon` header + TSV rows;
+/// single records become `{k=v ...}`; scalar arrays become `[a,b,c]`; scalars
+/// render as their literal. Deterministic (records are key-sorted BTreeMaps).
+fn aecon_render(v: &Value) -> String {
+    let (rows, header): (Vec<&BTreeMap<String, Value>>, Option<Vec<String>>) = match v {
+        Value::Table(t) => {
+            let h = if t.schema.is_empty() {
+                None
+            } else {
+                Some(t.schema.clone())
+            };
+            (t.rows.iter().collect(), h)
+        }
+        Value::Array(arr)
+            if !arr.is_empty() && arr.iter().all(|e| matches!(e, Value::Record(_))) =>
+        {
+            let rs = arr
+                .iter()
+                .filter_map(|e| match e {
+                    Value::Record(m) => Some(m),
+                    _ => None,
+                })
+                .collect();
+            (rs, None)
+        }
+        _ => (Vec::new(), None),
+    };
+
+    if !rows.is_empty() {
+        let keys: Vec<String> = header.unwrap_or_else(|| rows[0].keys().cloned().collect());
+        let homogeneous = rows
+            .iter()
+            .all(|r| r.len() == keys.len() && keys.iter().all(|k| r.contains_key(k)));
+        if homogeneous {
+            let mut out = format!("@aecon rows={} cols={}", rows.len(), keys.join(","));
+            for r in &rows {
+                let cells: Vec<String> = keys
+                    .iter()
+                    .map(|k| aecon_atom(r.get(k).unwrap_or(&Value::Null)))
+                    .collect();
+                out.push('\n');
+                out.push_str(&cells.join("\t"));
+            }
+            return out;
+        }
+    }
+
+    match v {
+        Value::Record(m) => {
+            let pairs: Vec<String> = m
+                .iter()
+                .map(|(k, val)| format!("{}={}", k, aecon_atom(val)))
+                .collect();
+            format!("{{{}}}", pairs.join(" "))
+        }
+        Value::Array(arr) => {
+            let items: Vec<String> = arr.iter().map(aecon_atom).collect();
+            format!("[{}]", items.join(","))
+        }
+        other => aecon_atom(other),
+    }
+}
+
+/// Token count used by the token-economy builtins (`tokens`/`budget`/`digest`)
+/// and the Agent API accounting. With `--features real-tokens` this is the
+/// **real GPT-4 cl100k BPE** (vocab embedded in `tiktoken-rs`); otherwise a
+/// labeled heuristic (alphanumeric run ≈ ceil(len/4) tokens; each symbol ≈ 1).
+#[cfg(feature = "real-tokens")]
+pub fn est_token_count(s: &str) -> usize {
+    use std::sync::OnceLock;
+    static BPE: OnceLock<tiktoken_rs::CoreBPE> = OnceLock::new();
+    let bpe = BPE.get_or_init(|| tiktoken_rs::cl100k_base().expect("load cl100k_base"));
+    bpe.encode_with_special_tokens(s).len()
+}
+
+#[cfg(not(feature = "real-tokens"))]
+pub fn est_token_count(s: &str) -> usize {
+    let mut toks = 0usize;
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c.is_whitespace() {
+            continue;
+        }
+        if c.is_alphanumeric() || c == '_' {
+            let mut len = 1usize;
+            while let Some(&n) = chars.peek() {
+                if n.is_alphanumeric() || n == '_' {
+                    len += 1;
+                    chars.next();
+                } else {
+                    break;
+                }
+            }
+            toks += ((len + 3) / 4).max(1);
+        } else {
+            toks += 1;
+        }
+    }
+    toks
+}
+
+/// aecon(value?) - Render a value (argument or piped input) as compact AECON
+/// text. Saves output tokens on homogeneous record arrays by emitting keys once.
+fn bi_aecon(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let v = args
+        .into_iter()
+        .next()
+        .or(input)
+        .ok_or_else(|| {
+            crate::safety::bad_arg("aecon", "a value (argument or piped input)", "nothing")
+        })?;
+    Ok(Value::Str(aecon_render(&v)))
+}
+
+/// tokens(value?) - Estimate the token count of a value's rendered form (its
+/// string content if a String, else its display form). Pair with `aecon` to
+/// compare output costs, e.g. `tokens(v)` vs `tokens(aecon(v))`.
+fn bi_tokens(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let v = args
+        .into_iter()
+        .next()
+        .or(input)
+        .ok_or_else(|| {
+            crate::safety::bad_arg("tokens", "a value (argument or piped input)", "nothing")
+        })?;
+    let s = match &v {
+        Value::Str(s) => s.clone(),
+        other => other.to_display_string(),
+    };
+    Ok(Value::Int(est_token_count(&s) as i64))
+}
+
+/// A compact structural type descriptor for a value: a Record maps each key to
+/// its type name; an Array reports its element type; a scalar reports its type.
+/// Lets `digest` convey shape in a handful of tokens.
+fn value_shape(v: &Value) -> Value {
+    match v {
+        Value::Record(m) => Value::Record(
+            m.iter()
+                .map(|(k, val)| (k.clone(), Value::Str(val.type_name().to_string())))
+                .collect(),
+        ),
+        Value::Array(a) => Value::Str(format!(
+            "Array<{}>",
+            a.first().map(|e| e.type_name()).unwrap_or("Any")
+        )),
+        other => Value::Str(other.type_name().to_string()),
+    }
+}
+
+/// digest(value?) - A constant-token structural summary of a value: its kind,
+/// size, element/field shape, a 2-element sample, and the token cost of the full
+/// value (default render vs compact AECON). Lets an agent understand a large
+/// result's shape and size cheaply, then decide whether to page (`budget`),
+/// compact (`aecon`), or skip it — maximal information per token.
+fn bi_digest(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let v = args
+        .into_iter()
+        .next()
+        .or(input)
+        .ok_or_else(|| crate::safety::bad_arg("digest", "a value (argument or piped input)", "nothing"))?;
+    let mut r = BTreeMap::new();
+    match &v {
+        Value::Array(a) => {
+            r.insert("kind".to_string(), Value::Str("array".to_string()));
+            r.insert("len".to_string(), Value::Int(a.len() as i64));
+            if let Some(first) = a.first() {
+                r.insert("element".to_string(), value_shape(first));
+            }
+            r.insert(
+                "sample".to_string(),
+                Value::Array(a.iter().take(2).cloned().collect()),
+            );
+        }
+        Value::Table(t) => {
+            r.insert("kind".to_string(), Value::Str("table".to_string()));
+            r.insert("rows".to_string(), Value::Int(t.rows.len() as i64));
+            r.insert(
+                "cols".to_string(),
+                Value::Array(t.schema.iter().map(|c| Value::Str(c.clone())).collect()),
+            );
+            r.insert(
+                "sample".to_string(),
+                Value::Array(
+                    t.rows
+                        .iter()
+                        .take(2)
+                        .map(|row| Value::Record(row.clone()))
+                        .collect(),
+                ),
+            );
+        }
+        Value::Record(m) => {
+            r.insert("kind".to_string(), Value::Str("record".to_string()));
+            r.insert("keys".to_string(), Value::Int(m.len() as i64));
+            r.insert("shape".to_string(), value_shape(&v));
+        }
+        Value::Str(s) => {
+            r.insert("kind".to_string(), Value::Str("string".to_string()));
+            r.insert("len".to_string(), Value::Int(s.chars().count() as i64));
+            r.insert(
+                "preview".to_string(),
+                Value::Str(s.chars().take(60).collect::<String>()),
+            );
+        }
+        other => {
+            r.insert("kind".to_string(), Value::Str(other.type_name().to_string()));
+            r.insert("value".to_string(), other.clone());
+        }
+    }
+    r.insert(
+        "full_tokens".to_string(),
+        Value::Int(est_token_count(&v.to_display_string()) as i64),
+    );
+    r.insert(
+        "compact_tokens".to_string(),
+        Value::Int(est_token_count(&aecon_render(&v)) as i64),
+    );
+    Ok(Value::Record(r))
+}
+
+/// Project a record to only the named fields (in the given order, skipping
+/// fields that don't exist).
+fn pick_record(m: &BTreeMap<String, Value>, fields: &[String]) -> Value {
+    let mut out = BTreeMap::new();
+    for f in fields {
+        if let Some(v) = m.get(f) {
+            out.insert(f.clone(), v.clone());
+        }
+    }
+    Value::Record(out)
+}
+
+/// pick(value?, fields...) - Source-side projection: keep only the named fields
+/// of each record (an array of records, a single record, or a table), dropping
+/// the rest *before* rendering. The biggest output-token saver — pair with
+/// `aecon`: `data | pick("name", "size") | aecon`. With piped input the args are
+/// the field names; otherwise the first arg is the value.
+fn bi_pick(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let collect_fields = |vals: &[Value]| -> Vec<String> {
+        vals.iter()
+            .filter_map(|a| match a {
+                Value::Str(s) => Some(s.clone()),
+                _ => None,
+            })
+            .collect()
+    };
+    let (value, fields) = if let Some(inp) = input {
+        (inp, collect_fields(&args))
+    } else {
+        let value = args
+            .first()
+            .cloned()
+            .ok_or_else(|| crate::safety::bad_arg("pick", "value, fields: String...", "nothing"))?;
+        (value, collect_fields(&args[1..]))
+    };
+    if fields.is_empty() {
+        return Err(crate::safety::bad_arg("pick", "at least one field name", "none"));
+    }
+    let result = match value {
+        Value::Array(a) => Value::Array(
+            a.iter()
+                .map(|e| match e {
+                    Value::Record(m) => pick_record(m, &fields),
+                    other => other.clone(),
+                })
+                .collect(),
+        ),
+        Value::Record(m) => pick_record(&m, &fields),
+        Value::Table(t) => {
+            Value::Array(t.rows.iter().map(|m| pick_record(m, &fields)).collect())
+        }
+        other => other,
+    };
+    Ok(result)
+}
+
+/// JSON-escape and quote a string (delegates to serde_json for correctness).
+fn json_quote(s: &str) -> String {
+    serde_json::to_string(s).unwrap_or_else(|_| format!("{:?}", s))
+}
+
+/// Write a Value as canonical JSON: deterministic and byte-stable across
+/// platforms/locale. Record keys are emitted in sorted order (Records are
+/// BTreeMaps); floats use Rust's shortest round-trip, locale-independent
+/// formatting; non-finite floats and non-serializable values (lambdas/futures)
+/// become explicit sentinels so output never varies or fails.
+fn canonical_write(v: &Value, out: &mut String) {
+    match v {
+        Value::Null => out.push_str("null"),
+        Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
+        Value::Int(n) => out.push_str(&n.to_string()),
+        Value::Float(f) => {
+            if f.is_finite() {
+                out.push_str(&format!("{}", f));
+            } else {
+                out.push_str("null"); // NaN/Inf are not representable in JSON
+            }
+        }
+        Value::Str(s) | Value::Uri(s) => out.push_str(&json_quote(s)),
+        Value::Array(a) => {
+            out.push('[');
+            for (i, e) in a.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                canonical_write(e, out);
+            }
+            out.push(']');
+        }
+        Value::Record(m) => {
+            out.push('{');
+            for (i, (k, val)) in m.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                out.push_str(&json_quote(k));
+                out.push(':');
+                canonical_write(val, out);
+            }
+            out.push('}');
+        }
+        Value::Table(t) => {
+            // Canonical object with keys in sorted order: "rows" then "schema".
+            out.push_str("{\"rows\":[");
+            for (i, r) in t.rows.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                out.push('{');
+                for (j, (k, val)) in r.iter().enumerate() {
+                    if j > 0 {
+                        out.push(',');
+                    }
+                    out.push_str(&json_quote(k));
+                    out.push(':');
+                    canonical_write(val, out);
+                }
+                out.push('}');
+            }
+            out.push_str("],\"schema\":[");
+            for (i, c) in t.schema.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                out.push_str(&json_quote(c));
+            }
+            out.push_str("]}");
+        }
+        Value::Lambda(_) | Value::AsyncLambda(_) | Value::Future(_) => out.push_str("null"),
+        Value::Error(msg) => {
+            out.push_str("{\"error\":");
+            out.push_str(&json_quote(msg));
+            out.push('}');
+        }
+        Value::Builtin(b) => {
+            out.push_str("{\"builtin\":");
+            out.push_str(&json_quote(&b.name));
+            out.push('}');
+        }
+    }
+}
+
+fn canonical_render(v: &Value) -> String {
+    let mut out = String::new();
+    canonical_write(v, &mut out);
+    out
+}
+
+/// canonical(value?) - Render a value as canonical JSON: deterministic and
+/// byte-identical for equal values across OS/locale (sorted keys, shortest
+/// round-trip floats, explicit null for non-finite/non-serializable). The
+/// lossless counterpart to `aecon`; the basis for reproducible output/diffs.
+fn bi_canonical(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let v = args
+        .into_iter()
+        .next()
+        .or(input)
+        .ok_or_else(|| {
+            crate::safety::bad_arg("canonical", "a value (argument or piped input)", "nothing")
+        })?;
+    Ok(Value::Str(canonical_render(&v)))
+}
+
+/// Budget a rendered string to `max` estimated tokens, never silently lossy:
+/// over budget → keep a prefix and append an explicit elision marker.
+fn budget_string_record(s: &str, max: usize) -> Value {
+    let total = est_token_count(s);
+    let mut r = BTreeMap::new();
+    if total <= max {
+        r.insert("page".to_string(), Value::Str(s.to_string()));
+        r.insert("truncated".to_string(), Value::Bool(false));
+        r.insert("page_tokens".to_string(), Value::Int(total as i64));
+        r.insert("total_tokens".to_string(), Value::Int(total as i64));
+        r.insert("elided_chars".to_string(), Value::Int(0));
+    } else {
+        let keep = max.saturating_mul(4); // ~4 chars/token heuristic
+        let prefix: String = s.chars().take(keep).collect();
+        let elided = s.chars().count().saturating_sub(keep);
+        let page = format!("{}…({} more chars elided)", prefix, elided);
+        let page_tokens = est_token_count(&page);
+        r.insert("page".to_string(), Value::Str(page));
+        r.insert("truncated".to_string(), Value::Bool(true));
+        r.insert("page_tokens".to_string(), Value::Int(page_tokens as i64));
+        r.insert("total_tokens".to_string(), Value::Int(total as i64));
+        r.insert("elided_chars".to_string(), Value::Int(elided as i64));
+    }
+    Value::Record(r)
+}
+
+/// budget(value?, max_tokens, cursor?) - Render a value to fit within an
+/// estimated token budget, never silently lossy. For arrays/tables it returns a
+/// page of rows starting at `cursor` plus paging metadata (`next_cursor`,
+/// `elided`, `total`, `page_tokens`); for other values it truncates the AECON
+/// rendering with an explicit elision marker. With piped input the args are
+/// `(max_tokens, cursor?)`; otherwise `(value, max_tokens, cursor?)`.
+fn bi_budget(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    // Resolve (value, max, cursor) depending on whether input is piped.
+    let (value, max_v, cursor_v) = if let Some(inp) = input {
+        (inp, args.first().cloned(), args.get(1).cloned())
+    } else {
+        let v = args
+            .first()
+            .cloned()
+            .ok_or_else(|| crate::safety::bad_arg("budget", "value, max_tokens: Int", "nothing"))?;
+        (v, args.get(1).cloned(), args.get(2).cloned())
+    };
+    let max = match max_v {
+        Some(Value::Int(n)) if n > 0 => n as usize,
+        other => {
+            return Err(crate::safety::bad_arg(
+                "budget",
+                "max_tokens: positive Int",
+                other.as_ref().map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
+    };
+    let cursor = match cursor_v {
+        Some(Value::Int(n)) if n >= 0 => n as usize,
+        _ => 0,
+    };
+
+    Ok(budget_value(&value, max, cursor))
+}
+
+/// Core of `budget`: render `value` to fit ~`max` estimated tokens, paging
+/// arrays/tables from `cursor` (with metadata) and truncating other values'
+/// AECON rendering losslessly. Public so the REPL can apply `AE_TOKEN_BUDGET`.
+pub fn budget_value(value: &Value, max: usize, cursor: usize) -> Value {
+    let rows: Vec<Value> = match value {
+        Value::Table(t) => t.rows.iter().map(|r| Value::Record(r.clone())).collect(),
+        Value::Array(a) => a.clone(),
+        other => return budget_string_record(&aecon_render(other), max),
+    };
+
+    let total = rows.len();
+    let start = cursor.min(total);
+    let mut end = start;
+    let mut used = 0usize;
+    while end < total {
+        // Conservative per-row estimate (a single record renders with its keys;
+        // the final page shares one header, so this never under-counts).
+        let row_tok = est_token_count(&aecon_render(&rows[end]));
+        if end > start && used + row_tok > max {
+            break;
+        }
+        used += row_tok;
+        end += 1;
+    }
+    if end == start && total > start {
+        end = start + 1; // always make progress, even on a single oversized row
+    }
+
+    let page_slice = Value::Array(rows[start..end].to_vec());
+    let page_str = aecon_render(&page_slice);
+    let page_tokens = est_token_count(&page_str);
+    let shown = end - start;
+
+    let mut r = BTreeMap::new();
+    r.insert("page".to_string(), Value::Str(page_str));
+    r.insert("shown".to_string(), Value::Int(shown as i64));
+    r.insert("from".to_string(), Value::Int(start as i64));
+    r.insert("total".to_string(), Value::Int(total as i64));
+    r.insert("elided".to_string(), Value::Int((total - end) as i64));
+    r.insert("page_tokens".to_string(), Value::Int(page_tokens as i64));
+    r.insert(
+        "next_cursor".to_string(),
+        if end < total {
+            Value::Int(end as i64)
+        } else {
+            Value::Null
+        },
+    );
+    r.insert(
+        "truncated".to_string(),
+        Value::Bool(end < total || start > 0),
+    );
+    Value::Record(r)
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Plan / Apply (docs/AGENTIC_FIRST_DESIGN.md §9): a destructive batch is
+// described declaratively, reviewed (typed plan + blast radius + a bound token),
+// approved once, then applied ATOMICALLY inside a transaction (all-or-nothing,
+// auto-rollback on any failure). Composes approval (safety) + transactions (tx)
+// + structured output. Supported ops: write{path,content}, rm{path}, mkdir{path}.
+// ─────────────────────────────────────────────────────────────────────────
+
+/// A content-bound token for a plan (`apl_<16 hex of sha256(canonical(ops))>`),
+/// so approving one plan cannot authorize a different set of operations.
+fn plan_token(ops: &Value) -> String {
+    let mut h = Sha256::new();
+    h.update(canonical_render(ops).as_bytes());
+    let digest = h.finalize();
+    let hex: String = digest.iter().take(8).map(|b| format!("{:02x}", b)).collect();
+    format!("apl_{}", hex)
+}
+
+/// Validate and normalize plan ops into `(op, path, content?)` tuples.
+fn parse_plan_ops(ops: &Value) -> Result<Vec<(String, String, Option<String>)>> {
+    let arr = match ops {
+        Value::Array(a) => a,
+        other => {
+            return Err(crate::safety::bad_arg(
+                "plan/apply",
+                "ops: Array<Record{op, path, content?}>",
+                other.type_name(),
+            ))
+        }
+    };
+    let mut out = Vec::with_capacity(arr.len());
+    for (i, e) in arr.iter().enumerate() {
+        let m = match e {
+            Value::Record(m) => m,
+            _ => return Err(anyhow!("plan: op #{} must be a record {{op, path, content?}}", i)),
+        };
+        let op = match m.get("op") {
+            Some(Value::Str(s)) => s.clone(),
+            _ => return Err(anyhow!("plan: op #{} missing 'op' string", i)),
+        };
+        let path = match m.get("path") {
+            Some(Value::Str(s)) => s.clone(),
+            _ => return Err(anyhow!("plan: op #{} missing 'path' string", i)),
+        };
+        let content = match m.get("content") {
+            Some(Value::Str(s)) => Some(s.clone()),
+            _ => None,
+        };
+        match op.as_str() {
+            "write" | "append" if content.is_none() => {
+                return Err(anyhow!("plan: {} op #{} requires 'content'", op, i))
+            }
+            "write" | "append" | "rm" | "mkdir" => {}
+            other => {
+                return Err(anyhow!(
+                    "plan: op #{} unsupported op '{}' (expected write|append|rm|mkdir)",
+                    i,
+                    other
+                ))
+            }
+        }
+        out.push((op, path, content));
+    }
+    Ok(out)
+}
+
+/// plan(ops) - Produce a typed, reviewable plan for a destructive batch without
+/// executing it: a summary (writes/deletes/mkdirs), operation count, and a
+/// content-bound approval `token`. Review, `approve(token)`, then `apply(ops)`.
+fn bi_plan(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let ops = args
+        .first()
+        .cloned()
+        .ok_or_else(|| crate::safety::bad_arg("plan", "ops: Array<Record{op, path}>", "nothing"))?;
+    let parsed = parse_plan_ops(&ops)?;
+    let (mut writes, mut appends, mut deletes, mut mkdirs) = (0i64, 0i64, 0i64, 0i64);
+    for (op, _, _) in &parsed {
+        match op.as_str() {
+            "write" => writes += 1,
+            "append" => appends += 1,
+            "rm" => deletes += 1,
+            "mkdir" => mkdirs += 1,
+            _ => {}
+        }
+    }
+    let token = plan_token(&ops);
+    let mut summary = BTreeMap::new();
+    summary.insert("writes".to_string(), Value::Int(writes));
+    summary.insert("appends".to_string(), Value::Int(appends));
+    summary.insert("deletes".to_string(), Value::Int(deletes));
+    summary.insert("mkdirs".to_string(), Value::Int(mkdirs));
+    let mut r = BTreeMap::new();
+    r.insert("operations".to_string(), Value::Int(parsed.len() as i64));
+    r.insert("summary".to_string(), Value::Record(summary));
+    r.insert("token".to_string(), Value::Str(token.clone()));
+    r.insert(
+        "hint".to_string(),
+        Value::Str(format!(
+            "review, then in agent mode: approve(\"{}\") and apply(<ops>)",
+            token
+        )),
+    );
+    r.insert("plan".to_string(), ops);
+    Ok(Value::Record(r))
+}
+
+/// apply(ops) - Execute a plan atomically inside a transaction. In agent mode it
+/// requires the plan's token to be approved (else returns `{status:"needs_approval"}`);
+/// any failure rolls the whole batch back. Filesystem paths are confined to the
+/// workspace jail when enforced.
+fn bi_apply(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let ops = args
+        .first()
+        .cloned()
+        .ok_or_else(|| crate::safety::bad_arg("apply", "ops: Array<Record{op, path}>", "nothing"))?;
+    let parsed = parse_plan_ops(&ops)?;
+    let token = plan_token(&ops);
+    let agent = matches!(crate::safety::current_mode(), crate::safety::Mode::Agent);
+
+    if agent && !crate::safety::is_approved(&token) {
+        let mut r = BTreeMap::new();
+        r.insert("status".to_string(), Value::Str("needs_approval".to_string()));
+        r.insert("token".to_string(), Value::Str(token.clone()));
+        r.insert("operations".to_string(), Value::Int(parsed.len() as i64));
+        r.insert(
+            "hint".to_string(),
+            Value::Str(format!("approve(\"{}\") then re-run apply", token)),
+        );
+        return Ok(Value::Record(r));
+    }
+
+    let enforce_jail = agent || std::env::var("AETHER_WORKSPACE").is_ok();
+    crate::tx::begin().map_err(|e| anyhow!("apply: {}", e))?;
+
+    let mut applied = 0i64;
+    let mut failure: Option<String> = None;
+    for (op, path, content) in &parsed {
+        if enforce_jail && !crate::safety::within_workspace(path) {
+            failure = Some(format!("'{}' is outside the workspace", path));
+            break;
+        }
+        crate::tx::snapshot(path);
+        let res: std::io::Result<()> = match op.as_str() {
+            "write" => std::fs::write(path, content.as_deref().unwrap_or("")),
+            "append" => {
+                use std::io::Write;
+                std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(path)
+                    .and_then(|mut f| f.write_all(content.as_deref().unwrap_or("").as_bytes()))
+            }
+            "rm" => std::fs::remove_file(path),
+            "mkdir" => std::fs::create_dir_all(path),
+            _ => Ok(()),
+        };
+        if let Err(e) = res {
+            failure = Some(format!("{} {}: {}", op, path, e));
+            break;
+        }
+        applied += 1;
+    }
+
+    let mut r = BTreeMap::new();
+    if let Some(err) = failure {
+        let restored = crate::tx::rollback().unwrap_or(0);
+        let _ = crate::safety::audit(
+            "apply",
+            crate::safety::Effect::Destructive,
+            "failed",
+            &token,
+            serde_json::json!({ "error": err, "rolled_back": restored }),
+        );
+        r.insert("status".to_string(), Value::Str("failed".to_string()));
+        r.insert("error".to_string(), Value::Str(err));
+        r.insert("rolled_back".to_string(), Value::Bool(true));
+        r.insert("restored".to_string(), Value::Int(restored as i64));
+    } else {
+        let _ = crate::tx::commit();
+        let _ = crate::safety::audit(
+            "apply",
+            crate::safety::Effect::Destructive,
+            "applied",
+            &token,
+            serde_json::json!({ "operations": applied }),
+        );
+        r.insert("status".to_string(), Value::Str("applied".to_string()));
+        r.insert("applied".to_string(), Value::Int(applied));
+    }
+    Ok(Value::Record(r))
+}
+
+/// tx_begin() - Start a filesystem transaction. Subsequent file_write/rm calls
+/// record their pre-modification state so the batch can be rolled back.
+fn bi_tx_begin(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let id = crate::tx::begin()?;
+    let mut r = BTreeMap::new();
+    r.insert("transaction".to_string(), Value::Str(id));
+    r.insert("active".to_string(), Value::Bool(true));
+    Ok(Value::Record(r))
+}
+
+/// tx_commit() - Commit the active transaction (keep changes, discard journal).
+fn bi_tx_commit(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let n = crate::tx::commit()?;
+    let mut r = BTreeMap::new();
+    r.insert("committed".to_string(), Value::Bool(true));
+    r.insert("operations".to_string(), Value::Int(n as i64));
+    Ok(Value::Record(r))
+}
+
+/// tx_rollback() - Roll back the active transaction, restoring every recorded
+/// path to its pre-transaction state.
+fn bi_tx_rollback(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let n = crate::tx::rollback()?;
+    let mut r = BTreeMap::new();
+    r.insert("rolled_back".to_string(), Value::Bool(true));
+    r.insert("restored".to_string(), Value::Int(n as i64));
+    Ok(Value::Record(r))
+}
+
+/// tx_status() - Report whether a transaction is active and its operation count.
+fn bi_tx_status(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mut r = BTreeMap::new();
+    match crate::tx::status() {
+        Some((id, n)) => {
+            r.insert("active".to_string(), Value::Bool(true));
+            r.insert("transaction".to_string(), Value::Str(id));
+            r.insert("operations".to_string(), Value::Int(n as i64));
+        }
+        None => {
+            r.insert("active".to_string(), Value::Bool(false));
+        }
+    }
+    Ok(Value::Record(r))
+}
+
+/// safety_status() - Report the current safety operating envelope so an agent
+/// knows what it may do before acting: execution mode, acting principal,
+/// workspace jail root, audit log, whether a transaction is active, and the
+/// resolved policy decision (allow/deny/approve) for every effect class.
+fn bi_safety_status(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    use crate::safety::{Decision, Effect, Mode};
+    let mode = crate::safety::current_mode();
+    let mode_str = match mode {
+        Mode::Agent => "agent",
+        Mode::Human => "human",
+    };
+    let effects = [
+        Effect::Pure,
+        Effect::ReadLocal,
+        Effect::WriteLocal,
+        Effect::Network,
+        Effect::Process,
+        Effect::Destructive,
+        Effect::Exec,
+        Effect::Privileged,
+    ];
+    let mut policy = BTreeMap::new();
+    for e in effects {
+        let d = match crate::safety::decide(e, mode) {
+            Decision::Allow => "allow",
+            Decision::Deny => "deny",
+            Decision::Approve => "approve",
+        };
+        policy.insert(e.as_str().to_string(), Value::Str(d.to_string()));
+    }
+    let mut r = BTreeMap::new();
+    r.insert("mode".to_string(), Value::Str(mode_str.to_string()));
+    r.insert(
+        "principal".to_string(),
+        crate::safety::current_principal()
+            .map(Value::Str)
+            .unwrap_or(Value::Null),
+    );
+    r.insert(
+        "workspace".to_string(),
+        Value::Str(crate::safety::workspace_root().to_string_lossy().to_string()),
+    );
+    r.insert(
+        "audit_log".to_string(),
+        crate::safety::audit_path()
+            .map(|p| Value::Str(p.to_string_lossy().to_string()))
+            .unwrap_or(Value::Null),
+    );
+    r.insert(
+        "transaction_active".to_string(),
+        Value::Bool(crate::tx::is_active()),
+    );
+    r.insert("policy".to_string(), Value::Record(policy));
+    Ok(Value::Record(r))
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Stateful sessions (docs/AGENTIC_FIRST_DESIGN.md §6.3): a persistent Env keyed
+// by session id, so an agent builds up state across calls (`let x = …` then use
+// `x` later) WITHOUT re-sending prior context each turn — a token-efficiency and
+// capability win over the single-shot eval path.
+// ─────────────────────────────────────────────────────────────────────────
+
+static SESS_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// A stateful session: a persistent environment plus running token accounting.
+struct Session {
+    env: crate::env::Env,
+    tokens_in: u64,
+    tokens_out: u64,
+    evals: u64,
+}
+
+impl Session {
+    fn new() -> Self {
+        // Register the module namespaces (file, sys, str, http, …) so a session
+        // can run module-qualified calls like `file.read(…)`, not just builtins.
+        let mut env = crate::env::Env::new();
+        for (name, module) in crate::modules::all_modules() {
+            env.register_module(name, module);
+        }
+        Self {
+            env,
+            tokens_in: 0,
+            tokens_out: 0,
+            evals: 0,
+        }
+    }
+}
+
+lazy_static::lazy_static! {
+    static ref SESSIONS: std::sync::Mutex<HashMap<String, Session>> =
+        std::sync::Mutex::new(HashMap::new());
+}
+
+/// sess_open() - Create a stateful session and return its id. Subsequent
+/// `sess_eval(id, code)` calls share one persistent environment.
+fn bi_sess_open(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let id = format!(
+        "sess_{}_{}",
+        std::process::id(),
+        SESS_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+    );
+    SESSIONS
+        .lock()
+        .map_err(|_| anyhow!("session store poisoned"))?
+        .insert(id.clone(), Session::new());
+    let mut r = BTreeMap::new();
+    r.insert("session".to_string(), Value::Str(id));
+    r.insert("active".to_string(), Value::Bool(true));
+    Ok(Value::Record(r))
+}
+
+/// sess_eval(id, code) - Evaluate code in a session's persistent environment;
+/// `let` bindings and mutations persist across calls. Returns the result value.
+fn bi_sess_eval(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let id = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "sess_eval",
+                "session_id: String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
+    };
+    let code = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "sess_eval",
+                "code: String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
+    };
+    // Take the env out (not holding the lock across eval — avoids deadlock if the
+    // evaluated code touches the session store) and put it back afterward so
+    // bindings made before any error still persist.
+    let mut session = {
+        let mut store = SESSIONS.lock().map_err(|_| anyhow!("session store poisoned"))?;
+        match store.remove(&id) {
+            Some(s) => s,
+            None => return Err(anyhow!("sess_eval: no such session '{}'", id)),
+        }
+    };
+    let result = (|| -> Result<Value> {
+        let stmts = crate::parser::parse_program(&code)?;
+        crate::eval::eval_program(&stmts, &mut session.env)
+    })();
+    // Accumulate running token usage for this session.
+    session.evals += 1;
+    session.tokens_in += est_token_count(&code) as u64;
+    let out_str = match &result {
+        Ok(v) => v.to_display_string(),
+        Err(e) => e.to_string(),
+    };
+    session.tokens_out += est_token_count(&out_str) as u64;
+    SESSIONS
+        .lock()
+        .map_err(|_| anyhow!("session store poisoned"))?
+        .insert(id, session);
+    result
+}
+
+/// sess_usage(id) - Running token accounting for a session: estimated
+/// `tokens_in`/`tokens_out`/`tokens_total` and the number of `evals`.
+fn bi_sess_usage(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let id = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "sess_usage",
+                "session_id: String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
+    };
+    let store = SESSIONS.lock().map_err(|_| anyhow!("session store poisoned"))?;
+    match store.get(&id) {
+        Some(s) => {
+            let mut r = BTreeMap::new();
+            r.insert("tokens_in".to_string(), Value::Int(s.tokens_in as i64));
+            r.insert("tokens_out".to_string(), Value::Int(s.tokens_out as i64));
+            r.insert(
+                "tokens_total".to_string(),
+                Value::Int((s.tokens_in + s.tokens_out) as i64),
+            );
+            r.insert("evals".to_string(), Value::Int(s.evals as i64));
+            Ok(Value::Record(r))
+        }
+        None => Err(anyhow!("sess_usage: no such session '{}'", id)),
+    }
+}
+
+/// sess_close(id) - Discard a session and its environment.
+fn bi_sess_close(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let id = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "sess_close",
+                "session_id: String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
+    };
+    let existed = SESSIONS
+        .lock()
+        .map_err(|_| anyhow!("session store poisoned"))?
+        .remove(&id)
+        .is_some();
+    let mut r = BTreeMap::new();
+    r.insert("closed".to_string(), Value::Bool(existed));
+    Ok(Value::Record(r))
+}
+
+/// ontology_manifest() - Compact root of the ontology for progressive
+/// disclosure: categories with builtin counts, effect classes, and samples,
+/// plus the effect legend. Load this cheaply, then `ontology_describe` the slice
+/// you need instead of carrying the full ontology in context.
+fn bi_ontology_manifest(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::from_json(&crate::agent_api::ontology_manifest_json()))
+}
+
+/// ontology_describe(name) - Expand one ontology slice: a category name → its
+/// builtins (name, signature, effect), or a builtin name → its full definition
+/// (effect, params, examples).
+fn bi_ontology_describe(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let q = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "ontology_describe",
+                "name: String (category or builtin)",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
+    };
+    Ok(Value::from_json(&crate::agent_api::ontology_describe_json(&q)))
+}
+
+lazy_static::lazy_static! {
+    /// The process-global RBAC manager backing the in-shell `rbac_*` builtins
+    /// and the safety layer's principal authorization.
+    static ref GLOBAL_RBAC: std::sync::Arc<crate::auth::RbacManager> =
+        std::sync::Arc::new(crate::auth::RbacManager::new());
+}
+
+/// Return the global RBAC manager, (re-)installing it into the safety layer so
+/// guarded builtins consult it. Idempotent; called by each `rbac_*` builtin.
+fn global_rbac() -> std::sync::Arc<crate::auth::RbacManager> {
+    let m = GLOBAL_RBAC.clone();
+    crate::safety::set_rbac_manager(m.clone());
+    m
+}
+
+/// rbac_principal(user_id?) - Set or get the current acting principal for safety
+/// authorization. With an argument, sets the principal (creating the user if
+/// needed) and activates RBAC; with none, returns the current principal or null.
+fn bi_rbac_principal(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let mgr = global_rbac();
+    match args.first() {
+        Some(Value::Str(uid)) => {
+            if mgr.get_user(uid).is_none() {
+                let mut u = crate::auth::User::new(uid.clone());
+                u.id = uid.clone(); // use the id as the principal handle
+                let _ = mgr.add_user(u);
+            }
+            crate::safety::set_principal(Some(uid.clone()));
+            Ok(Value::Str(uid.clone()))
+        }
+        None | Some(Value::Null) => Ok(crate::safety::current_principal()
+            .map(Value::Str)
+            .unwrap_or(Value::Null)),
+        _ => Err(anyhow!("rbac_principal: expected a user id string or no argument")),
+    }
+}
+
+/// rbac_grant(user_id, permission) - Grant a direct permission (e.g.
+/// "effect:destructive", "effect:*", "builtin:rm", "*:*") to a user so that,
+/// when acting as that principal, guarded ops of that class bypass approval.
+fn bi_rbac_grant(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let uid = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("rbac_grant: expected a user id string")),
+    };
+    let perm = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!(
+            "rbac_grant: expected a permission string, e.g. \"effect:destructive\""
+        )),
+    };
+    let mgr = global_rbac();
+    let mut user = mgr.get_user(&uid).unwrap_or_else(|| {
+        let mut u = crate::auth::User::new(uid.clone());
+        u.id = uid.clone();
+        u
+    });
+    user.permissions.insert(perm.clone());
+    mgr.add_user(user)?;
+    mgr.invalidate_user_cache(&uid);
+    let mut rec = BTreeMap::new();
+    rec.insert("user".to_string(), Value::Str(uid));
+    rec.insert("granted".to_string(), Value::Str(perm));
+    Ok(Value::Record(rec))
+}
+
+/// rbac_can(permission) - Whether the current principal holds `permission`
+/// (resolving roles + wildcards). Returns false if no principal is set.
+fn bi_rbac_can(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let perm = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("rbac_can: expected a permission string")),
+    };
+    let mgr = global_rbac();
+    let allowed = match crate::safety::current_principal() {
+        Some(p) => mgr.check_permission(&p, &perm),
+        None => false,
+    };
+    Ok(Value::Bool(allowed))
+}
+
+/// audit_tail(n?) - Return the most recent n audit entries (default 20) from the
+/// active hash-chained log as an array of records, so an agent can review what
+/// it did and what was allowed/denied/approved. Read-only.
+fn bi_audit_tail(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let n = match args.first() {
+        Some(Value::Int(k)) if *k >= 0 => *k as usize,
+        _ => 20,
+    };
+    let entries: Vec<Value> = crate::safety::read_audit_tail(n)
+        .iter()
+        .map(Value::from_json)
+        .collect();
+    Ok(Value::Array(entries))
+}
+
+/// approve(token) - Grant a safety approval token in-process so a subsequent
+/// guarded action bound to that token may proceed. Pairs with the
+/// E_NEEDS_APPROVAL error returned by guarded builtins in agent mode (§7.2).
+fn bi_approve(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let token = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(anyhow!("approve: expected an approval token string")),
+    };
+    crate::safety::grant_approval(&token);
+    let mut rec = BTreeMap::new();
+    rec.insert("approved".to_string(), Value::Bool(true));
+    rec.insert("token".to_string(), Value::Str(token));
+    Ok(Value::Record(rec))
+}
+
+/// audit_verify(path?) - Verify the tamper-evident, hash-chained audit log
+/// (§7.5). With no argument, verifies the currently active log. Returns a
+/// record {valid, entries, path} or {valid: false, error, path}.
+fn bi_audit_verify(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let path = match args.first() {
+        Some(Value::Str(s)) => std::path::PathBuf::from(s),
+        _ => match crate::safety::audit_path() {
+            Some(p) => p,
+            None => return Err(anyhow!("audit_verify: no audit log is active; pass a path")),
+        },
+    };
+    let mut rec = BTreeMap::new();
+    rec.insert(
+        "path".to_string(),
+        Value::Str(path.to_string_lossy().to_string()),
+    );
+    match crate::safety::verify_audit(&path) {
+        Ok(n) => {
+            rec.insert("valid".to_string(), Value::Bool(true));
+            rec.insert("entries".to_string(), Value::Int(n as i64));
+        }
+        Err(e) => {
+            rec.insert("valid".to_string(), Value::Bool(false));
+            rec.insert("error".to_string(), Value::Str(e));
+        }
+    }
+    Ok(Value::Record(rec))
 }
 
 /// now() - Get current Unix timestamp in seconds
@@ -15890,6 +17125,16 @@ fn bi_proc_kill(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             _ => None,
         })
         .unwrap_or("TERM");
+
+    crate::safety::guard(crate::safety::GuardCtx {
+        builtin: "proc_kill",
+        effect: crate::safety::Effect::Process,
+        what: "kill",
+        targets: vec![pid.to_string()],
+        blast_radius: serde_json::json!({ "pid": pid, "signal": signal }),
+        reversible: false,
+        fs_paths: false,
+    })?;
 
     #[cfg(target_os = "windows")]
     {
@@ -25171,6 +26416,16 @@ fn bi_db_kv_delete(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         _ => return Ok(Value::Bool(false)),
     };
 
+    crate::safety::guard(crate::safety::GuardCtx {
+        builtin: "db_kv_delete",
+        effect: crate::safety::Effect::Destructive,
+        what: "db_delete",
+        targets: vec![format!("{}:{}", store_path, key)],
+        blast_radius: serde_json::json!({ "store": store_path.clone(), "key": key.clone() }),
+        reversible: false,
+        fs_paths: false,
+    })?;
+
     bi_db_sqlite_exec(
         vec![
             Value::Str(store_path),
@@ -25623,6 +26878,18 @@ fn bi_db_sqlite_delete(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         _ => "1=0".to_string(), // Safety: don't delete all by default
     };
 
+    crate::safety::guard(crate::safety::GuardCtx {
+        builtin: "db_sqlite_delete",
+        effect: crate::safety::Effect::Destructive,
+        what: "db_delete",
+        targets: vec![format!("{}:{}", db_path, table)],
+        blast_radius: serde_json::json!({
+            "db": db_path.clone(), "table": table.clone(), "where": where_clause.clone()
+        }),
+        reversible: false,
+        fs_paths: false,
+    })?;
+
     let sql = format!("DELETE FROM {} WHERE {}", table, where_clause);
     bi_db_sqlite_exec(vec![Value::Str(db_path), Value::Str(sql)], None)
 }
@@ -25931,6 +27198,8 @@ fn bi_file_write(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             None => return Err(anyhow!("file_write requires content to write")),
         }
     };
+
+    crate::tx::snapshot(&path); // record pre-write state if a transaction is active
 
     // Write atomically: write to temp file, then rename
     let parent = std::path::Path::new(&path).parent();
@@ -26310,6 +27579,16 @@ fn bi_file_delete_lines(args: Vec<Value>, _input: Option<Value>) -> Result<Value
         Value::Str(s) => s.clone(),
         _ => return Err(anyhow!("file_delete_lines: path must be a string")),
     };
+
+    crate::safety::guard(crate::safety::GuardCtx {
+        builtin: "file_delete_lines",
+        effect: crate::safety::Effect::Destructive,
+        what: "modify",
+        targets: vec![path.clone()],
+        blast_radius: serde_json::json!({ "path": path.clone() }),
+        reversible: false,
+        fs_paths: true,
+    })?;
 
     let content = fs::read_to_string(&path)
         .with_context(|| format!("file_delete_lines: failed to read '{}'", path))?;
@@ -29985,6 +31264,16 @@ fn bi_platform_db_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value
 fn bi_platform_db_delete(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let key = args.first().and_then(|v| v.as_str().ok()).unwrap_or("");
 
+    crate::safety::guard(crate::safety::GuardCtx {
+        builtin: "platform_db_delete",
+        effect: crate::safety::Effect::Destructive,
+        what: "db_delete",
+        targets: vec![key.to_string()],
+        blast_radius: serde_json::json!({ "key": key }),
+        reversible: false,
+        fs_paths: false,
+    })?;
+
     let db_path = platform_db_path();
     if !db_path.exists() {
         return Ok(Value::Bool(false));
@@ -31884,6 +33173,15 @@ fn bi_docker_rm(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .get(1)
         .map(|v| matches!(v, Value::Bool(true)))
         .unwrap_or(false);
+    crate::safety::guard(crate::safety::GuardCtx {
+        builtin: "docker_rm",
+        effect: crate::safety::Effect::Destructive,
+        what: "container_remove",
+        targets: vec![container_id.to_string()],
+        blast_radius: serde_json::json!({ "container": container_id, "force": force }),
+        reversible: false,
+        fs_paths: false,
+    })?;
     let mut cmd_args = vec!["rm"];
     if force {
         cmd_args.push("-f");
@@ -31992,6 +33290,18 @@ fn bi_docker_compose_up(args: Vec<Value>, _input: Option<Value>) -> Result<Value
 // 830: bi_docker_compose_down – Docker compose down
 // ---------------------------------------------------------------------------
 fn bi_docker_compose_down(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    crate::safety::guard(crate::safety::GuardCtx {
+        builtin: "docker_compose_down",
+        effect: crate::safety::Effect::Destructive,
+        what: "compose_down",
+        targets: vec![match args.first() {
+            Some(Value::Str(f)) => f.clone(),
+            _ => "<default compose>".to_string(),
+        }],
+        blast_radius: serde_json::json!({}),
+        reversible: false,
+        fs_paths: false,
+    })?;
     let mut cmd_args = vec!["compose", "down"];
     // Optional compose file
     let file_arg;
@@ -32676,6 +33986,15 @@ fn bi_k8s_delete(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             ))
         }
     };
+    crate::safety::guard(crate::safety::GuardCtx {
+        builtin: "k8s_delete",
+        effect: crate::safety::Effect::Destructive,
+        what: "k8s_delete",
+        targets: vec![format!("{}/{}", resource, name)],
+        blast_radius: serde_json::json!({ "resource": resource, "name": name }),
+        reversible: false,
+        fs_paths: false,
+    })?;
     let mut cmd_args = vec!["delete", &resource, &name];
     let ns_owned;
     if let Some(Value::Str(ns)) = args.get(2) {
@@ -34651,9 +35970,25 @@ pub fn bi_gcloud_projects(_args: Vec<Value>, _input: Option<Value>) -> Result<Va
 pub fn bi_rm(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("rm: expected path string")),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "rm",
+                "path: String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let force = matches!(args.get(1), Some(Value::Bool(true)));
+    crate::safety::guard(crate::safety::GuardCtx {
+        builtin: "rm",
+        effect: crate::safety::Effect::Destructive,
+        what: "delete",
+        targets: vec![path.clone()],
+        blast_radius: serde_json::json!({ "files": 1 }),
+        reversible: false,
+        fs_paths: true,
+    })?;
+    crate::tx::snapshot(&path); // record pre-delete state if a transaction is active
     match std::fs::remove_file(&path) {
         Ok(()) => Ok(Value::Str(format!("removed: {}", path))),
         Err(e) if force => Ok(Value::Str(format!("rm (forced): {}", e))),
@@ -34668,6 +36003,15 @@ pub fn bi_rmdir(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         _ => return Err(anyhow!("rmdir: expected path string")),
     };
     let recursive = matches!(args.get(1), Some(Value::Bool(true)));
+    crate::safety::guard(crate::safety::GuardCtx {
+        builtin: "rmdir",
+        effect: crate::safety::Effect::Destructive,
+        what: "delete",
+        targets: vec![path.clone()],
+        blast_radius: serde_json::json!({ "recursive": recursive }),
+        reversible: false,
+        fs_paths: true,
+    })?;
     if recursive {
         std::fs::remove_dir_all(&path).map_err(|e| anyhow!("rmdir -r: {}: {}", path, e))?;
     } else {

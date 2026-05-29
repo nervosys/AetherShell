@@ -602,3 +602,67 @@ fn test_concurrent_server_access() {
         "Concurrent access should be consistent"
     );
 }
+
+// ============================================================================
+// AetherShell builtins as MCP tools (effect-tagged, safety-guarded)
+// ============================================================================
+
+fn builtin_text(res: &aethershell::mcp::McpToolResult) -> String {
+    match res.content.first() {
+        Some(aethershell::mcp::McpContent::Text { text }) => text.clone(),
+        other => panic!("expected text content, got {other:?}"),
+    }
+}
+
+#[test]
+fn builtin_tools_listed_with_effect_metadata() {
+    let server = McpServer::new();
+    let tools = server.list_builtin_tools();
+    assert!(!tools.is_empty(), "builtins exposed as MCP tools");
+
+    let canonical = tools
+        .iter()
+        .find(|t| t.name == "canonical")
+        .expect("canonical exposed as a tool");
+    assert!(
+        canonical
+            .input_schema
+            .get("x-effect")
+            .and_then(|v| v.as_str())
+            .is_some(),
+        "every tool carries an x-effect annotation"
+    );
+
+    // A destructive builtin is advertised as such before any call.
+    let del = tools
+        .iter()
+        .find(|t| t.name == "db_sqlite_delete")
+        .expect("db_sqlite_delete exposed");
+    assert_eq!(
+        del.input_schema.get("x-effect").and_then(|v| v.as_str()),
+        Some("destructive")
+    );
+}
+
+#[test]
+fn call_builtin_executes_a_pure_builtin() {
+    let server = McpServer::new();
+    let res = server.call_builtin("canonical", &serde_json::json!([42]));
+    assert_eq!(res.is_error, Some(false));
+    assert_eq!(builtin_text(&res), "42");
+}
+
+#[test]
+fn call_builtin_gates_destructive_in_agent_mode() {
+    std::env::set_var("AETHER_MODE", "agent");
+    let server = McpServer::new();
+    let res = server.call_builtin("db_sqlite_delete", &serde_json::json!(["x.db", "t", "1=1"]));
+    std::env::remove_var("AETHER_MODE");
+
+    assert_eq!(res.is_error, Some(true), "destructive call is gated");
+    assert!(
+        builtin_text(&res).contains("E_NEEDS_APPROVAL"),
+        "refusal carries the structured code: {}",
+        builtin_text(&res)
+    );
+}

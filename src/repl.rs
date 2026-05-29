@@ -107,6 +107,12 @@ pub fn run_one(env: &mut Env, code: &str) -> Result<i32> {
     let config = get_config();
     match eval_line(env, code) {
         Ok(v) => {
+            // Apply an output token budget when AE_TOKEN_BUDGET is set (e.g. via
+            // the `--budget` CLI flag): large results are paged/truncated to fit.
+            let v = match std::env::var("AE_TOKEN_BUDGET").ok().and_then(|s| s.parse::<usize>().ok()) {
+                Some(max) if max > 0 => crate::builtins::budget_value(&v, max, 0),
+                _ => v,
+            };
             if let Some(out) = render_for_repl(&v) {
                 println!("{out}");
             }
