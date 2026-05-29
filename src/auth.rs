@@ -590,6 +590,15 @@ impl RbacManager {
         permissions.contains(permission)
     }
 
+    /// Invalidate the cached resolved permissions for a user. Call after
+    /// changing a user's direct permissions (e.g. a permission granted outside
+    /// `assign_role`/`remove_role`, which already invalidate the cache).
+    pub fn invalidate_user_cache(&self, user_id: &str) {
+        if let Ok(mut cache) = self.permission_cache.write() {
+            cache.remove(user_id);
+        }
+    }
+
     pub fn list_users(&self) -> Vec<User> {
         self.users
             .read()

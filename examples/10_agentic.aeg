@@ -1,0 +1,44 @@
+; AetherShell Agentic Syntax Example
+; Ultra-compressed token-minimized syntax for AI agent consumption
+
+; ── Variables ──
+name="AetherShell"
+version="1.2.0"
+max_size=10k
+
+; ── v2 Bare modules (no @ prefix, uppercase sigil) ──
+host=S.h()
+e"Running on ${host}"
+
+; ── v2 Ultra pipeline: bare builtins + | pipe + ~ lambda ──
+l"./src"|w~.size>1k|m~.name
+
+; ── v2 HTTP + JSON with func abbreviations ── 
+H.g("https://api.github.com/repos/nervosys/AetherShell")|J.p(_)|s"stargazers_count"
+
+; ── v1 Compat: @ prefix and # prefix still work ──
+@ai("Summarize this file", {context: @f.read("README.md")})
+#l "./src" > #w \.size>1k > #m \.name
+
+; ── Pattern matching ──
+?score{90=>"A",80=>"B",_=>"F"}
+
+; ── Error handling ──
+!{F.r("missing.txt")}{"file not found"}
+
+; ── Mutable state ──
+counter:=0
+
+; ── Compact lambdas with ~ ──
+[1,2,3,4,5]|m~x:x*2|w~x:x>4|r~a,b:a+b,0
+
+; ── v3 Symbol→value mapping ──
+active=T
+data=N
+e'hello world'
+result=`uname -a`
+
+; ── v3 Bare path auto-quoting (no quotes needed) ──
+l./src|w~.size>1k|m~.name
+l/usr/bin
+g*.rs

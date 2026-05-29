@@ -245,9 +245,16 @@ pub fn eval_expr(expr: &Expr, env: &mut Env) -> Result<Value> {
                     Ok(val)
                 }
                 Err(e) => {
-                    // Runtime error - catch it
+                    // Runtime error - catch it. Safety refusals carry structured
+                    // data: bind the catch variable to a Record {error: {code,
+                    // message, hint, ...}} so agents can branch on `e.error.code`
+                    // instead of parsing a string. Other errors stay as strings.
                     if let Some(var_name) = catch_var {
-                        let _ = env.set_var(var_name.clone(), Value::Str(e.to_string()));
+                        let caught = match e.downcast_ref::<crate::safety::SafetyError>() {
+                            Some(se) => Value::from_json(&se.to_json()),
+                            None => Value::Str(e.to_string()),
+                        };
+                        let _ = env.set_var(var_name.clone(), caught);
                     }
                     // Evaluate catch expression; if it also throws, that's the result
                     eval_expr(catch_expr, env)

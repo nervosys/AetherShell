@@ -280,6 +280,61 @@ impl McpServer {
         self.registered_tools.values().cloned().collect()
     }
 
+    /// Expose AetherShell builtins as MCP tools, each annotated with its safety
+    /// effect class under `x-effect` in the input schema, so any MCP-speaking
+    /// agent discovers the full typed surface and sees an operation's danger
+    /// level before calling. Calls route through [`Self::call_builtin`], which
+    /// runs the same safety guard as the REPL/Agent API.
+    pub fn list_builtin_tools(&self) -> Vec<McpTool> {
+        crate::agent_api::builtin_tool_specs()
+            .into_iter()
+            .filter_map(|spec| {
+                let name = spec.get("name").and_then(|v| v.as_str())?.to_string();
+                let desc = spec.get("description").and_then(|v| v.as_str()).unwrap_or("");
+                let sig = spec.get("signature").and_then(|v| v.as_str()).unwrap_or("");
+                let effect = spec.get("effect").and_then(|v| v.as_str()).unwrap_or("pure");
+                Some(McpTool {
+                    name,
+                    description: format!("{} | {}", sig, desc),
+                    input_schema: serde_json::json!({
+                        "type": "object",
+                        "properties": {
+                            "args": { "type": "array", "description": "positional arguments" }
+                        },
+                        "x-effect": effect,
+                    }),
+                })
+            })
+            .collect()
+    }
+
+    /// Invoke an AetherShell builtin as an MCP tool. `args` is a JSON array of
+    /// positional arguments. The call goes through `builtins::call`, so guarded
+    /// builtins enforce policy/approval/jail and emit audit entries; a refusal
+    /// is returned as an error result carrying the structured `E_*` code.
+    pub fn call_builtin(&self, name: &str, args: &JsonValue) -> McpToolResult {
+        let values: Vec<crate::value::Value> = match args {
+            JsonValue::Array(a) => a.iter().map(crate::value::Value::from_json).collect(),
+            JsonValue::Null => vec![],
+            other => vec![crate::value::Value::from_json(other)],
+        };
+        let mut env = crate::env::Env::new();
+        match crate::builtins::call(name, values, &mut env) {
+            Ok(v) => McpToolResult {
+                content: vec![McpContent::Text {
+                    text: v.to_display_string(),
+                }],
+                is_error: Some(false),
+            },
+            Err(e) => McpToolResult {
+                content: vec![McpContent::Text {
+                    text: format!("{}", e),
+                }],
+                is_error: Some(true),
+            },
+        }
+    }
+
     /// Get a specific tool by name
     pub fn get_tool(&self, name: &str) -> Option<&McpTool> {
         self.registered_tools.get(name)
@@ -830,6 +885,7 @@ pub mod server {
             // MCP Protocol endpoints
             .route("/mcp/v1/initialize", post(handle_initialize))
             .route("/mcp/v1/tools", get(handle_list_tools))
+            .route("/mcp/v1/builtins", get(handle_list_builtin_tools))
             .route("/mcp/v1/tools/:name/execute", post(handle_call_tool))
             .route("/mcp/v1/resources", get(handle_list_resources))
             .route("/mcp/v1/resources/:uri", get(handle_read_resource))
@@ -903,6 +959,16 @@ pub mod server {
         }))
     }
 
+    /// Discover AetherShell builtins as MCP tools (effect-tagged). Kept separate
+    /// from `/tools` so the OS-tool list stays small; builtins are executed via
+    /// the same `/tools/:name/execute` route (it falls back to builtins).
+    async fn handle_list_builtin_tools(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+        let mcp = state.mcp.read().await;
+        Json(json!({
+            "tools": mcp.list_builtin_tools()
+        }))
+    }
+
     #[derive(Deserialize)]
     struct ToolCallRequest {
         arguments: HashMap<String, JsonValue>,
@@ -914,11 +980,23 @@ pub mod server {
         Json(payload): Json<ToolCallRequest>,
     ) -> impl IntoResponse {
         let mcp = state.mcp.read().await;
-        let call = McpToolCall {
-            name,
-            arguments: payload.arguments,
+        // If `name` is a registered OS tool, run it; otherwise treat it as an
+        // AetherShell builtin and route through the safety-guarded dispatch
+        // (effect policy, approval, jail, audit all apply). Builtin args come
+        // from the conventional `args` array in the request.
+        let result = if mcp.get_tool(&name).is_some() {
+            mcp.call_tool(McpToolCall {
+                name,
+                arguments: payload.arguments,
+            })
+        } else {
+            let args = payload
+                .arguments
+                .get("args")
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!([]));
+            mcp.call_builtin(&name, &args)
         };
-        let result = mcp.call_tool(call);
 
         if result.is_error.unwrap_or(false) {
             (StatusCode::BAD_REQUEST, Json(result))

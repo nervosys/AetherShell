@@ -129,6 +129,9 @@ pub mod rl;
 /// RL models — reinforcement learning model definitions.
 #[cfg(feature = "native")]
 pub mod rlm;
+/// Safety core — effect taxonomy, policy/approval engine, hash-chained audit.
+#[cfg(feature = "native")]
+pub mod safety;
 /// Secure configuration — encrypted secrets and credential storage.
 #[cfg(feature = "native")]
 pub mod secure_config;
@@ -144,6 +147,9 @@ pub mod transpile;
 /// Terminal UI — rich TUI with chat, agent dashboard, and media viewer.
 #[cfg(feature = "native")]
 pub mod tui;
+/// Transactions — filesystem checkpoint/rollback journal for undoable actions.
+#[cfg(feature = "native")]
+pub mod tx;
 /// Workflows — workflow engine for multi-step automation.
 #[cfg(feature = "native")]
 pub mod workflows;

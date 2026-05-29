@@ -76,6 +76,9 @@ candle = [
     "dep:tokenizers",
 ]
 onnx = ["dep:ort"]
+# Real GPT-4 BPE tokenizer (embeds cl100k vocab) for exact token counts across
+# the token-economy builtins (tokens/budget/digest/accounting) and the benchmark.
+real-tokens = ["dep:tiktoken-rs"]
 web = [
     "dep:wasm-bindgen",
     "dep:console_error_panic_hook",
@@ -166,6 +169,7 @@ candle-nn = { version = "0.8", optional = true }
 candle-transformers = { version = "0.8", optional = true }
 hf-hub = { version = "0.3", optional = true }
 tokenizers = { version = "0.21", optional = true }
+tiktoken-rs = { version = "0.6", optional = true }
 ort = { version = "2.0.0-rc.9", optional = true }
 
 # Unix-only dependencies (Linux, macOS, BSD)

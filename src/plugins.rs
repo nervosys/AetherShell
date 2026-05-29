@@ -2065,6 +2065,14 @@ pub fn bi_plugins_by_source(source_type: &str) -> Value {
 mod tests {
     use super::*;
 
+    // Several plugin tests mutate the process-global plugin registry (enable/
+    // disable). Serialize the ones whose assertions depend on a plugin's enabled
+    // state so they cannot race under parallel execution.
+    static REGISTRY_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    fn registry_guard() -> std::sync::MutexGuard<'static, ()> {
+        REGISTRY_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     #[test]
     fn test_plugin_registry_creation() {
         let registry = PluginRegistry::new();
@@ -2111,6 +2119,7 @@ mod tests {
 
     #[test]
     fn test_plugin_enable_disable() {
+        let _g = registry_guard();
         // Enable should work for existing plugin
         let result = bi_plugin_enable("builtin.json");
         assert!(result.is_ok());
@@ -2172,6 +2181,7 @@ mod tests {
 
     #[test]
     fn test_plugin_source() {
+        let _g = registry_guard();
         let source = bi_plugin_source("builtin.json");
         if let Value::Record(rec) = source {
             assert_eq!(rec.get("id"), Some(&Value::Str("builtin.json".to_string())));
