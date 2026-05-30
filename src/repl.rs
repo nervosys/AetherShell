@@ -111,6 +111,19 @@ pub fn run_one(env: &mut Env, code: &str) -> Result<i32> {
                 .ok()
                 .and_then(|s| s.parse::<usize>().ok())
                 .filter(|m| *m > 0);
+            // Deterministic mode (`--deterministic` / AE_DETERMINISTIC) takes
+            // precedence over every other renderer: canonical, byte-stable JSON for
+            // snapshot tests / caching / diffs. The whole value is emitted (budget
+            // is intentionally not applied — reproducibility wants the full result).
+            let deterministic = std::env::var("AE_DETERMINISTIC")
+                .map(|s| s == "1" || s.eq_ignore_ascii_case("true"))
+                .unwrap_or(false);
+            if deterministic {
+                if let Some(out) = crate::builtins::render_canonical(&v) {
+                    println!("{out}");
+                }
+                return Ok(0);
+            }
             // Agent mode renders results as compact, deterministic AECON by
             // default (keys once, the structural levers, no ANSI) — the token
             // savings happen automatically instead of requiring an explicit
