@@ -242,11 +242,18 @@ Honest reading (not rigged): on small all-varying results AECON beats PowerShell
 modestly (~1.4×). The **2×+ vs PowerShell** appears against the output an agent
 must actually *parse* — `Format-Table` is display-only (variable widths,
 truncation, culture-dependent), so a parsing agent uses `ConvertTo-Json`, where
-AECON is **~2.6×** cheaper. Two structural levers, both deterministic:
-**constant-factoring** (cardinality-1 columns → one `@const` line) and
+AECON is **~2.6×** cheaper. Three structural levers, all deterministic and all
+applied only where they're a measured *token* win:
+**constant-factoring** (cardinality-1 columns → one `@const` line);
 **dictionary encoding** (low-cardinality, multi-token string columns → one
-`@dict` line + 1-token indices). The dict lever is what keeps AECON above 2× on
-this harder data: without it, the literal `perm` string (~5 tok) × 50 rows would
+`@dict` line + 1-token indices); and **delta encoding** (large-valued,
+slowly-varying integer columns such as timestamps/sequential ids → a `@delta:`
+line + per-row differences, where a 10-digit absolute ≈4 tokens collapses to a
+~1-token step). Each is gated so a cheap form can only ever *replace* an expensive
+one — delta, for instance, fires only when raws average ≥4 digits (genuinely
+multi-token) and the deltas are under half the raw width, so small or oscillating
+integers are left literal. The dict lever is what keeps AECON above 2× on this
+harder listing: without it, the literal `perm` string (~5 tok) × 50 rows would
 add ~185 tokens, pushing AECON to ~747 and the JSON ratio down to ~1.9×. In every
 case AECON emits each column name once where JSON repeats every key on every row,
 and AECON is deterministic where the shell text formats are not.
@@ -419,10 +426,18 @@ wiring `ai.usage()`/`ai.cost()` (stubs, `builtins.rs:3708`) to the same counters
   records, emit field names *once* as a header, then positional rows. Typed,
   deterministic, ~CSV-of-records density with JSON fidelity. This is where the
   honest 50–70% *output*-token savings live — the dominant cost term. ✅
-  **Constant-column factoring**: columns whose value is identical across all rows
-  are emitted once in a `@const` line and omitted from each row (big saving for
-  constant status/type/owner fields; backward-compatible — no constants → the
-  prior format).
+  The header is followed by optional metadata lines, then positional rows. Three
+  deterministic, self-describing compression levers, each gated to fire only where
+  it's a measured token win:
+    - **`@const k=v …`** — columns identical across all rows, emitted once and
+      omitted from each row (status/type/owner fields).
+    - **`@dict col: v0\tv1\t…`** — low-cardinality, multi-token *string* columns;
+      rows reference the distinct values by a 1-token integer index.
+    - **`@delta: col …`** — large-valued, slowly-varying *integer* columns
+      (timestamps, sequential ids); row 0 holds the absolute value, each later row
+      holds the difference from the previous (reconstruct by running sum).
+  All backward-compatible (no eligible columns → the prior bare-header form), and
+  none ever inflate a result — a cheaper encoding can only *replace* a costlier one.
 - ✅ **Source-side projection is first-class.** `pick(fields…)` (dispatch 1128)
   keeps only the named fields of records / array-of-records / tables *before*
   rendering, so the agent never pays output tokens for discarded fields. Composes
