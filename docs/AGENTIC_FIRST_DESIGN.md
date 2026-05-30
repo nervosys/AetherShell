@@ -436,14 +436,22 @@ wiring `ai.usage()`/`ai.cost()` (stubs, `builtins.rs:3708`) to the same counters
     - **`@delta: col …`** — large-valued, slowly-varying *integer* columns
       (timestamps, sequential ids); row 0 holds the absolute value, each later row
       holds the difference from the previous (reconstruct by running sum).
+    - **`@type col:s|f …`** — type tags for *lossless* decode, emitted **only**
+      where the compact form is ambiguous: a string that looks like a
+      number/bool/null (`s`), or a float with an integral value that renders
+      without a `.` (`f`). Dict columns (always strings) and delta columns (always
+      integers) never need one, so this costs tokens only on genuine ambiguity.
   All backward-compatible (no eligible columns → the prior bare-header form), and
   none ever inflate a result — a cheaper encoding can only *replace* a costlier one.
-  ✅ **Reversible.** `aecon_decode(text)` (dispatch 1129) is the exact inverse for
-  tabular AECON: it restores `@const` columns to every row, resolves `@dict`
-  indices, and reconstructs `@delta` columns by running sum. A round-trip property
-  test asserts `decode(aecon(v)) == v` with all three levers active — so the
-  compression is a genuine encoding, not lossy display. (The string↔number
-  boundary is inferred, as in CSV; use `canonical` when exact typing matters.)
+  ✅ **Reversible — losslessly.** `aecon_decode(text)` (dispatch 1129) is the exact
+  inverse for tabular AECON: it restores `@const` columns to every row, resolves
+  `@dict` indices, reconstructs `@delta` columns by running sum, and honors `@type`
+  tags so numeric-looking strings and integral floats decode to their exact type.
+  Two round-trip property tests assert `decode(aecon(v)) == v` — one with all three
+  compression levers active, one with the ambiguous string/float values that the
+  `@type` line resolves — so the compression is a genuine, lossless encoding rather
+  than lossy display. (`canonical` remains the JSON-fidelity form for tooling that
+  needs JSON specifically.)
 - ✅ **Source-side projection is first-class.** `pick(fields…)` (dispatch 1128)
   keeps only the named fields of records / array-of-records / tables *before*
   rendering, so the agent never pays output tokens for discarded fields. Composes

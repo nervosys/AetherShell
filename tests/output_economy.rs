@@ -291,6 +291,47 @@ fn agent_mode_renders_results_as_aecon_by_default() {
 }
 
 #[test]
+fn aecon_typed_round_trip_is_lossless_for_ambiguous_values() {
+    // The compact form's one weakness is the string↔number boundary: a string
+    // "200" would infer as Int, and a float 1.0 renders as "1" (infers as Int).
+    // A `@type` line records the exact type for just those columns, so decode is
+    // lossless. Use 4 distinct codes so the column stays plain (not dict-encoded).
+    let codes = ["200", "404", "500", "301"];
+    let ratios = [1.0_f64, 2.5, 3.0, 4.25];
+    let original: Vec<Value> = (0..4)
+        .map(|i| {
+            rec(&[
+                ("name", Value::Str(format!("svc_{i}"))), // unambiguous string
+                ("code", Value::Str(codes[i].into())),    // numeric-looking string
+                ("ratio", Value::Float(ratios[i])),       // some integral floats
+                ("n", Value::Int(i as i64 * 10)),         // plain int
+            ])
+        })
+        .collect();
+    let arr = Value::Array(original.clone());
+
+    let encoded = match call("aecon", vec![arr]) {
+        Value::Str(s) => s,
+        other => panic!("{other:?}"),
+    };
+    // A type line is present, tagging exactly the ambiguous columns.
+    assert!(encoded.contains("@type "), "type header present: {encoded}");
+    assert!(encoded.contains("code:s"), "numeric-looking string tagged string: {encoded}");
+    assert!(encoded.contains("ratio:f"), "integral float tagged float: {encoded}");
+    assert!(!encoded.contains("name:"), "unambiguous string needs no tag: {encoded}");
+    assert!(!encoded.contains("n:"), "plain int needs no tag: {encoded}");
+
+    // Lossless: "200" stays a String, 1.0 stays a Float — not coerced to Int.
+    let decoded = match call("aecon_decode", vec![Value::Str(encoded)]) {
+        Value::Array(rows) => rows,
+        other => panic!("expected array, got {other:?}"),
+    };
+    for (i, (got, want)) in decoded.iter().zip(original.iter()).enumerate() {
+        assert_eq!(got, want, "row {i} round-trips exactly (typed)");
+    }
+}
+
+#[test]
 fn aecon_is_cheaper_than_json_for_homogeneous_records() {
     // 5 rows × 3 fields — the common "ls / proc.list / docker.ps" shape.
     let rows: Vec<Value> = (0..5)
