@@ -321,8 +321,12 @@ legacy shim that emits canonical AST.
 > contract — sorted keys, shortest round-trip locale-independent floats, explicit
 > `null` for non-finite/non-serializable values, correct escaping. Tests assert
 > byte-stability and insertion-order independence (`tests/reliability.rs`). The
-> lossless counterpart to `aecon` (§6.2). Remaining: make it the default agent-mode
-> render path behind `--deterministic`.
+> lossless counterpart to `aecon` (§6.2). ✅ **Wired as the default render under
+> `--deterministic` / `AE_DETERMINISTIC`** (`repl::run_one` → `render_canonical`),
+> taking precedence over both the agent AECON renderer and the human pretty-printer
+> — the whole value is emitted as canonical JSON (budget intentionally not applied,
+> since reproducibility wants the full result). `deterministic_mode_renders_canonical_json`
+> covers it (`tests/output_economy.rs`).
 
 ### 5.1 Deterministic output contract
 

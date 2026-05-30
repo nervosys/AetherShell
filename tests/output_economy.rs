@@ -332,6 +332,35 @@ fn aecon_typed_round_trip_is_lossless_for_ambiguous_values() {
 }
 
 #[test]
+fn deterministic_mode_renders_canonical_json() {
+    use aethershell::builtins::render_canonical;
+
+    // Keys come out sorted regardless of insertion order, output is compact JSON,
+    // and equal values render byte-identically (the basis for reproducible diffs).
+    let r = rec(&[("b", Value::Int(2)), ("a", Value::Int(1))]);
+    let out = render_canonical(&r).expect("some output");
+    assert_eq!(out, r#"{"a":1,"b":2}"#, "sorted-key canonical JSON");
+    assert_eq!(
+        render_canonical(&r).as_deref(),
+        Some(out.as_str()),
+        "byte-stable across calls"
+    );
+
+    // Null prints nothing (consistent with the other renderers).
+    assert!(render_canonical(&Value::Null).is_none());
+
+    // Array of records — the lossless counterpart to AECON's compact table.
+    let arr = Value::Array(vec![
+        rec(&[("x", Value::Int(1))]),
+        rec(&[("x", Value::Int(2))]),
+    ]);
+    assert_eq!(
+        render_canonical(&arr).as_deref(),
+        Some(r#"[{"x":1},{"x":2}]"#)
+    );
+}
+
+#[test]
 fn aecon_is_cheaper_than_json_for_homogeneous_records() {
     // 5 rows × 3 fields — the common "ls / proc.list / docker.ps" shape.
     let rows: Vec<Value> = (0..5)

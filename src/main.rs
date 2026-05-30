@@ -60,6 +60,11 @@ struct Cli {
     #[arg(long, value_name = "POLICY")]
     policy: Option<String>,
 
+    /// Deterministic output: render results as canonical, byte-stable JSON
+    /// (sorted keys, stable floats) for snapshot tests, caching, and diffs
+    #[arg(long)]
+    deterministic: bool,
+
     /// Script file to execute
     #[arg(value_name = "FILE")]
     file: Option<String>,
@@ -266,6 +271,9 @@ fn main() -> Result<()> {
     }
     if let Some(p) = &cli.policy {
         std::env::set_var("AETHER_POLICY", p);
+    }
+    if cli.deterministic {
+        std::env::set_var("AE_DETERMINISTIC", "1");
     }
 
     // Handle subcommands

@@ -15408,6 +15408,18 @@ pub fn render_agent(v: &Value, budget: Option<usize>) -> Option<String> {
     }
 }
 
+/// Render a result for **deterministic mode** (`--deterministic` / `AE_DETERMINISTIC`):
+/// canonical JSON — byte-identical for equal values across OS/locale (sorted keys,
+/// shortest round-trip floats), for snapshot tests, content-addressable caching,
+/// and cross-tool diffs. The whole value is emitted (no budget truncation, which
+/// would break reproducibility of the full result). `Null` prints nothing.
+pub fn render_canonical(v: &Value) -> Option<String> {
+    match v {
+        Value::Null => None,
+        _ => Some(canonical_render(v)),
+    }
+}
+
 /// Format a `budget_value`/`budget_string_record` envelope as AECON page text plus
 /// a single `@page k=v…` metadata line (the page field is already AECON text, so
 /// it is emitted raw rather than re-quoted).
