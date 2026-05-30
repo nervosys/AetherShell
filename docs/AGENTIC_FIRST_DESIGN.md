@@ -206,6 +206,43 @@ live cost terms.
 legacy; invest the token budget in output economy (§6.2) + progressive ontology
 disclosure (§5.4).** ✅ Done — exactly the work carried out in §5–§9.
 
+### 4.0b Cross-shell comparison (`examples/shell_bench.rs`)
+
+An agent pays tokens for the **command** it writes *and* the **output it reads
+back**. Traditional shells return verbose, non-deterministic text; AetherShell
+returns compact typed AECON. Measured with the real cl100k tokenizer
+(`cargo run --example shell_bench --features real-tokens`) over 4 representative
+tasks (list files, processes, JSON field, disk usage), counting command + output:
+
+| Shell | cmd tok | output tok | total | vs AetherShell |
+| --- | --- | --- | --- | --- |
+| **aethershell** | 48 | 70 | **118** | 1.00× |
+| bash / zsh / fish | 28 | 303 | 331 | 2.81× |
+| nushell | 34 | 341 | 375 | 3.18× |
+| powershell | 55 | 105 | 160 | 1.36× |
+
+After tightening AECON to a bare TSV header (dropping the `@aecon rows=N cols=`
+prefix), the small-result totals are **2.8× cheaper than the POSIX shells, 3.2×
+vs Nushell, and 1.36× vs PowerShell** (scalar results at parity).
+
+**At realistic scale** (`scale_comparison`, a 50-row listing with variable-width
+`name`/`size` + constant `owner`/`group`/`perm`, rendered with the *real* `aecon`):
+
+| Output format (50 rows) | tokens | vs AECON |
+| --- | --- | --- |
+| **aethershell (aecon)** | 446 | 1.00× |
+| powershell `Format-Table` | 787 | 1.76× |
+| powershell `ConvertTo-Json` | 1430 | **3.21×** |
+| nushell (boxed table) | 1385 | 3.11× |
+
+Honest reading (not rigged): on small all-varying results AECON beats PowerShell
+modestly (~1.4×). The **2×+ vs PowerShell** appears against the output an agent
+must actually *parse* — `Format-Table` is display-only (variable widths,
+truncation, culture-dependent), so a parsing agent uses `ConvertTo-Json`, where
+AECON is **~3.2×** cheaper. The structural lever is **key-factoring**: AECON emits
+each column name once (constants once via `@const`); JSON repeats every key on
+every row. Plus AECON is deterministic; the shell text formats are not.
+
 ### 4.1 Harness
 
 A new crate-internal tool `ae bench tokens` (or `cargo run -p ae-bench`) that, for

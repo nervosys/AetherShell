@@ -14534,7 +14534,18 @@ fn aecon_render(v: &Value) -> String {
             } else {
                 var_keys = keys.clone();
             }
-            let mut out = format!("@aecon rows={} cols={}", rows.len(), var_keys.join(","));
+            // If every column is constant (identical rows), don't factor it all
+            // away — keep them as the header so the row count stays observable.
+            if var_keys.is_empty() {
+                var_keys = keys.clone();
+                const_keys.clear();
+            }
+            // Tight format: a bare tab-separated header line (the column schema),
+            // an optional `@const` line for factored constants, then positional
+            // tab-separated rows. No `@aecon rows=N cols=` prefix — the header is
+            // self-describing and ~7 tokens cheaper per result than the verbose
+            // form, which dominates small results.
+            let mut out = var_keys.join("\t");
             if !const_keys.is_empty() {
                 let consts: Vec<String> = const_keys
                     .iter()
@@ -14543,15 +14554,13 @@ fn aecon_render(v: &Value) -> String {
                 out.push_str("\n@const ");
                 out.push_str(&consts.join("\t"));
             }
-            if !var_keys.is_empty() {
-                for r in &rows {
-                    let cells: Vec<String> = var_keys
-                        .iter()
-                        .map(|k| aecon_atom(r.get(k).unwrap_or(&Value::Null)))
-                        .collect();
-                    out.push('\n');
-                    out.push_str(&cells.join("\t"));
-                }
+            for r in &rows {
+                let cells: Vec<String> = var_keys
+                    .iter()
+                    .map(|k| aecon_atom(r.get(k).unwrap_or(&Value::Null)))
+                    .collect();
+                out.push('\n');
+                out.push_str(&cells.join("\t"));
             }
             return out;
         }
