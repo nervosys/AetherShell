@@ -453,14 +453,23 @@ wiring `ai.usage()`/`ai.cost()` (stubs, `builtins.rs:3708`) to the same counters
   token cost — so an agent grasps a large result's shape + size cheaply, then
   decides to `budget` (page), `aecon` (compact), or skip. Maximal information per
   token (`tests/output_economy.rs`).
-- ✅ **AECON is the default render in agent mode.** Under `AETHER_MODE=agent`
-  (or `AETHER_AGENT=1`), `repl::run_one` renders every result through
-  `builtins::render_agent` — compact, deterministic AECON with no ANSI, so the
-  output-token savings happen *automatically* instead of requiring an explicit
-  `| aecon`. A bare string is returned raw; `Null` prints nothing; with a budget
-  set the value is paged and emitted as the AECON page plus one compact `@page …`
-  line (`shown`/`total`/`elided`/`next_cursor`). The human REPL keeps its
-  colorized pretty-printer unchanged (`tests/output_economy.rs`).
+- ✅ **AECON is the default render in agent mode — on every surface.** Under
+  `AETHER_MODE=agent` (or `AETHER_AGENT=1`) the output-token savings happen
+  *automatically* instead of requiring an explicit `| aecon`:
+    - **CLI / REPL** (`repl::run_one`) renders every result through
+      `builtins::render_agent` — compact, deterministic AECON, no ANSI. A bare
+      string is returned raw; `Null` prints nothing; with a budget set the value
+      is paged and emitted as the AECON page plus one compact `@page …` line
+      (`shown`/`total`/`elided`/`next_cursor`).
+    - **HTTP Agent API** (`agent_api::execute_eval`) returns tabular results
+      (`Array`/`Table`) as AECON text with `result_type: "aecon"`; scalars and
+      single records stay native JSON (a bare number must not become a quoted
+      string). `token_accounting` then reflects the smaller payload.
+    - **MCP** (`McpServer::call_builtin`) returns tabular results as AECON text
+      content (no JSON re-escaping cost — MCP content is already plain text).
+  The human REPL keeps its colorized pretty-printer; non-agent API/MCP consumers
+  keep full JSON — only the agent path diverts (`tests/output_economy.rs`,
+  `tests/mcp_tools.rs`).
 
 ### 6.3 Stateful sessions + streaming
 

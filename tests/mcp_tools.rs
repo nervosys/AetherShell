@@ -666,3 +666,25 @@ fn call_builtin_gates_destructive_in_agent_mode() {
         builtin_text(&res)
     );
 }
+
+#[test]
+fn call_builtin_renders_tabular_as_aecon_in_agent_mode() {
+    // In agent mode an array-of-records result comes back as compact AECON text
+    // (header once) rather than the verbose per-row display — mirroring the CLI.
+    std::env::set_var("AETHER_MODE", "agent");
+    let server = McpServer::new();
+    let res = server.call_builtin(
+        "pick",
+        &serde_json::json!([
+            [{"name": "a", "size": 1, "kind": "x"}, {"name": "b", "size": 2, "kind": "x"}],
+            "name",
+            "size"
+        ]),
+    );
+    let text = builtin_text(&res);
+    std::env::remove_var("AETHER_MODE");
+
+    assert_eq!(res.is_error, Some(false), "pick succeeds: {text}");
+    assert!(text.starts_with("name\tsize"), "rendered as AECON: {text}");
+    assert!(text.contains("\na\t1") && text.contains("\nb\t2"), "rows present: {text}");
+}

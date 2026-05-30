@@ -446,6 +446,28 @@ fn execute_eval(code: &str) -> AgentResponse {
         Ok(stmts) => match eval_program(&stmts, &mut env) {
             Ok(value) => {
                 let result_type = value_type_name(&value);
+                // Agent mode mirrors the CLI default: tabular results (Array/Table,
+                // where keys would otherwise repeat per row) are returned as compact
+                // AECON text instead of verbose JSON, paged to AE_TOKEN_BUDGET when
+                // set. Scalars/records/strings stay native JSON (a bare number must
+                // not become a quoted string). Non-agent consumers are unchanged.
+                if crate::safety::current_mode() == crate::safety::Mode::Agent
+                    && matches!(value, Value::Array(_) | Value::Table(_))
+                {
+                    let budget = std::env::var("AE_TOKEN_BUDGET")
+                        .ok()
+                        .and_then(|s| s.parse::<usize>().ok())
+                        .filter(|m| *m > 0);
+                    if let Some(text) = crate::builtins::render_agent(&value, budget) {
+                        return AgentResponse {
+                            success: true,
+                            result: Some(JsonValue::String(text)),
+                            error: None,
+                            result_type: Some("aecon".to_string()),
+                            metadata: Some(json!({ "code_executed": code, "render": "aecon" })),
+                        };
+                    }
+                }
                 AgentResponse {
                     success: true,
                     result: Some(value_to_json(&value)),

@@ -320,12 +320,27 @@ impl McpServer {
         };
         let mut env = crate::env::Env::new();
         match crate::builtins::call(name, values, &mut env) {
-            Ok(v) => McpToolResult {
-                content: vec![McpContent::Text {
-                    text: v.to_display_string(),
-                }],
-                is_error: Some(false),
-            },
+            Ok(v) => {
+                // Agent mode mirrors the CLI/HTTP default: tabular results render
+                // as compact AECON (MCP content is plain text, so no JSON
+                // re-escaping cost). Scalars keep their display form.
+                let text = if crate::safety::current_mode() == crate::safety::Mode::Agent
+                    && matches!(v, crate::value::Value::Array(_) | crate::value::Value::Table(_))
+                {
+                    let budget = std::env::var("AE_TOKEN_BUDGET")
+                        .ok()
+                        .and_then(|s| s.parse::<usize>().ok())
+                        .filter(|m| *m > 0);
+                    crate::builtins::render_agent(&v, budget)
+                        .unwrap_or_else(|| v.to_display_string())
+                } else {
+                    v.to_display_string()
+                };
+                McpToolResult {
+                    content: vec![McpContent::Text { text }],
+                    is_error: Some(false),
+                }
+            }
             Err(e) => McpToolResult {
                 content: vec![McpContent::Text {
                     text: format!("{}", e),
