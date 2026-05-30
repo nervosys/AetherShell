@@ -27712,6 +27712,8 @@ fn bi_file_append(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         }
     };
 
+    crate::tx::snapshot(&path); // record pre-append state if a transaction is active
+
     use std::io::Write;
     let mut file = std::fs::OpenOptions::new()
         .create(true)
@@ -36444,6 +36446,7 @@ pub fn bi_rmdir(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         reversible: false,
         fs_paths: true,
     })?;
+    crate::tx::snapshot(&path); // back up the directory tree if a transaction is active
     if recursive {
         std::fs::remove_dir_all(&path).map_err(|e| anyhow!("rmdir -r: {}: {}", path, e))?;
     } else {

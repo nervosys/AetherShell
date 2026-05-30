@@ -602,13 +602,14 @@ The `.ae` surface keeps readable, unambiguous syntax and gains:
 
 - ✅ **Transactions / checkpoints.** `tx_begin` / `tx_commit` / `tx_rollback` /
   `tx_status` (dispatch 1114-1117) over a backup journal (`src/tx.rs`): while a
-  transaction is active, `rm`/`file_write` record their pre-modification state
-  (`crate::tx::snapshot`), and rollback restores the pre-transaction state —
-  overwrites reverted, deletions undone, created files removed
-  (`tests/transactions.rs`). v1 scope: single (non-nested) transaction, files.
-  Nothing in Bash/PowerShell offers this. Plan/Apply ops: `write`/`append`/`rm`/
-  `mkdir`. *Remaining:* extend `snapshot` to more effecting builtins (rmdir trees,
-  db) and add nesting/savepoints.
+  transaction is active, `rm` / `file_write` / `file_append` / `rmdir` record their
+  pre-modification state (`crate::tx::snapshot`), and rollback restores the
+  pre-transaction state — overwrites reverted, appends truncated, deletions undone
+  (including **whole directory trees**, recursively backed up and restored), created
+  files removed (`tests/transactions.rs`). v1 scope: single (non-nested)
+  transaction; files and directory trees. Nothing in Bash/PowerShell offers this.
+  Plan/Apply ops: `write`/`append`/`rm`/`mkdir`. *Remaining:* extend `snapshot` to
+  database mutations, and add nesting/savepoints.
 - ✅ **Plan / Apply** (Terraform-style) for a destructive batch: `plan(ops)`
   returns a typed, reviewable summary + a content-bound approval token (executes
   nothing); `apply(ops)` runs the batch atomically inside a transaction — agent
