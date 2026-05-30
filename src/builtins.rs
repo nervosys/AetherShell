@@ -14540,11 +14540,56 @@ fn aecon_render(v: &Value) -> String {
                 var_keys = keys.clone();
                 const_keys.clear();
             }
+            // Dictionary encoding for low-cardinality, multi-character STRING
+            // columns (status/type/category fields): emit the distinct values
+            // once in a `@dict col: …` line and reference them by integer index
+            // per row. Deterministic heuristic (format-stable across builds);
+            // only fires where a repeated multi-token value beats a 1-token index
+            // — never on high-cardinality or numeric columns.
+            let mut dict_cols: std::collections::BTreeMap<String, Vec<String>> =
+                std::collections::BTreeMap::new();
+            let mut dict_index: std::collections::HashMap<String, std::collections::HashMap<String, usize>> =
+                std::collections::HashMap::new();
+            if rows.len() >= 4 {
+                for k in &var_keys {
+                    let mut distinct: Vec<String> = Vec::new();
+                    let mut seen = std::collections::HashSet::new();
+                    let mut all_str = true;
+                    for r in &rows {
+                        match r.get(k) {
+                            Some(Value::Str(s)) => {
+                                if seen.insert(s.clone()) {
+                                    distinct.push(s.clone());
+                                }
+                            }
+                            _ => {
+                                all_str = false;
+                                break;
+                            }
+                        }
+                    }
+                    if !all_str || distinct.len() < 2 {
+                        continue;
+                    }
+                    let d = distinct.len();
+                    let avg_len =
+                        distinct.iter().map(|s| s.chars().count()).sum::<usize>() / d;
+                    if d <= rows.len() / 2 && avg_len >= 3 {
+                        let idx: std::collections::HashMap<String, usize> = distinct
+                            .iter()
+                            .enumerate()
+                            .map(|(i, v)| (v.clone(), i))
+                            .collect();
+                        dict_index.insert(k.clone(), idx);
+                        dict_cols.insert(k.clone(), distinct);
+                    }
+                }
+            }
             // Tight format: a bare tab-separated header line (the column schema),
-            // an optional `@const` line for factored constants, then positional
-            // tab-separated rows. No `@aecon rows=N cols=` prefix — the header is
-            // self-describing and ~7 tokens cheaper per result than the verbose
-            // form, which dominates small results.
+            // optional `@const` (factored constants) and `@dict` (low-cardinality
+            // columns) metadata lines, then positional tab-separated rows. No
+            // `@aecon rows=N cols=` prefix — the header is self-describing and
+            // ~7 tokens cheaper per result than the verbose form.
             let mut out = var_keys.join("\t");
             if !const_keys.is_empty() {
                 let consts: Vec<String> = const_keys
@@ -14554,10 +14599,22 @@ fn aecon_render(v: &Value) -> String {
                 out.push_str("\n@const ");
                 out.push_str(&consts.join("\t"));
             }
+            for (col, distinct) in &dict_cols {
+                out.push_str(&format!("\n@dict {}: ", col));
+                out.push_str(&distinct.join("\t"));
+            }
             for r in &rows {
                 let cells: Vec<String> = var_keys
                     .iter()
-                    .map(|k| aecon_atom(r.get(k).unwrap_or(&Value::Null)))
+                    .map(|k| {
+                        let v = r.get(k).unwrap_or(&Value::Null);
+                        match (dict_index.get(k), v) {
+                            (Some(idx), Value::Str(s)) => {
+                                idx.get(s).map(|i| i.to_string()).unwrap_or_else(|| aecon_atom(v))
+                            }
+                            _ => aecon_atom(v),
+                        }
+                    })
                     .collect();
                 out.push('\n');
                 out.push_str(&cells.join("\t"));

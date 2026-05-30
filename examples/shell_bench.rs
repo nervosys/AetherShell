@@ -234,32 +234,34 @@ const CORPUS: &[Task] = &[
 /// compares it to a PowerShell-style padded table and a Nushell-style boxed
 /// table generated from the same data — where the 2–10× gap actually appears.
 fn scale_comparison() {
-    // A realistic 50-row listing: variable-width `name`/`size`, plus the
-    // constant low-cardinality columns every real listing has (owner/group/
-    // permissions). This is the common shape where AECON's structural wins bite:
-    // constant columns are factored into one `@const` line, and rows use a single
-    // tab instead of width-padding — while PowerShell repeats every column,
-    // padded, on every row.
-    let (owner, group, perm) = ("alice", "staff", "rw-r--r--");
-    let rows: Vec<(String, i64)> = (0..50)
+    // A realistic 50-row listing exercising BOTH structural levers:
+    //  • variable-width `name`/`size` — the genuinely incompressible data;
+    //  • constant `owner`/`group` — factored once into a `@const` line;
+    //  • low-cardinality `perm` (3 distinct values, as real listings have) —
+    //    dictionary-encoded once into a `@dict` line, referenced by 1-token index.
+    // Traditional shells repeat all five columns, in full, on every row.
+    let (owner, group) = ("alice", "staff");
+    let perms = ["rw-r--r--", "rwxr-xr-x", "rw-rw-r--"];
+    let rows: Vec<(String, i64, &str)> = (0..50)
         .map(|i| {
             (
                 format!("file_{i:03}.rs"),
                 10i64.pow((i % 11) as u32 + 1) + i as i64, // widely varying width
+                perms[(i % 3) as usize],
             )
         })
         .collect();
 
-    // AetherShell: the *real* aecon output (factors owner/group/perm to @const).
+    // AetherShell: the *real* aecon output (@const owner/group, @dict perm).
     let arr = Value::Array(
         rows.iter()
-            .map(|(n, s)| {
+            .map(|(n, s, p)| {
                 let mut m = BTreeMap::new();
                 m.insert("name".to_string(), Value::Str(n.clone()));
                 m.insert("size".to_string(), Value::Int(*s));
                 m.insert("owner".to_string(), Value::Str(owner.to_string()));
                 m.insert("group".to_string(), Value::Str(group.to_string()));
-                m.insert("perm".to_string(), Value::Str(perm.to_string()));
+                m.insert("perm".to_string(), Value::Str(p.to_string()));
                 Value::Record(m)
             })
             .collect(),
@@ -271,19 +273,19 @@ fn scale_comparison() {
     };
 
     // PowerShell Format-Table: all five columns, padded, repeated on every row.
-    let nw = rows.iter().map(|(n, _)| n.len()).max().unwrap_or(4).max(4);
-    let sw = rows.iter().map(|(_, s)| s.to_string().len()).max().unwrap_or(4).max(4);
-    let (ow, gw, pw) = (owner.len().max(5), group.len().max(5), perm.len().max(4));
+    let nw = rows.iter().map(|(n, _, _)| n.len()).max().unwrap_or(4).max(4);
+    let sw = rows.iter().map(|(_, s, _)| s.to_string().len()).max().unwrap_or(4).max(4);
+    let (ow, gw, pw) = (owner.len().max(5), group.len().max(5), 9.max(4));
     let mut ps = format!(
         "\n{:<nw$} {:>sw$} {:<ow$} {:<gw$} {:<pw$}\n{} {} {} {} {}\n",
         "Name", "Size", "Owner", "Group", "Perm",
         "-".repeat(nw), "-".repeat(sw), "-".repeat(ow), "-".repeat(gw), "-".repeat(pw),
         nw = nw, sw = sw, ow = ow, gw = gw, pw = pw
     );
-    for (n, s) in &rows {
+    for (n, s, p) in &rows {
         ps.push_str(&format!(
             "{:<nw$} {:>sw$} {:<ow$} {:<gw$} {:<pw$}\n",
-            n, s, owner, group, perm, nw = nw, sw = sw, ow = ow, gw = gw, pw = pw
+            n, s, owner, group, p, nw = nw, sw = sw, ow = ow, gw = gw, pw = pw
         ));
     }
 
@@ -295,10 +297,10 @@ fn scale_comparison() {
         "name", "size", "owner", "group", "perm", nw = nw, sw = sw, ow = ow, gw = gw, pw = pw
     ));
     nu.push_str(&format!("├───┼{}┼{}┼{}┼{}┼{}┤\n", bar(nw), bar(sw), bar(ow), bar(gw), bar(pw)));
-    for (i, (n, s)) in rows.iter().enumerate() {
+    for (i, (n, s, p)) in rows.iter().enumerate() {
         nu.push_str(&format!(
             "│ {i} │ {:<nw$} │ {:>sw$} │ {:<ow$} │ {:<gw$} │ {:<pw$} │\n",
-            n, s, owner, group, perm, nw = nw, sw = sw, ow = ow, gw = gw, pw = pw
+            n, s, owner, group, p, nw = nw, sw = sw, ow = ow, gw = gw, pw = pw
         ));
     }
     nu.push_str(&format!("╰───┴{}┴{}┴{}┴{}┴{}╯", bar(nw), bar(sw), bar(ow), bar(gw), bar(pw)));
@@ -307,20 +309,20 @@ fn scale_comparison() {
     // *reliably parse* the result (Format-Table is display-only — variable widths,
     // truncation, culture-dependent). JSON repeats every key on every row.
     let mut js = String::from("[");
-    for (idx, (n, s)) in rows.iter().enumerate() {
+    for (idx, (n, s, p)) in rows.iter().enumerate() {
         if idx > 0 {
             js.push(',');
         }
         js.push_str(&format!(
             "{{\"Name\":\"{}\",\"Size\":{},\"Owner\":\"{}\",\"Group\":\"{}\",\"Perm\":\"{}\"}}",
-            n, s, owner, group, perm
+            n, s, owner, group, p
         ));
     }
     js.push(']');
 
     let (a, p, n, j) = (toks(&aecon_out), toks(&ps), toks(&nu), toks(&js));
     let a = a.max(1);
-    println!("\nAt scale — a realistic 50-row listing (5 cols, 3 constant); output tokens:");
+    println!("\nAt scale — a realistic 50-row listing (5 cols: @const + @dict factoring); output tokens:");
     println!("  aethershell (aecon)              {:>6}   1.00x", a);
     println!("  powershell (Format-Table*)       {:>6}{:>7.2}x", p, p as f64 / a as f64);
     println!("  powershell (ConvertTo-Json)      {:>6}{:>7.2}x", j, j as f64 / a as f64);
