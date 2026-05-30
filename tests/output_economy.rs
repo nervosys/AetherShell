@@ -258,6 +258,39 @@ fn aecon_round_trips_through_all_three_levers() {
 }
 
 #[test]
+fn agent_mode_renders_results_as_aecon_by_default() {
+    use aethershell::builtins::render_agent;
+
+    // An array of records renders as compact AECON: header once, no ANSI escapes,
+    // deterministic — not the human colorized pretty-printer.
+    let rows: Vec<Value> = (0..5)
+        .map(|i| rec(&[("name", Value::Str(format!("f{i}"))), ("size", Value::Int(i * 100))]))
+        .collect();
+    let out = render_agent(&Value::Array(rows), None).expect("some output");
+    assert!(out.starts_with("name\tsize"), "AECON header: {out}");
+    assert!(!out.contains('\u{1b}'), "no ANSI escapes in agent output: {out:?}");
+
+    // A bare string is returned raw — that single value is what the agent asked for.
+    assert_eq!(
+        render_agent(&Value::Str("hello".into()), None).as_deref(),
+        Some("hello")
+    );
+    // Null prints nothing.
+    assert!(render_agent(&Value::Null, None).is_none());
+
+    // Under a tight token budget, a large array pages and carries one compact
+    // `@page …` metadata line (the page itself is raw AECON, not a re-quoted blob).
+    let big: Vec<Value> = (0..200)
+        .map(|i| rec(&[("id", Value::Int(i)), ("label", Value::Str(format!("item_{i}")))]))
+        .collect();
+    let paged = render_agent(&Value::Array(big), Some(40)).expect("some output");
+    assert!(paged.contains("@page "), "budget envelope metadata line: {paged}");
+    assert!(paged.contains("total=200"), "total rows reported: {paged}");
+    assert!(paged.contains("next_cursor="), "paging cursor present: {paged}");
+    assert!(!paged.contains("page=\""), "page text emitted raw, not re-quoted: {paged}");
+}
+
+#[test]
 fn aecon_is_cheaper_than_json_for_homogeneous_records() {
     // 5 rows × 3 fields — the common "ls / proc.list / docker.ps" shape.
     let rows: Vec<Value> = (0..5)
