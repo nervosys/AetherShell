@@ -15265,6 +15265,49 @@ pub fn budget_value(value: &Value, max: usize, cursor: usize) -> Value {
     Value::Record(r)
 }
 
+/// Render a result for **agent mode** (`AETHER_MODE=agent`): compact, deterministic
+/// AECON instead of the human pretty-printer (no ANSI, keys emitted once, the
+/// three structural levers applied). `Null` prints nothing and a bare `Str` is
+/// returned raw (a single field value is what the agent asked for). When a token
+/// budget is set, the value is paged via `budget_value` and rendered as the AECON
+/// page followed by one compact `@page …` metadata line (`shown`/`total`/`elided`/
+/// `next_cursor`/…), avoiding the double-encoding that pretty-printing the
+/// envelope record would cause.
+pub fn render_agent(v: &Value, budget: Option<usize>) -> Option<String> {
+    match v {
+        Value::Null => None,
+        Value::Str(s) => Some(s.clone()),
+        _ => Some(match budget {
+            Some(max) if max > 0 => render_budget_envelope(&budget_value(v, max, 0)),
+            _ => aecon_render(v),
+        }),
+    }
+}
+
+/// Format a `budget_value`/`budget_string_record` envelope as AECON page text plus
+/// a single `@page k=v…` metadata line (the page field is already AECON text, so
+/// it is emitted raw rather than re-quoted).
+fn render_budget_envelope(env: &Value) -> String {
+    if let Value::Record(m) = env {
+        let page = match m.get("page") {
+            Some(Value::Str(s)) => s.clone(),
+            _ => String::new(),
+        };
+        let meta: Vec<String> = m
+            .iter()
+            .filter(|(k, _)| k.as_str() != "page")
+            .map(|(k, val)| format!("{}={}", k, aecon_atom(val)))
+            .collect();
+        if meta.is_empty() {
+            page
+        } else {
+            format!("{}\n@page {}", page, meta.join("\t"))
+        }
+    } else {
+        aecon_render(env)
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Plan / Apply (docs/AGENTIC_FIRST_DESIGN.md §9): a destructive batch is
 // described declaratively, reviewed (typed plan + blast radius + a bound token),

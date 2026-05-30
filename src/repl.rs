@@ -107,11 +107,25 @@ pub fn run_one(env: &mut Env, code: &str) -> Result<i32> {
     let config = get_config();
     match eval_line(env, code) {
         Ok(v) => {
-            // Apply an output token budget when AE_TOKEN_BUDGET is set (e.g. via
-            // the `--budget` CLI flag): large results are paged/truncated to fit.
-            let v = match std::env::var("AE_TOKEN_BUDGET").ok().and_then(|s| s.parse::<usize>().ok()) {
-                Some(max) if max > 0 => crate::builtins::budget_value(&v, max, 0),
-                _ => v,
+            let budget = std::env::var("AE_TOKEN_BUDGET")
+                .ok()
+                .and_then(|s| s.parse::<usize>().ok())
+                .filter(|m| *m > 0);
+            // Agent mode renders results as compact, deterministic AECON by
+            // default (keys once, the structural levers, no ANSI) — the token
+            // savings happen automatically instead of requiring an explicit
+            // `| aecon`. The human REPL keeps its colorized pretty-printer.
+            if crate::safety::current_mode() == crate::safety::Mode::Agent {
+                if let Some(out) = crate::builtins::render_agent(&v, budget) {
+                    println!("{out}");
+                }
+                return Ok(0);
+            }
+            // Human path: apply an output token budget when AE_TOKEN_BUDGET is set
+            // (e.g. via `--budget`), then pretty-print.
+            let v = match budget {
+                Some(max) => crate::builtins::budget_value(&v, max, 0),
+                None => v,
             };
             if let Some(out) = render_for_repl(&v) {
                 println!("{out}");
