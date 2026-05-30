@@ -1565,6 +1565,9 @@ lazy_static::lazy_static! {
     map.insert("db_kv_delete", 1132);
     map.insert("db_kv_keys", 1133);
     map.insert("db_kv_store", 1134);
+    // transactions: named savepoints (partial rollback)
+    map.insert("tx_savepoint", 1135);
+    map.insert("tx_rollback_to", 1136);
         map
     };
 
@@ -3723,6 +3726,9 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_db_kv_delete(args, input), // 1132
     |args, input, _| bi_db_kv_keys(args, input),   // 1133
     |args, input, _| bi_db_kv_store(args, input),  // 1134
+    // transactions: named savepoints (partial rollback)
+    |args, input, _| bi_tx_savepoint(args, input),    // 1135
+    |args, input, _| bi_tx_rollback_to(args, input),  // 1136
 ];
 
 fn fast_builtin_lookup(
@@ -15660,6 +15666,33 @@ fn bi_tx_status(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             r.insert("active".to_string(), Value::Bool(false));
         }
     }
+    Ok(Value::Record(r))
+}
+
+/// tx_savepoint(name) - Mark a named savepoint inside the active transaction; a
+/// later `tx_rollback_to(name)` reverts only the operations recorded after it.
+fn bi_tx_savepoint(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(crate::safety::bad_arg("tx_savepoint", "name: String", "nothing")),
+    };
+    crate::tx::savepoint(&name)?;
+    let mut r = BTreeMap::new();
+    r.insert("savepoint".to_string(), Value::Str(name));
+    Ok(Value::Record(r))
+}
+
+/// tx_rollback_to(name) - Roll back to a named savepoint, reverting only the
+/// operations recorded after it; the transaction stays open.
+fn bi_tx_rollback_to(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => return Err(crate::safety::bad_arg("tx_rollback_to", "name: String", "nothing")),
+    };
+    let n = crate::tx::rollback_to(&name)?;
+    let mut r = BTreeMap::new();
+    r.insert("rolled_back_to".to_string(), Value::Str(name));
+    r.insert("restored".to_string(), Value::Int(n as i64));
     Ok(Value::Record(r))
 }
 

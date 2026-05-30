@@ -329,6 +329,49 @@ fn rollback_restores_a_key_value_store_mutation() {
 }
 
 #[test]
+fn savepoint_enables_partial_rollback_then_commit() {
+    let _l = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    reset_tx();
+    let w = std::env::temp_dir().join(format!("ae_tx_sp_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&w);
+    std::fs::create_dir_all(&w).unwrap();
+    std::env::set_var("AETHER_WORKSPACE", &w);
+
+    let before = w.join("before.txt"); // written before the savepoint → kept
+    let after = w.join("after.txt"); // written after the savepoint → reverted
+
+    call("tx_begin", vec![]);
+    call("file_write", vec![s(&before.to_string_lossy()), s("keep-me")]);
+    call("tx_savepoint", vec![s("sp1")]);
+    call("file_write", vec![s(&after.to_string_lossy()), s("discard-me")]);
+
+    // Both live before the partial rollback.
+    assert!(before.exists() && after.exists());
+
+    match call("tx_rollback_to", vec![s("sp1")]) {
+        Value::Record(m) => assert_eq!(m.get("restored"), Some(&Value::Int(1))),
+        other => panic!("expected record, got {other:?}"),
+    }
+
+    // Post-savepoint creation is gone; pre-savepoint write survives; tx still open.
+    assert!(!after.exists(), "post-savepoint op reverted");
+    assert_eq!(std::fs::read_to_string(&before).unwrap(), "keep-me");
+    match call("tx_status", vec![]) {
+        Value::Record(m) => assert_eq!(m.get("active"), Some(&Value::Bool(true)),
+            "transaction stays open after partial rollback"),
+        other => panic!("expected record, got {other:?}"),
+    }
+
+    // Commit keeps the surviving change.
+    call("tx_commit", vec![]);
+    assert_eq!(std::fs::read_to_string(&before).unwrap(), "keep-me");
+    assert!(!after.exists());
+
+    std::env::remove_var("AETHER_WORKSPACE");
+    let _ = std::fs::remove_dir_all(&w);
+}
+
+#[test]
 fn commit_keeps_changes_and_clears_state() {
     let _l = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     reset_tx();
