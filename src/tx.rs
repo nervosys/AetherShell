@@ -8,11 +8,12 @@
 //! exist" marker for newly-created paths). `rollback` replays those records in
 //! reverse to restore the workspace to its pre-transaction state.
 //!
-//! Scope (v1): single (non-nested) transaction; files **and directory trees**
-//! (a recursive `rmdir` backs up and restores the whole tree). Backups live under
-//! `<workspace>/.ae/tx/<id>/`. Pairs naturally with the safety model — a
-//! destructive batch can be planned, approved, attempted, and rolled back
-//! atomically.
+//! Scope (v1): single (non-nested) transaction with **named savepoints**
+//! (`savepoint`/`rollback_to` for partial rollback, SQL-style); files **and
+//! directory trees** (a recursive `rmdir` backs up and restores the whole tree).
+//! Backups live under `<workspace>/.ae/tx/<id>/`. Pairs naturally with the safety
+//! model — a destructive batch can be planned, approved, attempted, and rolled
+//! back atomically.
 
 use anyhow::{anyhow, Result};
 use lazy_static::lazy_static;
@@ -56,6 +57,37 @@ struct Transaction {
     undos: Vec<Undo>,
     seen: HashSet<PathBuf>,
     n: u64,
+    /// Named savepoints: `(name, index into `undos`)`. `rollback_to` reverts the
+    /// operations recorded after a savepoint while leaving the transaction open.
+    savepoints: Vec<(String, usize)>,
+}
+
+/// Restore a single recorded path to its pre-modification state. Returns whether
+/// anything was restored. Shared by full `rollback` and `rollback_to`.
+fn restore_one(u: &Undo) -> bool {
+    if u.existed {
+        if let Some(b) = &u.backup {
+            if u.is_dir {
+                let _ = std::fs::remove_dir_all(&u.original);
+                copy_tree(b, &u.original).is_ok()
+            } else {
+                if let Some(parent) = u.original.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                std::fs::copy(b, &u.original).is_ok()
+            }
+        } else {
+            false
+        }
+    } else if u.original.is_file() {
+        let _ = std::fs::remove_file(&u.original);
+        true
+    } else if u.original.is_dir() {
+        let _ = std::fs::remove_dir_all(&u.original);
+        true
+    } else {
+        false
+    }
 }
 
 lazy_static! {
@@ -108,6 +140,7 @@ pub fn begin() -> Result<String> {
         undos: Vec::new(),
         seen: HashSet::new(),
         n: 0,
+        savepoints: Vec::new(),
     });
     Ok(id)
 }
@@ -172,31 +205,55 @@ pub fn rollback() -> Result<usize> {
         .ok_or_else(|| anyhow!("tx_rollback: no active transaction"))?;
     let mut restored = 0usize;
     for u in tx.undos.iter().rev() {
-        if u.existed {
-            if let Some(b) = &u.backup {
-                if u.is_dir {
-                    // Replace whatever is there now with the backed-up tree.
-                    let _ = std::fs::remove_dir_all(&u.original);
-                    if copy_tree(b, &u.original).is_ok() {
-                        restored += 1;
-                    }
-                } else {
-                    if let Some(parent) = u.original.parent() {
-                        let _ = std::fs::create_dir_all(parent);
-                    }
-                    if std::fs::copy(b, &u.original).is_ok() {
-                        restored += 1;
-                    }
-                }
-            }
-        } else if u.original.is_file() {
-            let _ = std::fs::remove_file(&u.original);
-            restored += 1;
-        } else if u.original.is_dir() {
-            let _ = std::fs::remove_dir_all(&u.original);
+        if restore_one(u) {
             restored += 1;
         }
     }
     let _ = std::fs::remove_dir_all(&tx.dir);
+    Ok(restored)
+}
+
+/// Mark a named savepoint within the active transaction. A later `rollback_to`
+/// reverts only the operations recorded after this point. Errors if no
+/// transaction is active. Re-using a name adds a new savepoint; `rollback_to`
+/// targets the most recent one with that name (SQL semantics).
+pub fn savepoint(name: &str) -> Result<()> {
+    let mut g = TX.lock().map_err(|_| anyhow!("tx lock poisoned"))?;
+    let tx = g
+        .as_mut()
+        .ok_or_else(|| anyhow!("tx_savepoint: no active transaction"))?;
+    let idx = tx.undos.len();
+    tx.savepoints.push((name.to_string(), idx));
+    Ok(())
+}
+
+/// Roll back to a named savepoint: revert (in reverse) every operation recorded
+/// after it, leaving the transaction open and the savepoint itself intact (so it
+/// can be rolled back to again). Savepoints created after it are released.
+/// Returns the number of paths restored. Errors if no transaction is active or
+/// the savepoint is unknown.
+pub fn rollback_to(name: &str) -> Result<usize> {
+    let mut g = TX.lock().map_err(|_| anyhow!("tx lock poisoned"))?;
+    let tx = g
+        .as_mut()
+        .ok_or_else(|| anyhow!("tx_rollback_to: no active transaction"))?;
+    let pos = tx
+        .savepoints
+        .iter()
+        .rposition(|(n, _)| n == name)
+        .ok_or_else(|| anyhow!("tx_rollback_to: no savepoint named '{}'", name))?;
+    let idx = tx.savepoints[pos].1;
+    // Detach the operations recorded after the savepoint, then revert them so
+    // their paths can be re-snapshotted if modified again.
+    let tail: Vec<Undo> = tx.undos.drain(idx..).collect();
+    let mut restored = 0usize;
+    for u in tail.iter().rev() {
+        tx.seen.remove(&u.original);
+        if restore_one(u) {
+            restored += 1;
+        }
+    }
+    // Release savepoints created after the targeted one (keep it).
+    tx.savepoints.truncate(pos + 1);
     Ok(restored)
 }

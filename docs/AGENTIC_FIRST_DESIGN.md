@@ -615,7 +615,11 @@ The `.ae` surface keeps readable, unambiguous syntax and gains:
   builtins (`db_kv_get`/`set`/`delete`/`keys`/`store`, dispatch 1130-1134) route
   through `db_sqlite_exec`, so they inherit transactionality automatically *via the
   same chokepoint* — verified by `rollback_restores_a_key_value_store_mutation`.
-  *Remaining:* nesting/savepoints.
+  ✅ **Savepoints** (`tx_savepoint(name)` / `tx_rollback_to(name)`, dispatch
+  1135-1136): SQL-style partial rollback — revert only the operations recorded
+  after a named savepoint while leaving the transaction open (and the savepoint
+  re-usable). Verified by `savepoint_enables_partial_rollback_then_commit`.
+  *Remaining:* full nesting (a savepoint stack already covers most of its use).
 - ✅ **Plan / Apply** (Terraform-style) for a destructive batch: `plan(ops)`
   returns a typed, reviewable summary + a content-bound approval token (executes
   nothing); `apply(ops)` runs the batch atomically inside a transaction — agent
