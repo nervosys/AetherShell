@@ -14516,14 +14516,42 @@ fn aecon_render(v: &Value) -> String {
             .iter()
             .all(|r| r.len() == keys.len() && keys.iter().all(|k| r.contains_key(k)));
         if homogeneous {
-            let mut out = format!("@aecon rows={} cols={}", rows.len(), keys.join(","));
-            for r in &rows {
-                let cells: Vec<String> = keys
+            // Constant-column factoring: columns whose value is identical across
+            // ALL rows are emitted once in a `@const` line rather than repeated
+            // per row — a real per-row token saving for the common case of
+            // constant status/type/owner fields. (No constants → unchanged.)
+            let (mut const_keys, mut var_keys): (Vec<String>, Vec<String>) =
+                (Vec::new(), Vec::new());
+            if rows.len() >= 2 {
+                for k in &keys {
+                    let first = rows[0].get(k);
+                    if rows.iter().all(|r| r.get(k) == first) {
+                        const_keys.push(k.clone());
+                    } else {
+                        var_keys.push(k.clone());
+                    }
+                }
+            } else {
+                var_keys = keys.clone();
+            }
+            let mut out = format!("@aecon rows={} cols={}", rows.len(), var_keys.join(","));
+            if !const_keys.is_empty() {
+                let consts: Vec<String> = const_keys
                     .iter()
-                    .map(|k| aecon_atom(r.get(k).unwrap_or(&Value::Null)))
+                    .map(|k| format!("{}={}", k, aecon_atom(rows[0].get(k).unwrap_or(&Value::Null))))
                     .collect();
-                out.push('\n');
-                out.push_str(&cells.join("\t"));
+                out.push_str("\n@const ");
+                out.push_str(&consts.join("\t"));
+            }
+            if !var_keys.is_empty() {
+                for r in &rows {
+                    let cells: Vec<String> = var_keys
+                        .iter()
+                        .map(|k| aecon_atom(r.get(k).unwrap_or(&Value::Null)))
+                        .collect();
+                    out.push('\n');
+                    out.push_str(&cells.join("\t"));
+                }
             }
             return out;
         }
