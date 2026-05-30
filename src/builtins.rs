@@ -1559,6 +1559,12 @@ lazy_static::lazy_static! {
     map.insert("pick", 1128);
     // output economy: AECON decoder — reverses the tabular encoding (1129)
     map.insert("aecon_decode", 1129);
+    // persistent key-value store (sqlite-backed; transactional via db_sqlite_exec)
+    map.insert("db_kv_get", 1130);
+    map.insert("db_kv_set", 1131);
+    map.insert("db_kv_delete", 1132);
+    map.insert("db_kv_keys", 1133);
+    map.insert("db_kv_store", 1134);
         map
     };
 
@@ -3711,6 +3717,12 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_pick(args, input), // 1128
     // output economy: AECON decoder — reverses the tabular encoding (1129)
     |args, input, _| bi_aecon_decode(args, input), // 1129
+    // persistent key-value store (sqlite-backed; transactional via db_sqlite_exec)
+    |args, input, _| bi_db_kv_get(args, input),    // 1130
+    |args, input, _| bi_db_kv_set(args, input),    // 1131
+    |args, input, _| bi_db_kv_delete(args, input), // 1132
+    |args, input, _| bi_db_kv_keys(args, input),   // 1133
+    |args, input, _| bi_db_kv_store(args, input),  // 1134
 ];
 
 fn fast_builtin_lookup(
