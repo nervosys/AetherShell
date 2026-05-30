@@ -36,8 +36,8 @@ fn aecon_emits_header_once_for_record_array() {
         other => panic!("aecon should return a string, got {other:?}"),
     };
 
-    // One header line declaring the columns, then one line per row.
-    assert!(out.starts_with("@aecon rows=2 cols=name,size"), "got: {out}");
+    // A bare tab-separated header line, then one line per row (tight format).
+    assert!(out.starts_with("name\tsize"), "got: {out}");
     assert_eq!(out.lines().count(), 3, "header + 2 rows");
     // Keys appear exactly once (in the header), not repeated per row.
     assert_eq!(out.matches("name").count(), 1, "field name emitted once");
@@ -70,7 +70,7 @@ fn aecon_factors_out_constant_columns() {
     assert!(out.contains("@const "), "constant columns factored: {out}");
     assert!(out.contains("kind=file"));
     assert!(out.contains("owner=alice"));
-    assert!(out.contains("cols=name,size"));
+    assert!(out.starts_with("name\tsize"), "tight header lists varying cols: {out}");
     // "alice" appears exactly once (in @const), not 20 times.
     assert_eq!(out.matches("alice").count(), 1, "owner not repeated per row");
     assert_eq!(out.matches("file").count(), 1, "kind not repeated per row");
