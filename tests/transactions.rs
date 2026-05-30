@@ -255,6 +255,42 @@ fn rollback_undoes_a_file_append() {
 }
 
 #[test]
+fn rollback_restores_a_sqlite_db_file() {
+    let _l = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    reset_tx();
+    let w = std::env::temp_dir().join(format!("ae_tx_db_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&w);
+    std::fs::create_dir_all(&w).unwrap();
+    std::env::set_var("AETHER_WORKSPACE", &w);
+
+    let db = w.join("data.db");
+    std::fs::write(&db, b"ORIGINAL_DB_BYTES").unwrap();
+
+    call("tx_begin", vec![]);
+    // db_sqlite_exec snapshots the db file before shelling out to sqlite3, so the
+    // snapshot is recorded even when the sqlite3 CLI is unavailable on this host.
+    // (We then stand in for the engine's mutation with a direct write — the point
+    // under test is that exec captured a restorable snapshot.)
+    let mut env = aethershell::env::Env::new();
+    let _ = aethershell::builtins::call(
+        "db_sqlite_exec",
+        vec![s(&db.to_string_lossy()), s("DELETE FROM t WHERE 1=1")],
+        &mut env,
+    );
+    std::fs::write(&db, b"MUTATED").unwrap();
+
+    call("tx_rollback", vec![]);
+    assert_eq!(
+        std::fs::read(&db).unwrap(),
+        b"ORIGINAL_DB_BYTES",
+        "db file restored to its pre-transaction bytes on rollback"
+    );
+
+    std::env::remove_var("AETHER_WORKSPACE");
+    let _ = std::fs::remove_dir_all(&w);
+}
+
+#[test]
 fn commit_keeps_changes_and_clears_state() {
     let _l = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     reset_tx();

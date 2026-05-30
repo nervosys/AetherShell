@@ -602,14 +602,17 @@ The `.ae` surface keeps readable, unambiguous syntax and gains:
 
 - ✅ **Transactions / checkpoints.** `tx_begin` / `tx_commit` / `tx_rollback` /
   `tx_status` (dispatch 1114-1117) over a backup journal (`src/tx.rs`): while a
-  transaction is active, `rm` / `file_write` / `file_append` / `rmdir` record their
+  transaction is active, `rm` / `file_write` / `file_append` / `rmdir` and every
+  **mutating sqlite builtin** (insert/update/delete/create_table/drop_table, which
+  all route through `db_sqlite_exec` — the single snapshot chokepoint) record their
   pre-modification state (`crate::tx::snapshot`), and rollback restores the
   pre-transaction state — overwrites reverted, appends truncated, deletions undone
-  (including **whole directory trees**, recursively backed up and restored), created
-  files removed (`tests/transactions.rs`). v1 scope: single (non-nested)
-  transaction; files and directory trees. Nothing in Bash/PowerShell offers this.
-  Plan/Apply ops: `write`/`append`/`rm`/`mkdir`. *Remaining:* extend `snapshot` to
-  database mutations, and add nesting/savepoints.
+  (including **whole directory trees**, recursively backed up and restored), an
+  edited **database file** restored byte-for-byte, created files removed
+  (`tests/transactions.rs`). v1 scope: single (non-nested) transaction; files,
+  directory trees, and sqlite db files. Nothing in Bash/PowerShell offers this.
+  Plan/Apply ops: `write`/`append`/`rm`/`mkdir`. *Remaining:* key-value store
+  mutations, and nesting/savepoints.
 - ✅ **Plan / Apply** (Terraform-style) for a destructive batch: `plan(ops)`
   returns a typed, reviewable summary + a content-bound approval token (executes
   nothing); `apply(ops)` runs the batch atomically inside a transaction — agent

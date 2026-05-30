@@ -26637,6 +26637,12 @@ fn bi_db_sqlite_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         _ => return Ok(Value::Bool(false)),
     };
 
+    // Every mutating sqlite builtin (insert/update/delete/create_table/drop_table)
+    // routes through here, so snapshotting the db file at this single chokepoint
+    // makes those mutations reversible inside a transaction. No-op when no
+    // transaction is active.
+    crate::tx::snapshot(&db_path);
+
     let output = std::process::Command::new("sqlite3")
         .args([&db_path, &sql])
         .output()?;
