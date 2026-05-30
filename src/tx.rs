@@ -8,10 +8,11 @@
 //! exist" marker for newly-created paths). `rollback` replays those records in
 //! reverse to restore the workspace to its pre-transaction state.
 //!
-//! Scope (v1): single (non-nested) transaction; files (not directory trees).
-//! Backups live under `<workspace>/.ae/tx/<id>/`. Pairs naturally with the
-//! safety model — a destructive batch can be planned, approved, attempted, and
-//! rolled back atomically.
+//! Scope (v1): single (non-nested) transaction; files **and directory trees**
+//! (a recursive `rmdir` backs up and restores the whole tree). Backups live under
+//! `<workspace>/.ae/tx/<id>/`. Pairs naturally with the safety model — a
+//! destructive batch can be planned, approved, attempted, and rolled back
+//! atomically.
 
 use anyhow::{anyhow, Result};
 use lazy_static::lazy_static;
@@ -27,6 +28,26 @@ struct Undo {
     /// Backup copy of the prior content, or `None` if the path did not exist.
     backup: Option<PathBuf>,
     existed: bool,
+    /// Whether the snapshotted path was a directory tree (vs a single file).
+    is_dir: bool,
+}
+
+/// Recursively copy a directory tree `src` → `dst` (files and subdirectories;
+/// symlinks are skipped in v1). Used to back up and restore directory trees.
+fn copy_tree(src: &Path, dst: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let ft = entry.file_type()?;
+        let from = entry.path();
+        let to = dst.join(entry.file_name());
+        if ft.is_dir() {
+            copy_tree(&from, &to)?;
+        } else if ft.is_file() {
+            std::fs::copy(&from, &to)?;
+        }
+    }
+    Ok(())
 }
 
 struct Transaction {
@@ -108,14 +129,16 @@ pub fn snapshot(path: &str) {
         return; // earliest (pre-tx) state already recorded for this path
     }
     let existed = abs.exists();
+    let is_dir = existed && abs.is_dir();
     let backup = if existed && abs.is_file() {
         let bpath = tx.dir.join(format!("b{}", tx.n));
         tx.n += 1;
-        if std::fs::copy(&abs, &bpath).is_ok() {
-            Some(bpath)
-        } else {
-            None
-        }
+        std::fs::copy(&abs, &bpath).ok().map(|_| bpath)
+    } else if is_dir {
+        // Back up the whole tree so a recursive delete can be undone.
+        let bpath = tx.dir.join(format!("d{}", tx.n));
+        tx.n += 1;
+        copy_tree(&abs, &bpath).ok().map(|_| bpath)
     } else {
         None
     };
@@ -123,6 +146,7 @@ pub fn snapshot(path: &str) {
         original: abs,
         backup,
         existed,
+        is_dir,
     });
 }
 
@@ -150,11 +174,19 @@ pub fn rollback() -> Result<usize> {
     for u in tx.undos.iter().rev() {
         if u.existed {
             if let Some(b) = &u.backup {
-                if let Some(parent) = u.original.parent() {
-                    let _ = std::fs::create_dir_all(parent);
-                }
-                if std::fs::copy(b, &u.original).is_ok() {
-                    restored += 1;
+                if u.is_dir {
+                    // Replace whatever is there now with the backed-up tree.
+                    let _ = std::fs::remove_dir_all(&u.original);
+                    if copy_tree(b, &u.original).is_ok() {
+                        restored += 1;
+                    }
+                } else {
+                    if let Some(parent) = u.original.parent() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+                    if std::fs::copy(b, &u.original).is_ok() {
+                        restored += 1;
+                    }
                 }
             }
         } else if u.original.is_file() {

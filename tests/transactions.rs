@@ -194,6 +194,67 @@ fn apply_rolls_back_the_whole_batch_on_failure() {
 }
 
 #[test]
+fn rollback_restores_a_deleted_directory_tree() {
+    let _l = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    reset_tx();
+    let w = std::env::temp_dir().join(format!("ae_tx_tree_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&w);
+    std::fs::create_dir_all(&w).unwrap();
+    std::env::set_var("AETHER_WORKSPACE", &w);
+
+    // A nested tree with content: dir/sub/leaf.txt + dir/top.txt
+    let dir = w.join("project");
+    std::fs::create_dir_all(dir.join("sub")).unwrap();
+    std::fs::write(dir.join("top.txt"), b"top").unwrap();
+    std::fs::write(dir.join("sub").join("leaf.txt"), b"leaf").unwrap();
+
+    call("tx_begin", vec![]);
+    aethershell::builtins::bi_rmdir(vec![s(&dir.to_string_lossy()), Value::Bool(true)], None)
+        .unwrap();
+    assert!(!dir.exists(), "tree deleted mid-transaction");
+
+    call("tx_rollback", vec![]);
+
+    // The whole tree, including nested file contents, is restored.
+    assert_eq!(std::fs::read_to_string(dir.join("top.txt")).unwrap(), "top");
+    assert_eq!(
+        std::fs::read_to_string(dir.join("sub").join("leaf.txt")).unwrap(),
+        "leaf",
+        "nested file content restored"
+    );
+
+    std::env::remove_var("AETHER_WORKSPACE");
+    let _ = std::fs::remove_dir_all(&w);
+}
+
+#[test]
+fn rollback_undoes_a_file_append() {
+    let _l = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    reset_tx();
+    let w = std::env::temp_dir().join(format!("ae_tx_app_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&w);
+    std::fs::create_dir_all(&w).unwrap();
+    std::env::set_var("AETHER_WORKSPACE", &w);
+
+    let f = w.join("log.txt");
+    std::fs::write(&f, b"line1\n").unwrap();
+
+    call("tx_begin", vec![]);
+    call("file_append", vec![s(&f.to_string_lossy()), s("line2\n")]);
+    assert_eq!(std::fs::read_to_string(&f).unwrap(), "line1\nline2\n");
+
+    call("tx_rollback", vec![]);
+    assert_eq!(
+        std::fs::read_to_string(&f).unwrap(),
+        "line1\n",
+        "append undone, original content restored"
+    );
+
+    std::env::remove_var("AETHER_WORKSPACE");
+    let _ = std::fs::remove_dir_all(&w);
+}
+
+#[test]
 fn commit_keeps_changes_and_clears_state() {
     let _l = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     reset_tx();
