@@ -291,6 +291,44 @@ fn rollback_restores_a_sqlite_db_file() {
 }
 
 #[test]
+fn rollback_restores_a_key_value_store_mutation() {
+    // The kv store is sqlite-backed: db_kv_set routes through db_sqlite_exec, so
+    // the snapshot chokepoint there makes kv mutations transactional too. Guards
+    // against a future refactor that bypasses exec.
+    let _l = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    reset_tx();
+    let w = std::env::temp_dir().join(format!("ae_tx_kv_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&w);
+    std::fs::create_dir_all(&w).unwrap();
+    std::env::set_var("AETHER_WORKSPACE", &w);
+
+    let store = w.join("kv.db");
+    std::fs::write(&store, b"KV_ORIGINAL").unwrap();
+
+    call("tx_begin", vec![]);
+    // db_kv_set → db_sqlite_exec → snapshot, taken before any sqlite3 shell-out
+    // (so the test does not depend on the sqlite3 CLI being installed).
+    let mut env = aethershell::env::Env::new();
+    let _ = aethershell::builtins::call(
+        "db_kv_set",
+        vec![s(&store.to_string_lossy()), s("k"), s("v")],
+        &mut env,
+    );
+    // Stand in for the engine writing the new value after the snapshot.
+    std::fs::write(&store, b"KV_MUTATED").unwrap();
+
+    call("tx_rollback", vec![]);
+    assert_eq!(
+        std::fs::read(&store).unwrap(),
+        b"KV_ORIGINAL",
+        "kv store file restored to its pre-transaction bytes"
+    );
+
+    std::env::remove_var("AETHER_WORKSPACE");
+    let _ = std::fs::remove_dir_all(&w);
+}
+
+#[test]
 fn commit_keeps_changes_and_clears_state() {
     let _l = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     reset_tx();

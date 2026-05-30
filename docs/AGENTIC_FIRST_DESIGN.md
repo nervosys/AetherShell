@@ -611,8 +611,11 @@ The `.ae` surface keeps readable, unambiguous syntax and gains:
   edited **database file** restored byte-for-byte, created files removed
   (`tests/transactions.rs`). v1 scope: single (non-nested) transaction; files,
   directory trees, and sqlite db files. Nothing in Bash/PowerShell offers this.
-  Plan/Apply ops: `write`/`append`/`rm`/`mkdir`. *Remaining:* key-value store
-  mutations, and nesting/savepoints.
+  Plan/Apply ops: `write`/`append`/`rm`/`mkdir`. The sqlite-backed key-value
+  builtins (`db_kv_get`/`set`/`delete`/`keys`/`store`, dispatch 1130-1134) route
+  through `db_sqlite_exec`, so they inherit transactionality automatically *via the
+  same chokepoint* — verified by `rollback_restores_a_key_value_store_mutation`.
+  *Remaining:* nesting/savepoints.
 - ✅ **Plan / Apply** (Terraform-style) for a destructive batch: `plan(ops)`
   returns a typed, reviewable summary + a content-bound approval token (executes
   nothing); `apply(ops)` runs the batch atomically inside a transaction — agent
