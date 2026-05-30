@@ -438,6 +438,12 @@ wiring `ai.usage()`/`ai.cost()` (stubs, `builtins.rs:3708`) to the same counters
       holds the difference from the previous (reconstruct by running sum).
   All backward-compatible (no eligible columns → the prior bare-header form), and
   none ever inflate a result — a cheaper encoding can only *replace* a costlier one.
+  ✅ **Reversible.** `aecon_decode(text)` (dispatch 1129) is the exact inverse for
+  tabular AECON: it restores `@const` columns to every row, resolves `@dict`
+  indices, and reconstructs `@delta` columns by running sum. A round-trip property
+  test asserts `decode(aecon(v)) == v` with all three levers active — so the
+  compression is a genuine encoding, not lossy display. (The string↔number
+  boundary is inferred, as in CSV; use `canonical` when exact typing matters.)
 - ✅ **Source-side projection is first-class.** `pick(fields…)` (dispatch 1128)
   keeps only the named fields of records / array-of-records / tables *before*
   rendering, so the agent never pays output tokens for discarded fields. Composes

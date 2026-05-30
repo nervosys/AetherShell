@@ -217,6 +217,47 @@ fn aecon_does_not_delta_encode_small_or_unsorted_integers() {
 }
 
 #[test]
+fn aecon_round_trips_through_all_three_levers() {
+    // A table that exercises every compression lever at once: `kind` constant
+    // (@const), `status` low-cardinality string (@dict), `ts` large monotonic
+    // integer (@delta), plus a plainly-rendered varying `bytes` column and a
+    // distinct `name`. aecon_decode must reconstruct the original rows exactly.
+    let states = ["queued", "running", "done"];
+    let base = 1_700_000_000i64;
+    let original: Vec<Value> = (0..24)
+        .map(|i| {
+            rec(&[
+                ("name", Value::Str(format!("job_{i:02}"))),
+                ("status", Value::Str(states[(i % 3) as usize].to_string())),
+                ("ts", Value::Int(base + i * 90)),
+                ("bytes", Value::Int(i * 7)),
+                ("kind", Value::Str("batch".into())),
+            ])
+        })
+        .collect();
+    let arr = Value::Array(original.clone());
+
+    // Confirm the encoding actually used all three levers (else the test is hollow).
+    let encoded = match call("aecon", vec![arr.clone()]) {
+        Value::Str(s) => s,
+        other => panic!("{other:?}"),
+    };
+    assert!(encoded.contains("@const "), "kind factored: {encoded}");
+    assert!(encoded.contains("@dict status: "), "status dict: {encoded}");
+    assert!(encoded.contains("@delta: ts"), "ts delta: {encoded}");
+
+    // decode(aecon(v)) == v, field for field.
+    let decoded = match call("aecon_decode", vec![Value::Str(encoded)]) {
+        Value::Array(rows) => rows,
+        other => panic!("expected array, got {other:?}"),
+    };
+    assert_eq!(decoded.len(), original.len(), "row count preserved");
+    for (i, (got, want)) in decoded.iter().zip(original.iter()).enumerate() {
+        assert_eq!(got, want, "row {i} round-trips exactly");
+    }
+}
+
+#[test]
 fn aecon_is_cheaper_than_json_for_homogeneous_records() {
     // 5 rows × 3 fields — the common "ls / proc.list / docker.ps" shape.
     let rows: Vec<Value> = (0..5)

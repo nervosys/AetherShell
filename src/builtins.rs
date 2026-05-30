@@ -1557,6 +1557,8 @@ lazy_static::lazy_static! {
     map.insert("digest", 1127);
     // output economy: source-side field projection (1128)
     map.insert("pick", 1128);
+    // output economy: AECON decoder — reverses the tabular encoding (1129)
+    map.insert("aecon_decode", 1129);
         map
     };
 
@@ -3707,6 +3709,8 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_digest(args, input), // 1127
     // output economy: source-side field projection (1128)
     |args, input, _| bi_pick(args, input), // 1128
+    // output economy: AECON decoder — reverses the tabular encoding (1129)
+    |args, input, _| bi_aecon_decode(args, input), // 1129
 ];
 
 fn fast_builtin_lookup(
@@ -14695,6 +14699,114 @@ fn aecon_render(v: &Value) -> String {
     }
 }
 
+/// Reverse `aecon_atom`: best-effort typed reconstruction of a single cell.
+/// JSON-quoted cells (empty/tab/newline strings) are decoded exactly; otherwise
+/// `null`/`true`/`false`/integer/float are recognized, falling back to a bare
+/// string. The string↔number boundary is inferred (a string `"123"` decodes as
+/// `Int`), exactly like CSV — for lossless typing use `canonical` (JSON).
+fn aecon_decode_atom(cell: &str) -> Value {
+    if cell.starts_with('"') {
+        if let Ok(s) = serde_json::from_str::<String>(cell) {
+            return Value::Str(s);
+        }
+    }
+    match cell {
+        "null" => return Value::Null,
+        "true" => return Value::Bool(true),
+        "false" => return Value::Bool(false),
+        _ => {}
+    }
+    if let Ok(i) = cell.parse::<i64>() {
+        return Value::Int(i);
+    }
+    if let Ok(f) = cell.parse::<f64>() {
+        return Value::Float(f);
+    }
+    Value::Str(cell.to_string())
+}
+
+/// Decode the tabular AECON form (header + optional `@const`/`@dict`/`@delta`
+/// metadata lines + positional rows) back to an `Array<Record>`. Inverse of the
+/// tabular branch of `aecon_render`: `@const` columns are restored to every row,
+/// `@dict` indices are resolved to their string values, and `@delta` columns are
+/// reconstructed by running sum. Returns the parsed array; non-tabular input
+/// (a single `{k=v}` record, a scalar array, or a bare scalar) is returned as a
+/// best-effort single value.
+fn aecon_decode(s: &str) -> Value {
+    let lines: Vec<&str> = s.split('\n').collect();
+    if lines.is_empty() {
+        return Value::Null;
+    }
+    let header = lines[0];
+    // Non-tabular fallbacks: a single record / scalar array / bare scalar.
+    if !header.contains('\t') && (header.starts_with('{') || header.starts_with('[')) {
+        return aecon_decode_atom(header);
+    }
+    let var_keys: Vec<String> = header.split('\t').map(|s| s.to_string()).collect();
+
+    let mut consts: Vec<(String, Value)> = Vec::new();
+    let mut dicts: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    let mut delta_set: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut row_start = 1;
+    for (i, line) in lines.iter().enumerate().skip(1) {
+        if let Some(rest) = line.strip_prefix("@const ") {
+            for kv in rest.split('\t') {
+                if let Some((k, v)) = kv.split_once('=') {
+                    consts.push((k.to_string(), aecon_decode_atom(v)));
+                }
+            }
+        } else if let Some(rest) = line.strip_prefix("@dict ") {
+            if let Some((col, vals)) = rest.split_once(": ") {
+                dicts.insert(col.to_string(), vals.split('\t').map(|s| s.to_string()).collect());
+            }
+        } else if let Some(rest) = line.strip_prefix("@delta: ") {
+            for c in rest.split('\t') {
+                delta_set.insert(c.to_string());
+            }
+        } else {
+            row_start = i;
+            break;
+        }
+        row_start = i + 1;
+    }
+
+    // Running absolute value per delta column, advanced as rows are read in order.
+    let mut delta_run: std::collections::HashMap<String, i128> = std::collections::HashMap::new();
+    let mut out_rows: Vec<Value> = Vec::new();
+    for line in &lines[row_start..] {
+        if line.is_empty() {
+            continue;
+        }
+        let cells: Vec<&str> = line.split('\t').collect();
+        let mut m = BTreeMap::new();
+        for (ci, k) in var_keys.iter().enumerate() {
+            let cell = cells.get(ci).copied().unwrap_or("");
+            let val = if delta_set.contains(k) {
+                let n: i128 = cell.parse().unwrap_or(0);
+                let abs = match delta_run.get(k) {
+                    Some(prev) => prev + n, // later rows carry the difference
+                    None => n,              // row 0 carries the absolute value
+                };
+                delta_run.insert(k.clone(), abs);
+                Value::Int(abs as i64)
+            } else if let Some(values) = dicts.get(k) {
+                match cell.parse::<usize>().ok().and_then(|i| values.get(i)) {
+                    Some(s) => Value::Str(s.clone()),
+                    None => aecon_decode_atom(cell),
+                }
+            } else {
+                aecon_decode_atom(cell)
+            };
+            m.insert(k.clone(), val);
+        }
+        for (k, v) in &consts {
+            m.insert(k.clone(), v.clone());
+        }
+        out_rows.push(Value::Record(m));
+    }
+    Value::Array(out_rows)
+}
+
 /// Token count used by the token-economy builtins (`tokens`/`budget`/`digest`)
 /// and the Agent API accounting. With `--features real-tokens` this is the
 /// **real GPT-4 cl100k BPE** (vocab embedded in `tiktoken-rs`); otherwise a
@@ -14744,6 +14856,27 @@ fn bi_aecon(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             crate::safety::bad_arg("aecon", "a value (argument or piped input)", "nothing")
         })?;
     Ok(Value::Str(aecon_render(&v)))
+}
+
+/// aecon_decode(text?) - Parse tabular AECON text (argument or piped input) back
+/// into an `Array<Record>`, reversing `@const`/`@dict`/`@delta` factoring. The
+/// inverse of `aecon` for homogeneous tables; the string↔number boundary is
+/// inferred (use `canonical` for lossless typing).
+fn bi_aecon_decode(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let v = args.into_iter().next().or(input).ok_or_else(|| {
+        crate::safety::bad_arg("aecon_decode", "AECON text (argument or piped input)", "nothing")
+    })?;
+    let s = match v {
+        Value::Str(s) => s,
+        other => {
+            return Err(crate::safety::bad_arg(
+                "aecon_decode",
+                "a String of AECON text",
+                &format!("{:?}", other),
+            ))
+        }
+    };
+    Ok(aecon_decode(&s))
 }
 
 /// tokens(value?) - Estimate the token count of a value's rendered form (its
