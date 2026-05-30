@@ -14636,12 +14636,32 @@ fn aecon_render(v: &Value) -> String {
                     }
                 }
             }
+            // Type tags for lossless decode (reliability): emitted only for the
+            // columns where the compact form would be misread by inference — a
+            // string that looks like a number/bool/null, or an integral float.
+            // Dict columns are always strings and delta columns always integers,
+            // so they never need a tag; this costs tokens only on real ambiguity.
+            let mut type_tags: std::collections::BTreeMap<String, char> =
+                std::collections::BTreeMap::new();
+            for k in const_keys.iter().chain(var_keys.iter()) {
+                if dict_index.contains_key(k) || delta_cols.contains_key(k) {
+                    continue;
+                }
+                let vals: Vec<&Value> = if const_keys.contains(k) {
+                    vec![rows[0].get(k).unwrap_or(&Value::Null)]
+                } else {
+                    rows.iter().map(|r| r.get(k).unwrap_or(&Value::Null)).collect()
+                };
+                if let Some(tag) = aecon_type_tag(&vals) {
+                    type_tags.insert(k.clone(), tag);
+                }
+            }
             // Tight format: a bare tab-separated header line (the column schema),
             // optional `@const` (factored constants), `@dict` (low-cardinality
-            // columns) and `@delta:` (delta-encoded numeric columns) metadata
-            // lines, then positional tab-separated rows. No `@aecon rows=N cols=`
-            // prefix — the header is self-describing and ~7 tokens cheaper per
-            // result than the verbose form.
+            // columns), `@delta:` (delta-encoded numeric columns) and `@type`
+            // (lossless type tags) metadata lines, then positional tab-separated
+            // rows. No `@aecon rows=N cols=` prefix — the header is
+            // self-describing and ~7 tokens cheaper per result than the verbose form.
             let mut out = var_keys.join("\t");
             if !const_keys.is_empty() {
                 let consts: Vec<String> = const_keys
@@ -14659,6 +14679,12 @@ fn aecon_render(v: &Value) -> String {
                 out.push_str("\n@delta: ");
                 let names: Vec<&str> = delta_cols.keys().map(|s| s.as_str()).collect();
                 out.push_str(&names.join("\t"));
+            }
+            if !type_tags.is_empty() {
+                out.push_str("\n@type ");
+                let tags: Vec<String> =
+                    type_tags.iter().map(|(k, t)| format!("{}:{}", k, t)).collect();
+                out.push_str(&tags.join("\t"));
             }
             for (ri, r) in rows.iter().enumerate() {
                 let cells: Vec<String> = var_keys
@@ -14699,6 +14725,68 @@ fn aecon_render(v: &Value) -> String {
     }
 }
 
+/// Whether a bare string would be misread by `aecon_decode_atom` as a non-string
+/// (number/bool/null) — i.e. it needs an explicit `s` type tag for lossless decode.
+fn aecon_str_is_ambiguous(s: &str) -> bool {
+    s == "null"
+        || s == "true"
+        || s == "false"
+        || s.parse::<i64>().is_ok()
+        || s.parse::<f64>().is_ok()
+}
+
+/// The type tag a column needs for lossless decode, or `None` if inference is
+/// already exact. Only two cases are ambiguous in the compact form: an all-string
+/// column containing a number/bool/null-looking value (`s`), and an all-float
+/// column containing an integral value that renders without a `.` (`f`, which
+/// inference would read back as `Int`). Mixed-variant columns return `None`
+/// (best-effort — use `canonical` for those).
+fn aecon_type_tag(vals: &[&Value]) -> Option<char> {
+    if vals.is_empty() {
+        return None;
+    }
+    if vals.iter().all(|v| matches!(v, Value::Str(_))) {
+        let ambiguous = vals.iter().any(|v| match v {
+            // Empty / tab / newline strings render JSON-quoted and decode exactly,
+            // so only *bare* ambiguous strings need the tag.
+            Value::Str(s) => {
+                !s.is_empty() && !s.contains('\t') && !s.contains('\n') && aecon_str_is_ambiguous(s)
+            }
+            _ => false,
+        });
+        return ambiguous.then_some('s');
+    }
+    if vals.iter().all(|v| matches!(v, Value::Float(_))) {
+        let ambiguous = vals.iter().any(|v| match v {
+            Value::Float(f) => f.is_finite() && f.fract() == 0.0,
+            _ => false,
+        });
+        return ambiguous.then_some('f');
+    }
+    None
+}
+
+/// Decode a cell honoring an explicit type tag (`s` → string, `f` → float),
+/// falling back to inference when there is no tag.
+fn aecon_decode_atom_typed(cell: &str, tag: Option<&char>) -> Value {
+    match tag {
+        Some('s') => {
+            if cell.starts_with('"') {
+                serde_json::from_str::<String>(cell)
+                    .map(Value::Str)
+                    .unwrap_or_else(|_| Value::Str(cell.to_string()))
+            } else {
+                Value::Str(cell.to_string())
+            }
+        }
+        Some('f') => cell
+            .parse::<f64>()
+            .map(Value::Float)
+            .unwrap_or_else(|_| aecon_decode_atom(cell)),
+        _ => aecon_decode_atom(cell),
+    }
+}
+
 /// Reverse `aecon_atom`: best-effort typed reconstruction of a single cell.
 /// JSON-quoted cells (empty/tab/newline strings) are decoded exactly; otherwise
 /// `null`/`true`/`false`/integer/float are recognized, falling back to a bare
@@ -14725,13 +14813,15 @@ fn aecon_decode_atom(cell: &str) -> Value {
     Value::Str(cell.to_string())
 }
 
-/// Decode the tabular AECON form (header + optional `@const`/`@dict`/`@delta`
-/// metadata lines + positional rows) back to an `Array<Record>`. Inverse of the
-/// tabular branch of `aecon_render`: `@const` columns are restored to every row,
-/// `@dict` indices are resolved to their string values, and `@delta` columns are
-/// reconstructed by running sum. Returns the parsed array; non-tabular input
-/// (a single `{k=v}` record, a scalar array, or a bare scalar) is returned as a
-/// best-effort single value.
+/// Decode the tabular AECON form (header + optional `@const`/`@dict`/`@delta`/
+/// `@type` metadata lines + positional rows) back to an `Array<Record>`. Inverse
+/// of the tabular branch of `aecon_render`: `@const` columns are restored to every
+/// row, `@dict` indices are resolved to their string values, `@delta` columns are
+/// reconstructed by running sum, and `@type` tags force the exact type of columns
+/// the compact form would otherwise infer wrongly (numeric-looking strings,
+/// integral floats) — making the round-trip lossless. Returns the parsed array;
+/// non-tabular input (a single `{k=v}` record, a scalar array, or a bare scalar)
+/// is returned as a best-effort single value.
 fn aecon_decode(s: &str) -> Value {
     let lines: Vec<&str> = s.split('\n').collect();
     if lines.is_empty() {
@@ -14744,15 +14834,19 @@ fn aecon_decode(s: &str) -> Value {
     }
     let var_keys: Vec<String> = header.split('\t').map(|s| s.to_string()).collect();
 
-    let mut consts: Vec<(String, Value)> = Vec::new();
+    // `@const` is decoded *after* the metadata loop because `@type` (which can
+    // correct a const's inferred type) is emitted after it; collect the raw
+    // key=value pairs first, then apply tags.
+    let mut const_raw: Vec<(String, String)> = Vec::new();
     let mut dicts: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
     let mut delta_set: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut type_tags: std::collections::HashMap<String, char> = std::collections::HashMap::new();
     let mut row_start = 1;
     for (i, line) in lines.iter().enumerate().skip(1) {
         if let Some(rest) = line.strip_prefix("@const ") {
             for kv in rest.split('\t') {
                 if let Some((k, v)) = kv.split_once('=') {
-                    consts.push((k.to_string(), aecon_decode_atom(v)));
+                    const_raw.push((k.to_string(), v.to_string()));
                 }
             }
         } else if let Some(rest) = line.strip_prefix("@dict ") {
@@ -14763,12 +14857,24 @@ fn aecon_decode(s: &str) -> Value {
             for c in rest.split('\t') {
                 delta_set.insert(c.to_string());
             }
+        } else if let Some(rest) = line.strip_prefix("@type ") {
+            for spec in rest.split('\t') {
+                if let Some((col, tag)) = spec.rsplit_once(':') {
+                    if let Some(c) = tag.chars().next() {
+                        type_tags.insert(col.to_string(), c);
+                    }
+                }
+            }
         } else {
             row_start = i;
             break;
         }
         row_start = i + 1;
     }
+    let consts: Vec<(String, Value)> = const_raw
+        .iter()
+        .map(|(k, v)| (k.clone(), aecon_decode_atom_typed(v, type_tags.get(k))))
+        .collect();
 
     // Running absolute value per delta column, advanced as rows are read in order.
     let mut delta_run: std::collections::HashMap<String, i128> = std::collections::HashMap::new();
@@ -14795,7 +14901,7 @@ fn aecon_decode(s: &str) -> Value {
                     None => aecon_decode_atom(cell),
                 }
             } else {
-                aecon_decode_atom(cell)
+                aecon_decode_atom_typed(cell, type_tags.get(k))
             };
             m.insert(k.clone(), val);
         }
