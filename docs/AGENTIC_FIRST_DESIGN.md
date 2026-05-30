@@ -373,7 +373,11 @@ wiring `ai.usage()`/`ai.cost()` (stubs, `builtins.rs:3708`) to the same counters
 - **AECON — Aether Compact Object Notation.** For a homogeneous `Table`/array of
   records, emit field names *once* as a header, then positional rows. Typed,
   deterministic, ~CSV-of-records density with JSON fidelity. This is where the
-  honest 50–70% *output*-token savings live — the dominant cost term.
+  honest 50–70% *output*-token savings live — the dominant cost term. ✅
+  **Constant-column factoring**: columns whose value is identical across all rows
+  are emitted once in a `@const` line and omitted from each row (big saving for
+  constant status/type/owner fields; backward-compatible — no constants → the
+  prior format).
 - ✅ **Source-side projection is first-class.** `pick(fields…)` (dispatch 1128)
   keeps only the named fields of records / array-of-records / tables *before*
   rendering, so the agent never pays output tokens for discarded fields. Composes

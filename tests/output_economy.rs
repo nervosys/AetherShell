@@ -48,6 +48,46 @@ fn aecon_emits_header_once_for_record_array() {
 }
 
 #[test]
+fn aecon_factors_out_constant_columns() {
+    // 20 rows where `kind`/`owner` are constant but `name`/`size` vary.
+    let rows: Vec<Value> = (0..20)
+        .map(|i| {
+            rec(&[
+                ("name", Value::Str(format!("f{i}"))),
+                ("size", Value::Int(i)),
+                ("kind", Value::Str("file".into())),
+                ("owner", Value::Str("alice".into())),
+            ])
+        })
+        .collect();
+    let arr = Value::Array(rows);
+
+    let out = match call("aecon", vec![arr.clone()]) {
+        Value::Str(s) => s,
+        other => panic!("expected string, got {other:?}"),
+    };
+    // Constant columns appear once in a @const line; varying columns are the cols.
+    assert!(out.contains("@const "), "constant columns factored: {out}");
+    assert!(out.contains("kind=file"));
+    assert!(out.contains("owner=alice"));
+    assert!(out.contains("cols=name,size"));
+    // "alice" appears exactly once (in @const), not 20 times.
+    assert_eq!(out.matches("alice").count(), 1, "owner not repeated per row");
+    assert_eq!(out.matches("file").count(), 1, "kind not repeated per row");
+
+    // And it's cheaper in tokens than the same data without factoring (canonical).
+    let factored = match call("tokens", vec![Value::Str(out)]) {
+        Value::Int(n) => n,
+        _ => panic!(),
+    };
+    let canon = match call("tokens", vec![call("canonical", vec![arr])]) {
+        Value::Int(n) => n,
+        _ => panic!(),
+    };
+    assert!(factored < canon, "factored ({factored}) < canonical ({canon})");
+}
+
+#[test]
 fn aecon_is_cheaper_than_json_for_homogeneous_records() {
     // 5 rows × 3 fields — the common "ls / proc.list / docker.ps" shape.
     let rows: Vec<Value> = (0..5)
