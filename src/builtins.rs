@@ -14585,11 +14585,59 @@ fn aecon_render(v: &Value) -> String {
                     }
                 }
             }
+            // Delta encoding for large-valued, slowly-varying INTEGER columns
+            // (timestamps, sequential ids): row 0 carries the absolute value, each
+            // later row carries the difference from the previous row; a `@delta:`
+            // line names the affected columns. Gated to fire only where it's a real
+            // *token* win — the raw values must be multi-token (avg ≥4 decimal
+            // digits; small ints are one token regardless) and the deltas must be
+            // well under half the raw character count. Deltas use i128 (no
+            // overflow); never collides with `@dict` (string-only) as this is
+            // integer-only.
+            let mut delta_cols: std::collections::BTreeMap<String, Vec<String>> =
+                std::collections::BTreeMap::new();
+            if rows.len() >= 4 {
+                for k in &var_keys {
+                    if dict_index.contains_key(k) {
+                        continue;
+                    }
+                    let mut vals: Vec<i64> = Vec::with_capacity(rows.len());
+                    let mut all_int = true;
+                    for r in &rows {
+                        match r.get(k) {
+                            Some(Value::Int(n)) => vals.push(*n),
+                            _ => {
+                                all_int = false;
+                                break;
+                            }
+                        }
+                    }
+                    if !all_int {
+                        continue;
+                    }
+                    let raw_chars: usize = vals.iter().map(|v| v.to_string().len()).sum();
+                    if raw_chars / vals.len() < 4 {
+                        continue; // raws aren't multi-token — a delta saves nothing
+                    }
+                    let mut cells: Vec<String> = Vec::with_capacity(vals.len());
+                    cells.push(vals[0].to_string());
+                    let mut delta_chars = cells[0].len();
+                    for i in 1..vals.len() {
+                        let s = ((vals[i] as i128) - (vals[i - 1] as i128)).to_string();
+                        delta_chars += s.len();
+                        cells.push(s);
+                    }
+                    if delta_chars * 2 < raw_chars {
+                        delta_cols.insert(k.clone(), cells);
+                    }
+                }
+            }
             // Tight format: a bare tab-separated header line (the column schema),
-            // optional `@const` (factored constants) and `@dict` (low-cardinality
-            // columns) metadata lines, then positional tab-separated rows. No
-            // `@aecon rows=N cols=` prefix — the header is self-describing and
-            // ~7 tokens cheaper per result than the verbose form.
+            // optional `@const` (factored constants), `@dict` (low-cardinality
+            // columns) and `@delta:` (delta-encoded numeric columns) metadata
+            // lines, then positional tab-separated rows. No `@aecon rows=N cols=`
+            // prefix — the header is self-describing and ~7 tokens cheaper per
+            // result than the verbose form.
             let mut out = var_keys.join("\t");
             if !const_keys.is_empty() {
                 let consts: Vec<String> = const_keys
@@ -14603,10 +14651,18 @@ fn aecon_render(v: &Value) -> String {
                 out.push_str(&format!("\n@dict {}: ", col));
                 out.push_str(&distinct.join("\t"));
             }
-            for r in &rows {
+            if !delta_cols.is_empty() {
+                out.push_str("\n@delta: ");
+                let names: Vec<&str> = delta_cols.keys().map(|s| s.as_str()).collect();
+                out.push_str(&names.join("\t"));
+            }
+            for (ri, r) in rows.iter().enumerate() {
                 let cells: Vec<String> = var_keys
                     .iter()
                     .map(|k| {
+                        if let Some(col) = delta_cols.get(k) {
+                            return col[ri].clone();
+                        }
                         let v = r.get(k).unwrap_or(&Value::Null);
                         match (dict_index.get(k), v) {
                             (Some(idx), Value::Str(s)) => {

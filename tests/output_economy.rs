@@ -152,6 +152,71 @@ fn aecon_does_not_dictionary_encode_high_cardinality_columns() {
 }
 
 #[test]
+fn aecon_delta_encodes_large_slowly_varying_integer_columns() {
+    // A log-style result sorted by time: `ts` is a large (10-digit) integer that
+    // steps by a small, ~constant amount — exactly where delta encoding wins (a
+    // 10-digit absolute is ~4 tokens; a 2-digit delta is ~1).
+    let base = 1_700_000_000i64;
+    let rows: Vec<Value> = (0..40)
+        .map(|i| {
+            rec(&[
+                ("ts", Value::Int(base + i * 60)),
+                ("level", Value::Str("info".into())),
+            ])
+        })
+        .collect();
+    let arr = Value::Array(rows);
+
+    let out = match call("aecon", vec![arr.clone()]) {
+        Value::Str(s) => s,
+        other => panic!("expected string, got {other:?}"),
+    };
+    // The ts column is delta-encoded: named in @delta, the absolute base appears
+    // once, and the recurring step (60) shows up as a bare delta — the full
+    // 10-digit value is NOT repeated 40 times.
+    assert!(out.contains("@delta: ts"), "ts delta-encoded: {out}");
+    assert_eq!(
+        out.matches("1700000000").count(),
+        1,
+        "absolute base appears once, not per row: {out}"
+    );
+
+    // Delta encoding is materially cheaper than the same rows as JSON.
+    let aecon_tok = match call("tokens", vec![Value::Str(out)]) {
+        Value::Int(n) => n,
+        _ => panic!(),
+    };
+    let canon_tok = match call("tokens", vec![call("canonical", vec![arr])]) {
+        Value::Int(n) => n,
+        _ => panic!(),
+    };
+    assert!(
+        aecon_tok * 2 < canon_tok,
+        "delta AECON ({aecon_tok} tok) should be <½ of JSON ({canon_tok} tok)"
+    );
+}
+
+#[test]
+fn aecon_does_not_delta_encode_small_or_unsorted_integers() {
+    // Small ids (1 token each) — a delta saves no tokens, so leave them literal.
+    let small: Vec<Value> = (0..10).map(|i| rec(&[("id", Value::Int(i))])).collect();
+    let out_small = match call("aecon", vec![Value::Array(small)]) {
+        Value::Str(s) => s,
+        other => panic!("{other:?}"),
+    };
+    assert!(!out_small.contains("@delta"), "no delta for small ints: {out_small}");
+
+    // Large but oscillating values — deltas are as wide as the raws, so skip.
+    let swing = [5_000_000i64, 100, 9_000_000, 200, 8_000_000, 300, 7_000_000, 400];
+    let osc: Vec<Value> = swing.iter().map(|v| rec(&[("v", Value::Int(*v))])).collect();
+    let out_osc = match call("aecon", vec![Value::Array(osc)]) {
+        Value::Str(s) => s,
+        other => panic!("{other:?}"),
+    };
+    assert!(!out_osc.contains("@delta"), "no delta for oscillating ints: {out_osc}");
+}
+
+#[test]
 fn aecon_is_cheaper_than_json_for_homogeneous_records() {
     // 5 rows × 3 fields — the common "ls / proc.list / docker.ps" shape.
     let rows: Vec<Value> = (0..5)
