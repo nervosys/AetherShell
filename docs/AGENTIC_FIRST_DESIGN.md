@@ -225,23 +225,31 @@ After tightening AECON to a bare TSV header (dropping the `@aecon rows=N cols=`
 prefix), the small-result totals are **2.8× cheaper than the POSIX shells, 3.2×
 vs Nushell, and 1.36× vs PowerShell** (scalar results at parity).
 
-**At realistic scale** (`scale_comparison`, a 50-row listing with variable-width
-`name`/`size` + constant `owner`/`group`/`perm`, rendered with the *real* `aecon`):
+**At realistic scale** (`scale_comparison`, a 50-row listing rendered with the
+*real* `aecon`): variable-width `name`/`size` (incompressible), constant
+`owner`/`group` (factored to one `@const` line), and a low-cardinality `perm`
+column with 3 distinct values as real listings have (dictionary-encoded to one
+`@dict` line, referenced per-row by a 1-token index):
 
 | Output format (50 rows) | tokens | vs AECON |
 | --- | --- | --- |
-| **aethershell (aecon)** | 446 | 1.00× |
-| powershell `Format-Table` | 787 | 1.76× |
-| powershell `ConvertTo-Json` | 1430 | **3.21×** |
-| nushell (boxed table) | 1385 | 3.11× |
+| **aethershell (aecon)** | 562 | 1.00× |
+| powershell `Format-Table` | 821 | 1.46× |
+| powershell `ConvertTo-Json` | 1447 | **2.57×** |
+| nushell (boxed table) | 1402 | 2.49× |
 
 Honest reading (not rigged): on small all-varying results AECON beats PowerShell
 modestly (~1.4×). The **2×+ vs PowerShell** appears against the output an agent
 must actually *parse* — `Format-Table` is display-only (variable widths,
 truncation, culture-dependent), so a parsing agent uses `ConvertTo-Json`, where
-AECON is **~3.2×** cheaper. The structural lever is **key-factoring**: AECON emits
-each column name once (constants once via `@const`); JSON repeats every key on
-every row. Plus AECON is deterministic; the shell text formats are not.
+AECON is **~2.6×** cheaper. Two structural levers, both deterministic:
+**constant-factoring** (cardinality-1 columns → one `@const` line) and
+**dictionary encoding** (low-cardinality, multi-token string columns → one
+`@dict` line + 1-token indices). The dict lever is what keeps AECON above 2× on
+this harder data: without it, the literal `perm` string (~5 tok) × 50 rows would
+add ~185 tokens, pushing AECON to ~747 and the JSON ratio down to ~1.9×. In every
+case AECON emits each column name once where JSON repeats every key on every row,
+and AECON is deterministic where the shell text formats are not.
 
 ### 4.1 Harness
 

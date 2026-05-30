@@ -88,6 +88,70 @@ fn aecon_factors_out_constant_columns() {
 }
 
 #[test]
+fn aecon_dictionary_encodes_low_cardinality_string_columns() {
+    // 30 rows: `id` varies (numeric → never dict-encoded), `status` is a
+    // low-cardinality, multi-token string column (3 distinct values) — exactly
+    // where dictionary encoding wins: each repeated value is several tokens, an
+    // index is one.
+    let states = ["in_progress", "completed", "failed"];
+    let rows: Vec<Value> = (0..30)
+        .map(|i| {
+            rec(&[
+                ("id", Value::Int(i)),
+                ("status", Value::Str(states[(i % 3) as usize].to_string())),
+            ])
+        })
+        .collect();
+    let arr = Value::Array(rows);
+
+    let out = match call("aecon", vec![arr.clone()]) {
+        Value::Str(s) => s,
+        other => panic!("expected string, got {other:?}"),
+    };
+    // The dictionary is emitted once; the distinct values are NOT repeated per row.
+    assert!(out.contains("@dict status: "), "status dict-encoded: {out}");
+    assert_eq!(
+        out.matches("in_progress").count(),
+        1,
+        "dict value appears once, not 10 times: {out}"
+    );
+    // The high-cardinality numeric column is left as literal values (no dict).
+    assert!(out.starts_with("id\tstatus"), "tight header: {out}");
+
+    // Dictionary encoding materially beats both unfactored JSON and a heuristic
+    // baseline of the same rows with the status spelled out every time.
+    let aecon_tok = match call("tokens", vec![Value::Str(out)]) {
+        Value::Int(n) => n,
+        _ => panic!(),
+    };
+    let canon_tok = match call("tokens", vec![call("canonical", vec![arr])]) {
+        Value::Int(n) => n,
+        _ => panic!(),
+    };
+    // ~1.9x here: the dict collapses the multi-token status to a 1-token index,
+    // though the incompressible `id` column floors the overall ratio. Assert a
+    // solid, honest margin (AECON under 2/3 of JSON) rather than overclaiming.
+    assert!(
+        aecon_tok * 3 < canon_tok * 2,
+        "dict AECON ({aecon_tok} tok) should be well under JSON ({canon_tok} tok)"
+    );
+}
+
+#[test]
+fn aecon_does_not_dictionary_encode_high_cardinality_columns() {
+    // Every `name` is distinct → a dict would only add overhead. Must stay literal.
+    let rows: Vec<Value> = (0..10)
+        .map(|i| rec(&[("name", Value::Str(format!("unique_name_{i}")))]))
+        .collect();
+    let out = match call("aecon", vec![Value::Array(rows)]) {
+        Value::Str(s) => s,
+        other => panic!("expected string, got {other:?}"),
+    };
+    assert!(!out.contains("@dict"), "no dict for all-distinct column: {out}");
+    assert!(out.contains("unique_name_0") && out.contains("unique_name_9"));
+}
+
+#[test]
 fn aecon_is_cheaper_than_json_for_homogeneous_records() {
     // 5 rows × 3 fields — the common "ls / proc.list / docker.ps" shape.
     let rows: Vec<Value> = (0..5)
