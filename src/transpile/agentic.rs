@@ -1561,60 +1561,730 @@ pub fn transpile_agentic_to_ae(src: &str) -> Result<String> {
     Ok(out)
 }
 
-/// Transpile a single line of agentic syntax.
+/// Transpile a single line of agentic (`.aeg`) syntax to legible `.ae`.
+///
+/// Phase 5: this is a **single tokenizing pass** (`scan`, plus the two
+/// statement-level prefix handlers `try_for_each`/`try_assignment`) that replaced
+/// the former 10-stage sequential text-rewrite pipeline. One left-to-right scan,
+/// recursing into nested constructs, protects string/backtick literals inline and
+/// maps each cipher form directly to its legible form — so a terse token can never
+/// be mis-expanded by pass ordering (every transform sees the original token
+/// boundaries, never another pass's output).
 fn transpile_line(line: &str) -> String {
-    let mut result = line.to_string();
+    let t = line.trim();
+    if t.is_empty() {
+        return String::new();
+    }
+    // Statement-level structural prefixes (recurse into `scan` for sub-expressions).
+    if let Some(r) = try_for_each(t) {
+        return r;
+    }
+    if let Some(r) = try_assignment(t) {
+        return r;
+    }
+    scan(t)
+}
 
-    // 0. Pre-process v2 ultra-compressed forms into v1 forms
-    //    (bare builtins → #x, bare modules → @xx., ~ handled by lambda step)
-    result = preprocess_ultra(&result);
+/// For-each prefix: `*iter(~|\)v:body` → `(iter) | each(fn(v) => body)`.
+/// Only fires when `*` is the first char (multiplication never starts a line).
+fn try_for_each(s: &str) -> Option<String> {
+    if !s.starts_with('*') || s.len() < 2 {
+        return None;
+    }
+    let chars: Vec<char> = s.chars().collect();
+    let mut i = 1; // skip '*'
+    let mut depth = 0i32;
+    let iter_start = i;
+    while i < chars.len() {
+        match chars[i] {
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => depth -= 1,
+            '~' | '\\' if depth == 0 => break,
+            '"' => {
+                i += 1;
+                while i < chars.len() && chars[i] != '"' {
+                    if chars[i] == '\\' {
+                        i += 1;
+                    }
+                    i += 1;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    if i >= chars.len() || (chars[i] != '~' && chars[i] != '\\') {
+        return None;
+    }
+    let iterable: String = chars[iter_start..i].iter().collect();
+    i += 1; // skip ~ or \
+    let params_start = i;
+    while i < chars.len() && chars[i] != ':' {
+        i += 1;
+    }
+    if i >= chars.len() {
+        return None;
+    }
+    let var: String = chars[params_start..i].iter().collect();
+    i += 1; // skip ':'
+    let body: String = chars[i..].iter().collect();
+    Some(format!(
+        "({}) | each(fn({}) => {})",
+        scan(iterable.trim()),
+        var.trim(),
+        scan(body.trim())
+    ))
+}
 
-    // 0.3. Expand for-each shorthand: *items~x:body → for x in items { body }
-    //       Must run BEFORE lambda expansion (which would consume the ~x:body part)
-    result = expand_for_each(&result);
+/// Assignment prefix: `x:=expr` → `let mut x = expr`; `x=expr` → `let x = expr`
+/// (when `x` is a simple identifier and not `==`/`=>`). The RHS is scanned.
+fn try_assignment(s: &str) -> Option<String> {
+    if let Some(pos) = s.find(":=") {
+        let lhs = s[..pos].trim();
+        if is_simple_identifier(lhs) {
+            return Some(format!("let mut {} = {}", lhs, scan(s[pos + 2..].trim())));
+        }
+    }
+    let chars: Vec<char> = s.chars().collect();
+    let mut i = 0;
+    if i < chars.len() && (chars[i].is_alphabetic() || chars[i] == '_') {
+        while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
+            i += 1;
+        }
+        let id_end = i;
+        while i < chars.len() && chars[i] == ' ' {
+            i += 1;
+        }
+        if i < chars.len()
+            && chars[i] == '='
+            && (i + 1 >= chars.len() || (chars[i + 1] != '=' && chars[i + 1] != '>'))
+        {
+            let lhs: String = chars[..id_end].iter().collect();
+            let lhs = lhs.trim();
+            if is_simple_identifier(lhs) && !s.starts_with("let ") {
+                let rhs: String = chars[i + 1..].iter().collect();
+                return Some(format!("let {} = {}", lhs, scan(rhs.trim())));
+            }
+        }
+    }
+    None
+}
 
-    // 0.5. Expand ASCII symbol shortcuts: T→true, N→null, 'x'→"x", `cmd`→sh("cmd")
-    result = expand_symbols(&result);
+/// Copy a double-quoted string literal verbatim (including quotes).
+fn copy_dquote(chars: &[char], i: &mut usize, out: &mut String) {
+    out.push('"');
+    *i += 1;
+    while *i < chars.len() && chars[*i] != '"' {
+        if chars[*i] == '\\' && *i + 1 < chars.len() {
+            out.push(chars[*i]);
+            *i += 1;
+        }
+        out.push(chars[*i]);
+        *i += 1;
+    }
+    if *i < chars.len() {
+        out.push('"');
+        *i += 1;
+    }
+}
 
-    // 1. SI suffixes (1k/1M/1G) are now handled natively by the grammar lexer
-    //    (`read_number`), so the transpiler passes them through unchanged — the
-    //    expansion pass is retired (see `expand_si_suffixes`, kept for reference).
+/// Is the just-emitted context a token boundary (start, or after a non-ident char)?
+fn at_boundary(out: &str) -> bool {
+    out.is_empty() || {
+        let p = out.chars().last().unwrap();
+        !p.is_alphanumeric() && p != '_'
+    }
+}
 
-    // 2. Expand terse lambdas: \x:expr → fn(x) => expr, also ~ prefix
-    result = expand_lambdas(&result);
+/// The single left-to-right scan that maps every cipher token to legible `.ae`.
+fn scan(s: &str) -> String {
+    let chars: Vec<char> = s.chars().collect();
+    let mut out = String::with_capacity(s.len() * 2);
+    let mut i = 0;
+    let mut depth = 0i32;
+    // True immediately after an explicit `|` pipe — the only place a zero-arg bare
+    // builtin (`data|b` → `flatten()`) may fire. A `>`-derived pipe does NOT set
+    // this (so `a > b` stays `a | b`, matching the pre-rewrite pass ordering).
+    let mut after_bar = false;
 
-    // 3. Expand module sigils: @mod.func(...) → module.func(...)
-    result = expand_module_sigils(&result);
+    while i < chars.len() {
+        let c = chars[i];
+        let was_bar = after_bar;
+        after_bar = false;
 
-    // 3.5. Expand single-char function abbreviations: file.r(...) → file.read(...)
-    result = expand_func_abbreviations(&result);
+        // ── Literals (protected) ─────────────────────────────────────
+        if c == '"' {
+            copy_dquote(&chars, &mut i, &mut out);
+            continue;
+        }
+        // Single-quote → double-quote, escaping embedded ".
+        if c == '\'' {
+            out.push('"');
+            i += 1;
+            while i < chars.len() && chars[i] != '\'' {
+                if chars[i] == '\\' && i + 1 < chars.len() {
+                    out.push(chars[i]);
+                    i += 1;
+                } else if chars[i] == '"' {
+                    out.push('\\');
+                }
+                out.push(chars[i]);
+                i += 1;
+            }
+            if i < chars.len() {
+                out.push('"');
+                i += 1;
+            }
+            continue;
+        }
+        // Backtick → sh("...") (contents not further expanded).
+        if c == '`' {
+            i += 1;
+            let mut cmd = String::new();
+            while i < chars.len() && chars[i] != '`' {
+                if chars[i] == '\\' && i + 1 < chars.len() {
+                    cmd.push(chars[i]);
+                    i += 1;
+                }
+                cmd.push(chars[i]);
+                i += 1;
+            }
+            if i < chars.len() {
+                i += 1;
+            }
+            out.push_str(&format!("sh(\"{}\")", cmd));
+            continue;
+        }
+        // $VAR → sys.env("VAR")
+        if c == '$' && i + 1 < chars.len() && (chars[i + 1].is_alphabetic() || chars[i + 1] == '_') {
+            i += 1;
+            let start = i;
+            while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
+                i += 1;
+            }
+            let var: String = chars[start..i].iter().collect();
+            out.push_str(&format!("sys.env(\"{}\")", var));
+            continue;
+        }
 
-    // 3.6. Auto-parens: module.func"arg" → module.func("arg")
-    result = expand_auto_parens(&result);
+        // ── Inline structural constructs ─────────────────────────────
+        if c == '^' {
+            if let Some(rep) = consume_conditional(&chars, &mut i) {
+                out.push_str(&rep);
+                continue;
+            }
+        }
+        if c == '!' && i + 1 < chars.len() && chars[i + 1] == '{' {
+            if let Some(rep) = consume_try(&chars, &mut i) {
+                out.push_str(&rep);
+                continue;
+            }
+        }
 
-    // 4. Expand builtin shorthands: #e "msg" → echo("msg")
-    result = expand_builtin_shorthands(&result);
+        // ── T / N standalone literals ────────────────────────────────
+        if (c == 'T' || c == 'N') && at_boundary(&out) {
+            let next_ok = i + 1 >= chars.len() || {
+                let n = chars[i + 1];
+                !n.is_alphanumeric() && n != '_' && n != '.'
+            };
+            if next_ok {
+                out.push_str(if c == 'T' { "true" } else { "null" });
+                i += 1;
+                continue;
+            }
+        }
 
-    // 5. Expand pipeline operator: > → |  (but not >= or >> or >")
-    //    Also normalizes | spacing: a|b → a | b
-    result = expand_pipelines(&result);
+        // ── @sigil module reference ──────────────────────────────────
+        if c == '@' && i + 1 < chars.len() && chars[i + 1].is_alphanumeric() {
+            consume_sigil(&chars, &mut i, &mut out);
+            continue;
+        }
 
-    // 6. Expand mutable assignment: x:=expr → let mut x = expr
-    //    and plain assignment: x=expr → let x = expr
-    //    (only at statement level, not inside expressions)
-    result = expand_assignments(&result);
+        // ── #X builtin shorthand ─────────────────────────────────────
+        if c == '#' && i + 1 < chars.len() && BUILTIN_SHORT.contains_key(&chars[i + 1]) {
+            consume_builtin(&chars, &mut i, &mut out, true);
+            continue;
+        }
 
-    // 7. `?val{...}` match shorthand is now parsed natively by the grammar
-    //    (`Tok::Question` → parse_match), so the transpiler passes it through —
-    //    the expansion pass is retired (see `expand_match`, kept for reference).
+        // ── Lambda: \ or ~ ───────────────────────────────────────────
+        if (c == '\\' || c == '~') && i + 1 < chars.len() {
+            // ~ not inside an identifier (avoid bitwise-not-like usage)
+            let tilde_in_ident =
+                c == '~' && i > 0 && (chars[i - 1].is_alphanumeric() || chars[i - 1] == '_');
+            if !tilde_in_ident {
+                if let Some(rep) = consume_lambda(&chars, &mut i) {
+                    out.push_str(&rep);
+                    continue;
+                }
+            }
+        }
 
-    // 8. Expand try/catch shorthand: !{expr}{"fallback"} → try { expr } catch e { "fallback" }
-    result = expand_try_catch(&result);
+        // ── Pipeline `|` (and `|.field` projection) ──────────────────
+        if c == '|' && depth == 0 {
+            consume_pipe(&chars, &mut i, &mut out);
+            after_bar = true;
+            continue;
+        }
 
-    // 9. Expand conditional shorthand: ^cond{then}{else} → if cond { then } else { else }
-    result = expand_conditional(&result);
+        // ── `>` pipeline / comparison ────────────────────────────────
+        if c == '>' && depth == 0 {
+            consume_gt(&chars, &mut i, &mut out);
+            continue;
+        }
 
-    result
+        // ── Bare UPPERCASE module: XX.func ──────────────────────────
+        if c.is_uppercase() && at_boundary(&out) && consume_bare_module(&chars, &mut i, &mut out) {
+            continue;
+        }
+
+        // ── Identifier: bare lowercase builtin, or module.func ──────
+        if c.is_alphabetic() || c == '_' {
+            consume_ident(&chars, &mut i, &mut out, was_bar);
+            continue;
+        }
+
+        // ── Default: copy char, track bracket depth ─────────────────
+        match c {
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => depth -= 1,
+            _ => {}
+        }
+        out.push(c);
+        i += 1;
+    }
+
+    out
+}
+
+/// `^cond{then}{else?}` → `match (cond) { true => (then), _ => (else|null) }`.
+/// Condition/bodies are scanned recursively. Returns None if it doesn't match.
+fn consume_conditional(chars: &[char], i: &mut usize) -> Option<String> {
+    let mut j = *i + 1; // skip ^
+    let cond_start = j;
+    while j < chars.len() && chars[j] != '{' {
+        j += 1;
+    }
+    if j >= chars.len() {
+        return None;
+    }
+    let condition: String = chars[cond_start..j].iter().collect();
+    if condition.trim().is_empty() {
+        return None;
+    }
+    let then_body = consume_brace_group(chars, &mut j)?;
+    let replacement = if j < chars.len() && chars[j] == '{' {
+        let else_body = consume_brace_group(chars, &mut j)?;
+        format!(
+            "match ({}) {{ true => ({}), _ => ({}) }}",
+            scan(condition.trim()),
+            scan(then_body.trim()),
+            scan(else_body.trim())
+        )
+    } else {
+        format!(
+            "match ({}) {{ true => ({}), _ => null }}",
+            scan(condition.trim()),
+            scan(then_body.trim())
+        )
+    };
+    *i = j;
+    Some(replacement)
+}
+
+/// `!{try}{catch?}` → `try { try } catch e { catch|null }`. Bodies scanned.
+fn consume_try(chars: &[char], i: &mut usize) -> Option<String> {
+    let mut j = *i + 1; // skip !
+    let try_body = consume_brace_group(chars, &mut j)?;
+    let replacement = if j < chars.len() && chars[j] == '{' {
+        let catch_body = consume_brace_group(chars, &mut j)?;
+        format!(
+            "try {{ {} }} catch e {{ {} }}",
+            scan(try_body.trim()),
+            scan(catch_body.trim())
+        )
+    } else {
+        format!("try {{ {} }} catch e {{ null }}", scan(try_body.trim()))
+    };
+    *i = j;
+    Some(replacement)
+}
+
+/// Consume a `{...}` group starting at `*j` (which must point at `{`), returning
+/// the inner text and advancing `*j` past the closing `}`. None if unbalanced.
+fn consume_brace_group(chars: &[char], j: &mut usize) -> Option<String> {
+    if *j >= chars.len() || chars[*j] != '{' {
+        return None;
+    }
+    *j += 1; // skip {
+    let start = *j;
+    let mut depth = 1i32;
+    while *j < chars.len() && depth > 0 {
+        match chars[*j] {
+            '{' => depth += 1,
+            '}' => depth -= 1,
+            _ => {}
+        }
+        *j += 1;
+    }
+    if depth != 0 {
+        return None;
+    }
+    Some(chars[start..*j - 1].iter().collect())
+}
+
+/// `@sigil` / `@sigil.` / `@sigil(` → resolved module name via MODULE_MAP.
+fn consume_sigil(chars: &[char], i: &mut usize, out: &mut String) {
+    *i += 1; // skip @
+    let start = *i;
+    while *i < chars.len() && (chars[*i].is_alphanumeric() || chars[*i] == '_') {
+        *i += 1;
+    }
+    let sigil: String = chars[start..*i].iter().collect();
+    let resolved = MODULE_MAP
+        .get(sigil.as_str())
+        .map(|m| m.to_string())
+        .unwrap_or(sigil);
+    out.push_str(&resolved);
+    if *i < chars.len() && chars[*i] == '.' {
+        attach_func_or_autoparens(chars, i, out, &resolved);
+    } else {
+        maybe_autoparen_string(chars, i, out);
+    }
+}
+
+/// `#X args…` → `name(args…)`. When `hash` is true the `#` is at `*i`; args run
+/// to a pipeline boundary. Reused for the bare-builtin path (hash=false, `*i` at
+/// the builtin letter already emitted via caller).
+fn consume_builtin(chars: &[char], i: &mut usize, out: &mut String, hash: bool) {
+    let code = if hash { chars[*i + 1] } else { chars[*i] };
+    let (name, _) = BUILTIN_SHORT.get(&code).copied().unwrap();
+    *i += if hash { 2 } else { 1 };
+    while *i < chars.len() && chars[*i] == ' ' {
+        *i += 1;
+    }
+    let args_start = *i;
+    let mut depth = 0i32;
+    while *i < chars.len() {
+        match chars[*i] {
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' if depth <= 0 => break,
+            ')' | ']' | '}' => depth -= 1,
+            '"' => {
+                *i += 1;
+                while *i < chars.len() && chars[*i] != '"' {
+                    if chars[*i] == '\\' {
+                        *i += 1;
+                    }
+                    *i += 1;
+                }
+            }
+            '|' if depth == 0 => break,
+            ' ' if depth == 0 => {
+                if *i + 2 < chars.len() && chars[*i + 1] == '>' && chars[*i + 2] == ' ' {
+                    break;
+                }
+            }
+            _ => {}
+        }
+        *i += 1;
+    }
+    let args_raw: String = chars[args_start..*i].iter().collect();
+    let args = scan(args_raw.trim());
+    if args.is_empty() {
+        out.push_str(&format!("{}()", name));
+    } else {
+        out.push_str(&format!("{}({})", name, args));
+    }
+}
+
+/// `\x:body`, `~x:body`, `\.f`, `~.f` → `fn(params) => body`. None if not a lambda.
+fn consume_lambda(chars: &[char], i: &mut usize) -> Option<String> {
+    let mut j = *i + 1; // skip \ or ~
+    if j >= chars.len() {
+        return None;
+    }
+    // Implicit-parameter form: \.field / ~.field
+    if chars[j] == '.' {
+        let body = collect_lambda_body(chars, &mut j);
+        *i = j;
+        return Some(format!("fn(__) => __{}", scan_lambda_body(&body)));
+    }
+    let param_start = j;
+    while j < chars.len() && chars[j] != ':' && chars[j] != '\n' {
+        j += 1;
+    }
+    if j < chars.len() && chars[j] == ':' {
+        let params: String = chars[param_start..j].iter().collect();
+        j += 1; // skip ':'
+        let body = collect_lambda_body(chars, &mut j);
+        let param_list = params
+            .split(',')
+            .map(|p| p.trim())
+            .collect::<Vec<_>>()
+            .join(", ");
+        *i = j;
+        return Some(format!("fn({}) => {}", param_list, scan_lambda_body(&body)));
+    }
+    None
+}
+
+/// Scan a lambda body, but leave a leading `.` (field access) attached as-is.
+fn scan_lambda_body(body: &str) -> String {
+    scan(body)
+}
+
+/// Pipeline `|`: handles `|.field` projection and normalizes `a|b` → `a | b`.
+fn consume_pipe(chars: &[char], i: &mut usize, out: &mut String) {
+    // Field projection: |.accessor → | map(fn(__) => __.accessor)
+    let mut peek = *i + 1;
+    while peek < chars.len() && chars[peek] == ' ' {
+        peek += 1;
+    }
+    if peek < chars.len() && chars[peek] == '.' {
+        let acc_start = peek;
+        let mut acc_depth = 0i32;
+        let mut j = peek;
+        while j < chars.len() {
+            match chars[j] {
+                '(' | '[' => {
+                    acc_depth += 1;
+                    j += 1;
+                }
+                ')' | ']' => {
+                    if acc_depth <= 0 {
+                        break;
+                    }
+                    acc_depth -= 1;
+                    j += 1;
+                }
+                '|' if acc_depth == 0 => break,
+                ' ' if acc_depth == 0 => break,
+                _ => j += 1,
+            }
+        }
+        let accessor: String = chars[acc_start..j].iter().collect();
+        if !out.ends_with(' ') {
+            out.push(' ');
+        }
+        out.push_str(&format!("| map(fn(__) => __{})", accessor));
+        *i = j;
+        return;
+    }
+    if !out.ends_with(' ') {
+        out.push(' ');
+    }
+    out.push_str("| ");
+    *i += 1;
+    while *i < chars.len() && chars[*i] == ' ' {
+        *i += 1;
+    }
+}
+
+/// `>`: ` > ` (spaced) → pipe; `>=`/`=>`/`>>` preserved; bare `>` is comparison.
+fn consume_gt(chars: &[char], i: &mut usize, out: &mut String) {
+    // `=>` fat arrow — leave as-is.
+    if out.ends_with('=') {
+        out.push('>');
+        *i += 1;
+        return;
+    }
+    // `>>` → ` | each(body)`
+    if *i + 1 < chars.len() && chars[*i + 1] == '>' {
+        let trimmed = out.trim_end().len();
+        out.truncate(trimmed);
+        out.push_str(" | each(");
+        *i += 2;
+        while *i < chars.len() && chars[*i] == ' ' {
+            *i += 1;
+        }
+        let body_start = *i;
+        let mut bd = 0i32;
+        while *i < chars.len() {
+            match chars[*i] {
+                '(' | '[' | '{' => bd += 1,
+                ')' | ']' | '}' if bd > 0 => bd -= 1,
+                '>' | '|' if bd == 0 => break,
+                _ => {}
+            }
+            *i += 1;
+        }
+        let body: String = chars[body_start..*i].iter().collect();
+        out.push_str(scan(body.trim()).trim());
+        out.push(')');
+        return;
+    }
+    // `>=` comparison — leave as-is.
+    if *i + 1 < chars.len() && chars[*i + 1] == '=' {
+        out.push_str(">=");
+        *i += 2;
+        return;
+    }
+    // Spaced ` > ` → pipe; otherwise comparison.
+    let space_before = out.ends_with(' ');
+    let space_after = *i + 1 < chars.len() && chars[*i + 1] == ' ';
+    if space_before && space_after {
+        out.push_str("| ");
+        *i += 1;
+        while *i < chars.len() && chars[*i] == ' ' {
+            *i += 1;
+        }
+    } else {
+        out.push('>');
+        *i += 1;
+    }
+}
+
+/// Bare uppercase module: `XX.` where lowercase(XX) is a known module → resolve to
+/// the module name, then attach a single-char function abbreviation if present.
+/// Returns false (consuming nothing) if not a module reference.
+fn consume_bare_module(chars: &[char], i: &mut usize, out: &mut String) -> bool {
+    let mut j = *i;
+    while j < chars.len() && (chars[j].is_uppercase() || chars[j].is_ascii_digit()) {
+        j += 1;
+    }
+    if j >= chars.len() || chars[j] != '.' {
+        return false;
+    }
+    let sigil: String = chars[*i..j].iter().collect();
+    let lower = sigil.to_lowercase();
+    let module = match MODULE_MAP.get(lower.as_str()) {
+        Some(m) => *m,
+        None => return false,
+    };
+    out.push_str(module);
+    *i = j; // position at '.'
+    attach_func_or_autoparens(chars, i, out, module);
+    true
+}
+
+/// After a module name has been emitted and `*i` points at `.`, attach the
+/// function: a single-char abbreviation (`.r` → `read`), an auto-parened string
+/// (`.read"x"` → `.read("x")`), or a plain `.func`.
+fn attach_func_or_autoparens(chars: &[char], i: &mut usize, out: &mut String, module: &str) {
+    if *i >= chars.len() || chars[*i] != '.' {
+        return;
+    }
+    let dot = *i;
+    let mut j = *i + 1;
+    let fstart = j;
+    while j < chars.len() && (chars[j].is_alphanumeric() || chars[j] == '_') {
+        j += 1;
+    }
+    let func: String = chars[fstart..j].iter().collect();
+    // Single-char abbreviation: module.x where the full name is in FUNC_ABBREV.
+    if func.chars().count() == 1 {
+        let key = format!("{}.{}", module, func);
+        if let Some(full) = FUNC_ABBREV.get(key.as_str()) {
+            // FUNC_ABBREV maps to the fully-qualified `module.func`; emit the func
+            // part (module already emitted).
+            let func_only = full.split('.').last().unwrap_or(full);
+            out.push('.');
+            out.push_str(func_only);
+            *i = j;
+            // Auto-parens if a string literal follows.
+            maybe_autoparen_string(chars, i, out);
+            return;
+        }
+    }
+    if func.is_empty() {
+        out.push('.');
+        *i = dot + 1;
+        return;
+    }
+    out.push('.');
+    out.push_str(&func);
+    *i = j;
+    maybe_autoparen_string(chars, i, out);
+}
+
+/// If a `"string"` directly follows (no `(`), wrap it: `…"x"` → `…("x")`.
+fn maybe_autoparen_string(chars: &[char], i: &mut usize, out: &mut String) {
+    if *i < chars.len() && chars[*i] == '"' {
+        out.push('(');
+        copy_dquote(chars, i, out);
+        out.push(')');
+    }
+}
+
+/// Identifier handling: bare lowercase single-char builtins, and `module.func`
+/// (with abbreviation/auto-parens). Plain identifiers are copied through.
+fn consume_ident(chars: &[char], i: &mut usize, out: &mut String, after_bar: bool) {
+    let c = chars[*i];
+    // Bare lowercase single-char builtin at a boundary (v2 ultra form).
+    if c.is_lowercase() && BUILTIN_SHORT.contains_key(&c) {
+        let prev_ok = at_boundary(out) && out.chars().last() != Some('.');
+        if prev_ok {
+            let next = chars.get(*i + 1).copied();
+            match next {
+                Some('"') | Some('(') | Some('~') | Some('\\') | Some('[') | Some('{')
+                | Some('\'') | Some('$') => {
+                    consume_builtin(chars, i, out, false);
+                    return;
+                }
+                Some(d) if d.is_ascii_digit() => {
+                    consume_builtin(chars, i, out, false);
+                    return;
+                }
+                Some('/') | Some('*') => {
+                    let after = chars.get(*i + 2).copied();
+                    if !matches!(after, Some(d) if d.is_ascii_digit()) {
+                        emit_bare_path_builtin(chars, i, out, c);
+                        return;
+                    }
+                }
+                Some('.') => {
+                    let after_dot = chars.get(*i + 2).copied();
+                    let looks_like_path = match after_dot {
+                        None => true,
+                        Some(ch) => !ch.is_alphanumeric() && ch != '_',
+                    };
+                    if looks_like_path {
+                        emit_bare_path_builtin(chars, i, out, c);
+                        return;
+                    }
+                }
+                None | Some('|') => {
+                    // Zero-arg bare builtin fires ONLY right after an explicit `|`
+                    // pipe (`data|b` → `flatten()`). Never at line/sub-expr start
+                    // (would misfire on a variable like `x`=the `sh` shorthand in a
+                    // conditional body) and never after a `>`-derived pipe (so
+                    // `a > b` stays `a | b`).
+                    if after_bar {
+                        let (name, _) = BUILTIN_SHORT.get(&c).copied().unwrap();
+                        out.push_str(&format!("{}()", name));
+                        *i += 1;
+                        return;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    // General identifier; may be `module.func` needing abbrev/auto-parens.
+    let start = *i;
+    while *i < chars.len() && (chars[*i].is_alphanumeric() || chars[*i] == '_') {
+        *i += 1;
+    }
+    let ident: String = chars[start..*i].iter().collect();
+    if *i < chars.len() && chars[*i] == '.' {
+        out.push_str(&ident);
+        attach_func_or_autoparens(chars, i, out, &ident);
+        return;
+    }
+    out.push_str(&ident);
+}
+
+/// Bare builtin with an auto-quoted path/glob argument: `l./src` → `ls("./src")`.
+fn emit_bare_path_builtin(chars: &[char], i: &mut usize, out: &mut String, letter: char) {
+    let (name, _) = BUILTIN_SHORT.get(&letter).copied().unwrap();
+    *i += 1; // skip the letter
+    let path_start = *i;
+    while *i < chars.len() && is_path_char(chars[*i]) {
+        *i += 1;
+    }
+    let path: String = chars[path_start..*i].iter().collect();
+    out.push_str(&format!("{}(\"{}\")", name, path));
 }
 
 /// Expand SI suffixes: 1k → 1000, 5M → 5000000, 2G → 2000000000.
