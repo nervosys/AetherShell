@@ -15,6 +15,7 @@ fn eval_code(code: &str) -> Result<Value, String> {
 }
 
 /// Helper to check if a builtin exists by trying to call it
+#[allow(dead_code)]
 fn builtin_exists(name: &str) -> bool {
     // Try to parse and evaluate a type_of call on the builtin
     // If the builtin exists, type_of will return something

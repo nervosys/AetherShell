@@ -36,3 +36,7 @@ Cargo.lock.bak
 .test_output/
 node_modules/
 *.zip
+
+# transient test artifacts
+x.db
+*.db

@@ -11,6 +11,7 @@ fn eval(src: &str) -> Value {
     eval_program(&stmts, &mut env).expect("eval failed")
 }
 
+#[allow(dead_code)]
 fn eval_result(src: &str) -> Result<Value, String> {
     let stmts = parse_program(src).map_err(|e| e.to_string())?;
     let mut env = Env::new();
