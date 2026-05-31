@@ -3,7 +3,6 @@
 use aethershell::builtins::call;
 use aethershell::env::Env;
 use aethershell::value::Value;
-use std::collections::BTreeMap;
 
 // ===================== Cluster Management Tests =====================
 

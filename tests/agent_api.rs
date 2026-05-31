@@ -4,7 +4,7 @@
 
 use aethershell::agent_api::{
     build_language_ontology, generate_schema, process_json_request, process_request, AgentRequest,
-    AgentResponse, PipelineStep, SchemaFormat,
+    AgentResponse, SchemaFormat,
 };
 use serde_json::json;
 

@@ -1,7 +1,7 @@
 // Test self-describing tool registration with simon
 // Run with: cargo test --test test_simon_integration -- --nocapture
 
-use aethershell::external_tools::{ExternalToolRegistry, EXTERNAL_TOOLS};
+use aethershell::external_tools::ExternalToolRegistry;
 use std::path::Path;
 
 #[test]

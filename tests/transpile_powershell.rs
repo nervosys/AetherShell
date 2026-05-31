@@ -1,6 +1,7 @@
 use aethershell::transpile::powershell::transpile_powershell_to_ae;
 
 /// Remove all ASCII whitespace to make tests resilient to formatting.
+#[allow(dead_code)]
 fn strip_ws(s: &str) -> String {
     s.chars().filter(|c| !c.is_ascii_whitespace()).collect()
 }
@@ -58,7 +59,7 @@ fn cmdlet_get_childitem() {
 fn cmdlet_get_content() {
     let ps = "Get-Content 'file.txt'";
     let ae = transpile_powershell_to_ae(ps).expect("transpile ok");
-    assert!(ae.contains("read_text"), "got:\n{}", ae);
+    assert!(ae.contains("file.read"), "got:\n{}", ae);
 }
 
 #[test]
@@ -72,7 +73,7 @@ fn cmdlet_write_host() {
 fn cmdlet_get_process() {
     let ps = "Get-Process";
     let ae = transpile_powershell_to_ae(ps).expect("transpile ok");
-    assert!(ae.contains("proc_list"), "got:\n{}", ae);
+    assert!(ae.contains("proc.list"), "got:\n{}", ae);
 }
 
 #[test]

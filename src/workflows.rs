@@ -1142,7 +1142,7 @@ impl WorkflowEngine {
 
                 match result {
                     Ok(value) => return Ok(value),
-                    Err(e) if retries < max_retries => {
+                    Err(_e) if retries < max_retries => {
                         retries += 1;
 
                         // Calculate backoff delay

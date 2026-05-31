@@ -9,6 +9,11 @@
 use aethershell::mcp::{McpConfig, McpServer, McpToolCall};
 use aethershell::os_tools::{OSToolsDatabase, SafetyLevel, ToolCategory};
 use std::collections::HashMap;
+use std::sync::Mutex;
+
+/// Serializes tests that mutate the process-global `AETHER_MODE` env var, so they
+/// can't clear each other's mode mid-call when run in parallel.
+static ENV_LOCK: Mutex<()> = Mutex::new(());
 
 // ============================================================================
 // Server Creation Tests
@@ -654,6 +659,7 @@ fn call_builtin_executes_a_pure_builtin() {
 
 #[test]
 fn call_builtin_gates_destructive_in_agent_mode() {
+    let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     std::env::set_var("AETHER_MODE", "agent");
     let server = McpServer::new();
     let res = server.call_builtin("db_sqlite_delete", &serde_json::json!(["x.db", "t", "1=1"]));
@@ -671,6 +677,7 @@ fn call_builtin_gates_destructive_in_agent_mode() {
 fn call_builtin_renders_tabular_as_aecon_in_agent_mode() {
     // In agent mode an array-of-records result comes back as compact AECON text
     // (header once) rather than the verbose per-row display — mirroring the CLI.
+    let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     std::env::set_var("AETHER_MODE", "agent");
     let server = McpServer::new();
     let res = server.call_builtin(
