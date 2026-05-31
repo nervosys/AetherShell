@@ -3,7 +3,7 @@
 
 ; ── Variables ──
 name="AetherShell"
-version="1.2.0"
+version="1.3.0"
 max_size=10k
 
 ; ── v2 Bare modules (no @ prefix, uppercase sigil) ──

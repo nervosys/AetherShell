@@ -7,6 +7,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-05-31
+
+Agentic-first release: AetherShell is now optimized end-to-end for AI agents —
+token-efficient structured output, a real safety/transaction model, and a unified
+single-pass agentic parser. Backward-compatible; all additions, measured with the
+real GPT-4 cl100k tokenizer.
+
+### Added
+- **AECON (Aether Compact Object Notation)** — compact structured output: a
+  header-once tabular form with three deterministic, gated compression levers:
+  constant-column factoring (`@const`), dictionary encoding for low-cardinality
+  string columns (`@dict`), and delta encoding for large slowly-varying integer
+  columns (`@delta`). ~2.8× fewer output tokens than POSIX shells and ~2.6× vs
+  PowerShell's parseable JSON on realistic tabular results.
+- **Lossless reversibility** — `aecon_decode` reverses the tabular form; optional
+  `@type` tags make numeric-looking strings and integral floats round-trip exactly.
+- **Agent-mode default rendering** — under `AETHER_MODE=agent`, results render as
+  compact AECON automatically across the CLI, HTTP Agent API, and MCP server.
+- **Token-economy builtins** — `aecon`, `aecon_decode`, `pick` (source-side field
+  projection), `budget` (token-bounded paging with a cursor), `digest`
+  (constant-token structural summary), `canonical` (deterministic JSON), `tokens`
+  (cl100k estimate), and `ontology_manifest`/`ontology_describe` (progressive
+  ontology disclosure).
+- **`--deterministic` / `AE_DETERMINISTIC`** — render results as canonical,
+  byte-stable JSON for snapshot tests, content-addressable caching, and diffs.
+- **Safety model** — an effect taxonomy (Pure → Privileged), a
+  capability→policy→approval→audit pipeline, content-bound approval tokens, a
+  workspace jail, a hash-chained tamper-evident audit log, RBAC, structured `E_*`
+  errors, and `safety_status` introspection. CLI flags `--agent`/`--workspace`/
+  `--policy`.
+- **Filesystem transactions & checkpoints** — `tx_begin`/`tx_commit`/`tx_rollback`/
+  `tx_status` with **named savepoints** (`tx_savepoint`/`tx_rollback_to`) for
+  partial rollback. Covers file writes/appends, deletes, recursive directory
+  trees, sqlite databases, and the key-value store. No conventional shell offers
+  this.
+- **`plan` / `apply`** — Terraform-style declarative destructive batches: a
+  reviewable typed plan plus a content-bound approval token, applied atomically
+  inside a transaction with automatic rollback on any failure.
+- **Persistent key-value store** — `db_kv_get`/`set`/`delete`/`keys`/`store`,
+  transactional via the sqlite snapshot chokepoint.
+- **Grammar additions** — native `|.field` projection, SI numeric suffixes
+  (`1k`/`1M`/`1G`), `~x: body` lambdas, `?val{arms}` match, and
+  `if cond { … } else { … }` expressions.
+- **MCP server** now exposes builtins as effect-tagged tools; the **HTTP Agent
+  API** gained per-call token accounting and real chunked streaming.
+- **Cross-shell token benchmark** (`cargo run --example shell_bench --features
+  real-tokens`) comparing AetherShell to Bash/Zsh/Fish/Nushell/PowerShell.
+- **Real GPT-4 cl100k tokenizer** behind `--features real-tokens` for exact,
+  authoritative token measurement (heuristic otherwise).
+
+### Changed
+- **Agentic `.aeg` transpiler rewritten as a single tokenizing pass** (Phase 5),
+  retiring the former 10-pass text-substitution pipeline (~2,000 lines removed).
+  Terse tokens can no longer be mis-expanded by pass ordering.
+- Measure-first verdict committed the agent surface to **legible-first** syntax;
+  the `.aeg` cipher remains an opt-in legacy surface.
+
+### Fixed
+- Zero-warning build restored across all targets.
+- Two stale PowerShell transpiler integration tests (now assert the emitted
+  `file.read`/`proc.list`); an `AETHER_MODE` env-var test race serialized.
+
 ## [1.2.0] - 2026-02-15
 
 ### Added
