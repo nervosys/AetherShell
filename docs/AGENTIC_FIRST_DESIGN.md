@@ -313,6 +313,29 @@ the 10-pass pipeline (§2.2). Terse tokens the parser understands cannot be
 mis-expanded by pass ordering. The `.aeg` transpiler becomes, at most, a thin
 legacy shim that emits canonical AST.
 
+> **STATUS (Phase 5 — Stage 1 landed).** The transpiler's integration tests
+> (`tests/transpile_agentic.rs`, 121 tests) are now **behavior assertions** — they
+> eval the transpiled `.ae` (for self-contained forms) or assert the
+> spacing-tolerant semantic mapping (for external/IO forms), instead of checking
+> the transpiler's exact internal text. This decouples the tests from the
+> transpiler's representation so the pipeline can be replaced without rewriting
+> every test.
+>
+> **Re-assessment of Stage 2 (single-pass rewrite).** Reading the 10 passes in
+> full shows they are **essentially order-dependent**, not accidentally so:
+> `for_each` must precede lambda expansion (it consumes the `~x:body`); module
+> sigils → func abbreviations → auto-parens form a dependent chain; builtin
+> shorthands precede pipeline normalization; etc. A single-pass rewrite must encode
+> the *same* ordering, so it is a reorganization rather than a simplification — the
+> hoped-for "no pass-ordering bugs" benefit is muted. Each pass also *already*
+> skips string literals, so the main "rewrite-fired-inside-a-string" hazard is
+> handled today, and the 121-test suite shows no ordering bug currently manifests.
+> Combined with the **measure-first verdict** (legible wins; the cipher is opt-in
+> legacy), the full from-scratch rewrite is **high-risk, large-effort, low-value on
+> a deprecated surface**. Recommendation: treat Stage 1 as the Phase 5 increment
+> that lands; defer the from-scratch single-pass rewrite unless the transpiler's
+> maintenance cost actually bites.
+
 ---
 
 ## 5. Shared core (serves both surfaces)
