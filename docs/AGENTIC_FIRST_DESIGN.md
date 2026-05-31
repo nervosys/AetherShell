@@ -335,6 +335,20 @@ legacy shim that emits canonical AST.
 > a deprecated surface**. Recommendation: treat Stage 1 as the Phase 5 increment
 > that lands; defer the from-scratch single-pass rewrite unless the transpiler's
 > maintenance cost actually bites.
+>
+> **PHASE 5 COMPLETE (done anyway, per explicit decision).** The 10-pass pipeline
+> is retired. `transpile_line` is now a **single left-to-right `scan`** (plus two
+> statement-prefix handlers, `try_for_each`/`try_assignment`) that protects
+> string/backtick literals inline and maps each cipher form directly to legible
+> `.ae`, recursing into nested constructs — a terse token can no longer be
+> mis-expanded by pass ordering. All 14 `expand_*`/`preprocess_ultra` functions
+> (~2,000 lines) were deleted and their internals-testing unit tests replaced with
+> a slim end-to-end + ontology-integrity suite. Two historical ordering quirks are
+> matched deliberately: a zero-arg bare builtin fires only right after an explicit
+> `|` (`data|b`→`flatten()`, but `a > b`→`a | b`), and a bare builtin letter that
+> is a variable inside a recursively-scanned body stays literal (`^cond{x}` keeps
+> `x`, not the `sh` shorthand). Verified: agentic integration 121/121, lib 342/0,
+> production build warning-clean.
 
 ---
 
