@@ -13,7 +13,7 @@ class AetherShellKernel(Kernel):
     implementation = "AetherShell"
     implementation_version = "0.1.0"
     language = "aethershell"
-    language_version = "1.2.0"
+    language_version = "1.3.0"
     language_info = {
         "name": "aethershell",
         "mimetype": "text/x-aethershell",
