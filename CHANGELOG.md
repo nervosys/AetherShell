@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- `file_write` and `file_append` are now jailed to the workspace in agent mode
+  (the `WriteLocal` effect guard, matching `rm`/`rmdir`): a write to an absolute
+  path outside the workspace is rejected with `E_OUTSIDE_WORKSPACE`. Allowed by
+  policy (no approval prompt) — only the workspace containment is enforced. Human
+  mode is unaffected.
 - In a **jailed context** (agent mode or an explicit `AETHER_WORKSPACE`), relative
   paths passed to effecting builtins (`file_write`/`file_append`/`rm`/`rmdir`) now
   resolve against the **workspace root** instead of the process CWD. This closes a

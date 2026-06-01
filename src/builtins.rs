@@ -27741,6 +27741,19 @@ fn bi_file_write(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         }
     };
 
+    // Agent mode / explicit workspace: a write is allowed but jailed to the
+    // workspace (WriteLocal is allow-by-policy; fs_paths enforces containment, so
+    // an absolute path outside the workspace is rejected).
+    crate::safety::guard(crate::safety::GuardCtx {
+        builtin: "file_write",
+        effect: crate::safety::Effect::WriteLocal,
+        what: "write",
+        targets: vec![path.clone()],
+        blast_radius: serde_json::json!({ "bytes": content.len() }),
+        reversible: true,
+        fs_paths: true,
+    })?;
+
     crate::tx::snapshot(&path); // record pre-write state if a transaction is active
 
     // Write atomically: write to temp file, then rename
@@ -27823,6 +27836,17 @@ fn bi_file_append(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             None => return Err(anyhow!("file_append requires content to append")),
         }
     };
+
+    // Jailed to the workspace in agent mode (see file_write).
+    crate::safety::guard(crate::safety::GuardCtx {
+        builtin: "file_append",
+        effect: crate::safety::Effect::WriteLocal,
+        what: "append",
+        targets: vec![path.clone()],
+        blast_radius: serde_json::json!({ "bytes": content.len() }),
+        reversible: true,
+        fs_paths: true,
+    })?;
 
     crate::tx::snapshot(&path); // record pre-append state if a transaction is active
 
