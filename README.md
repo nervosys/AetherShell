@@ -326,6 +326,11 @@ content-bound approval tokens; a **workspace jail** (`--workspace`) confines wri
 and deletes; a **hash-chained audit log** records every effecting action tamper-evidently;
 **RBAC** grants bypass approval but never the jail; failures surface as structured
 `E_*` errors agents can branch on. `safety_status()` reports the live envelope.
+**Secret hygiene** is on by default in agent mode: known secret shapes (API-key
+prefixes, AWS keys, JWTs, PEM blocks, URL credentials, `key=secret` forms) are
+redacted from agent output *and* the audit log, and reading a secret-named env var
+returns an opaque `[REDACTED:NAME]` handle — so credentials never reach the model's
+context or persist to disk (opt out with `AETHER_REDACT=off` / `AETHER_SECRETS=allow`).
 
 ### Transactions & checkpoints (no other shell offers this)
 
@@ -431,6 +436,7 @@ across OS/locale; `canonical` gives byte-stable JSON for snapshot tests and cach
 | Default-deny dangerous ops behind approval | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (`--agent`) |
 | Workspace jail confining writes/deletes | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (`--workspace`) |
 | Tamper-evident (hash-chained) audit log | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ |
+| Secret redaction (output + audit) & env handle gating | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (agent mode) |
 | RBAC over effect classes | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ |
 | Filesystem transactions / rollback | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (`tx_*` + savepoints) |
 | Plan → approve → atomic apply | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (`plan`/`apply`) |

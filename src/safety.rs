@@ -595,6 +595,18 @@ pub fn audit(
         .or_else(|_| std::env::var("USERNAME"))
         .ok();
 
+    // Scrub secret shapes out of the resource string and detail metadata before
+    // they are hashed and persisted — the audit log is a durable artifact, so a
+    // leaked credential there would outlive the run (§7.6).
+    let (resource, detail) = if redaction_enabled() {
+        let (r, _) = redact_str(resource);
+        let mut d = detail;
+        redact_json(&mut d);
+        (r, d)
+    } else {
+        (resource.to_string(), detail)
+    };
+
     // Canonical core (everything but entry_hash); prev_hash chains entries.
     let core = json!({
         "seq": seq,
@@ -866,6 +878,168 @@ pub fn guard(ctx: GuardCtx) -> Result<(), SafetyError> {
     }
 }
 
+// ════════════════════════════════════════════════════════════════════════
+// Secret hygiene (§7.6)
+// ════════════════════════════════════════════════════════════════════════
+//
+// Two complementary defenses, both deterministic:
+//
+// 1. **Shape redaction** — `redact_str` scrubs known secret *shapes* (API-key
+//    prefixes, JWTs, AWS access-key ids, PEM private-key blocks, URL credentials,
+//    and `key=secret` assignment forms) from any text. Applied to agent output
+//    (`builtins::render_agent`) and to every audit entry, so a secret that flows
+//    through a result or a guarded call's metadata never lands in the agent's
+//    context window or the persistent, hash-chained audit log.
+// 2. **Name gating** — `env_secret_gated` reports whether reading an env var by a
+//    secret-denoting name (`*_KEY`, `*TOKEN*`, `*SECRET*`, …) should be replaced
+//    with an opaque `[REDACTED:NAME]` handle *before* the value ever enters the
+//    program's value space. Active only in agent mode and only when the value
+//    isn't explicitly permitted (`AETHER_SECRETS=allow`).
+//
+// All of this is opt-out via `AETHER_REDACT=off` for trusted automation; human
+// mode keeps full fidelity (the gate is agent-only; render redaction runs on the
+// agent render path only).
+
+/// The marker substituted for a redacted secret. ASCII + bracketed to match the
+/// house style (`[PATH]`, `[SECURITY WARNING]`) and to tokenize cheaply.
+pub const REDACTION_MARKER: &str = "[REDACTED]";
+
+lazy_static! {
+    /// Self-contained secret tokens — the whole match *is* the secret and is
+    /// replaced wholesale. Ordered alternation; each branch is anchored on a
+    /// distinctive prefix/structure so it can't fire on ordinary prose.
+    static ref SECRET_TOKEN_RE: regex::Regex = regex::Regex::new(concat!(
+        r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----",
+        r"|eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}", // JWT
+        r"|AKIA[0-9A-Z]{16}",                                                 // AWS access key id
+        r"|sk-(?:ant-)?[A-Za-z0-9_-]{16,}",                                   // OpenAI / Anthropic
+        r"|gh[pousr]_[A-Za-z0-9]{20,}",                                       // GitHub PAT/OAuth
+        r"|xox[baprs]-[A-Za-z0-9-]{10,}",                                     // Slack
+        r"|AIza[0-9A-Za-z_-]{20,}",                                           // Google API key
+        r"|[rs]k_(?:live|test)_[A-Za-z0-9]{16,}",                             // Stripe
+    )).unwrap();
+
+    /// URL credentials: `scheme://user:password@host` — redact only the password,
+    /// keeping the scheme/user/host so the result stays diagnostic.
+    static ref URL_CRED_RE: regex::Regex =
+        regex::Regex::new(r"([a-zA-Z][a-zA-Z0-9+.\-]*://[^/\s:@]+:)([^/\s:@]+)(@)").unwrap();
+
+    /// `key = secret` / `key: secret` assignment forms (case-insensitive key,
+    /// value ≥6 chars to skip trivial placeholders). Group 1 (key + separator)
+    /// is kept; group 2 (the value) is redacted.
+    static ref SECRET_ASSIGN_RE: regex::Regex = regex::Regex::new(
+        r#"(?i)((?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|client[_-]?secret|auth[_-]?token)["']?\s*[:=]\s*)["']?([^\s"',}]{6,})"#
+    ).unwrap();
+}
+
+/// Whether secret redaction is active. On by default; `AETHER_REDACT=off`
+/// (or `0`/`false`/`no`) disables it for trusted automation.
+pub fn redaction_enabled() -> bool {
+    !matches!(
+        std::env::var("AETHER_REDACT").ok().as_deref(),
+        Some("off") | Some("0") | Some("false") | Some("no")
+    )
+}
+
+/// Whether the caller has explicitly permitted reading secret-named env vars in
+/// the clear (`AETHER_SECRETS=allow`). Defaults to denied in agent mode.
+pub fn secrets_permitted() -> bool {
+    matches!(
+        std::env::var("AETHER_SECRETS").ok().as_deref(),
+        Some("allow") | Some("1") | Some("true")
+    )
+}
+
+/// Whether an env-var name denotes a secret. Conservative substring match
+/// (uppercased) on strong indicators only — `KEY` alone is excluded to avoid
+/// `KEYBOARD`/`MONKEY` false positives; `_KEY` requires the underscore.
+pub fn is_secret_name(name: &str) -> bool {
+    let n = name.to_ascii_uppercase();
+    const NEEDLES: &[&str] = &[
+        "SECRET",
+        "TOKEN",
+        "PASSWORD",
+        "PASSWD",
+        "PASSPHRASE",
+        "_KEY",
+        "APIKEY",
+        "API_KEY",
+        "ACCESS_KEY",
+        "PRIVATE_KEY",
+        "CREDENTIAL",
+        "CLIENT_SECRET",
+        "AUTH_TOKEN",
+        "SESSION_KEY",
+    ];
+    NEEDLES.iter().any(|needle| n.contains(needle))
+}
+
+/// Whether reading the env var `name` should be replaced with an opaque handle:
+/// agent mode, redaction enabled, the name denotes a secret, and the operator
+/// has not explicitly permitted clear reads. Human mode is never gated (a person
+/// at a REPL reading their own env is legitimate and wants the value).
+pub fn env_secret_gated(name: &str) -> bool {
+    current_mode() == Mode::Agent
+        && redaction_enabled()
+        && !secrets_permitted()
+        && is_secret_name(name)
+}
+
+/// Redact known secret shapes from a string. Returns the scrubbed string and
+/// whether anything changed. Deterministic; each pass only ever *replaces* a
+/// secret with [`REDACTION_MARKER`], never inflates non-secret text.
+pub fn redact_str(s: &str) -> (String, bool) {
+    let mut cur = s.to_string();
+    let mut changed = false;
+    if SECRET_TOKEN_RE.is_match(&cur) {
+        cur = SECRET_TOKEN_RE.replace_all(&cur, REDACTION_MARKER).into_owned();
+        changed = true;
+    }
+    if URL_CRED_RE.is_match(&cur) {
+        cur = URL_CRED_RE
+            .replace_all(&cur, concat!("${1}", "[REDACTED]", "${3}"))
+            .into_owned();
+        changed = true;
+    }
+    if SECRET_ASSIGN_RE.is_match(&cur) {
+        cur = SECRET_ASSIGN_RE
+            .replace_all(&cur, concat!("${1}", "[REDACTED]"))
+            .into_owned();
+        changed = true;
+    }
+    (cur, changed)
+}
+
+/// Recursively redact secret shapes from a JSON value in place: every string
+/// leaf is shape-scrubbed, and any object member whose *key* denotes a secret
+/// is replaced with the marker even if its value isn't shape-matched. Used to
+/// keep secrets out of the persistent audit log.
+pub fn redact_json(v: &mut Json) {
+    match v {
+        Json::String(s) => {
+            let (r, changed) = redact_str(s);
+            if changed {
+                *s = r;
+            }
+        }
+        Json::Array(items) => {
+            for it in items.iter_mut() {
+                redact_json(it);
+            }
+        }
+        Json::Object(map) => {
+            for (k, val) in map.iter_mut() {
+                if is_secret_name(k) {
+                    *val = Json::String(REDACTION_MARKER.to_string());
+                } else {
+                    redact_json(val);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1096,5 +1270,113 @@ mod tests {
 
         let _ = std::fs::remove_file(&log);
         clear_env();
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // Secret hygiene (§7.6)
+    // ──────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn redact_str_scrubs_known_secret_shapes() {
+        // Provider token prefixes.
+        let (r, c) = redact_str("authorization: Bearer sk-abcdefghijklmnopqrstuvwxyz12");
+        assert!(c && r.contains("[REDACTED]") && !r.contains("abcdefghij"));
+        let (r, _) = redact_str("token ghp_0123456789abcdefABCDEFghijklmnop12");
+        assert!(r.contains("[REDACTED]") && !r.contains("ghp_0123"));
+        // AWS access key id.
+        let (r, _) = redact_str("AKIAIOSFODNN7EXAMPLE in the config");
+        assert!(r.contains("[REDACTED]") && !r.contains("AKIAIOSF"));
+        // JWT.
+        let jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N";
+        let (r, _) = redact_str(jwt);
+        assert!(r.contains("[REDACTED]") && !r.contains("eyJzdWIi"));
+        // PEM private-key block.
+        let pem = "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA\n-----END RSA PRIVATE KEY-----";
+        let (r, _) = redact_str(pem);
+        assert!(r.contains("[REDACTED]") && !r.contains("MIIEpAIB"));
+    }
+
+    #[test]
+    fn redact_str_scrubs_url_credentials_and_assignments() {
+        let (r, _) = redact_str("postgres://admin:hunter2pass@db.internal:5432/app");
+        assert!(
+            r.contains("admin:[REDACTED]@") && !r.contains("hunter2pass"),
+            "password redacted, scheme/user/host kept: {r}"
+        );
+        let (r, _) = redact_str("password = swordfish123");
+        assert!(r.contains("[REDACTED]") && !r.contains("swordfish123"));
+        let (r, _) = redact_str("api_key: \"abcdef123456\"");
+        assert!(r.contains("[REDACTED]") && !r.contains("abcdef123456"));
+    }
+
+    #[test]
+    fn redact_str_leaves_ordinary_text_untouched() {
+        let plain = "the quick brown fox reads file.txt at 12:00 and exits 0";
+        let (r, c) = redact_str(plain);
+        assert!(!c, "no secret shape — must report unchanged");
+        assert_eq!(r, plain, "ordinary prose must pass through byte-for-byte");
+    }
+
+    #[test]
+    fn is_secret_name_matches_indicators_not_false_positives() {
+        for yes in [
+            "OPENAI_API_KEY",
+            "AWS_SECRET_ACCESS_KEY",
+            "GITHUB_TOKEN",
+            "DB_PASSWORD",
+            "ANTHROPIC_KEY",
+            "client_secret",
+        ] {
+            assert!(is_secret_name(yes), "{yes} should be a secret name");
+        }
+        for no in ["PATH", "KEYBOARD", "MONKEY", "HOME", "USER", "LANG"] {
+            assert!(!is_secret_name(no), "{no} must not be flagged");
+        }
+    }
+
+    #[test]
+    fn redact_json_scrubs_values_and_secret_named_keys() {
+        let mut v = json!({
+            "note": "use sk-abcdefghijklmnopqrstuvwx99 to auth",
+            "API_KEY": "literally-anything",
+            "nested": { "PASSWORD": "p", "ok": "plain text" },
+            "list": ["ghp_0123456789abcdefABCDEFghijklmnop12", "fine"],
+        });
+        redact_json(&mut v);
+        assert_eq!(v["API_KEY"], json!("[REDACTED]"));
+        assert_eq!(v["nested"]["PASSWORD"], json!("[REDACTED]"));
+        assert_eq!(v["nested"]["ok"], json!("plain text"));
+        assert!(v["note"].as_str().unwrap().contains("[REDACTED]"));
+        assert!(!v["note"].as_str().unwrap().contains("sk-abcdef"));
+        assert_eq!(v["list"][1], json!("fine"));
+        assert!(v["list"][0].as_str().unwrap().contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn env_secret_gated_is_agent_only_and_policy_aware() {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        clear_env();
+        std::env::remove_var("AETHER_REDACT");
+        std::env::remove_var("AETHER_SECRETS");
+
+        // Human mode: never gated (legibility — the person reads their own env).
+        assert!(!env_secret_gated("OPENAI_API_KEY"));
+
+        // Agent mode: secret names gated, ordinary names not.
+        std::env::set_var("AETHER_MODE", "agent");
+        assert!(env_secret_gated("OPENAI_API_KEY"));
+        assert!(!env_secret_gated("HOME"));
+
+        // Explicit permission re-opens clear reads.
+        std::env::set_var("AETHER_SECRETS", "allow");
+        assert!(!env_secret_gated("OPENAI_API_KEY"));
+        std::env::remove_var("AETHER_SECRETS");
+
+        // Global opt-out disables redaction entirely.
+        std::env::set_var("AETHER_REDACT", "off");
+        assert!(!env_secret_gated("OPENAI_API_KEY"));
+
+        clear_env();
+        std::env::remove_var("AETHER_REDACT");
     }
 }
