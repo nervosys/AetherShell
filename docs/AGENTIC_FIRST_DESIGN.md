@@ -611,11 +611,22 @@ shell."
 
 ### 7.6 Resource governors + secret hygiene
 
-- **Governors** per call/session: max output bytes/tokens, max files touched, max
-  processes, wall-clock timeout, network-egress cap. Agent runs execute inside a
-  budget envelope; breach → `E_BUDGET_EXCEEDED`. *(Remaining — the budget term is
-  partly covered by `--budget`/`AE_TOKEN_BUDGET` output paging; per-call file/proc/
-  wall-clock/egress envelopes are not yet built.)*
+- ✅ **Resource governors.** A per-run blast-radius envelope enforced at the
+  `guard()` chokepoint (so it covers every effecting builtin uniformly) and only in
+  agent mode. All limits are opt-in via env — unset = unlimited, so existing runs
+  are unaffected until configured — and a breach returns the structured
+  `E_BUDGET_EXCEEDED` (non-retryable) so an agent stops rather than loops:
+  `AETHER_MAX_OPS` (total guarded ops), `AETHER_MAX_FILES` (WriteLocal +
+  Destructive), `AETHER_MAX_PROCS` (Process + Exec), and `AETHER_TIMEOUT_MS`
+  (wall-clock since the first guarded op, checked at each guard boundary). Counters
+  tally *attempts* at the boundary (an op later denied by jail/policy still counts —
+  the envelope bounds what the agent may try, the strictly-safe reading).
+  `governor_status()` reports counts/limits/elapsed (also folded into
+  `safety_status()`); `governor_reset()` starts a fresh envelope. Verified by 5 unit
+  tests + an end-to-end test (a 2nd `rm` under `AETHER_MAX_FILES=1` returns
+  `E_BUDGET_EXCEEDED` with the file untouched). *(Remaining: output-bytes is covered
+  separately by `--budget`/`AE_TOKEN_BUDGET` output paging; a network-egress cap is
+  out of v1 because network builtins don't yet route through `guard()`.)*
 - ✅ **Secret hygiene.** Two deterministic defenses in `src/safety.rs`, opt-out via
   `AETHER_REDACT=off`:
     - **Shape redaction** (`redact_str`/`redact_json`/`builtins::redact_value`) scrubs
@@ -813,6 +824,10 @@ workspace, and writes the audit chain.
 | `AETHER_AUDIT_REQUIRED=1` | Fail the guarded op if the audit write fails (default: best-effort + warn). |
 | `AETHER_REDACT=off` | Disable secret-shape redaction of agent output and audit entries (default: on). |
 | `AETHER_SECRETS=allow` | Permit clear reads of secret-named env vars in agent mode (default: return a `[REDACTED:NAME]` handle). |
+| `AETHER_MAX_OPS=<n>` | Resource governor: max total guarded operations per run (agent mode; unset = unlimited). |
+| `AETHER_MAX_FILES=<n>` | Resource governor: max filesystem ops (WriteLocal + Destructive). |
+| `AETHER_MAX_PROCS=<n>` | Resource governor: max process/exec ops (Process + Exec). |
+| `AETHER_TIMEOUT_MS=<ms>` | Resource governor: wall-clock budget since the first guarded op (checked at each guard boundary). |
 
 CLI flags set these directly (no env export needed): `--agent` → `AETHER_MODE=agent`,
 `--workspace <DIR>` → `AETHER_WORKSPACE`, `--policy <p>` → `AETHER_POLICY`,

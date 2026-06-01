@@ -1568,6 +1568,9 @@ lazy_static::lazy_static! {
     // transactions: named savepoints (partial rollback)
     map.insert("tx_savepoint", 1135);
     map.insert("tx_rollback_to", 1136);
+    // resource governors (§7.6)
+    map.insert("governor_status", 1137);
+    map.insert("governor_reset", 1138);
         map
     };
 
@@ -3729,6 +3732,9 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     // transactions: named savepoints (partial rollback)
     |args, input, _| bi_tx_savepoint(args, input), // 1135
     |args, input, _| bi_tx_rollback_to(args, input), // 1136
+    // resource governors (§7.6)
+    |args, input, _| bi_governor_status(args, input), // 1137
+    |args, input, _| bi_governor_reset(args, input), // 1138
 ];
 
 fn fast_builtin_lookup(
@@ -15867,7 +15873,27 @@ fn bi_safety_status(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Value::Bool(crate::tx::is_active()),
     );
     r.insert("policy".to_string(), Value::Record(policy));
+    r.insert(
+        "governor".to_string(),
+        Value::from_json(&crate::safety::governor_snapshot()),
+    );
     Ok(Value::Record(r))
+}
+
+/// governor_status() - Report the resource-governor envelope (§7.6): current
+/// counts (ops/files/procs), the configured limits (null = unlimited), elapsed
+/// wall-clock ms, and whether governors are active (agent mode). Lets an agent
+/// watch its blast-radius budget burn down before it hits `E_BUDGET_EXCEEDED`.
+fn bi_governor_status(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::from_json(&crate::safety::governor_snapshot()))
+}
+
+/// governor_reset() - Reset the resource-governor counters and wall-clock start,
+/// beginning a fresh envelope (e.g. after deliberately raising a limit or at a
+/// session boundary).
+fn bi_governor_reset(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    crate::safety::governor_reset();
+    Ok(Value::Bool(true))
 }
 
 // ─────────────────────────────────────────────────────────────────────────

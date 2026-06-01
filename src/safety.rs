@@ -197,6 +197,8 @@ pub enum ErrorCode {
     OutsideWorkspace,
     /// A builtin was called with a missing or wrong-typed argument.
     BadArg,
+    /// A resource governor (op count, files, processes, or wall-clock) was hit.
+    BudgetExceeded,
 }
 
 impl ErrorCode {
@@ -206,6 +208,7 @@ impl ErrorCode {
             ErrorCode::NeedsApproval => "E_NEEDS_APPROVAL",
             ErrorCode::OutsideWorkspace => "E_OUTSIDE_WORKSPACE",
             ErrorCode::BadArg => "E_BAD_ARG",
+            ErrorCode::BudgetExceeded => "E_BUDGET_EXCEEDED",
         }
     }
 }
@@ -289,7 +292,7 @@ impl SafetyError {
             "message": self.message,
             "builtin": self.builtin,
             "hint": self.hint,
-            "retryable": self.code != ErrorCode::PolicyDeny,
+            "retryable": !matches!(self.code, ErrorCode::PolicyDeny | ErrorCode::BudgetExceeded),
         });
         if let Some(a) = &self.approval {
             err["approval"] = serde_json::to_value(a).unwrap_or(Json::Null);
@@ -731,6 +734,156 @@ pub fn verify_audit(path: &PathBuf) -> Result<u64, String> {
 }
 
 // ════════════════════════════════════════════════════════════════════════
+// Resource governors (§7.6)
+// ════════════════════════════════════════════════════════════════════════
+//
+// A per-run blast-radius envelope: an agent may perform at most a bounded number
+// of effecting operations and run for a bounded wall-clock time. Enforced at the
+// `guard()` chokepoint (so it covers every effecting builtin uniformly) and only
+// in agent mode. All limits are opt-in via env — unset = unlimited — so existing
+// runs are unaffected until a limit is configured. A breach returns the structured
+// `E_BUDGET_EXCEEDED` so an agent stops rather than looping. Counters tally
+// *attempts* at the guard boundary (an op that is then denied by jail/policy still
+// counts — the envelope bounds what the agent may try, the strictly-safe reading).
+//
+// | Env var             | Bounds                                              |
+// |---------------------|-----------------------------------------------------|
+// | `AETHER_MAX_OPS`    | total guarded operations                            |
+// | `AETHER_MAX_FILES`  | filesystem ops (WriteLocal + Destructive)           |
+// | `AETHER_MAX_PROCS`  | process/exec ops (Process + Exec)                   |
+// | `AETHER_TIMEOUT_MS` | wall-clock ms since the first guarded op (or reset) |
+//
+// (A network-egress cap is intentionally out of v1: network builtins do not yet
+// route through `guard()`, so a `guard`-based counter could not see them.)
+
+#[derive(Default)]
+struct GovernorState {
+    start: Option<std::time::Instant>,
+    total: u64,
+    files: u64,
+    procs: u64,
+}
+
+lazy_static! {
+    static ref GOVERNOR: Mutex<GovernorState> = Mutex::new(GovernorState::default());
+}
+
+fn env_u64(name: &str) -> Option<u64> {
+    std::env::var(name).ok().and_then(|v| v.trim().parse::<u64>().ok())
+}
+
+fn budget_error(builtin: &str, message: String, hint: &str) -> SafetyError {
+    SafetyError {
+        code: ErrorCode::BudgetExceeded,
+        message: format!("{}: {}", builtin, message),
+        builtin: builtin.to_string(),
+        hint: hint.to_string(),
+        approval: None,
+    }
+}
+
+/// Account for one guarded operation against the resource governors and return
+/// `E_BUDGET_EXCEEDED` if a configured limit is exceeded. No-op outside agent
+/// mode or when no limit is set. Counts the attempt (increments before checking)
+/// so the envelope bounds total attempts, not just successes.
+fn governor_admit(effect: Effect, builtin: &str) -> Result<(), SafetyError> {
+    if current_mode() != Mode::Agent {
+        return Ok(());
+    }
+    let mut g = match GOVERNOR.lock() {
+        Ok(g) => g,
+        Err(_) => return Ok(()),
+    };
+
+    // Wall-clock: start the envelope lazily on the first guarded op.
+    let now = std::time::Instant::now();
+    let start = *g.start.get_or_insert(now);
+    if let Some(limit_ms) = env_u64("AETHER_TIMEOUT_MS") {
+        let elapsed = now.duration_since(start).as_millis() as u64;
+        if elapsed > limit_ms {
+            return Err(budget_error(
+                builtin,
+                format!("wall-clock budget exhausted ({}ms > {}ms)", elapsed, limit_ms),
+                "the run exceeded AETHER_TIMEOUT_MS; reset with governor_reset(), start a new session, or raise the limit",
+            ));
+        }
+    }
+
+    g.total += 1;
+    if let Some(max) = env_u64("AETHER_MAX_OPS") {
+        if g.total > max {
+            return Err(budget_error(
+                builtin,
+                format!("operation budget exhausted ({} > {})", g.total, max),
+                "raise AETHER_MAX_OPS or call governor_reset() to start a fresh envelope",
+            ));
+        }
+    }
+    match effect {
+        Effect::WriteLocal | Effect::Destructive => {
+            g.files += 1;
+            if let Some(max) = env_u64("AETHER_MAX_FILES") {
+                if g.files > max {
+                    return Err(budget_error(
+                        builtin,
+                        format!("file-operation budget exhausted ({} > {})", g.files, max),
+                        "raise AETHER_MAX_FILES or call governor_reset()",
+                    ));
+                }
+            }
+        }
+        Effect::Process | Effect::Exec => {
+            g.procs += 1;
+            if let Some(max) = env_u64("AETHER_MAX_PROCS") {
+                if g.procs > max {
+                    return Err(budget_error(
+                        builtin,
+                        format!("process budget exhausted ({} > {})", g.procs, max),
+                        "raise AETHER_MAX_PROCS or call governor_reset()",
+                    ));
+                }
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+/// Reset the resource-governor counters and wall-clock start (e.g. at a session
+/// boundary or after a deliberate raise of the limits).
+pub fn governor_reset() {
+    if let Ok(mut g) = GOVERNOR.lock() {
+        *g = GovernorState::default();
+    }
+}
+
+/// Snapshot of the governors for introspection: current counts, the configured
+/// limits (null = unlimited), and elapsed wall-clock ms. Lets an agent watch its
+/// envelope burn down before it hits a wall.
+pub fn governor_snapshot() -> Json {
+    let g = match GOVERNOR.lock() {
+        Ok(g) => g,
+        Err(e) => e.into_inner(),
+    };
+    let elapsed_ms = g
+        .start
+        .map(|s| std::time::Instant::now().duration_since(s).as_millis() as u64)
+        .unwrap_or(0);
+    let lim = |n: &str| env_u64(n).map(|v| json!(v)).unwrap_or(Json::Null);
+    json!({
+        "active": current_mode() == Mode::Agent,
+        "elapsed_ms": elapsed_ms,
+        "used": { "ops": g.total, "files": g.files, "procs": g.procs },
+        "limits": {
+            "max_ops": lim("AETHER_MAX_OPS"),
+            "max_files": lim("AETHER_MAX_FILES"),
+            "max_procs": lim("AETHER_MAX_PROCS"),
+            "timeout_ms": lim("AETHER_TIMEOUT_MS"),
+        }
+    })
+}
+
+// ════════════════════════════════════════════════════════════════════════
 // The guard (§7) — the one entry point effecting builtins call.
 // ════════════════════════════════════════════════════════════════════════
 
@@ -776,6 +929,19 @@ impl<'a> GuardCtx<'a> {
 pub fn guard(ctx: GuardCtx) -> Result<(), SafetyError> {
     let mode = current_mode();
     let resource = ctx.targets.join(", ");
+
+    // 0. Resource governors (§7.6): bound the per-run blast radius before any
+    //    other check, so a runaway loop is stopped even if every op is allowed.
+    if let Err(e) = governor_admit(ctx.effect, ctx.builtin) {
+        let _ = audit(
+            ctx.builtin,
+            ctx.effect,
+            "deny_budget",
+            &resource,
+            json!({ "governor": governor_snapshot() }),
+        );
+        return Err(e);
+    }
 
     // 1. Workspace jail for filesystem path targets.
     if jail_enforced(mode) && ctx.effect.is_filesystem() && ctx.fs_paths {
@@ -1060,6 +1226,10 @@ mod tests {
             "AETHER_WORKSPACE",
             "AETHER_AUDIT_LOG",
             "AETHER_AUDIT_REQUIRED",
+            "AETHER_MAX_OPS",
+            "AETHER_MAX_FILES",
+            "AETHER_MAX_PROCS",
+            "AETHER_TIMEOUT_MS",
         ] {
             std::env::remove_var(k);
         }
@@ -1068,6 +1238,7 @@ mod tests {
         }
         set_principal(None);
         clear_rbac_manager();
+        governor_reset();
     }
 
     /// Point auditing at a unique throwaway file and reset the in-memory chain,
@@ -1378,5 +1549,103 @@ mod tests {
 
         clear_env();
         std::env::remove_var("AETHER_REDACT");
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // Resource governors (§7.6)
+    // ──────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn governor_is_inert_in_human_mode_and_when_unset() {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        clear_env();
+
+        // Human mode: even a tiny limit is ignored.
+        std::env::set_var("AETHER_MAX_FILES", "1");
+        for _ in 0..5 {
+            assert!(governor_admit(Effect::Destructive, "rm").is_ok());
+        }
+
+        // Agent mode but no limit set: unlimited.
+        clear_env();
+        std::env::set_var("AETHER_MODE", "agent");
+        for _ in 0..50 {
+            assert!(governor_admit(Effect::Destructive, "rm").is_ok());
+        }
+        clear_env();
+    }
+
+    #[test]
+    fn governor_breaches_file_and_op_budgets_independently() {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        clear_env();
+        std::env::set_var("AETHER_MODE", "agent");
+        std::env::set_var("AETHER_MAX_FILES", "2");
+
+        assert!(governor_admit(Effect::WriteLocal, "file_write").is_ok());
+        assert!(governor_admit(Effect::Destructive, "rm").is_ok());
+        let err = governor_admit(Effect::WriteLocal, "file_write").unwrap_err();
+        assert_eq!(err.code, ErrorCode::BudgetExceeded);
+        assert!(err.to_json()["error"]["retryable"] == json!(false));
+
+        // A non-file effect class is not charged to the file budget.
+        assert!(governor_admit(Effect::Process, "proc_kill").is_ok());
+
+        // Snapshot reflects the tally.
+        let snap = governor_snapshot();
+        assert_eq!(snap["used"]["files"], json!(3)); // attempts counted, incl. the breached one
+        assert_eq!(snap["limits"]["max_files"], json!(2));
+
+        clear_env();
+    }
+
+    #[test]
+    fn governor_enforces_total_op_budget_across_effects() {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        clear_env();
+        std::env::set_var("AETHER_MODE", "agent");
+        std::env::set_var("AETHER_MAX_OPS", "3");
+
+        assert!(governor_admit(Effect::WriteLocal, "file_write").is_ok());
+        assert!(governor_admit(Effect::Process, "proc_kill").is_ok());
+        assert!(governor_admit(Effect::Exec, "sh").is_ok());
+        let err = governor_admit(Effect::ReadLocal, "cat").unwrap_err();
+        assert_eq!(err.code, ErrorCode::BudgetExceeded);
+
+        clear_env();
+    }
+
+    #[test]
+    fn governor_enforces_wall_clock_timeout() {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        clear_env();
+        std::env::set_var("AETHER_MODE", "agent");
+        std::env::set_var("AETHER_TIMEOUT_MS", "1");
+
+        // First call starts the clock (elapsed 0 ≤ 1 → admitted).
+        assert!(governor_admit(Effect::WriteLocal, "file_write").is_ok());
+        std::thread::sleep(std::time::Duration::from_millis(15));
+        // Now elapsed (~15ms) exceeds the 1ms budget.
+        let err = governor_admit(Effect::WriteLocal, "file_write").unwrap_err();
+        assert_eq!(err.code, ErrorCode::BudgetExceeded);
+        assert!(err.message.contains("wall-clock"));
+
+        clear_env();
+    }
+
+    #[test]
+    fn governor_reset_starts_a_fresh_envelope() {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        clear_env();
+        std::env::set_var("AETHER_MODE", "agent");
+        std::env::set_var("AETHER_MAX_OPS", "1");
+
+        assert!(governor_admit(Effect::WriteLocal, "file_write").is_ok());
+        assert!(governor_admit(Effect::WriteLocal, "file_write").is_err());
+        governor_reset();
+        // After reset the budget is available again.
+        assert!(governor_admit(Effect::WriteLocal, "file_write").is_ok());
+
+        clear_env();
     }
 }
