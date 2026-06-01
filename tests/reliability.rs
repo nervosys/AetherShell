@@ -61,6 +61,34 @@ fn bad_arg_reports_the_offending_type() {
 }
 
 #[test]
+fn shared_extraction_helpers_emit_structured_bad_arg() {
+    // A wrong-typed argument to ANY builtin that uses the shared `expect_*`
+    // helpers now surfaces a structured, catchable E_BAD_ARG — not ad-hoc prose.
+    // `env(123)` exercises `expect_string`; the same upgrade covers the ~90
+    // call sites of expect_string/expect_int/expect_array/need_lambda.
+    let src = r#"try { env(123) } catch e { e }"#;
+    let stmts = aethershell::parser::parse_program(src).expect("parse");
+    let mut env = aethershell::env::Env::new();
+    let result = aethershell::eval::eval_program(&stmts, &mut env).expect("eval");
+
+    match result {
+        Value::Record(m) => match m.get("error") {
+            Some(Value::Record(e)) => {
+                assert_eq!(e.get("code"), Some(&Value::Str("E_BAD_ARG".to_string())));
+                let msg = match e.get("message") {
+                    Some(Value::Str(s)) => s.clone(),
+                    _ => String::new(),
+                };
+                assert!(msg.contains("a string"), "names the expected type: {msg}");
+                assert!(msg.contains("Int"), "names the got type: {msg}");
+            }
+            other => panic!("error should be a nested record, got {other:?}"),
+        },
+        other => panic!("catch should bind a structured record, got {other:?}"),
+    }
+}
+
+#[test]
 fn canonical_is_deterministic_and_key_sorted() {
     // Exact, stable rendering with sorted keys regardless of insertion order.
     let a = canon(rec(&[("b", Value::Str("x".into())), ("a", Value::Int(1))]));

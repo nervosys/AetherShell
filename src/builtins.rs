@@ -3861,7 +3861,7 @@ fn expect_array<'a>(name: &str, v: &'a Value) -> Result<&'a [Value]> {
     if let Value::Array(a) = v {
         Ok(a.as_slice())
     } else {
-        Err(anyhow!("{} requires array input, got {:?}", name, v))
+        Err(crate::safety::bad_arg(name, "an array", v.type_name()))
     }
 }
 
@@ -3869,7 +3869,7 @@ fn expect_int(name: &str, v: &Value) -> Result<i64> {
     match v {
         Value::Int(n) => Ok(*n),
         Value::Float(f) if f.fract() == 0.0 => Ok(*f as i64),
-        _ => Err(anyhow!("{} expects integer, got {:?}", name, v)),
+        _ => Err(crate::safety::bad_arg(name, "an integer", v.type_name())),
     }
 }
 
@@ -3877,7 +3877,7 @@ fn expect_string<'a>(name: &str, v: &'a Value) -> Result<&'a str> {
     if let Value::Str(s) = v {
         Ok(s.as_str())
     } else {
-        Err(anyhow!("{} requires string input, got {:?}", name, v))
+        Err(crate::safety::bad_arg(name, "a string", v.type_name()))
     }
 }
 
@@ -3885,7 +3885,7 @@ fn need_lambda<'a>(v: &'a Value, name: &str) -> Result<&'a Lambda> {
     if let Value::Lambda(l) = v {
         Ok(l)
     } else {
-        Err(anyhow!("{} expects lambda, got {:?}", name, v))
+        Err(crate::safety::bad_arg(name, "a lambda", v.type_name()))
     }
 }
 
