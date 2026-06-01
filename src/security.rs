@@ -324,12 +324,28 @@ pub fn validate_safe_path(path: &str) -> Result<PathBuf> {
         joined
     };
 
-    // Determine allowed base directories
-    let allowed_bases: Vec<PathBuf> = if config.allowed_base_dirs.is_empty() {
-        // Default to current working directory
-        vec![std::env::current_dir().context("Failed to get current directory")?]
-    } else {
+    // Path containment (the "workspace jail") applies ONLY when sandboxing is
+    // active: agent mode, an explicitly-set `AETHER_WORKSPACE`, or
+    // explicitly-configured `allowed_base_dirs`. In plain human mode AetherShell is
+    // a normal interactive shell and may access any path that is canonicalizable,
+    // null-byte-free, and not blocked by an explicit pattern — exactly like
+    // bash/zsh/fish. The null-byte, length, blocked-pattern, and symlink checks
+    // above always apply; only the base-directory restriction is mode-gated.
+    let explicit_bases = !config.allowed_base_dirs.is_empty();
+    let sandboxed = explicit_bases
+        || crate::safety::current_mode() == crate::safety::Mode::Agent
+        || std::env::var("AETHER_WORKSPACE").is_ok();
+    if !sandboxed {
+        return Ok(canonical);
+    }
+
+    // Determine allowed base directories (sandboxed paths only).
+    let allowed_bases: Vec<PathBuf> = if explicit_bases {
         config.allowed_base_dirs.clone()
+    } else {
+        // Agent mode / AETHER_WORKSPACE: confine to the workspace root (which
+        // resolves AETHER_WORKSPACE, defaulting to the current directory).
+        vec![crate::safety::workspace_root()]
     };
 
     // Verify the canonical path is within an allowed base directory
@@ -1421,17 +1437,19 @@ mod tests {
 
     #[test]
     fn test_path_validation_basic() {
-        // Should allow current directory
-        let result = validate_safe_path(".");
-        assert!(result.is_ok());
+        // Always-on hygiene (every mode): the current dir resolves, null bytes
+        // are rejected.
+        assert!(validate_safe_path(".").is_ok());
+        assert!(validate_safe_path("file\0.txt").is_err());
 
-        // Should block path traversal
-        let result = validate_safe_path("../../../etc/passwd");
-        assert!(result.is_err());
-
-        // Should block null bytes
-        let result = validate_safe_path("file\0.txt");
-        assert!(result.is_err());
+        // Containment (the workspace jail) applies only when sandboxed. With an
+        // explicit allowed-base-dir set, traversal outside it is blocked.
+        let mut cfg = PathSecurityConfig::default();
+        cfg.allowed_base_dirs = vec![std::env::current_dir().unwrap()];
+        configure_path_security(cfg).unwrap();
+        assert!(validate_safe_path("../../../etc/passwd").is_err());
+        // Restore the default (unrestricted) config so other code is unaffected.
+        configure_path_security(PathSecurityConfig::default()).unwrap();
     }
 
     #[test]
