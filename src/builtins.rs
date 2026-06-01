@@ -27707,6 +27707,9 @@ fn bi_file_write(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         Value::Str(s) => s.clone(),
         _ => return Err(anyhow!("file_write: path must be a string")),
     };
+    // In a jailed context, a relative path is workspace-relative (not CWD-relative)
+    // so the write lands inside the jail and matches the transaction journal.
+    let path = crate::safety::resolve_path_str(&path);
 
     // Get content from args or pipeline input
     let content = if args.len() > 1 {
@@ -27788,6 +27791,8 @@ fn bi_file_append(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         Value::Str(s) => s.clone(),
         _ => return Err(anyhow!("file_append: path must be a string")),
     };
+    // Jailed: relative paths are workspace-relative (see file_write).
+    let path = crate::safety::resolve_path_str(&path);
 
     // Get content from args or pipeline input
     let content = if args.len() > 1 {
@@ -36520,6 +36525,9 @@ pub fn bi_rm(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
     };
     let force = matches!(args.get(1), Some(Value::Bool(true)));
+    // Jailed: relative paths are workspace-relative; resolve before the jail check
+    // so the guard validates the path that is actually deleted.
+    let path = crate::safety::resolve_path_str(&path);
     crate::safety::guard(crate::safety::GuardCtx {
         builtin: "rm",
         effect: crate::safety::Effect::Destructive,
@@ -36544,6 +36552,8 @@ pub fn bi_rmdir(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         _ => return Err(anyhow!("rmdir: expected path string")),
     };
     let recursive = matches!(args.get(1), Some(Value::Bool(true)));
+    // Jailed: relative paths are workspace-relative (resolve before the jail check).
+    let path = crate::safety::resolve_path_str(&path);
     crate::safety::guard(crate::safety::GuardCtx {
         builtin: "rmdir",
         effect: crate::safety::Effect::Destructive,

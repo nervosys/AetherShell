@@ -25,6 +25,46 @@ fn reset_tx() {
     let _ = aethershell::builtins::call("tx_rollback", vec![], &mut env);
 }
 
+#[test]
+fn relative_paths_are_workspace_relative_when_jailed() {
+    let _l = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    reset_tx();
+    let w = std::env::temp_dir().join(format!("ae_tx_rel_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&w);
+    std::fs::create_dir_all(&w).unwrap();
+    std::env::set_var("AETHER_WORKSPACE", &w); // jail active, workspace != CWD
+
+    // A unique relative name so we can prove it does NOT land in the process CWD.
+    let rel = format!("ae_rel_{}.txt", std::process::id());
+    let _ = std::fs::remove_file(&rel);
+
+    // Relative write must resolve under the workspace, not CWD.
+    call("file_write", vec![s(&rel), s("hello")]);
+    assert_eq!(
+        std::fs::read_to_string(w.join(&rel)).unwrap(),
+        "hello",
+        "relative write must land in the workspace"
+    );
+    assert!(
+        !std::path::Path::new(&rel).exists(),
+        "relative write must NOT land in the process CWD"
+    );
+
+    // And it is transactional through the relative name.
+    call("tx_begin", vec![]);
+    call("file_write", vec![s(&rel), s("CHANGED")]);
+    assert_eq!(std::fs::read_to_string(w.join(&rel)).unwrap(), "CHANGED");
+    call("tx_rollback", vec![]);
+    assert_eq!(
+        std::fs::read_to_string(w.join(&rel)).unwrap(),
+        "hello",
+        "rollback restores the workspace-relative file"
+    );
+
+    std::env::remove_var("AETHER_WORKSPACE");
+    let _ = std::fs::remove_dir_all(&w);
+}
+
 fn rec_op(op: &str, path: &str, content: Option<&str>) -> Value {
     let mut m = std::collections::BTreeMap::new();
     m.insert("op".to_string(), Value::Str(op.to_string()));

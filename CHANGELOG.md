@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- In a **jailed context** (agent mode or an explicit `AETHER_WORKSPACE`), relative
+  paths passed to effecting builtins (`file_write`/`file_append`/`rm`/`rmdir`) now
+  resolve against the **workspace root** instead of the process CWD. This closes a
+  soundness gap where a relative-path write could escape the workspace yet pass the
+  jail check (when CWD ≠ workspace), and keeps the write, the jail check, and the
+  transaction journal in agreement. Human mode is unchanged (relative → CWD).
 - Path access is no longer sandboxed to the project directory in **human mode** —
   `ae` now behaves like a normal interactive shell (read/list/write any path).
   The workspace jail applies only in **agent mode** (`--agent`/`AETHER_MODE=agent`)
