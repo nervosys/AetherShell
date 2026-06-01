@@ -212,6 +212,12 @@ pub enum DataType {
     Structured(HashMap<String, DataType>),
 }
 
+impl Default for DataProcessor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DataProcessor {
     pub fn new() -> Self {
         Self {
@@ -393,6 +399,12 @@ pub struct ShellFeatures {
     pub data_processor: DataProcessor,
     pub error_explainer: ErrorExplainer,
     pub cmdlets: HashMap<String, Cmdlet>,
+}
+
+impl Default for ShellFeatures {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ShellFeatures {

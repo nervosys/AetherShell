@@ -38,8 +38,7 @@
 //! ```
 
 use super::ontology::{
-    CapabilityDomain, OSOperation, ParamType, PermissionLevel,
-    SupportedPlatform, OS_ONTOLOGY,
+    CapabilityDomain, OSOperation, ParamType, PermissionLevel, SupportedPlatform, OS_ONTOLOGY,
 };
 use super::platform::{PlatformExecutor, PLATFORM_EXECUTOR};
 use serde::{Deserialize, Serialize};
@@ -317,7 +316,7 @@ fn operation_to_tool(op: &OSOperation, current_platform: SupportedPlatform) -> A
                 .unwrap_or_default()
         ),
         parameters,
-        permission_level: op.security.permission_level.clone(),
+        permission_level: op.security.permission_level,
         available,
         platform_notes: platform_note.map(|s| s.to_string()),
     }
@@ -334,7 +333,7 @@ fn get_current_supported_platform() -> SupportedPlatform {
     }
 }
 
-fn get_platform_note<'a>(op: &'a OSOperation, platform: SupportedPlatform) -> Option<&'a str> {
+fn get_platform_note(op: &OSOperation, platform: SupportedPlatform) -> Option<&str> {
     let platform_key = match platform {
         SupportedPlatform::Windows => "windows",
         SupportedPlatform::MacOS => "macos",

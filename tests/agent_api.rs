@@ -1044,7 +1044,7 @@ fn test_generate_schema_all_formats() {
         // Verify it's valid JSON
         let json_str = result.unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json_str)
-            .expect(&format!("Schema for '{}' should be valid JSON", format));
+            .unwrap_or_else(|_| panic!("Schema for '{}' should be valid JSON", format));
         assert!(parsed.is_object(), "Schema should be a JSON object");
     }
 }

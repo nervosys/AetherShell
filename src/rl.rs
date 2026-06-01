@@ -354,12 +354,11 @@ impl PolicyGradientAgent {
         let normalized_returns: Vec<f64> = returns.iter().map(|r| r - mean_return).collect();
 
         // Update weights using policy gradient
-        for (_t, ((state, action), g_t)) in self
+        for ((state, action), g_t) in self
             .episode_states
             .iter()
             .zip(self.episode_actions.iter())
             .zip(normalized_returns.iter())
-            .enumerate()
         {
             let probs = self.action_probabilities(state);
 

@@ -418,6 +418,12 @@ impl DistributedSwarm {
     }
 }
 
+impl Default for DistributedCoordinator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DistributedCoordinator {
     pub fn new() -> Self {
         Self {
@@ -951,7 +957,7 @@ impl ServiceDiscovery {
             let announcement = &self.local_instance;
 
             client
-                .post(&format!("{}/services", url))
+                .post(format!("{}/services", url))
                 .json(announcement)
                 .send()
                 .await?;
@@ -1245,8 +1251,8 @@ impl GossipCluster {
         match msg {
             GossipMessage::Join { member } => {
                 let mut members = members.write().await;
-                if !members.contains_key(&member.id) {
-                    members.insert(member.id, member.clone());
+                if let std::collections::hash_map::Entry::Vacant(e) = members.entry(member.id) {
+                    e.insert(member.clone());
                     let _ = event_tx.send(ClusterEvent::MemberJoined(member.clone()));
 
                     // Propagate
@@ -1577,7 +1583,7 @@ impl LeaderElection {
                             let bytes = serde_json::to_vec(&request).unwrap_or_default();
                             let mut votes = 1; // Vote for self
                             let peers = peers_clone.read().await.clone();
-                            let needed = (peers.len() + 1) / 2 + 1;
+                            let needed = peers.len().div_ceil(2) + 1;
 
                             for peer in &peers {
                                 let _ = socket_clone.send_to(&bytes, *peer).await;

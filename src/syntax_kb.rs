@@ -348,10 +348,7 @@ NOTIFICATION (no response expected):
         self.entries.insert(id.clone(), entry);
 
         // Update category index
-        self.category_index
-            .entry(category)
-            .or_insert_with(Vec::new)
-            .push(id);
+        self.category_index.entry(category).or_default().push(id);
 
         // Persist if storage configured
         if self.storage_path.is_some() {
@@ -436,10 +433,7 @@ NOTIFICATION (no response expected):
         for (id, entry) in imported.entries {
             self.entries.insert(id.clone(), entry.clone());
             let category = Self::category_key(&entry.category);
-            self.category_index
-                .entry(category)
-                .or_insert_with(Vec::new)
-                .push(id);
+            self.category_index.entry(category).or_default().push(id);
         }
         Ok(())
     }

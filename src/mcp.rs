@@ -290,9 +290,15 @@ impl McpServer {
             .into_iter()
             .filter_map(|spec| {
                 let name = spec.get("name").and_then(|v| v.as_str())?.to_string();
-                let desc = spec.get("description").and_then(|v| v.as_str()).unwrap_or("");
+                let desc = spec
+                    .get("description")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 let sig = spec.get("signature").and_then(|v| v.as_str()).unwrap_or("");
-                let effect = spec.get("effect").and_then(|v| v.as_str()).unwrap_or("pure");
+                let effect = spec
+                    .get("effect")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("pure");
                 Some(McpTool {
                     name,
                     description: format!("{} | {}", sig, desc),
@@ -325,8 +331,10 @@ impl McpServer {
                 // as compact AECON (MCP content is plain text, so no JSON
                 // re-escaping cost). Scalars keep their display form.
                 let text = if crate::safety::current_mode() == crate::safety::Mode::Agent
-                    && matches!(v, crate::value::Value::Array(_) | crate::value::Value::Table(_))
-                {
+                    && matches!(
+                        v,
+                        crate::value::Value::Array(_) | crate::value::Value::Table(_)
+                    ) {
                     let budget = std::env::var("AE_TOKEN_BUDGET")
                         .ok()
                         .and_then(|s| s.parse::<usize>().ok())

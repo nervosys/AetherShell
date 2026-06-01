@@ -42,7 +42,10 @@ fn legible_forms_are_native() {
     // Forms the `.aeg` transpiler rewrites are already handled by the real
     // grammar, so the .ae surface needs no pre-pass for them — locking this in
     // makes eventual transpiler-thinning safe.
-    assert_eq!(eval_str("'single quoted'"), Value::Str("single quoted".into()));
+    assert_eq!(
+        eval_str("'single quoted'"),
+        Value::Str("single quoted".into())
+    );
     assert_eq!(eval_str("x := 5; x"), Value::Int(5)); // := mut binding
     assert_eq!(eval_str("true"), Value::Bool(true));
     assert_eq!(eval_str("null"), Value::Null);
@@ -51,12 +54,21 @@ fn legible_forms_are_native() {
 #[test]
 fn if_expression() {
     // `if cond { then } else { else }` desugars to a boolean match.
-    assert_eq!(eval_str(r#"if 1 < 2 { "yes" } else { "no" }"#), Value::Str("yes".into()));
-    assert_eq!(eval_str(r#"if 2 < 1 { "yes" } else { "no" }"#), Value::Str("no".into()));
+    assert_eq!(
+        eval_str(r#"if 1 < 2 { "yes" } else { "no" }"#),
+        Value::Str("yes".into())
+    );
+    assert_eq!(
+        eval_str(r#"if 2 < 1 { "yes" } else { "no" }"#),
+        Value::Str("no".into())
+    );
     // Missing else yields null.
     assert_eq!(eval_str(r#"if 2 < 1 { "yes" }"#), Value::Null);
     // Usable as a value in a binding.
-    assert_eq!(eval_str(r#"let x = if true { 10 } else { 20 }; x"#), Value::Int(10));
+    assert_eq!(
+        eval_str(r#"let x = if true { 10 } else { 20 }; x"#),
+        Value::Int(10)
+    );
 }
 
 #[test]
@@ -84,7 +96,10 @@ fn tilde_lambda_in_pipeline() {
         Value::Array(vec![Value::Int(3), Value::Int(4)])
     );
     // Multi-parameter lambda (reduce); the `~a, b` comma is the param separator.
-    assert_eq!(eval_str("[1, 2, 3, 4] | reduce(~a, b: a + b, 0)"), Value::Int(10));
+    assert_eq!(
+        eval_str("[1, 2, 3, 4] | reduce(~a, b: a + b, 0)"),
+        Value::Int(10)
+    );
 }
 
 #[test]

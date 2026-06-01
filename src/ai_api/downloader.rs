@@ -192,7 +192,7 @@ impl ModelDownloader {
             .await?;
 
         // Clean up temporary directory
-        if let Err(_) = fs::remove_dir_all(&temp_dir) {
+        if fs::remove_dir_all(&temp_dir).is_err() {
             // Log warning but don't fail
         }
 
@@ -257,7 +257,7 @@ impl ModelDownloader {
             .await?;
 
         // Clean up temporary file
-        if let Err(_) = fs::remove_file(&temp_path) {
+        if fs::remove_file(&temp_path).is_err() {
             // Log warning but don't fail
         }
 

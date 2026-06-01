@@ -71,9 +71,7 @@ fn agent_builtin_happy_path() {
 fn agent_builtin_argument_errors() {
     // No args → error
     let mut env = setup_stub_env();
-    let err = builtins::call("agent", vec![], &mut env)
-        .err()
-        .expect("expected error");
+    let err = builtins::call("agent", vec![], &mut env).expect_err("expected error");
     let msg = format!("{err}");
     assert!(msg.contains("goal"), "unexpected error: {msg}");
 
@@ -87,8 +85,7 @@ fn agent_builtin_argument_errors() {
         ],
         &mut env,
     )
-    .err()
-    .expect("expected error");
+    .expect_err("expected error");
     assert!(
         format!("{err}").contains("tools array"),
         "unexpected error: {err}"
@@ -130,8 +127,7 @@ fn swarm_builtin_rejects_bad_config() {
         ],
         &mut env,
     )
-    .err()
-    .expect("expected error");
+    .expect_err("expected error");
     let msg = format!("{err}");
     assert!(
         msg.contains("tools") || msg.contains("array of strings"),

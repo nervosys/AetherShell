@@ -85,7 +85,7 @@ impl ProviderRegistry {
         for provider_type in ProviderType::all() {
             if let Some(env_key) = provider_type.api_key_env_var() {
                 if std::env::var(env_key).is_ok() {
-                    let config = ProviderConfig::from_env(provider_type.clone());
+                    let config = ProviderConfig::from_env(provider_type);
                     registry.register(provider_type, config);
                 }
             }
@@ -105,7 +105,7 @@ impl ProviderRegistry {
             models: Vec::new(),
         };
 
-        providers.insert(provider_type.clone(), entry);
+        providers.insert(provider_type, entry);
 
         // Set as default if first provider
         let mut default = self.default_provider.write().unwrap();
@@ -128,7 +128,7 @@ impl ProviderRegistry {
 
     /// Get the default provider
     pub fn default_provider(&self) -> Option<ProviderType> {
-        self.default_provider.read().unwrap().clone()
+        *self.default_provider.read().unwrap()
     }
 
     /// Set the default provider
@@ -160,7 +160,7 @@ impl ProviderRegistry {
             .filter(|(_, e)| {
                 e.status == ProviderStatus::Ready || e.status == ProviderStatus::Unchecked
             })
-            .map(|(k, _)| k.clone())
+            .map(|(k, _)| *k)
             .collect()
     }
 
@@ -186,13 +186,13 @@ impl ProviderRegistry {
         for rule in routing_rules.iter() {
             if rule.matches(request) {
                 if let Some(provider) = &rule.target_provider {
-                    return Ok(provider.clone());
+                    return Ok(*provider);
                 }
             }
         }
 
         // Use the model's provider if specified
-        let provider = request.model.provider.clone();
+        let provider = request.model.provider;
 
         // Check if provider is available
         let providers = self.providers.read().unwrap();
@@ -219,7 +219,7 @@ impl ProviderRegistry {
         // Provider not registered, try default
         let default = self.default_provider.read().unwrap();
         if let Some(default_provider) = default.as_ref() {
-            return Ok(default_provider.clone());
+            return Ok(*default_provider);
         }
 
         Err(ProviderError::Unavailable {
@@ -239,7 +239,7 @@ impl ProviderRegistry {
         let candidates: Vec<ProviderType> = providers
             .iter()
             .filter(|(_, e)| matches!(e.status, ProviderStatus::Ready | ProviderStatus::Unchecked))
-            .map(|(k, _)| k.clone())
+            .map(|(k, _)| *k)
             .collect();
 
         if candidates.is_empty() {
@@ -300,10 +300,7 @@ impl ProviderRegistry {
         stats.total_requests += 1;
         stats.total_tokens += tokens as u64;
 
-        let provider_stats = stats
-            .by_provider
-            .entry(provider.clone())
-            .or_insert_with(ProviderStats::default);
+        let provider_stats = stats.by_provider.entry(*provider).or_default();
 
         provider_stats.requests += 1;
         provider_stats.tokens += tokens as u64;
@@ -626,8 +623,10 @@ impl ModelAliases {
 /// Load balancing strategy for distributing requests across providers
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case")]
+#[derive(Default)]
 pub enum LoadBalancingStrategy {
     /// No balancing — use the first matching provider
+    #[default]
     None,
     /// Cycle through providers in order
     RoundRobin,
@@ -640,12 +639,6 @@ pub enum LoadBalancingStrategy {
     /// Adaptive: starts with round-robin, converges on the provider with
     /// the best success-rate-to-latency ratio over a sliding window
     Adaptive,
-}
-
-impl Default for LoadBalancingStrategy {
-    fn default() -> Self {
-        Self::None
-    }
 }
 
 /// Load balancer state

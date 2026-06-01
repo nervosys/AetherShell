@@ -264,6 +264,12 @@ pub struct ChatManager {
     pub agents: HashMap<Uuid, MultiModalAgent>,
 }
 
+impl Default for ChatManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ChatManager {
     pub fn new() -> Self {
         Self {

@@ -1013,7 +1013,7 @@ impl PluginRegistry {
         }
 
         // Check script plugins
-        for (_, plugin) in &self.script_plugins {
+        for plugin in self.script_plugins.values() {
             if let Ok(guard) = plugin.read() {
                 if guard.builtins.contains_key(name) {
                     // Return the lambda source to be evaluated by the caller
@@ -1036,7 +1036,7 @@ impl PluginRegistry {
     /// Get help for a plugin builtin
     pub fn get_plugin_builtin_help(&self, name: &str) -> Option<String> {
         // Check dynamic plugins
-        for (_, plugin) in &self.dynamic_plugins {
+        for plugin in self.dynamic_plugins.values() {
             if let Ok(guard) = plugin.lock() {
                 if let Some(help) = guard.help(name) {
                     return Some(help);
@@ -1045,7 +1045,7 @@ impl PluginRegistry {
         }
 
         // Check script plugins
-        for (_, plugin) in &self.script_plugins {
+        for plugin in self.script_plugins.values() {
             if let Ok(guard) = plugin.read() {
                 if let Some(help) = guard.help_text.get(name) {
                     return Some(help.clone());

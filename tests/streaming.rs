@@ -28,8 +28,14 @@ fn large_array_streams_in_chunks() {
 
     // Chunks are ordered and carry the total.
     let first_chunk = events.iter().find(|e| e.event == "chunk").unwrap();
-    assert_eq!(first_chunk.data.get("seq").and_then(|v| v.as_u64()), Some(0));
-    assert_eq!(first_chunk.data.get("total").and_then(|v| v.as_u64()), Some(120));
+    assert_eq!(
+        first_chunk.data.get("seq").and_then(|v| v.as_u64()),
+        Some(0)
+    );
+    assert_eq!(
+        first_chunk.data.get("total").and_then(|v| v.as_u64()),
+        Some(120)
+    );
 }
 
 #[test]

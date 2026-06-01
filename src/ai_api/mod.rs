@@ -49,7 +49,9 @@ impl AIModelAPI {
         if config.providers.lmstudio.enabled {
             providers.insert(
                 "lmstudio".to_string(),
-                Box::new(LMStudioProvider::new(Some(&config.providers.lmstudio.endpoint))),
+                Box::new(LMStudioProvider::new(Some(
+                    &config.providers.lmstudio.endpoint,
+                ))),
             );
         }
 
@@ -164,11 +166,13 @@ impl AIModelAPI {
 
             // Ollama uses /api/tags instead of /v1/models
             if name == "ollama" {
-                if let Ok(response) = client.get(&format!("{}/api/tags", endpoint)).send().await {
+                if let Ok(response) = client.get(format!("{}/api/tags", endpoint)).send().await {
                     if response.status().is_success() {
                         is_available = true;
                         if let Ok(tags_resp) = response.json::<serde_json::Value>().await {
-                            if let Some(model_list) = tags_resp.get("models").and_then(|m| m.as_array()) {
+                            if let Some(model_list) =
+                                tags_resp.get("models").and_then(|m| m.as_array())
+                            {
                                 models = model_list
                                     .iter()
                                     .filter_map(|m| m.get("name").and_then(|n| n.as_str()))
@@ -180,7 +184,8 @@ impl AIModelAPI {
                 }
             }
             // Try standard /v1/models endpoint (OpenAI-compatible: LM Studio, vLLM, etc.)
-            else if let Ok(response) = client.get(&format!("{}/v1/models", endpoint)).send().await {
+            else if let Ok(response) = client.get(format!("{}/v1/models", endpoint)).send().await
+            {
                 if response.status().is_success() {
                     is_available = true;
                     if let Ok(models_response) = response.json::<serde_json::Value>().await {
@@ -195,7 +200,7 @@ impl AIModelAPI {
                 }
             } else if name == "llama.cpp" {
                 // Try llama.cpp specific health endpoint
-                if let Ok(response) = client.get(&format!("{}/health", endpoint)).send().await {
+                if let Ok(response) = client.get(format!("{}/health", endpoint)).send().await {
                     if response.status().is_success() {
                         is_available = true;
                         if let Ok(health_info) = response.json::<serde_json::Value>().await {

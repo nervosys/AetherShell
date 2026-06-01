@@ -546,8 +546,7 @@ fn parse_ps_token(s: &str) -> Result<Token> {
     }
 
     // Bare word or variable
-    if s.starts_with('$') {
-        let var_name = &s[1..];
+    if let Some(var_name) = s.strip_prefix('$') {
         if is_ps_ident(var_name) {
             return Ok(Token::Interp(vec![Piece::Var(var_name.to_string())]));
         }

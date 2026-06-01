@@ -96,36 +96,28 @@ fn handle_chat_normal(app: &mut App, key: crossterm::event::KeyEvent) -> Result<
         KeyCode::Enter | KeyCode::Char('i') => {
             app.input_mode = InputMode::Editing;
         }
-        KeyCode::Char('e') => {
-            if key.modifiers.contains(KeyModifiers::CONTROL) {
-                // Export conversation to markdown
-                let markdown = app.export_to_markdown();
-                // In real implementation, save to file
-                std::fs::write("conversation_export.md", markdown)
-                    .unwrap_or_else(|_| eprintln!("Failed to export conversation"));
+        KeyCode::Char('e') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            // Export conversation to markdown
+            let markdown = app.export_to_markdown();
+            // In real implementation, save to file
+            std::fs::write("conversation_export.md", markdown)
+                .unwrap_or_else(|_| eprintln!("Failed to export conversation"));
+        }
+        KeyCode::Char('j') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            // Export conversation to JSON
+            if let Ok(json) = app.export_to_json() {
+                std::fs::write("conversation_export.json", json)
+                    .unwrap_or_else(|_| eprintln!("Failed to export JSON"));
             }
         }
-        KeyCode::Char('j') => {
-            if key.modifiers.contains(KeyModifiers::CONTROL) {
-                // Export conversation to JSON
-                if let Ok(json) = app.export_to_json() {
-                    std::fs::write("conversation_export.json", json)
-                        .unwrap_or_else(|_| eprintln!("Failed to export JSON"));
-                }
-            }
+        KeyCode::Char('l') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            // Clear chat history
+            app.clear_conversation();
         }
-        KeyCode::Char('l') => {
-            if key.modifiers.contains(KeyModifiers::CONTROL) {
-                // Clear chat history
-                app.clear_conversation();
-            }
-        }
-        KeyCode::Char('f') => {
-            if key.modifiers.contains(KeyModifiers::CONTROL) {
-                // Switch to search mode
-                app.mode = AppMode::Search;
-                app.input_mode = InputMode::Editing;
-            }
+        KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            // Switch to search mode
+            app.mode = AppMode::Search;
+            app.input_mode = InputMode::Editing;
         }
         KeyCode::Char('1') => {
             // Toggle auto-scroll
@@ -186,11 +178,9 @@ fn handle_agent_normal(app: &mut App, key: crossterm::event::KeyEvent) -> Result
                 );
             }
         }
-        KeyCode::Char('p') => {
-            if key.modifiers.contains(KeyModifiers::CONTROL) {
-                // Pause/resume all agents (placeholder)
-                // Would toggle agent execution state
-            }
+        KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            // Pause/resume all agents (placeholder)
+            // Would toggle agent execution state
         }
         KeyCode::Char('r') => {
             // Restart selected agent (placeholder)
@@ -367,13 +357,14 @@ fn handle_search_normal(app: &mut App, key: crossterm::event::KeyEvent) -> Resul
             // Clear search and return to chat
             app.clear_search();
         }
-        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+        KeyCode::Char('c')
+            if key.modifiers.contains(KeyModifiers::CONTROL)
             // Copy selected search result to clipboard (future enhancement)
-            if !app.search_results.is_empty() {
-                let result_idx = app.search_results[app.search_result_index];
-                if let Some(msg) = app.messages.get(result_idx) {
-                    eprintln!("Would copy: {}", msg.content);
-                }
+            && !app.search_results.is_empty() =>
+        {
+            let result_idx = app.search_results[app.search_result_index];
+            if let Some(msg) = app.messages.get(result_idx) {
+                eprintln!("Would copy: {}", msg.content);
             }
         }
         _ => {}

@@ -1,7 +1,6 @@
 use aethershell::ai_api::*;
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
-use serde_json;
 
 #[derive(Parser)]
 #[command(name = "aimodel")]
@@ -1179,7 +1178,7 @@ async fn run_backend(config: APIConfig, args: BackendArgs) -> Result<()> {
                             .unwrap_or_else(|_| reqwest::Client::new());
 
                         match client
-                            .get(&format!("http://127.0.0.1:{}{}", default_port, health_path))
+                            .get(format!("http://127.0.0.1:{}{}", default_port, health_path))
                             .timeout(std::time::Duration::from_secs(5))
                             .send()
                             .await
@@ -1245,7 +1244,7 @@ async fn run_backend(config: APIConfig, args: BackendArgs) -> Result<()> {
                 .unwrap_or_else(|_| reqwest::Client::new());
 
             match client
-                .get(&format!("{}/v1/models", test_endpoint))
+                .get(format!("{}/v1/models", test_endpoint))
                 .send()
                 .await
             {
@@ -1284,7 +1283,7 @@ async fn run_backend(config: APIConfig, args: BackendArgs) -> Result<()> {
                 .unwrap_or_else(|_| reqwest::Client::new());
 
             for (name, endpoint) in endpoints {
-                match client.get(&format!("{}/v1/models", endpoint)).send().await {
+                match client.get(format!("{}/v1/models", endpoint)).send().await {
                     Ok(response) if response.status().is_success() => {
                         println!("✓ Found {} backend at {}", name, endpoint);
                     }
@@ -1292,7 +1291,7 @@ async fn run_backend(config: APIConfig, args: BackendArgs) -> Result<()> {
                         // Try alternative health endpoints
                         if name == "llama.cpp" {
                             if let Ok(response) =
-                                client.get(&format!("{}/health", endpoint)).send().await
+                                client.get(format!("{}/health", endpoint)).send().await
                             {
                                 if response.status().is_success() {
                                     println!("✓ Found {} backend at {}", name, endpoint);

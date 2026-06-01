@@ -1126,7 +1126,7 @@ pub mod tgi {
                 .unwrap_or("")
                 .to_string()),
             J::Array(arr) => Ok(arr
-                .get(0)
+                .first()
                 .and_then(|x| x.get("generated_text"))
                 .and_then(|s| s.as_str())
                 .unwrap_or("")
@@ -2285,6 +2285,12 @@ pub mod agents {
         /// Round-robin coordinator (default)
         pub struct RoundRobinCoord {
             next: usize,
+        }
+
+        impl Default for RoundRobinCoord {
+            fn default() -> Self {
+                Self::new()
+            }
         }
 
         impl RoundRobinCoord {

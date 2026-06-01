@@ -377,7 +377,7 @@ fn test_task_outcome_variants() {
 
 #[test]
 fn test_reasoning_type_variants() {
-    let reasoning_types = vec![
+    let reasoning_types = [
         ReasoningType::Induction,
         ReasoningType::Deduction,
         ReasoningType::Abduction,
@@ -400,7 +400,7 @@ fn test_reasoning_type_variants() {
 
 #[test]
 fn test_constraint_types_and_severities() {
-    let constraints = vec![
+    let constraints = [
         Constraint {
             constraint_type: ConstraintType::Resource,
             description: "Memory limit".to_string(),
@@ -429,7 +429,7 @@ async fn test_experience_storage() {
     let _engine = ReasoningEngine::new();
 
     let goal = create_test_planning_goal("Experience storage test");
-    let _reasoning_chain = vec![ReasoningStep {
+    let _reasoning_chain = [ReasoningStep {
         step_id: uuid::Uuid::new_v4(),
         description: "Initial analysis".to_string(),
         input: MultiModalMessage {

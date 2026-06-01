@@ -35,33 +35,23 @@ use uuid::Uuid;
 // ===================== Event Types =====================
 
 /// Priority levels for A2UI events
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Default)]
 pub enum EventPriority {
     Low = 0,
+    #[default]
     Normal = 1,
     High = 2,
     Critical = 3,
 }
 
-impl Default for EventPriority {
-    fn default() -> Self {
-        Self::Normal
-    }
-}
-
 /// Notification severity levels
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum NotificationLevel {
+    #[default]
     Info,
     Success,
     Warning,
     Error,
-}
-
-impl Default for NotificationLevel {
-    fn default() -> Self {
-        Self::Info
-    }
 }
 
 impl std::str::FromStr for NotificationLevel {

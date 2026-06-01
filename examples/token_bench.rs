@@ -254,4 +254,3 @@ fn yn(b: bool) -> &'static str {
         "FAIL"
     }
 }
-

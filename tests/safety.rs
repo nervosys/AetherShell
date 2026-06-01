@@ -39,7 +39,10 @@ fn fresh_workspace(tag: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("ae_safety_it_{}_{}", tag, std::process::id()));
     let _ = std::fs::create_dir_all(&dir);
     std::env::set_var("AETHER_WORKSPACE", &dir);
-    std::env::set_var("AETHER_AUDIT_LOG", dir.join("audit.log").to_string_lossy().to_string());
+    std::env::set_var(
+        "AETHER_AUDIT_LOG",
+        dir.join("audit.log").to_string_lossy().to_string(),
+    );
     dir
 }
 
@@ -62,10 +65,8 @@ fn rm_in_human_mode_just_works() {
     let file = dir.join("victim.txt");
     std::fs::write(&file, b"bye").unwrap();
 
-    let res = aethershell::builtins::bi_rm(
-        vec![Value::Str(file.to_string_lossy().to_string())],
-        None,
-    );
+    let res =
+        aethershell::builtins::bi_rm(vec![Value::Str(file.to_string_lossy().to_string())], None);
     assert!(res.is_ok(), "human-mode rm should succeed: {:?}", res.err());
     assert!(!file.exists(), "file should be gone");
     let _ = std::fs::remove_dir_all(&dir);
@@ -111,7 +112,8 @@ fn rm_outside_workspace_is_blocked_in_agent_mode() {
     } else {
         "/etc/hosts"
     };
-    let err = aethershell::builtins::bi_rm(vec![Value::Str(outside.to_string())], None).unwrap_err();
+    let err =
+        aethershell::builtins::bi_rm(vec![Value::Str(outside.to_string())], None).unwrap_err();
     let rendered = format!("{}", err);
     assert!(rendered.contains("E_OUTSIDE_WORKSPACE"), "got: {rendered}");
 
@@ -217,7 +219,10 @@ fn in_shell_rbac_principal_and_grant_bypass_approval() {
 
     aethershell::builtins::call(
         "rbac_grant",
-        vec![Value::Str("alice".into()), Value::Str("effect:destructive".into())],
+        vec![
+            Value::Str("alice".into()),
+            Value::Str("effect:destructive".into()),
+        ],
         &mut env,
     )
     .expect("grant");

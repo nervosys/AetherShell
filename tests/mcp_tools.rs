@@ -693,5 +693,8 @@ fn call_builtin_renders_tabular_as_aecon_in_agent_mode() {
 
     assert_eq!(res.is_error, Some(false), "pick succeeds: {text}");
     assert!(text.starts_with("name\tsize"), "rendered as AECON: {text}");
-    assert!(text.contains("\na\t1") && text.contains("\nb\t2"), "rows present: {text}");
+    assert!(
+        text.contains("\na\t1") && text.contains("\nb\t2"),
+        "rows present: {text}"
+    );
 }

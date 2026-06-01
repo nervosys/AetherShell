@@ -70,9 +70,16 @@ fn aecon_factors_out_constant_columns() {
     assert!(out.contains("@const "), "constant columns factored: {out}");
     assert!(out.contains("kind=file"));
     assert!(out.contains("owner=alice"));
-    assert!(out.starts_with("name\tsize"), "tight header lists varying cols: {out}");
+    assert!(
+        out.starts_with("name\tsize"),
+        "tight header lists varying cols: {out}"
+    );
     // "alice" appears exactly once (in @const), not 20 times.
-    assert_eq!(out.matches("alice").count(), 1, "owner not repeated per row");
+    assert_eq!(
+        out.matches("alice").count(),
+        1,
+        "owner not repeated per row"
+    );
     assert_eq!(out.matches("file").count(), 1, "kind not repeated per row");
 
     // And it's cheaper in tokens than the same data without factoring (canonical).
@@ -84,7 +91,10 @@ fn aecon_factors_out_constant_columns() {
         Value::Int(n) => n,
         _ => panic!(),
     };
-    assert!(factored < canon, "factored ({factored}) < canonical ({canon})");
+    assert!(
+        factored < canon,
+        "factored ({factored}) < canonical ({canon})"
+    );
 }
 
 #[test]
@@ -147,7 +157,10 @@ fn aecon_does_not_dictionary_encode_high_cardinality_columns() {
         Value::Str(s) => s,
         other => panic!("expected string, got {other:?}"),
     };
-    assert!(!out.contains("@dict"), "no dict for all-distinct column: {out}");
+    assert!(
+        !out.contains("@dict"),
+        "no dict for all-distinct column: {out}"
+    );
     assert!(out.contains("unique_name_0") && out.contains("unique_name_9"));
 }
 
@@ -204,16 +217,34 @@ fn aecon_does_not_delta_encode_small_or_unsorted_integers() {
         Value::Str(s) => s,
         other => panic!("{other:?}"),
     };
-    assert!(!out_small.contains("@delta"), "no delta for small ints: {out_small}");
+    assert!(
+        !out_small.contains("@delta"),
+        "no delta for small ints: {out_small}"
+    );
 
     // Large but oscillating values — deltas are as wide as the raws, so skip.
-    let swing = [5_000_000i64, 100, 9_000_000, 200, 8_000_000, 300, 7_000_000, 400];
-    let osc: Vec<Value> = swing.iter().map(|v| rec(&[("v", Value::Int(*v))])).collect();
+    let swing = [
+        5_000_000i64,
+        100,
+        9_000_000,
+        200,
+        8_000_000,
+        300,
+        7_000_000,
+        400,
+    ];
+    let osc: Vec<Value> = swing
+        .iter()
+        .map(|v| rec(&[("v", Value::Int(*v))]))
+        .collect();
     let out_osc = match call("aecon", vec![Value::Array(osc)]) {
         Value::Str(s) => s,
         other => panic!("{other:?}"),
     };
-    assert!(!out_osc.contains("@delta"), "no delta for oscillating ints: {out_osc}");
+    assert!(
+        !out_osc.contains("@delta"),
+        "no delta for oscillating ints: {out_osc}"
+    );
 }
 
 #[test]
@@ -264,11 +295,19 @@ fn agent_mode_renders_results_as_aecon_by_default() {
     // An array of records renders as compact AECON: header once, no ANSI escapes,
     // deterministic — not the human colorized pretty-printer.
     let rows: Vec<Value> = (0..5)
-        .map(|i| rec(&[("name", Value::Str(format!("f{i}"))), ("size", Value::Int(i * 100))]))
+        .map(|i| {
+            rec(&[
+                ("name", Value::Str(format!("f{i}"))),
+                ("size", Value::Int(i * 100)),
+            ])
+        })
         .collect();
     let out = render_agent(&Value::Array(rows), None).expect("some output");
     assert!(out.starts_with("name\tsize"), "AECON header: {out}");
-    assert!(!out.contains('\u{1b}'), "no ANSI escapes in agent output: {out:?}");
+    assert!(
+        !out.contains('\u{1b}'),
+        "no ANSI escapes in agent output: {out:?}"
+    );
 
     // A bare string is returned raw — that single value is what the agent asked for.
     assert_eq!(
@@ -281,13 +320,27 @@ fn agent_mode_renders_results_as_aecon_by_default() {
     // Under a tight token budget, a large array pages and carries one compact
     // `@page …` metadata line (the page itself is raw AECON, not a re-quoted blob).
     let big: Vec<Value> = (0..200)
-        .map(|i| rec(&[("id", Value::Int(i)), ("label", Value::Str(format!("item_{i}")))]))
+        .map(|i| {
+            rec(&[
+                ("id", Value::Int(i)),
+                ("label", Value::Str(format!("item_{i}"))),
+            ])
+        })
         .collect();
     let paged = render_agent(&Value::Array(big), Some(40)).expect("some output");
-    assert!(paged.contains("@page "), "budget envelope metadata line: {paged}");
+    assert!(
+        paged.contains("@page "),
+        "budget envelope metadata line: {paged}"
+    );
     assert!(paged.contains("total=200"), "total rows reported: {paged}");
-    assert!(paged.contains("next_cursor="), "paging cursor present: {paged}");
-    assert!(!paged.contains("page=\""), "page text emitted raw, not re-quoted: {paged}");
+    assert!(
+        paged.contains("next_cursor="),
+        "paging cursor present: {paged}"
+    );
+    assert!(
+        !paged.contains("page=\""),
+        "page text emitted raw, not re-quoted: {paged}"
+    );
 }
 
 #[test]
@@ -316,9 +369,18 @@ fn aecon_typed_round_trip_is_lossless_for_ambiguous_values() {
     };
     // A type line is present, tagging exactly the ambiguous columns.
     assert!(encoded.contains("@type "), "type header present: {encoded}");
-    assert!(encoded.contains("code:s"), "numeric-looking string tagged string: {encoded}");
-    assert!(encoded.contains("ratio:f"), "integral float tagged float: {encoded}");
-    assert!(!encoded.contains("name:"), "unambiguous string needs no tag: {encoded}");
+    assert!(
+        encoded.contains("code:s"),
+        "numeric-looking string tagged string: {encoded}"
+    );
+    assert!(
+        encoded.contains("ratio:f"),
+        "integral float tagged float: {encoded}"
+    );
+    assert!(
+        !encoded.contains("name:"),
+        "unambiguous string needs no tag: {encoded}"
+    );
     assert!(!encoded.contains("n:"), "plain int needs no tag: {encoded}");
 
     // Lossless: "200" stays a String, 1.0 stays a Float — not coerced to Int.
@@ -452,7 +514,11 @@ fn pick_projects_fields_and_saves_tokens() {
     // Keep only name+size; owner/kind are dropped.
     let picked = call(
         "pick",
-        vec![full.clone(), Value::Str("name".into()), Value::Str("size".into())],
+        vec![
+            full.clone(),
+            Value::Str("name".into()),
+            Value::Str("size".into()),
+        ],
     );
     match &picked {
         Value::Array(a) => match &a[0] {
@@ -518,7 +584,12 @@ fn agent_response_carries_token_accounting() {
 fn budget_pages_rows_with_a_cursor_and_elision() {
     // 100 small records; a tight budget should show only some and offer a cursor.
     let rows: Vec<Value> = (0..100)
-        .map(|i| rec(&[("id", Value::Int(i)), ("name", Value::Str(format!("item{i}")))]))
+        .map(|i| {
+            rec(&[
+                ("id", Value::Int(i)),
+                ("name", Value::Str(format!("item{i}"))),
+            ])
+        })
         .collect();
     let arr = Value::Array(rows);
 
@@ -532,18 +603,27 @@ fn budget_pages_rows_with_a_cursor_and_elision() {
     };
     let total = page.get("total").cloned();
     assert_eq!(total, Some(Value::Int(100)));
-    assert!(shown > 0 && shown < 100, "should page a subset, shown={shown}");
+    assert!(
+        shown > 0 && shown < 100,
+        "should page a subset, shown={shown}"
+    );
     assert_eq!(page.get("truncated"), Some(&Value::Bool(true)));
     // Page fits the budget (or is a single oversized row).
     if let Some(Value::Int(pt)) = page.get("page_tokens") {
-        assert!(*pt <= 40 || shown == 1, "page_tokens={pt} should be <= budget");
+        assert!(
+            *pt <= 40 || shown == 1,
+            "page_tokens={pt} should be <= budget"
+        );
     }
     // next_cursor advances; paging from it returns the remainder eventually.
     let next = match page.get("next_cursor") {
         Some(Value::Int(n)) => *n,
         other => panic!("expected an Int next_cursor, got {other:?}"),
     };
-    assert_eq!(next, shown, "next_cursor should resume after the shown rows");
+    assert_eq!(
+        next, shown,
+        "next_cursor should resume after the shown rows"
+    );
 
     // A generous budget shows everything and offers no further cursor.
     match call("budget", vec![arr, Value::Int(100_000)]) {
@@ -634,7 +714,10 @@ fn ontology_manifest_is_compact_and_describe_expands() {
     }
 
     // Unknown query → structured error.
-    match call("ontology_describe", vec![Value::Str("definitely_not_a_thing_xyz".into())]) {
+    match call(
+        "ontology_describe",
+        vec![Value::Str("definitely_not_a_thing_xyz".into())],
+    ) {
         Value::Record(r) => assert!(r.contains_key("error")),
         other => panic!("expected error record, got {other:?}"),
     }

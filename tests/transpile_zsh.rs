@@ -25,7 +25,11 @@ fn numeric_assignment() {
 fn variable_arg_as_identifier() {
     let zsh = "echo $HOME";
     let ae = transpile_zsh_to_ae(zsh).expect("transpile ok");
-    assert!(ae.contains("echo(HOME)") || ae.contains("echo( HOME )"), "got:\n{}", ae);
+    assert!(
+        ae.contains("echo(HOME)") || ae.contains("echo( HOME )"),
+        "got:\n{}",
+        ae
+    );
 }
 
 #[test]

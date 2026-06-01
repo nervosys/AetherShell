@@ -63,9 +63,10 @@ fn si_suffix_not_in_string() {
 #[test]
 fn lambda_single_param_applies() {
     // Apply the lambda to data to prove it means fn(x)=>x*2.
-    assert_eq!(eval_aeg("[1,2,3]|m\\x:x*2\n"), Value::Array(vec![
-        Value::Int(2), Value::Int(4), Value::Int(6),
-    ]));
+    assert_eq!(
+        eval_aeg("[1,2,3]|m\\x:x*2\n"),
+        Value::Array(vec![Value::Int(2), Value::Int(4), Value::Int(6),])
+    );
 }
 #[test]
 fn lambda_multi_param() {
@@ -76,11 +77,14 @@ fn lambda_multi_param() {
 fn lambda_implicit_param_filters() {
     // \.size>2 → fn(__) => __.size>2, used as a where-filter.
     let v = eval_aeg("[{size:1},{size:3}]|w\\.size>2\n");
-    assert_eq!(v, Value::Array(vec![{
-        let mut m = std::collections::BTreeMap::new();
-        m.insert("size".to_string(), Value::Int(3));
-        Value::Record(m)
-    }]));
+    assert_eq!(
+        v,
+        Value::Array(vec![{
+            let mut m = std::collections::BTreeMap::new();
+            m.insert("size".to_string(), Value::Int(3));
+            Value::Record(m)
+        }])
+    );
 }
 
 // ── Module sigils: @mod.fn → module.fn ───────────────────────────────
@@ -120,9 +124,10 @@ fn builtin_ls() {
 }
 #[test]
 fn builtin_take_evaluates() {
-    assert_eq!(eval_aeg("[1,2,3,4,5]|#t 3\n"), Value::Array(vec![
-        Value::Int(1), Value::Int(2), Value::Int(3),
-    ]));
+    assert_eq!(
+        eval_aeg("[1,2,3,4,5]|#t 3\n"),
+        Value::Array(vec![Value::Int(1), Value::Int(2), Value::Int(3),])
+    );
 }
 #[test]
 fn builtin_grep() {
@@ -136,9 +141,10 @@ fn builtin_no_args() {
 // ── Pipeline operator: > → | ─────────────────────────────────────────
 #[test]
 fn pipeline_single() {
-    assert_eq!(eval_aeg("[3,1,2] > #t 2\n"), Value::Array(vec![
-        Value::Int(3), Value::Int(1),
-    ]));
+    assert_eq!(
+        eval_aeg("[3,1,2] > #t 2\n"),
+        Value::Array(vec![Value::Int(3), Value::Int(1),])
+    );
 }
 #[test]
 fn pipeline_preserves_gte() {
@@ -159,7 +165,10 @@ fn assignment_immutable() {
 }
 #[test]
 fn assignment_mutable() {
-    assert_eq!(eval_aeg("counter:=5\n^counter>0{counter}{0}\n"), Value::Int(5));
+    assert_eq!(
+        eval_aeg("counter:=5\n^counter>0{counter}{0}\n"),
+        Value::Int(5)
+    );
 }
 #[test]
 fn assignment_not_equality() {
@@ -210,22 +219,29 @@ fn full_mixed_syntax() {
 // ── v2 ultra-compressed forms ────────────────────────────────────────
 #[test]
 fn v2_tilde_lambda_applies() {
-    assert_eq!(eval_aeg("[1,2]|m~x:x*2\n"), Value::Array(vec![Value::Int(2), Value::Int(4)]));
+    assert_eq!(
+        eval_aeg("[1,2]|m~x:x*2\n"),
+        Value::Array(vec![Value::Int(2), Value::Int(4)])
+    );
 }
 #[test]
 fn v2_tilde_lambda_implicit_filters() {
     let v = eval_aeg("[{size:1},{size:9}]|w~.size>5\n");
-    assert_eq!(v, Value::Array(vec![{
-        let mut m = std::collections::BTreeMap::new();
-        m.insert("size".to_string(), Value::Int(9));
-        Value::Record(m)
-    }]));
+    assert_eq!(
+        v,
+        Value::Array(vec![{
+            let mut m = std::collections::BTreeMap::new();
+            m.insert("size".to_string(), Value::Int(9));
+            Value::Record(m)
+        }])
+    );
 }
 #[test]
 fn v2_pipe_bar_evaluates() {
-    assert_eq!(eval_aeg("[1,2,3]|#q\n"), Value::Array(vec![
-        Value::Int(3), Value::Int(2), Value::Int(1),
-    ]));
+    assert_eq!(
+        eval_aeg("[1,2,3]|#q\n"),
+        Value::Array(vec![Value::Int(3), Value::Int(2), Value::Int(1),])
+    );
 }
 #[test]
 fn v2_bare_builtin_echo() {
@@ -241,9 +257,15 @@ fn v2_bare_builtin_with_tilde() {
 }
 #[test]
 fn v2_bare_builtin_numeric_arg() {
-    assert_eq!(eval_aeg("[1,2,3,4]|t5\n"), Value::Array(vec![
-        Value::Int(1), Value::Int(2), Value::Int(3), Value::Int(4),
-    ]));
+    assert_eq!(
+        eval_aeg("[1,2,3,4]|t5\n"),
+        Value::Array(vec![
+            Value::Int(1),
+            Value::Int(2),
+            Value::Int(3),
+            Value::Int(4),
+        ])
+    );
 }
 #[test]
 fn v2_bare_module_file() {
@@ -282,7 +304,9 @@ fn v2_mixed_bare_and_v1() {
 #[test]
 fn v2_full_workflow() {
     let ae = tr("; workflow\nF.r(\"input.json\")|J.p(data)|w~.size>1k|m~.name\n");
-    assert!(ae.contains("file.read") && ae.contains("json.parse") && ae.contains("where(fn(__) =>"));
+    assert!(
+        ae.contains("file.read") && ae.contains("json.parse") && ae.contains("where(fn(__) =>")
+    );
 }
 
 // ── v3 symbol→value forms ────────────────────────────────────────────
@@ -292,7 +316,10 @@ fn v3_symbol_true_null() {
     // bindings are referenced in expression position (a bare `x` line is a cmd).
     assert_eq!(eval_aeg("active=T\n^active{1}{0}\n"), Value::Int(1));
     let ae = tr("x=T\ny=N\n");
-    assert!(ae.contains("let x = true") && ae.contains("let y = null"), "got:\n{ae}");
+    assert!(
+        ae.contains("let x = true") && ae.contains("let y = null"),
+        "got:\n{ae}"
+    );
 }
 #[test]
 fn v3_single_quote_strings() {
@@ -337,7 +364,10 @@ fn v4_env_var_in_pipeline() {
 }
 #[test]
 fn v4_field_projection_evaluates() {
-    assert_eq!(eval_aeg("[{name:\"a\"},{name:\"b\"}]|.name\n"), Value::Array(vec![s("a"), s("b")]));
+    assert_eq!(
+        eval_aeg("[{name:\"a\"},{name:\"b\"}]|.name\n"),
+        Value::Array(vec![s("a"), s("b")])
+    );
 }
 #[test]
 fn v4_field_projection_chained() {
@@ -360,7 +390,10 @@ fn v4_conditional_with_else() {
 }
 #[test]
 fn v4_preamble_def() {
-    assert_call("%def fetch H.g\nfetch(\"https://api.com\")\n", "http.get(\"https://api.com\")");
+    assert_call(
+        "%def fetch H.g\nfetch(\"https://api.com\")\n",
+        "http.get(\"https://api.com\")",
+    );
 }
 #[test]
 fn v4_preamble_multiple() {
@@ -418,7 +451,9 @@ fn edge_nested_conditional() {
 #[test]
 fn edge_mixed_all_versions() {
     let ae = tr("; all versions\n#l \"./src\" > #w \\.size>1k\ne\"hello\"\nl./src|w~.size>1k|m~.name\nactive=T\nhome=$HOME\n");
-    assert!(ae.contains("ls(") && ae.contains("echo(\"hello\")") && ae.contains("let active = true"));
+    assert!(
+        ae.contains("ls(") && ae.contains("echo(\"hello\")") && ae.contains("let active = true")
+    );
 }
 #[test]
 fn edge_empty_script() {
@@ -474,11 +509,17 @@ fn for_each_array_literal() {
 }
 #[test]
 fn for_each_variable() {
-    assert_call("*items~item:proc(item)\n", "(items) | each(fn(item) => proc(item))");
+    assert_call(
+        "*items~item:proc(item)\n",
+        "(items) | each(fn(item) => proc(item))",
+    );
 }
 #[test]
 fn for_each_with_function_call() {
-    assert_call("*arr.range(5)~i:echo(i)\n", "(arr.range(5)) | each(fn(i) => echo(i))");
+    assert_call(
+        "*arr.range(5)~i:echo(i)\n",
+        "(arr.range(5)) | each(fn(i) => echo(i))",
+    );
 }
 #[test]
 fn for_each_does_not_fire_in_math() {
@@ -553,9 +594,10 @@ fn chain_try_catch_in_pipeline() {
 }
 #[test]
 fn chain_lambda_with_conditional_evaluates() {
-    assert_eq!(eval_aeg("[1,-2,3]|m~x:^x>0{x}{0}\n"), Value::Array(vec![
-        Value::Int(1), Value::Int(0), Value::Int(3),
-    ]));
+    assert_eq!(
+        eval_aeg("[1,-2,3]|m~x:^x>0{x}{0}\n"),
+        Value::Array(vec![Value::Int(1), Value::Int(0), Value::Int(3),])
+    );
 }
 #[test]
 fn chain_recursion_via_let_binding() {
@@ -570,21 +612,26 @@ fn chain_multiple_for_each_pipeline() {
 }
 #[test]
 fn chain_assign_conditional_pipeline() {
-    assert_call("result=^active{data}{[]}\n", "let result = match (active) { true => (data), _ => ([]) }");
+    assert_call(
+        "result=^active{data}{[]}\n",
+        "let result = match (active) { true => (data), _ => ([]) }",
+    );
 }
 
 // ── New builtins: b=flatten, q=reverse ───────────────────────────────
 #[test]
 fn builtin_b_flatten_evaluates() {
-    assert_eq!(eval_aeg("[[1,2],[3]]|#b\n"), Value::Array(vec![
-        Value::Int(1), Value::Int(2), Value::Int(3),
-    ]));
+    assert_eq!(
+        eval_aeg("[[1,2],[3]]|#b\n"),
+        Value::Array(vec![Value::Int(1), Value::Int(2), Value::Int(3),])
+    );
 }
 #[test]
 fn builtin_q_reverse_evaluates() {
-    assert_eq!(eval_aeg("[1,2,3]|#q\n"), Value::Array(vec![
-        Value::Int(3), Value::Int(2), Value::Int(1),
-    ]));
+    assert_eq!(
+        eval_aeg("[1,2,3]|#q\n"),
+        Value::Array(vec![Value::Int(3), Value::Int(2), Value::Int(1),])
+    );
 }
 #[test]
 fn bare_builtin_b_flatten() {

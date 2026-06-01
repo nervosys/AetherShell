@@ -482,7 +482,7 @@ fn test_allocate_tasks_with_capabilities() {
 
     let negotiations = result.unwrap();
     // Should have proposed negotiations for capable agents
-    assert!(negotiations.len() > 0);
+    assert!(!negotiations.is_empty());
 }
 
 #[test]

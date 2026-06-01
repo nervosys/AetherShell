@@ -37,7 +37,14 @@ struct Task {
 }
 
 /// Display order for the per-shell summary.
-const SHELLS: &[&str] = &["aethershell", "bash", "zsh", "fish", "nushell", "powershell"];
+const SHELLS: &[&str] = &[
+    "aethershell",
+    "bash",
+    "zsh",
+    "fish",
+    "nushell",
+    "powershell",
+];
 
 const CORPUS: &[Task] = &[
     // ── List source files with their sizes (3 rows: name, size) ──────────
@@ -273,37 +280,107 @@ fn scale_comparison() {
     };
 
     // PowerShell Format-Table: all five columns, padded, repeated on every row.
-    let nw = rows.iter().map(|(n, _, _)| n.len()).max().unwrap_or(4).max(4);
-    let sw = rows.iter().map(|(_, s, _)| s.to_string().len()).max().unwrap_or(4).max(4);
-    let (ow, gw, pw) = (owner.len().max(5), group.len().max(5), 9.max(4));
+    let nw = rows
+        .iter()
+        .map(|(n, _, _)| n.len())
+        .max()
+        .unwrap_or(4)
+        .max(4);
+    let sw = rows
+        .iter()
+        .map(|(_, s, _)| s.to_string().len())
+        .max()
+        .unwrap_or(4)
+        .max(4);
+    let (ow, gw, pw) = (owner.len().max(5), group.len().max(5), 9);
     let mut ps = format!(
         "\n{:<nw$} {:>sw$} {:<ow$} {:<gw$} {:<pw$}\n{} {} {} {} {}\n",
-        "Name", "Size", "Owner", "Group", "Perm",
-        "-".repeat(nw), "-".repeat(sw), "-".repeat(ow), "-".repeat(gw), "-".repeat(pw),
-        nw = nw, sw = sw, ow = ow, gw = gw, pw = pw
+        "Name",
+        "Size",
+        "Owner",
+        "Group",
+        "Perm",
+        "-".repeat(nw),
+        "-".repeat(sw),
+        "-".repeat(ow),
+        "-".repeat(gw),
+        "-".repeat(pw),
+        nw = nw,
+        sw = sw,
+        ow = ow,
+        gw = gw,
+        pw = pw
     );
     for (n, s, p) in &rows {
         ps.push_str(&format!(
             "{:<nw$} {:>sw$} {:<ow$} {:<gw$} {:<pw$}\n",
-            n, s, owner, group, p, nw = nw, sw = sw, ow = ow, gw = gw, pw = pw
+            n,
+            s,
+            owner,
+            group,
+            p,
+            nw = nw,
+            sw = sw,
+            ow = ow,
+            gw = gw,
+            pw = pw
         ));
     }
 
     // Nushell boxed table: all five columns, box-drawing on every row.
     let bar = |w: usize| "─".repeat(w + 2);
-    let mut nu = format!("╭───┬{}┬{}┬{}┬{}┬{}╮\n", bar(nw), bar(sw), bar(ow), bar(gw), bar(pw));
+    let mut nu = format!(
+        "╭───┬{}┬{}┬{}┬{}┬{}╮\n",
+        bar(nw),
+        bar(sw),
+        bar(ow),
+        bar(gw),
+        bar(pw)
+    );
     nu.push_str(&format!(
         "│ # │ {:<nw$} │ {:>sw$} │ {:<ow$} │ {:<gw$} │ {:<pw$} │\n",
-        "name", "size", "owner", "group", "perm", nw = nw, sw = sw, ow = ow, gw = gw, pw = pw
+        "name",
+        "size",
+        "owner",
+        "group",
+        "perm",
+        nw = nw,
+        sw = sw,
+        ow = ow,
+        gw = gw,
+        pw = pw
     ));
-    nu.push_str(&format!("├───┼{}┼{}┼{}┼{}┼{}┤\n", bar(nw), bar(sw), bar(ow), bar(gw), bar(pw)));
+    nu.push_str(&format!(
+        "├───┼{}┼{}┼{}┼{}┼{}┤\n",
+        bar(nw),
+        bar(sw),
+        bar(ow),
+        bar(gw),
+        bar(pw)
+    ));
     for (i, (n, s, p)) in rows.iter().enumerate() {
         nu.push_str(&format!(
             "│ {i} │ {:<nw$} │ {:>sw$} │ {:<ow$} │ {:<gw$} │ {:<pw$} │\n",
-            n, s, owner, group, p, nw = nw, sw = sw, ow = ow, gw = gw, pw = pw
+            n,
+            s,
+            owner,
+            group,
+            p,
+            nw = nw,
+            sw = sw,
+            ow = ow,
+            gw = gw,
+            pw = pw
         ));
     }
-    nu.push_str(&format!("╰───┴{}┴{}┴{}┴{}┴{}╯", bar(nw), bar(sw), bar(ow), bar(gw), bar(pw)));
+    nu.push_str(&format!(
+        "╰───┴{}┴{}┴{}┴{}┴{}╯",
+        bar(nw),
+        bar(sw),
+        bar(ow),
+        bar(gw),
+        bar(pw)
+    ));
 
     // PowerShell ConvertTo-Json -Compress: the output an agent must use to
     // *reliably parse* the result (Format-Table is display-only — variable widths,
@@ -324,9 +401,21 @@ fn scale_comparison() {
     let a = a.max(1);
     println!("\nAt scale — a realistic 50-row listing (5 cols: @const + @dict factoring); output tokens:");
     println!("  aethershell (aecon)              {:>6}   1.00x", a);
-    println!("  powershell (Format-Table*)       {:>6}{:>7.2}x", p, p as f64 / a as f64);
-    println!("  powershell (ConvertTo-Json)      {:>6}{:>7.2}x", j, j as f64 / a as f64);
-    println!("  nushell (boxed)                  {:>6}{:>7.2}x", n, n as f64 / a as f64);
+    println!(
+        "  powershell (Format-Table*)       {:>6}{:>7.2}x",
+        p,
+        p as f64 / a as f64
+    );
+    println!(
+        "  powershell (ConvertTo-Json)      {:>6}{:>7.2}x",
+        j,
+        j as f64 / a as f64
+    );
+    println!(
+        "  nushell (boxed)                  {:>6}{:>7.2}x",
+        n,
+        n as f64 / a as f64
+    );
     println!(
         "  * Format-Table is display-only (variable widths/truncation, not reliably\n\
          \x20   machine-parseable); an agent that must parse the result uses ConvertTo-Json."
@@ -411,6 +500,10 @@ fn main() {
          agent must actually use to parse a result. The structural lever is key-factoring:\n\
          AECON emits each column name once (constants once via @const); JSON repeats every\n\
          key on every row. Token-counted with {}.",
-        if cfg!(feature = "real-tokens") { "real cl100k BPE" } else { "a heuristic" }
+        if cfg!(feature = "real-tokens") {
+            "real cl100k BPE"
+        } else {
+            "a heuristic"
+        }
     );
 }

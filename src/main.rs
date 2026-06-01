@@ -540,7 +540,7 @@ async fn handle_mcp_command(command: McpCommands) -> Result<()> {
                 tools
             };
 
-            println!("{:<25} {}", "Tool Name", "Description");
+            println!("{:<25} Description", "Tool Name");
             println!("{}", "-".repeat(80));
             for tool in filtered_tools {
                 let desc = if tool.description.len() > 50 {
@@ -616,7 +616,7 @@ fn handle_agent_api_command(command: AgentApiCommands) -> Result<()> {
                 if let Some(result) = &response.result {
                     if let Some(builtins) = result.get("builtins") {
                         if let Some(arr) = builtins.as_array() {
-                            println!("{:<20} {:<12} {}", "Name", "Category", "Description");
+                            println!("{:<20} {:<12} Description", "Name", "Category");
                             println!("{}", "-".repeat(80));
                             for b in arr {
                                 let name = b.get("name").and_then(|v| v.as_str()).unwrap_or("");

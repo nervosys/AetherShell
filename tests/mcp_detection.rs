@@ -237,7 +237,7 @@ fn test_mcp_server_names_are_descriptive() {
 #[test]
 fn test_mcp_detection_handles_network_errors_gracefully() {
     // Detection should not panic on network errors
-    let result = std::panic::catch_unwind(|| detect_mcp_servers());
+    let result = std::panic::catch_unwind(detect_mcp_servers);
 
     assert!(result.is_ok(), "MCP detection panicked on network errors");
 }
@@ -262,9 +262,7 @@ fn test_mcp_detection_returns_only_available_servers() {
 fn test_mcp_detection_is_thread_safe() {
     use std::thread;
 
-    let handles: Vec<_> = (0..3)
-        .map(|_| thread::spawn(|| detect_mcp_servers()))
-        .collect();
+    let handles: Vec<_> = (0..3).map(|_| thread::spawn(detect_mcp_servers)).collect();
 
     for handle in handles {
         let result = handle.join();

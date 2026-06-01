@@ -6,7 +6,7 @@ use std::fs;
 use std::path::PathBuf;
 
 /// Main configuration for the AI API system
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct APIConfig {
     pub server: ServerConfig,
     pub storage: StorageConfig,
@@ -93,7 +93,7 @@ pub enum InferenceEngine {
     PyTorch,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SecurityConfig {
     pub require_api_key: bool,
     pub api_keys: Vec<String>,
@@ -145,18 +145,6 @@ pub enum LogOutput {
     Stderr,
     File { path: String },
     Syslog,
-}
-
-impl Default for APIConfig {
-    fn default() -> Self {
-        Self {
-            server: ServerConfig::default(),
-            storage: StorageConfig::default(),
-            providers: ProvidersConfig::default(),
-            security: SecurityConfig::default(),
-            logging: LoggingConfig::default(),
-        }
-    }
 }
 
 impl Default for ServerConfig {
@@ -306,19 +294,6 @@ impl Default for ProvidersConfig {
                 tensor_parallel_size: None,
             },
             custom: HashMap::new(),
-        }
-    }
-}
-
-impl Default for SecurityConfig {
-    fn default() -> Self {
-        Self {
-            require_api_key: false,
-            api_keys: vec![],
-            rate_limiting: RateLimitConfig::default(),
-            enable_tls: false,
-            tls_cert_path: None,
-            tls_key_path: None,
         }
     }
 }
@@ -490,11 +465,10 @@ impl ConfigManager {
         }
 
         // Validate TLS config
-        if config.security.enable_tls {
-            if config.security.tls_cert_path.is_none() || config.security.tls_key_path.is_none() {
-                warnings
-                    .push("TLS is enabled but certificate/key paths not configured".to_string());
-            }
+        if config.security.enable_tls
+            && (config.security.tls_cert_path.is_none() || config.security.tls_key_path.is_none())
+        {
+            warnings.push("TLS is enabled but certificate/key paths not configured".to_string());
         }
 
         // Validate storage config

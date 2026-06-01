@@ -15,15 +15,24 @@ fn test_health_check_returns_record() {
         Value::Record(rec) => {
             assert!(rec.contains_key("status"), "should have status field");
             assert!(rec.contains_key("cpu_percent"), "should have cpu_percent");
-            assert!(rec.contains_key("memory_percent"), "should have memory_percent");
+            assert!(
+                rec.contains_key("memory_percent"),
+                "should have memory_percent"
+            );
             assert!(rec.contains_key("disk_percent"), "should have disk_percent");
-            assert!(rec.contains_key("process_count"), "should have process_count");
+            assert!(
+                rec.contains_key("process_count"),
+                "should have process_count"
+            );
             assert!(rec.contains_key("alerts"), "should have alerts array");
             assert!(rec.contains_key("timestamp"), "should have timestamp");
             // Status should be one of healthy, warning, critical
             if let Some(Value::Str(s)) = rec.get("status") {
-                assert!(s == "healthy" || s == "warning" || s == "critical",
-                    "status should be healthy/warning/critical, got: {}", s);
+                assert!(
+                    s == "healthy" || s == "warning" || s == "critical",
+                    "status should be healthy/warning/critical, got: {}",
+                    s
+                );
             }
             assert!(matches!(rec.get("alerts"), Some(Value::Array(_))));
         }
@@ -53,7 +62,10 @@ fn test_alert_create_returns_record() {
             assert_eq!(rec.get("name"), Some(&Value::Str("high_cpu".to_string())));
             assert_eq!(rec.get("metric"), Some(&Value::Str("cpu".to_string())));
             assert_eq!(rec.get("threshold"), Some(&Value::Float(90.0)));
-            assert_eq!(rec.get("severity"), Some(&Value::Str("critical".to_string())));
+            assert_eq!(
+                rec.get("severity"),
+                Some(&Value::Str("critical".to_string()))
+            );
             assert_eq!(rec.get("status"), Some(&Value::Str("active".to_string())));
             assert!(rec.contains_key("id"));
         }
@@ -76,7 +88,10 @@ fn test_alert_create_requires_metric() {
 #[test]
 fn test_alert_create_defaults() {
     let result = bi_alert_create(
-        vec![Value::Str("test_alert".to_string()), Value::Str("memory".to_string())],
+        vec![
+            Value::Str("test_alert".to_string()),
+            Value::Str("memory".to_string()),
+        ],
         None,
     );
     assert!(result.is_ok());
@@ -84,7 +99,10 @@ fn test_alert_create_defaults() {
         Value::Record(rec) => {
             assert_eq!(rec.get("condition"), Some(&Value::Str(">".to_string())));
             assert_eq!(rec.get("threshold"), Some(&Value::Float(80.0)));
-            assert_eq!(rec.get("severity"), Some(&Value::Str("warning".to_string())));
+            assert_eq!(
+                rec.get("severity"),
+                Some(&Value::Str("warning".to_string()))
+            );
         }
         _ => panic!("should return Record"),
     }

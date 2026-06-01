@@ -287,8 +287,8 @@ fn split_unquoted_pipes(s: &str) -> Result<Vec<String>> {
     let mut dq = false;
     let mut sq = false;
 
-    let mut chars = s.chars().peekable();
-    while let Some(ch) = chars.next() {
+    let chars = s.chars().peekable();
+    for ch in chars {
         match ch {
             '\'' if !dq => {
                 sq = !sq;

@@ -620,9 +620,7 @@ impl RlmConfig {
 
     /// Get effective root permissions
     pub fn effective_root_permissions(&self) -> SubagentPermissions {
-        self.root_permissions
-            .clone()
-            .unwrap_or_else(SubagentPermissions::new)
+        self.root_permissions.clone().unwrap_or_default()
     }
 
     /// Get effective subagent policy

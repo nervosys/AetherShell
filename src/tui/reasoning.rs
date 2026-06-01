@@ -277,6 +277,12 @@ pub enum SessionStatus {
     Paused,
 }
 
+impl Default for ReasoningEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ReasoningEngine {
     pub fn new() -> Self {
         Self {
@@ -774,6 +780,12 @@ struct ReasoningNode {
     confidence: f32,
     parent: Option<Uuid>,
     children: Vec<Uuid>,
+}
+
+impl Default for KnowledgeBase {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl KnowledgeBase {

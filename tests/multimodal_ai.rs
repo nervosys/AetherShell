@@ -141,7 +141,7 @@ mod multimodal_ai_tests {
 
     #[test]
     fn test_complex_multimodal_conversation() {
-        let messages = vec![
+        let messages = [
             MultiModalMessage::text_only("system", "You are a helpful multimodal assistant."),
             MultiModalMessage::with_image(
                 "user",

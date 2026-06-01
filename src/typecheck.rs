@@ -525,14 +525,14 @@ fn type_builtin_call(
         }
         "where" => {
             // where(array<T>, fn(T)->Bool) -> array<T>
-            if let Some(Type::Array(t)) = args.get(0) {
+            if let Some(Type::Array(t)) = args.first() {
                 return Ok(Type::Array(t.clone()));
             }
             Ok(Type::Any)
         }
         "select" => {
             // select(table{S}, ...) -> table{S} (shape-preserving)
-            if let Some(Type::Table(schema)) = args.get(0) {
+            if let Some(Type::Table(schema)) = args.first() {
                 return Ok(Type::Table(schema.clone()));
             }
             Ok(Type::Any)

@@ -8066,7 +8066,7 @@ impl OSToolsDatabase {
         for (name, tool) in &self.tools {
             self.categories
                 .entry(tool.category.clone())
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(name.clone());
         }
 
@@ -8075,7 +8075,7 @@ impl OSToolsDatabase {
             for os in &tool.supported_os {
                 self.os_specific
                     .entry(os.clone())
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(name.clone());
             }
         }

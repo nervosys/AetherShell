@@ -52,6 +52,12 @@ pub struct ConversionResult {
     pub warnings: Vec<String>,
 }
 
+impl Default for ModelConverter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ModelConverter {
     pub fn new() -> Self {
         let mut conversion_rules = HashMap::new();
@@ -146,7 +152,7 @@ impl ModelConverter {
                     .await
             }
             ConversionStrategy::ExternalTool(tool) => {
-                self.external_tool_conversion(&request, &tool).await
+                self.external_tool_conversion(&request, tool).await
             }
             ConversionStrategy::Unsupported => Err(anyhow::anyhow!(
                 "Conversion from {:?} to {:?} is not supported",
@@ -207,7 +213,7 @@ impl ModelConverter {
         let final_result = self.direct_conversion(&final_request).await?;
 
         // Clean up intermediate file
-        if let Err(_) = fs::remove_file(&temp_path) {
+        if fs::remove_file(&temp_path).is_err() {
             // Log warning but don't fail
         }
 
@@ -454,6 +460,12 @@ impl ModelConverter {
 /// Batch conversion utilities
 pub struct BatchConverter {
     converter: ModelConverter,
+}
+
+impl Default for BatchConverter {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl BatchConverter {

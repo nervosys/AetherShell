@@ -240,7 +240,7 @@ impl ModelStorage {
     pub fn remove_model(&mut self, model_id: &str) -> Result<()> {
         if let Some(metadata) = self.index.models.remove(model_id) {
             // Remove model file
-            if let Ok(_) = fs::remove_file(&metadata.file_path) {
+            if fs::remove_file(&metadata.file_path).is_ok() {
                 // File removed successfully
             }
 
@@ -249,20 +249,20 @@ impl ModelStorage {
                 .data_dir
                 .join("metadata")
                 .join(format!("{}.json", model_id.replace('/', "_")));
-            if let Ok(_) = fs::remove_file(&metadata_path) {
+            if fs::remove_file(&metadata_path).is_ok() {
                 // Metadata file removed successfully
             }
 
             // Remove any config files
             if let Some(config_path) = &metadata.config_path {
-                if let Ok(_) = fs::remove_file(config_path) {
+                if fs::remove_file(config_path).is_ok() {
                     // Config file removed successfully
                 }
             }
 
             // Remove tokenizer files
             if let Some(tokenizer_path) = &metadata.tokenizer_path {
-                if let Ok(_) = fs::remove_file(tokenizer_path) {
+                if fs::remove_file(tokenizer_path).is_ok() {
                     // Tokenizer file removed successfully
                 }
             }
@@ -326,11 +326,9 @@ impl ModelStorage {
 
                 if let Ok(modified) = metadata.modified() {
                     let modified_time: DateTime<Utc> = modified.into();
-                    if modified_time < cutoff_time {
-                        if metadata.is_file() {
-                            cleaned_size += metadata.len();
-                            fs::remove_file(entry.path())?;
-                        }
+                    if modified_time < cutoff_time && metadata.is_file() {
+                        cleaned_size += metadata.len();
+                        fs::remove_file(entry.path())?;
                     }
                 }
             }
