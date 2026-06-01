@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-06-01
+
+Patch: workspace-jail/path-resolution correctness and security fixes for agent
+mode. No API changes.
+
 ### Fixed
 - `file_write` and `file_append` are now jailed to the workspace in agent mode
   (the `WriteLocal` effect guard, matching `rm`/`rmdir`): a write to an absolute
