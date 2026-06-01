@@ -15,6 +15,18 @@ use aethershell::{builtins::call, env::Env, value::Value};
 use std::collections::BTreeMap;
 use uuid::Uuid;
 
+// `A2UI_CHANNEL` is a process-global; tests that mutate it (directly or via an
+// `a2ui_*` builtin) must run serially or they race — e.g. one test's `notify`
+// landing between another's `clear()` and `event_count()` assertion. Tests that
+// use a local `A2UIChannel::new()` are isolated and don't take this lock.
+static A2UI_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Acquire the global-channel lock, recovering from poisoning so one panicking
+/// test can't cascade into spurious failures everywhere else.
+fn a2ui_lock() -> std::sync::MutexGuard<'static, ()> {
+    A2UI_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 // ===================== Event Types Tests =====================
 
 #[test]
@@ -457,6 +469,7 @@ fn test_render_thinking() {
 
 #[test]
 fn test_builtin_a2ui_notify() {
+    let _a2ui = a2ui_lock();
     // Clear global channel first
     A2UI_CHANNEL.clear().unwrap();
 
@@ -482,6 +495,7 @@ fn test_builtin_a2ui_notify() {
 
 #[test]
 fn test_builtin_a2ui_notify_with_level() {
+    let _a2ui = a2ui_lock();
     A2UI_CHANNEL.clear().unwrap();
 
     let mut env = Env::new();
@@ -506,6 +520,7 @@ fn test_builtin_a2ui_notify_with_level() {
 
 #[test]
 fn test_builtin_a2ui_toast() {
+    let _a2ui = a2ui_lock();
     A2UI_CHANNEL.clear().unwrap();
 
     let mut env = Env::new();
@@ -545,6 +560,7 @@ fn test_builtin_a2ui_toast() {
 
 #[test]
 fn test_builtin_a2ui_progress() {
+    let _a2ui = a2ui_lock();
     A2UI_CHANNEL.clear().unwrap();
 
     let mut env = Env::new();
@@ -572,6 +588,7 @@ fn test_builtin_a2ui_progress() {
 
 #[test]
 fn test_builtin_a2ui_status() {
+    let _a2ui = a2ui_lock();
     A2UI_CHANNEL.clear().unwrap();
 
     let mut env = Env::new();
@@ -600,6 +617,7 @@ fn test_builtin_a2ui_status() {
 
 #[test]
 fn test_builtin_a2ui_render() {
+    let _a2ui = a2ui_lock();
     A2UI_CHANNEL.clear().unwrap();
 
     let mut env = Env::new();
@@ -616,6 +634,7 @@ fn test_builtin_a2ui_render() {
 
 #[test]
 fn test_builtin_a2ui_render_table() {
+    let _a2ui = a2ui_lock();
     A2UI_CHANNEL.clear().unwrap();
 
     let mut env = Env::new();
@@ -636,6 +655,7 @@ fn test_builtin_a2ui_render_table() {
 
 #[test]
 fn test_builtin_a2ui_render_code() {
+    let _a2ui = a2ui_lock();
     A2UI_CHANNEL.clear().unwrap();
 
     let mut env = Env::new();
@@ -655,6 +675,7 @@ fn test_builtin_a2ui_render_code() {
 
 #[test]
 fn test_builtin_a2ui_clear() {
+    let _a2ui = a2ui_lock();
     // Add some events first
     A2UI_CHANNEL.notify("test", "Message 1").unwrap();
     A2UI_CHANNEL.notify("test", "Message 2").unwrap();
@@ -668,6 +689,7 @@ fn test_builtin_a2ui_clear() {
 
 #[test]
 fn test_builtin_a2ui_agent_started() {
+    let _a2ui = a2ui_lock();
     A2UI_CHANNEL.clear().unwrap();
 
     let mut env = Env::new();
@@ -700,6 +722,7 @@ fn test_builtin_a2ui_agent_started() {
 
 #[test]
 fn test_builtin_a2ui_agent_completed() {
+    let _a2ui = a2ui_lock();
     A2UI_CHANNEL.clear().unwrap();
 
     let mut env = Env::new();
@@ -739,6 +762,7 @@ fn test_builtin_a2ui_agent_completed() {
 
 #[test]
 fn test_builtin_a2ui_agent_thinking() {
+    let _a2ui = a2ui_lock();
     A2UI_CHANNEL.clear().unwrap();
 
     let mut env = Env::new();
@@ -780,6 +804,7 @@ fn test_builtin_a2ui_agent_thinking() {
 
 #[test]
 fn test_builtin_aliases() {
+    let _a2ui = a2ui_lock();
     A2UI_CHANNEL.clear().unwrap();
 
     let mut env = Env::new();
@@ -886,6 +911,7 @@ fn test_channel_thread_safety() {
 
 #[test]
 fn test_global_channel_thread_safety() {
+    let _a2ui = a2ui_lock();
     use std::thread;
 
     // Clear first
