@@ -333,7 +333,7 @@ impl RegistryClient {
 
         let resp = client
             .get(&url)
-            .header("User-Agent", "AetherShell/1.3.0")
+            .header("User-Agent", "AetherShell/1.3.1")
             .send()
             .context("failed to connect to package registry")?;
 
@@ -360,7 +360,7 @@ impl RegistryClient {
 
         let resp = client
             .get(&url)
-            .header("User-Agent", "AetherShell/1.3.0")
+            .header("User-Agent", "AetherShell/1.3.1")
             .send()
             .context("failed to connect to package registry")?;
 
@@ -385,7 +385,7 @@ impl RegistryClient {
 
         let resp = client
             .get(&url)
-            .header("User-Agent", "AetherShell/1.3.0")
+            .header("User-Agent", "AetherShell/1.3.1")
             .send()
             .context("failed to connect to package registry")?;
 
@@ -416,7 +416,7 @@ impl RegistryClient {
 
         let resp = client
             .get(&url)
-            .header("User-Agent", "AetherShell/1.3.0")
+            .header("User-Agent", "AetherShell/1.3.1")
             .send()
             .context("failed to download package from registry")?;
 
@@ -486,7 +486,7 @@ impl RegistryClient {
 
         let resp = client
             .post(&url)
-            .header("User-Agent", "AetherShell/1.3.0")
+            .header("User-Agent", "AetherShell/1.3.1")
             .header("Authorization", format!("Bearer {}", token))
             .json(&body)
             .send()
@@ -522,7 +522,7 @@ impl RegistryClient {
 
         let resp = client
             .delete(&url)
-            .header("User-Agent", "AetherShell/1.3.0")
+            .header("User-Agent", "AetherShell/1.3.1")
             .header("Authorization", format!("Bearer {}", token))
             .send()
             .context("failed to yank package from registry")?;

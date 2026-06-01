@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: AetherShell Agent API
-  version: 1.3.0
+  version: 1.3.1
   description: >
     Structured JSON API for AI agents to interact with AetherShell, a typed
     functional shell with 215+ builtins across 38 modules. Start the server
@@ -354,7 +354,7 @@ paths:
                     example: ok
                   version:
                     type: string
-                    example: 1.3.0
+                    example: 1.3.1
 
   /api/v1/orchestration/agents:
     get:

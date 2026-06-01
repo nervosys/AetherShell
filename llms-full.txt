@@ -1,7 +1,7 @@
 # AetherShell - Complete AI Context
 
 > One language, every platform, deterministic typed output — the shell built for AI agents.
-> Version: 1.3.0 | License: AGPL-3.0-or-later | Language: Rust
+> Version: 1.3.1 | License: AGPL-3.0-or-later | Language: Rust
 > Repository: https://github.com/nervosys/AetherShell
 > Crate: https://crates.io/crates/aethershell (733 KiB compressed)
 
@@ -502,7 +502,7 @@ file               # => {read, write, exists, copy, move, patch, ...}
 - **Name**: AetherShell
 - **Binary**: `ae`
 - **Language**: Rust (2021 edition, MSRV 1.75)
-- **Version**: 1.3.0
+- **Version**: 1.3.1
 - **License**: AGPL-3.0-or-later (commercial dual-license available)
 - **Author**: Nervosys <contact@nervosys.ai>
 - **Repository**: https://github.com/nervosys/AetherShell
