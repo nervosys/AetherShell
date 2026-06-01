@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Path access is no longer sandboxed to the project directory in **human mode** —
+  `ae` now behaves like a normal interactive shell (read/list/write any path).
+  The workspace jail applies only in **agent mode** (`--agent`/`AETHER_MODE=agent`)
+  or when a workspace/allowed-base-dir is explicitly configured. Always-on hygiene
+  (null-byte, length, blocked-pattern, symlink checks) is unchanged.
+
 ## [1.3.0] - 2026-05-31
 
 Agentic-first release: AetherShell is now optimized end-to-end for AI agents —

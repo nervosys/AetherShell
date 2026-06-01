@@ -362,14 +362,23 @@ fn adversarial_memory_exhaustion() {
 fn adversarial_privilege_escalation_attempts() {
     // These should all be blocked by path validation
 
-    // Attack 1: Access system binaries
+    // Attack 1: Access system binaries — blocked by the workspace jail, which is
+    // active under an explicit allowed-base-dir (agent/sandboxed context). In plain
+    // human mode these paths are reachable, like any normal shell.
     #[cfg(unix)]
     {
+        use aethershell::security::{configure_path_security, PathSecurityConfig};
+        let mut cfg = PathSecurityConfig::default();
+        cfg.allowed_base_dirs = vec![std::env::current_dir().unwrap()];
+        configure_path_security(cfg).unwrap();
+
         let result = validate_safe_path("/usr/bin/sudo");
-        assert!(result.is_err(), "Should block access to sudo");
+        assert!(result.is_err(), "sandbox should block access to sudo");
 
         let result = validate_safe_path("/etc/sudoers");
-        assert!(result.is_err(), "Should block access to sudoers");
+        assert!(result.is_err(), "sandbox should block access to sudoers");
+
+        configure_path_security(PathSecurityConfig::default()).unwrap();
     }
 
     // Attack 2: Access Windows admin tools

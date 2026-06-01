@@ -365,3 +365,32 @@ fn audit_log_is_written_and_verifies_in_agent_mode() {
     let _ = std::fs::remove_dir_all(&dir);
     clear();
 }
+
+#[test]
+fn path_jail_applies_only_in_agent_mode() {
+    // A path outside the project directory: a normal interactive (human) shell may
+    // read it; an agent-mode/sandboxed shell must not.
+    let _l = lock();
+    clear();
+    let outside = std::env::temp_dir();
+    let outside = outside.to_str().expect("temp dir is valid UTF-8");
+
+    // Human mode (no AETHER_MODE / AETHER_WORKSPACE): unrestricted, like bash/zsh.
+    assert!(
+        aethershell::security::validate_read_path(outside).is_ok(),
+        "human mode must NOT sandbox to the project directory"
+    );
+
+    // Agent mode with a workspace: the same outside path is blocked by the jail.
+    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var(
+        "AETHER_WORKSPACE",
+        std::env::current_dir().unwrap().to_string_lossy().to_string(),
+    );
+    assert!(
+        aethershell::security::validate_read_path(outside).is_err(),
+        "agent mode must jail reads to the workspace"
+    );
+
+    clear();
+}
