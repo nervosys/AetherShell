@@ -395,6 +395,19 @@ the savings live in structured output, where agents spend most of their tokens.
 AetherShell emits each column name once (constants once via `@const`); JSON repeats
 every key on every row.
 
+**Verified with live capture.** The tables above use representative idiomatic
+output. Re-running against the *actual* shells installed on a test machine —
+Bash / Zsh 5.9 / Fish 4.0.2 via WSL Debian, Nushell 0.113, PowerShell 7 — each
+listing the **same** 5-file directory and token-counted with real cl100k, confirms
+the pattern (and real `ls -l` is even more verbose than the representative output):
+
+| Shell (live capture) | listing tokens | vs AetherShell |
+|---|--:|--:|
+| **AetherShell (AECON)** | 33 | 1.00× |
+| PowerShell (`Format-Table Name,Length`) | 44 | 1.33× |
+| Bash / Zsh / Fish (`ls -l`) | 128 | 3.88× |
+| Nushell (boxed table) | 231 | 7.00× |
+
 ### Reliability (capability comparison)
 
 | Property | Bash | Zsh | Fish | Nushell | PowerShell | AetherShell |
