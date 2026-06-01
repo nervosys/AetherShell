@@ -658,14 +658,25 @@ The `.ae` surface keeps readable, unambiguous syntax and gains:
 
 - **Grammar-level everything** — no transpiler passes; the same parser the agent
   surface uses, so the two can never semantically diverge.
-- **Boundary type-checking** — 🟡 the structured `E_BAD_ARG` vehicle is landed:
-  `safety::bad_arg(builtin, expected, got)` produces a catchable
-  `{error:{code:"E_BAD_ARG", message, hint, retryable}}` (used by `rm`, `aecon`,
-  `tokens`, `ontology_describe`; see `tests/reliability.rs`). *Remaining:*
-  drive it from the HM signatures (`src/typecheck.rs`) so every builtin validates
-  args at the boundary automatically rather than per-builtin.
-- **Great errors with `hint`** — humans benefit from the same structured errors;
-  the REPL renders them richly, agents read them as data.
+- ✅ **Boundary type-checking.** `safety::bad_arg(builtin, expected, got)` produces
+  a catchable `{error:{code:"E_BAD_ARG", message, hint, retryable}}`. Rather than a
+  per-builtin signature table (the 1,100+ builtins have no structured HM signatures —
+  `type_builtin_call` covers only a handful and infers `Any` otherwise), the structured
+  error is driven from the **shared argument-extraction helpers** that are the de-facto
+  boundary for most builtins: `expect_string` / `expect_int` / `expect_array` /
+  `need_lambda` (~90 call sites) now emit `bad_arg(builtin, expected, value.type_name())`
+  instead of ad-hoc `anyhow!` prose. So a wrong-typed argument to any builtin that
+  uses them surfaces a branchable `E_BAD_ARG` naming both the expected and the actual
+  type — caught by try/catch as a structured record for agent self-correction
+  (`tests/reliability.rs`). *Remaining:* arity (missing-arg) checks are still
+  per-builtin prose; promoting those (and the few structured `type_builtin_call`
+  signatures) is the long tail.
+- ✅ **Great errors with `hint`** — humans benefit from the same structured errors,
+  rendered richly. The human REPL unpacks an uncaught `SafetyError` into legible prose
+  — `error[CODE]: message`, an indented `hint:` line, and (for an approvable action)
+  the exact `AETHER_APPROVE=…` re-run incantation — instead of dumping the JSON form
+  (`repl::print_eval_error`). **Agent mode keeps the raw JSON** so `code`/`hint`/
+  `approval` survive for programmatic branching. One structured error, two renderings.
 - **Determinism on demand** — `--deterministic` available to humans too (for
   reproducible scripts / diffs / CI).
 

@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Boundary type-checking (§8) — reliability.** The shared argument-extraction
+  helpers (`expect_string`/`expect_int`/`expect_array`/`need_lambda`, ~90 call
+  sites) now emit a structured, catchable `E_BAD_ARG` (`safety::bad_arg`) naming
+  both the expected and the actual type, instead of ad-hoc `anyhow!` prose. A
+  wrong-typed argument to any builtin using them is now branchable by agents
+  (caught by try/catch as `{error:{code,message,hint,…}}`) for self-correction.
+- **Richer human error rendering (§8) — legibility.** The human REPL unpacks an
+  uncaught `SafetyError` into legible prose — `error[CODE]: message`, an indented
+  `hint:` line, and (for approvable actions) the exact `AETHER_APPROVE=…` re-run
+  incantation — instead of printing the raw JSON. Agent mode still emits the JSON
+  so the structured fields survive for programmatic branching.
+
 ### Added
 - **Resource governors (§7.6)** — a per-run blast-radius envelope enforced at the
   `guard()` chokepoint, agent-mode only, all limits opt-in via env (unset =

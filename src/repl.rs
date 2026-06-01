@@ -146,13 +146,69 @@ pub fn run_one(env: &mut Env, code: &str) -> Result<i32> {
             Ok(0)
         }
         Err(e) => {
-            if config.colors.enabled {
-                eprintln!("{} {e}", "error:".red().bold());
-            } else {
-                eprintln!("error: {e}");
-            }
+            print_eval_error(&e, config.colors.enabled);
             Ok(1)
         }
+    }
+}
+
+/// Render an uncaught evaluation error.
+///
+/// A [`crate::safety::SafetyError`]'s `Display` is JSON (so agents can branch on
+/// it). For a **human** at the REPL that's noise, so we unpack it into legible
+/// prose — `error[CODE]: message`, a `hint:` line, and (for an approvable action)
+/// the exact re-run incantation. **Agent mode keeps the raw JSON** so the
+/// structured `code`/`hint`/`approval` survive for programmatic self-correction.
+/// Non-safety errors print as plain prose in both modes.
+fn print_eval_error(e: &anyhow::Error, color: bool) {
+    use crate::safety::{current_mode, Mode, SafetyError};
+
+    if current_mode() == Mode::Agent {
+        // Structured form is what an agent reads — emit it verbatim.
+        eprintln!("{e}");
+        return;
+    }
+
+    if let Some(se) = e.downcast_ref::<SafetyError>() {
+        let code = se.code.as_str();
+        if color {
+            eprintln!(
+                "{}{}{} {}",
+                "error[".red().bold(),
+                code.red().bold(),
+                "]:".red().bold(),
+                se.message
+            );
+            if !se.hint.is_empty() {
+                eprintln!("  {} {}", "hint:".yellow().bold(), se.hint);
+            }
+            if let Some(a) = &se.approval {
+                eprintln!(
+                    "  {} re-run with AETHER_APPROVE={}  (or call approve(\"{}\"))",
+                    "approve:".cyan().bold(),
+                    a.token,
+                    a.token
+                );
+            }
+        } else {
+            eprintln!("error[{code}]: {}", se.message);
+            if !se.hint.is_empty() {
+                eprintln!("  hint: {}", se.hint);
+            }
+            if let Some(a) = &se.approval {
+                eprintln!(
+                    "  approve: re-run with AETHER_APPROVE={}  (or call approve(\"{}\"))",
+                    a.token, a.token
+                );
+            }
+        }
+        return;
+    }
+
+    if color {
+        eprintln!("{} {e}", "error:".red().bold());
+    } else {
+        eprintln!("error: {e}");
     }
 }
 
