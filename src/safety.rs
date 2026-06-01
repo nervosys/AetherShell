@@ -326,6 +326,24 @@ fn jail_enforced(mode: Mode) -> bool {
     mode == Mode::Agent || std::env::var("AETHER_WORKSPACE").is_ok()
 }
 
+/// Resolve a user-supplied path the way an effecting builtin should operate on it.
+///
+/// Absolute paths are returned unchanged. In a **jailed** context (agent mode, or
+/// an explicit `AETHER_WORKSPACE`) a relative path is resolved against the
+/// workspace root, so writes/deletes land inside the jail and agree with both the
+/// `within_workspace` check and the transaction journal — closing the gap where a
+/// relative path was resolved against the process CWD (escaping the workspace when
+/// CWD ≠ workspace). In plain human mode the path is left as-is, so the OS resolves
+/// it against the current directory like any normal shell.
+pub fn resolve_path_str(path: &str) -> String {
+    let p = std::path::Path::new(path);
+    if p.is_absolute() || !jail_enforced(current_mode()) {
+        path.to_string()
+    } else {
+        workspace_root().join(p).to_string_lossy().to_string()
+    }
+}
+
 /// Test whether a (possibly non-existent) path is contained in the workspace
 /// root. Both sides are resolved to the same canonical form so the comparison
 /// is correct across platforms (Windows verbatim `\\?\` prefixes, POSIX symlink
