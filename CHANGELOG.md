@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Secret hygiene (§7.6)** — two deterministic defenses keep credentials out of
+  the agent's context window and the audit log, opt-out via `AETHER_REDACT=off`:
+  - **Shape redaction**: known secret *shapes* — provider key prefixes
+    (`sk-`/`sk-ant-`, `ghp_`/`gho_`…, `xox*-`, `AIza…`, Stripe `sk_live`/`rk_test`),
+    AWS access-key ids (`AKIA…`), JWTs, PEM `PRIVATE KEY` blocks,
+    `scheme://user:password@host` URL credentials (password only), and
+    `key=secret`/`key: secret` assignment forms — are replaced with `[REDACTED]`
+    on the **agent render path** and in **every audit entry** before it is hashed
+    and persisted. Ordinary text is unchanged byte-for-byte; the hash chain still
+    verifies over redacted content.
+  - **Env name gating**: in agent mode, reading a secret-*named* env var (`*_KEY`,
+    `*TOKEN*`, `*SECRET*`, `*PASSWORD*`, … — `KEY` alone excluded) via
+    `env`/`sys.env`/`env.var`/`env.vars` returns an opaque `[REDACTED:NAME]` handle
+    instead of the value, unless `AETHER_SECRETS=allow`. Human mode returns the
+    value (legibility).
+- New env vars: `AETHER_REDACT=off` (disable all redaction) and
+  `AETHER_SECRETS=allow` (permit clear reads of secret-named env vars in agent
+  mode).
+
 ## [1.3.1] - 2026-06-01
 
 Patch: workspace-jail/path-resolution correctness and security fixes for agent

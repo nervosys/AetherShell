@@ -11398,9 +11398,22 @@ fn bi_env(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
 
     let key = expect_string("env", &args[0])?;
-    match std::env::var(key) {
-        Ok(val) => Ok(Value::Str(val)),
+    match std::env::var(&key) {
+        Ok(val) => Ok(gate_env_secret(&key, val)),
         Err(_) => Ok(Value::Null),
+    }
+}
+
+/// Gate an env-var read against the secret policy (§7.6): in agent mode, reading
+/// a secret-named var (e.g. `*_KEY`, `*TOKEN*`) returns an opaque
+/// `[REDACTED:NAME]` handle instead of the value, so the credential never enters
+/// the program's value space — unless `AETHER_SECRETS=allow`. Human mode and
+/// non-secret names return the value unchanged.
+fn gate_env_secret(key: &str, val: String) -> Value {
+    if crate::safety::env_secret_gated(key) {
+        Value::Str(format!("[REDACTED:{}]", key))
+    } else {
+        Value::Str(val)
     }
 }
 
@@ -15409,6 +15422,16 @@ pub fn budget_value(value: &Value, max: usize, cursor: usize) -> Value {
 /// `next_cursor`/…), avoiding the double-encoding that pretty-printing the
 /// envelope record would cause.
 pub fn render_agent(v: &Value, budget: Option<usize>) -> Option<String> {
+    // Scrub secret shapes from the value before it enters the agent's context
+    // window (§7.6). Agent-path only — the human pretty-printer keeps full
+    // fidelity. Opt out with AETHER_REDACT=off.
+    let redacted;
+    let v = if crate::safety::redaction_enabled() {
+        redacted = redact_value(v);
+        &redacted
+    } else {
+        v
+    };
     match v {
         Value::Null => None,
         Value::Str(s) => Some(s.clone()),
@@ -15417,6 +15440,51 @@ pub fn render_agent(v: &Value, budget: Option<usize>) -> Option<String> {
             _ => aecon_render(v),
         }),
     }
+}
+
+/// Recursively redact known secret shapes from a value before it is rendered to
+/// an agent. Scalar strings are shape-scrubbed (API-key prefixes, JWTs, PEM
+/// blocks, URL credentials, `key=secret` assignments) via `safety::redact_str`;
+/// any record/table field whose *name* denotes a secret is replaced with the
+/// marker even when its value doesn't match a shape. Structure is preserved —
+/// only secret leaves change — and the transform is deterministic.
+pub fn redact_value(v: &Value) -> Value {
+    match v {
+        Value::Str(s) => {
+            let (r, _) = crate::safety::redact_str(s);
+            Value::Str(r)
+        }
+        Value::Uri(s) => {
+            let (r, _) = crate::safety::redact_str(s);
+            Value::Uri(r)
+        }
+        Value::Array(items) => Value::Array(items.iter().map(redact_value).collect()),
+        Value::Record(m) => Value::Record(redact_field_map(m)),
+        Value::Table(t) => Value::Table(crate::value::Table {
+            rows: t.rows.iter().map(redact_field_map).collect(),
+            schema: t.schema.clone(),
+        }),
+        other => other.clone(),
+    }
+}
+
+/// Redact a record/row field map: secret-named fields become the marker;
+/// every other field is recursively redacted.
+fn redact_field_map(
+    m: &std::collections::BTreeMap<String, Value>,
+) -> std::collections::BTreeMap<String, Value> {
+    let mut out = std::collections::BTreeMap::new();
+    for (k, val) in m {
+        if crate::safety::is_secret_name(k) {
+            out.insert(
+                k.clone(),
+                Value::Str(crate::safety::REDACTION_MARKER.to_string()),
+            );
+        } else {
+            out.insert(k.clone(), redact_value(val));
+        }
+    }
+    out
 }
 
 /// Render a result for **deterministic mode** (`--deterministic` / `AE_DETERMINISTIC`):
@@ -21049,7 +21117,8 @@ fn bi_sys_user_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_sys_env_all(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut rec = std::collections::BTreeMap::new();
     for (key, val) in std::env::vars() {
-        rec.insert(key, Value::Str(val));
+        let gated = gate_env_secret(&key, val);
+        rec.insert(key, gated);
     }
     Ok(Value::Record(rec))
 }
@@ -30594,11 +30663,16 @@ fn bi_env_var(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
         .ok_or_else(|| anyhow::anyhow!("variable name required"))?;
-    Ok(Value::Str(std::env::var(&name).unwrap_or_default()))
+    Ok(gate_env_secret(&name, std::env::var(&name).unwrap_or_default()))
 }
 
 fn bi_env_vars(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let vars: BTreeMap<String, Value> = std::env::vars().map(|(k, v)| (k, Value::Str(v))).collect();
+    let vars: BTreeMap<String, Value> = std::env::vars()
+        .map(|(k, v)| {
+            let gated = gate_env_secret(&k, v);
+            (k, gated)
+        })
+        .collect();
     Ok(Value::Record(vars))
 }
 
