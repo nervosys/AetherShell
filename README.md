@@ -285,6 +285,67 @@ swarm({
 
 ---
 
+## Agentic-First: token economy, safety, transactions
+
+AetherShell is optimized end-to-end for AI agents. Three things matter to an agent
+that a human shell ignores: how many **tokens** the output costs, whether an action
+is **safe**, and whether a mistake can be **undone**.
+
+### Compact, lossless output (AECON)
+
+Set `AETHER_MODE=agent` and every tabular result renders as **AECON** — a
+header-once format that emits each column name once, factors constant columns into
+a single `@const` line, dictionary-encodes low-cardinality string columns
+(`@dict`), and delta-encodes large slowly-varying integers (`@delta`). On realistic
+tabular results that's **~2.8× fewer output tokens than POSIX shells and ~2.6× vs
+PowerShell's parseable JSON** (measured with the real GPT-4 cl100k tokenizer).
+
+```sh
+AETHER_MODE=agent ae -c '[{name:"a",size:1,kind:"x"},{name:"b",size:2,kind:"x"}]'
+# name	size
+# @const kind=x
+# a	1
+# b	2
+```
+
+It's **lossless and reversible**: `aecon_decode` reconstructs the original rows
+(with on-demand `@type` tags so numeric-looking strings and integral floats
+round-trip exactly). The same default applies on the HTTP Agent API and MCP server.
+Companion builtins: `pick` (project fields before rendering), `budget` (token-bounded
+paging), `digest` (constant-token structural summary), `canonical` (deterministic
+JSON), `tokens` (cl100k estimate), and `ontology_manifest`/`ontology_describe`
+(progressive discovery). `--deterministic` renders byte-stable canonical JSON for
+snapshot tests, caching, and diffs.
+
+### A real safety model
+
+An **effect taxonomy** (Pure → ReadLocal → WriteLocal → Destructive → Process →
+Network → Exec → Privileged) drives a capability → policy → approval → audit
+pipeline. Agent mode (`--agent`) default-denies dangerous effect classes behind
+content-bound approval tokens; a **workspace jail** (`--workspace`) confines writes
+and deletes; a **hash-chained audit log** records every effecting action tamper-evidently;
+**RBAC** grants bypass approval but never the jail; failures surface as structured
+`E_*` errors agents can branch on. `safety_status()` reports the live envelope.
+
+### Transactions & checkpoints (no other shell offers this)
+
+```sh
+tx_begin()
+# … file writes, appends, deletes, recursive rmdir, sqlite/kv mutations …
+tx_savepoint("before-risky")
+# … more work …
+tx_rollback_to("before-risky")   # partial rollback, transaction stays open
+tx_rollback()                     # or undo everything
+```
+
+`tx_begin`/`tx_commit`/`tx_rollback` with **named savepoints** cover file writes &
+appends, deletes, **recursive directory trees**, sqlite databases, and the key-value
+store. **`plan`/`apply`** give Terraform-style declarative destructive batches — a
+reviewable typed plan plus a content-bound approval token, applied atomically with
+automatic rollback on any failure.
+
+---
+
 ## Reliable File Editing for LLMs
 
 Traditional shells (Bash, PowerShell) make multi-line text operations error-prone for LLMs due to escaping, quoting, and command injection issues. AetherShell provides **structured file editing** that LLMs can use reliably:
