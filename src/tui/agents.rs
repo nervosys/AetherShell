@@ -50,6 +50,12 @@ pub enum TaskStatus {
     Failed(String),
 }
 
+impl Default for AgentSwarm {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AgentSwarm {
     pub fn new() -> Self {
         Self {
@@ -122,6 +128,12 @@ impl AgentSwarm {
             "broadcast".to_string(),
             format!("{}: {}", chrono::Utc::now().format("%H:%M:%S"), message),
         );
+    }
+}
+
+impl Default for SwarmCoordinator {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

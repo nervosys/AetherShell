@@ -170,10 +170,7 @@ impl A2AMessageBus {
             .agent_mailboxes
             .lock()
             .map_err(|e| anyhow!("Failed to acquire mailboxes lock: {}", e))?;
-        Ok(mailboxes
-            .get(agent_id)
-            .map(|msgs| msgs.clone())
-            .unwrap_or_default())
+        Ok(mailboxes.get(agent_id).cloned().unwrap_or_default())
     }
 
     /// Get all messages (for monitoring/debugging)

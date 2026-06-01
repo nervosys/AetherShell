@@ -62,7 +62,10 @@ fn rollback_restores_prior_state() {
 
     call("tx_begin", vec![]);
     // overwrite an existing file, delete a file, create a new file
-    call("file_write", vec![s(&existing.to_string_lossy()), s("modified")]);
+    call(
+        "file_write",
+        vec![s(&existing.to_string_lossy()), s("modified")],
+    );
     aethershell::builtins::bi_rm(vec![s(&deleteme.to_string_lossy())], None).unwrap();
     call("file_write", vec![s(&newf.to_string_lossy()), s("created")]);
 
@@ -341,9 +344,15 @@ fn savepoint_enables_partial_rollback_then_commit() {
     let after = w.join("after.txt"); // written after the savepoint → reverted
 
     call("tx_begin", vec![]);
-    call("file_write", vec![s(&before.to_string_lossy()), s("keep-me")]);
+    call(
+        "file_write",
+        vec![s(&before.to_string_lossy()), s("keep-me")],
+    );
     call("tx_savepoint", vec![s("sp1")]);
-    call("file_write", vec![s(&after.to_string_lossy()), s("discard-me")]);
+    call(
+        "file_write",
+        vec![s(&after.to_string_lossy()), s("discard-me")],
+    );
 
     // Both live before the partial rollback.
     assert!(before.exists() && after.exists());
@@ -357,8 +366,11 @@ fn savepoint_enables_partial_rollback_then_commit() {
     assert!(!after.exists(), "post-savepoint op reverted");
     assert_eq!(std::fs::read_to_string(&before).unwrap(), "keep-me");
     match call("tx_status", vec![]) {
-        Value::Record(m) => assert_eq!(m.get("active"), Some(&Value::Bool(true)),
-            "transaction stays open after partial rollback"),
+        Value::Record(m) => assert_eq!(
+            m.get("active"),
+            Some(&Value::Bool(true)),
+            "transaction stays open after partial rollback"
+        ),
         other => panic!("expected record, got {other:?}"),
     }
 

@@ -31,13 +31,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 use std::collections::HashMap;
 
+use crate::builtins::BUILTIN_LOOKUP;
 use crate::env::Env;
 use crate::eval::eval_program;
 use crate::marketplace::{RegistryClient, SearchQuery, SortBy};
+use crate::modules::all_modules;
 use crate::parser::parse_program;
 use crate::value::Value;
-use crate::builtins::BUILTIN_LOOKUP;
-use crate::modules::all_modules;
 
 // ============================================================================
 // Core API Types
@@ -609,15 +609,11 @@ fn get_schema(format: &SchemaFormat) -> AgentResponse {
         SchemaFormat::Groq => build_groq_schema(&ontology),
         SchemaFormat::Fireworks => build_fireworks_schema(&ontology),
         SchemaFormat::Ontology => build_compact_ontology(&ontology),
-        SchemaFormat::JsonLD => {
-            crate::providers::ontology::OS_ONTOLOGY.to_json_ld()
-        }
+        SchemaFormat::JsonLD => crate::providers::ontology::OS_ONTOLOGY.to_json_ld(),
         SchemaFormat::OwlTurtle => {
             json!({"format": "text/turtle", "content": crate::providers::ontology::OS_ONTOLOGY.to_owl_turtle()})
         }
-        SchemaFormat::SHACL => {
-            crate::providers::ontology::OS_ONTOLOGY.to_shacl()
-        }
+        SchemaFormat::SHACL => crate::providers::ontology::OS_ONTOLOGY.to_shacl(),
     };
 
     AgentResponse {
@@ -1538,7 +1534,9 @@ fn get_builtin_definitions() -> Vec<BuiltinDefinition> {
 fn categorize_builtin(name: &str) -> String {
     match name {
         // AI & Agents
-        n if n.starts_with("ai") || n.starts_with("agent") || n.starts_with("swarm") => "AI".to_string(),
+        n if n.starts_with("ai") || n.starts_with("agent") || n.starts_with("swarm") => {
+            "AI".to_string()
+        }
         // MCP Protocol
         n if n.starts_with("mcp_") => "MCP".to_string(),
         // A2A / A2UI / NANDA protocols
@@ -1549,51 +1547,165 @@ fn categorize_builtin(name: &str) -> String {
         n if n.starts_with("nn_") => "NeuralNet".to_string(),
         n if n.starts_with("evo_") => "Evolution".to_string(),
         n if n.starts_with("rl_") => "ReinforcementLearning".to_string(),
-        n if n.starts_with("kg_") || n.starts_with("rag_") || n.starts_with("semantic_cache") || n.starts_with("fine_tune") => "Knowledge".to_string(),
+        n if n.starts_with("kg_")
+            || n.starts_with("rag_")
+            || n.starts_with("semantic_cache")
+            || n.starts_with("fine_tune") =>
+        {
+            "Knowledge".to_string()
+        }
         // Network & HTTP
-        n if n.starts_with("http_") || n.starts_with("net_") || n == "http_get" || n == "fetch" => "Network".to_string(),
+        n if n.starts_with("http_") || n.starts_with("net_") || n == "http_get" || n == "fetch" => {
+            "Network".to_string()
+        }
         // System info
-        n if n.starts_with("sys_") || n == "whoami" || n == "hostname" || n == "uptime" => "System".to_string(),
+        n if n.starts_with("sys_") || n == "whoami" || n == "hostname" || n == "uptime" => {
+            "System".to_string()
+        }
         // Process management
-        n if n.starts_with("proc_") || n.starts_with("ps") || n == "kill" || n == "killall" => "Process".to_string(),
+        n if n.starts_with("proc_") || n.starts_with("ps") || n == "kill" || n == "killall" => {
+            "Process".to_string()
+        }
         // File system
-        n if n.starts_with("file_") || n.starts_with("fs_") || ["ls", "cat", "pwd", "cd", "mkdir", "rm", "mv", "cp", "find", "head", "tail", "wc", "sort", "uniq", "grep", "touch", "chmod", "chown", "stat", "glob", "tree", "exists", "read_text", "write", "list", "dir"].contains(&n) => "FileSystem".to_string(),
+        n if n.starts_with("file_")
+            || n.starts_with("fs_")
+            || [
+                "ls",
+                "cat",
+                "pwd",
+                "cd",
+                "mkdir",
+                "rm",
+                "mv",
+                "cp",
+                "find",
+                "head",
+                "tail",
+                "wc",
+                "sort",
+                "uniq",
+                "grep",
+                "touch",
+                "chmod",
+                "chown",
+                "stat",
+                "glob",
+                "tree",
+                "exists",
+                "read_text",
+                "write",
+                "list",
+                "dir",
+            ]
+            .contains(&n) =>
+        {
+            "FileSystem".to_string()
+        }
         // Services & daemons
-        n if n.starts_with("svc_") || n.starts_with("service_") || n.starts_with("systemctl") => "Service".to_string(),
+        n if n.starts_with("svc_") || n.starts_with("service_") || n.starts_with("systemctl") => {
+            "Service".to_string()
+        }
         // Cron/scheduling
         n if n.starts_with("cron_") || n.starts_with("at_") => "Scheduling".to_string(),
         // Archive/compression
-        n if n.starts_with("archive_") || n.starts_with("zip") || n.starts_with("tar") || n.starts_with("gzip") || n.starts_with("bzip2") || n.starts_with("xz") => "Archive".to_string(),
+        n if n.starts_with("archive_")
+            || n.starts_with("zip")
+            || n.starts_with("tar")
+            || n.starts_with("gzip")
+            || n.starts_with("bzip2")
+            || n.starts_with("xz") =>
+        {
+            "Archive".to_string()
+        }
         // User/permission management
-        n if n.starts_with("user_") || n.starts_with("perm_") || n.starts_with("group_") => "UserManagement".to_string(),
+        n if n.starts_with("user_") || n.starts_with("perm_") || n.starts_with("group_") => {
+            "UserManagement".to_string()
+        }
         // Package management
         n if n.starts_with("pkg_") => "Package".to_string(),
         // Hardware/device
         n if n.starts_with("hw_") || n.starts_with("device_") => "Hardware".to_string(),
         // GUI automation
-        n if n.starts_with("gui_") || n.starts_with("screen") || n.starts_with("click") || n.starts_with("type_text") => "GUI".to_string(),
+        n if n.starts_with("gui_")
+            || n.starts_with("screen")
+            || n.starts_with("click")
+            || n.starts_with("type_text") =>
+        {
+            "GUI".to_string()
+        }
         // Web automation
         n if n.starts_with("web_") || n.starts_with("browser_") => "Web".to_string(),
         // Clipboard & input
         n if n.starts_with("clip_") || n.starts_with("input_") => "Input".to_string(),
         // Database
-        n if n.starts_with("db_") || n.starts_with("sqlite_") || n.starts_with("sql_") => "Database".to_string(),
+        n if n.starts_with("db_") || n.starts_with("sqlite_") || n.starts_with("sql_") => {
+            "Database".to_string()
+        }
         // Security & Crypto
-        n if n.starts_with("crypto_") || n.starts_with("hash") || n.starts_with("encrypt") || n.starts_with("decrypt") || n.starts_with("sign") || n.starts_with("verify") || n.starts_with("ssl_") => "Crypto".to_string(),
+        n if n.starts_with("crypto_")
+            || n.starts_with("hash")
+            || n.starts_with("encrypt")
+            || n.starts_with("decrypt")
+            || n.starts_with("sign")
+            || n.starts_with("verify")
+            || n.starts_with("ssl_") =>
+        {
+            "Crypto".to_string()
+        }
         // Containers
-        n if n.starts_with("docker_") || n.starts_with("podman_") || n.starts_with("container_") || n.starts_with("lxc_") => "Container".to_string(),
+        n if n.starts_with("docker_")
+            || n.starts_with("podman_")
+            || n.starts_with("container_")
+            || n.starts_with("lxc_") =>
+        {
+            "Container".to_string()
+        }
         // Kubernetes
-        n if n.starts_with("k8s_") || n.starts_with("helm_") || n.starts_with("kubectl_") => "Kubernetes".to_string(),
+        n if n.starts_with("k8s_") || n.starts_with("helm_") || n.starts_with("kubectl_") => {
+            "Kubernetes".to_string()
+        }
         // VM/Hypervisor
-        n if n.starts_with("vm_") || n.starts_with("hyperv_") || n.starts_with("virsh_") || n.starts_with("qemu_") || n.starts_with("wsl_") => "Virtualization".to_string(),
+        n if n.starts_with("vm_")
+            || n.starts_with("hyperv_")
+            || n.starts_with("virsh_")
+            || n.starts_with("qemu_")
+            || n.starts_with("wsl_") =>
+        {
+            "Virtualization".to_string()
+        }
         // Cloud/IaC
-        n if n.starts_with("terraform_") || n.starts_with("ansible_") || n.starts_with("pulumi_") || n.starts_with("vagrant_") || n.starts_with("packer_") || n.starts_with("cloud_") => "Cloud".to_string(),
+        n if n.starts_with("terraform_")
+            || n.starts_with("ansible_")
+            || n.starts_with("pulumi_")
+            || n.starts_with("vagrant_")
+            || n.starts_with("packer_")
+            || n.starts_with("cloud_") =>
+        {
+            "Cloud".to_string()
+        }
         // Remote access
-        n if n.starts_with("ssh_") || n.starts_with("scp_") || n.starts_with("rsync_") || n.starts_with("rdp_") => "RemoteAccess".to_string(),
+        n if n.starts_with("ssh_")
+            || n.starts_with("scp_")
+            || n.starts_with("rsync_")
+            || n.starts_with("rdp_") =>
+        {
+            "RemoteAccess".to_string()
+        }
         // Security
-        n if n.starts_with("firewall_") || n.starts_with("selinux_") || n.starts_with("apparmor_") => "Security".to_string(),
+        n if n.starts_with("firewall_")
+            || n.starts_with("selinux_")
+            || n.starts_with("apparmor_") =>
+        {
+            "Security".to_string()
+        }
         // Monitoring
-        n if n.starts_with("monitor_") || n.starts_with("perf_") || n.starts_with("netstat_") || n.starts_with("watch_") => "Monitoring".to_string(),
+        n if n.starts_with("monitor_")
+            || n.starts_with("perf_")
+            || n.starts_with("netstat_")
+            || n.starts_with("watch_") =>
+        {
+            "Monitoring".to_string()
+        }
         // Enterprise
         n if n.starts_with("rbac_") => "RBAC".to_string(),
         n if n.starts_with("audit_") => "Audit".to_string(),
@@ -1618,19 +1730,87 @@ fn categorize_builtin(name: &str) -> String {
         n if n.starts_with("devenv_") => "DevEnvironment".to_string(),
         n if n.starts_with("platform_") => "Platform".to_string(),
         // Math
-        n if n.starts_with("math_") || ["sqrt", "pow", "abs", "ceil", "floor", "round", "sin", "cos", "tan", "log", "exp", "pi", "e"].contains(&n) => "Math".to_string(),
+        n if n.starts_with("math_")
+            || [
+                "sqrt", "pow", "abs", "ceil", "floor", "round", "sin", "cos", "tan", "log", "exp",
+                "pi", "e",
+            ]
+            .contains(&n) =>
+        {
+            "Math".to_string()
+        }
         // String
-        n if n.starts_with("str_") || ["split", "join", "trim", "upper", "lower", "replace", "contains", "starts_with", "ends_with", "pad_left", "pad_right", "repeat", "reverse", "slice", "format", "to_upper", "to_lower", "capitalize", "char_at", "substr", "str_replace"].contains(&n) => "String".to_string(),
+        n if n.starts_with("str_")
+            || [
+                "split",
+                "join",
+                "trim",
+                "upper",
+                "lower",
+                "replace",
+                "contains",
+                "starts_with",
+                "ends_with",
+                "pad_left",
+                "pad_right",
+                "repeat",
+                "reverse",
+                "slice",
+                "format",
+                "to_upper",
+                "to_lower",
+                "capitalize",
+                "char_at",
+                "substr",
+                "str_replace",
+            ]
+            .contains(&n) =>
+        {
+            "String".to_string()
+        }
         // Array/collection
-        n if n.starts_with("arr_") || ["range", "flatten", "zip", "unique", "sort_by", "group_by", "chunk", "window", "scan", "zip_with", "interleave", "partition"].contains(&n) => "Array".to_string(),
+        n if n.starts_with("arr_")
+            || [
+                "range",
+                "flatten",
+                "zip",
+                "unique",
+                "sort_by",
+                "group_by",
+                "chunk",
+                "window",
+                "scan",
+                "zip_with",
+                "interleave",
+                "partition",
+            ]
+            .contains(&n) =>
+        {
+            "Array".to_string()
+        }
         // JSON
         n if n.starts_with("json_") || n == "to_json" || n == "from_json" => "JSON".to_string(),
         // Shell
-        n if n.starts_with("shell_") || n == "exec" || n == "source" || n == "eval_bash" => "Shell".to_string(),
+        n if n.starts_with("shell_") || n == "exec" || n == "source" || n == "eval_bash" => {
+            "Shell".to_string()
+        }
         // Functional
-        n if ["map", "where", "reduce", "filter", "each", "any", "all", "take", "first", "last", "keys", "values", "select", "reject", "flat_map", "fold"].contains(&n) => "Functional".to_string(),
+        n if [
+            "map", "where", "reduce", "filter", "each", "any", "all", "take", "first", "last",
+            "keys", "values", "select", "reject", "flat_map", "fold",
+        ]
+        .contains(&n) =>
+        {
+            "Functional".to_string()
+        }
         // Aggregation
-        n if ["sum", "avg", "mean", "min", "max", "count", "product", "len"].contains(&n) => "Aggregation".to_string(),
+        n if [
+            "sum", "avg", "mean", "min", "max", "count", "product", "len",
+        ]
+        .contains(&n) =>
+        {
+            "Aggregation".to_string()
+        }
         // Core utilities
         _ => "Core".to_string(),
     }
@@ -1702,7 +1882,7 @@ fn describe_builtin_name(name: &str) -> String {
             "exec" => "Execute external command".to_string(),
             "fetch" => "Fetch URL contents".to_string(),
             "glob" => "Match files by glob pattern".to_string(),
-            _ => format!("{}", capitalize_first(name)),
+            _ => capitalize_first(name).to_string(),
         };
     }
 
@@ -1810,22 +1990,93 @@ fn infer_return_type(name: &str) -> String {
     match name {
         // Known return types for common builtins
         n if n == "ls" || n == "find" || n == "glob" || n == "tree" => "Array<Record>".to_string(),
-        n if n == "cat" || n == "pwd" || n == "whoami" || n == "hostname" || n == "echo" || n == "print" => "String".to_string(),
+        n if n == "cat"
+            || n == "pwd"
+            || n == "whoami"
+            || n == "hostname"
+            || n == "echo"
+            || n == "print" =>
+        {
+            "String".to_string()
+        }
         n if n == "len" || n == "count" || n == "wc" => "Int".to_string(),
-        n if n == "sum" || n == "avg" || n == "min" || n == "max" || n == "product" => "Number".to_string(),
+        n if n == "sum" || n == "avg" || n == "min" || n == "max" || n == "product" => {
+            "Number".to_string()
+        }
         n if n == "any" || n == "all" || n == "exists" || n == "contains" => "Bool".to_string(),
         n if n == "first" || n == "last" || n == "reduce" => "Value".to_string(),
-        n if n == "map" || n == "where" || n == "filter" || n == "take" || n == "sort" || n == "uniq" || n == "unique" || n == "flatten" || n == "range" || n == "reverse" || n == "select" || n == "reject" || n == "keys" || n == "values" || n == "each" => "Array".to_string(),
+        n if n == "map"
+            || n == "where"
+            || n == "filter"
+            || n == "take"
+            || n == "sort"
+            || n == "uniq"
+            || n == "unique"
+            || n == "flatten"
+            || n == "range"
+            || n == "reverse"
+            || n == "select"
+            || n == "reject"
+            || n == "keys"
+            || n == "values"
+            || n == "each" =>
+        {
+            "Array".to_string()
+        }
         n if n == "split" => "Array<String>".to_string(),
-        n if n == "join" || n == "trim" || n == "upper" || n == "lower" || n == "replace" || n == "format" => "String".to_string(),
+        n if n == "join"
+            || n == "trim"
+            || n == "upper"
+            || n == "lower"
+            || n == "replace"
+            || n == "format" =>
+        {
+            "String".to_string()
+        }
         // Module-prefix patterns
-        n if n.ends_with("_list") || n.ends_with("_all") || n.ends_with("_search") || n.ends_with("_query") => "Array<Record>".to_string(),
-        n if n.ends_with("_info") || n.ends_with("_status") || n.ends_with("_config") || n.ends_with("_stats") || n.ends_with("_details") => "Record".to_string(),
-        n if n.ends_with("_count") || n.ends_with("_size") || n.ends_with("_pid") || n.ends_with("_port") => "Int".to_string(),
-        n if n.ends_with("_exists") || n.ends_with("_check") || n.ends_with("_validate") || n.ends_with("_enabled") || n.ends_with("_available") => "Bool".to_string(),
-        n if n.ends_with("_read") || n.ends_with("_get") || n.ends_with("_name") || n.ends_with("_version") || n.ends_with("_path") || n.ends_with("_hostname") => "String".to_string(),
+        n if n.ends_with("_list")
+            || n.ends_with("_all")
+            || n.ends_with("_search")
+            || n.ends_with("_query") =>
+        {
+            "Array<Record>".to_string()
+        }
+        n if n.ends_with("_info")
+            || n.ends_with("_status")
+            || n.ends_with("_config")
+            || n.ends_with("_stats")
+            || n.ends_with("_details") =>
+        {
+            "Record".to_string()
+        }
+        n if n.ends_with("_count")
+            || n.ends_with("_size")
+            || n.ends_with("_pid")
+            || n.ends_with("_port") =>
+        {
+            "Int".to_string()
+        }
+        n if n.ends_with("_exists")
+            || n.ends_with("_check")
+            || n.ends_with("_validate")
+            || n.ends_with("_enabled")
+            || n.ends_with("_available") =>
+        {
+            "Bool".to_string()
+        }
+        n if n.ends_with("_read")
+            || n.ends_with("_get")
+            || n.ends_with("_name")
+            || n.ends_with("_version")
+            || n.ends_with("_path")
+            || n.ends_with("_hostname") =>
+        {
+            "String".to_string()
+        }
         // Prefix patterns for structured output
-        n if n.starts_with("sys_") || n.starts_with("hw_") || n.starts_with("platform_") => "Record".to_string(),
+        n if n.starts_with("sys_") || n.starts_with("hw_") || n.starts_with("platform_") => {
+            "Record".to_string()
+        }
         n if n.starts_with("proc_") && n.ends_with("s") => "Array<Record>".to_string(),
         n if n.starts_with("net_") => "Record".to_string(),
         _ => "Value".to_string(),
@@ -1838,12 +2089,16 @@ fn infer_return_type(name: &str) -> String {
 fn get_all_builtin_definitions() -> Vec<BuiltinDefinition> {
     // Start with hand-coded enriched definitions
     let enriched = get_builtin_definitions();
-    let enriched_names: std::collections::HashSet<String> = enriched.iter().map(|b| b.name.clone()).collect();
+    let enriched_names: std::collections::HashSet<String> =
+        enriched.iter().map(|b| b.name.clone()).collect();
 
     // Build reverse lookup: index → Vec<name> to detect aliases
     let mut index_to_names: HashMap<usize, Vec<String>> = HashMap::new();
     for (name, &idx) in BUILTIN_LOOKUP.iter() {
-        index_to_names.entry(idx).or_default().push(name.to_string());
+        index_to_names
+            .entry(idx)
+            .or_default()
+            .push(name.to_string());
     }
 
     // Determine the "canonical" name for each index (shortest non-alias name)
@@ -1880,7 +2135,8 @@ fn get_all_builtin_definitions() -> Vec<BuiltinDefinition> {
         let aliases: Vec<String> = index_to_names
             .get(idx)
             .map(|names| {
-                names.iter()
+                names
+                    .iter()
                     .filter(|n| *n != primary_name)
                     .cloned()
                     .collect()
@@ -1897,7 +2153,11 @@ fn get_all_builtin_definitions() -> Vec<BuiltinDefinition> {
             parameters: vec![],
             return_type,
             examples: vec![],
-            aliases: if aliases.is_empty() { None } else { Some(aliases) },
+            aliases: if aliases.is_empty() {
+                None
+            } else {
+                Some(aliases)
+            },
             json_schema: json!({
                 "type": "object",
                 "properties": {}
@@ -2249,7 +2509,10 @@ fn get_category_info() -> Vec<CategoryInfo> {
 
     let descriptions: HashMap<&str, &str> = [
         ("FileSystem", "File and directory operations"),
-        ("Functional", "Higher-order functions for data transformation"),
+        (
+            "Functional",
+            "Higher-order functions for data transformation",
+        ),
         ("Aggregation", "Statistical and aggregation functions"),
         ("String", "String manipulation functions"),
         ("Array", "Array and collection operations"),
@@ -2331,7 +2594,10 @@ use crate::providers::schema::{builtins_to_tools, ToolFormat};
 /// Convert ontology builtins to tool list in the specified format with optional name prefix
 fn ontology_tools(ontology: &LanguageOntology, format: ToolFormat, prefix: &str) -> Vec<JsonValue> {
     builtins_to_tools(
-        ontology.builtins.iter().map(|b| (b.name.as_str(), b.description.as_str(), &b.json_schema)),
+        ontology
+            .builtins
+            .iter()
+            .map(|b| (b.name.as_str(), b.description.as_str(), &b.json_schema)),
         format,
         prefix,
     )
@@ -2471,7 +2737,7 @@ fn build_llama_schema(ontology: &LanguageOntology) -> JsonValue {
     })
 }
 
-/// Build Mistral AI function calling schema  
+/// Build Mistral AI function calling schema
 fn build_mistral_schema(ontology: &LanguageOntology) -> JsonValue {
     let tools = ontology_tools(ontology, ToolFormat::OpenAI, "");
 
@@ -2934,7 +3200,10 @@ pub mod server {
         Ping { id: Option<String> },
         /// Register as an agent
         #[serde(rename = "register")]
-        Register { agent_id: String, capabilities: Vec<String> },
+        Register {
+            agent_id: String,
+            capabilities: Vec<String>,
+        },
         /// Send message to another agent
         #[serde(rename = "agent_message")]
         AgentMessage { to: String, payload: JsonValue },
@@ -3141,7 +3410,10 @@ pub mod server {
 
         pub async fn claim_task(&self, task_id: &str, agent_id: &str) -> Option<Task> {
             let mut queue = self.task_queue.write().await;
-            if let Some(task) = queue.iter_mut().find(|t| t.id == task_id && t.status == TaskStatus::Pending) {
+            if let Some(task) = queue
+                .iter_mut()
+                .find(|t| t.id == task_id && t.status == TaskStatus::Pending)
+            {
                 task.status = TaskStatus::Assigned;
                 task.assigned_to = Some(agent_id.to_string());
                 Some(task.clone())
@@ -3153,12 +3425,19 @@ pub mod server {
         pub async fn complete_task(&self, task_id: &str, success: bool) {
             let mut queue = self.task_queue.write().await;
             if let Some(task) = queue.iter_mut().find(|t| t.id == task_id) {
-                task.status = if success { TaskStatus::Completed } else { TaskStatus::Failed };
+                task.status = if success {
+                    TaskStatus::Completed
+                } else {
+                    TaskStatus::Failed
+                };
             }
         }
 
         pub async fn add_workflow(&self, workflow: Workflow) {
-            self.workflows.write().await.insert(workflow.id.clone(), workflow);
+            self.workflows
+                .write()
+                .await
+                .insert(workflow.id.clone(), workflow);
         }
 
         pub async fn get_workflow(&self, workflow_id: &str) -> Option<Workflow> {
@@ -3257,7 +3536,10 @@ pub mod server {
             if let Some(ref id) = self.id {
                 output.push_str(&format!("id: {}\n", id));
             }
-            output.push_str(&format!("data: {}\n\n", serde_json::to_string(&self.data).unwrap_or_default()));
+            output.push_str(&format!(
+                "data: {}\n\n",
+                serde_json::to_string(&self.data).unwrap_or_default()
+            ));
             output
         }
     }
@@ -3297,64 +3579,106 @@ pub mod server {
             .route("/api/v1/stream/pipeline", post(handle_stream_pipeline))
             .route("/api/v1/stream/eval", post(handle_stream_eval))
             // WebSocket endpoint for real-time bidirectional communication
-            .route("/api/v1/ws", get({
-                let state = Arc::clone(&state);
-                move |ws| handle_websocket(ws, state)
-            }))
+            .route(
+                "/api/v1/ws",
+                get({
+                    let state = Arc::clone(&state);
+                    move |ws| handle_websocket(ws, state)
+                }),
+            )
             // Orchestration endpoints
-            .route("/api/v1/orchestration/agents", get({
-                let state = Arc::clone(&state);
-                move || handle_list_agents(state)
-            }))
-            .route("/api/v1/orchestration/tasks", get({
-                let state = Arc::clone(&state);
-                move || handle_list_tasks(state)
-            }))
-            .route("/api/v1/orchestration/tasks", post({
-                let state = Arc::clone(&state);
-                move |body| handle_create_task(body, state)
-            }))
-            .route("/api/v1/orchestration/workflows", post({
-                let state = Arc::clone(&state);
-                move |body| handle_create_workflow(body, state)
-            }))
-            .route("/api/v1/orchestration/workflows/:id", get({
-                let state = Arc::clone(&state);
-                move |path| handle_get_workflow(path, state)
-            }))
-            .route("/api/v1/orchestration/workflows/:id/cancel", post({
-                let state = Arc::clone(&state);
-                move |path| handle_cancel_workflow(path, state)
-            }))
-            .route("/api/v1/orchestration/workflows", get({
-                let state = Arc::clone(&state);
-                move || handle_list_workflows(state)
-            }))
-            .route("/api/v1/orchestration/metrics", get({
-                let state = Arc::clone(&state);
-                move || handle_orchestration_metrics(state)
-            }))
+            .route(
+                "/api/v1/orchestration/agents",
+                get({
+                    let state = Arc::clone(&state);
+                    move || handle_list_agents(state)
+                }),
+            )
+            .route(
+                "/api/v1/orchestration/tasks",
+                get({
+                    let state = Arc::clone(&state);
+                    move || handle_list_tasks(state)
+                }),
+            )
+            .route(
+                "/api/v1/orchestration/tasks",
+                post({
+                    let state = Arc::clone(&state);
+                    move |body| handle_create_task(body, state)
+                }),
+            )
+            .route(
+                "/api/v1/orchestration/workflows",
+                post({
+                    let state = Arc::clone(&state);
+                    move |body| handle_create_workflow(body, state)
+                }),
+            )
+            .route(
+                "/api/v1/orchestration/workflows/:id",
+                get({
+                    let state = Arc::clone(&state);
+                    move |path| handle_get_workflow(path, state)
+                }),
+            )
+            .route(
+                "/api/v1/orchestration/workflows/:id/cancel",
+                post({
+                    let state = Arc::clone(&state);
+                    move |path| handle_cancel_workflow(path, state)
+                }),
+            )
+            .route(
+                "/api/v1/orchestration/workflows",
+                get({
+                    let state = Arc::clone(&state);
+                    move || handle_list_workflows(state)
+                }),
+            )
+            .route(
+                "/api/v1/orchestration/metrics",
+                get({
+                    let state = Arc::clone(&state);
+                    move || handle_orchestration_metrics(state)
+                }),
+            )
             // Marketplace endpoints
-            .route("/api/v1/marketplace/publish", post({
-                let state = Arc::clone(&state);
-                move |body| handle_publish_agent(body, state)
-            }))
-            .route("/api/v1/marketplace/search", get({
-                let state = Arc::clone(&state);
-                move |params| handle_marketplace_search(params, state)
-            }))
-            .route("/api/v1/marketplace/agents", get({
-                let state = Arc::clone(&state);
-                move || handle_marketplace_list(state)
-            }))
-            .route("/api/v1/marketplace/install", post({
-                let state = Arc::clone(&state);
-                move |body| handle_marketplace_install(body, state)
-            }))
-            .route("/api/v1/marketplace/uninstall", post({
-                let state = Arc::clone(&state);
-                move |body| handle_marketplace_uninstall(body, state)
-            }))
+            .route(
+                "/api/v1/marketplace/publish",
+                post({
+                    let state = Arc::clone(&state);
+                    move |body| handle_publish_agent(body, state)
+                }),
+            )
+            .route(
+                "/api/v1/marketplace/search",
+                get({
+                    let state = Arc::clone(&state);
+                    move |params| handle_marketplace_search(params, state)
+                }),
+            )
+            .route(
+                "/api/v1/marketplace/agents",
+                get({
+                    let state = Arc::clone(&state);
+                    move || handle_marketplace_list(state)
+                }),
+            )
+            .route(
+                "/api/v1/marketplace/install",
+                post({
+                    let state = Arc::clone(&state);
+                    move |body| handle_marketplace_install(body, state)
+                }),
+            )
+            .route(
+                "/api/v1/marketplace/uninstall",
+                post({
+                    let state = Arc::clone(&state);
+                    move |body| handle_marketplace_uninstall(body, state)
+                }),
+            )
             // Discovery endpoints
             .route("/api/v1/schema", get(handle_schema))
             .route("/api/v1/schema/:format", get(handle_schema_format))
@@ -3484,7 +3808,9 @@ pub mod server {
         let mut events = vec![StreamEvent::start("Processing request...")];
         if !response.success {
             events.push(StreamEvent::error(
-                &response.error.unwrap_or_else(|| "Unknown error".to_string()),
+                &response
+                    .error
+                    .unwrap_or_else(|| "Unknown error".to_string()),
             ));
             return events;
         }
@@ -3501,7 +3827,10 @@ pub mod server {
                     response.result_type.as_deref(),
                 ));
             }
-            _ => events.push(StreamEvent::complete(result, response.result_type.as_deref())),
+            _ => events.push(StreamEvent::complete(
+                result,
+                response.result_type.as_deref(),
+            )),
         }
         events
     }
@@ -3519,7 +3848,10 @@ pub mod server {
         let total_steps = steps.len();
 
         create_sse_response(async move {
-            let mut events = vec![StreamEvent::start(&format!("Starting pipeline with {} steps", total_steps))];
+            let mut events = vec![StreamEvent::start(&format!(
+                "Starting pipeline with {} steps",
+                total_steps
+            ))];
 
             if steps.is_empty() {
                 events.push(StreamEvent::error("Pipeline must have at least one step"));
@@ -3527,17 +3859,22 @@ pub mod server {
             }
 
             // Process pipeline using existing infrastructure
-            let request = AgentRequest::Pipeline { 
-                steps: steps.clone(), 
-                input: input.clone() 
+            let request = AgentRequest::Pipeline {
+                steps: steps.clone(),
+                input: input.clone(),
             };
-            
+
             // Emit progress for each step (simulated since actual execution is atomic)
             for (i, step) in steps.iter().enumerate() {
                 events.push(StreamEvent::progress(
                     i + 1,
                     total_steps,
-                    &format!("Processing step {}/{}: {}", i + 1, total_steps, step.builtin),
+                    &format!(
+                        "Processing step {}/{}: {}",
+                        i + 1,
+                        total_steps,
+                        step.builtin
+                    ),
                 ));
             }
 
@@ -3551,7 +3888,9 @@ pub mod server {
                 ));
             } else {
                 events.push(StreamEvent::error(
-                    &response.error.unwrap_or_else(|| "Unknown error".to_string())
+                    &response
+                        .error
+                        .unwrap_or_else(|| "Unknown error".to_string()),
                 ));
             }
 
@@ -3580,7 +3919,9 @@ pub mod server {
                 ));
             } else {
                 events.push(StreamEvent::error(
-                    &response.error.unwrap_or_else(|| "Unknown error".to_string())
+                    &response
+                        .error
+                        .unwrap_or_else(|| "Unknown error".to_string()),
                 ));
             }
             events
@@ -3790,23 +4131,33 @@ pub mod server {
                                     .as_secs();
                                 Some(WsServerMessage::Pong { id, timestamp })
                             }
-                            WsClientMessage::Register { agent_id: aid, capabilities } => {
+                            WsClientMessage::Register {
+                                agent_id: aid,
+                                capabilities,
+                            } => {
                                 agent_id = Some(aid.clone());
-                                state.register_agent(aid.clone(), capabilities.clone(), tx.clone()).await;
+                                state
+                                    .register_agent(aid.clone(), capabilities.clone(), tx.clone())
+                                    .await;
 
                                 // Broadcast agent connection to subscribers
-                                state.broadcast_to_channel("agents", json!({
-                                    "type": "agent_connected",
-                                    "agent": {
-                                        "id": aid,
-                                        "capabilities": capabilities,
-                                        "status": "online",
-                                        "connectedAt": std::time::SystemTime::now()
-                                            .duration_since(std::time::UNIX_EPOCH)
-                                            .unwrap()
-                                            .as_millis() as u64
-                                    }
-                                })).await;
+                                state
+                                    .broadcast_to_channel(
+                                        "agents",
+                                        json!({
+                                            "type": "agent_connected",
+                                            "agent": {
+                                                "id": aid,
+                                                "capabilities": capabilities,
+                                                "status": "online",
+                                                "connectedAt": std::time::SystemTime::now()
+                                                    .duration_since(std::time::UNIX_EPOCH)
+                                                    .unwrap()
+                                                    .as_millis() as u64
+                                            }
+                                        }),
+                                    )
+                                    .await;
 
                                 Some(WsServerMessage::Registered { agent_id: aid })
                             }
@@ -3862,10 +4213,15 @@ pub mod server {
 
         // Clean up
         if let Some(ref aid) = agent_id {
-            state.broadcast_to_channel("agents", json!({
-                "type": "agent_disconnected",
-                "agentId": aid
-            })).await;
+            state
+                .broadcast_to_channel(
+                    "agents",
+                    json!({
+                        "type": "agent_disconnected",
+                        "agentId": aid
+                    }),
+                )
+                .await;
             state.unregister_agent(aid).await;
         }
         send_task.abort();
@@ -3897,7 +4253,11 @@ pub mod server {
     ) -> impl IntoResponse {
         let task = Task {
             id: uuid::Uuid::new_v4().to_string(),
-            name: body.get("name").and_then(|v| v.as_str()).unwrap_or("unnamed").to_string(),
+            name: body
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unnamed")
+                .to_string(),
             payload: body.get("payload").cloned().unwrap_or(JsonValue::Null),
             status: TaskStatus::Pending,
             assigned_to: None,
@@ -3910,10 +4270,13 @@ pub mod server {
         let task_id = task.id.clone();
         state.add_task(task).await;
 
-        (StatusCode::CREATED, Json(json!({
-            "success": true,
-            "task_id": task_id
-        })))
+        (
+            StatusCode::CREATED,
+            Json(json!({
+                "success": true,
+                "task_id": task_id
+            })),
+        )
     }
 
     async fn handle_create_workflow(
@@ -3927,11 +4290,18 @@ pub mod server {
 
         let workflow = Workflow {
             id: uuid::Uuid::new_v4().to_string(),
-            name: body.get("name").and_then(|v| v.as_str()).unwrap_or("unnamed").to_string(),
+            name: body
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unnamed")
+                .to_string(),
             steps,
             current_step: 0,
             status: WorkflowStatus::Pending,
-            context: body.get("context").cloned().unwrap_or(JsonValue::Object(Default::default())),
+            context: body
+                .get("context")
+                .cloned()
+                .unwrap_or(JsonValue::Object(Default::default())),
         };
         let workflow_id = workflow.id.clone();
         let workflow_name = workflow.name.clone();
@@ -3939,26 +4309,34 @@ pub mod server {
         state.add_workflow(workflow).await;
 
         // Broadcast workflow creation
-        state.broadcast_to_channel("workflows", json!({
-            "type": "workflow_created",
-            "workflow": {
-                "id": workflow_id,
-                "name": workflow_name,
-                "status": "pending",
-                "currentStep": 0,
-                "totalSteps": total_steps,
-                "startedAt": std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_millis() as u64,
-                "steps": []
-            }
-        })).await;
+        state
+            .broadcast_to_channel(
+                "workflows",
+                json!({
+                    "type": "workflow_created",
+                    "workflow": {
+                        "id": workflow_id,
+                        "name": workflow_name,
+                        "status": "pending",
+                        "currentStep": 0,
+                        "totalSteps": total_steps,
+                        "startedAt": std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap()
+                            .as_millis() as u64,
+                        "steps": []
+                    }
+                }),
+            )
+            .await;
 
-        (StatusCode::CREATED, Json(json!({
-            "success": true,
-            "workflow_id": workflow_id
-        })))
+        (
+            StatusCode::CREATED,
+            Json(json!({
+                "success": true,
+                "workflow_id": workflow_id
+            })),
+        )
     }
 
     async fn handle_get_workflow(
@@ -3966,15 +4344,21 @@ pub mod server {
         state: Arc<OrchestratorState>,
     ) -> impl IntoResponse {
         if let Some(workflow) = state.get_workflow(&workflow_id).await {
-            (StatusCode::OK, Json(json!({
-                "success": true,
-                "workflow": workflow
-            })))
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "success": true,
+                    "workflow": workflow
+                })),
+            )
         } else {
-            (StatusCode::NOT_FOUND, Json(json!({
-                "success": false,
-                "error": "Workflow not found"
-            })))
+            (
+                StatusCode::NOT_FOUND,
+                Json(json!({
+                    "success": false,
+                    "error": "Workflow not found"
+                })),
+            )
         }
     }
 
@@ -3987,29 +4371,38 @@ pub mod server {
             state.add_workflow(workflow).await;
 
             // Broadcast cancellation
-            state.broadcast_to_channel("workflows", json!({
-                "type": "workflow_update",
-                "workflow": {
-                    "id": workflow_id,
-                    "status": "cancelled"
-                }
-            })).await;
+            state
+                .broadcast_to_channel(
+                    "workflows",
+                    json!({
+                        "type": "workflow_update",
+                        "workflow": {
+                            "id": workflow_id,
+                            "status": "cancelled"
+                        }
+                    }),
+                )
+                .await;
 
-            (StatusCode::OK, Json(json!({
-                "success": true,
-                "message": "Workflow cancelled"
-            })))
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "success": true,
+                    "message": "Workflow cancelled"
+                })),
+            )
         } else {
-            (StatusCode::NOT_FOUND, Json(json!({
-                "success": false,
-                "error": "Workflow not found"
-            })))
+            (
+                StatusCode::NOT_FOUND,
+                Json(json!({
+                    "success": false,
+                    "error": "Workflow not found"
+                })),
+            )
         }
     }
 
-    async fn handle_list_workflows(
-        state: Arc<OrchestratorState>,
-    ) -> impl IntoResponse {
+    async fn handle_list_workflows(state: Arc<OrchestratorState>) -> impl IntoResponse {
         let workflows = state.workflows.read().await;
         let list: Vec<_> = workflows.values().cloned().collect();
         Json(json!({
@@ -4018,23 +4411,25 @@ pub mod server {
         }))
     }
 
-    async fn handle_orchestration_metrics(
-        state: Arc<OrchestratorState>,
-    ) -> impl IntoResponse {
+    async fn handle_orchestration_metrics(state: Arc<OrchestratorState>) -> impl IntoResponse {
         let agents = state.get_agents().await;
         let workflows = state.workflows.read().await;
         let tasks = state.task_queue.read().await;
 
-        let running_workflows = workflows.values()
+        let running_workflows = workflows
+            .values()
             .filter(|w| w.status == WorkflowStatus::Running)
             .count();
-        let completed_workflows = workflows.values()
+        let completed_workflows = workflows
+            .values()
             .filter(|w| w.status == WorkflowStatus::Completed)
             .count();
-        let failed_workflows = workflows.values()
+        let failed_workflows = workflows
+            .values()
             .filter(|w| w.status == WorkflowStatus::Failed)
             .count();
-        let pending_tasks = tasks.iter()
+        let pending_tasks = tasks
+            .iter()
             .filter(|t| t.status == TaskStatus::Pending)
             .count();
 
@@ -4067,27 +4462,36 @@ pub mod server {
         Json(body): Json<JsonValue>,
         state: Arc<OrchestratorState>,
     ) -> impl IntoResponse {
-        let agent_name = body.get("name")
+        let agent_name = body
+            .get("name")
             .and_then(|v| v.as_str())
             .unwrap_or("unnamed")
             .to_string();
 
         // Store in orchestrator state as a published agent
-        state.broadcast_to_channel("agents", json!({
-            "type": "agent_published",
-            "agent": {
-                "name": agent_name,
-                "description": body.get("description"),
-                "systemPrompt": body.get("systemPrompt"),
-                "tools": body.get("tools"),
-                "model": body.get("model"),
-            }
-        })).await;
+        state
+            .broadcast_to_channel(
+                "agents",
+                json!({
+                    "type": "agent_published",
+                    "agent": {
+                        "name": agent_name,
+                        "description": body.get("description"),
+                        "systemPrompt": body.get("systemPrompt"),
+                        "tools": body.get("tools"),
+                        "model": body.get("model"),
+                    }
+                }),
+            )
+            .await;
 
-        (StatusCode::CREATED, Json(json!({
-            "success": true,
-            "message": format!("Agent '{}' published successfully", agent_name)
-        })))
+        (
+            StatusCode::CREATED,
+            Json(json!({
+                "success": true,
+                "message": format!("Agent '{}' published successfully", agent_name)
+            })),
+        )
     }
 
     async fn handle_marketplace_search(
@@ -4096,18 +4500,22 @@ pub mod server {
     ) -> impl IntoResponse {
         let query_str = params.get("q").cloned().unwrap_or_default();
         let category = params.get("category").cloned();
-        let sort = params.get("sort").and_then(|s| match s.as_str() {
-            "stars" => Some(SortBy::Stars),
-            "recent" => Some(SortBy::Recent),
-            "name" => Some(SortBy::Name),
-            _ => Some(SortBy::Downloads),
+        let sort = params.get("sort").map(|s| match s.as_str() {
+            "stars" => SortBy::Stars,
+            "recent" => SortBy::Recent,
+            "name" => SortBy::Name,
+            _ => SortBy::Downloads,
         });
 
         // Try registry search first
         let marketplace = state.marketplace.read().await;
         if let Some(client) = marketplace.as_ref() {
             let search_query = SearchQuery {
-                query: if query_str.is_empty() { None } else { Some(query_str.clone()) },
+                query: if query_str.is_empty() {
+                    None
+                } else {
+                    Some(query_str.clone())
+                },
                 category: category.clone(),
                 keyword: None,
                 author: None,
@@ -4118,19 +4526,25 @@ pub mod server {
 
             match client.search(search_query).await {
                 Ok(results) => {
-                    let agents: Vec<JsonValue> = results.results.iter().map(|a| json!({
-                        "id": a.manifest.name,
-                        "name": a.manifest.display_name,
-                        "description": a.manifest.description,
-                        "author": a.manifest.author.name,
-                        "version": a.manifest.version,
-                        "downloads": a.downloads,
-                        "stars": a.stars,
-                        "forks": a.forks,
-                        "tags": a.manifest.keywords,
-                        "updatedAt": a.updated_at * 1000,
-                        "verified": a.verified,
-                    })).collect();
+                    let agents: Vec<JsonValue> = results
+                        .results
+                        .iter()
+                        .map(|a| {
+                            json!({
+                                "id": a.manifest.name,
+                                "name": a.manifest.display_name,
+                                "description": a.manifest.description,
+                                "author": a.manifest.author.name,
+                                "version": a.manifest.version,
+                                "downloads": a.downloads,
+                                "stars": a.stars,
+                                "forks": a.forks,
+                                "tags": a.manifest.keywords,
+                                "updatedAt": a.updated_at * 1000,
+                                "verified": a.verified,
+                            })
+                        })
+                        .collect();
 
                     return Json(json!({
                         "success": true,
@@ -4154,10 +4568,22 @@ pub mod server {
             installed_agents.clone()
         } else {
             let q = query_str.to_lowercase();
-            installed_agents.iter().filter(|a| {
-                a.get("name").and_then(|n| n.as_str()).unwrap_or("").to_lowercase().contains(&q)
-                || a.get("description").and_then(|d| d.as_str()).unwrap_or("").to_lowercase().contains(&q)
-            }).cloned().collect()
+            installed_agents
+                .iter()
+                .filter(|a| {
+                    a.get("name")
+                        .and_then(|n| n.as_str())
+                        .unwrap_or("")
+                        .to_lowercase()
+                        .contains(&q)
+                        || a.get("description")
+                            .and_then(|d| d.as_str())
+                            .unwrap_or("")
+                            .to_lowercase()
+                            .contains(&q)
+                })
+                .cloned()
+                .collect()
         };
 
         Json(json!({
@@ -4188,48 +4614,72 @@ pub mod server {
     ) -> impl IntoResponse {
         let name = match body.get("name").and_then(|n| n.as_str()) {
             Some(n) => n.to_string(),
-            None => return (StatusCode::BAD_REQUEST, Json(json!({
-                "success": false,
-                "error": "Missing required field: name"
-            }))),
+            None => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({
+                        "success": false,
+                        "error": "Missing required field: name"
+                    })),
+                )
+            }
         };
-        let version = body.get("version").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let version = body
+            .get("version")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
 
         let mut marketplace = state.marketplace.write().await;
         let client = match marketplace.as_mut() {
             Some(c) => c,
-            None => return (StatusCode::SERVICE_UNAVAILABLE, Json(json!({
-                "success": false,
-                "error": "Marketplace client not available"
-            }))),
+            None => {
+                return (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    Json(json!({
+                        "success": false,
+                        "error": "Marketplace client not available"
+                    })),
+                )
+            }
         };
 
         match client.install(&name, version.as_deref()).await {
             Ok(installed) => {
                 // Broadcast install event
-                state.broadcast_to_channel("agents", json!({
-                    "type": "agent_installed",
-                    "agent": {
-                        "name": installed.manifest.name,
-                        "version": installed.manifest.version,
-                        "description": installed.manifest.description,
-                    }
-                })).await;
+                state
+                    .broadcast_to_channel(
+                        "agents",
+                        json!({
+                            "type": "agent_installed",
+                            "agent": {
+                                "name": installed.manifest.name,
+                                "version": installed.manifest.version,
+                                "description": installed.manifest.description,
+                            }
+                        }),
+                    )
+                    .await;
 
-                (StatusCode::OK, Json(json!({
-                    "success": true,
-                    "message": format!("Installed {} v{}", installed.manifest.display_name, installed.manifest.version),
-                    "agent": {
-                        "name": installed.manifest.name,
-                        "version": installed.manifest.version,
-                        "path": installed.path.to_string_lossy(),
-                    }
-                })))
+                (
+                    StatusCode::OK,
+                    Json(json!({
+                        "success": true,
+                        "message": format!("Installed {} v{}", installed.manifest.display_name, installed.manifest.version),
+                        "agent": {
+                            "name": installed.manifest.name,
+                            "version": installed.manifest.version,
+                            "path": installed.path.to_string_lossy(),
+                        }
+                    })),
+                )
             }
-            Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({
-                "success": false,
-                "error": format!("Failed to install {}: {}", name, e)
-            }))),
+            Err(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "success": false,
+                    "error": format!("Failed to install {}: {}", name, e)
+                })),
+            ),
         }
     }
 
@@ -4239,37 +4689,58 @@ pub mod server {
     ) -> impl IntoResponse {
         let name = match body.get("name").and_then(|n| n.as_str()) {
             Some(n) => n.to_string(),
-            None => return (StatusCode::BAD_REQUEST, Json(json!({
-                "success": false,
-                "error": "Missing required field: name"
-            }))),
+            None => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({
+                        "success": false,
+                        "error": "Missing required field: name"
+                    })),
+                )
+            }
         };
 
         let mut marketplace = state.marketplace.write().await;
         let client = match marketplace.as_mut() {
             Some(c) => c,
-            None => return (StatusCode::SERVICE_UNAVAILABLE, Json(json!({
-                "success": false,
-                "error": "Marketplace client not available"
-            }))),
+            None => {
+                return (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    Json(json!({
+                        "success": false,
+                        "error": "Marketplace client not available"
+                    })),
+                )
+            }
         };
 
         match client.uninstall(&name) {
             Ok(()) => {
-                state.broadcast_to_channel("agents", json!({
-                    "type": "agent_uninstalled",
-                    "name": name,
-                })).await;
+                state
+                    .broadcast_to_channel(
+                        "agents",
+                        json!({
+                            "type": "agent_uninstalled",
+                            "name": name,
+                        }),
+                    )
+                    .await;
 
-                (StatusCode::OK, Json(json!({
-                    "success": true,
-                    "message": format!("Uninstalled {}", name)
-                })))
+                (
+                    StatusCode::OK,
+                    Json(json!({
+                        "success": true,
+                        "message": format!("Uninstalled {}", name)
+                    })),
+                )
             }
-            Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({
-                "success": false,
-                "error": format!("Failed to uninstall {}: {}", name, e)
-            }))),
+            Err(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "success": false,
+                    "error": format!("Failed to uninstall {}: {}", name, e)
+                })),
+            ),
         }
     }
 
@@ -4277,22 +4748,26 @@ pub mod server {
     async fn get_installed_as_json(state: &OrchestratorState) -> Vec<JsonValue> {
         let marketplace = state.marketplace.read().await;
         match marketplace.as_ref() {
-            Some(client) => {
-                client.list_installed().iter().map(|a| json!({
-                    "id": a.manifest.name,
-                    "name": a.manifest.display_name,
-                    "description": a.manifest.description,
-                    "author": a.manifest.author.name,
-                    "version": a.manifest.version,
-                    "downloads": 0,
-                    "stars": 0,
-                    "forks": 0,
-                    "tags": a.manifest.keywords,
-                    "updatedAt": a.installed_at * 1000,
-                    "verified": false,
-                    "installed": true,
-                })).collect()
-            }
+            Some(client) => client
+                .list_installed()
+                .iter()
+                .map(|a| {
+                    json!({
+                        "id": a.manifest.name,
+                        "name": a.manifest.display_name,
+                        "description": a.manifest.description,
+                        "author": a.manifest.author.name,
+                        "version": a.manifest.version,
+                        "downloads": 0,
+                        "stars": 0,
+                        "forks": 0,
+                        "tags": a.manifest.keywords,
+                        "updatedAt": a.installed_at * 1000,
+                        "verified": false,
+                        "installed": true,
+                    })
+                })
+                .collect(),
             None => vec![],
         }
     }
@@ -4317,47 +4792,47 @@ pub fn generate_schema(format: &str) -> Result<String> {
         // OpenAI family
         "openai" | "gpt" | "chatgpt" => SchemaFormat::OpenAI,
         "azure" | "azure_openai" | "azureopenai" => SchemaFormat::AzureOpenAI,
-        
+
         // Anthropic
         "claude" | "anthropic" => SchemaFormat::Claude,
-        
+
         // Google
         "gemini" | "google" => SchemaFormat::Gemini,
-        
+
         // Meta
         "llama" | "meta" | "llama3" => SchemaFormat::Llama,
-        
+
         // Mistral
         "mistral" | "codestral" | "pixtral" => SchemaFormat::Mistral,
-        
+
         // Cohere
         "cohere" | "command" | "command-r" => SchemaFormat::Cohere,
-        
+
         // xAI
         "grok" | "xai" => SchemaFormat::Grok,
-        
+
         // DeepSeek
         "deepseek" | "deepseek-r1" => SchemaFormat::DeepSeek,
-        
+
         // AWS
         "bedrock" | "aws" | "amazon" => SchemaFormat::Bedrock,
-        
+
         // Alibaba
         "qwen" | "alibaba" | "dashscope" => SchemaFormat::Qwen,
-        
+
         // Local/Self-hosted
         "ollama" => SchemaFormat::Ollama,
         "vllm" => SchemaFormat::VLLM,
-        
+
         // Platforms
         "huggingface" | "hf" | "tgi" => SchemaFormat::HuggingFace,
         "openrouter" => SchemaFormat::OpenRouter,
-        
+
         // Chinese AI providers
         "kimi" | "moonshot" => SchemaFormat::Kimi,
         "yi" | "01ai" | "lingyiwanwu" => SchemaFormat::Yi,
         "glm" | "chatglm" | "zhipu" => SchemaFormat::GLM,
-        
+
         // Additional SOTA providers
         "reka" => SchemaFormat::Reka,
         "ai21" | "jamba" | "jurassic" => SchemaFormat::AI21,
@@ -4365,14 +4840,14 @@ pub fn generate_schema(format: &str) -> Result<String> {
         "together" | "together-ai" => SchemaFormat::Together,
         "groq" => SchemaFormat::Groq,
         "fireworks" | "fireworks-ai" => SchemaFormat::Fireworks,
-        
+
         // Standard formats
         "json" | "jsonschema" | "full" => SchemaFormat::JsonSchema,
         "compact" | "ontology" => SchemaFormat::Ontology,
         "jsonld" | "json-ld" | "linked_data" => SchemaFormat::JsonLD,
         "owl" | "rdf" | "turtle" | "owl_turtle" => SchemaFormat::OwlTurtle,
         "shacl" | "shapes" => SchemaFormat::SHACL,
-        
+
         _ => return Err(anyhow!(
             "Unknown schema format: '{}'. Supported: openai, claude, gemini, llama, mistral, cohere, grok, deepseek, bedrock, azure, qwen, ollama, vllm, huggingface, openrouter, kimi, yi, glm, reka, ai21, perplexity, together, groq, fireworks, json, ontology",
             format

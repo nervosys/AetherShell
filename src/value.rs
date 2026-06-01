@@ -29,9 +29,9 @@ impl Uri {
     /// Returns `Some(Uri)` if `s` parses with a valid scheme (RFC3986-ish).
     pub fn parse(s: &str) -> Option<Self> {
         // scheme = ALPHA *( ALPHA / DIGIT / "+" / "-" / "." ) ":"
-        let mut it = s.splitn(2, ':');
-        let scheme = it.next()?;
-        let _rest = it.next()?; // must exist
+        let (scheme, _rest) = s.split_once(':')?;
+
+        // must exist
         let mut chars = scheme.chars();
         let first = chars.next()?;
         if !first.is_ascii_alphabetic() {
@@ -375,7 +375,7 @@ pub mod pretty {
         let sample = t.rows.iter().take(50);
         for r in sample {
             for (i, col) in t.schema.iter().enumerate() {
-                let cell = r.get(col).map(|v| summarize(v)).unwrap_or_default();
+                let cell = r.get(col).map(summarize).unwrap_or_default();
                 widths[i] = widths[i].max(cell.len());
             }
         }
@@ -388,7 +388,7 @@ pub mod pretty {
             let h = (theme.header)(col).to_string();
             write!(w, "{h:width$}", width = widths[i])?;
         }
-        write!(w, "\n")?;
+        writeln!(w)?;
 
         // Rows
         for r in &t.rows {
@@ -402,7 +402,7 @@ pub mod pretty {
                     .unwrap_or_else(|| (theme.dim)("-").to_string());
                 write!(w, "{cell:width$}", width = widths[i])?;
             }
-            write!(w, "\n")?;
+            writeln!(w)?;
         }
         Ok(())
     }

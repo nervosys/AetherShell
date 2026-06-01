@@ -26,11 +26,19 @@ fn session_persists_bindings_across_calls() {
     // First call binds x; a later call uses it — proving the env persists.
     call("sess_eval", vec![s(&id), s("let x = 41")]);
     let result = call("sess_eval", vec![s(&id), s("x + 1")]);
-    assert_eq!(result, Value::Int(42), "binding from a prior call is visible");
+    assert_eq!(
+        result,
+        Value::Int(42),
+        "binding from a prior call is visible"
+    );
 
     // Module namespaces are available in a session (not just bare builtins).
     let upper = call("sess_eval", vec![s(&id), s(r#"str.upper("hi")"#)]);
-    assert_eq!(upper, Value::Str("HI".into()), "module calls resolve in a session");
+    assert_eq!(
+        upper,
+        Value::Str("HI".into()),
+        "module calls resolve in a session"
+    );
 
     // Running token usage accumulates across the evals.
     match call("sess_usage", vec![s(&id)]) {
@@ -147,5 +155,8 @@ fn agent_api_call_drives_plan() {
         .and_then(|r| r.get("token"))
         .and_then(|v| v.as_str())
         .unwrap_or("");
-    assert!(token.starts_with("apl_"), "plan returns a bound token: {token}");
+    assert!(
+        token.starts_with("apl_"),
+        "plan returns a bound token: {token}"
+    );
 }

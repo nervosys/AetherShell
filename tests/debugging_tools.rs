@@ -9,7 +9,7 @@ use aethershell::value::Value;
 fn run(code: &str) -> Value {
     let stmts = parse_program(code).expect("parse failed");
     let mut env = Env::new();
-    eval_program(&stmts, &mut env).expect(&format!("eval failed for: {}", code))
+    eval_program(&stmts, &mut env).unwrap_or_else(|_| panic!("eval failed for: {}", code))
 }
 
 #[allow(dead_code)]

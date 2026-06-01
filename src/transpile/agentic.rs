@@ -1239,8 +1239,7 @@ pub fn transpile_agentic_to_ae(src: &str) -> Result<String> {
         }
 
         // Preamble directive: %def name expansion
-        if line.starts_with("%def ") {
-            let rest = &line[5..];
+        if let Some(rest) = line.strip_prefix("%def ") {
             if let Some(pos) = rest.find(' ') {
                 let name = rest[..pos].to_string();
                 let expansion = rest[pos + 1..].trim().to_string();
@@ -1478,7 +1477,8 @@ fn scan(s: &str) -> String {
             continue;
         }
         // $VAR → sys.env("VAR")
-        if c == '$' && i + 1 < chars.len() && (chars[i + 1].is_alphabetic() || chars[i + 1] == '_') {
+        if c == '$' && i + 1 < chars.len() && (chars[i + 1].is_alphabetic() || chars[i + 1] == '_')
+        {
             i += 1;
             let start = i;
             while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
@@ -1701,10 +1701,12 @@ fn consume_builtin(chars: &[char], i: &mut usize, out: &mut String, hash: bool) 
                 }
             }
             '|' if depth == 0 => break,
-            ' ' if depth == 0 => {
-                if *i + 2 < chars.len() && chars[*i + 1] == '>' && chars[*i + 2] == ' ' {
-                    break;
-                }
+            ' ' if depth == 0
+                && *i + 2 < chars.len()
+                && chars[*i + 1] == '>'
+                && chars[*i + 2] == ' ' =>
+            {
+                break;
             }
             _ => {}
         }
@@ -1899,7 +1901,7 @@ fn attach_func_or_autoparens(chars: &[char], i: &mut usize, out: &mut String, mo
         if let Some(full) = FUNC_ABBREV.get(key.as_str()) {
             // FUNC_ABBREV maps to the fully-qualified `module.func`; emit the func
             // part (module already emitted).
-            let func_only = full.split('.').last().unwrap_or(full);
+            let func_only = full.split('.').next_back().unwrap_or(full);
             out.push('.');
             out.push_str(func_only);
             *i = j;
@@ -1934,7 +1936,7 @@ fn consume_ident(chars: &[char], i: &mut usize, out: &mut String, after_bar: boo
     let c = chars[*i];
     // Bare lowercase single-char builtin at a boundary (v2 ultra form).
     if c.is_lowercase() && BUILTIN_SHORT.contains_key(&c) {
-        let prev_ok = at_boundary(out) && out.chars().last() != Some('.');
+        let prev_ok = at_boundary(out) && !out.ends_with('.');
         if prev_ok {
             let next = chars.get(*i + 1).copied();
             match next {
@@ -1965,19 +1967,18 @@ fn consume_ident(chars: &[char], i: &mut usize, out: &mut String, after_bar: boo
                         return;
                     }
                 }
-                None | Some('|') => {
+                None | Some('|')
                     // Zero-arg bare builtin fires ONLY right after an explicit `|`
                     // pipe (`data|b` → `flatten()`). Never at line/sub-expr start
                     // (would misfire on a variable like `x`=the `sh` shorthand in a
                     // conditional body) and never after a `>`-derived pipe (so
                     // `a > b` stays `a | b`).
-                    if after_bar {
+                    if after_bar => {
                         let (name, _) = BUILTIN_SHORT.get(&c).copied().unwrap();
                         out.push_str(&format!("{}()", name));
                         *i += 1;
                         return;
                     }
-                }
                 _ => {}
             }
         }
@@ -2120,7 +2121,6 @@ fn is_simple_identifier(s: &str) -> bool {
     chars.all(|c| c.is_alphanumeric() || c == '_')
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2183,17 +2183,26 @@ mod tests {
 
     #[test]
     fn test_replace_standalone_basic() {
-        assert_eq!(replace_standalone("fetch(url)", "fetch", "http.get"), "http.get(url)");
+        assert_eq!(
+            replace_standalone("fetch(url)", "fetch", "http.get"),
+            "http.get(url)"
+        );
     }
 
     #[test]
     fn test_replace_standalone_not_in_word() {
-        assert_eq!(replace_standalone("fetching(url)", "fetch", "http.get"), "fetching(url)");
+        assert_eq!(
+            replace_standalone("fetching(url)", "fetch", "http.get"),
+            "fetching(url)"
+        );
     }
 
     #[test]
     fn test_replace_standalone_not_in_string() {
-        assert_eq!(replace_standalone("\"fetch\" is good", "fetch", "http.get"), "\"fetch\" is good");
+        assert_eq!(
+            replace_standalone("\"fetch\" is good", "fetch", "http.get"),
+            "\"fetch\" is good"
+        );
     }
 
     // End-to-end behaviour through the full single-pass transpiler.
@@ -2218,7 +2227,9 @@ mod tests {
 
     #[test]
     fn test_preamble_multiple_defs() {
-        let ae = transpile_agentic_to_ae("%def fetch H.g\n%def parse J.p\nfetch(\"url\")|parse(data)\n").unwrap();
+        let ae =
+            transpile_agentic_to_ae("%def fetch H.g\n%def parse J.p\nfetch(\"url\")|parse(data)\n")
+                .unwrap();
         assert!(ae.contains("http.get(\"url\")"), "got:\n{ae}");
         assert!(ae.contains("json.parse(data)"), "got:\n{ae}");
     }
@@ -2232,7 +2243,10 @@ mod tests {
     #[test]
     fn test_for_each_full_pipeline() {
         let ae = transpile_agentic_to_ae("*[1,2,3]~x:echo(x)\n").unwrap();
-        assert!(ae.contains("([1,2,3]) | each(fn(x) => echo(x))"), "got:\n{ae}");
+        assert!(
+            ae.contains("([1,2,3]) | each(fn(x) => echo(x))"),
+            "got:\n{ae}"
+        );
     }
 
     #[test]
@@ -2247,7 +2261,9 @@ mod tests {
         for cat in ONTOLOGY {
             for rule in cat.rules {
                 let (input, expected) = rule.example;
-                if expected.is_empty() { continue; }
+                if expected.is_empty() {
+                    continue;
+                }
                 let ae = transpile_agentic_to_ae(&format!("{}\n", input)).unwrap();
                 assert!(ae.contains(expected),
                     "Ontology validation failed!\n  Category: {}\n  Pattern: {}\n  Input: {}\n  Expected: {}\n  Got: {}",
@@ -2259,7 +2275,22 @@ mod tests {
     #[test]
     fn test_ontology_has_all_categories() {
         let names: Vec<&str> = ONTOLOGY.iter().map(|c| c.name).collect();
-        for n in ["Preprocessing","Symbols","SI Suffixes","Lambdas","Module Sigils","Function Abbreviations","Builtin Shorthands","Pipelines","Assignments","Match","Try/Catch","Conditional","Comments","Preamble"] {
+        for n in [
+            "Preprocessing",
+            "Symbols",
+            "SI Suffixes",
+            "Lambdas",
+            "Module Sigils",
+            "Function Abbreviations",
+            "Builtin Shorthands",
+            "Pipelines",
+            "Assignments",
+            "Match",
+            "Try/Catch",
+            "Conditional",
+            "Comments",
+            "Preamble",
+        ] {
             assert!(names.contains(&n), "missing {n}");
         }
     }
@@ -2277,7 +2308,9 @@ mod tests {
     #[test]
     fn test_reserved_chars_complete() {
         let chars: Vec<char> = RESERVED_CHARS.iter().map(|(c, _, _)| *c).collect();
-        for c in ['|','>','^','?','!','~','$','#','@','%',';','=','T','N'] {
+        for c in [
+            '|', '>', '^', '?', '!', '~', '$', '#', '@', '%', ';', '=', 'T', 'N',
+        ] {
             assert!(chars.contains(&c), "missing reserved char {c}");
         }
     }
@@ -2286,7 +2319,13 @@ mod tests {
     fn test_conflict_rules_numbered() {
         for (i, rule) in CONFLICT_RULES.iter().enumerate() {
             let expected_prefix = format!("R{:02}", i + 1);
-            assert!(rule.starts_with(&expected_prefix), "Rule {} should start with {}, got: {}", i, expected_prefix, rule);
+            assert!(
+                rule.starts_with(&expected_prefix),
+                "Rule {} should start with {}, got: {}",
+                i,
+                expected_prefix,
+                rule
+            );
         }
     }
 }

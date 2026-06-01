@@ -87,7 +87,7 @@ pub fn transpile_zsh_to_ae(src: &str) -> Result<String> {
             || line.starts_with("declare -A ")
             || line.starts_with("local -A ")
         {
-            let rest = line.splitn(2, " -A ").nth(1).unwrap_or("").trim();
+            let rest = line.split_once(" -A ").map(|x| x.1).unwrap_or("").trim();
             if !rest.is_empty() {
                 let name = rest.split('=').next().unwrap_or(rest).trim();
                 if is_ident(name) {
@@ -103,7 +103,7 @@ pub fn transpile_zsh_to_ae(src: &str) -> Result<String> {
             || line.starts_with("declare "))
             && !line.contains(" -")
         {
-            let rest = line.splitn(2, ' ').nth(1).unwrap_or("").trim();
+            let rest = line.split_once(' ').map(|x| x.1).unwrap_or("").trim();
             if let Some(eq) = rest.find('=') {
                 let name = rest[..eq].trim();
                 let val = rest[eq + 1..].trim();
@@ -336,9 +336,9 @@ fn parse_simple_assignment(line: &str) -> Option<String> {
             let expr = render_arg_expr(&tok);
             return Some(format!("let {} = {};", lhs, expr));
         }
-        return None;
+        None
     } else if rhs.starts_with('$') {
-        return parse_var_ref(rhs).map(|var| format!("let {} = {};", lhs, var));
+        parse_var_ref(rhs).map(|var| format!("let {} = {};", lhs, var))
     } else if rhs.starts_with('(') && rhs.ends_with(')') {
         let inner = &rhs[1..rhs.len() - 1];
         let elems: Vec<String> = inner
@@ -354,13 +354,13 @@ fn parse_simple_assignment(line: &str) -> Option<String> {
                 }
             })
             .collect();
-        return Some(format!("let {} = [{}];", lhs, elems.join(", ")));
+        Some(format!("let {} = [{}];", lhs, elems.join(", ")))
     } else if is_int_literal(rhs) {
-        return Some(format!("let {} = {};", lhs, rhs));
+        Some(format!("let {} = {};", lhs, rhs))
     } else if is_float_literal(rhs) {
-        return Some(format!("let {} = {};", lhs, rhs));
+        Some(format!("let {} = {};", lhs, rhs))
     } else {
-        return Some(format!("let {} = {};", lhs, json_string_literal(rhs)));
+        Some(format!("let {} = {};", lhs, json_string_literal(rhs)))
     }
 }
 /* =============================================================================

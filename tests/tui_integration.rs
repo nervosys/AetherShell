@@ -367,18 +367,18 @@ mod tui_integration_tests {
         let _task_description = "Analyze uploaded media and provide comprehensive report";
 
         // Each agent would get assigned specific subtasks
-        let image_tasks = vec![
+        let image_tasks = [
             "Extract visual elements",
             "Identify objects",
             "Analyze composition",
         ];
-        let audio_tasks = vec!["Transcribe speech", "Analyze tone", "Extract keywords"];
-        let text_tasks = vec![
+        let audio_tasks = ["Transcribe speech", "Analyze tone", "Extract keywords"];
+        let text_tasks = [
             "Summarize findings",
             "Generate report",
             "Highlight insights",
         ];
-        let coord_tasks = vec!["Coordinate agents", "Compile results", "Final review"];
+        let coord_tasks = ["Coordinate agents", "Compile results", "Final review"];
 
         // Verify task distribution structure
         assert_eq!(image_tasks.len(), 3);

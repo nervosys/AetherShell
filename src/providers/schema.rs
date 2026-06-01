@@ -499,7 +499,7 @@ impl SchemaGenerator {
     pub fn to_provider_tools(&self, schemas: &[ToolSchema]) -> JsonValue {
         let tools: Vec<JsonValue> = schemas
             .iter()
-            .map(|s| s.to_provider_format(self.provider.clone()))
+            .map(|s| s.to_provider_format(self.provider))
             .collect();
 
         match self.provider {

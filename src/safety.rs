@@ -98,9 +98,17 @@ impl Effect {
 /// [`Effect::Pure`] (callers that need gating pass the effect explicitly).
 pub fn effect_of(name: &str) -> Effect {
     match name {
-        "rm" | "rmdir" | "file_delete" | "file_delete_lines" | "db_kv_delete"
-        | "db_sqlite_delete" | "docker_rm" | "docker_compose_down" | "truncate"
-        | "k8s_delete" | "platform_db_delete" => Effect::Destructive,
+        "rm"
+        | "rmdir"
+        | "file_delete"
+        | "file_delete_lines"
+        | "db_kv_delete"
+        | "db_sqlite_delete"
+        | "docker_rm"
+        | "docker_compose_down"
+        | "truncate"
+        | "k8s_delete"
+        | "platform_db_delete" => Effect::Destructive,
         "proc_kill" | "kill" | "signal" => Effect::Process,
         "sh" | "exec" | "system" => Effect::Exec,
         n if n.starts_with("http") || n.starts_with("net_") || n.starts_with("nc_") => {
@@ -565,7 +573,9 @@ pub fn audit(
 
     let seq = state.seq + 1;
     let ts = chrono::Utc::now().to_rfc3339();
-    let principal = std::env::var("USER").or_else(|_| std::env::var("USERNAME")).ok();
+    let principal = std::env::var("USER")
+        .or_else(|_| std::env::var("USERNAME"))
+        .ok();
 
     // Canonical core (everything but entry_hash); prev_hash chains entries.
     let core = json!({
@@ -662,7 +672,10 @@ pub fn verify_audit(path: &PathBuf) -> Result<u64, String> {
         }
         let recomputed = sha256_hex(&obj.to_string());
         if recomputed != stored {
-            return Err(format!("line {}: entry_hash mismatch (tampered)", lineno + 1));
+            return Err(format!(
+                "line {}: entry_hash mismatch (tampered)",
+                lineno + 1
+            ));
         }
 
         let prev_hash = obj.get("prev_hash").and_then(|v| v.as_str()).unwrap_or("");
@@ -747,10 +760,7 @@ pub fn guard(ctx: GuardCtx) -> Result<(), SafetyError> {
                 );
                 return Err(SafetyError {
                     code: ErrorCode::OutsideWorkspace,
-                    message: format!(
-                        "{}: '{}' is outside the workspace root",
-                        ctx.builtin, t
-                    ),
+                    message: format!("{}: '{}' is outside the workspace root", ctx.builtin, t),
                     builtin: ctx.builtin.to_string(),
                     hint: format!(
                         "operate on paths under {} or set AETHER_WORKSPACE",
@@ -913,11 +923,24 @@ mod tests {
     fn approval_token_is_bound_to_action() {
         let _l = ENV_LOCK.lock().unwrap();
         clear_env();
-        let a =
-            ApprovalDescriptor::new("delete", "rm", vec!["/x/a".into()], json!({"files":1}), false);
-        let b =
-            ApprovalDescriptor::new("delete", "rm", vec!["/x/b".into()], json!({"files":1}), false);
-        assert_ne!(a.token, b.token, "different targets must yield different tokens");
+        let a = ApprovalDescriptor::new(
+            "delete",
+            "rm",
+            vec!["/x/a".into()],
+            json!({"files":1}),
+            false,
+        );
+        let b = ApprovalDescriptor::new(
+            "delete",
+            "rm",
+            vec!["/x/b".into()],
+            json!({"files":1}),
+            false,
+        );
+        assert_ne!(
+            a.token, b.token,
+            "different targets must yield different tokens"
+        );
         assert!(a.token.starts_with("apv_"));
     }
 
@@ -930,7 +953,10 @@ mod tests {
         // Use a workspace so the jail does not interfere with this approval test.
         let tmp = std::env::temp_dir();
         std::env::set_var("AETHER_WORKSPACE", &tmp);
-        let target = tmp.join("ae_safety_test_file").to_string_lossy().to_string();
+        let target = tmp
+            .join("ae_safety_test_file")
+            .to_string_lossy()
+            .to_string();
 
         let mk = || GuardCtx {
             builtin: "rm",
@@ -947,7 +973,10 @@ mod tests {
         let token = err.approval.unwrap().token;
 
         std::env::set_var("AETHER_APPROVE", &token);
-        assert!(guard(mk()).is_ok(), "matching token should permit the action");
+        assert!(
+            guard(mk()).is_ok(),
+            "matching token should permit the action"
+        );
         let _ = std::fs::remove_file(&log);
         clear_env();
     }
@@ -961,7 +990,11 @@ mod tests {
         let tmp = std::env::temp_dir();
         std::env::set_var("AETHER_WORKSPACE", &tmp);
 
-        let outside = if cfg!(windows) { "C:/Windows/System32/x" } else { "/etc/x" };
+        let outside = if cfg!(windows) {
+            "C:/Windows/System32/x"
+        } else {
+            "/etc/x"
+        };
         let ctx = GuardCtx::new("rm", Effect::Destructive, "delete", outside);
         let err = guard(ctx).unwrap_err();
         assert_eq!(err.code, ErrorCode::OutsideWorkspace);

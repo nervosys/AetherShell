@@ -109,7 +109,11 @@ fn foreach_block() {
 fn function_block() {
     let ps = "function Get-Greeting {\n  param($Name)\n  Write-Host \"Hello $Name\"\n}";
     let ae = transpile_powershell_to_ae(ps).expect("transpile ok");
-    assert!(ae.contains("function") && ae.contains("sh("), "got:\n{}", ae);
+    assert!(
+        ae.contains("function") && ae.contains("sh("),
+        "got:\n{}",
+        ae
+    );
 }
 
 #[test]
@@ -144,7 +148,11 @@ fn while_block() {
 #[test]
 fn transpile_header() {
     let ae = transpile_powershell_to_ae("Write-Host 'hello'").expect("transpile ok");
-    assert!(ae.starts_with("// Transpiled from PowerShell"), "got:\n{}", ae);
+    assert!(
+        ae.starts_with("// Transpiled from PowerShell"),
+        "got:\n{}",
+        ae
+    );
 }
 
 #[test]
@@ -152,5 +160,9 @@ fn nested_blocks() {
     let ps = "function Foo {\n  if ($true) {\n    Write-Host 'nested'\n  }\n}";
     let ae = transpile_powershell_to_ae(ps).expect("transpile ok");
     let sh_count = ae.matches("sh(").count();
-    assert_eq!(sh_count, 1, "Expected single sh() call for nested blocks, got:\n{}", ae);
+    assert_eq!(
+        sh_count, 1,
+        "Expected single sh() call for nested blocks, got:\n{}",
+        ae
+    );
 }

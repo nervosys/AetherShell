@@ -361,7 +361,7 @@ mod tui_ui_tests {
 
     #[test]
     fn test_text_input_filtering() {
-        let events = vec![
+        let events = [
             KeyEvent {
                 code: KeyCode::Char('a'),
                 modifiers: KeyModifiers::NONE,

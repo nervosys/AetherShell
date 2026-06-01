@@ -111,8 +111,7 @@ pub fn eval_stmt(stmt: &Stmt, env: &mut Env) -> Result<Value> {
                     let mut resolver = ImportResolver::new(cwd);
 
                     // Load the source module
-                    let module_env = resolver
-                        .load_module(source, |stmts, module_env| eval_program(stmts, module_env))?;
+                    let module_env = resolver.load_module(source, eval_program)?;
 
                     // Import and re-export specified items
                     for item in items {
@@ -648,7 +647,7 @@ fn call_lambda0(l: &Lambda, env: &mut Env) -> Result<Value> {
 fn call_lambda1(l: &Lambda, x: Value, i: usize, env: &mut Env) -> Result<Value> {
     let p = l
         .params
-        .get(0)
+        .first()
         .ok_or_else(|| anyhow!("lambda needs 1 param"))?
         .clone();
 
@@ -711,7 +710,7 @@ fn call_lambda_n(l: &Lambda, args: Vec<Value>, env: &mut Env) -> Result<Value> {
 
     // Save old bindings and set new ones
     let mut old_bindings: Vec<(String, Option<Value>)> = Vec::with_capacity(l.params.len());
-    for (param, arg) in l.params.iter().zip(args.into_iter()) {
+    for (param, arg) in l.params.iter().zip(args) {
         old_bindings.push((param.clone(), env.get_var(param).cloned()));
         env.set_var_unchecked(param, arg);
     }
@@ -739,7 +738,7 @@ fn call_lambda_n(l: &Lambda, args: Vec<Value>, env: &mut Env) -> Result<Value> {
 fn call_lambda2(l: &Lambda, a: Value, b: Value, i: usize, env: &mut Env) -> Result<Value> {
     let p1 = l
         .params
-        .get(0)
+        .first()
         .ok_or_else(|| anyhow!("lambda needs 2 params"))?
         .clone();
     let p2 = l
@@ -813,7 +812,7 @@ fn value_eq(a: &Value, b: &Value) -> bool {
             rx.len() == ry.len()
                 && rx
                     .iter()
-                    .all(|(k, vx)| ry.get(k).map_or(false, |vy| value_eq(vx, vy)))
+                    .all(|(k, vx)| ry.get(k).is_some_and(|vy| value_eq(vx, vy)))
         }
         _ => false,
     }
@@ -895,7 +894,7 @@ fn interpolate_string(s: &str, env: &mut Env) -> Result<Value> {
             // Find the closing '}'
             let mut expr_str = String::new();
             let mut depth = 1;
-            while let Some(ch) = chars.next() {
+            for ch in chars.by_ref() {
                 if ch == '{' {
                     depth += 1;
                     expr_str.push(ch);

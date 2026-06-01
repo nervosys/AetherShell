@@ -592,7 +592,7 @@ impl App {
                 for media in &msg.media_attachments {
                     output.push_str(&format!("- {} ({:?})\n", media.path, media.media_type));
                 }
-                output.push_str("\n");
+                output.push('\n');
             }
 
             output.push_str("---\n\n");

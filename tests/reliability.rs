@@ -63,14 +63,8 @@ fn bad_arg_reports_the_offending_type() {
 #[test]
 fn canonical_is_deterministic_and_key_sorted() {
     // Exact, stable rendering with sorted keys regardless of insertion order.
-    let a = canon(rec(&[
-        ("b", Value::Str("x".into())),
-        ("a", Value::Int(1)),
-    ]));
-    let b = canon(rec(&[
-        ("a", Value::Int(1)),
-        ("b", Value::Str("x".into())),
-    ]));
+    let a = canon(rec(&[("b", Value::Str("x".into())), ("a", Value::Int(1))]));
+    let b = canon(rec(&[("a", Value::Int(1)), ("b", Value::Str("x".into()))]));
     assert_eq!(a, b, "insertion order must not affect canonical form");
     assert_eq!(a, r#"{"a":1,"b":"x"}"#);
 

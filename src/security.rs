@@ -764,7 +764,7 @@ pub fn validate_hostname_or_ip(input: &str) -> Result<String> {
 
 /// Validate an integer parameter for safe use in shell commands.
 pub fn validate_integer_param(value: i64, field_name: &str) -> Result<i64> {
-    if value < -20 || value > 4_294_967_295 {
+    if !(-20..=4_294_967_295).contains(&value) {
         return Err(anyhow!(
             "{} value {} is out of valid range",
             field_name,
@@ -1402,10 +1402,15 @@ pub fn sanitize_tui_output(text: &str) -> String {
     result = result
         .replace("\x1b", "") // Any remaining ESC
         .replace("\x07", "") // Bell (BEL)
-        .replace(char::from(0x9C), "") // ST (String Terminator) 8-bit
-        .replace(char::from(0x9D), "") // OSC (8-bit)
-        .replace(char::from(0x9E), "") // PM (Privacy Message) 8-bit
-        .replace(char::from(0x9F), ""); // APC (Application Program Command) 8-bit
+        .replace(
+            [
+                char::from(0x9C),
+                char::from(0x9D),
+                char::from(0x9E),
+                char::from(0x9F),
+            ],
+            "",
+        ); // APC (Application Program Command) 8-bit
 
     result
 }
@@ -1538,28 +1543,28 @@ mod tests {
         // Test command validation event
         let event = SecurityAuditEvent::command_validation("ls", true);
         assert_eq!(event.event_type, SecurityEventType::CommandValidation);
-        assert_eq!(event.allowed, true);
+        assert!(event.allowed);
         assert_eq!(event.resource, "ls");
         assert_eq!(event.action, "execute");
         assert_eq!(event.result, "allowed");
 
         // Test blocked command
         let event = SecurityAuditEvent::command_validation("rm -rf /", false);
-        assert_eq!(event.allowed, false);
+        assert!(!event.allowed);
         assert_eq!(event.result, "blocked");
         assert_eq!(event.severity, "warn");
 
         // Test prompt injection detection
         let event = SecurityAuditEvent::prompt_validation("ignore previous", true);
         assert_eq!(event.event_type, SecurityEventType::PromptValidation);
-        assert_eq!(event.allowed, false);
+        assert!(!event.allowed);
         assert_eq!(event.severity, "error");
         assert!(event.result.contains("Blocked"));
 
         // Test rate limit
         let event = SecurityAuditEvent::rate_limit_exceeded("api_call", 100);
         assert_eq!(event.event_type, SecurityEventType::RateLimitExceeded);
-        assert_eq!(event.allowed, false);
+        assert!(!event.allowed);
         assert_eq!(event.severity, "warn");
         assert!(event.result.contains("Rate limit exceeded"));
 

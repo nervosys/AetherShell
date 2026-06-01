@@ -341,9 +341,7 @@ async fn embeddings(
 ) -> Result<Json<EmbeddingResponse>, (StatusCode, Json<APIError>)> {
     // Validate API key if required
     if state.config.security.require_api_key {
-        if let Err(e) = validate_api_key(&headers, &state.config) {
-            return Err(e);
-        }
+        validate_api_key(&headers, &state.config)?
     }
 
     match state.api.embeddings(request).await {
@@ -1087,7 +1085,7 @@ mod tests {
         // Verify that we're setting all required security headers
         // This is a documentation test to ensure we don't forget any headers
 
-        let expected_headers = vec![
+        let expected_headers = [
             ("x-content-type-options", "nosniff"),
             ("x-frame-options", "DENY"),
             ("x-xss-protection", "1; mode=block"),

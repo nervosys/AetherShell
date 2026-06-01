@@ -9,8 +9,8 @@ use std::collections::HashMap;
 
 use crate::providers::{
     ChatRequest, ChatResponse, ChatStream, ContentPart, EmbeddingRequest, EmbeddingResponse,
-    FinishReason, ImageSource, LLMProvider, Message, ModelInfo, ProviderConfig,
-    ProviderError, ProviderType, Role, StreamChunk, StreamDelta, TokenUsage, ToolCall, ToolFormat, ToolSchema,
+    FinishReason, ImageSource, LLMProvider, Message, ModelInfo, ProviderConfig, ProviderError,
+    ProviderType, Role, StreamChunk, StreamDelta, TokenUsage, ToolCall, ToolFormat, ToolSchema,
 };
 
 /// Ollama local LLM provider
@@ -125,14 +125,14 @@ impl LLMProvider for OllamaProvider {
     async fn list_models(&self) -> Result<Vec<ModelInfo>, ProviderError> {
         let url = format!("{}/api/tags", self.base_url());
 
-        let response = self
-            .client
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| ProviderError::NetworkError {
-                message: e.to_string(),
-            })?;
+        let response =
+            self.client
+                .get(&url)
+                .send()
+                .await
+                .map_err(|e| ProviderError::NetworkError {
+                    message: e.to_string(),
+                })?;
 
         if !response.status().is_success() {
             return Ok(vec![]);
@@ -381,7 +381,8 @@ impl LLMProvider for OllamaProvider {
                 })
                 .collect()
         } else if let Some(arr) = json["embedding"].as_array() {
-            vec![arr.iter()
+            vec![arr
+                .iter()
                 .filter_map(|v| v.as_f64().map(|f| f as f32))
                 .collect()]
         } else {
@@ -430,10 +431,7 @@ impl LLMProvider for OllamaProvider {
 
     fn parse_response(&self, response: &JsonValue) -> Result<ChatResponse, ProviderError> {
         let message = &response["message"];
-        let content = message["content"]
-            .as_str()
-            .unwrap_or("")
-            .to_string();
+        let content = message["content"].as_str().unwrap_or("").to_string();
 
         // Parse tool calls if present
         let tool_calls = message

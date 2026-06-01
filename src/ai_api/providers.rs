@@ -31,6 +31,12 @@ pub struct OpenAIProvider {
     base_url: String,
 }
 
+impl Default for OpenAIProvider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl OpenAIProvider {
     pub fn new() -> Self {
         // Try to load from keyring or environment
@@ -80,7 +86,7 @@ impl ModelProvider for OpenAIProvider {
 
         let response = self
             .client
-            .get(&format!("{}/models", self.base_url))
+            .get(format!("{}/models", self.base_url))
             .header("Authorization", auth_header)
             .send()
             .await?;
@@ -108,15 +114,14 @@ impl ModelProvider for OpenAIProvider {
                         .unwrap_or("openai")
                         .to_string(),
                     provider: "openai".to_string(),
-                    context_length: self.get_context_length(
-                        &model.get("id").and_then(|v| v.as_str()).unwrap_or(""),
-                    ),
+                    context_length: self
+                        .get_context_length(model.get("id").and_then(|v| v.as_str()).unwrap_or("")),
                     max_output: None,
                     per_request_limits: None,
                     pricing: self
-                        .get_pricing(&model.get("id").and_then(|v| v.as_str()).unwrap_or("")),
+                        .get_pricing(model.get("id").and_then(|v| v.as_str()).unwrap_or("")),
                     capabilities: self
-                        .get_capabilities(&model.get("id").and_then(|v| v.as_str()).unwrap_or("")),
+                        .get_capabilities(model.get("id").and_then(|v| v.as_str()).unwrap_or("")),
                     local_path: None,
                     format: ModelFormat::OpenAI,
                     size_bytes: None,
@@ -159,7 +164,7 @@ impl ModelProvider for OpenAIProvider {
 
         let response = self
             .client
-            .post(&format!("{}/chat/completions", self.base_url))
+            .post(format!("{}/chat/completions", self.base_url))
             .header("Authorization", auth_header)
             .header("Content-Type", "application/json")
             .json(&payload)
@@ -188,7 +193,7 @@ impl ModelProvider for OpenAIProvider {
 
         let response = self
             .client
-            .post(&format!("{}/embeddings", self.base_url))
+            .post(format!("{}/embeddings", self.base_url))
             .header("Authorization", auth_header)
             .header("Content-Type", "application/json")
             .json(&payload)
@@ -213,7 +218,7 @@ impl ModelProvider for OpenAIProvider {
 
         let response = self
             .client
-            .get(&format!("{}/models", self.base_url))
+            .get(format!("{}/models", self.base_url))
             .header("Authorization", auth_header)
             .send()
             .await?;
@@ -407,6 +412,12 @@ pub struct AnthropicProvider {
     client: Client,
     config: Option<SecureApiConfig>,
     base_url: String,
+}
+
+impl Default for AnthropicProvider {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl AnthropicProvider {
@@ -703,7 +714,7 @@ impl ModelProvider for AnthropicProvider {
 
         let response = self
             .client
-            .post(&format!("{}/messages", self.base_url))
+            .post(format!("{}/messages", self.base_url))
             .header("x-api-key", api_key)
             .header("Content-Type", "application/json")
             .header("anthropic-version", "2023-06-01")
@@ -793,7 +804,7 @@ impl ModelProvider for AnthropicProvider {
 
         let response = self
             .client
-            .post(&format!("{}/messages", self.base_url))
+            .post(format!("{}/messages", self.base_url))
             .header("x-api-key", api_key)
             .header("Content-Type", "application/json")
             .header("anthropic-version", "2023-06-01")
@@ -817,6 +828,12 @@ pub struct LocalProvider {
     client: Client,
     model_dirs: Vec<std::path::PathBuf>,
     llama_cpp_url: Option<String>,
+}
+
+impl Default for LocalProvider {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl LocalProvider {
@@ -1299,6 +1316,12 @@ pub struct VLLMProvider {
     api_key: Option<String>,
 }
 
+impl Default for VLLMProvider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl VLLMProvider {
     pub fn new() -> Self {
         Self::with_endpoint("http://localhost:8000".to_string())
@@ -1319,7 +1342,7 @@ impl ModelProvider for VLLMProvider {
     async fn list_models(&self) -> Result<Vec<ModelInfo>> {
         let response = self
             .client
-            .get(&format!("{}/v1/models", self.base_url))
+            .get(format!("{}/v1/models", self.base_url))
             .send()
             .await?;
 
@@ -1388,7 +1411,7 @@ impl ModelProvider for VLLMProvider {
 
         let mut req = self
             .client
-            .post(&format!("{}/v1/chat/completions", self.base_url))
+            .post(format!("{}/v1/chat/completions", self.base_url))
             .header("Content-Type", "application/json")
             .json(&payload);
 
@@ -1414,7 +1437,7 @@ impl ModelProvider for VLLMProvider {
     async fn validate_api_key(&self) -> Result<bool> {
         let response = self
             .client
-            .get(&format!("{}/v1/models", self.base_url))
+            .get(format!("{}/v1/models", self.base_url))
             .send()
             .await?;
 
@@ -1431,6 +1454,12 @@ pub struct TensorRTLLMProvider {
     client: Client,
     base_url: String,
     api_key: Option<String>,
+}
+
+impl Default for TensorRTLLMProvider {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TensorRTLLMProvider {
@@ -1453,7 +1482,7 @@ impl ModelProvider for TensorRTLLMProvider {
     async fn list_models(&self) -> Result<Vec<ModelInfo>> {
         let response = self
             .client
-            .get(&format!("{}/v1/models", self.base_url))
+            .get(format!("{}/v1/models", self.base_url))
             .send()
             .await?;
 
@@ -1516,7 +1545,7 @@ impl ModelProvider for TensorRTLLMProvider {
 
         let mut req = self
             .client
-            .post(&format!("{}/v1/chat/completions", self.base_url))
+            .post(format!("{}/v1/chat/completions", self.base_url))
             .header("Content-Type", "application/json")
             .json(&payload);
 
@@ -1542,7 +1571,7 @@ impl ModelProvider for TensorRTLLMProvider {
     async fn validate_api_key(&self) -> Result<bool> {
         let response = self
             .client
-            .get(&format!("{}/v1/models", self.base_url))
+            .get(format!("{}/v1/models", self.base_url))
             .send()
             .await?;
 
@@ -1559,6 +1588,12 @@ pub struct SGLangProvider {
     client: Client,
     base_url: String,
     api_key: Option<String>,
+}
+
+impl Default for SGLangProvider {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SGLangProvider {
@@ -1581,7 +1616,7 @@ impl ModelProvider for SGLangProvider {
     async fn list_models(&self) -> Result<Vec<ModelInfo>> {
         let response = self
             .client
-            .get(&format!("{}/v1/models", self.base_url))
+            .get(format!("{}/v1/models", self.base_url))
             .send()
             .await?;
 
@@ -1647,7 +1682,7 @@ impl ModelProvider for SGLangProvider {
 
         let mut req = self
             .client
-            .post(&format!("{}/v1/chat/completions", self.base_url))
+            .post(format!("{}/v1/chat/completions", self.base_url))
             .header("Content-Type", "application/json")
             .json(&payload);
 
@@ -1673,7 +1708,7 @@ impl ModelProvider for SGLangProvider {
     async fn validate_api_key(&self) -> Result<bool> {
         let response = self
             .client
-            .get(&format!("{}/v1/models", self.base_url))
+            .get(format!("{}/v1/models", self.base_url))
             .send()
             .await?;
 
@@ -1690,6 +1725,12 @@ pub struct LlamaCppProvider {
     client: Client,
     base_url: String,
     api_key: Option<String>,
+}
+
+impl Default for LlamaCppProvider {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl LlamaCppProvider {
@@ -1713,7 +1754,7 @@ impl ModelProvider for LlamaCppProvider {
         // llama.cpp doesn't have a standard models endpoint, so we try to get info from the health endpoint
         let response = self
             .client
-            .get(&format!("{}/health", self.base_url))
+            .get(format!("{}/health", self.base_url))
             .send()
             .await?;
 
@@ -1795,7 +1836,7 @@ impl ModelProvider for LlamaCppProvider {
 
         let mut req = self
             .client
-            .post(&format!("{}/completion", self.base_url))
+            .post(format!("{}/completion", self.base_url))
             .header("Content-Type", "application/json")
             .json(&payload);
 
@@ -1874,7 +1915,7 @@ impl ModelProvider for LlamaCppProvider {
 
         let mut req = self
             .client
-            .post(&format!("{}/embedding", self.base_url))
+            .post(format!("{}/embedding", self.base_url))
             .header("Content-Type", "application/json")
             .json(&payload);
 
@@ -1918,7 +1959,7 @@ impl ModelProvider for LlamaCppProvider {
     async fn validate_api_key(&self) -> Result<bool> {
         let response = self
             .client
-            .get(&format!("{}/health", self.base_url))
+            .get(format!("{}/health", self.base_url))
             .send()
             .await?;
 
@@ -1955,7 +1996,7 @@ impl OllamaProvider {
     pub async fn pull_model(&self, model: &str) -> Result<()> {
         let response = self
             .client
-            .post(&format!("{}/api/pull", self.base_url))
+            .post(format!("{}/api/pull", self.base_url))
             .json(&json!({ "name": model, "stream": false }))
             .send()
             .await?;
@@ -1988,7 +2029,7 @@ impl ModelProvider for OllamaProvider {
     async fn list_models(&self) -> Result<Vec<ModelInfo>> {
         let response = self
             .client
-            .get(&format!("{}/api/tags", self.base_url))
+            .get(format!("{}/api/tags", self.base_url))
             .send()
             .await?;
 
@@ -2101,7 +2142,7 @@ impl ModelProvider for OllamaProvider {
 
         let response = self
             .client
-            .post(&format!("{}/api/chat", self.base_url))
+            .post(format!("{}/api/chat", self.base_url))
             .json(&body)
             .send()
             .await?;
@@ -2176,7 +2217,7 @@ impl ModelProvider for OllamaProvider {
 
         let response = self
             .client
-            .post(&format!("{}/api/embeddings", self.base_url))
+            .post(format!("{}/api/embeddings", self.base_url))
             .json(&json!({
                 "model": request.model,
                 "prompt": input_text
@@ -2259,7 +2300,7 @@ impl ModelProvider for LMStudioProvider {
     async fn list_models(&self) -> Result<Vec<ModelInfo>> {
         let response = self
             .client
-            .get(&format!("{}/v1/models", self.base_url))
+            .get(format!("{}/v1/models", self.base_url))
             .send()
             .await?;
 
@@ -2316,7 +2357,7 @@ impl ModelProvider for LMStudioProvider {
         // LM Studio speaks OpenAI-compatible API
         let response = self
             .client
-            .post(&format!("{}/v1/chat/completions", self.base_url))
+            .post(format!("{}/v1/chat/completions", self.base_url))
             .json(&request)
             .send()
             .await?;
@@ -2333,7 +2374,7 @@ impl ModelProvider for LMStudioProvider {
     async fn embeddings(&self, request: EmbeddingRequest) -> Result<EmbeddingResponse> {
         let response = self
             .client
-            .post(&format!("{}/v1/embeddings", self.base_url))
+            .post(format!("{}/v1/embeddings", self.base_url))
             .json(&request)
             .send()
             .await?;
@@ -2350,7 +2391,7 @@ impl ModelProvider for LMStudioProvider {
     async fn validate_api_key(&self) -> Result<bool> {
         let response = self
             .client
-            .get(&format!("{}/v1/models", self.base_url))
+            .get(format!("{}/v1/models", self.base_url))
             .timeout(std::time::Duration::from_secs(2))
             .send()
             .await;

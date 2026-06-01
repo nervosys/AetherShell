@@ -182,6 +182,12 @@ pub struct AudioPlayer {
     // In a full implementation, this would use rodio for playback
 }
 
+impl Default for AudioPlayer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AudioPlayer {
     pub fn new() -> Self {
         Self {}

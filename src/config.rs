@@ -40,6 +40,7 @@ pub fn reload_config() -> Result<ShellConfig> {
 /// Main shell configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+#[derive(Default)]
 pub struct ShellConfig {
     /// General shell settings
     pub shell: ShellSettings,
@@ -228,22 +229,6 @@ pub struct KeybindingsConfig {
 // ============================================================================
 // Default implementations
 // ============================================================================
-
-impl Default for ShellConfig {
-    fn default() -> Self {
-        Self {
-            shell: ShellSettings::default(),
-            colors: ColorConfig::default(),
-            prompt: PromptConfig::default(),
-            ai: AiConfig::default(),
-            history: HistoryConfig::default(),
-            editor: EditorConfig::default(),
-            keybindings: KeybindingsConfig::default(),
-            aliases: HashMap::new(),
-            env: HashMap::new(),
-        }
-    }
-}
 
 impl Default for ShellSettings {
     fn default() -> Self {

@@ -241,7 +241,7 @@ fn test_swarm_blackboard_captures_messages() {
     }
 
     // Blackboard should accumulate messages
-    assert!(swarm.blackboard.len() >= 1);
+    assert!(!swarm.blackboard.is_empty());
 }
 
 #[test]

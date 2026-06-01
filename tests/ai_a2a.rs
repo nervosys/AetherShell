@@ -440,7 +440,7 @@ fn test_clear_messages() {
     );
 
     bus.send(msg).unwrap();
-    assert!(bus.get_all_messages().unwrap().len() > 0);
+    assert!(!bus.get_all_messages().unwrap().is_empty());
 
     bus.clear().unwrap();
     assert_eq!(bus.get_all_messages().unwrap().len(), 0);
