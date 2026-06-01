@@ -346,6 +346,93 @@ automatic rollback on any failure.
 
 ---
 
+## Benchmarks vs Bash / Zsh / Fish / Nushell / PowerShell
+
+Three things matter to an AI agent driving a shell: how many **tokens** the
+interaction costs, how **reliable** the output is to parse, and whether actions are
+**safe**. Token efficiency below is *measured* with the real GPT-4 cl100k tokenizer
+(`cargo run --example shell_bench --features real-tokens`, counting each shell's
+idiomatic command + output). Reliability and safety are capability comparisons — the
+traditional shells return unstructured text and have no effect/approval model, so
+there is no single-number benchmark to run there.
+
+### Token efficiency (measured, real cl100k BPE)
+
+Per-task **output** tokens — what the agent must read back:
+
+| Task | AetherShell | Bash | Zsh | Fish | Nushell | PowerShell |
+|---|--:|--:|--:|--:|--:|--:|
+| list files (name, size) | **19** | 78 | 78 | 78 | 108 | 29 |
+| processes (pid, name, cpu) | **26** | 138 | 138 | 138 | 124 | 41 |
+| json field (scalar) | **2** | 2 | 2 | 2 | 2 | 2 |
+| disk usage (mount, free) | **23** | 85 | 85 | 85 | 107 | 33 |
+
+Totals (command + output) over the 4 tasks:
+
+| Shell | cmd | out | total | vs AetherShell |
+|---|--:|--:|--:|--:|
+| **AetherShell** | 48 | 70 | **118** | 1.00× |
+| Bash / Zsh / Fish | 28 | 303 | 331 | 2.81× |
+| Nushell | 34 | 341 | 375 | 3.18× |
+| PowerShell | 55 | 105 | 160 | 1.36× |
+
+**At scale** — a realistic 50-row listing where AECON's `@const`/`@dict`/`@delta`
+factoring compounds (output tokens):
+
+| Output format | tokens | vs AECON |
+|---|--:|--:|
+| **AetherShell (AECON)** | 562 | 1.00× |
+| PowerShell `Format-Table`\* | 821 | 1.46× |
+| Nushell (boxed table) | 1402 | 2.49× |
+| PowerShell `ConvertTo-Json` | 1447 | 2.57× |
+
+\* `Format-Table` is display-only (variable widths, truncation, culture-dependent);
+an agent that must reliably *parse* the result uses `ConvertTo-Json`.
+
+**Takeaway:** ~**2.8× fewer tokens than the POSIX shells** and ~**2.5–3.2× vs
+Nushell / PowerShell's parseable JSON** on tabular results. Scalars are at parity;
+the savings live in structured output, where agents spend most of their tokens.
+AetherShell emits each column name once (constants once via `@const`); JSON repeats
+every key on every row.
+
+### Reliability (capability comparison)
+
+| Property | Bash | Zsh | Fish | Nushell | PowerShell | AetherShell |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|
+| Typed structured output (not text to re-parse) | ✗ | ✗ | ✗ | ✓ | ~ | ✓ |
+| Deterministic output (no locale/width/ANSI variance) | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ |
+| Byte-stable output for diffs / caching | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (`--deterministic`) |
+| Structured, branchable errors | ✗ | ✗ | ✗ | ~ | ~ | ✓ (`E_*` codes) |
+| Lossless, reversible compact format | ✗ | ✗ | ✗ | ✗ | ~ | ✓ (`aecon_decode`) |
+| Multi-line edits without quoting/escaping hazards | ✗ | ✗ | ✗ | ~ | ~ | ✓ |
+
+An agent parsing `ls -l` text breaks on spaces in filenames, locale date formats,
+terminal width, and tool-version drift. AECON is byte-identical for identical values
+across OS/locale; `canonical` gives byte-stable JSON for snapshot tests and caches.
+
+### Safety (capability comparison)
+
+| Capability | Bash | Zsh | Fish | Nushell | PowerShell | AetherShell |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|
+| Effect taxonomy (pure → privileged) gating | ✗ | ✗ | ✗ | ✗ | ~ | ✓ |
+| Default-deny dangerous ops behind approval | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (`--agent`) |
+| Workspace jail confining writes/deletes | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (`--workspace`) |
+| Tamper-evident (hash-chained) audit log | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ |
+| RBAC over effect classes | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ |
+| Filesystem transactions / rollback | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (`tx_*` + savepoints) |
+| Plan → approve → atomic apply | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (`plan`/`apply`) |
+
+No traditional shell offers transactional rollback or effect-gated approval — a
+mistaken `rm -rf` is irreversible. In AetherShell a file-effecting batch can be
+planned, approved, attempted, and **rolled back atomically**.
+
+> Token numbers reproduce with `cargo run --example shell_bench --features real-tokens`.
+> Token efficiency is measured (real cl100k BPE over each shell's idiomatic output);
+> reliability/safety rows are capability comparisons. `~` = partial (e.g. PowerShell
+> objects are typed but its display formatting is lossy to parse).
+
+---
+
 ## Reliable File Editing for LLMs
 
 Traditional shells (Bash, PowerShell) make multi-line text operations error-prone for LLMs due to escaping, quoting, and command injection issues. AetherShell provides **structured file editing** that LLMs can use reliably:
