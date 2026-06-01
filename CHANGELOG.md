@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Resource governors (§7.6)** — a per-run blast-radius envelope enforced at the
+  `guard()` chokepoint, agent-mode only, all limits opt-in via env (unset =
+  unlimited). A breach returns the structured, non-retryable `E_BUDGET_EXCEEDED`
+  so an agent stops instead of looping:
+  - `AETHER_MAX_OPS` — total guarded operations per run.
+  - `AETHER_MAX_FILES` — filesystem ops (WriteLocal + Destructive).
+  - `AETHER_MAX_PROCS` — process/exec ops (Process + Exec).
+  - `AETHER_TIMEOUT_MS` — wall-clock budget since the first guarded op.
+
+  New builtins `governor_status()` (counts/limits/elapsed, also folded into
+  `safety_status()`) and `governor_reset()` (start a fresh envelope). New
+  `E_BUDGET_EXCEEDED` safety error code.
 - **Secret hygiene (§7.6)** — two deterministic defenses keep credentials out of
   the agent's context window and the audit log, opt-out via `AETHER_REDACT=off`:
   - **Shape redaction**: known secret *shapes* — provider key prefixes

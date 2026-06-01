@@ -26,12 +26,17 @@ fn clear() {
         "AETHER_APPROVE_ALL",
         "AETHER_WORKSPACE",
         "AETHER_AUDIT_LOG",
+        "AETHER_MAX_OPS",
+        "AETHER_MAX_FILES",
+        "AETHER_MAX_PROCS",
+        "AETHER_TIMEOUT_MS",
     ] {
         std::env::remove_var(k);
     }
     // Reset process-global safety state so tests can't contaminate each other.
     safety::set_principal(None);
     safety::clear_rbac_manager();
+    safety::governor_reset();
 }
 
 /// A unique workspace dir + an audit log redirected into it.
@@ -95,6 +100,42 @@ fn rm_in_agent_mode_requires_then_accepts_approval() {
     let res = aethershell::builtins::bi_rm(vec![arg], None);
     assert!(res.is_ok(), "approved rm should succeed: {:?}", res.err());
     assert!(!file.exists(), "file should be gone after approval");
+
+    let _ = std::fs::remove_dir_all(&dir);
+    clear();
+}
+
+#[test]
+fn governor_file_budget_blocks_second_rm_in_agent_mode() {
+    let _l = lock();
+    clear();
+    std::env::set_var("AETHER_MODE", "agent");
+    // Pre-approve so rm proceeds past the approval gate — we want the governor,
+    // not approval, to be the thing that stops the second delete.
+    std::env::set_var("AETHER_APPROVE_ALL", "1");
+    let dir = fresh_workspace("rm_governor");
+    safety::governor_reset();
+    std::env::set_var("AETHER_MAX_FILES", "1");
+
+    let f1 = dir.join("a.txt");
+    let f2 = dir.join("b.txt");
+    std::fs::write(&f1, b"a").unwrap();
+    std::fs::write(&f2, b"b").unwrap();
+
+    // First delete is within the file budget.
+    let r1 = aethershell::builtins::bi_rm(vec![Value::Str(f1.to_string_lossy().to_string())], None);
+    assert!(r1.is_ok(), "first rm should succeed: {:?}", r1.err());
+    assert!(!f1.exists());
+
+    // Second delete exceeds AETHER_MAX_FILES → E_BUDGET_EXCEEDED, file untouched.
+    let err = aethershell::builtins::bi_rm(
+        vec![Value::Str(f2.to_string_lossy().to_string())],
+        None,
+    )
+    .unwrap_err();
+    let rendered = format!("{}", err);
+    assert!(rendered.contains("E_BUDGET_EXCEEDED"), "got: {rendered}");
+    assert!(f2.exists(), "file must NOT be deleted once the budget is exhausted");
 
     let _ = std::fs::remove_dir_all(&dir);
     clear();

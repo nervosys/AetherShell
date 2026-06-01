@@ -331,6 +331,9 @@ prefixes, AWS keys, JWTs, PEM blocks, URL credentials, `key=secret` forms) are
 redacted from agent output *and* the audit log, and reading a secret-named env var
 returns an opaque `[REDACTED:NAME]` handle — so credentials never reach the model's
 context or persist to disk (opt out with `AETHER_REDACT=off` / `AETHER_SECRETS=allow`).
+**Resource governors** (opt-in: `AETHER_MAX_OPS`/`AETHER_MAX_FILES`/`AETHER_MAX_PROCS`/
+`AETHER_TIMEOUT_MS`) bound a run's blast radius at the same `guard()` chokepoint — a
+runaway agent loop is stopped with `E_BUDGET_EXCEEDED` rather than running unbounded.
 
 ### Transactions & checkpoints (no other shell offers this)
 
@@ -437,6 +440,7 @@ across OS/locale; `canonical` gives byte-stable JSON for snapshot tests and cach
 | Workspace jail confining writes/deletes | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (`--workspace`) |
 | Tamper-evident (hash-chained) audit log | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ |
 | Secret redaction (output + audit) & env handle gating | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (agent mode) |
+| Resource governors (ops/files/procs/wall-clock → `E_BUDGET_EXCEEDED`) | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (agent mode) |
 | RBAC over effect classes | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ |
 | Filesystem transactions / rollback | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (`tx_*` + savepoints) |
 | Plan → approve → atomic apply | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (`plan`/`apply`) |
