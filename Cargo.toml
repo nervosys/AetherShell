@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/aethershell-lsp"]
+members = [".", "crates/aethershell-lsp", "crates/agentic-eval"]
 exclude = ["web", "integrations/python"]
 
 [package]

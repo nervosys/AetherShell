@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **New crate `agentic-eval`** (`crates/agentic-eval`) — a standalone, reusable
+  library for evaluating how well a *program* serves an agentic AI system across
+  four axes, each with tests: **token efficiency** (standing-context + input +
+  output + retry cost under OpenAI GPT-4 `cl100k`, GPT-4o `o200k`, and a documented
+  Claude approximation; exact with `--features real-tokens`, heuristic otherwise),
+  **determinism** (byte-stability of output across runs), **reliability** (pass rate
+  + structured/actionable-failure rate over representative invocations), and
+  **safety** (blast-radius gating score from a program's declared effects under an
+  agent policy). Execution-agnostic (closures/effects supplied by the caller),
+  zero heavy deps by default. Includes an `evaluate` example and 21 tests.
 - **Cross-tokenizer benchmark check (§4/Phase 1).** `examples/token_bench.rs` now
   re-runs the §4 cipher-vs-legible criterion under a second real BPE (GPT-4o
   `o200k_base`) in addition to `cl100k_base`, and the legible-first verdict holds
