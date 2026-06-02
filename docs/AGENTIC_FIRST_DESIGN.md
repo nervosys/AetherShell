@@ -544,8 +544,23 @@ paged/truncated to fit (✅ implemented). ✅ Per-session aggregation lands via
   (`StreamEvent::chunk`, default 50 rows) by `stream_events_from_response`, so a
   client consumes rows incrementally and can early-stop instead of receiving one
   atomic `complete` (`tests/streaming.rs`). Previously it emitted the whole result
-  in a single event. *Remaining:* true stage-by-stage streaming evaluation (the
-  evaluator still computes the full value before chunking the output).
+  in a single event.
+- ✅ **Streaming evaluation** (`eval::eval_stream`): results are produced
+  *incrementally* rather than materializing the whole value first. When the final
+  expression is a pipeline `source | stage…` whose source is an `Array` and whose
+  stages are all element-independent (`map`/`where`/`filter`), each element is pushed
+  through the stage chain one at a time and emitted as soon as it survives — true
+  stage-by-stage streaming, computed lazily per element. Each streamed stage is
+  driven through the *same* pipe mechanism (`env.set_input` + `eval_expr`) the eager
+  evaluator uses, so element semantics are identical — there is no second
+  `map`/`where` implementation to diverge, and `eval_expr`/`eval_program` are
+  untouched (additive). Whole-collection stages (`sort`/`take`/`reduce`/`uniq`) or a
+  non-array source fall back to eager evaluation, still emitting elements after — so
+  correctness is preserved for every input. The `/api/v1/stream/eval` SSE route uses
+  it to emit `chunk` events as items are produced. Verified by
+  `eval_stream_streams_array_pipeline_element_wise` (+ fallback and scalar cases) in
+  `tests/streaming.rs`. *Remaining:* fully lazy iterators end-to-end (the fallback
+  path and whole-collection stages still materialize).
 
 ---
 

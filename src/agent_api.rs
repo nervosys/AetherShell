@@ -3909,20 +3909,26 @@ pub mod server {
         create_sse_response(async move {
             let mut events = vec![StreamEvent::start("Evaluating code...")];
 
-            let request = AgentRequest::Eval { code };
-            let response = process_request(&request);
-
-            if response.success {
-                events.push(StreamEvent::complete(
-                    response.result.unwrap_or(JsonValue::Null),
-                    response.result_type.as_deref(),
-                ));
-            } else {
-                events.push(StreamEvent::error(
-                    &response
-                        .error
-                        .unwrap_or_else(|| "Unknown error".to_string()),
-                ));
+            // Stream-evaluate: results are produced incrementally (element-by-element
+            // for a streamable `source | map/where/…` pipeline) rather than the whole
+            // value being materialized first, then chunked for the wire.
+            let mut env = crate::env::Env::new();
+            let mut items: Vec<JsonValue> = Vec::new();
+            let result = {
+                let mut emit = |v: crate::value::Value| items.push(v.to_json());
+                crate::eval::eval_stream(&code, &mut env, &mut emit)
+            };
+            match result {
+                Ok(n) => {
+                    for (seq, chunk) in items.chunks(50).enumerate() {
+                        events.push(StreamEvent::chunk(seq, chunk, n));
+                    }
+                    events.push(StreamEvent::complete(
+                        json!({ "streamed_items": n }),
+                        Some("stream"),
+                    ));
+                }
+                Err(e) => events.push(StreamEvent::error(&format!("{}", e))),
             }
             events
         })

@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Streaming evaluation (§6.3).** New `eval::eval_stream(code, env, on_item)`
+  produces results incrementally instead of materializing the whole value first.
+  For a final pipeline `source | map/where/filter…` over an array source, each
+  element is pushed through the stage chain one at a time and emitted as soon as it
+  survives — true stage-by-stage streaming, lazy per element. Each stage is driven
+  through the same pipe mechanism the eager evaluator uses (no second map/where
+  implementation; `eval_expr`/`eval_program` untouched). Whole-collection stages
+  (sort/take/reduce/uniq) or non-array sources fall back to eager evaluation, still
+  emitting elements after, so correctness holds for every input. The
+  `/api/v1/stream/eval` SSE route now emits `chunk` events as items are produced.
 - **MCP stdio transport (§9).** `ae [--agent] mcp stdio` runs a strict JSON-RPC 2.0
   MCP server over stdin/stdout (the canonical MCP transport) — `initialize`,
   `tools/list`, `tools/call`, `ping` — exposing every builtin as a tool routed

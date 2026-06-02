@@ -58,3 +58,42 @@ fn failure_emits_error_event() {
     assert!(events.iter().any(|e| e.event == "error"));
     assert_eq!(events.iter().filter(|e| e.event == "complete").count(), 0);
 }
+
+// ── Streaming *evaluation* (eval_stream): incremental, stage-by-stage ──────────
+use aethershell::value::Value;
+
+fn collect_stream(code: &str) -> (usize, Vec<Value>) {
+    let mut env = aethershell::env::Env::new();
+    let mut out: Vec<Value> = Vec::new();
+    let n = {
+        let mut emit = |v: Value| out.push(v);
+        aethershell::eval::eval_stream(code, &mut env, &mut emit).expect("eval_stream")
+    };
+    (n, out)
+}
+
+#[test]
+fn eval_stream_streams_array_pipeline_element_wise() {
+    // map then where are element-independent → streamed per element; only the
+    // surviving results are emitted (1→10 filtered, 2→20 filtered, 3→30, 4→40).
+    let (n, out) =
+        collect_stream("let d = [1,2,3,4]; d | map(fn(x) => x * 10) | where(fn(y) => y > 20)");
+    assert_eq!(n, 2);
+    assert_eq!(out, vec![Value::Int(30), Value::Int(40)]);
+}
+
+#[test]
+fn eval_stream_falls_back_for_whole_collection_stage() {
+    // `sort` needs the whole collection → not streamable → eager fallback, then the
+    // sorted elements are emitted (correctness preserved).
+    let (n, out) = collect_stream("[3,1,2] | sort()");
+    assert_eq!(n, 3);
+    assert_eq!(out, vec![Value::Int(1), Value::Int(2), Value::Int(3)]);
+}
+
+#[test]
+fn eval_stream_emits_scalar_once() {
+    let (n, out) = collect_stream("40 + 2");
+    assert_eq!(n, 1);
+    assert_eq!(out, vec![Value::Int(42)]);
+}
