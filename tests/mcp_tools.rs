@@ -676,8 +676,13 @@ fn builtin_text(res: &aethershell::mcp::McpToolResult) -> String {
 
 #[test]
 fn builtin_tools_listed_with_effect_metadata() {
+    // The flat per-builtin listing (with x-effect) is the `=all` mode; compact is
+    // the default (see mcp_tools_list_is_compact_by_default).
+    let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    std::env::set_var("AETHER_MCP_TOOLS", "all");
     let server = McpServer::new();
     let tools = server.list_builtin_tools();
+    std::env::remove_var("AETHER_MCP_TOOLS");
     assert!(!tools.is_empty(), "builtins exposed as MCP tools");
 
     let canonical = tools
@@ -701,6 +706,79 @@ fn builtin_tools_listed_with_effect_metadata() {
     assert_eq!(
         del.input_schema.get("x-effect").and_then(|v| v.as_str()),
         Some("destructive")
+    );
+}
+
+#[test]
+fn mcp_tools_list_is_compact_by_default() {
+    // Default discovery surface is the 3 meta-tools, not ~1k individual builtins —
+    // the standing-context win. (~26k tokens → <1k.)
+    let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    std::env::remove_var("AETHER_MCP_TOOLS");
+    let server = McpServer::new();
+    let tools = server.list_builtin_tools();
+    let names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
+    assert!(
+        tools.len() <= 4,
+        "compact discovery surface, got {} tools: {names:?}",
+        tools.len()
+    );
+    assert!(
+        names.contains(&"ontology_manifest"),
+        "manifest tool: {names:?}"
+    );
+    assert!(
+        names.contains(&"ontology_describe"),
+        "describe tool: {names:?}"
+    );
+    assert!(names.contains(&"aether"), "invoke meta-tool: {names:?}");
+}
+
+#[test]
+fn mcp_aether_meta_tool_invokes_any_builtin() {
+    // In compact mode the agent invokes builtins through the `aether` meta-tool,
+    // which unwraps {name, args} and routes to the named builtin.
+    use serde_json::json;
+    let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    std::env::remove_var("AETHER_MCP_TOOLS");
+    let server = McpServer::new();
+    let res = server
+        .handle_rpc(&json!({
+            "jsonrpc":"2.0","id":7,"method":"tools/call",
+            "params": {"name":"aether","arguments":{"name":"upper","args":["hi"]}}
+        }))
+        .expect("response");
+    assert_eq!(
+        res["result"]["content"][0]["text"].as_str(),
+        Some("HI"),
+        "aether routed to the upper builtin: {res}"
+    );
+    assert_eq!(res["result"]["isError"], false);
+}
+
+#[test]
+fn mcp_aether_meta_tool_still_gates_destructive() {
+    // The meta-tool is not an escape hatch: effect gating applies on the inner call.
+    use serde_json::json;
+    let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    std::env::set_var("AETHER_MODE", "agent");
+    std::env::remove_var("AETHER_MCP_TOOLS");
+    let server = McpServer::new();
+    let res = server
+        .handle_rpc(&json!({
+            "jsonrpc":"2.0","id":8,"method":"tools/call",
+            "params": {"name":"aether","arguments":{"name":"db_sqlite_delete","args":["x.db","t","1=1"]}}
+        }))
+        .expect("response");
+    std::env::remove_var("AETHER_MODE");
+    assert_eq!(
+        res["result"]["isError"], true,
+        "destructive still gated through the meta-tool: {res}"
+    );
+    let text = res["result"]["content"][0]["text"].as_str().unwrap_or("");
+    assert!(
+        text.contains("E_NEEDS_APPROVAL"),
+        "structured refusal carried through: {text}"
     );
 }
 
