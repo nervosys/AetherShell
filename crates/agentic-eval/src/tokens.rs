@@ -26,6 +26,7 @@ pub enum Model {
 }
 
 impl Model {
+    /// A human-readable label for the model/tokenizer (e.g. for report output).
     pub fn name(self) -> &'static str {
         match self {
             Model::OpenAiGpt4 => "openai-gpt4 (cl100k_base)",
@@ -172,6 +173,7 @@ impl std::fmt::Display for AgentCost {
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct Program {
+    /// Identifier for the program (used in comparisons/reports).
     pub name: String,
     /// The program text the agent writes.
     pub source: String,
@@ -194,14 +196,17 @@ impl Program {
             retries: 0,
         }
     }
+    /// Builder: set the representative output sample.
     pub fn with_output(mut self, sample: impl Into<String>) -> Self {
         self.output_sample = sample.into();
         self
     }
+    /// Builder: set the standing-context (schema/cheatsheet) text.
     pub fn with_standing_context(mut self, ctx: impl Into<String>) -> Self {
         self.standing_context = ctx.into();
         self
     }
+    /// Builder: set the estimated retry-token cost.
     pub fn with_retries(mut self, retries: usize) -> Self {
         self.retries = retries;
         self
@@ -250,11 +255,17 @@ pub fn evaluate_with<F: Fn(&str) -> usize>(program: &Program, count: F) -> Agent
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct Comparison {
+    /// The model/tokenizer used.
     pub model: Model,
+    /// Session length the totals are amortized over.
     pub turns: usize,
+    /// Program A's cost terms.
     pub a: AgentCost,
+    /// Program B's cost terms.
     pub b: AgentCost,
+    /// Program A's amortized session total ([`AgentCost::total_over`]).
     pub a_total: usize,
+    /// Program B's amortized session total.
     pub b_total: usize,
     /// True if `a` costs fewer total tokens over `turns` than `b`.
     pub winner_is_a: bool,
