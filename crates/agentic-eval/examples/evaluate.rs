@@ -20,7 +20,7 @@ fn main() {
     .with_standing_context("ls/where/map are standard, high-probability names")
     .with_output("name\nfoo.rs\nbar.rs");
     let cipher = Program::new("cipher", r#"l./src|w~.size>1k|m~.name"#)
-        .with_standing_context(&"single-letter+sigil cheatsheet line; ".repeat(120))
+        .with_standing_context("single-letter+sigil cheatsheet line; ".repeat(120))
         .with_output("name\nfoo.rs\nbar.rs")
         .with_retries(8); // terse cipher is mis-emitted more often
 

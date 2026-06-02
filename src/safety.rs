@@ -500,10 +500,12 @@ pub fn current_principal() -> Option<String> {
 
 /// Load and install an RBAC manager from config at startup, if configured, and
 /// set the acting principal. Sources, in order:
-///   - `AETHER_PRINCIPAL=<id>` sets the acting principal (independent of a config).
-///   - `AETHER_RBAC_CONFIG=<path>` (or `<workspace>/.ae/rbac.toml` if it exists)
-///     is parsed as a TOML [`crate::auth::RbacConfig`], installed as the manager,
-///     and its `principal` is used if `AETHER_PRINCIPAL` didn't already set one.
+///
+/// - `AETHER_PRINCIPAL=<id>` sets the acting principal (independent of a config).
+/// - `AETHER_RBAC_CONFIG=<path>` (or `<workspace>/.ae/rbac.toml` if it exists)
+///   is parsed as a TOML [`crate::auth::RbacConfig`], installed as the manager,
+///   and its `principal` is used if `AETHER_PRINCIPAL` didn't already set one.
+///
 /// No-op when nothing is configured, so default runs are unaffected. Parse/read
 /// failures warn (security_audit) and leave RBAC disabled rather than aborting.
 pub fn init_rbac_from_env() {

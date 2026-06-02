@@ -116,3 +116,52 @@ fn aethershell_bounds_dangerous_builtin_blast_radius_in_agent_mode() {
     assert_eq!(report.grade, 'A');
     assert_eq!(report.approval_gated, 3);
 }
+
+#[test]
+fn agentic_eval_policy_stays_in_sync_with_aethershell() {
+    // agentic-eval carries its OWN copy of the effect→decision policy (it must not
+    // depend on aethershell). The applied safety score is only faithful if that copy
+    // matches AetherShell's real policy — so assert they agree for every
+    // (effect, mode) pair. This fails loudly if the two ever drift.
+    use aethershell::safety as ae;
+    use agentic_eval::safety as ag;
+
+    // Ensure the default (non-permissive) policy table is in effect.
+    std::env::remove_var("AETHER_POLICY");
+
+    let label_ae = |d: ae::Decision| match d {
+        ae::Decision::Allow => "allow",
+        ae::Decision::Approve => "approve",
+        ae::Decision::Deny => "deny",
+    };
+    let label_ag = |d: ag::Decision| match d {
+        ag::Decision::Allow => "allow",
+        ag::Decision::Approve => "approve",
+        ag::Decision::Deny => "deny",
+    };
+
+    let effects = [
+        (ae::Effect::Pure, ag::Effect::Pure),
+        (ae::Effect::ReadLocal, ag::Effect::ReadLocal),
+        (ae::Effect::WriteLocal, ag::Effect::WriteLocal),
+        (ae::Effect::Network, ag::Effect::Network),
+        (ae::Effect::Process, ag::Effect::Process),
+        (ae::Effect::Destructive, ag::Effect::Destructive),
+        (ae::Effect::Exec, ag::Effect::Exec),
+        (ae::Effect::Privileged, ag::Effect::Privileged),
+    ];
+    let modes = [
+        (ae::Mode::Human, ag::Mode::Human),
+        (ae::Mode::Agent, ag::Mode::Agent),
+    ];
+    for (ae_e, ag_e) in effects {
+        for (ae_m, ag_m) in modes {
+            assert_eq!(
+                label_ae(ae::decide(ae_e, ae_m)),
+                label_ag(ag::decide(ag_e, ag_m)),
+                "policy drift for effect {} in this mode",
+                ag_e.name()
+            );
+        }
+    }
+}
