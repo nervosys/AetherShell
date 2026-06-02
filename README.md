@@ -324,16 +324,20 @@ Network → Exec → Privileged) drives a capability → policy → approval →
 pipeline. Agent mode (`--agent`) default-denies dangerous effect classes behind
 content-bound approval tokens; a **workspace jail** (`--workspace`) confines writes
 and deletes; a **hash-chained audit log** records every effecting action tamper-evidently;
-**RBAC** grants bypass approval but never the jail; failures surface as structured
-`E_*` errors agents can branch on. `safety_status()` reports the live envelope.
+**RBAC** grants bypass approval but never the jail (and can be loaded from a config
+file at startup via `AETHER_RBAC_CONFIG`); failures surface as structured, branchable
+`E_*` errors — every wrong-typed or missing argument is an `E_BAD_ARG` an agent can
+self-correct from, rendered as legible prose for humans. `safety_status()` reports the
+live envelope.
 **Secret hygiene** is on by default in agent mode: known secret shapes (API-key
 prefixes, AWS keys, JWTs, PEM blocks, URL credentials, `key=secret` forms) are
 redacted from agent output *and* the audit log, and reading a secret-named env var
 returns an opaque `[REDACTED:NAME]` handle — so credentials never reach the model's
 context or persist to disk (opt out with `AETHER_REDACT=off` / `AETHER_SECRETS=allow`).
 **Resource governors** (opt-in: `AETHER_MAX_OPS`/`AETHER_MAX_FILES`/`AETHER_MAX_PROCS`/
-`AETHER_TIMEOUT_MS`) bound a run's blast radius at the same `guard()` chokepoint — a
-runaway agent loop is stopped with `E_BUDGET_EXCEEDED` rather than running unbounded.
+`AETHER_MAX_NET`/`AETHER_TIMEOUT_MS`) bound a run's blast radius at the same `guard()`
+chokepoint — a runaway agent loop is stopped with `E_BUDGET_EXCEEDED` rather than
+running unbounded.
 
 ### Transactions & checkpoints (no other shell offers this)
 
@@ -343,14 +347,17 @@ tx_begin()
 tx_savepoint("before-risky")
 # … more work …
 tx_rollback_to("before-risky")   # partial rollback, transaction stays open
-tx_rollback()                     # or undo everything
+tx_begin()                        # nest: a child frame, undone independently
+tx_rollback()                     # roll back just the child, parent stays open
 ```
 
-`tx_begin`/`tx_commit`/`tx_rollback` with **named savepoints** cover file writes &
-appends, deletes, **recursive directory trees**, sqlite databases, and the key-value
-store. **`plan`/`apply`** give Terraform-style declarative destructive batches — a
-reviewable typed plan plus a content-bound approval token, applied atomically with
-automatic rollback on any failure.
+`tx_begin`/`tx_commit`/`tx_rollback` with **named savepoints** and **full nesting**
+(child commit folds into the parent; nothing is durable until the outermost commit)
+cover file writes & appends, deletes, **recursive directory trees**, sqlite databases,
+and the key-value store. **`plan`/`apply`** give Terraform-style declarative
+destructive batches (ops: `write`/`append`/`rm`/`mkdir`/`copy`/`move`) — a reviewable
+typed plan plus a content-bound approval token, applied atomically with automatic
+rollback on any failure.
 
 ---
 
@@ -423,7 +430,7 @@ the pattern (and real `ls -l` is even more verbose than the representative outpu
 | Typed structured output (not text to re-parse) | ✗ | ✗ | ✗ | ✓ | ~ | ✓ |
 | Deterministic output (no locale/width/ANSI variance) | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ |
 | Byte-stable output for diffs / caching | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (`--deterministic`) |
-| Structured, branchable errors | ✗ | ✗ | ✗ | ~ | ~ | ✓ (`E_*` codes) |
+| Structured, branchable errors | ✗ | ✗ | ✗ | ~ | ~ | ✓ (`E_*` codes; every arg error → `E_BAD_ARG` + `hint`) |
 | Lossless, reversible compact format | ✗ | ✗ | ✗ | ✗ | ~ | ✓ (`aecon_decode`) |
 | Multi-line edits without quoting/escaping hazards | ✗ | ✗ | ✗ | ~ | ~ | ✓ |
 
@@ -442,7 +449,7 @@ across OS/locale; `canonical` gives byte-stable JSON for snapshot tests and cach
 | Secret redaction (output + audit) & env handle gating | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (agent mode) |
 | Resource governors (ops/files/procs/net/wall-clock → `E_BUDGET_EXCEEDED`) | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (agent mode) |
 | RBAC over effect classes | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ |
-| Filesystem transactions / rollback | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (`tx_*` + savepoints) |
+| Filesystem transactions / rollback | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (`tx_*`, savepoints, nesting) |
 | Plan → approve → atomic apply | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (`plan`/`apply`) |
 
 No traditional shell offers transactional rollback or effect-gated approval — a
@@ -453,6 +460,12 @@ planned, approved, attempted, and **rolled back atomically**.
 > Token efficiency is measured (real cl100k BPE over each shell's idiomatic output);
 > reliability/safety rows are capability comparisons. `~` = partial (e.g. PowerShell
 > objects are typed but its display formatting is lossy to parse).
+
+These four axes aren't just asserted — they're **re-measurable**. The standalone
+[`agentic-eval`](crates/agentic-eval) crate scores any program for agentic use on
+**token efficiency, determinism, reliability, and safety** (under OpenAI GPT-4/GPT-4o
+tokenizers, with a pluggable counter for any other), and `cargo run --example
+agentic_eval` runs it against AetherShell's real engine.
 
 ---
 
@@ -579,6 +592,11 @@ mcp.tools()                              # List 130+ tools
 mcp.call("git", {command: "status"})     # Execute tool
 mcp.connect("http://localhost:3001")     # Connect to server
 ```
+AetherShell is also an **MCP _server_**: every builtin is exposed as an MCP tool
+(annotated with its `x-effect` class) over HTTP, or as a strict **JSON-RPC 2.0 stdio**
+server — `ae --agent mcp stdio` — with every `tools/call` routed through the same
+policy / jail / approval / audit, so any MCP client gets the full typed surface and
+the safety model with zero bespoke integration.
 
 ### A2A (Agent-to-Agent)
 ```ae
