@@ -23,6 +23,7 @@ dependencies = [
 name = "aethershell"
 version = "1.3.1"
 dependencies = [
+ "agentic-eval",
  "anyhow",
  "async-stream",
  "async-trait",

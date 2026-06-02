@@ -258,6 +258,36 @@ add ~185 tokens, pushing AECON to ~747 and the JSON ratio down to ~1.9×. In eve
 case AECON emits each column name once where JSON repeats every key on every row,
 and AECON is deterministic where the shell text formats are not.
 
+### 4.0c Four-axis evaluation, applied to the real engine (`agentic-eval`)
+
+The measure-first principle is now generalized into a **standalone, reusable
+library** — `crates/agentic-eval` — that scores any program for agentic use across
+all four axes this design optimizes, and it is **applied to AetherShell's shipped
+engine** (`examples/agentic_eval.rs` + `tests/agentic_eval_integration.rs`):
+
+- **Token efficiency** — AetherShell's own `est_token_count` (exact cl100k under
+  `--features real-tokens`) fills the library's `AgentCost` for the legible `.ae`
+  surface vs. the `.aeg` cipher, charging the cipher its real `describe_ontology`
+  standing-context tax. Over a 30-turn session the legible form wins
+  (~1.1k vs ~6.1k tokens) — the cipher's standing tax dwarfs its per-line input edge.
+- **Determinism** — the library runs AetherShell's `render_canonical` repeatedly and
+  confirms byte-stable output (sorted keys, shortest-round-trip floats):
+  `{ b: 2.0, a: 1, items: [3,1,2] }` → `{"a":1,"b":2,"items":[3,1,2]}`, identical
+  across runs.
+- **Reliability** — representative programs are run through the real parser+evaluator
+  and classified; a wrong-typed arg (`env(123)`) surfaces as a structured,
+  branchable `E_BAD_ARG` (an *actionable* failure, not a dead end).
+- **Safety** — AetherShell's `safety::effect_of(builtin)` is mapped into the library's
+  effect taxonomy and scored under the agent policy: every dangerous builtin
+  (`rm`/`sh`/`proc_kill`) is approval-gated, so the blast radius is **bounded (grade
+  A)**.
+
+The library is execution-agnostic (token efficiency on text; determinism/reliability
+via a caller closure; safety via declared effects), depends on nothing heavy by
+default, and counts tokens for OpenAI GPT-4/GPT-4o exactly (and a documented Claude
+approximation). So the agentic-first claims are not just asserted — they are
+re-measurable against the real engine by an independent, reusable tool.
+
 ### 4.1 Harness
 
 A new crate-internal tool `ae bench tokens` (or `cargo run -p ae-bench`) that, for

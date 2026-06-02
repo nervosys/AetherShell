@@ -202,6 +202,9 @@ web-sys = { version = "0.3", features = [
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
+# Four-axis agentic evaluation (token efficiency, determinism, reliability, safety)
+# applied to AetherShell's real engine in examples/agentic_eval.rs + the matching test.
+agentic-eval = { path = "crates/agentic-eval" }
 
 [[bench]]
 name = "mcp_performance"

@@ -17,7 +17,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   + structured/actionable-failure rate over representative invocations), and
   **safety** (blast-radius gating score from a program's declared effects under an
   agent policy). Execution-agnostic (closures/effects supplied by the caller),
-  zero heavy deps by default. Includes an `evaluate` example and 21 tests.
+  zero heavy deps by default. Includes an `evaluate` example and 22 tests.
+- **`agentic-eval` applied to AetherShell's real engine (§4.0c).**
+  `examples/agentic_eval.rs` + `tests/agentic_eval_integration.rs` wire the library
+  to AetherShell's actual tokenizer (`est_token_count`), evaluator, canonical
+  renderer, and `safety::effect_of`, scoring the shipped engine on all four axes:
+  legible wins token efficiency over a session (~1.1k vs ~6.1k), `render_canonical`
+  is byte-stable, wrong-typed args surface as actionable `E_BAD_ARG`, and dangerous
+  builtins are blast-radius bounded (grade A) under the agent policy. `agentic-eval`
+  is a dev-dependency; `Effect::from_name` maps host effect names into the taxonomy.
 - **Cross-tokenizer benchmark check (§4/Phase 1).** `examples/token_bench.rs` now
   re-runs the §4 cipher-vs-legible criterion under a second real BPE (GPT-4o
   `o200k_base`) in addition to `cl100k_base`, and the legible-first verdict holds

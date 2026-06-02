@@ -45,6 +45,24 @@ impl Effect {
         }
     }
 
+    /// Parse an effect from its snake_case name (the inverse of [`Self::name`]).
+    /// Accepts the same spellings other effect taxonomies use (e.g. AetherShell's
+    /// `safety::Effect::as_str`), so a host system's effect classifier can be mapped
+    /// straight in. Returns `None` for an unknown name.
+    pub fn from_name(name: &str) -> Option<Effect> {
+        Some(match name {
+            "pure" => Effect::Pure,
+            "read_local" => Effect::ReadLocal,
+            "write_local" => Effect::WriteLocal,
+            "network" => Effect::Network,
+            "process" => Effect::Process,
+            "destructive" => Effect::Destructive,
+            "exec" => Effect::Exec,
+            "privileged" => Effect::Privileged,
+            _ => return None,
+        })
+    }
+
     /// Whether this class is "dangerous" — capable of irreversible or
     /// out-of-sandbox harm, so it *should* be gated for an agent.
     pub fn is_dangerous(self) -> bool {
@@ -210,5 +228,22 @@ mod tests {
         assert!(Effect::Network < Effect::Privileged);
         assert!(Effect::Destructive.is_dangerous());
         assert!(!Effect::ReadLocal.is_dangerous());
+    }
+
+    #[test]
+    fn from_name_round_trips_every_effect() {
+        for e in [
+            Effect::Pure,
+            Effect::ReadLocal,
+            Effect::WriteLocal,
+            Effect::Network,
+            Effect::Process,
+            Effect::Destructive,
+            Effect::Exec,
+            Effect::Privileged,
+        ] {
+            assert_eq!(Effect::from_name(e.name()), Some(e));
+        }
+        assert_eq!(Effect::from_name("nonsense"), None);
     }
 }
