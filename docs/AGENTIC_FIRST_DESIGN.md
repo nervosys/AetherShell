@@ -904,9 +904,17 @@ Verified end-to-end (`ae --agent -c 'safety_status()'` reports `mode: "agent"`).
     safety layer; `auth::invalidate_user_cache` busts the resolved-permission
     cache on direct grants. So an operator/agent configures principals + grants
     entirely from the shell.
-  - *Remaining:* load a manager at startup from config / a login flow, and
-    optionally bridge the older `rbac_*` `RBAC_ROLES` role registry to
-    `RbacManager` (two RBAC stores exist today).
+  - ✅ **Startup config loading.** `RbacManager::from_config_str` parses a TOML
+    [`RbacConfig`] (roles with permissions + inheritance, principals with role
+    assignments + direct grants); `safety::init_rbac_from_env()` (called from
+    `main`) loads it from `AETHER_RBAC_CONFIG` (or `<workspace>/.ae/rbac.toml` if
+    present), installs the manager, and sets the acting principal (from
+    `AETHER_PRINCIPAL`, else the config's `principal`). So the authorization model
+    is configured from a file at boot, not just via in-shell `rbac_*` calls
+    (`auth::tests::test_rbac_from_config_str`,
+    `tests/safety.rs::rbac_config_loaded_at_startup_authorizes_principal`).
+    *Remaining:* an interactive login flow; optionally bridge the older `rbac_*`
+    `RBAC_ROLES` role registry into `RbacManager` (two stores still coexist).
 
 > **Test-infra fix (done):** `plugins::tests::test_plugin_source` was flaky under
 > parallel execution (it read the global plugin registry's `builtin.json` enabled

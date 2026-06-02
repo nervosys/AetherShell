@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **RBAC startup config (§13).** `RbacManager::from_config_str` parses a TOML
+  config (roles with permissions + inheritance; principals with role assignments +
+  direct grants), and `safety::init_rbac_from_env()` (called from `main` at boot)
+  loads it from `AETHER_RBAC_CONFIG` (or `<workspace>/.ae/rbac.toml`), installs the
+  manager, and sets the acting principal (`AETHER_PRINCIPAL`, else the config's
+  `principal`). The authorization model can now be configured from a file at
+  startup, not just via in-shell `rbac_*` calls.
 - **Plan/Apply `copy` and `move` ops (§9).** `plan`/`apply` now support `copy` and
   `move` operations alongside `write`/`append`/`rm`/`mkdir`; each takes a `dest` (or
   `to`) destination path. Both endpoints are workspace-jailed and snapshotted, so a

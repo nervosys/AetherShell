@@ -498,6 +498,52 @@ pub fn current_principal() -> Option<String> {
     PRINCIPAL.lock().ok().and_then(|g| g.clone())
 }
 
+/// Load and install an RBAC manager from config at startup, if configured, and
+/// set the acting principal. Sources, in order:
+///   - `AETHER_PRINCIPAL=<id>` sets the acting principal (independent of a config).
+///   - `AETHER_RBAC_CONFIG=<path>` (or `<workspace>/.ae/rbac.toml` if it exists)
+///     is parsed as a TOML [`crate::auth::RbacConfig`], installed as the manager,
+///     and its `principal` is used if `AETHER_PRINCIPAL` didn't already set one.
+/// No-op when nothing is configured, so default runs are unaffected. Parse/read
+/// failures warn (security_audit) and leave RBAC disabled rather than aborting.
+pub fn init_rbac_from_env() {
+    if let Ok(p) = std::env::var("AETHER_PRINCIPAL") {
+        if !p.is_empty() {
+            set_principal(Some(p));
+        }
+    }
+    let path = match std::env::var("AETHER_RBAC_CONFIG") {
+        Ok(p) => PathBuf::from(p),
+        Err(_) => {
+            let default = workspace_root().join(".ae").join("rbac.toml");
+            if !default.exists() {
+                return;
+            }
+            default
+        }
+    };
+    let text = match std::fs::read_to_string(&path) {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::warn!(target: "security_audit", "rbac config read {}: {}", path.display(), e);
+            return;
+        }
+    };
+    match crate::auth::RbacManager::from_config_str(&text) {
+        Ok((mgr, principal)) => {
+            set_rbac_manager(std::sync::Arc::new(mgr));
+            if current_principal().is_none() {
+                if let Some(p) = principal {
+                    set_principal(Some(p));
+                }
+            }
+        }
+        Err(e) => {
+            tracing::warn!(target: "security_audit", "rbac config parse {}: {}", path.display(), e);
+        }
+    }
+}
+
 /// Whether the current principal is RBAC-authorized for this effect. A grant
 /// (`effect:<class>`, `effect:*`, `*:*`, or `builtin:<name>`) returns
 /// `Some(true)`; the absence of a manager/principal or grant returns `None`

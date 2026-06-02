@@ -399,6 +399,56 @@ pub struct RbacManager {
     permission_cache: RwLock<HashMap<String, HashSet<String>>>,
 }
 
+/// Declarative RBAC configuration loaded at startup (TOML). Defines roles
+/// (permissions + inheritance) and principals (id → roles + direct grants), so an
+/// operator configures the authorization model from a file instead of in-shell
+/// `rbac_*` calls. Example:
+///
+/// ```toml
+/// principal = "ci-bot"            # optional: the acting principal at boot
+///
+/// [[role]]
+/// name = "deployer"
+/// permissions = ["effect:destructive", "effect:exec"]
+/// parents = ["agent"]
+///
+/// [[user]]
+/// id = "ci-bot"
+/// roles = ["deployer"]
+/// permissions = ["effect:network"]
+/// ```
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct RbacConfig {
+    /// Optional principal to make active at startup.
+    #[serde(default)]
+    pub principal: Option<String>,
+    #[serde(default, rename = "role")]
+    pub roles: Vec<RbacRoleConfig>,
+    #[serde(default, rename = "user")]
+    pub users: Vec<RbacUserConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RbacRoleConfig {
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub permissions: Vec<String>,
+    #[serde(default)]
+    pub parents: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RbacUserConfig {
+    /// Stable principal id (matched against the acting principal).
+    pub id: String,
+    #[serde(default)]
+    pub roles: Vec<String>,
+    #[serde(default)]
+    pub permissions: Vec<String>,
+}
+
 impl Default for RbacManager {
     fn default() -> Self {
         Self::new()
@@ -449,6 +499,46 @@ impl RbacManager {
             .with_permission("tool:use")
             .with_permission("api:call");
         self.add_role(agent_role);
+    }
+
+    /// Build a manager from a parsed [`RbacConfig`], on top of the default roles.
+    /// Roles are added first (so user assignments resolve), then each principal is
+    /// created with its `id` as the stable user id plus its direct grants and role
+    /// assignments. Returns the manager and the config's optional startup principal.
+    pub fn from_config(cfg: &RbacConfig) -> Result<(Self, Option<String>)> {
+        let mgr = RbacManager::new();
+        for r in &cfg.roles {
+            let mut role = Role::new(&r.name);
+            if let Some(d) = &r.description {
+                role = role.with_description(d.clone());
+            }
+            for p in &r.permissions {
+                role = role.with_permission(p.clone());
+            }
+            for parent in &r.parents {
+                role = role.with_parent(parent.clone());
+            }
+            mgr.add_role(role);
+        }
+        for u in &cfg.users {
+            let mut user = User::new(&u.id);
+            user.id = u.id.clone(); // principal id == config id (not a random UUID)
+            for p in &u.permissions {
+                user.permissions.insert(p.clone());
+            }
+            mgr.add_user(user)?;
+            for role in &u.roles {
+                mgr.assign_role(&u.id, role)?;
+            }
+        }
+        Ok((mgr, cfg.principal.clone()))
+    }
+
+    /// Parse a TOML config string and build a manager from it.
+    pub fn from_config_str(toml_str: &str) -> Result<(Self, Option<String>)> {
+        let cfg: RbacConfig =
+            toml::from_str(toml_str).map_err(|e| anyhow!("rbac config parse: {}", e))?;
+        Self::from_config(&cfg)
     }
 
     pub fn add_user(&self, user: User) -> Result<()> {
@@ -1230,6 +1320,34 @@ mod tests {
 
         assert!(rbac.check_permission(&user.id, "agent:read"));
         assert!(!rbac.check_permission(&user.id, "agent:write"));
+    }
+
+    #[test]
+    fn test_rbac_from_config_str() {
+        let toml_cfg = r#"
+            principal = "ci-bot"
+
+            [[role]]
+            name = "deployer"
+            permissions = ["effect:destructive", "effect:exec"]
+            parents = ["viewer"]
+
+            [[user]]
+            id = "ci-bot"
+            roles = ["deployer"]
+            permissions = ["effect:network"]
+        "#;
+        let (rbac, principal) = RbacManager::from_config_str(toml_cfg).expect("parse config");
+        assert_eq!(principal.as_deref(), Some("ci-bot"));
+        // Direct grant.
+        assert!(rbac.check_permission("ci-bot", "effect:network"));
+        // Role grant.
+        assert!(rbac.check_permission("ci-bot", "effect:destructive"));
+        assert!(rbac.check_permission("ci-bot", "effect:exec"));
+        // Inherited from the `viewer` parent role.
+        assert!(rbac.check_permission("ci-bot", "agent:read"));
+        // Not granted.
+        assert!(!rbac.check_permission("ci-bot", "effect:privileged"));
     }
 
     #[test]
