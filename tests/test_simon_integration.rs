@@ -1,7 +1,10 @@
-// Test self-describing tool registration with an external `simon` binary.
-// This is an opt-in local integration test: set the SIMON_BIN environment variable
-// to the path of a `simon` executable to run it; it skips otherwise. (No path is
-// hardcoded, so the test carries no machine-specific/private information.)
+// Opt-in integration test for AetherShell's self-describing external-tool
+// registration (`ExternalToolRegistry`), exercised against `simon` — a *separate
+// Rust crate* that ships a self-describing CLI. Because `simon` is an independent
+// crate (not a workspace member or dependency of AetherShell), this test can't link
+// it; it points at a built `simon` binary via the SIMON_BIN environment variable and
+// skips when it's unset. No path is hardcoded, so the test carries no
+// machine-specific data.
 //   Run with: SIMON_BIN=/path/to/simon cargo test --test test_simon_integration -- --nocapture
 
 use aethershell::external_tools::ExternalToolRegistry;
