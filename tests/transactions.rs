@@ -22,7 +22,22 @@ fn s(x: &str) -> Value {
 fn reset_tx() {
     std::env::remove_var("AETHER_MODE");
     let mut env = aethershell::env::Env::new();
-    let _ = aethershell::builtins::call("tx_rollback", vec![], &mut env);
+    // Drain any leftover nesting frames (a failed test could leave depth > 1).
+    for _ in 0..16 {
+        if aethershell::builtins::call("tx_rollback", vec![], &mut env).is_err() {
+            break;
+        }
+    }
+}
+
+fn get_int(v: &Value, key: &str) -> i64 {
+    match v {
+        Value::Record(m) => match m.get(key) {
+            Some(Value::Int(n)) => *n,
+            other => panic!("field {key} not an int: {other:?}"),
+        },
+        other => panic!("not a record: {other:?}"),
+    }
 }
 
 #[test]
@@ -203,6 +218,73 @@ fn apply_supports_append_and_is_atomic() {
     ]);
     assert_eq!(get_str(&call("apply", vec![bad]), "status"), "failed");
     assert!(!g.exists(), "append-created file removed on rollback");
+
+    std::env::remove_var("AETHER_WORKSPACE");
+    let _ = std::fs::remove_dir_all(&w);
+}
+
+#[test]
+fn nested_rollback_isolates_inner_then_outer() {
+    let _l = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    reset_tx();
+    let w = std::env::temp_dir().join(format!("ae_tx_nest_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&w);
+    std::fs::create_dir_all(&w).unwrap();
+    std::env::set_var("AETHER_WORKSPACE", &w);
+
+    let a = w.join("a.txt");
+    let b = w.join("b.txt");
+    std::fs::write(&a, b"orig").unwrap();
+
+    assert_eq!(get_int(&call("tx_begin", vec![]), "depth"), 1); // outer
+    call("file_write", vec![s(&a.to_string_lossy()), s("outer")]);
+
+    assert_eq!(get_int(&call("tx_begin", vec![]), "depth"), 2); // inner
+    call("file_write", vec![s(&a.to_string_lossy()), s("inner")]);
+    call("file_write", vec![s(&b.to_string_lossy()), s("inner-b")]);
+
+    // Inner rollback reverts ONLY the inner frame: a → its pre-inner ("outer")
+    // value, b (created inside) removed; the outer frame stays open.
+    call("tx_rollback", vec![]);
+    assert_eq!(std::fs::read_to_string(&a).unwrap(), "outer");
+    assert!(!b.exists(), "inner-created file removed by inner rollback");
+    assert_eq!(get_int(&call("tx_status", vec![]), "depth"), 1);
+
+    // Outer rollback restores the pre-transaction state.
+    call("tx_rollback", vec![]);
+    assert_eq!(std::fs::read_to_string(&a).unwrap(), "orig");
+    assert_eq!(get_int(&call("tx_status", vec![]), "depth"), 0);
+
+    std::env::remove_var("AETHER_WORKSPACE");
+    let _ = std::fs::remove_dir_all(&w);
+}
+
+#[test]
+fn nested_commit_folds_into_parent_then_outer_rollback_undoes_all() {
+    let _l = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    reset_tx();
+    let w = std::env::temp_dir().join(format!("ae_tx_fold_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&w);
+    std::fs::create_dir_all(&w).unwrap();
+    std::env::set_var("AETHER_WORKSPACE", &w);
+
+    let a = w.join("a.txt");
+    std::fs::write(&a, b"orig").unwrap();
+
+    call("tx_begin", vec![]); // outer
+    call("file_write", vec![s(&a.to_string_lossy()), s("outer")]);
+    call("tx_begin", vec![]); // inner
+    call("file_write", vec![s(&a.to_string_lossy()), s("inner")]);
+
+    // Nested commit keeps the inner change but is NOT durable — it folds into the
+    // parent, which is still open.
+    call("tx_commit", vec![]);
+    assert_eq!(std::fs::read_to_string(&a).unwrap(), "inner");
+    assert_eq!(get_int(&call("tx_status", vec![]), "depth"), 1);
+
+    // Outer rollback undoes everything (inner-committed change included).
+    call("tx_rollback", vec![]);
+    assert_eq!(std::fs::read_to_string(&a).unwrap(), "orig");
 
     std::env::remove_var("AETHER_WORKSPACE");
     let _ = std::fs::remove_dir_all(&w);
