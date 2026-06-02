@@ -572,7 +572,9 @@ fn call_value_with_pipe(
                 }
                 // N-arg (3+): if we have exact arity match, call with all args
                 (_, n, m) if n >= 3 && n == m => call_lambda_n(&l, args, env),
-                _ => Err(anyhow!("lambda arity mismatch or missing input")),
+                _ => Err(crate::safety::arg_err(
+                    "lambda arity mismatch or missing input",
+                )),
             }
         }
         // Async lambda: create a Future instead of executing immediately
@@ -648,7 +650,7 @@ fn call_lambda1(l: &Lambda, x: Value, i: usize, env: &mut Env) -> Result<Value> 
     let p = l
         .params
         .first()
-        .ok_or_else(|| anyhow!("lambda needs 1 param"))?
+        .ok_or_else(|| crate::safety::arg_err("lambda needs 1 param"))?
         .clone();
 
     // Save and clear pipe input to prevent leakage
@@ -739,12 +741,12 @@ fn call_lambda2(l: &Lambda, a: Value, b: Value, i: usize, env: &mut Env) -> Resu
     let p1 = l
         .params
         .first()
-        .ok_or_else(|| anyhow!("lambda needs 2 params"))?
+        .ok_or_else(|| crate::safety::arg_err("lambda needs 2 params"))?
         .clone();
     let p2 = l
         .params
         .get(1)
-        .ok_or_else(|| anyhow!("lambda needs 2 params"))?
+        .ok_or_else(|| crate::safety::arg_err("lambda needs 2 params"))?
         .clone();
 
     // Save and clear pipe input to prevent leakage

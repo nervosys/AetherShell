@@ -229,6 +229,23 @@ pub fn bad_arg(builtin: &str, expected: &str, got: &str) -> anyhow::Error {
     })
 }
 
+/// Build a structured argument error (`E_BAD_ARG`) from a free-form arity/usage
+/// message that already names the builtin and what it needs (e.g.
+/// `"map requires a lambda"`). The missing/extra-argument counterpart to
+/// [`bad_arg`] for the many call sites whose message doesn't split cleanly into
+/// `expected`/`got`. Like [`bad_arg`] it is a [`SafetyError`], so try/catch binds
+/// it as a structured `{error:{code:"E_BAD_ARG", message, hint, retryable}}`
+/// record and the human REPL renders it as legible prose.
+pub fn arg_err(message: impl Into<String>) -> anyhow::Error {
+    anyhow::Error::new(SafetyError {
+        code: ErrorCode::BadArg,
+        message: message.into(),
+        builtin: String::new(),
+        hint: "check this builtin's required argument count and types".to_string(),
+        approval: None,
+    })
+}
+
 /// A describable action an agent may be asked to approve (§7.2). The `token`
 /// is cryptographically bound to the action's content, so it cannot be replayed
 /// to approve a different action.
@@ -768,7 +785,9 @@ lazy_static! {
 }
 
 fn env_u64(name: &str) -> Option<u64> {
-    std::env::var(name).ok().and_then(|v| v.trim().parse::<u64>().ok())
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
 }
 
 fn budget_error(builtin: &str, message: String, hint: &str) -> SafetyError {
@@ -1170,7 +1189,9 @@ pub fn redact_str(s: &str) -> (String, bool) {
     let mut cur = s.to_string();
     let mut changed = false;
     if SECRET_TOKEN_RE.is_match(&cur) {
-        cur = SECRET_TOKEN_RE.replace_all(&cur, REDACTION_MARKER).into_owned();
+        cur = SECRET_TOKEN_RE
+            .replace_all(&cur, REDACTION_MARKER)
+            .into_owned();
         changed = true;
     }
     if URL_CRED_RE.is_match(&cur) {
@@ -1475,7 +1496,8 @@ mod tests {
         let (r, _) = redact_str(jwt);
         assert!(r.contains("[REDACTED]") && !r.contains("eyJzdWIi"));
         // PEM private-key block.
-        let pem = "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA\n-----END RSA PRIVATE KEY-----";
+        let pem =
+            "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA\n-----END RSA PRIVATE KEY-----";
         let (r, _) = redact_str(pem);
         assert!(r.contains("[REDACTED]") && !r.contains("MIIEpAIB"));
     }

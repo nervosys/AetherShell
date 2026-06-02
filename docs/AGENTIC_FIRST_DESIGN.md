@@ -676,10 +676,15 @@ The `.ae` surface keeps readable, unambiguous syntax and gains:
   idx, expected)` gives the same structured `E_BAD_ARG`; the core agent-facing verbs
   (`map`/`where`/`reduce`/`take`/`call`/`agent`/`swarm`/`mcp_call`) now use it.
   `type_builtin_call` static inference also gained the shape-preserving array
-  transforms (`sort`/`uniq`/`take`/`head`/`tail`) and `len`/`wc` → `Int`. *Remaining:*
-  the long tail of peripheral builtins still uses prose arity messages — functional
-  and error-returning, just not yet code-branchable; converting them via `arg()` is
-  safe mechanical follow-up.
+  transforms (`sort`/`uniq`/`take`/`head`/`tail`) and `len`/`wc` → `Int`.
+  ✅ **The peripheral long tail is now converted too:** all ~490 prose arity/usage
+  errors across the builtins (and the evaluator's lambda-arity checks) emit the
+  structured `E_BAD_ARG` via `safety::arg_err(message)` — the message text is
+  preserved, only the error *type* is upgraded, so every argument/arity failure is
+  now a branchable, catchable record (and renders as legible prose for humans).
+  Errors that are *not* about caller arguments — API-response parsing, feature-flag
+  gating, URL/URI validation, workflow-definition checks — were deliberately left as
+  plain errors, since coding them `E_BAD_ARG` would be wrong.
 - ✅ **Great errors with `hint`** — humans benefit from the same structured errors,
   rendered richly. The human REPL unpacks an uncaught `SafetyError` into legible prose
   — `error[CODE]: message`, an indented `hint:` line, and (for an approvable action)

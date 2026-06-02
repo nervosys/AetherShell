@@ -3734,7 +3734,7 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_tx_rollback_to(args, input), // 1136
     // resource governors (§7.6)
     |args, input, _| bi_governor_status(args, input), // 1137
-    |args, input, _| bi_governor_reset(args, input), // 1138
+    |args, input, _| bi_governor_reset(args, input),  // 1138
 ];
 
 fn fast_builtin_lookup(
@@ -4133,7 +4133,7 @@ fn bi_print(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     } else {
         args.into_iter()
             .next()
-            .ok_or_else(|| anyhow!("print expects a value"))?
+            .ok_or_else(|| crate::safety::arg_err("print expects a value"))?
     };
 
     // (Removed an unused strip_ansi helper; tests have their own)
@@ -4177,11 +4177,16 @@ fn bi_http_get(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     } else {
         args.into_iter()
             .next()
-            .ok_or_else(|| anyhow!("http_get expects URL string/uri"))?
+            .ok_or_else(|| crate::safety::arg_err("http_get expects URL string/uri"))?
     };
     let url = match url_val {
         Value::Str(s) | Value::Uri(s) => s,
-        other => return Err(anyhow!("http_get expects URL string/uri, got {:?}", other)),
+        other => {
+            return Err(crate::safety::arg_err(format!(
+                "http_get expects URL string/uri, got {:?}",
+                other
+            )))
+        }
     };
 
     // Meter + audit network egress (governor: AETHER_MAX_NET).
@@ -4348,7 +4353,8 @@ fn bi_take(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     let n = expect_int(
         "take",
-        args.get(n_idx).ok_or_else(|| anyhow!("take missing n"))?,
+        args.get(n_idx)
+            .ok_or_else(|| crate::safety::arg_err("take missing n"))?,
     )?;
     let arr = expect_array("take", &arr_val)?;
 
@@ -4362,7 +4368,9 @@ fn bi_keys(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     } else if !args.is_empty() {
         args[0].clone()
     } else {
-        return Err(anyhow!("keys: requires a Record as input or argument"));
+        return Err(crate::safety::arg_err(
+            "keys: requires a Record as input or argument",
+        ));
     };
 
     match val {
@@ -4370,7 +4378,10 @@ fn bi_keys(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             let keys: Vec<Value> = map.keys().map(|k| Value::Str(k.clone())).collect();
             Ok(Value::Array(keys))
         }
-        _ => Err(anyhow!("keys: requires a Record, got {:?}", val)),
+        _ => Err(crate::safety::arg_err(format!(
+            "keys: requires a Record, got {:?}",
+            val
+        ))),
     }
 }
 
@@ -4380,7 +4391,9 @@ fn bi_values(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     } else if !args.is_empty() {
         args[0].clone()
     } else {
-        return Err(anyhow!("values: requires a Record as input or argument"));
+        return Err(crate::safety::arg_err(
+            "values: requires a Record as input or argument",
+        ));
     };
 
     match val {
@@ -4388,7 +4401,10 @@ fn bi_values(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             let values: Vec<Value> = map.values().cloned().collect();
             Ok(Value::Array(values))
         }
-        _ => Err(anyhow!("values: requires a Record, got {:?}", val)),
+        _ => Err(crate::safety::arg_err(format!(
+            "values: requires a Record, got {:?}",
+            val
+        ))),
     }
 }
 
@@ -4398,7 +4414,9 @@ fn bi_sum(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     } else if !args.is_empty() {
         args[0].clone()
     } else {
-        return Err(anyhow!("sum: requires an Array as input or argument"));
+        return Err(crate::safety::arg_err(
+            "sum: requires an Array as input or argument",
+        ));
     };
 
     match arr {
@@ -4438,7 +4456,10 @@ fn bi_sum(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                 Ok(Value::Int(int_sum))
             }
         }
-        _ => Err(anyhow!("sum: requires an Array, got {:?}", arr)),
+        _ => Err(crate::safety::arg_err(format!(
+            "sum: requires an Array, got {:?}",
+            arr
+        ))),
     }
 }
 
@@ -4482,7 +4503,9 @@ fn bi_avg(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     } else if !args.is_empty() {
         args[0].clone()
     } else {
-        return Err(anyhow!("avg: requires an Array as input or argument"));
+        return Err(crate::safety::arg_err(
+            "avg: requires an Array as input or argument",
+        ));
     };
 
     match arr {
@@ -4507,7 +4530,10 @@ fn bi_avg(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
             Ok(Value::Float(sum / items.len() as f64))
         }
-        _ => Err(anyhow!("avg: requires an Array, got {:?}", arr)),
+        _ => Err(crate::safety::arg_err(format!(
+            "avg: requires an Array, got {:?}",
+            arr
+        ))),
     }
 }
 
@@ -4517,7 +4543,9 @@ fn bi_product(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     } else if !args.is_empty() {
         args[0].clone()
     } else {
-        return Err(anyhow!("product: requires an Array as input or argument"));
+        return Err(crate::safety::arg_err(
+            "product: requires an Array as input or argument",
+        ));
     };
 
     match arr {
@@ -4557,7 +4585,10 @@ fn bi_product(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                 Ok(Value::Int(int_product))
             }
         }
-        _ => Err(anyhow!("product: requires an Array, got {:?}", arr)),
+        _ => Err(crate::safety::arg_err(format!(
+            "product: requires an Array, got {:?}",
+            arr
+        ))),
     }
 }
 
@@ -4736,7 +4767,9 @@ fn bi_config_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 /// Note: This modifies the config file but changes only take effect after reload
 fn bi_config_set(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.len() < 2 {
-        return Err(anyhow!("config_set: requires path and value arguments"));
+        return Err(crate::safety::arg_err(
+            "config_set: requires path and value arguments",
+        ));
     }
 
     let path = match &args[0] {
@@ -4872,10 +4905,14 @@ fn bi_plugin_info(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     } else if !args.is_empty() {
         match &args[0] {
             Value::Str(id) => id.clone(),
-            _ => return Err(anyhow!("plugin_info: requires plugin ID string")),
+            _ => {
+                return Err(crate::safety::arg_err(
+                    "plugin_info: requires plugin ID string",
+                ))
+            }
         }
     } else {
-        return Err(anyhow!("plugin_info: requires plugin ID"));
+        return Err(crate::safety::arg_err("plugin_info: requires plugin ID"));
     };
 
     Ok(crate::plugins::bi_plugin_info(&plugin_id))
@@ -4888,10 +4925,14 @@ fn bi_plugin_enable(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     } else if !args.is_empty() {
         match &args[0] {
             Value::Str(id) => id.clone(),
-            _ => return Err(anyhow!("plugin_enable: requires plugin ID string")),
+            _ => {
+                return Err(crate::safety::arg_err(
+                    "plugin_enable: requires plugin ID string",
+                ))
+            }
         }
     } else {
-        return Err(anyhow!("plugin_enable: requires plugin ID"));
+        return Err(crate::safety::arg_err("plugin_enable: requires plugin ID"));
     };
 
     crate::plugins::bi_plugin_enable(&plugin_id)
@@ -4904,10 +4945,14 @@ fn bi_plugin_disable(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     } else if !args.is_empty() {
         match &args[0] {
             Value::Str(id) => id.clone(),
-            _ => return Err(anyhow!("plugin_disable: requires plugin ID string")),
+            _ => {
+                return Err(crate::safety::arg_err(
+                    "plugin_disable: requires plugin ID string",
+                ))
+            }
         }
     } else {
-        return Err(anyhow!("plugin_disable: requires plugin ID"));
+        return Err(crate::safety::arg_err("plugin_disable: requires plugin ID"));
     };
 
     crate::plugins::bi_plugin_disable(&plugin_id)
@@ -4920,10 +4965,12 @@ fn bi_plugin_load(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     } else if !args.is_empty() {
         match &args[0] {
             Value::Str(p) => p.clone(),
-            _ => return Err(anyhow!("plugin_load: requires path string")),
+            _ => return Err(crate::safety::arg_err("plugin_load: requires path string")),
         }
     } else {
-        return Err(anyhow!("plugin_load: requires manifest path"));
+        return Err(crate::safety::arg_err(
+            "plugin_load: requires manifest path",
+        ));
     };
 
     crate::plugins::load_plugin_from_manifest(&path)
@@ -4936,10 +4983,14 @@ fn bi_plugin_unload(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     } else if !args.is_empty() {
         match &args[0] {
             Value::Str(id) => id.clone(),
-            _ => return Err(anyhow!("plugin_unload: requires plugin ID string")),
+            _ => {
+                return Err(crate::safety::arg_err(
+                    "plugin_unload: requires plugin ID string",
+                ))
+            }
         }
     } else {
-        return Err(anyhow!("plugin_unload: requires plugin ID"));
+        return Err(crate::safety::arg_err("plugin_unload: requires plugin ID"));
     };
 
     crate::plugins::unload_plugin(&plugin_id)
@@ -4956,7 +5007,7 @@ fn bi_len(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     } else if !args.is_empty() {
         args[0].clone()
     } else {
-        return Err(anyhow!("len: requires input or argument"));
+        return Err(crate::safety::arg_err("len: requires input or argument"));
     };
 
     let length = match val {
@@ -4980,7 +5031,9 @@ fn bi_type_of(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     } else if !args.is_empty() {
         args[0].clone()
     } else {
-        return Err(anyhow!("type_of: requires input or argument"));
+        return Err(crate::safety::arg_err(
+            "type_of: requires input or argument",
+        ));
     };
 
     let type_str = match val {
@@ -5018,7 +5071,9 @@ fn bi_is_error(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     } else if !args.is_empty() {
         args[0].clone()
     } else {
-        return Err(anyhow!("is_error: requires input or argument"));
+        return Err(crate::safety::arg_err(
+            "is_error: requires input or argument",
+        ));
     };
 
     let is_err = matches!(val, Value::Error(_));
@@ -5041,7 +5096,7 @@ fn bi_debug(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     } else if !args.is_empty() {
         args[0].clone()
     } else {
-        return Err(anyhow!("debug: requires input or argument"));
+        return Err(crate::safety::arg_err("debug: requires input or argument"));
     };
 
     let type_str = val.type_name();
@@ -5085,7 +5140,9 @@ fn bi_assert(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             .unwrap_or_else(|| "assertion failed".to_string());
         (args[0].clone(), message)
     } else {
-        return Err(anyhow!("assert: requires condition argument"));
+        return Err(crate::safety::arg_err(
+            "assert: requires condition argument",
+        ));
     };
 
     // Check if condition is truthy
@@ -5139,7 +5196,9 @@ fn bi_trace(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         // One arg: use default label
         ("trace".to_string(), args[0].clone())
     } else {
-        return Err(anyhow!("trace: requires at least a value argument"));
+        return Err(crate::safety::arg_err(
+            "trace: requires at least a value argument",
+        ));
     };
 
     let type_str = val.type_name();
@@ -5164,9 +5223,9 @@ fn bi_trace(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_type_assert(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let (val, expected) = if let Some(input_val) = input {
         // Piped: input is value, arg 0 is expected type
-        let expected = args
-            .first()
-            .ok_or_else(|| anyhow!("type_assert: requires expected type argument"))?;
+        let expected = args.first().ok_or_else(|| {
+            crate::safety::arg_err("type_assert: requires expected type argument")
+        })?;
         let expected_str = match expected {
             Value::Str(s) => s.clone(),
             _ => return Err(anyhow!("type_assert: expected type must be a string")),
@@ -5215,7 +5274,9 @@ fn bi_inspect(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     } else if !args.is_empty() {
         args[0].clone()
     } else {
-        return Err(anyhow!("inspect: requires input or argument"));
+        return Err(crate::safety::arg_err(
+            "inspect: requires input or argument",
+        ));
     };
 
     let mut info = BTreeMap::<String, Value>::new();
@@ -5452,7 +5513,9 @@ fn bi_platform_module(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             _ => return Err(anyhow!("platform_module: base_path must be a string")),
         }
     } else {
-        return Err(anyhow!("platform_module: requires base_path argument"));
+        return Err(crate::safety::arg_err(
+            "platform_module: requires base_path argument",
+        ));
     };
 
     use crate::os_tools::OperatingSystem;
@@ -5512,7 +5575,9 @@ fn bi_feature_enabled(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             _ => return Err(anyhow!("feature_enabled: feature name must be a string")),
         }
     } else {
-        return Err(anyhow!("feature_enabled: requires feature name argument"));
+        return Err(crate::safety::arg_err(
+            "feature_enabled: requires feature name argument",
+        ));
     };
 
     let features = FEATURE_FLAGS
@@ -5540,7 +5605,9 @@ fn bi_feature_enable(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             _ => return Err(anyhow!("feature_enable: feature name must be a string")),
         }
     } else {
-        return Err(anyhow!("feature_enable: requires feature name argument"));
+        return Err(crate::safety::arg_err(
+            "feature_enable: requires feature name argument",
+        ));
     };
 
     let mut features = FEATURE_FLAGS
@@ -5569,7 +5636,9 @@ fn bi_feature_disable(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             _ => return Err(anyhow!("feature_disable: feature name must be a string")),
         }
     } else {
-        return Err(anyhow!("feature_disable: requires feature name argument"));
+        return Err(crate::safety::arg_err(
+            "feature_disable: requires feature name argument",
+        ));
     };
 
     let mut features = FEATURE_FLAGS
@@ -5597,7 +5666,7 @@ fn bi_feature_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         };
         let enabled = args
             .first()
-            .ok_or_else(|| anyhow!("feature_set: requires enabled argument"))?;
+            .ok_or_else(|| crate::safety::arg_err("feature_set: requires enabled argument"))?;
         let enabled = match enabled {
             Value::Bool(b) => *b,
             _ => return Err(anyhow!("feature_set: enabled must be a boolean")),
@@ -5615,7 +5684,9 @@ fn bi_feature_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         };
         (name, enabled)
     } else {
-        return Err(anyhow!("feature_set: requires name and enabled arguments"));
+        return Err(crate::safety::arg_err(
+            "feature_set: requires name and enabled arguments",
+        ));
     };
 
     let mut features = FEATURE_FLAGS
@@ -5668,11 +5739,13 @@ fn bi_cluster_add_node(args: Vec<Value>, input: Option<Value>) -> Result<Value> 
         let id = rec
             .get("id")
             .map(|v| v.to_display_string())
-            .ok_or_else(|| anyhow!("cluster_add_node: missing 'id' in record"))?;
+            .ok_or_else(|| crate::safety::arg_err("cluster_add_node: missing 'id' in record"))?;
         let address = rec
             .get("address")
             .map(|v| v.to_display_string())
-            .ok_or_else(|| anyhow!("cluster_add_node: missing 'address' in record"))?;
+            .ok_or_else(|| {
+                crate::safety::arg_err("cluster_add_node: missing 'address' in record")
+            })?;
         (id, address)
     } else if args.len() >= 2 {
         let id = args[0].to_display_string();
@@ -5724,7 +5797,7 @@ fn bi_cluster_remove_node(args: Vec<Value>, input: Option<Value>) -> Result<Valu
     let id = input
         .or_else(|| args.first().cloned())
         .map(|v| v.to_display_string())
-        .ok_or_else(|| anyhow!("cluster_remove_node: requires node id"))?;
+        .ok_or_else(|| crate::safety::arg_err("cluster_remove_node: requires node id"))?;
 
     let mut nodes = CLUSTER_NODES
         .write()
@@ -5819,16 +5892,16 @@ fn bi_job_submit(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         let name = rec
             .get("name")
             .map(|v| v.to_display_string())
-            .ok_or_else(|| anyhow!("job_submit: missing 'name'"))?;
+            .ok_or_else(|| crate::safety::arg_err("job_submit: missing 'name'"))?;
         let task = rec
             .get("task")
             .map(|v| v.to_display_string())
-            .ok_or_else(|| anyhow!("job_submit: missing 'task'"))?;
+            .ok_or_else(|| crate::safety::arg_err("job_submit: missing 'task'"))?;
         (name, task)
     } else if args.len() >= 2 {
         (args[0].to_display_string(), args[1].to_display_string())
     } else {
-        return Err(anyhow!("job_submit: requires name and task"));
+        return Err(crate::safety::arg_err("job_submit: requires name and task"));
     };
 
     let priority = args
@@ -5873,7 +5946,7 @@ fn bi_job_status(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let job_id = input
         .or_else(|| args.first().cloned())
         .map(|v| v.to_display_string())
-        .ok_or_else(|| anyhow!("job_status: requires job_id"))?;
+        .ok_or_else(|| crate::safety::arg_err("job_status: requires job_id"))?;
 
     let jobs = DISTRIBUTED_JOBS
         .read()
@@ -5903,7 +5976,7 @@ fn bi_job_cancel(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let job_id = input
         .or_else(|| args.first().cloned())
         .map(|v| v.to_display_string())
-        .ok_or_else(|| anyhow!("job_cancel: requires job_id"))?;
+        .ok_or_else(|| crate::safety::arg_err("job_cancel: requires job_id"))?;
 
     let mut jobs = DISTRIBUTED_JOBS
         .write()
@@ -5927,7 +6000,7 @@ fn bi_job_results(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let job_id = input
         .or_else(|| args.first().cloned())
         .map(|v| v.to_display_string())
-        .ok_or_else(|| anyhow!("job_results: requires job_id"))?;
+        .ok_or_else(|| crate::safety::arg_err("job_results: requires job_id"))?;
 
     let results = JOB_RESULTS
         .read()
@@ -5971,16 +6044,18 @@ fn bi_remote_exec(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         let node_id = rec
             .get("node_id")
             .map(|v| v.to_display_string())
-            .ok_or_else(|| anyhow!("remote_exec: missing 'node_id'"))?;
+            .ok_or_else(|| crate::safety::arg_err("remote_exec: missing 'node_id'"))?;
         let command = rec
             .get("command")
             .map(|v| v.to_display_string())
-            .ok_or_else(|| anyhow!("remote_exec: missing 'command'"))?;
+            .ok_or_else(|| crate::safety::arg_err("remote_exec: missing 'command'"))?;
         (node_id, command)
     } else if args.len() >= 2 {
         (args[0].to_display_string(), args[1].to_display_string())
     } else {
-        return Err(anyhow!("remote_exec: requires node_id and command"));
+        return Err(crate::safety::arg_err(
+            "remote_exec: requires node_id and command",
+        ));
     };
 
     let nodes = CLUSTER_NODES
@@ -6008,7 +6083,7 @@ fn bi_remote_exec(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_aggregate_results(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let results = input
         .or_else(|| args.first().cloned())
-        .ok_or_else(|| anyhow!("aggregate_results: requires results array"))?;
+        .ok_or_else(|| crate::safety::arg_err("aggregate_results: requires results array"))?;
 
     let results = match results {
         Value::Array(arr) => arr,
@@ -6050,7 +6125,7 @@ fn bi_rag_index(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let content = input
         .or_else(|| args.first().cloned())
         .map(|v| v.to_display_string())
-        .ok_or_else(|| anyhow!("rag_index: requires content"))?;
+        .ok_or_else(|| crate::safety::arg_err("rag_index: requires content"))?;
 
     let source = args
         .get(1)
@@ -6088,7 +6163,7 @@ fn bi_rag_search(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let query = input
         .or_else(|| args.first().cloned())
         .map(|v| v.to_display_string())
-        .ok_or_else(|| anyhow!("rag_search: requires query"))?;
+        .ok_or_else(|| crate::safety::arg_err("rag_search: requires query"))?;
 
     let top_k = args
         .get(1)
@@ -6124,7 +6199,7 @@ fn bi_rag_query(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let query = input
         .or_else(|| args.first().cloned())
         .map(|v| v.to_display_string())
-        .ok_or_else(|| anyhow!("rag_query: requires query"))?;
+        .ok_or_else(|| crate::safety::arg_err("rag_query: requires query"))?;
 
     let top_k = args
         .get(1)
@@ -6183,16 +6258,16 @@ fn bi_kg_add(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         let entity_type = rec
             .get("type")
             .map(|v| v.to_display_string())
-            .ok_or_else(|| anyhow!("kg_add: missing 'type'"))?;
+            .ok_or_else(|| crate::safety::arg_err("kg_add: missing 'type'"))?;
         let name = rec
             .get("name")
             .map(|v| v.to_display_string())
-            .ok_or_else(|| anyhow!("kg_add: missing 'name'"))?;
+            .ok_or_else(|| crate::safety::arg_err("kg_add: missing 'name'"))?;
         (entity_type, name)
     } else if args.len() >= 2 {
         (args[0].to_display_string(), args[1].to_display_string())
     } else {
-        return Err(anyhow!("kg_add: requires type and name"));
+        return Err(crate::safety::arg_err("kg_add: requires type and name"));
     };
 
     let properties: HashMap<String, String> = if let Some(Value::Record(rec)) = args.get(2) {
@@ -6223,15 +6298,15 @@ fn bi_kg_relate(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         let source = rec
             .get("source")
             .map(|v| v.to_display_string())
-            .ok_or_else(|| anyhow!("kg_relate: missing 'source'"))?;
+            .ok_or_else(|| crate::safety::arg_err("kg_relate: missing 'source'"))?;
         let target = rec
             .get("target")
             .map(|v| v.to_display_string())
-            .ok_or_else(|| anyhow!("kg_relate: missing 'target'"))?;
+            .ok_or_else(|| crate::safety::arg_err("kg_relate: missing 'target'"))?;
         let rel_type = rec
             .get("relation")
             .map(|v| v.to_display_string())
-            .ok_or_else(|| anyhow!("kg_relate: missing 'relation'"))?;
+            .ok_or_else(|| crate::safety::arg_err("kg_relate: missing 'relation'"))?;
         (source, target, rel_type)
     } else if args.len() >= 3 {
         (
@@ -6273,7 +6348,7 @@ fn bi_kg_query(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let pattern = input
         .or_else(|| args.first().cloned())
         .map(|v| v.to_display_string())
-        .ok_or_else(|| anyhow!("kg_query: requires pattern"))?;
+        .ok_or_else(|| crate::safety::arg_err("kg_query: requires pattern"))?;
 
     let kg = KNOWLEDGE_GRAPH
         .read()
@@ -6334,16 +6409,18 @@ fn bi_semantic_cache(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         let query = rec
             .get("query")
             .map(|v| v.to_display_string())
-            .ok_or_else(|| anyhow!("semantic_cache: missing 'query'"))?;
+            .ok_or_else(|| crate::safety::arg_err("semantic_cache: missing 'query'"))?;
         let response = rec
             .get("response")
             .map(|v| v.to_display_string())
-            .ok_or_else(|| anyhow!("semantic_cache: missing 'response'"))?;
+            .ok_or_else(|| crate::safety::arg_err("semantic_cache: missing 'response'"))?;
         (query, response)
     } else if args.len() >= 2 {
         (args[0].to_display_string(), args[1].to_display_string())
     } else {
-        return Err(anyhow!("semantic_cache: requires query and response"));
+        return Err(crate::safety::arg_err(
+            "semantic_cache: requires query and response",
+        ));
     };
 
     let mut cache = SEMANTIC_CACHE
@@ -6366,7 +6443,7 @@ fn bi_semantic_cache_get(args: Vec<Value>, input: Option<Value>) -> Result<Value
     let query = input
         .or_else(|| args.first().cloned())
         .map(|v| v.to_display_string())
-        .ok_or_else(|| anyhow!("semantic_cache_get: requires query"))?;
+        .ok_or_else(|| crate::safety::arg_err("semantic_cache_get: requires query"))?;
 
     let mut cache = SEMANTIC_CACHE
         .write()
@@ -6489,7 +6566,11 @@ fn bi_agent(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Val
 fn agent_from_record(cfg: BTreeMap<String, Value>, env: &mut Env) -> Result<Value> {
     let goal = match cfg.get("goal") {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("agent config requires {{goal: String}}")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "agent config requires {{goal: String}}",
+            ))
+        }
     };
     let tools: Vec<String> = match cfg.get("tools") {
         Some(Value::Array(vs)) => {
@@ -6598,7 +6679,11 @@ fn bi_swarm(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Val
 fn swarm_from_record(cfg: BTreeMap<String, Value>, env: &mut Env) -> Result<Value> {
     let goal = match cfg.get("goal") {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("swarm config requires {{goal: String}}")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "swarm config requires {{goal: String}}",
+            ))
+        }
     };
     let tools: Vec<String> = match cfg.get("tools") {
         Some(Value::Array(vs)) => {
@@ -7079,7 +7164,7 @@ fn bi_wc(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 fn bi_grep(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     if args.is_empty() {
-        return Err(anyhow!("grep: pattern required"));
+        return Err(crate::safety::arg_err("grep: pattern required"));
     }
 
     let pattern = match &args[0] {
@@ -7235,7 +7320,10 @@ fn bind_parameters(
                                 bound.named.insert(param.name.clone(), value);
                                 i += 2;
                             } else {
-                                return Err(anyhow!("Parameter '{}' requires a value", param.name));
+                                return Err(crate::safety::arg_err(format!(
+                                    "Parameter '{}' requires a value",
+                                    param.name
+                                )));
                             }
                         }
                     }
@@ -7473,7 +7561,8 @@ fn bi_get_content(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 /// Select-Object: PowerShell-style property selection
 fn bi_select_object(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let input = input.ok_or_else(|| anyhow!("Select-Object: requires pipeline input"))?;
+    let input =
+        input.ok_or_else(|| crate::safety::arg_err("Select-Object: requires pipeline input"))?;
 
     if args.is_empty() {
         return Ok(input);
@@ -7510,10 +7599,13 @@ fn select_properties(value: &Value, properties: &[Value]) -> Result<Value> {
 
 /// Where-Object: PowerShell-style filtering with enhanced syntax
 fn bi_where_object(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Value> {
-    let input = input.ok_or_else(|| anyhow!("Where-Object: requires pipeline input"))?;
+    let input =
+        input.ok_or_else(|| crate::safety::arg_err("Where-Object: requires pipeline input"))?;
 
     if args.is_empty() {
-        return Err(anyhow!("Where-Object: requires filter condition"));
+        return Err(crate::safety::arg_err(
+            "Where-Object: requires filter condition",
+        ));
     }
 
     // Support both lambda and property-based filtering
@@ -7611,7 +7703,8 @@ fn bi_foreach_object(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> R
 
 /// Sort-Object: PowerShell-style sorting with property support
 fn bi_sort_object(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let input = input.ok_or_else(|| anyhow!("Sort-Object: requires pipeline input"))?;
+    let input =
+        input.ok_or_else(|| crate::safety::arg_err("Sort-Object: requires pipeline input"))?;
 
     match input {
         Value::Array(mut arr) => {
@@ -7660,10 +7753,13 @@ fn compare_values_for_sort(a: &Value, b: &Value) -> std::cmp::Ordering {
 
 /// Group-Object: PowerShell-style grouping
 fn bi_group_object(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let input = input.ok_or_else(|| anyhow!("Group-Object: requires pipeline input"))?;
+    let input =
+        input.ok_or_else(|| crate::safety::arg_err("Group-Object: requires pipeline input"))?;
 
     if args.is_empty() {
-        return Err(anyhow!("Group-Object: requires property name"));
+        return Err(crate::safety::arg_err(
+            "Group-Object: requires property name",
+        ));
     }
 
     let property = match &args[0] {
@@ -7698,7 +7794,8 @@ fn bi_group_object(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 /// Measure-Object: PowerShell-style measurement and statistics
 fn bi_measure_object(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let input = input.ok_or_else(|| anyhow!("Measure-Object: requires pipeline input"))?;
+    let input =
+        input.ok_or_else(|| crate::safety::arg_err("Measure-Object: requires pipeline input"))?;
 
     match input {
         Value::Array(arr) => {
@@ -7768,7 +7865,7 @@ fn bi_from_json(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 /// to-json: Convert structured data to JSON
 fn bi_to_json(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let value = input.ok_or_else(|| anyhow!("to-json: requires pipeline input"))?;
+    let value = input.ok_or_else(|| crate::safety::arg_err("to-json: requires pipeline input"))?;
 
     let pretty = args
         .first()
@@ -7856,7 +7953,7 @@ fn bi_from_csv(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             _ => return Err(anyhow!("from-csv: input must be a CSV string")),
         }
     } else {
-        return Err(anyhow!("from-csv: requires CSV input"));
+        return Err(crate::safety::arg_err("from-csv: requires CSV input"));
     };
 
     let mut reader = csv::Reader::from_reader(csv_str.as_bytes());
@@ -7890,7 +7987,7 @@ fn bi_from_csv(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 /// to-csv: Convert structured data to CSV
 fn bi_to_csv(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let input = input.ok_or_else(|| anyhow!("to-csv: requires pipeline input"))?;
+    let input = input.ok_or_else(|| crate::safety::arg_err("to-csv: requires pipeline input"))?;
 
     match input {
         Value::Array(arr) => {
@@ -7951,7 +8048,7 @@ fn bi_from_yaml(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             _ => return Err(anyhow!("from-yaml: input must be a YAML string")),
         }
     } else {
-        return Err(anyhow!("from-yaml: requires YAML input"));
+        return Err(crate::safety::arg_err("from-yaml: requires YAML input"));
     };
 
     // For now, treat simple key-value pairs
@@ -7980,7 +8077,7 @@ fn bi_from_yaml(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 /// to-yaml: Convert structured data to YAML (simplified)
 fn bi_to_yaml(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let input = input.ok_or_else(|| anyhow!("to-yaml: requires pipeline input"))?;
+    let input = input.ok_or_else(|| crate::safety::arg_err("to-yaml: requires pipeline input"))?;
 
     match input {
         Value::Record(record) => {
@@ -7996,7 +8093,7 @@ fn bi_to_yaml(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 /// columns: Get column names from structured data
 fn bi_columns(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let input = input.ok_or_else(|| anyhow!("columns: requires pipeline input"))?;
+    let input = input.ok_or_else(|| crate::safety::arg_err("columns: requires pipeline input"))?;
 
     match input {
         Value::Array(arr) => {
@@ -8017,7 +8114,7 @@ fn bi_columns(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 /// describe: Get type and structure information about data
 fn bi_describe(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let input = input.ok_or_else(|| anyhow!("describe: requires pipeline input"))?;
+    let input = input.ok_or_else(|| crate::safety::arg_err("describe: requires pipeline input"))?;
 
     let mut description = BTreeMap::new();
 
@@ -8095,7 +8192,7 @@ fn bi_ai(args: Vec<Value>, input: Option<Value>, _env: &mut Env) -> Result<Value
             _ => return Err(anyhow!("ai: prompt must be a string")),
         }
     } else {
-        return Err(anyhow!("ai: requires a prompt string"));
+        return Err(crate::safety::arg_err("ai: requires a prompt string"));
     };
 
     // SECURITY: Validate AI prompt for injection
@@ -8288,7 +8385,7 @@ fn bi_ai_suggest(args: Vec<Value>, input: Option<Value>, _env: &mut Env) -> Resu
             _ => return Err(anyhow!("ai-suggest: query must be a string")),
         }
     } else {
-        return Err(anyhow!("ai-suggest: requires query"));
+        return Err(crate::safety::arg_err("ai-suggest: requires query"));
     };
 
     // For now, provide rule-based suggestions
@@ -8359,7 +8456,9 @@ fn bi_ai_explain(args: Vec<Value>, input: Option<Value>, _env: &mut Env) -> Resu
             _ => return Err(anyhow!("ai-explain: subject must be a string")),
         }
     } else {
-        return Err(anyhow!("ai-explain: requires something to explain"));
+        return Err(crate::safety::arg_err(
+            "ai-explain: requires something to explain",
+        ));
     };
 
     let explanation = generate_explanation(&subject);
@@ -8431,7 +8530,9 @@ fn bi_ai_complete(args: Vec<Value>, input: Option<Value>, _env: &mut Env) -> Res
             _ => return Err(anyhow!("ai-complete: partial command must be a string")),
         }
     } else {
-        return Err(anyhow!("ai-complete: requires partial command"));
+        return Err(crate::safety::arg_err(
+            "ai-complete: requires partial command",
+        ));
     };
 
     let completions = get_smart_completions(&partial);
@@ -8512,7 +8613,7 @@ fn bi_ai_fix(args: Vec<Value>, input: Option<Value>, _env: &mut Env) -> Result<V
             _ => return Err(anyhow!("ai-fix: error message must be a string")),
         }
     } else {
-        return Err(anyhow!("ai-fix: requires error message"));
+        return Err(crate::safety::arg_err("ai-fix: requires error message"));
     };
 
     let fix_suggestion = generate_fix_suggestion(&error_msg);
@@ -8862,7 +8963,7 @@ fn bi_ai_add_route(args: Vec<Value>) -> Result<Value> {
                 None
             }
         })
-        .ok_or_else(|| anyhow!("ai_add_route: missing 'name'"))?;
+        .ok_or_else(|| crate::safety::arg_err("ai_add_route: missing 'name'"))?;
 
     let priority = config
         .get("priority")
@@ -8884,7 +8985,7 @@ fn bi_ai_add_route(args: Vec<Value>) -> Result<Value> {
                 None
             }
         })
-        .ok_or_else(|| anyhow!("ai_add_route: missing 'condition'"))?;
+        .ok_or_else(|| crate::safety::arg_err("ai_add_route: missing 'condition'"))?;
 
     let target_str = config.get("target").and_then(|v| {
         if let Value::Str(s) = v {
@@ -8962,7 +9063,11 @@ fn bi_ai_set_default(args: Vec<Value>) -> Result<Value> {
 
     let provider_str = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("ai_set_default: requires provider name string")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "ai_set_default: requires provider name string",
+            ))
+        }
     };
 
     let provider_type = ProviderType::from_scheme(&provider_str)?;
@@ -9080,7 +9185,7 @@ fn bi_ai_set_load_balancing(args: Vec<Value>) -> Result<Value> {
                     .get("weights")
                     .and_then(|v| if let Value::Record(wr) = v { Some(wr) } else { None })
                     .ok_or_else(|| {
-                        anyhow!("ai_set_load_balancing: weighted strategy requires a 'weights' record")
+                        crate::safety::arg_err("ai_set_load_balancing: weighted strategy requires a 'weights' record")
                     })?;
                 let mut weights = std::collections::HashMap::new();
                 for (k, v) in weights_rec {
@@ -9136,7 +9241,7 @@ fn bi_ai_convert_model(args: Vec<Value>) -> Result<Value> {
 
     let config = match args.first() {
         Some(Value::Record(r)) => r,
-        _ => return Err(anyhow!("ai_convert_model: requires a config record with source, target, source_format, target_format")),
+        _ => return Err(crate::safety::arg_err("ai_convert_model: requires a config record with source, target, source_format, target_format")),
     };
 
     let source = config
@@ -9148,7 +9253,7 @@ fn bi_ai_convert_model(args: Vec<Value>) -> Result<Value> {
                 None
             }
         })
-        .ok_or_else(|| anyhow!("ai_convert_model: missing 'source' path"))?;
+        .ok_or_else(|| crate::safety::arg_err("ai_convert_model: missing 'source' path"))?;
     let target = config
         .get("target")
         .and_then(|v| {
@@ -9158,7 +9263,7 @@ fn bi_ai_convert_model(args: Vec<Value>) -> Result<Value> {
                 None
             }
         })
-        .ok_or_else(|| anyhow!("ai_convert_model: missing 'target' path"))?;
+        .ok_or_else(|| crate::safety::arg_err("ai_convert_model: missing 'target' path"))?;
 
     let parse_format = |s: &str| -> ModelFormat {
         match s.to_lowercase().as_str() {
@@ -9182,7 +9287,7 @@ fn bi_ai_convert_model(args: Vec<Value>) -> Result<Value> {
                 None
             }
         })
-        .ok_or_else(|| anyhow!("ai_convert_model: missing 'source_format'"))?;
+        .ok_or_else(|| crate::safety::arg_err("ai_convert_model: missing 'source_format'"))?;
     let target_format = config
         .get("target_format")
         .and_then(|v| {
@@ -9192,7 +9297,7 @@ fn bi_ai_convert_model(args: Vec<Value>) -> Result<Value> {
                 None
             }
         })
-        .ok_or_else(|| anyhow!("ai_convert_model: missing 'target_format'"))?;
+        .ok_or_else(|| crate::safety::arg_err("ai_convert_model: missing 'target_format'"))?;
 
     let quantization = config.get("quantization").and_then(|v| {
         if let Value::Str(s) = v {
@@ -9277,7 +9382,11 @@ fn bi_ai_supported_conversions() -> Result<Value> {
 fn bi_ai_detect_format(args: Vec<Value>) -> Result<Value> {
     let path = match args.first() {
         Some(Value::Str(s)) => s,
-        _ => return Err(anyhow!("ai_detect_format: requires a file path string")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "ai_detect_format: requires a file path string",
+            ))
+        }
     };
 
     let ext = std::path::Path::new(path)
@@ -9370,7 +9479,11 @@ fn bi_ai_local_load(args: Vec<Value>) -> Result<Value> {
 
     let path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("ai_local_load: requires a model file path string")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "ai_local_load: requires a model file path string",
+            ))
+        }
     };
 
     let backend = local_inference::backend_for_model(&path).ok_or_else(|| {
@@ -9550,7 +9663,11 @@ fn bi_ai_local_unload(args: Vec<Value>) -> Result<Value> {
 
     let handle = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("ai_local_unload: requires handle string")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "ai_local_unload: requires handle string",
+            ))
+        }
     };
 
     for backend in local_inference::available_backends() {
@@ -9603,7 +9720,7 @@ fn bi_type_name(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     } else if let Some(v) = args.first() {
         v.clone()
     } else {
-        return Err(anyhow!("type_name: requires a value"));
+        return Err(crate::safety::arg_err("type_name: requires a value"));
     };
 
     let type_desc = detailed_type_name(&val);
@@ -9657,7 +9774,9 @@ fn bi_type_fields(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     } else if let Some(v) = args.first() {
         v.clone()
     } else {
-        return Err(anyhow!("type_fields: requires a record value"));
+        return Err(crate::safety::arg_err(
+            "type_fields: requires a record value",
+        ));
     };
 
     match val {
@@ -9714,7 +9833,7 @@ fn bi_type_schema(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     } else if let Some(v) = args.first() {
         v.clone()
     } else {
-        return Err(anyhow!("type_schema: requires a value"));
+        return Err(crate::safety::arg_err("type_schema: requires a value"));
     };
 
     let schema = value_to_json_schema(&val);
@@ -9782,7 +9901,9 @@ fn value_to_json_schema(val: &Value) -> serde_json::Value {
 ///   is_type([], "Array")     # => true
 fn bi_is_type(args: Vec<Value>) -> Result<Value> {
     if args.len() < 2 {
-        return Err(anyhow!("is_type: requires (value, type_name) arguments"));
+        return Err(crate::safety::arg_err(
+            "is_type: requires (value, type_name) arguments",
+        ));
     }
     let type_name = match &args[1] {
         Value::Str(s) => s.to_lowercase(),
@@ -10410,7 +10531,7 @@ fn bi_mcp_prompts(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 ///   let tools = client.tools
 fn bi_mcp_connect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.is_empty() {
-        return Err(anyhow!("mcp_connect requires endpoint URL"));
+        return Err(crate::safety::arg_err("mcp_connect requires endpoint URL"));
     }
 
     let endpoint = expect_string("mcp_connect", &args[0])?;
@@ -10483,7 +10604,7 @@ fn bi_first(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         // Not piped: args[0] is array, args[1] is optional count
         (args[0].clone(), args.get(1))
     } else {
-        return Err(anyhow!("first requires array input"));
+        return Err(crate::safety::arg_err("first requires array input"));
     };
 
     let arr = expect_array("first", &arr_val)?;
@@ -10528,7 +10649,7 @@ fn bi_last(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         // Not piped: args[0] is array, args[1] is optional count
         (args[0].clone(), args.get(1))
     } else {
-        return Err(anyhow!("last requires array input"));
+        return Err(crate::safety::arg_err("last requires array input"));
     };
 
     let arr = expect_array("last", &arr_val)?;
@@ -10587,12 +10708,15 @@ fn bi_any(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Value
             (a.clone(), pred)
         } else if matches!(&args[0], Value::Lambda(_)) {
             // First arg is lambda with empty array (edge case)
-            return Err(anyhow!("any requires an array as input"));
+            return Err(crate::safety::arg_err("any requires an array as input"));
         } else {
-            return Err(anyhow!("any expects array, got {:?}", args[0]));
+            return Err(crate::safety::arg_err(format!(
+                "any expects array, got {:?}",
+                args[0]
+            )));
         }
     } else {
-        return Err(anyhow!("any requires an array input"));
+        return Err(crate::safety::arg_err("any requires an array input"));
     };
 
     if let Some(pred_val) = predicate {
@@ -10641,12 +10765,15 @@ fn bi_all(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Value
             (a.clone(), pred)
         } else if matches!(&args[0], Value::Lambda(_)) {
             // First arg is lambda with empty array (edge case)
-            return Err(anyhow!("all requires an array as input"));
+            return Err(crate::safety::arg_err("all requires an array as input"));
         } else {
-            return Err(anyhow!("all expects array, got {:?}", args[0]));
+            return Err(crate::safety::arg_err(format!(
+                "all expects array, got {:?}",
+                args[0]
+            )));
         }
     } else {
-        return Err(anyhow!("all requires an array input"));
+        return Err(crate::safety::arg_err("all requires an array input"));
     };
 
     if let Some(pred_val) = predicate {
@@ -10706,16 +10833,16 @@ fn bi_split(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         (
             inp,
             args.first()
-                .ok_or_else(|| anyhow!("split requires delimiter argument"))?,
+                .ok_or_else(|| crate::safety::arg_err("split requires delimiter argument"))?,
         )
     } else {
         // Not piped: args[0] is string, args[1] is delimiter
         (
             args.first()
-                .ok_or_else(|| anyhow!("split requires string input"))?
+                .ok_or_else(|| crate::safety::arg_err("split requires string input"))?
                 .clone(),
             args.get(1)
-                .ok_or_else(|| anyhow!("split requires delimiter argument"))?,
+                .ok_or_else(|| crate::safety::arg_err("split requires delimiter argument"))?,
         )
     };
 
@@ -10743,16 +10870,16 @@ fn bi_join(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         (
             inp,
             args.first()
-                .ok_or_else(|| anyhow!("join requires delimiter argument"))?,
+                .ok_or_else(|| crate::safety::arg_err("join requires delimiter argument"))?,
         )
     } else {
         // Not piped: args[0] is array, args[1] is delimiter
         (
             args.first()
-                .ok_or_else(|| anyhow!("join requires array input"))?
+                .ok_or_else(|| crate::safety::arg_err("join requires array input"))?
                 .clone(),
             args.get(1)
-                .ok_or_else(|| anyhow!("join requires delimiter argument"))?,
+                .ok_or_else(|| crate::safety::arg_err("join requires delimiter argument"))?,
         )
     };
 
@@ -10766,7 +10893,9 @@ fn bi_join(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             Value::Int(i) => Ok(i.to_string()),
             Value::Float(f) => Ok(f.to_string()),
             Value::Bool(b) => Ok(b.to_string()),
-            _ => Err(anyhow!("join requires array of strings or numbers")),
+            _ => Err(crate::safety::arg_err(
+                "join requires array of strings or numbers",
+            )),
         })
         .collect();
 
@@ -10781,7 +10910,7 @@ fn bi_join(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_trim(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let input_val = input
         .or_else(|| args.first().cloned())
-        .ok_or_else(|| anyhow!("trim requires input string"))?;
+        .ok_or_else(|| crate::safety::arg_err("trim requires input string"))?;
     let text = expect_string("trim", &input_val)?;
     Ok(Value::Str(text.trim().to_string()))
 }
@@ -10794,7 +10923,7 @@ fn bi_trim(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_upper(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let input_val = input
         .or_else(|| args.first().cloned())
-        .ok_or_else(|| anyhow!("upper requires input string"))?;
+        .ok_or_else(|| crate::safety::arg_err("upper requires input string"))?;
     let text = expect_string("upper", &input_val)?;
     Ok(Value::Str(text.to_uppercase()))
 }
@@ -10807,7 +10936,7 @@ fn bi_upper(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_lower(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let input_val = input
         .or_else(|| args.first().cloned())
-        .ok_or_else(|| anyhow!("lower requires input string"))?;
+        .ok_or_else(|| crate::safety::arg_err("lower requires input string"))?;
     let text = expect_string("lower", &input_val)?;
     Ok(Value::Str(text.to_lowercase()))
 }
@@ -10826,20 +10955,20 @@ fn bi_replace(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         (
             inp,
             args.first()
-                .ok_or_else(|| anyhow!("replace requires old substring argument"))?,
+                .ok_or_else(|| crate::safety::arg_err("replace requires old substring argument"))?,
             args.get(1)
-                .ok_or_else(|| anyhow!("replace requires new substring argument"))?,
+                .ok_or_else(|| crate::safety::arg_err("replace requires new substring argument"))?,
         )
     } else {
         // Not piped: args[0] is string, args[1] is old, args[2] is new
         (
             args.first()
-                .ok_or_else(|| anyhow!("replace requires string input"))?
+                .ok_or_else(|| crate::safety::arg_err("replace requires string input"))?
                 .clone(),
             args.get(1)
-                .ok_or_else(|| anyhow!("replace requires old substring argument"))?,
+                .ok_or_else(|| crate::safety::arg_err("replace requires old substring argument"))?,
             args.get(2)
-                .ok_or_else(|| anyhow!("replace requires new substring argument"))?,
+                .ok_or_else(|| crate::safety::arg_err("replace requires new substring argument"))?,
         )
     };
 
@@ -10863,16 +10992,16 @@ fn bi_contains(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         (
             inp,
             args.first()
-                .ok_or_else(|| anyhow!("contains requires substring argument"))?,
+                .ok_or_else(|| crate::safety::arg_err("contains requires substring argument"))?,
         )
     } else {
         // Not piped: args[0] is string, args[1] is substring
         (
             args.first()
-                .ok_or_else(|| anyhow!("contains requires string input"))?
+                .ok_or_else(|| crate::safety::arg_err("contains requires string input"))?
                 .clone(),
             args.get(1)
-                .ok_or_else(|| anyhow!("contains requires substring argument"))?,
+                .ok_or_else(|| crate::safety::arg_err("contains requires substring argument"))?,
         )
     };
 
@@ -10893,15 +11022,15 @@ fn bi_starts_with(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         (
             inp,
             args.first()
-                .ok_or_else(|| anyhow!("starts_with requires prefix argument"))?,
+                .ok_or_else(|| crate::safety::arg_err("starts_with requires prefix argument"))?,
         )
     } else {
         (
             args.first()
-                .ok_or_else(|| anyhow!("starts_with requires string input"))?
+                .ok_or_else(|| crate::safety::arg_err("starts_with requires string input"))?
                 .clone(),
             args.get(1)
-                .ok_or_else(|| anyhow!("starts_with requires prefix argument"))?,
+                .ok_or_else(|| crate::safety::arg_err("starts_with requires prefix argument"))?,
         )
     };
 
@@ -10922,15 +11051,15 @@ fn bi_ends_with(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         (
             inp,
             args.first()
-                .ok_or_else(|| anyhow!("ends_with requires suffix argument"))?,
+                .ok_or_else(|| crate::safety::arg_err("ends_with requires suffix argument"))?,
         )
     } else {
         (
             args.first()
-                .ok_or_else(|| anyhow!("ends_with requires string input"))?
+                .ok_or_else(|| crate::safety::arg_err("ends_with requires string input"))?
                 .clone(),
             args.get(1)
-                .ok_or_else(|| anyhow!("ends_with requires suffix argument"))?,
+                .ok_or_else(|| crate::safety::arg_err("ends_with requires suffix argument"))?,
         )
     };
 
@@ -10950,7 +11079,7 @@ fn bi_ends_with(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_flatten(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let input_val = input
         .or_else(|| args.first().cloned())
-        .ok_or_else(|| anyhow!("flatten requires input array"))?;
+        .ok_or_else(|| crate::safety::arg_err("flatten requires input array"))?;
     let arr = expect_array("flatten", &input_val)?;
 
     let mut result = Vec::new();
@@ -10972,7 +11101,7 @@ fn bi_flatten(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_reverse(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let input_val = input
         .or_else(|| args.first().cloned())
-        .ok_or_else(|| anyhow!("reverse requires input"))?;
+        .ok_or_else(|| crate::safety::arg_err("reverse requires input"))?;
 
     match input_val {
         Value::Array(mut arr) => {
@@ -10980,7 +11109,9 @@ fn bi_reverse(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             Ok(Value::Array(arr))
         }
         Value::Str(s) => Ok(Value::Str(s.chars().rev().collect())),
-        _ => Err(anyhow!("reverse requires array or string input")),
+        _ => Err(crate::safety::arg_err(
+            "reverse requires array or string input",
+        )),
     }
 }
 
@@ -11000,7 +11131,9 @@ fn bi_slice(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let (input_val, start_idx, end_arg) = if let Some(inp) = input {
         // Piped input: args are start, end?
         if args.is_empty() {
-            return Err(anyhow!("slice requires at least start index"));
+            return Err(crate::safety::arg_err(
+                "slice requires at least start index",
+            ));
         }
         let start = expect_int("slice", &args[0])? as usize;
         let end = args.get(1);
@@ -11044,7 +11177,9 @@ fn bi_slice(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
             Ok(Value::Str(chars[start..end].iter().collect()))
         }
-        _ => Err(anyhow!("slice requires array or string input")),
+        _ => Err(crate::safety::arg_err(
+            "slice requires array or string input",
+        )),
     }
 }
 
@@ -11061,7 +11196,9 @@ fn bi_slice(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 ///   range(0, 10, 2)    # Returns [0,2,4,6,8]
 fn bi_range(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.is_empty() {
-        return Err(anyhow!("range requires at least one argument"));
+        return Err(crate::safety::arg_err(
+            "range requires at least one argument",
+        ));
     }
 
     let (start, end, step) = if args.len() == 1 {
@@ -11118,17 +11255,17 @@ fn bi_zip(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         (
             inp,
             args.first()
-                .ok_or_else(|| anyhow!("zip requires second array argument"))?
+                .ok_or_else(|| crate::safety::arg_err("zip requires second array argument"))?
                 .clone(),
         )
     } else {
         // Not piped: args[0] is first array, args[1] is second array
         (
             args.first()
-                .ok_or_else(|| anyhow!("zip requires two array arguments"))?
+                .ok_or_else(|| crate::safety::arg_err("zip requires two array arguments"))?
                 .clone(),
             args.get(1)
-                .ok_or_else(|| anyhow!("zip requires two array arguments"))?
+                .ok_or_else(|| crate::safety::arg_err("zip requires two array arguments"))?
                 .clone(),
         )
     };
@@ -11157,16 +11294,16 @@ fn bi_push(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         (
             inp,
             args.first()
-                .ok_or_else(|| anyhow!("push requires item argument"))?,
+                .ok_or_else(|| crate::safety::arg_err("push requires item argument"))?,
         )
     } else {
         // Not piped: args[0] is array, args[1] is item
         (
             args.first()
-                .ok_or_else(|| anyhow!("push requires array input"))?
+                .ok_or_else(|| crate::safety::arg_err("push requires array input"))?
                 .clone(),
             args.get(1)
-                .ok_or_else(|| anyhow!("push requires item argument"))?,
+                .ok_or_else(|| crate::safety::arg_err("push requires item argument"))?,
         )
     };
 
@@ -11188,17 +11325,17 @@ fn bi_concat(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         (
             inp,
             args.first()
-                .ok_or_else(|| anyhow!("concat requires second array argument"))?
+                .ok_or_else(|| crate::safety::arg_err("concat requires second array argument"))?
                 .clone(),
         )
     } else {
         // Not piped: args[0] is first array, args[1] is second array
         (
             args.first()
-                .ok_or_else(|| anyhow!("concat requires two array arguments"))?
+                .ok_or_else(|| crate::safety::arg_err("concat requires two array arguments"))?
                 .clone(),
             args.get(1)
-                .ok_or_else(|| anyhow!("concat requires two array arguments"))?
+                .ok_or_else(|| crate::safety::arg_err("concat requires two array arguments"))?
                 .clone(),
         )
     };
@@ -11221,7 +11358,7 @@ fn bi_concat(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 ///   abs(-5)     # Returns 5
 fn bi_abs(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let val = if args.is_empty() {
-        input.ok_or_else(|| anyhow!("abs requires number argument"))?
+        input.ok_or_else(|| crate::safety::arg_err("abs requires number argument"))?
     } else {
         args[0].clone()
     };
@@ -11229,7 +11366,7 @@ fn bi_abs(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     match val {
         Value::Int(n) => Ok(Value::Int(n.abs())),
         Value::Float(f) => Ok(Value::Float(f.abs())),
-        _ => Err(anyhow!("abs requires numeric input")),
+        _ => Err(crate::safety::arg_err("abs requires numeric input")),
     }
 }
 
@@ -11243,7 +11380,7 @@ fn bi_abs(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 ///   min(3, 7)     # Returns 3
 fn bi_min(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.len() < 2 {
-        return Err(anyhow!("min requires two arguments"));
+        return Err(crate::safety::arg_err("min requires two arguments"));
     }
 
     match (&args[0], &args[1]) {
@@ -11251,7 +11388,7 @@ fn bi_min(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a.min(*b))),
         (Value::Int(a), Value::Float(b)) => Ok(Value::Float((*a as f64).min(*b))),
         (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a.min(*b as f64))),
-        _ => Err(anyhow!("min requires numeric arguments")),
+        _ => Err(crate::safety::arg_err("min requires numeric arguments")),
     }
 }
 
@@ -11265,7 +11402,7 @@ fn bi_min(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 ///   max(3, 7)     # Returns 7
 fn bi_max(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.len() < 2 {
-        return Err(anyhow!("max requires two arguments"));
+        return Err(crate::safety::arg_err("max requires two arguments"));
     }
 
     match (&args[0], &args[1]) {
@@ -11273,7 +11410,7 @@ fn bi_max(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a.max(*b))),
         (Value::Int(a), Value::Float(b)) => Ok(Value::Float((*a as f64).max(*b))),
         (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a.max(*b as f64))),
-        _ => Err(anyhow!("max requires numeric arguments")),
+        _ => Err(crate::safety::arg_err("max requires numeric arguments")),
     }
 }
 
@@ -11286,7 +11423,7 @@ fn bi_max(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 ///   floor(3.7)     # Returns 3
 fn bi_floor(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let val = if args.is_empty() {
-        input.ok_or_else(|| anyhow!("floor requires number argument"))?
+        input.ok_or_else(|| crate::safety::arg_err("floor requires number argument"))?
     } else {
         args[0].clone()
     };
@@ -11294,7 +11431,7 @@ fn bi_floor(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     match val {
         Value::Int(n) => Ok(Value::Int(n)),
         Value::Float(f) => Ok(Value::Int(f.floor() as i64)),
-        _ => Err(anyhow!("floor requires numeric input")),
+        _ => Err(crate::safety::arg_err("floor requires numeric input")),
     }
 }
 
@@ -11307,7 +11444,7 @@ fn bi_floor(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 ///   ceil(3.2)     # Returns 4
 fn bi_ceil(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let val = if args.is_empty() {
-        input.ok_or_else(|| anyhow!("ceil requires number argument"))?
+        input.ok_or_else(|| crate::safety::arg_err("ceil requires number argument"))?
     } else {
         args[0].clone()
     };
@@ -11315,7 +11452,7 @@ fn bi_ceil(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     match val {
         Value::Int(n) => Ok(Value::Int(n)),
         Value::Float(f) => Ok(Value::Int(f.ceil() as i64)),
-        _ => Err(anyhow!("ceil requires numeric input")),
+        _ => Err(crate::safety::arg_err("ceil requires numeric input")),
     }
 }
 
@@ -11328,7 +11465,7 @@ fn bi_ceil(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 ///   round(3.5)     # Returns 4
 fn bi_round(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let val = if args.is_empty() {
-        input.ok_or_else(|| anyhow!("round requires number argument"))?
+        input.ok_or_else(|| crate::safety::arg_err("round requires number argument"))?
     } else {
         args[0].clone()
     };
@@ -11336,7 +11473,7 @@ fn bi_round(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     match val {
         Value::Int(n) => Ok(Value::Int(n)),
         Value::Float(f) => Ok(Value::Int(f.round() as i64)),
-        _ => Err(anyhow!("round requires numeric input")),
+        _ => Err(crate::safety::arg_err("round requires numeric input")),
     }
 }
 
@@ -11349,7 +11486,7 @@ fn bi_round(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 ///   sqrt(16)     # Returns 4.0
 fn bi_sqrt(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let val = if args.is_empty() {
-        input.ok_or_else(|| anyhow!("sqrt requires number argument"))?
+        input.ok_or_else(|| crate::safety::arg_err("sqrt requires number argument"))?
     } else {
         args[0].clone()
     };
@@ -11357,11 +11494,11 @@ fn bi_sqrt(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let num = match val {
         Value::Int(n) => n as f64,
         Value::Float(f) => f,
-        _ => return Err(anyhow!("sqrt requires numeric input")),
+        _ => return Err(crate::safety::arg_err("sqrt requires numeric input")),
     };
 
     if num < 0.0 {
-        return Err(anyhow!("sqrt requires non-negative number"));
+        return Err(crate::safety::arg_err("sqrt requires non-negative number"));
     }
 
     Ok(Value::Float(num.sqrt()))
@@ -11377,19 +11514,21 @@ fn bi_sqrt(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 ///   pow(2, 8)     # Returns 256
 fn bi_pow(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.len() < 2 {
-        return Err(anyhow!("pow requires two arguments: base and exponent"));
+        return Err(crate::safety::arg_err(
+            "pow requires two arguments: base and exponent",
+        ));
     }
 
     let base = match &args[0] {
         Value::Int(n) => *n as f64,
         Value::Float(f) => *f,
-        _ => return Err(anyhow!("pow requires numeric base")),
+        _ => return Err(crate::safety::arg_err("pow requires numeric base")),
     };
 
     let exp = match &args[1] {
         Value::Int(n) => *n as f64,
         Value::Float(f) => *f,
-        _ => return Err(anyhow!("pow requires numeric exponent")),
+        _ => return Err(crate::safety::arg_err("pow requires numeric exponent")),
     };
 
     let result = base.powf(exp);
@@ -11430,7 +11569,9 @@ fn bi_exit(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 ///   env("HOME")     # Returns home directory path
 fn bi_env(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.is_empty() {
-        return Err(anyhow!("env requires variable name argument"));
+        return Err(crate::safety::arg_err(
+            "env requires variable name argument",
+        ));
     }
 
     let key = expect_string("env", &args[0])?;
@@ -11463,7 +11604,9 @@ fn gate_env_secret(key: &str, val: String) -> Value {
 ///   set_env("MY_VAR", "value")
 fn bi_set_env(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.len() < 2 {
-        return Err(anyhow!("set_env requires key and value arguments"));
+        return Err(crate::safety::arg_err(
+            "set_env requires key and value arguments",
+        ));
     }
 
     let key = expect_string("set_env", &args[0])?;
@@ -11482,13 +11625,13 @@ fn bi_set_env(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 ///   sleep(2)     # Sleep for 2 seconds
 fn bi_sleep(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.is_empty() {
-        return Err(anyhow!("sleep requires duration argument"));
+        return Err(crate::safety::arg_err("sleep requires duration argument"));
     }
 
     let seconds = match &args[0] {
         Value::Int(n) => *n as f64,
         Value::Float(f) => *f,
-        _ => return Err(anyhow!("sleep requires numeric duration")),
+        _ => return Err(crate::safety::arg_err("sleep requires numeric duration")),
     };
 
     if seconds < 0.0 {
@@ -11524,7 +11667,8 @@ fn bi_time(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 ///   json_parse("{\"a\":1}")     # Returns {a: 1}
 fn bi_json_parse(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let json_str = if args.is_empty() {
-        let input_val = input.ok_or_else(|| anyhow!("json_parse requires JSON string"))?;
+        let input_val =
+            input.ok_or_else(|| crate::safety::arg_err("json_parse requires JSON string"))?;
         expect_string("json_parse", &input_val)?.to_string()
     } else {
         expect_string("json_parse", &args[0])?.to_string()
@@ -11545,7 +11689,7 @@ fn bi_json_parse(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 ///   {a: 1} | json_stringify()     # Returns "{\"a\":1}"
 fn bi_json_stringify(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let val = if args.is_empty() {
-        input.ok_or_else(|| anyhow!("json_stringify requires value"))?
+        input.ok_or_else(|| crate::safety::arg_err("json_stringify requires value"))?
     } else {
         args[0].clone()
     };
@@ -11594,7 +11738,7 @@ fn get_syntax_kb() -> &'static Mutex<SyntaxKB> {
 fn bi_syntax_get(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let id_val = input
         .or_else(|| args.first().cloned())
-        .ok_or_else(|| anyhow!("syntax_get requires syntax ID"))?;
+        .ok_or_else(|| crate::safety::arg_err("syntax_get requires syntax ID"))?;
     let id = expect_string("syntax_get", &id_val)?;
 
     let kb = get_syntax_kb().lock().unwrap();
@@ -11681,7 +11825,7 @@ fn bi_syntax_list(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_syntax_search(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let query_val = input
         .or_else(|| args.first().cloned())
-        .ok_or_else(|| anyhow!("syntax_search requires query string"))?;
+        .ok_or_else(|| crate::safety::arg_err("syntax_search requires query string"))?;
     let query = expect_string("syntax_search", &query_val)?;
 
     let kb = get_syntax_kb().lock().unwrap();
@@ -11704,22 +11848,22 @@ fn bi_syntax_search(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_syntax_add(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let entry_val = input
         .or_else(|| args.first().cloned())
-        .ok_or_else(|| anyhow!("syntax_add requires entry record"))?;
+        .ok_or_else(|| crate::safety::arg_err("syntax_add requires entry record"))?;
 
     let record = match entry_val {
         Value::Record(r) => r,
-        _ => return Err(anyhow!("syntax_add requires Record type")),
+        _ => return Err(crate::safety::arg_err("syntax_add requires Record type")),
     };
 
     // Extract required fields
     let id = match record.get("id") {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("syntax_add requires 'id' field")),
+        _ => return Err(crate::safety::arg_err("syntax_add requires 'id' field")),
     };
 
     let name = match record.get("name") {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("syntax_add requires 'name' field")),
+        _ => return Err(crate::safety::arg_err("syntax_add requires 'name' field")),
     };
 
     let category_str = match record.get("category") {
@@ -11738,7 +11882,11 @@ fn bi_syntax_add(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     let specification = match record.get("specification") {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("syntax_add requires 'specification' field")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "syntax_add requires 'specification' field",
+            ))
+        }
     };
 
     let examples = match record.get("examples") {
@@ -11861,7 +12009,7 @@ fn bi_ab_encode(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_ab_decode(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let bytes_val = input
         .or_else(|| args.first().cloned())
-        .ok_or_else(|| anyhow!("ab_decode requires byte array"))?;
+        .ok_or_else(|| crate::safety::arg_err("ab_decode requires byte array"))?;
 
     let bytes_arr = expect_array("ab_decode", &bytes_val)?;
     let bytes: Vec<u8> = bytes_arr
@@ -11913,13 +12061,15 @@ fn bi_ab_decode(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 ///   nn_create("policy", [8, 16, 8, 4])  # 8 inputs, 2 hidden layers, 4 outputs
 fn bi_nn_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.is_empty() {
-        return Err(anyhow!("nn_create requires at least name and layer_sizes"));
+        return Err(crate::safety::arg_err(
+            "nn_create requires at least name and layer_sizes",
+        ));
     }
 
     let name = expect_string("nn_create", &args[0])?;
     let layer_sizes_val = args
         .get(1)
-        .ok_or_else(|| anyhow!("nn_create requires layer_sizes array"))?;
+        .ok_or_else(|| crate::safety::arg_err("nn_create requires layer_sizes array"))?;
     let layer_sizes_arr = expect_array("nn_create", layer_sizes_val)?;
 
     let layer_sizes: Vec<usize> = layer_sizes_arr
@@ -11972,13 +12122,13 @@ fn bi_nn_forward(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let has_input = input.is_some();
     let network_val = input
         .or_else(|| args.first().cloned())
-        .ok_or_else(|| anyhow!("nn_forward requires network"))?;
+        .ok_or_else(|| crate::safety::arg_err("nn_forward requires network"))?;
 
     let network = value_to_nn(&network_val)?;
 
     let input_val = args
         .get(if has_input { 0 } else { 1 })
-        .ok_or_else(|| anyhow!("nn_forward requires input array"))?;
+        .ok_or_else(|| crate::safety::arg_err("nn_forward requires input array"))?;
     let input_arr = expect_array("nn_forward", input_val)?;
 
     let input_vec: Vec<f64> = input_arr
@@ -12001,7 +12151,7 @@ fn bi_nn_mutate(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let has_input = input.is_some();
     let network_val = input
         .or_else(|| args.first().cloned())
-        .ok_or_else(|| anyhow!("nn_mutate requires network"))?;
+        .ok_or_else(|| crate::safety::arg_err("nn_mutate requires network"))?;
 
     let network = value_to_nn(&network_val)?;
 
@@ -12025,7 +12175,7 @@ fn bi_nn_mutate(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 /// Returns: Record - Child network
 fn bi_nn_crossover(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.len() < 2 {
-        return Err(anyhow!("nn_crossover requires two networks"));
+        return Err(crate::safety::arg_err("nn_crossover requires two networks"));
     }
 
     let net1 = value_to_nn(&args[0])?;
@@ -12043,7 +12193,7 @@ fn bi_nn_crossover(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_nn_params(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let network_val = input
         .or_else(|| args.first().cloned())
-        .ok_or_else(|| anyhow!("nn_params requires network"))?;
+        .ok_or_else(|| crate::safety::arg_err("nn_params requires network"))?;
 
     let network = value_to_nn(&network_val)?;
     let params = network.get_params();
@@ -12060,14 +12210,14 @@ fn bi_nn_set_params(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let has_input = input.is_some();
     let network_val = input
         .or_else(|| args.first().cloned())
-        .ok_or_else(|| anyhow!("nn_set_params requires network"))?;
+        .ok_or_else(|| crate::safety::arg_err("nn_set_params requires network"))?;
 
     let mut network = value_to_nn(&network_val)?;
 
     let idx = if has_input { 0 } else { 1 };
     let params_val = args
         .get(idx)
-        .ok_or_else(|| anyhow!("nn_set_params requires params array"))?;
+        .ok_or_else(|| crate::safety::arg_err("nn_set_params requires params array"))?;
     let params_arr = expect_array("nn_set_params", params_val)?;
 
     let params: Vec<f64> = params_arr
@@ -12087,7 +12237,7 @@ fn bi_nn_set_params(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_nn_layers(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let network_val = input
         .or_else(|| args.first().cloned())
-        .ok_or_else(|| anyhow!("nn_layers requires network"))?;
+        .ok_or_else(|| crate::safety::arg_err("nn_layers requires network"))?;
 
     let network = value_to_nn(&network_val)?;
 
@@ -12127,7 +12277,7 @@ fn bi_nn_layers(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_nn_info(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let network_val = input
         .or_else(|| args.first().cloned())
-        .ok_or_else(|| anyhow!("nn_info requires network"))?;
+        .ok_or_else(|| crate::safety::arg_err("nn_info requires network"))?;
 
     let network = value_to_nn(&network_val)?;
 
@@ -12194,14 +12344,14 @@ fn bi_consensus_vote(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let has_input = input.is_some();
     let network_val = input
         .or_else(|| args.first().cloned())
-        .ok_or_else(|| anyhow!("consensus_vote requires network"))?;
+        .ok_or_else(|| crate::safety::arg_err("consensus_vote requires network"))?;
 
     let mut network = value_to_consensus_net(&network_val)?;
 
     let idx = if has_input { 0 } else { 1 };
     let inputs_val = args
         .get(idx)
-        .ok_or_else(|| anyhow!("consensus_vote requires agent_inputs"))?;
+        .ok_or_else(|| crate::safety::arg_err("consensus_vote requires agent_inputs"))?;
     let inputs_arr = expect_array("consensus_vote", inputs_val)?;
 
     let agent_inputs: Vec<Vec<f64>> = inputs_arr
@@ -12271,7 +12421,7 @@ fn bi_activation(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 None
             }
         })
-        .ok_or_else(|| anyhow!("activation requires name string"))?;
+        .ok_or_else(|| crate::safety::arg_err("activation requires name string"))?;
 
     let activation = Activation::from_str(name)
         .ok_or_else(|| anyhow!("Unknown activation: {}. Valid: relu, sigmoid, tanh, softmax, linear, swish, leaky_relu", name))?;
@@ -12308,7 +12458,9 @@ fn bi_activation(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 /// Returns: Record - Population state
 fn bi_population(args: Vec<Value>, _input: Option<Value>, _env: &mut Env) -> Result<Value> {
     if args.len() < 2 {
-        return Err(anyhow!("population requires size and genome_type"));
+        return Err(crate::safety::arg_err(
+            "population requires size and genome_type",
+        ));
     }
 
     let size = expect_int("population", &args[0])? as usize;
@@ -12364,12 +12516,12 @@ fn bi_evolve(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Va
     let has_input = input.is_some();
     let pop_val = input
         .or_else(|| args.first().cloned())
-        .ok_or_else(|| anyhow!("evolve requires population"))?;
+        .ok_or_else(|| crate::safety::arg_err("evolve requires population"))?;
 
     let idx = if has_input { 0 } else { 1 };
     let fitness_fn = args
         .get(idx)
-        .ok_or_else(|| anyhow!("evolve requires fitness function"))?;
+        .ok_or_else(|| crate::safety::arg_err("evolve requires fitness function"))?;
     let lambda = need_lambda(fitness_fn, "evolve")?.clone();
 
     let generations = args
@@ -12418,12 +12570,12 @@ fn bi_evolve_step(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Resu
     let has_input = input.is_some();
     let pop_val = input
         .or_else(|| args.first().cloned())
-        .ok_or_else(|| anyhow!("evolve_step requires population"))?;
+        .ok_or_else(|| crate::safety::arg_err("evolve_step requires population"))?;
 
     let idx = if has_input { 0 } else { 1 };
     let fitness_fn = args
         .get(idx)
-        .ok_or_else(|| anyhow!("evolve_step requires fitness function"))?;
+        .ok_or_else(|| crate::safety::arg_err("evolve_step requires fitness function"))?;
     let lambda = need_lambda(fitness_fn, "evolve_step")?.clone();
 
     let genome_type = get_population_genome_type(&pop_val)?;
@@ -12459,12 +12611,12 @@ fn bi_fitness(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<V
     let has_input = input.is_some();
     let pop_val = input
         .or_else(|| args.first().cloned())
-        .ok_or_else(|| anyhow!("fitness requires population"))?;
+        .ok_or_else(|| crate::safety::arg_err("fitness requires population"))?;
 
     let idx = if has_input { 0 } else { 1 };
     let fitness_fn = args
         .get(idx)
-        .ok_or_else(|| anyhow!("fitness requires fitness function"))?;
+        .ok_or_else(|| crate::safety::arg_err("fitness requires fitness function"))?;
     let lambda = need_lambda(fitness_fn, "fitness")?.clone();
 
     let genome_type = get_population_genome_type(&pop_val)?;
@@ -12499,7 +12651,7 @@ fn bi_fitness(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<V
 fn bi_best_individual(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let pop_val = input
         .or_else(|| args.first().cloned())
-        .ok_or_else(|| anyhow!("best_individual requires population"))?;
+        .ok_or_else(|| crate::safety::arg_err("best_individual requires population"))?;
 
     let genome_type = get_population_genome_type(&pop_val)?;
 
@@ -12554,7 +12706,7 @@ fn bi_best_individual(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_evolution_stats(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let pop_val = input
         .or_else(|| args.first().cloned())
-        .ok_or_else(|| anyhow!("evolution_stats requires population"))?;
+        .ok_or_else(|| crate::safety::arg_err("evolution_stats requires population"))?;
 
     if let Value::Record(rec) = &pop_val {
         if let Some(Value::Record(stats)) = rec.get("stats") {
@@ -12580,7 +12732,7 @@ fn bi_selection_strategy(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
                 None
             }
         })
-        .ok_or_else(|| anyhow!("selection_strategy requires name"))?;
+        .ok_or_else(|| crate::safety::arg_err("selection_strategy requires name"))?;
 
     let strategy = match name.to_lowercase().as_str() {
         "tournament" => {
@@ -12629,7 +12781,7 @@ fn bi_crossover_strategy(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
                 None
             }
         })
-        .ok_or_else(|| anyhow!("crossover_strategy requires name"))?;
+        .ok_or_else(|| crate::safety::arg_err("crossover_strategy requires name"))?;
 
     let strategy = match name.to_lowercase().as_str() {
         "single_point" | "singlepoint" => CrossoverStrategy::SinglePoint,
@@ -12719,14 +12871,14 @@ fn bi_coevolve(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<
     let has_input = input.is_some();
     let pops_val = input
         .or_else(|| args.first().cloned())
-        .ok_or_else(|| anyhow!("coevolve requires populations array"))?;
+        .ok_or_else(|| crate::safety::arg_err("coevolve requires populations array"))?;
 
     let pops_arr = expect_array("coevolve", &pops_val)?;
 
     let idx = if has_input { 0 } else { 1 };
     let fitness_fn = args
         .get(idx)
-        .ok_or_else(|| anyhow!("coevolve requires fitness function"))?;
+        .ok_or_else(|| crate::safety::arg_err("coevolve requires fitness function"))?;
     let lambda = need_lambda(fitness_fn, "coevolve")?.clone();
 
     let generations = args
@@ -13045,7 +13197,7 @@ fn bi_rl_action(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     };
 
     if args.len() < 2 {
-        return Err(anyhow!("rl_action requires: agent, state"));
+        return Err(crate::safety::arg_err("rl_action requires: agent, state"));
     }
 
     let agent = value_to_q_agent(&args[0])?;
@@ -13232,7 +13384,9 @@ fn bi_rl_pg_step(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     };
 
     if args.len() < 4 {
-        return Err(anyhow!("rl_pg_step requires: agent, state, action, reward"));
+        return Err(crate::safety::arg_err(
+            "rl_pg_step requires: agent, state, action, reward",
+        ));
     }
 
     let mut agent = value_to_pg_agent(&args[0])?;
@@ -13273,7 +13427,7 @@ fn bi_rl_pg_episode_end(args: Vec<Value>, input: Option<Value>) -> Result<Value>
     };
 
     if args.is_empty() {
-        return Err(anyhow!("rl_pg_episode_end requires: agent"));
+        return Err(crate::safety::arg_err("rl_pg_episode_end requires: agent"));
     }
 
     let mut agent = value_to_pg_agent(&args[0])?;
@@ -13535,7 +13689,7 @@ fn bi_rl_env_step(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     };
 
     if args.len() < 2 {
-        return Err(anyhow!("rl_env_step requires: env, action"));
+        return Err(crate::safety::arg_err("rl_env_step requires: env, action"));
     }
 
     let mut env = value_to_gridworld(&args[0])?;
@@ -13587,7 +13741,9 @@ fn value_to_q_agent(v: &Value) -> Result<QLearningAgent> {
         if let Some(Value::Str(data)) = rec.get("_data") {
             serde_json::from_str(data).context("Failed to deserialize Q-learning agent")
         } else {
-            Err(anyhow!("Invalid Q-learning agent: missing _data"))
+            Err(crate::safety::arg_err(
+                "Invalid Q-learning agent: missing _data",
+            ))
         }
     } else {
         Err(anyhow!("Invalid Q-learning agent value"))
@@ -13620,7 +13776,7 @@ fn value_to_sarsa_agent(v: &Value) -> Result<SarsaAgent> {
         if let Some(Value::Str(data)) = rec.get("_data") {
             serde_json::from_str(data).context("Failed to deserialize SARSA agent")
         } else {
-            Err(anyhow!("Invalid SARSA agent: missing _data"))
+            Err(crate::safety::arg_err("Invalid SARSA agent: missing _data"))
         }
     } else {
         Err(anyhow!("Invalid SARSA agent value"))
@@ -13652,7 +13808,7 @@ fn value_to_pg_agent(v: &Value) -> Result<PolicyGradientAgent> {
         if let Some(Value::Str(data)) = rec.get("_data") {
             serde_json::from_str(data).context("Failed to deserialize PG agent")
         } else {
-            Err(anyhow!("Invalid PG agent: missing _data"))
+            Err(crate::safety::arg_err("Invalid PG agent: missing _data"))
         }
     } else {
         Err(anyhow!("Invalid PG agent value"))
@@ -13684,7 +13840,7 @@ fn value_to_ac_agent(v: &Value) -> Result<ActorCriticAgent> {
         if let Some(Value::Str(data)) = rec.get("_data") {
             serde_json::from_str(data).context("Failed to deserialize AC agent")
         } else {
-            Err(anyhow!("Invalid AC agent: missing _data"))
+            Err(crate::safety::arg_err("Invalid AC agent: missing _data"))
         }
     } else {
         Err(anyhow!("Invalid AC agent value"))
@@ -13718,7 +13874,7 @@ fn value_to_dqn_agent(v: &Value) -> Result<DQNAgent> {
         if let Some(Value::Str(data)) = rec.get("_data") {
             serde_json::from_str(data).context("Failed to deserialize DQN agent")
         } else {
-            Err(anyhow!("Invalid DQN agent: missing _data"))
+            Err(crate::safety::arg_err("Invalid DQN agent: missing _data"))
         }
     } else {
         Err(anyhow!("Invalid DQN agent value"))
@@ -13762,12 +13918,12 @@ fn value_to_gridworld(v: &Value) -> Result<GridWorld> {
     if let Value::Record(rec) = v {
         let width = match rec.get("width") {
             Some(Value::Int(n)) => *n as usize,
-            _ => return Err(anyhow!("Invalid gridworld: missing width")),
+            _ => return Err(crate::safety::arg_err("Invalid gridworld: missing width")),
         };
 
         let height = match rec.get("height") {
             Some(Value::Int(n)) => *n as usize,
-            _ => return Err(anyhow!("Invalid gridworld: missing height")),
+            _ => return Err(crate::safety::arg_err("Invalid gridworld: missing height")),
         };
 
         let agent_x = match rec.get("agent_x") {
@@ -13901,7 +14057,7 @@ fn bi_tool_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 None
             }
         })
-        .ok_or_else(|| anyhow!("tool_info requires tool name as argument"))?;
+        .ok_or_else(|| crate::safety::arg_err("tool_info requires tool name as argument"))?;
 
     let db = OSToolsDatabase::new();
     let tool = db
@@ -14141,7 +14297,7 @@ fn bi_tool_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 None
             }
         })
-        .ok_or_else(|| anyhow!("tool_search requires a search query"))?;
+        .ok_or_else(|| crate::safety::arg_err("tool_search requires a search query"))?;
 
     let db = OSToolsDatabase::new();
 
@@ -14186,7 +14342,9 @@ fn bi_tool_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 ///        rlm_agent("goal", ["tools"], {max_depth: 3, max_agents: 20})
 fn bi_rlm_agent(args: Vec<Value>, _input: Option<Value>, env: &mut Env) -> Result<Value> {
     if args.is_empty() {
-        return Err(anyhow!("rlm_agent requires: goal, [tools], [config]"));
+        return Err(crate::safety::arg_err(
+            "rlm_agent requires: goal, [tools], [config]",
+        ));
     }
 
     let goal = if let Value::Str(s) = &args[0] {
@@ -14334,7 +14492,9 @@ fn bi_rlm_stats(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 /// Usage: rlm_spawn("name", "goal", ["tools"])
 fn bi_rlm_spawn(args: Vec<Value>, _input: Option<Value>, env: &mut Env) -> Result<Value> {
     if args.len() < 2 {
-        return Err(anyhow!("rlm_spawn requires: name, goal, [tools]"));
+        return Err(crate::safety::arg_err(
+            "rlm_spawn requires: name, goal, [tools]",
+        ));
     }
 
     let name = if let Value::Str(s) = &args[0] {
@@ -14445,7 +14605,7 @@ fn bi_sh(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     validate_sh_allowed()?;
 
     if args.is_empty() {
-        return Err(anyhow!("sh requires command arguments"));
+        return Err(crate::safety::arg_err("sh requires command arguments"));
     }
 
     let (program, cmd_args): (String, Vec<String>) = match &args[0] {
@@ -14479,7 +14639,11 @@ fn bi_sh(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 .collect();
             (program, args?)
         }
-        _ => return Err(anyhow!("sh requires string or array of strings")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "sh requires string or array of strings",
+            ))
+        }
     };
 
     crate::safety::guard(crate::safety::GuardCtx {
@@ -15606,11 +15770,21 @@ fn parse_plan_ops(ops: &Value) -> Result<Vec<(String, String, Option<String>)>> 
         };
         let op = match m.get("op") {
             Some(Value::Str(s)) => s.clone(),
-            _ => return Err(anyhow!("plan: op #{} missing 'op' string", i)),
+            _ => {
+                return Err(crate::safety::arg_err(format!(
+                    "plan: op #{} missing 'op' string",
+                    i
+                )))
+            }
         };
         let path = match m.get("path") {
             Some(Value::Str(s)) => s.clone(),
-            _ => return Err(anyhow!("plan: op #{} missing 'path' string", i)),
+            _ => {
+                return Err(crate::safety::arg_err(format!(
+                    "plan: op #{} missing 'path' string",
+                    i
+                )))
+            }
         };
         let content = match m.get("content") {
             Some(Value::Str(s)) => Some(s.clone()),
@@ -15618,7 +15792,10 @@ fn parse_plan_ops(ops: &Value) -> Result<Vec<(String, String, Option<String>)>> 
         };
         match op.as_str() {
             "write" | "append" if content.is_none() => {
-                return Err(anyhow!("plan: {} op #{} requires 'content'", op, i))
+                return Err(crate::safety::arg_err(format!(
+                    "plan: {} op #{} requires 'content'",
+                    op, i
+                )))
             }
             "write" | "append" | "rm" | "mkdir" => {}
             other => {
@@ -16286,7 +16463,7 @@ fn bi_sort_by(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<V
                 _ => None,
             })
         })
-        .ok_or_else(|| anyhow!("sort_by requires array input"))?;
+        .ok_or_else(|| crate::safety::arg_err("sort_by requires array input"))?;
 
     let lambda = args
         .iter()
@@ -16294,7 +16471,7 @@ fn bi_sort_by(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<V
             Value::Lambda(l) => Some(l),
             _ => None,
         })
-        .ok_or_else(|| anyhow!("sort_by requires a lambda function"))?;
+        .ok_or_else(|| crate::safety::arg_err("sort_by requires a lambda function"))?;
 
     let descending = args.iter().any(|v| match v {
         Value::Str(s) => s == "desc" || s == "descending",
@@ -16342,7 +16519,7 @@ fn sort_compare_values(a: &Value, b: &Value) -> std::cmp::Ordering {
 /// Usage: data | save_json("output.json") or save_json("output.json", data)
 fn bi_save_json(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     if args.is_empty() {
-        return Err(anyhow!("save_json requires a file path"));
+        return Err(crate::safety::arg_err("save_json requires a file path"));
     }
 
     let path = match &args[0] {
@@ -16353,7 +16530,7 @@ fn bi_save_json(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let value = if args.len() > 1 {
         args[1].clone()
     } else {
-        input.ok_or_else(|| anyhow!("save_json requires a value to save"))?
+        input.ok_or_else(|| crate::safety::arg_err("save_json requires a value to save"))?
     };
 
     // Convert Value to JSON using existing function
@@ -16377,7 +16554,9 @@ fn bi_save_json(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 /// Usage: mcp_server_start({name: "fs", type: "builtin", config: {...}})
 fn bi_mcp_server_start(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.is_empty() {
-        return Err(anyhow!("mcp_server_start requires a configuration record"));
+        return Err(crate::safety::arg_err(
+            "mcp_server_start requires a configuration record",
+        ));
     }
 
     let config = match &args[0] {
@@ -16429,7 +16608,9 @@ fn bi_mcp_server_start(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 /// Usage: agent_with_mcp("Task description", ["mcp:read_file", "mcp:list_dir"], server.endpoint)
 fn bi_agent_with_mcp(args: Vec<Value>, _input: Option<Value>, env: &mut Env) -> Result<Value> {
     if args.len() < 2 {
-        return Err(anyhow!("agent_with_mcp requires goal and tools array"));
+        return Err(crate::safety::arg_err(
+            "agent_with_mcp requires goal and tools array",
+        ));
     }
 
     let goal = match &args[0] {
@@ -16513,7 +16694,7 @@ fn bi_each(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Valu
                 _ => None,
             })
         })
-        .ok_or_else(|| anyhow!("each requires array input"))?;
+        .ok_or_else(|| crate::safety::arg_err("each requires array input"))?;
 
     let lambda = args
         .iter()
@@ -16521,7 +16702,7 @@ fn bi_each(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Valu
             Value::Lambda(l) => Some(l),
             _ => None,
         })
-        .ok_or_else(|| anyhow!("each requires a lambda function"))?;
+        .ok_or_else(|| crate::safety::arg_err("each requires a lambda function"))?;
 
     // Apply lambda to each element for side effects
     for item in &arr {
@@ -16537,12 +16718,12 @@ fn bi_each(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Valu
 fn bi_in(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let (needle, haystack) = if let Some(ref inp) = input {
         if args.is_empty() {
-            return Err(anyhow!("in requires a collection to search"));
+            return Err(crate::safety::arg_err("in requires a collection to search"));
         }
         (inp, &args[0])
     } else {
         if args.len() < 2 {
-            return Err(anyhow!("in requires value and collection"));
+            return Err(crate::safety::arg_err("in requires value and collection"));
         }
         (&args[0], &args[1])
     };
@@ -16594,7 +16775,7 @@ fn bi_role_create(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let name = input
         .or_else(|| args.first().cloned())
         .map(|v| v.to_display_string())
-        .ok_or_else(|| anyhow!("role_create: missing 'name'"))?;
+        .ok_or_else(|| crate::safety::arg_err("role_create: missing 'name'"))?;
 
     let permissions = args
         .get(1)
@@ -16649,7 +16830,7 @@ fn bi_role_delete(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let name = input
         .or_else(|| args.first().cloned())
         .map(|v| v.to_display_string())
-        .ok_or_else(|| anyhow!("role_delete: missing 'name'"))?;
+        .ok_or_else(|| crate::safety::arg_err("role_delete: missing 'name'"))?;
 
     let existed = RBAC_ROLES.write().unwrap().remove(&name).is_some();
 
@@ -16665,7 +16846,9 @@ fn bi_role_delete(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 /// role_grant(user, role) - Grant a role to a user
 fn bi_role_grant(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.len() < 2 {
-        return Err(anyhow!("role_grant: requires user and role arguments"));
+        return Err(crate::safety::arg_err(
+            "role_grant: requires user and role arguments",
+        ));
     }
     let user = args[0].to_display_string();
     let role = args[1].to_display_string();
@@ -16691,7 +16874,9 @@ fn bi_role_grant(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 /// role_revoke(user, role) - Revoke a role from a user
 fn bi_role_revoke(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.len() < 2 {
-        return Err(anyhow!("role_revoke: requires user and role arguments"));
+        return Err(crate::safety::arg_err(
+            "role_revoke: requires user and role arguments",
+        ));
     }
     let user = args[0].to_display_string();
     let role = args[1].to_display_string();
@@ -16720,7 +16905,7 @@ fn bi_user_roles(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let user = input
         .or_else(|| args.first().cloned())
         .map(|v| v.to_display_string())
-        .ok_or_else(|| anyhow!("user_roles: missing 'user'"))?;
+        .ok_or_else(|| crate::safety::arg_err("user_roles: missing 'user'"))?;
 
     let roles = USER_ROLES
         .read()
@@ -16789,7 +16974,9 @@ fn bi_roles_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 /// audit_log(action, resource, details?, severity?) - Log an audit entry
 fn bi_audit_log(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.len() < 2 {
-        return Err(anyhow!("audit_log: requires action and resource arguments"));
+        return Err(crate::safety::arg_err(
+            "audit_log: requires action and resource arguments",
+        ));
     }
     let action = args[0].to_display_string();
     let resource = args[1].to_display_string();
@@ -16978,7 +17165,7 @@ fn bi_sso_auth(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let callback = input
         .or_else(|| args.first().cloned())
         .map(|v| v.to_display_string())
-        .ok_or_else(|| anyhow!("sso_auth: missing callback data"))?;
+        .ok_or_else(|| crate::safety::arg_err("sso_auth: missing callback data"))?;
 
     let config = SSO_CONFIG.read().unwrap();
     if config.is_none() {
@@ -17018,7 +17205,7 @@ fn bi_sso_validate(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let token = input
         .or_else(|| args.first().cloned())
         .map(|v| v.to_display_string())
-        .ok_or_else(|| anyhow!("sso_validate: missing 'token'"))?;
+        .ok_or_else(|| crate::safety::arg_err("sso_validate: missing 'token'"))?;
 
     let sessions = SSO_SESSIONS.read().unwrap();
     let session = sessions.get(&token);
@@ -17046,7 +17233,7 @@ fn bi_sso_logout(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let token = input
         .or_else(|| args.first().cloned())
         .map(|v| v.to_display_string())
-        .ok_or_else(|| anyhow!("sso_logout: missing 'token'"))?;
+        .ok_or_else(|| crate::safety::arg_err("sso_logout: missing 'token'"))?;
 
     let removed = SSO_SESSIONS.write().unwrap().remove(&token).is_some();
 
@@ -17085,7 +17272,7 @@ fn bi_compliance_check(args: Vec<Value>, input: Option<Value>) -> Result<Value> 
     let standard_str = input
         .or_else(|| args.first().cloned())
         .map(|v| v.to_display_string())
-        .ok_or_else(|| anyhow!("compliance_check: missing 'standard'"))?;
+        .ok_or_else(|| crate::safety::arg_err("compliance_check: missing 'standard'"))?;
 
     let standard = ComplianceStandard::from_str(&standard_str).ok_or_else(|| {
         anyhow!(
@@ -17137,7 +17324,7 @@ fn bi_compliance_report(args: Vec<Value>, input: Option<Value>) -> Result<Value>
     let standard_str = input
         .or_else(|| args.first().cloned())
         .map(|v| v.to_display_string())
-        .ok_or_else(|| anyhow!("compliance_report: missing 'standard'"))?;
+        .ok_or_else(|| crate::safety::arg_err("compliance_report: missing 'standard'"))?;
 
     let standard = ComplianceStandard::from_str(&standard_str)
         .ok_or_else(|| anyhow!("compliance_report: invalid standard '{}'", standard_str))?;
@@ -17217,7 +17404,7 @@ fn bi_finetune_status(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let job_id = input
         .or_else(|| args.first().cloned())
         .map(|v| v.to_display_string())
-        .ok_or_else(|| anyhow!("finetune_status: missing 'job_id'"))?;
+        .ok_or_else(|| crate::safety::arg_err("finetune_status: missing 'job_id'"))?;
 
     let jobs = FINETUNE_JOBS.read().unwrap();
     let job = jobs
@@ -17262,7 +17449,7 @@ fn bi_finetune_cancel(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let job_id = input
         .or_else(|| args.first().cloned())
         .map(|v| v.to_display_string())
-        .ok_or_else(|| anyhow!("finetune_cancel: missing 'job_id'"))?;
+        .ok_or_else(|| crate::safety::arg_err("finetune_cancel: missing 'job_id'"))?;
 
     let mut jobs = FINETUNE_JOBS.write().unwrap();
 
@@ -17293,7 +17480,7 @@ fn bi_a2ui_notify(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let message = input
         .or_else(|| args.first().cloned())
         .map(|v| v.to_display_string())
-        .ok_or_else(|| anyhow!("a2ui_notify: missing message"))?;
+        .ok_or_else(|| crate::safety::arg_err("a2ui_notify: missing message"))?;
 
     let level = args
         .get(1)
@@ -17325,7 +17512,7 @@ fn bi_a2ui_prompt(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let message = input
         .or_else(|| args.first().cloned())
         .map(|v| v.to_display_string())
-        .ok_or_else(|| anyhow!("a2ui_prompt: missing message"))?;
+        .ok_or_else(|| crate::safety::arg_err("a2ui_prompt: missing message"))?;
 
     match A2UI_CHANNEL.prompt_text("builtin", &message)? {
         PromptResponse::Text(s) => Ok(Value::Str(s)),
@@ -17339,7 +17526,7 @@ fn bi_a2ui_confirm(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let message = input
         .or_else(|| args.first().cloned())
         .map(|v| v.to_display_string())
-        .ok_or_else(|| anyhow!("a2ui_confirm: missing message"))?;
+        .ok_or_else(|| crate::safety::arg_err("a2ui_confirm: missing message"))?;
 
     let result = A2UI_CHANNEL.prompt_confirm("builtin", &message)?;
     Ok(Value::Bool(result))
@@ -17350,7 +17537,7 @@ fn bi_a2ui_select(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let message = input
         .or_else(|| args.first().cloned())
         .map(|v| v.to_display_string())
-        .ok_or_else(|| anyhow!("a2ui_select: missing message"))?;
+        .ok_or_else(|| crate::safety::arg_err("a2ui_select: missing message"))?;
 
     let options: Vec<String> = args
         .get(1)
@@ -17361,7 +17548,7 @@ fn bi_a2ui_select(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                 None
             }
         })
-        .ok_or_else(|| anyhow!("a2ui_select: missing options array"))?;
+        .ok_or_else(|| crate::safety::arg_err("a2ui_select: missing options array"))?;
 
     match A2UI_CHANNEL.prompt_select("builtin", &message, options.clone())? {
         PromptResponse::Select(idx) => {
@@ -17381,7 +17568,7 @@ fn bi_a2ui_progress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let label = args
         .first()
         .map(|v| v.to_display_string())
-        .ok_or_else(|| anyhow!("a2ui_progress: missing label"))?;
+        .ok_or_else(|| crate::safety::arg_err("a2ui_progress: missing label"))?;
 
     let current = args
         .get(1)
@@ -17390,7 +17577,7 @@ fn bi_a2ui_progress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             Value::Float(f) => Some(*f as u64),
             _ => None,
         })
-        .ok_or_else(|| anyhow!("a2ui_progress: missing current value"))?;
+        .ok_or_else(|| crate::safety::arg_err("a2ui_progress: missing current value"))?;
 
     let total = args
         .get(2)
@@ -17399,7 +17586,7 @@ fn bi_a2ui_progress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             Value::Float(f) => Some(*f as u64),
             _ => None,
         })
-        .ok_or_else(|| anyhow!("a2ui_progress: missing total value"))?;
+        .ok_or_else(|| crate::safety::arg_err("a2ui_progress: missing total value"))?;
 
     // Generate or use existing progress ID
     let progress_id = args
@@ -17432,7 +17619,7 @@ fn bi_a2ui_progress_complete(args: Vec<Value>, input: Option<Value>) -> Result<V
     let id_str = input
         .or_else(|| args.first().cloned())
         .map(|v| v.to_display_string())
-        .ok_or_else(|| anyhow!("a2ui_progress_complete: missing progress_id"))?;
+        .ok_or_else(|| crate::safety::arg_err("a2ui_progress_complete: missing progress_id"))?;
 
     let progress_id = uuid::Uuid::parse_str(&id_str)
         .map_err(|_| anyhow!("a2ui_progress_complete: invalid progress_id"))?;
@@ -17446,7 +17633,7 @@ fn bi_a2ui_progress_complete(args: Vec<Value>, input: Option<Value>) -> Result<V
 fn bi_a2ui_render(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let content = input
         .or_else(|| args.first().cloned())
-        .ok_or_else(|| anyhow!("a2ui_render: missing content"))?;
+        .ok_or_else(|| crate::safety::arg_err("a2ui_render: missing content"))?;
 
     let render_content = match &content {
         Value::Str(s) => RenderContent::Text(s.clone()),
@@ -17480,7 +17667,7 @@ fn bi_a2ui_render_table(args: Vec<Value>, input: Option<Value>) -> Result<Value>
                 None
             }
         })
-        .ok_or_else(|| anyhow!("a2ui_render_table: missing headers array"))?;
+        .ok_or_else(|| crate::safety::arg_err("a2ui_render_table: missing headers array"))?;
 
     let rows: Vec<Vec<String>> = args
         .get(1)
@@ -17514,7 +17701,7 @@ fn bi_a2ui_render_table(args: Vec<Value>, input: Option<Value>) -> Result<Value>
                 None
             }
         })
-        .ok_or_else(|| anyhow!("a2ui_render_table: missing rows array"))?;
+        .ok_or_else(|| crate::safety::arg_err("a2ui_render_table: missing rows array"))?;
 
     A2UI_CHANNEL.render("builtin", RenderContent::Table { headers, rows })?;
 
@@ -17526,13 +17713,13 @@ fn bi_a2ui_render_code(args: Vec<Value>, input: Option<Value>) -> Result<Value> 
     let language = args
         .first()
         .map(|v| v.to_display_string())
-        .ok_or_else(|| anyhow!("a2ui_render_code: missing language"))?;
+        .ok_or_else(|| crate::safety::arg_err("a2ui_render_code: missing language"))?;
 
     let code = args
         .get(1)
         .or(input.as_ref())
         .map(|v| v.to_display_string())
-        .ok_or_else(|| anyhow!("a2ui_render_code: missing code"))?;
+        .ok_or_else(|| crate::safety::arg_err("a2ui_render_code: missing code"))?;
 
     A2UI_CHANNEL.render(
         "builtin",
@@ -17550,7 +17737,7 @@ fn bi_a2ui_toast(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let message = input
         .or_else(|| args.first().cloned())
         .map(|v| v.to_display_string())
-        .ok_or_else(|| anyhow!("a2ui_toast: missing message"))?;
+        .ok_or_else(|| crate::safety::arg_err("a2ui_toast: missing message"))?;
 
     let level = args
         .get(1)
@@ -17578,7 +17765,7 @@ fn bi_a2ui_status(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let text = input
         .or_else(|| args.first().cloned())
         .map(|v| v.to_display_string())
-        .ok_or_else(|| anyhow!("a2ui_status: missing text"))?;
+        .ok_or_else(|| crate::safety::arg_err("a2ui_status: missing text"))?;
 
     A2UI_CHANNEL.status("builtin", &text)?;
 
@@ -17596,7 +17783,7 @@ fn bi_a2ui_agent_started(args: Vec<Value>, input: Option<Value>) -> Result<Value
     let agent_id = input
         .or_else(|| args.first().cloned())
         .map(|v| v.to_display_string())
-        .ok_or_else(|| anyhow!("a2ui_agent_started: missing agent_id"))?;
+        .ok_or_else(|| crate::safety::arg_err("a2ui_agent_started: missing agent_id"))?;
 
     let task = args.get(1).map(|v| v.to_display_string());
 
@@ -17613,7 +17800,7 @@ fn bi_a2ui_agent_completed(args: Vec<Value>, input: Option<Value>) -> Result<Val
     let agent_id = input
         .or_else(|| args.first().cloned())
         .map(|v| v.to_display_string())
-        .ok_or_else(|| anyhow!("a2ui_agent_completed: missing agent_id"))?;
+        .ok_or_else(|| crate::safety::arg_err("a2ui_agent_completed: missing agent_id"))?;
 
     let success = args
         .get(1)
@@ -17645,13 +17832,13 @@ fn bi_a2ui_agent_thinking(args: Vec<Value>, input: Option<Value>) -> Result<Valu
     let agent_id = args
         .first()
         .map(|v| v.to_display_string())
-        .ok_or_else(|| anyhow!("a2ui_agent_thinking: missing agent_id"))?;
+        .ok_or_else(|| crate::safety::arg_err("a2ui_agent_thinking: missing agent_id"))?;
 
     let thought = args
         .get(1)
         .or(input.as_ref())
         .map(|v| v.to_display_string())
-        .ok_or_else(|| anyhow!("a2ui_agent_thinking: missing thought"))?;
+        .ok_or_else(|| crate::safety::arg_err("a2ui_agent_thinking: missing thought"))?;
 
     let step = args
         .get(2)
@@ -27829,7 +28016,7 @@ fn bi_db_kv_store(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 ///        content | file_write("output.txt")
 fn bi_file_write(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     if args.is_empty() {
-        return Err(anyhow!("file_write requires a file path"));
+        return Err(crate::safety::arg_err("file_write requires a file path"));
     }
 
     let path = match &args[0] {
@@ -27866,7 +28053,11 @@ fn bi_file_write(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                 .collect::<Vec<_>>()
                 .join("\n"),
             Some(other) => format!("{:?}", other),
-            None => return Err(anyhow!("file_write requires content to write")),
+            None => {
+                return Err(crate::safety::arg_err(
+                    "file_write requires content to write",
+                ))
+            }
         }
     };
 
@@ -27926,7 +28117,7 @@ fn bi_file_write(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 ///        new_lines | file_append("data.txt")
 fn bi_file_append(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     if args.is_empty() {
-        return Err(anyhow!("file_append requires a file path"));
+        return Err(crate::safety::arg_err("file_append requires a file path"));
     }
 
     let path = match &args[0] {
@@ -27962,7 +28153,11 @@ fn bi_file_append(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                 .collect::<Vec<_>>()
                 .join("\n"),
             Some(other) => format!("{:?}", other),
-            None => return Err(anyhow!("file_append requires content to append")),
+            None => {
+                return Err(crate::safety::arg_err(
+                    "file_append requires content to append",
+                ))
+            }
         }
     };
 
@@ -28005,7 +28200,7 @@ fn bi_file_append(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 /// Usage: file_patch("config.txt", [{find: "DEBUG=0", replace: "DEBUG=1"}])
 fn bi_file_patch(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     if args.is_empty() {
-        return Err(anyhow!("file_patch requires a file path"));
+        return Err(crate::safety::arg_err("file_patch requires a file path"));
     }
 
     let path = match &args[0] {
@@ -28148,7 +28343,9 @@ fn bi_file_replace(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 /// file_insert(path, position, content) - Insert content at a specific position
 fn bi_file_insert(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     if args.len() < 2 {
-        return Err(anyhow!("file_insert requires path and position"));
+        return Err(crate::safety::arg_err(
+            "file_insert requires path and position",
+        ));
     }
 
     let path = match &args[0] {
@@ -28181,7 +28378,11 @@ fn bi_file_insert(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                 .collect::<Vec<_>>()
                 .join("\n"),
             Some(other) => format!("{:?}", other),
-            None => return Err(anyhow!("file_insert requires content to insert")),
+            None => {
+                return Err(crate::safety::arg_err(
+                    "file_insert requires content to insert",
+                ))
+            }
         }
     };
 
@@ -28375,7 +28576,7 @@ fn bi_file_delete_lines(args: Vec<Value>, _input: Option<Value>) -> Result<Value
 /// file_edit(path, edits) - Apply structured edits to a file
 fn bi_file_edit(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     if args.is_empty() {
-        return Err(anyhow!("file_edit requires a file path"));
+        return Err(crate::safety::arg_err("file_edit requires a file path"));
     }
 
     let path = match &args[0] {
@@ -28591,7 +28792,7 @@ fn bi_file_edit(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 /// file_diff(path1, path2) - Compare two files and return differences
 fn bi_file_diff(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.len() < 2 {
-        return Err(anyhow!("file_diff requires two file paths"));
+        return Err(crate::safety::arg_err("file_diff requires two file paths"));
     }
 
     let path1 = match &args[0] {
@@ -28663,7 +28864,7 @@ fn bi_file_diff(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 pub fn bi_file_backup(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let path = match args.first().or(input.as_ref()) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("file_backup requires a file path")),
+        _ => return Err(crate::safety::arg_err("file_backup requires a file path")),
     };
 
     let suffix = match args.get(1) {
@@ -28699,7 +28900,9 @@ pub fn bi_file_backup(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 /// file_copy(source, dest) - Copy a file or directory
 pub fn bi_file_copy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.len() < 2 {
-        return Err(anyhow!("file_copy requires source and destination paths"));
+        return Err(crate::safety::arg_err(
+            "file_copy requires source and destination paths",
+        ));
     }
 
     let source = match &args[0] {
@@ -28764,7 +28967,9 @@ fn copy_dir_recursive(src: &str, dst: &str) -> Result<u64> {
 /// file_move(source, dest) - Move/rename a file or directory
 pub fn bi_file_move(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.len() < 2 {
-        return Err(anyhow!("file_move requires source and destination paths"));
+        return Err(crate::safety::arg_err(
+            "file_move requires source and destination paths",
+        ));
     }
 
     let source = match &args[0] {
@@ -28800,7 +29005,7 @@ pub fn bi_file_move(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 pub fn bi_file_exists(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let path = match args.first().or(input.as_ref()) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("file_exists requires a path")),
+        _ => return Err(crate::safety::arg_err("file_exists requires a path")),
     };
 
     let exists = std::path::Path::new(&path).exists();
@@ -28820,7 +29025,7 @@ pub fn bi_file_exists(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 pub fn bi_file_mkdir(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let path = match args.first().or(input.as_ref()) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("file_mkdir requires a path")),
+        _ => return Err(crate::safety::arg_err("file_mkdir requires a path")),
     };
 
     let already_exists = std::path::Path::new(&path).exists();
@@ -28853,7 +29058,9 @@ lazy_static::lazy_static! {
 /// a2a.send(target, message) - Send a message to another agent
 fn bi_a2a_send(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.len() < 2 {
-        return Err(anyhow!("a2a.send: requires target and message arguments"));
+        return Err(crate::safety::arg_err(
+            "a2a.send: requires target and message arguments",
+        ));
     }
     let target = args[0]
         .as_str()
@@ -28896,7 +29103,7 @@ fn bi_a2a_receive(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 /// a2a.broadcast(message) - Broadcast to all agents
 fn bi_a2a_broadcast(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.is_empty() {
-        return Err(anyhow!("a2a.broadcast: requires a message"));
+        return Err(crate::safety::arg_err("a2a.broadcast: requires a message"));
     }
     let message = args[0].clone();
     let registry = A2A_REGISTRY.read().unwrap();
@@ -28932,7 +29139,7 @@ fn bi_a2a_discover(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 /// a2a.register(name, info?) - Register an agent
 fn bi_a2a_register(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.is_empty() {
-        return Err(anyhow!("a2a.register: requires agent name"));
+        return Err(crate::safety::arg_err("a2a.register: requires agent name"));
     }
     let name = args[0]
         .as_str()
@@ -28953,7 +29160,9 @@ fn bi_a2a_register(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 /// a2a.unregister(name) - Unregister an agent
 fn bi_a2a_unregister(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.is_empty() {
-        return Err(anyhow!("a2a.unregister: requires agent name"));
+        return Err(crate::safety::arg_err(
+            "a2a.unregister: requires agent name",
+        ));
     }
     let name = args[0]
         .as_str()
@@ -29023,7 +29232,9 @@ fn nanda_uuid() -> String {
 /// nanda.propose(name, data) - Create a consensus proposal
 fn bi_nanda_propose(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.len() < 2 {
-        return Err(anyhow!("nanda.propose: requires name and data arguments"));
+        return Err(crate::safety::arg_err(
+            "nanda.propose: requires name and data arguments",
+        ));
     }
     let name = args[0]
         .as_str()
@@ -29084,7 +29295,7 @@ fn bi_nanda_vote(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 /// nanda.commit(proposal_id) - Commit a proposal if consensus reached
 fn bi_nanda_commit(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.is_empty() {
-        return Err(anyhow!("nanda.commit: requires proposal_id"));
+        return Err(crate::safety::arg_err("nanda.commit: requires proposal_id"));
     }
     let proposal_id = args[0]
         .as_str()
@@ -29128,7 +29339,7 @@ fn bi_nanda_commit(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 /// nanda.abort(proposal_id) - Abort a proposal
 fn bi_nanda_abort(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.is_empty() {
-        return Err(anyhow!("nanda.abort: requires proposal_id"));
+        return Err(crate::safety::arg_err("nanda.abort: requires proposal_id"));
     }
     let proposal_id = args[0]
         .as_str()
@@ -29168,7 +29379,9 @@ fn bi_nanda_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 /// nanda.consensus(proposal_id) - Check if consensus has been reached
 fn bi_nanda_consensus(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.is_empty() {
-        return Err(anyhow!("nanda.consensus: requires proposal_id"));
+        return Err(crate::safety::arg_err(
+            "nanda.consensus: requires proposal_id",
+        ));
     }
     let proposal_id = args[0]
         .as_str()
@@ -29205,7 +29418,7 @@ fn bi_nanda_consensus(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 /// nanda.quorum(proposal_id) - Get quorum status
 fn bi_nanda_quorum(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.is_empty() {
-        return Err(anyhow!("nanda.quorum: requires proposal_id"));
+        return Err(crate::safety::arg_err("nanda.quorum: requires proposal_id"));
     }
     let proposal_id = args[0]
         .as_str()
@@ -29296,7 +29509,7 @@ fn bi_git_blame(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .first()
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
-        .ok_or_else(|| anyhow::anyhow!("file path required"))?;
+        .ok_or_else(|| crate::safety::arg_err("file path required"))?;
     let output = std::process::Command::new("git")
         .args(["blame", &file])
         .output()?;
@@ -29330,7 +29543,7 @@ fn bi_git_checkout(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .first()
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
-        .ok_or_else(|| anyhow::anyhow!("branch name required"))?;
+        .ok_or_else(|| crate::safety::arg_err("branch name required"))?;
     let output = std::process::Command::new("git")
         .args(["checkout", &branch])
         .output()?;
@@ -29342,7 +29555,7 @@ fn bi_git_commit(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .first()
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
-        .ok_or_else(|| anyhow::anyhow!("commit message required"))?;
+        .ok_or_else(|| crate::safety::arg_err("commit message required"))?;
     let output = std::process::Command::new("git")
         .args(["commit", "-m", &msg])
         .output()?;
@@ -29428,7 +29641,7 @@ fn bi_git_merge(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .first()
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
-        .ok_or_else(|| anyhow::anyhow!("branch name required"))?;
+        .ok_or_else(|| crate::safety::arg_err("branch name required"))?;
     let output = std::process::Command::new("git")
         .args(["merge", &branch])
         .output()?;
@@ -29440,7 +29653,7 @@ fn bi_git_rebase(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .first()
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
-        .ok_or_else(|| anyhow::anyhow!("branch name required"))?;
+        .ok_or_else(|| crate::safety::arg_err("branch name required"))?;
     let output = std::process::Command::new("git")
         .args(["rebase", &branch])
         .output()?;
@@ -29452,7 +29665,7 @@ fn bi_git_cherry_pick(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
         .first()
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
-        .ok_or_else(|| anyhow::anyhow!("commit hash required"))?;
+        .ok_or_else(|| crate::safety::arg_err("commit hash required"))?;
     let output = std::process::Command::new("git")
         .args(["cherry-pick", &commit])
         .output()?;
@@ -29512,7 +29725,7 @@ fn bi_git_ignore(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .first()
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
-        .ok_or_else(|| anyhow::anyhow!("pattern required"))?;
+        .ok_or_else(|| crate::safety::arg_err("pattern required"))?;
     use std::io::Write;
     let mut file = std::fs::OpenOptions::new()
         .create(true)
@@ -29541,7 +29754,7 @@ fn bi_code_parse(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .first()
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
-        .ok_or_else(|| anyhow::anyhow!("file path required"))?;
+        .ok_or_else(|| crate::safety::arg_err("file path required"))?;
     let content = std::fs::read_to_string(&file)?;
     let lines = content.lines().count();
     let mut result = BTreeMap::new();
@@ -29556,7 +29769,7 @@ fn bi_code_symbols(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .first()
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
-        .ok_or_else(|| anyhow::anyhow!("file path required"))?;
+        .ok_or_else(|| crate::safety::arg_err("file path required"))?;
     let content = std::fs::read_to_string(&file)?;
     let mut symbols = Vec::new();
     for (i, line) in content.lines().enumerate() {
@@ -29600,7 +29813,7 @@ fn bi_code_imports(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .first()
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
-        .ok_or_else(|| anyhow::anyhow!("file path required"))?;
+        .ok_or_else(|| crate::safety::arg_err("file path required"))?;
     let content = std::fs::read_to_string(&file)?;
     let imports: Vec<Value> = content
         .lines()
@@ -29620,7 +29833,7 @@ fn bi_code_exports(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .first()
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
-        .ok_or_else(|| anyhow::anyhow!("file path required"))?;
+        .ok_or_else(|| crate::safety::arg_err("file path required"))?;
     let content = std::fs::read_to_string(&file)?;
     let exports: Vec<Value> = content
         .lines()
@@ -29659,7 +29872,7 @@ fn bi_code_format(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .first()
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
-        .ok_or_else(|| anyhow::anyhow!("file path required"))?;
+        .ok_or_else(|| crate::safety::arg_err("file path required"))?;
     let ext = std::path::Path::new(&file)
         .extension()
         .and_then(|s| s.to_str())
@@ -29682,7 +29895,7 @@ fn bi_code_language(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .first()
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
-        .ok_or_else(|| anyhow::anyhow!("file path required"))?;
+        .ok_or_else(|| crate::safety::arg_err("file path required"))?;
     let ext = std::path::Path::new(&file)
         .extension()
         .and_then(|s| s.to_str())
@@ -29712,7 +29925,7 @@ fn bi_code_comments(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .first()
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
-        .ok_or_else(|| anyhow::anyhow!("file path required"))?;
+        .ok_or_else(|| crate::safety::arg_err("file path required"))?;
     let content = std::fs::read_to_string(&file)?;
     let comments: Vec<Value> = content
         .lines()
@@ -29736,7 +29949,7 @@ fn bi_code_todos(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .first()
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
-        .ok_or_else(|| anyhow::anyhow!("file path required"))?;
+        .ok_or_else(|| crate::safety::arg_err("file path required"))?;
     let content = std::fs::read_to_string(&file)?;
     let todos: Vec<Value> = content
         .lines()
@@ -30068,7 +30281,7 @@ fn bi_search_code(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .first()
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
-        .ok_or_else(|| anyhow::anyhow!("pattern required"))?;
+        .ok_or_else(|| crate::safety::arg_err("pattern required"))?;
     let output = std::process::Command::new("grep")
         .args(["-rn", &pattern, "."])
         .output()?;
@@ -30093,7 +30306,7 @@ fn bi_search_symbols(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .first()
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
-        .ok_or_else(|| anyhow::anyhow!("pattern required"))?;
+        .ok_or_else(|| crate::safety::arg_err("pattern required"))?;
     let output = std::process::Command::new("grep")
         .args([
             "-rn",
@@ -30117,7 +30330,7 @@ fn bi_search_files(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .first()
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
-        .ok_or_else(|| anyhow::anyhow!("pattern required"))?;
+        .ok_or_else(|| crate::safety::arg_err("pattern required"))?;
     let output = std::process::Command::new("find")
         .args([".", "-name", &pattern])
         .output()?;
@@ -30158,7 +30371,7 @@ fn bi_search_by_type(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .first()
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
-        .ok_or_else(|| anyhow::anyhow!("extension required"))?;
+        .ok_or_else(|| crate::safety::arg_err("extension required"))?;
     let output = std::process::Command::new("find")
         .args([".", "-name", &format!("*.{}", ext)])
         .output()?;
@@ -30236,7 +30449,7 @@ fn bi_test_run_file(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .first()
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
-        .ok_or_else(|| anyhow::anyhow!("file required"))?;
+        .ok_or_else(|| crate::safety::arg_err("file required"))?;
     let output = std::process::Command::new("cargo")
         .args(["test", "--test", &file])
         .output()?;
@@ -30250,7 +30463,7 @@ fn bi_test_run_function(args: Vec<Value>, _input: Option<Value>) -> Result<Value
         .first()
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
-        .ok_or_else(|| anyhow::anyhow!("function name required"))?;
+        .ok_or_else(|| crate::safety::arg_err("function name required"))?;
     let output = std::process::Command::new("cargo")
         .args(["test", &func])
         .output()?;
@@ -30367,7 +30580,7 @@ fn bi_diag_explain(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .first()
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
-        .ok_or_else(|| anyhow::anyhow!("error code required"))?;
+        .ok_or_else(|| crate::safety::arg_err("error code required"))?;
     let output = std::process::Command::new("rustc")
         .args(["--explain", &code])
         .output()?;
@@ -30397,7 +30610,7 @@ fn bi_refactor_rename(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 
 fn bi_refactor_rename_file(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.len() < 2 {
-        return Err(anyhow::anyhow!("old and new path required"));
+        return Err(crate::safety::arg_err("old and new path required"));
     }
     let old = args[0].as_str().unwrap_or("").to_string();
     let new = args[1].as_str().unwrap_or("").to_string();
@@ -30442,7 +30655,7 @@ fn bi_refactor_organize_imports(args: Vec<Value>, _input: Option<Value>) -> Resu
         .first()
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
-        .ok_or_else(|| anyhow::anyhow!("file required"))?;
+        .ok_or_else(|| crate::safety::arg_err("file required"))?;
     let content = std::fs::read_to_string(&file)?;
     let mut imports: Vec<&str> = content.lines().filter(|l| l.starts_with("use ")).collect();
     imports.sort();
@@ -30568,7 +30781,7 @@ fn bi_docs_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .first()
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
-        .ok_or_else(|| anyhow::anyhow!("query required"))?;
+        .ok_or_else(|| crate::safety::arg_err("query required"))?;
     let output = std::process::Command::new("grep")
         .args(["-rn", &query, "target/doc"])
         .output()?;
@@ -30722,8 +30935,11 @@ fn bi_env_var(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .first()
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
-        .ok_or_else(|| anyhow::anyhow!("variable name required"))?;
-    Ok(gate_env_secret(&name, std::env::var(&name).unwrap_or_default()))
+        .ok_or_else(|| crate::safety::arg_err("variable name required"))?;
+    Ok(gate_env_secret(
+        &name,
+        std::env::var(&name).unwrap_or_default(),
+    ))
 }
 
 fn bi_env_vars(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -30738,7 +30954,7 @@ fn bi_env_vars(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 fn bi_env_set(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.len() < 2 {
-        return Err(anyhow::anyhow!("name and value required"));
+        return Err(crate::safety::arg_err("name and value required"));
     }
     let name = args[0].as_str().unwrap_or("").to_string();
     let value = args[1].as_str().unwrap_or("").to_string();
@@ -30751,7 +30967,7 @@ fn bi_env_unset(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .first()
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
-        .ok_or_else(|| anyhow::anyhow!("variable name required"))?;
+        .ok_or_else(|| crate::safety::arg_err("variable name required"))?;
     std::env::remove_var(&name);
     Ok(Value::Bool(true))
 }
@@ -30780,7 +30996,7 @@ fn bi_env_activate(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .first()
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
-        .ok_or_else(|| anyhow::anyhow!("venv path required"))?;
+        .ok_or_else(|| crate::safety::arg_err("venv path required"))?;
     let activate = if cfg!(windows) {
         format!("{}\\Scripts\\activate", venv)
     } else {
@@ -33812,7 +34028,11 @@ fn bi_docker_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     };
     let command = match args.get(1) {
         Some(Value::Str(s)) => s.as_str(),
-        _ => return Err(anyhow!("docker.exec requires a command as second argument")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "docker.exec requires a command as second argument",
+            ))
+        }
     };
     let mut cmd = std::process::Command::new("docker");
     cmd.args(["exec", container_id]);
@@ -33859,7 +34079,11 @@ fn bi_docker_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_docker_stop(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let container_id = match args.first() {
         Some(Value::Str(s)) => s.as_str(),
-        _ => return Err(anyhow!("docker.stop requires a container ID")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "docker.stop requires a container ID",
+            ))
+        }
     };
     container_run_cmd("docker", &["stop", container_id])?;
     Ok(Value::Str(format!("Stopped container {}", container_id)))
@@ -33871,7 +34095,7 @@ fn bi_docker_stop(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_docker_rm(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let container_id = match args.first() {
         Some(Value::Str(s)) => s.as_str(),
-        _ => return Err(anyhow!("docker.rm requires a container ID")),
+        _ => return Err(crate::safety::arg_err("docker.rm requires a container ID")),
     };
     let force = args
         .get(1)
@@ -33901,7 +34125,11 @@ fn bi_docker_rm(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_docker_build(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let tag = match args.first() {
         Some(Value::Str(s)) => s.as_str(),
-        _ => return Err(anyhow!("docker.build requires a tag as first argument")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "docker.build requires a tag as first argument",
+            ))
+        }
     };
     let path = match args.get(1) {
         Some(Value::Str(s)) => s.as_str(),
@@ -33917,7 +34145,7 @@ fn bi_docker_build(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_docker_pull(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let image = match args.first() {
         Some(Value::Str(s)) => s.as_str(),
-        _ => return Err(anyhow!("docker.pull requires an image name")),
+        _ => return Err(crate::safety::arg_err("docker.pull requires an image name")),
     };
     let text = container_run_cmd("docker", &["pull", image])?;
     Ok(Value::Str(text))
@@ -33929,7 +34157,7 @@ fn bi_docker_pull(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_docker_push(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let image = match args.first() {
         Some(Value::Str(s)) => s.as_str(),
-        _ => return Err(anyhow!("docker.push requires an image name")),
+        _ => return Err(crate::safety::arg_err("docker.push requires an image name")),
     };
     let text = container_run_cmd("docker", &["push", image])?;
     Ok(Value::Str(text))
@@ -33941,7 +34169,11 @@ fn bi_docker_push(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_docker_inspect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = match args.first() {
         Some(Value::Str(s)) => s.as_str(),
-        _ => return Err(anyhow!("docker.inspect requires a container/image name")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "docker.inspect requires a container/image name",
+            ))
+        }
     };
     let text = container_run_cmd("docker", &["inspect", name])?;
     let json: serde_json::Value = serde_json::from_str(text.trim())
@@ -34068,7 +34300,7 @@ fn bi_docker_stats(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_docker_top(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let container_id = match args.first() {
         Some(Value::Str(s)) => s.as_str(),
-        _ => return Err(anyhow!("docker.top requires a container ID")),
+        _ => return Err(crate::safety::arg_err("docker.top requires a container ID")),
     };
     let text = container_run_cmd("docker", &["top", container_id])?;
     // Parse the table output into records
@@ -34100,7 +34332,11 @@ fn bi_docker_top(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_docker_cp(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let src = match args.first() {
         Some(Value::Str(s)) => s.as_str(),
-        _ => return Err(anyhow!("docker.cp requires source path as first argument")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "docker.cp requires source path as first argument",
+            ))
+        }
     };
     let dest = match args.get(1) {
         Some(Value::Str(s)) => s.as_str(),
@@ -34128,7 +34364,11 @@ fn bi_docker_tag(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     };
     let target = match args.get(1) {
         Some(Value::Str(s)) => s.as_str(),
-        _ => return Err(anyhow!("docker.tag requires target tag as second argument")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "docker.tag requires target tag as second argument",
+            ))
+        }
     };
     container_run_cmd("docker", &["tag", source, target])?;
     Ok(Value::Str(format!("Tagged {} as {}", source, target)))
@@ -34271,7 +34511,11 @@ fn bi_podman_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     };
     let command = match args.get(1) {
         Some(Value::Str(s)) => s.as_str(),
-        _ => return Err(anyhow!("podman.exec requires a command as second argument")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "podman.exec requires a command as second argument",
+            ))
+        }
     };
     let mut cmd = std::process::Command::new("podman");
     cmd.args(["exec", container_id]);
@@ -34318,7 +34562,11 @@ fn bi_podman_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_podman_stop(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let container_id = match args.first() {
         Some(Value::Str(s)) => s.as_str(),
-        _ => return Err(anyhow!("podman.stop requires a container ID")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "podman.stop requires a container ID",
+            ))
+        }
     };
     podman_run_cmd(&["stop", container_id])?;
     Ok(Value::Str(format!("Stopped container {}", container_id)))
@@ -34330,7 +34578,7 @@ fn bi_podman_stop(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_podman_rm(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let container_id = match args.first() {
         Some(Value::Str(s)) => s.as_str(),
-        _ => return Err(anyhow!("podman.rm requires a container ID")),
+        _ => return Err(crate::safety::arg_err("podman.rm requires a container ID")),
     };
     let force = args
         .get(1)
@@ -34351,7 +34599,11 @@ fn bi_podman_rm(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_podman_build(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let tag = match args.first() {
         Some(Value::Str(s)) => s.as_str(),
-        _ => return Err(anyhow!("podman.build requires a tag as first argument")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "podman.build requires a tag as first argument",
+            ))
+        }
     };
     let path = match args.get(1) {
         Some(Value::Str(s)) => s.as_str(),
@@ -34367,7 +34619,7 @@ fn bi_podman_build(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_podman_pull(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let image = match args.first() {
         Some(Value::Str(s)) => s.as_str(),
-        _ => return Err(anyhow!("podman.pull requires an image name")),
+        _ => return Err(crate::safety::arg_err("podman.pull requires an image name")),
     };
     let text = podman_run_cmd(&["pull", image])?;
     Ok(Value::Str(text))
@@ -34457,7 +34709,11 @@ fn bi_container_inspect(args: Vec<Value>, _input: Option<Value>) -> Result<Value
     let runtime = detect_container_runtime()?;
     let name = match args.first() {
         Some(Value::Str(s)) => s.as_str(),
-        _ => return Err(anyhow!("container.inspect requires a container/image name")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "container.inspect requires a container/image name",
+            ))
+        }
     };
     let text = container_run_cmd(&runtime, &["inspect", name])?;
     let json: serde_json::Value = serde_json::from_str(text.trim())
@@ -34635,7 +34891,11 @@ fn parse_kubectl_table(text: &str) -> Vec<Value> {
 fn bi_k8s_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let resource = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("k8s.get requires resource type as first argument")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "k8s.get requires resource type as first argument",
+            ))
+        }
     };
     let mut cmd_args = vec!["get", &resource, "-o", "json"];
     let ns_owned;
@@ -34747,7 +35007,11 @@ fn bi_k8s_describe(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_k8s_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let pod = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("k8s.logs requires pod name as first argument")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "k8s.logs requires pod name as first argument",
+            ))
+        }
     };
     let mut cmd_args = vec!["logs".to_string(), pod];
     if let Some(Value::Str(ns)) = args.get(1) {
@@ -34769,11 +35033,19 @@ fn bi_k8s_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_k8s_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let pod = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("k8s.exec requires pod name as first argument")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "k8s.exec requires pod name as first argument",
+            ))
+        }
     };
     let command = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("k8s.exec requires command as second argument")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "k8s.exec requires command as second argument",
+            ))
+        }
     };
     let mut cmd_args = vec!["exec".to_string(), pod];
     if let Some(Value::Str(ns)) = args.get(2) {
@@ -34916,7 +35188,11 @@ fn bi_k8s_ingresses(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_k8s_rollout_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("k8s.rollout_status requires deployment name")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "k8s.rollout_status requires deployment name",
+            ))
+        }
     };
     let resource = format!("deployment/{}", name);
     let mut cmd_args = vec!["rollout", "status", &resource];
@@ -34936,7 +35212,11 @@ fn bi_k8s_rollout_status(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
 fn bi_k8s_rollout_restart(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("k8s.rollout_restart requires deployment name")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "k8s.rollout_restart requires deployment name",
+            ))
+        }
     };
     let resource = format!("deployment/{}", name);
     let mut cmd_args = vec!["rollout", "restart", &resource];
@@ -35154,7 +35434,11 @@ fn bi_helm_upgrade(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_helm_uninstall(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let release = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("helm.uninstall requires release name")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "helm.uninstall requires release name",
+            ))
+        }
     };
     let mut cmd_args = vec!["uninstall", &release];
     let ns_owned;
@@ -35181,7 +35465,7 @@ fn bi_helm_repos(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_helm_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let keyword = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("helm.search requires a keyword")),
+        _ => return Err(crate::safety::arg_err("helm.search requires a keyword")),
     };
     helm_json(&["search", "repo", &keyword, "-o", "json"])
 }
@@ -35192,7 +35476,7 @@ fn bi_helm_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_helm_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let release = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("helm.status requires release name")),
+        _ => return Err(crate::safety::arg_err("helm.status requires release name")),
     };
     let mut cmd_args = vec!["status", &release, "-o", "json"];
     let ns_owned;
@@ -35326,7 +35610,10 @@ fn parse_wsl_list(text: &str) -> Vec<Value> {
 fn require_str(args: &[Value], idx: usize, name: &str) -> Result<String> {
     match args.get(idx) {
         Some(Value::Str(s)) => Ok(s.clone()),
-        _ => Err(anyhow!("{} requires a string argument", name)),
+        _ => Err(crate::safety::arg_err(format!(
+            "{} requires a string argument",
+            name
+        ))),
     }
 }
 
@@ -36306,7 +36593,11 @@ pub fn bi_terraform_validate(args: Vec<Value>, _input: Option<Value>) -> Result<
 pub fn bi_ansible_playbook(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let playbook = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("ansible_playbook requires a playbook path")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "ansible_playbook requires a playbook path",
+            ))
+        }
     };
     let mut cmd_args: Vec<String> = vec![playbook];
 
@@ -36344,7 +36635,11 @@ pub fn bi_ansible_playbook(args: Vec<Value>, _input: Option<Value>) -> Result<Va
 pub fn bi_ansible_inventory(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let inventory = match args.first() {
         Some(Value::Str(s)) => s.as_str(),
-        _ => return Err(anyhow!("ansible_inventory requires an inventory path")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "ansible_inventory requires an inventory path",
+            ))
+        }
     };
     cloud_run_cmd_json("ansible-inventory", &["--list", "-i", inventory], None)
 }
@@ -36353,7 +36648,11 @@ pub fn bi_ansible_inventory(args: Vec<Value>, _input: Option<Value>) -> Result<V
 pub fn bi_ansible_galaxy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let role = match args.first() {
         Some(Value::Str(s)) => s.as_str(),
-        _ => return Err(anyhow!("ansible_galaxy requires a role name")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "ansible_galaxy requires a role name",
+            ))
+        }
     };
     let out = cloud_run_cmd("ansible-galaxy", &["install", role], None)?;
     Ok(Value::Str(out))
@@ -36371,7 +36670,7 @@ pub fn bi_ansible_vault(args: Vec<Value>, _input: Option<Value>) -> Result<Value
     };
     let file = match args.get(1) {
         Some(Value::Str(s)) => s.as_str(),
-        _ => return Err(anyhow!("ansible_vault requires a file path")),
+        _ => return Err(crate::safety::arg_err("ansible_vault requires a file path")),
     };
     match action.as_str() {
         "view" | "encrypt" | "decrypt" => {}
@@ -36495,7 +36794,11 @@ pub fn bi_vagrant_status(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
 pub fn bi_vagrant_ssh(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let command = match args.first() {
         Some(Value::Str(s)) => s.as_str(),
-        _ => return Err(anyhow!("vagrant_ssh requires a command string")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "vagrant_ssh requires a command string",
+            ))
+        }
     };
     let dir = args.get(1).and_then(|v| match v {
         Value::Str(s) => Some(s.as_str()),
@@ -36509,7 +36812,11 @@ pub fn bi_vagrant_ssh(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 pub fn bi_packer_build(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let template = match args.first() {
         Some(Value::Str(s)) => s.as_str(),
-        _ => return Err(anyhow!("packer_build requires a template path")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "packer_build requires a template path",
+            ))
+        }
     };
     let out = cloud_run_cmd("packer", &["build", template], None)?;
     Ok(Value::Str(out))
@@ -36523,7 +36830,11 @@ pub fn bi_packer_build(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 pub fn bi_packer_validate(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let template = match args.first() {
         Some(Value::Str(s)) => s.as_str(),
-        _ => return Err(anyhow!("packer_validate requires a template path")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "packer_validate requires a template path",
+            ))
+        }
     };
     let out = cloud_run_cmd("packer", &["validate", template], None)?;
     Ok(Value::Str(out))
@@ -36533,7 +36844,11 @@ pub fn bi_packer_validate(args: Vec<Value>, _input: Option<Value>) -> Result<Val
 pub fn bi_packer_inspect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let template = match args.first() {
         Some(Value::Str(s)) => s.as_str(),
-        _ => return Err(anyhow!("packer_inspect requires a template path")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "packer_inspect requires a template path",
+            ))
+        }
     };
     let out = cloud_run_cmd("packer", &["inspect", template], None)?;
     Ok(Value::Str(out))
@@ -39488,7 +39803,9 @@ pub fn bi_auditd_rules(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 // ============================================================================
 pub fn bi_auditd_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.is_empty() {
-        return Err(anyhow!("auditd_search requires a key or type argument"));
+        return Err(crate::safety::arg_err(
+            "auditd_search requires a key or type argument",
+        ));
     }
 
     #[cfg(target_os = "linux")]
@@ -39915,7 +40232,9 @@ pub fn bi_gpg_encrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 // ============================================================================
 pub fn bi_gpg_decrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.is_empty() {
-        return Err(anyhow!("gpg_decrypt requires a file path argument"));
+        return Err(crate::safety::arg_err(
+            "gpg_decrypt requires a file path argument",
+        ));
     }
     let file_path = match &args[0] {
         Value::Str(s) => s.clone(),
@@ -40994,7 +41313,7 @@ pub fn bi_perf_stat(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let command = if !args.is_empty() {
         match &args[0] {
             Value::Str(s) => s.clone(),
-            _ => return Err(anyhow!("perf_stat: command string required")),
+            _ => return Err(crate::safety::arg_err("perf_stat: command string required")),
         }
     } else {
         return Err(anyhow!(
@@ -41076,7 +41395,11 @@ pub fn bi_perf_record(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
     let command = if !args.is_empty() {
         match &args[0] {
             Value::Str(s) => s.clone(),
-            _ => return Err(anyhow!("perf_record: command string required")),
+            _ => {
+                return Err(crate::safety::arg_err(
+                    "perf_record: command string required",
+                ))
+            }
         }
     } else {
         return Err(anyhow!(
@@ -41347,10 +41670,16 @@ pub fn bi_syslog_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value
     let keyword = if !args.is_empty() {
         match &args[0] {
             Value::Str(s) => s.clone(),
-            _ => return Err(anyhow!("syslog_search: keyword string required")),
+            _ => {
+                return Err(crate::safety::arg_err(
+                    "syslog_search: keyword string required",
+                ))
+            }
         }
     } else {
-        return Err(anyhow!("syslog_search: keyword string required"));
+        return Err(crate::safety::arg_err(
+            "syslog_search: keyword string required",
+        ));
     };
     let count = if args.len() > 1 {
         match &args[1] {
@@ -41695,7 +42024,7 @@ pub fn bi_health_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 pub fn bi_alert_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("alert_create: name string required")),
+        _ => return Err(crate::safety::arg_err("alert_create: name string required")),
     };
     let metric = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
@@ -41832,7 +42161,11 @@ pub fn bi_alert_history(args: Vec<Value>, _input: Option<Value>) -> Result<Value
 pub fn bi_alert_remove(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let id = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("alert_remove: alert ID string required")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "alert_remove: alert ID string required",
+            ))
+        }
     };
     let mut rec = BTreeMap::new();
     rec.insert("id".to_string(), Value::Str(id));
@@ -42048,7 +42381,11 @@ fn get_current_username() -> String {
 fn bi_cloud_deploy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("cloud.deploy requires a deployment name")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "cloud.deploy requires a deployment name",
+            ))
+        }
     };
     let opts = match args.get(1) {
         Some(Value::Record(r)) => r.clone(),
@@ -42148,7 +42485,11 @@ fn bi_cloud_instances(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 fn bi_cloud_instance_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("cloud.instance_create requires instance name")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "cloud.instance_create requires instance name",
+            ))
+        }
     };
     let opts = match args.get(1) {
         Some(Value::Record(r)) => r.clone(),
@@ -42227,7 +42568,11 @@ fn bi_cloud_instance_create(args: Vec<Value>, _input: Option<Value>) -> Result<V
 fn bi_cloud_instance_destroy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let id = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("cloud.instance_destroy requires instance ID")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "cloud.instance_destroy requires instance ID",
+            ))
+        }
     };
     let mut instances = CLOUD_INSTANCES
         .write()
@@ -42253,7 +42598,11 @@ fn bi_cloud_instance_destroy(args: Vec<Value>, _input: Option<Value>) -> Result<
 fn bi_cloud_instance_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let id = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("cloud.instance_status requires instance ID")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "cloud.instance_status requires instance ID",
+            ))
+        }
     };
     let instances = CLOUD_INSTANCES
         .read()
@@ -42290,7 +42639,11 @@ fn bi_cloud_instance_status(args: Vec<Value>, _input: Option<Value>) -> Result<V
 fn bi_cloud_instance_connect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let id = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("cloud.instance_connect requires instance ID")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "cloud.instance_connect requires instance ID",
+            ))
+        }
     };
     let instances = CLOUD_INSTANCES
         .read()
@@ -42551,7 +42904,11 @@ fn bi_repl_connect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 .unwrap_or(3002);
             (h, p)
         }
-        _ => return Err(anyhow!("repl.connect requires URL or {{host, port}}")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "repl.connect requires URL or {{host, port}}",
+            ))
+        }
     };
 
     let session_id = uuid::Uuid::new_v4().to_string();
@@ -42615,7 +42972,11 @@ fn bi_repl_sessions(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_repl_disconnect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let id = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("repl.disconnect requires session ID")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "repl.disconnect requires session ID",
+            ))
+        }
     };
     let mut sessions = REPL_SESSIONS
         .write()
@@ -42639,7 +43000,11 @@ fn bi_repl_disconnect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 fn bi_repl_broadcast(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let expr = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("repl.broadcast requires an expression string")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "repl.broadcast requires an expression string",
+            ))
+        }
     };
     let sessions = REPL_SESSIONS
         .read()
@@ -42675,7 +43040,11 @@ fn bi_repl_broadcast(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_workspace_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("workspace.create requires workspace name")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "workspace.create requires workspace name",
+            ))
+        }
     };
     let opts = match args.get(1) {
         Some(Value::Record(r)) => r.clone(),
@@ -42765,7 +43134,11 @@ fn bi_workspace_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 fn bi_workspace_join(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let ws_id = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("workspace.join requires workspace ID")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "workspace.join requires workspace ID",
+            ))
+        }
     };
     let user = get_current_username();
     let mut workspaces = WORKSPACES
@@ -42797,7 +43170,11 @@ fn bi_workspace_join(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_workspace_leave(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let ws_id = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("workspace.leave requires workspace ID")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "workspace.leave requires workspace ID",
+            ))
+        }
     };
     let user = get_current_username();
     let mut workspaces = WORKSPACES
@@ -42830,7 +43207,11 @@ fn bi_workspace_leave(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 fn bi_workspace_members(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let ws_id = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("workspace.members requires workspace ID")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "workspace.members requires workspace ID",
+            ))
+        }
     };
     let workspaces = WORKSPACES
         .read()
@@ -42858,11 +43239,19 @@ fn bi_workspace_members(args: Vec<Value>, _input: Option<Value>) -> Result<Value
 fn bi_workspace_share_agent(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let ws_id = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("workspace.share_agent requires workspace ID")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "workspace.share_agent requires workspace ID",
+            ))
+        }
     };
     let agent_name = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("workspace.share_agent requires agent name")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "workspace.share_agent requires agent name",
+            ))
+        }
     };
     let mut workspaces = WORKSPACES
         .write()
@@ -42895,7 +43284,11 @@ fn bi_workspace_share_agent(args: Vec<Value>, _input: Option<Value>) -> Result<V
 fn bi_workspace_agents(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let ws_id = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("workspace.agents requires workspace ID")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "workspace.agents requires workspace ID",
+            ))
+        }
     };
     let workspaces = WORKSPACES
         .read()
@@ -42917,7 +43310,11 @@ fn bi_workspace_agents(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 fn bi_workspace_sync(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let ws_id = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("workspace.sync requires workspace ID")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "workspace.sync requires workspace ID",
+            ))
+        }
     };
     let workspaces = WORKSPACES
         .read()
@@ -42968,7 +43365,7 @@ fn bi_marketplace_publish(args: Vec<Value>, _input: Option<Value>) -> Result<Val
                 None
             }
         })
-        .ok_or_else(|| anyhow!("marketplace.publish requires 'name'"))?;
+        .ok_or_else(|| crate::safety::arg_err("marketplace.publish requires 'name'"))?;
     let version = opts
         .get("version")
         .and_then(|v| {
@@ -42978,7 +43375,7 @@ fn bi_marketplace_publish(args: Vec<Value>, _input: Option<Value>) -> Result<Val
                 None
             }
         })
-        .ok_or_else(|| anyhow!("marketplace.publish requires 'version'"))?;
+        .ok_or_else(|| crate::safety::arg_err("marketplace.publish requires 'version'"))?;
     let description = opts
         .get("description")
         .and_then(|v| {
@@ -43182,7 +43579,11 @@ fn marketplace_package_to_value(pkg: &MarketplacePackage) -> Value {
 fn bi_marketplace_install(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("marketplace.install requires package name")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "marketplace.install requires package name",
+            ))
+        }
     };
     let version = match args.get(1) {
         Some(Value::Str(s)) => Some(s.clone()),
@@ -43271,7 +43672,11 @@ fn bi_marketplace_install(args: Vec<Value>, _input: Option<Value>) -> Result<Val
 fn bi_marketplace_uninstall(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("marketplace.uninstall requires package name")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "marketplace.uninstall requires package name",
+            ))
+        }
     };
     let mut packages = MARKETPLACE_PACKAGES
         .write()
@@ -43311,7 +43716,11 @@ fn bi_marketplace_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value
 fn bi_marketplace_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("marketplace.info requires package name")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "marketplace.info requires package name",
+            ))
+        }
     };
 
     // Try remote registry first
@@ -43339,12 +43748,20 @@ fn bi_marketplace_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 fn bi_marketplace_rate(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("marketplace.rate requires package name")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "marketplace.rate requires package name",
+            ))
+        }
     };
     let score = match args.get(1) {
         Some(Value::Int(n)) => *n as f64,
         Some(Value::Float(f)) => *f,
-        _ => return Err(anyhow!("marketplace.rate requires a score (1-5)")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "marketplace.rate requires a score (1-5)",
+            ))
+        }
     };
     if !(1.0..=5.0).contains(&score) {
         return Err(anyhow!("rating must be between 1 and 5"));
@@ -43634,7 +44051,7 @@ fn bi_telemetry_reset(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 fn bi_wget_download(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let url = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("wget requires a URL string")),
+        _ => return Err(crate::safety::arg_err("wget requires a URL string")),
     };
     guard_network("wget_download", &url)?;
     let output = match args.get(1) {
@@ -43736,7 +44153,7 @@ fn bi_age_encrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_age_decrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let input_file = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("age_decrypt requires input_file")),
+        _ => return Err(crate::safety::arg_err("age_decrypt requires input_file")),
     };
     let output_file = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
@@ -43810,7 +44227,7 @@ fn bi_age_keygen(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_rg_search(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let pattern = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("rg requires a search pattern")),
+        _ => return Err(crate::safety::arg_err("rg requires a search pattern")),
     };
     let path = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
@@ -43882,7 +44299,7 @@ fn bi_rg_search(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_fd_find(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let pattern = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("fd requires a search pattern")),
+        _ => return Err(crate::safety::arg_err("fd requires a search pattern")),
     };
     let path = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
@@ -43924,17 +44341,25 @@ fn bi_fd_find(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_sed_replace(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let pattern = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("sed requires pattern, replacement, and input")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "sed requires pattern, replacement, and input",
+            ))
+        }
     };
     let replacement = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("sed requires a replacement string")),
+        _ => return Err(crate::safety::arg_err("sed requires a replacement string")),
     };
     let text = match args.get(2) {
         Some(Value::Str(s)) => s.clone(),
         None => match &input {
             Some(Value::Str(s)) => s.clone(),
-            _ => return Err(anyhow!("sed requires input text (3rd arg or piped input)")),
+            _ => {
+                return Err(crate::safety::arg_err(
+                    "sed requires input text (3rd arg or piped input)",
+                ))
+            }
         },
         _ => return Err(anyhow!("sed input must be a string")),
     };
@@ -43983,13 +44408,13 @@ fn bi_sed_replace(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_awk_process(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let program = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("awk requires a program string")),
+        _ => return Err(crate::safety::arg_err("awk requires a program string")),
     };
     let text = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
         None => match &input {
             Some(Value::Str(s)) => s.clone(),
-            _ => return Err(anyhow!("awk requires input text")),
+            _ => return Err(crate::safety::arg_err("awk requires input text")),
         },
         _ => return Err(anyhow!("awk input must be a string")),
     };
@@ -44077,7 +44502,11 @@ fn parse_simple_awk(program: &str) -> (Option<String>, Vec<usize>) {
 fn bi_cut_columns(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let delimiter = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("cut requires delimiter, fields, and input")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "cut requires delimiter, fields, and input",
+            ))
+        }
     };
     let fields_spec = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
@@ -44092,7 +44521,7 @@ fn bi_cut_columns(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         None => match &input {
             Some(Value::Str(s)) => s.clone(),
-            _ => return Err(anyhow!("cut requires input text")),
+            _ => return Err(crate::safety::arg_err("cut requires input text")),
         },
         _ => return Err(anyhow!("cut input must be a string")),
     };
@@ -44143,7 +44572,7 @@ fn parse_field_spec(spec: &str) -> Result<Vec<usize>> {
 fn bi_xargs_exec(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let command = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("xargs requires a command string")),
+        _ => return Err(crate::safety::arg_err("xargs requires a command string")),
     };
     let items: Vec<String> = match args.get(1) {
         Some(Value::Array(arr)) => arr.iter().map(|v| format!("{}", v)).collect(),
@@ -44151,7 +44580,7 @@ fn bi_xargs_exec(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         None => match &input {
             Some(Value::Array(arr)) => arr.iter().map(|v| format!("{}", v)).collect(),
             Some(Value::Str(s)) => s.lines().map(|l| l.to_string()).collect(),
-            _ => return Err(anyhow!("xargs requires input items")),
+            _ => return Err(crate::safety::arg_err("xargs requires input items")),
         },
         _ => return Err(anyhow!("xargs input must be an array or string")),
     };
@@ -44203,13 +44632,13 @@ fn bi_xargs_exec(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_jq_query(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let expr = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("jq requires a query expression")),
+        _ => return Err(crate::safety::arg_err("jq requires a query expression")),
     };
     let json_str = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
         None => match &input {
             Some(Value::Str(s)) => s.clone(),
-            _ => return Err(anyhow!("jq requires JSON input")),
+            _ => return Err(crate::safety::arg_err("jq requires JSON input")),
         },
         _ => return Err(anyhow!("jq input must be a JSON string")),
     };
@@ -44225,13 +44654,17 @@ fn bi_jq_query(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_jq_filter(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let filter = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("jq_filter requires a filter expression")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "jq_filter requires a filter expression",
+            ))
+        }
     };
     let json_str = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
         None => match &input {
             Some(Value::Str(s)) => s.clone(),
-            _ => return Err(anyhow!("jq_filter requires JSON input")),
+            _ => return Err(crate::safety::arg_err("jq_filter requires JSON input")),
         },
         _ => return Err(anyhow!("jq_filter input must be a JSON string")),
     };
@@ -44285,7 +44718,7 @@ fn eval_jq_expr(expr: &str, data: &serde_json::Value) -> Result<serde_json::Valu
                     .collect(),
             ));
         }
-        return Err(anyhow!("keys requires an object"));
+        return Err(crate::safety::arg_err("keys requires an object"));
     }
     if expr == "length" {
         return Ok(match data {
@@ -44302,7 +44735,7 @@ fn eval_jq_expr(expr: &str, data: &serde_json::Value) -> Result<serde_json::Valu
         if let serde_json::Value::Object(m) = data {
             return Ok(serde_json::Value::Array(m.values().cloned().collect()));
         }
-        return Err(anyhow!(".[] requires an array or object"));
+        return Err(crate::safety::arg_err(".[] requires an array or object"));
     }
     // Handle pipe: .key | .subkey
     if let Some(pipe_pos) = expr.find(" | ") {
@@ -44363,11 +44796,11 @@ fn eval_jq_expr(expr: &str, data: &serde_json::Value) -> Result<serde_json::Valu
 fn bi_yq_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let expr = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("yq requires an expression")),
+        _ => return Err(crate::safety::arg_err("yq requires an expression")),
     };
     let input_str = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("yq requires input data")),
+        _ => return Err(crate::safety::arg_err("yq requires input data")),
     };
     // Try external yq first
     let result = std::process::Command::new("yq")
@@ -44411,7 +44844,7 @@ fn bi_pager(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         None => match &input {
             Some(Value::Str(s)) => s.clone(),
-            _ => return Err(anyhow!("pager requires text input")),
+            _ => return Err(crate::safety::arg_err("pager requires text input")),
         },
         _ => return Err(anyhow!("pager input must be a string")),
     };
@@ -44457,7 +44890,7 @@ fn bi_pager(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_tee_output(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let file_path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("tee requires a file path")),
+        _ => return Err(crate::safety::arg_err("tee requires a file path")),
     };
     let text = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
@@ -44465,7 +44898,7 @@ fn bi_tee_output(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         None => match &input {
             Some(Value::Str(s)) => s.clone(),
             Some(v) => format!("{}", v),
-            None => return Err(anyhow!("tee requires input data")),
+            None => return Err(crate::safety::arg_err("tee requires input data")),
         },
     };
     let append = match args.get(2) {
@@ -44777,7 +45210,7 @@ fn bi_netstat_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_nmap_scan(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let host = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("nmap_scan requires a host")),
+        _ => return Err(crate::safety::arg_err("nmap_scan requires a host")),
     };
     let mut cmd_args = vec!["-oX".to_string(), "-".to_string()];
     if let Some(Value::Record(r)) = args.get(1) {
@@ -44854,7 +45287,7 @@ fn bi_nmap_scan(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_nmap_quick(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let host = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("nmap_quick requires a host")),
+        _ => return Err(crate::safety::arg_err("nmap_quick requires a host")),
     };
     let out = std::process::Command::new("nmap")
         .args(["-F", "--open", &host])
@@ -44922,7 +45355,7 @@ fn extract_xml_attr(line: &str, attr: &str) -> Option<String> {
 fn bi_tmux_new(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("tmux_new requires a session name")),
+        _ => return Err(crate::safety::arg_err("tmux_new requires a session name")),
     };
     let _cmd_args = ["new-session", "-d", "-s"];
     let name_ref: &str = &name;
@@ -44998,7 +45431,11 @@ fn bi_tmux_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_tmux_attach(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("tmux_attach requires a session name")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "tmux_attach requires a session name",
+            ))
+        }
     };
     let output = std::process::Command::new("tmux")
         .args(["attach-session", "-t", &name])
@@ -45018,11 +45455,15 @@ fn bi_tmux_attach(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_tmux_send(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let target = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("tmux_send requires a target session")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "tmux_send requires a target session",
+            ))
+        }
     };
     let keys = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("tmux_send requires keys to send")),
+        _ => return Err(crate::safety::arg_err("tmux_send requires keys to send")),
     };
     let output = std::process::Command::new("tmux")
         .args(["send-keys", "-t", &target, &keys, "Enter"])
@@ -45045,7 +45486,7 @@ fn bi_tmux_send(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_screen_new(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("screen_new requires a session name")),
+        _ => return Err(crate::safety::arg_err("screen_new requires a session name")),
     };
     let output = std::process::Command::new("screen")
         .args(["-dmS", &name])
@@ -45090,7 +45531,11 @@ fn bi_screen_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_screen_attach(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("screen_attach requires a session name")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "screen_attach requires a session name",
+            ))
+        }
     };
     let output = std::process::Command::new("screen")
         .args(["-r", &name])
@@ -45114,11 +45559,15 @@ fn bi_timeout_cmd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let seconds = match args.first() {
         Some(Value::Int(n)) => *n,
         Some(Value::Float(f)) => *f as i64,
-        _ => return Err(anyhow!("timeout requires seconds as first argument")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "timeout requires seconds as first argument",
+            ))
+        }
     };
     let command = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("timeout requires a command string")),
+        _ => return Err(crate::safety::arg_err("timeout requires a command string")),
     };
     let timeout_str = seconds.to_string();
     let output = if cfg!(target_os = "windows") {
@@ -45165,7 +45614,11 @@ fn bi_timeout_cmd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_pkill(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let pattern = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("pkill requires a process name pattern")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "pkill requires a process name pattern",
+            ))
+        }
     };
     if cfg!(target_os = "windows") {
         let output = std::process::Command::new("taskkill")
@@ -45204,7 +45657,11 @@ fn bi_pkill(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_pgrep(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let pattern = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("pgrep requires a process name pattern")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "pgrep requires a process name pattern",
+            ))
+        }
     };
     if cfg!(target_os = "windows") {
         let output = std::process::Command::new("tasklist")
@@ -45279,7 +45736,7 @@ fn bi_pgrep(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_lnav_open(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("lnav_open requires a log file path")),
+        _ => return Err(crate::safety::arg_err("lnav_open requires a log file path")),
     };
     let output = std::process::Command::new("lnav").arg(&path).output();
     match output {
@@ -45309,7 +45766,9 @@ fn bi_multitail_open(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         })
         .collect();
     if files.is_empty() {
-        return Err(anyhow!("multitail requires at least one file path"));
+        return Err(crate::safety::arg_err(
+            "multitail requires at least one file path",
+        ));
     }
     let output = std::process::Command::new("multitail")
         .args(&files)
@@ -45334,7 +45793,11 @@ fn bi_multitail_open(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_logrotate_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let config = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("logrotate requires a config file path")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "logrotate requires a config file path",
+            ))
+        }
     };
     let mut cmd_args = vec![config.as_str()];
     if args
@@ -45371,7 +45834,7 @@ fn bi_logrotate_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_ltrace_cmd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let command = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("ltrace requires a command to trace")),
+        _ => return Err(crate::safety::arg_err("ltrace requires a command to trace")),
     };
     let output = std::process::Command::new("ltrace")
         .args(["-c", &command])
@@ -45404,7 +45867,7 @@ fn bi_ltrace_cmd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_valgrind_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let command = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("valgrind_run requires a command")),
+        _ => return Err(crate::safety::arg_err("valgrind_run requires a command")),
     };
     let output = std::process::Command::new("valgrind")
         .args(["--tool=memcheck", &command])
@@ -45435,7 +45898,11 @@ fn bi_valgrind_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_valgrind_memcheck(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let command = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("valgrind_memcheck requires a command")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "valgrind_memcheck requires a command",
+            ))
+        }
     };
     let output = std::process::Command::new("valgrind")
         .args([
@@ -45473,7 +45940,7 @@ fn bi_valgrind_memcheck(args: Vec<Value>, _input: Option<Value>) -> Result<Value
 fn bi_gdb_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let program = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("gdb_run requires a program path")),
+        _ => return Err(crate::safety::arg_err("gdb_run requires a program path")),
     };
     let gdb_cmds = args
         .get(1)
@@ -45511,11 +45978,11 @@ fn bi_gdb_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_gdb_bt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let program = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("gdb_bt requires a program path")),
+        _ => return Err(crate::safety::arg_err("gdb_bt requires a program path")),
     };
     let corefile = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("gdb_bt requires a core file path")),
+        _ => return Err(crate::safety::arg_err("gdb_bt requires a core file path")),
     };
     let output = std::process::Command::new("gdb")
         .args(["--batch", "-ex", "bt full", &program, &corefile])
@@ -45541,7 +46008,7 @@ fn bi_gdb_bt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_lldb_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let program = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("lldb_run requires a program path")),
+        _ => return Err(crate::safety::arg_err("lldb_run requires a program path")),
     };
     let output = std::process::Command::new("lldb")
         .args(["--batch", "-o", "run", "-o", "bt", "-o", "quit", &program])
@@ -45570,7 +46037,11 @@ fn bi_lldb_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_objdump_disasm(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("objdump_disasm requires a binary path")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "objdump_disasm requires a binary path",
+            ))
+        }
     };
     let output = std::process::Command::new("objdump")
         .args(["-d", &path])
@@ -45594,7 +46065,11 @@ fn bi_objdump_disasm(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_objdump_headers(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("objdump_headers requires a binary path")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "objdump_headers requires a binary path",
+            ))
+        }
     };
     let output = std::process::Command::new("objdump")
         .args(["-h", &path])
@@ -45620,7 +46095,11 @@ fn bi_objdump_headers(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 fn bi_nm_symbols(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("nm_symbols requires an object file path")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "nm_symbols requires an object file path",
+            ))
+        }
     };
     let output = std::process::Command::new("nm")
         .args(["--demangle", &path])
@@ -45657,7 +46136,11 @@ fn bi_nm_symbols(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_readelf_headers(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("readelf_headers requires an ELF file path")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "readelf_headers requires an ELF file path",
+            ))
+        }
     };
     let output = std::process::Command::new("readelf")
         .args(["-h", &path])
@@ -45681,7 +46164,11 @@ fn bi_readelf_headers(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 fn bi_readelf_sections(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("readelf_sections requires an ELF file path")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "readelf_sections requires an ELF file path",
+            ))
+        }
     };
     let output = std::process::Command::new("readelf")
         .args(["-S", &path])
@@ -45707,7 +46194,7 @@ fn bi_readelf_sections(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 fn bi_strings_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("strings requires a file path")),
+        _ => return Err(crate::safety::arg_err("strings requires a file path")),
     };
     let min_len = match args.get(1) {
         Some(Value::Int(n)) => *n as usize,
@@ -45752,11 +46239,11 @@ fn bi_strings_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 fn bi_chgrp(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let group = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("chgrp requires a group name")),
+        _ => return Err(crate::safety::arg_err("chgrp requires a group name")),
     };
     let path = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("chgrp requires a file path")),
+        _ => return Err(crate::safety::arg_err("chgrp requires a file path")),
     };
     if cfg!(target_os = "windows") {
         return Err(anyhow!("chgrp is not supported on Windows"));
@@ -45782,7 +46269,7 @@ fn bi_chgrp(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_mtr_trace(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let host = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("mtr requires a hostname")),
+        _ => return Err(crate::safety::arg_err("mtr requires a hostname")),
     };
     let count = match args.get(1) {
         Some(Value::Int(n)) => n.to_string(),
@@ -45812,7 +46299,7 @@ fn bi_mtr_trace(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_host_lookup(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let hostname = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("host requires a hostname")),
+        _ => return Err(crate::safety::arg_err("host requires a hostname")),
     };
     let output = if cfg!(target_os = "windows") {
         std::process::Command::new("nslookup")
@@ -45842,12 +46329,12 @@ fn bi_host_lookup(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_nc_connect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let host = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("nc_connect requires a host")),
+        _ => return Err(crate::safety::arg_err("nc_connect requires a host")),
     };
     let port = match args.get(1) {
         Some(Value::Int(n)) => n.to_string(),
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("nc_connect requires a port")),
+        _ => return Err(crate::safety::arg_err("nc_connect requires a port")),
     };
     let output = std::process::Command::new("nc")
         .args(["-z", "-v", "-w", "5", &host, &port])
@@ -45878,7 +46365,7 @@ fn bi_nc_listen(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let port = match args.first() {
         Some(Value::Int(n)) => n.to_string(),
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("nc_listen requires a port")),
+        _ => return Err(crate::safety::arg_err("nc_listen requires a port")),
     };
     let mut rec = BTreeMap::new();
     rec.insert("port".to_string(), Value::Str(port.clone()));
@@ -45898,11 +46385,11 @@ fn bi_nc_listen(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_socat_relay(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let addr1 = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("socat requires a first address")),
+        _ => return Err(crate::safety::arg_err("socat requires a first address")),
     };
     let addr2 = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("socat requires a second address")),
+        _ => return Err(crate::safety::arg_err("socat requires a second address")),
     };
     let output = std::process::Command::new("socat")
         .args([&addr1, &addr2])
@@ -45948,7 +46435,11 @@ fn bi_iperf3_server(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_iperf3_client(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let host = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("iperf3_client requires a server host")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "iperf3_client requires a server host",
+            ))
+        }
     };
     let output = std::process::Command::new("iperf3")
         .args(["-c", &host, "-J"])
@@ -45980,7 +46471,7 @@ fn bi_iperf3_client(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_bat_view(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("bat requires a file path")),
+        _ => return Err(crate::safety::arg_err("bat requires a file path")),
     };
     let output = std::process::Command::new("bat")
         .args(["--plain", "--color=never", &path])
@@ -46052,7 +46543,11 @@ fn bi_zoxide_add(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_zoxide_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let query = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("zoxide_query requires a search term")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "zoxide_query requires a search term",
+            ))
+        }
     };
     let output = std::process::Command::new("zoxide")
         .args(["query", &query])
@@ -46075,11 +46570,11 @@ fn bi_zoxide_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_delta_diff(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let file_a = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("delta requires two file paths")),
+        _ => return Err(crate::safety::arg_err("delta requires two file paths")),
     };
     let file_b = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("delta requires two file paths")),
+        _ => return Err(crate::safety::arg_err("delta requires two file paths")),
     };
     let output = std::process::Command::new("delta")
         .args([&file_a, &file_b])
@@ -46170,7 +46665,7 @@ fn bi_fzf_select(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_rga_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let pattern = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("rga requires a search pattern")),
+        _ => return Err(crate::safety::arg_err("rga requires a search pattern")),
     };
     let path = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
@@ -46225,17 +46720,17 @@ fn bi_rga_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_sd_replace(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let find = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("sd requires a find pattern")),
+        _ => return Err(crate::safety::arg_err("sd requires a find pattern")),
     };
     let replace = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("sd requires a replacement string")),
+        _ => return Err(crate::safety::arg_err("sd requires a replacement string")),
     };
     let text = match args.get(2) {
         Some(Value::Str(s)) => s.clone(),
         None => match &input {
             Some(Value::Str(s)) => s.clone(),
-            _ => return Err(anyhow!("sd requires input text")),
+            _ => return Err(crate::safety::arg_err("sd requires input text")),
         },
         _ => return Err(anyhow!("sd input must be a string")),
     };
@@ -46342,7 +46837,7 @@ fn bi_tokei_count(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_entr_watch(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let command = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("entr requires a command to run")),
+        _ => return Err(crate::safety::arg_err("entr requires a command to run")),
     };
     let mut rec = BTreeMap::new();
     rec.insert("command".to_string(), Value::Str(command.clone()));
@@ -46362,7 +46857,7 @@ fn bi_entr_watch(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_watchexec_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let command = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("watchexec requires a command")),
+        _ => return Err(crate::safety::arg_err("watchexec requires a command")),
     };
     let mut rec = BTreeMap::new();
     rec.insert("command".to_string(), Value::Str(command.clone()));
@@ -46382,7 +46877,7 @@ fn bi_watchexec_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_just_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let recipe = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("just_run requires a recipe name")),
+        _ => return Err(crate::safety::arg_err("just_run requires a recipe name")),
     };
     let extra_args: Vec<String> = args
         .iter()
@@ -46458,7 +46953,7 @@ fn bi_just_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_task_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let task_name = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("task_run requires a task name")),
+        _ => return Err(crate::safety::arg_err("task_run requires a task name")),
     };
     let output = std::process::Command::new("task").arg(&task_name).output();
     match output {
@@ -46571,7 +47066,11 @@ fn bi_asdf_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_asdf_install(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let plugin = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("asdf_install requires a plugin name")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "asdf_install requires a plugin name",
+            ))
+        }
     };
     let version = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
@@ -46602,7 +47101,7 @@ fn bi_asdf_install(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_mise_use(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let tool = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("mise_use requires a tool@version")),
+        _ => return Err(crate::safety::arg_err("mise_use requires a tool@version")),
     };
     let output = std::process::Command::new("mise")
         .args(["use", &tool])
@@ -46648,7 +47147,11 @@ fn bi_mise_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_uv_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let script = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("uv_run requires a script or command")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "uv_run requires a script or command",
+            ))
+        }
     };
     let extra: Vec<String> = args
         .iter()
@@ -46757,7 +47260,11 @@ fn bi_uv_venv(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_pipx_install(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let package = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("pipx_install requires a package name")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "pipx_install requires a package name",
+            ))
+        }
     };
     let output = std::process::Command::new("pipx")
         .args(["install", &package])
@@ -46797,7 +47304,7 @@ fn bi_pipx_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_poetry_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let command = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("poetry_run requires a command")),
+        _ => return Err(crate::safety::arg_err("poetry_run requires a command")),
     };
     let extra: Vec<String> = args
         .iter()
@@ -46861,7 +47368,11 @@ fn bi_poetry_install(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_node_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let script = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("node_run requires a script path or expression")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "node_run requires a script path or expression",
+            ))
+        }
     };
     let output = if script.ends_with(".js") || script.ends_with(".mjs") || script.ends_with(".ts") {
         std::process::Command::new("node").arg(&script).output()
@@ -46897,7 +47408,7 @@ fn bi_node_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_npm_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let script = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("npm_run requires a script name")),
+        _ => return Err(crate::safety::arg_err("npm_run requires a script name")),
     };
     let output = std::process::Command::new("npm")
         .args(["run", &script])
@@ -46963,7 +47474,7 @@ fn bi_npm_install(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_pnpm_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let script = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("pnpm_run requires a script name")),
+        _ => return Err(crate::safety::arg_err("pnpm_run requires a script name")),
     };
     let output = std::process::Command::new("pnpm")
         .args(["run", &script])
@@ -47029,7 +47540,7 @@ fn bi_pnpm_install(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_yarn_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let script = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("yarn_run requires a script name")),
+        _ => return Err(crate::safety::arg_err("yarn_run requires a script name")),
     };
     let output = std::process::Command::new("yarn")
         .args(["run", &script])
@@ -47336,7 +47847,7 @@ fn bi_go_test(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_mage_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let target = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("mage_run requires a target name")),
+        _ => return Err(crate::safety::arg_err("mage_run requires a target name")),
     };
     let output = std::process::Command::new("mage").arg(&target).output();
     match output {
@@ -47367,7 +47878,11 @@ fn bi_mage_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_bun_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let script = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("bun_run requires a script name or path")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "bun_run requires a script name or path",
+            ))
+        }
     };
     let output = std::process::Command::new("bun")
         .args(["run", &script])
@@ -47436,7 +47951,7 @@ fn bi_bun_install(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_deno_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let script = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("deno_run requires a script path")),
+        _ => return Err(crate::safety::arg_err("deno_run requires a script path")),
     };
     let output = std::process::Command::new("deno")
         .args(["run", "--allow-all", &script])
@@ -47466,7 +47981,7 @@ fn bi_deno_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_deno_task(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let task_name = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("deno_task requires a task name")),
+        _ => return Err(crate::safety::arg_err("deno_task requires a task name")),
     };
     let output = std::process::Command::new("deno")
         .args(["task", &task_name])
@@ -47803,7 +48318,11 @@ fn bi_pre_commit_install(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
 fn bi_buildah_build(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let tag = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("buildah_build requires an image tag")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "buildah_build requires an image tag",
+            ))
+        }
     };
     let context = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
@@ -47857,11 +48376,15 @@ fn bi_buildah_images(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_skopeo_copy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let src = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("skopeo_copy requires a source image")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "skopeo_copy requires a source image",
+            ))
+        }
     };
     let dst = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("skopeo_copy requires a destination")),
+        _ => return Err(crate::safety::arg_err("skopeo_copy requires a destination")),
     };
     let output = std::process::Command::new("skopeo")
         .args(["copy", &src, &dst])
@@ -47886,7 +48409,11 @@ fn bi_skopeo_copy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_skopeo_inspect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let image = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("skopeo_inspect requires an image reference")),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "skopeo_inspect requires an image reference",
+            ))
+        }
     };
     let output = std::process::Command::new("skopeo")
         .args(["inspect", &image])
@@ -47946,7 +48473,7 @@ fn bi_trivy_scan(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_trivy_image(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let image = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("trivy_image requires an image name")),
+        _ => return Err(crate::safety::arg_err("trivy_image requires an image name")),
     };
     let output = std::process::Command::new("trivy")
         .args(["image", "--format", "json", &image])
@@ -48009,7 +48536,7 @@ fn bi_hadolint_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_shellcheck_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("shellcheck requires a script path")),
+        _ => return Err(crate::safety::arg_err("shellcheck requires a script path")),
     };
     let output = std::process::Command::new("shellcheck")
         .args(["--format=json", &path])
@@ -48037,7 +48564,7 @@ fn bi_shellcheck_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 fn bi_shfmt_format(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("shfmt requires a script path")),
+        _ => return Err(crate::safety::arg_err("shfmt requires a script path")),
     };
     let output = std::process::Command::new("shfmt").arg(&path).output();
     match output {
@@ -48058,7 +48585,7 @@ fn bi_shfmt_format(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_yamllint_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("yamllint requires a file path")),
+        _ => return Err(crate::safety::arg_err("yamllint requires a file path")),
     };
     let output = std::process::Command::new("yamllint")
         .args(["-f", "parsable", &path])
@@ -48086,7 +48613,7 @@ fn bi_yamllint_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_prettier_format(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("prettier requires a file path")),
+        _ => return Err(crate::safety::arg_err("prettier requires a file path")),
     };
     let write_flag = args
         .iter()
@@ -48291,7 +48818,7 @@ fn bi_pytest_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_nodemon_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let script = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("nodemon requires a script path")),
+        _ => return Err(crate::safety::arg_err("nodemon requires a script path")),
     };
     let mut rec = BTreeMap::new();
     rec.insert("script".to_string(), Value::Str(script.clone()));

@@ -128,14 +128,15 @@ fn governor_file_budget_blocks_second_rm_in_agent_mode() {
     assert!(!f1.exists());
 
     // Second delete exceeds AETHER_MAX_FILES → E_BUDGET_EXCEEDED, file untouched.
-    let err = aethershell::builtins::bi_rm(
-        vec![Value::Str(f2.to_string_lossy().to_string())],
-        None,
-    )
-    .unwrap_err();
+    let err =
+        aethershell::builtins::bi_rm(vec![Value::Str(f2.to_string_lossy().to_string())], None)
+            .unwrap_err();
     let rendered = format!("{}", err);
     assert!(rendered.contains("E_BUDGET_EXCEEDED"), "got: {rendered}");
-    assert!(f2.exists(), "file must NOT be deleted once the budget is exhausted");
+    assert!(
+        f2.exists(),
+        "file must NOT be deleted once the budget is exhausted"
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
     clear();
@@ -426,7 +427,10 @@ fn path_jail_applies_only_in_agent_mode() {
     std::env::set_var("AETHER_MODE", "agent");
     std::env::set_var(
         "AETHER_WORKSPACE",
-        std::env::current_dir().unwrap().to_string_lossy().to_string(),
+        std::env::current_dir()
+            .unwrap()
+            .to_string_lossy()
+            .to_string(),
     );
     assert!(
         aethershell::security::validate_read_path(outside).is_err(),

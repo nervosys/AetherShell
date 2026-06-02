@@ -64,7 +64,10 @@ fn render_agent_redacts_secret_shapes_and_named_fields() {
     let out = render_agent(&Value::Array(vec![Value::Record(rec)]), None).expect("output");
     assert!(out.contains("[REDACTED]"), "marker present: {out}");
     assert!(!out.contains("sk-abcdefghij"), "shape secret gone: {out}");
-    assert!(!out.contains("whatever-was-here"), "named secret gone: {out}");
+    assert!(
+        !out.contains("whatever-was-here"),
+        "named secret gone: {out}"
+    );
     assert!(out.contains("api.example.com"), "non-secret kept: {out}");
 
     clear();
@@ -121,7 +124,10 @@ fn env_read_is_gated_in_agent_mode_only() {
     // Explicit permission re-opens clear reads of the secret.
     std::env::set_var("AETHER_SECRETS", "allow");
     let permitted = call("env", vec![Value::Str("AE_SECRET_FIXTURE_KEY".to_string())]);
-    assert_eq!(permitted, Value::Str("sk-do-not-leak-1234567890ab".to_string()));
+    assert_eq!(
+        permitted,
+        Value::Str("sk-do-not-leak-1234567890ab".to_string())
+    );
 
     std::env::remove_var("AE_SECRET_FIXTURE_KEY");
     std::env::remove_var("AE_PLAIN_FIXTURE");
@@ -151,9 +157,15 @@ fn audit_log_never_persists_secrets_and_still_verifies() {
     .expect("audit write");
 
     let content = std::fs::read_to_string(&log).expect("log written");
-    assert!(content.contains("[REDACTED]"), "redaction applied: {content}");
+    assert!(
+        content.contains("[REDACTED]"),
+        "redaction applied: {content}"
+    );
     assert!(!content.contains("hunter2pass"), "url password gone");
-    assert!(!content.contains("wJalrXUtnFEMI"), "secret-named value gone");
+    assert!(
+        !content.contains("wJalrXUtnFEMI"),
+        "secret-named value gone"
+    );
     assert!(!content.contains("ghp_0123456789"), "shape secret gone");
 
     // The hash chain must still validate over the (redacted) content.
