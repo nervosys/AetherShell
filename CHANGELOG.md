@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **`agentic-eval` refined to 0.2.0** — ergonomic crate-root re-exports
+  (`agentic_eval::Model`/`Program`/`Effect`/…), `Display` for every report type
+  (printable summaries), an optional `serde` feature deriving `Serialize` on all
+  report/config types (machine-readable output), `Model::from_name` (CLI/config
+  parsing, parity with `Effect::from_name`), `tokens::rank` (N-way generalization of
+  `compare`), `Evaluation` `with_*` builders, and a more faithful heuristic that
+  splits `snake_case` subwords (`file_read` ≈ 2 tokens). Clippy-clean across all
+  feature combinations; 27 tests with `serde`.
+
 ### Added
 - **New crate `agentic-eval`** (`crates/agentic-eval`) — a standalone, reusable
   library for evaluating how well a *program* serves an agentic AI system across

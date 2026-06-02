@@ -9,6 +9,7 @@
 use std::collections::BTreeSet;
 
 /// The result of a determinism assessment.
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct DeterminismReport {
     /// How many times the producer was run.
@@ -39,6 +40,22 @@ pub fn assess_determinism(runs: usize, mut produce: impl FnMut() -> String) -> D
         distinct: seen.len(),
         deterministic: seen.len() == 1,
         first,
+    }
+}
+
+impl std::fmt::Display for DeterminismReport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} ({} distinct / {} runs)",
+            if self.deterministic {
+                "deterministic"
+            } else {
+                "NON-deterministic"
+            },
+            self.distinct,
+            self.runs
+        )
     }
 }
 

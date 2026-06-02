@@ -11,6 +11,7 @@
 
 /// The effect class of an operation — the single property safety reasons about.
 /// Ordered from harmless to most dangerous.
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Effect {
     /// No observable effect (pure computation).
@@ -74,6 +75,7 @@ impl Effect {
 }
 
 /// Who is operating: a human at a REPL, or an autonomous agent.
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     Human,
@@ -81,6 +83,7 @@ pub enum Mode {
 }
 
 /// The policy decision for an effect under a mode.
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Decision {
     /// Runs without friction.
@@ -108,6 +111,7 @@ pub fn decide(effect: Effect, mode: Mode) -> Decision {
 }
 
 /// The safety assessment of a program described by the effects it performs.
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct SafetyReport {
     pub mode: Mode,
@@ -173,6 +177,21 @@ pub fn assess_safety(effects: &[Effect], mode: Mode) -> SafetyReport {
         bounded: dangerous_ungated == 0,
         score,
         grade,
+    }
+}
+
+impl std::fmt::Display for SafetyReport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "grade {} bounded={} (allowed={} approval-gated={} denied={}, {} dangerous ungated)",
+            self.grade,
+            self.bounded,
+            self.allowed,
+            self.approval_gated,
+            self.denied,
+            self.dangerous_ungated
+        )
     }
 }
 

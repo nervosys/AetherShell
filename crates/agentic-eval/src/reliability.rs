@@ -9,6 +9,7 @@
 //! (failures that carry a structured, machine-branchable code + hint).
 
 /// The outcome of one invocation, as classified by the caller.
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[derive(Debug, Clone, Copy)]
 pub struct Outcome {
     /// Did the invocation succeed (parse + run without error)?
@@ -42,6 +43,7 @@ impl Outcome {
 }
 
 /// Aggregate reliability over a set of invocations.
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct ReliabilityReport {
     pub total: usize,
@@ -85,6 +87,20 @@ pub fn assess_reliability<I>(cases: &[I], run: impl Fn(&I) -> Outcome) -> Reliab
         structured_failures,
         pass_rate,
         actionable_rate,
+    }
+}
+
+impl std::fmt::Display for ReliabilityReport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "pass {:.0}% actionable {:.0}% ({}/{} ok, {} structured failures)",
+            self.pass_rate * 100.0,
+            self.actionable_rate * 100.0,
+            self.passed,
+            self.total,
+            self.structured_failures
+        )
     }
 }
 

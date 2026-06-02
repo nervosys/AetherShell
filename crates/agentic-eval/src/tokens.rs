@@ -9,6 +9,7 @@
 //! counts all four and amortizes over a session.
 
 /// A popular agentic AI system, identified by its tokenizer family.
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Model {
     /// OpenAI GPT-4 / GPT-3.5-turbo family — `cl100k_base` BPE.
@@ -42,6 +43,21 @@ impl Model {
             Model::AnthropicClaude,
             Model::Heuristic,
         ]
+    }
+
+    /// Parse a model from a short identifier (case-insensitive), for CLI/config
+    /// use. Accepts common aliases: `gpt4`/`gpt-4`/`cl100k`; `gpt4o`/`gpt-4o`/
+    /// `o200k`; `claude`/`anthropic`; `heuristic`/`heur`. Returns `None` otherwise.
+    pub fn from_name(name: &str) -> Option<Model> {
+        match name.trim().to_ascii_lowercase().as_str() {
+            "gpt4" | "gpt-4" | "openai-gpt4" | "cl100k" | "cl100k_base" => Some(Model::OpenAiGpt4),
+            "gpt4o" | "gpt-4o" | "openai-gpt4o" | "o200k" | "o200k_base" => {
+                Some(Model::OpenAiGpt4o)
+            }
+            "claude" | "anthropic" | "anthropic-claude" => Some(Model::AnthropicClaude),
+            "heuristic" | "heur" => Some(Model::Heuristic),
+            _ => None,
+        }
     }
 
     /// Whether this model's count is exact (a real BPE) in this build, vs. an
@@ -84,23 +100,25 @@ fn count_openai(text: &str, _o200k: bool) -> usize {
     heuristic_tokens(text)
 }
 
-/// A labeled, deterministic token heuristic: split on whitespace and treat each
-/// run of letters/digits as one token plus one token per punctuation/symbol char,
-/// which tracks real BPE token counts within ~10–20% for code-like text. Used when
-/// a real BPE isn't available (no `real-tokens` feature, or Claude).
+/// A labeled, deterministic token heuristic that tracks real BPE counts within
+/// ~10–20% for code-like text. Used when a real BPE isn't available (no
+/// `real-tokens` feature, or Claude). Rules: each run of letters/digits is one
+/// token; an underscore separates `snake_case` subwords (each its own ~token, as
+/// real tokenizers usually split, e.g. `file_read` ≈ 2) but is not itself counted;
+/// every other non-whitespace punctuation/symbol char counts ~1.
 pub fn heuristic_tokens(text: &str) -> usize {
     let mut tokens = 0usize;
     let mut in_word = false;
     for c in text.chars() {
-        if c.is_alphanumeric() || c == '_' {
+        if c.is_alphanumeric() {
             if !in_word {
                 tokens += 1;
                 in_word = true;
             }
         } else {
             in_word = false;
-            if !c.is_whitespace() {
-                tokens += 1; // punctuation/symbols tokenize ~1 each
+            if !c.is_whitespace() && c != '_' {
+                tokens += 1; // punctuation/symbols tokenize ~1 each; `_` just splits
             }
         }
     }
@@ -108,6 +126,7 @@ pub fn heuristic_tokens(text: &str) -> usize {
 }
 
 /// The four token-cost terms an agent pays per task. All in tokens.
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct AgentCost {
     /// Schema/cheatsheet the model must carry to use the program (re-sent/turn).
@@ -130,7 +149,18 @@ impl AgentCost {
     }
 }
 
+impl std::fmt::Display for AgentCost {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "input={} output={} standing={} retries={}",
+            self.input, self.output, self.standing_context, self.retries
+        )
+    }
+}
+
 /// A program representation to evaluate for token efficiency.
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct Program {
     pub name: String,
@@ -188,6 +218,7 @@ pub fn evaluate_all(program: &Program) -> Vec<(Model, AgentCost)> {
 }
 
 /// The result of comparing two programs (e.g. two encodings of the same task).
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct Comparison {
     pub model: Model,
@@ -219,6 +250,36 @@ pub fn compare(a: &Program, b: &Program, model: Model, turns: usize) -> Comparis
         winner_is_a,
         ratio,
     }
+}
+
+impl std::fmt::Display for Comparison {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let winner = if self.winner_is_a { "A" } else { "B" };
+        write!(
+            f,
+            "{}: A={} B={} over {} turns → {} wins ({:.2}x){}",
+            self.model.name(),
+            self.a_total,
+            self.b_total,
+            self.turns,
+            winner,
+            self.ratio,
+            if self.model.is_exact() { "" } else { " [est]" },
+        )
+    }
+}
+
+/// Rank N programs by their amortized session cost under `model` (cheapest first).
+/// Returns `(index_into_programs, total_tokens)` pairs sorted ascending by total —
+/// the N-way generalization of [`compare`]. Ties keep input order (stable sort).
+pub fn rank(programs: &[Program], model: Model, turns: usize) -> Vec<(usize, usize)> {
+    let mut ranked: Vec<(usize, usize)> = programs
+        .iter()
+        .enumerate()
+        .map(|(i, p)| (i, evaluate(p, model).total_over(turns)))
+        .collect();
+    ranked.sort_by_key(|&(_, total)| total);
+    ranked
 }
 
 #[cfg(test)]
@@ -272,5 +333,57 @@ mod tests {
         for (_m, c) in all {
             assert!(c.input > 0);
         }
+    }
+
+    #[test]
+    fn heuristic_splits_snake_case_subwords() {
+        // `_` separates subwords (each ~a token) but is not itself counted.
+        assert_eq!(heuristic_tokens("file_read"), 2); // file + read
+        assert_eq!(heuristic_tokens("a_b_c"), 3);
+        // A dot is real punctuation → counts.
+        assert_eq!(heuristic_tokens("file.read"), 3); // file + . + read
+                                                      // A lone identifier is one token.
+        assert_eq!(heuristic_tokens("len"), 1);
+    }
+
+    #[test]
+    fn model_from_name_parses_aliases() {
+        assert_eq!(Model::from_name("gpt-4"), Some(Model::OpenAiGpt4));
+        assert_eq!(Model::from_name("o200k"), Some(Model::OpenAiGpt4o));
+        assert_eq!(Model::from_name("CLAUDE"), Some(Model::AnthropicClaude));
+        assert_eq!(Model::from_name("heur"), Some(Model::Heuristic));
+        assert_eq!(Model::from_name("nope"), None);
+    }
+
+    #[test]
+    fn rank_orders_programs_cheapest_first() {
+        // Identical input; the heavier standing context ranks last over a session.
+        let cheap = Program::new("cheap", "file.read x").with_standing_context("short");
+        let dear = Program::new("dear", "file.read x")
+            .with_standing_context("a much longer cheatsheet ".repeat(50).as_str());
+        let progs = [dear, cheap];
+        let ranked = rank(&progs, Model::Heuristic, 30);
+        assert_eq!(ranked.len(), 2);
+        // index 1 ("cheap") should come first (lowest total).
+        assert_eq!(ranked[0].0, 1);
+        assert!(ranked[0].1 <= ranked[1].1);
+    }
+
+    #[test]
+    fn displays_are_non_empty() {
+        let c = AgentCost {
+            standing_context: 10,
+            input: 5,
+            output: 2,
+            retries: 0,
+        };
+        assert!(c.to_string().contains("input=5"));
+        let cmp = compare(
+            &Program::new("a", "x"),
+            &Program::new("b", "yy"),
+            Model::Heuristic,
+            10,
+        );
+        assert!(cmp.to_string().contains("wins"));
     }
 }
