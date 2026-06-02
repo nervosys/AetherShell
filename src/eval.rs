@@ -53,6 +53,132 @@ pub fn eval_program(stmts: &[Stmt], env: &mut Env) -> Result<Value> {
     Ok(last)
 }
 
+/// Streaming evaluation (docs/AGENTIC_FIRST_DESIGN.md §6.3): evaluate `code` and
+/// deliver results to `on_item` **incrementally**, rather than materializing the
+/// whole value before chunking. When the final expression is a pipeline
+/// `source | stage…` whose source is an `Array` and whose every stage is
+/// element-independent (`map`/`where`/`filter`), each element is pushed through the
+/// stage chain one at a time and emitted as soon as it survives — true
+/// stage-by-stage streaming, computed lazily per element. Any other shape falls
+/// back to eager evaluation, emitting array elements (or a single scalar) after.
+/// Returns the number of items emitted.
+///
+/// This is an **additive** path: the eager [`eval_expr`]/[`eval_program`] are
+/// untouched, and each streamed stage is driven through the *same* pipe mechanism
+/// (`env.set_input` + `eval_expr`) the normal evaluator uses, so element semantics
+/// are identical — there is no second implementation of `map`/`where` to diverge.
+pub fn eval_stream(code: &str, env: &mut Env, on_item: &mut dyn FnMut(Value)) -> Result<usize> {
+    let stmts = crate::parser::parse_program(code)?;
+    let (last, init) = match stmts.split_last() {
+        Some(parts) => parts,
+        None => return Ok(0),
+    };
+    // Evaluate the leading statements eagerly (bindings, imports, side effects).
+    for s in init {
+        env.set_input(None);
+        eval_stmt(s, env)?;
+    }
+    env.set_input(None);
+    // Try to stream the final statement if it is a streamable pipeline.
+    if let Stmt::Expr(expr) = last {
+        if let Some(count) = try_stream_pipeline(expr, env, on_item)? {
+            return Ok(count);
+        }
+    }
+    // Fallback: eager-eval the final statement, then emit its elements.
+    let v = eval_stmt(last, env)?;
+    Ok(emit_value(v, on_item))
+}
+
+fn emit_value(v: Value, on_item: &mut dyn FnMut(Value)) -> usize {
+    match v {
+        Value::Array(items) => {
+            let n = items.len();
+            for it in items {
+                on_item(it);
+            }
+            n
+        }
+        Value::Null => 0,
+        other => {
+            on_item(other);
+            1
+        }
+    }
+}
+
+/// Whether a pipeline stage is element-independent (safe to apply per-element).
+/// Conservative whitelist: `map`/`where`/`filter` transform each element without
+/// reference to the others. Stages like `sort`/`take`/`reduce`/`uniq` need the
+/// whole collection, so their presence disqualifies streaming (caller falls back).
+fn is_streamable_stage(e: &Expr) -> bool {
+    if let Expr::Call { callee, .. } = e {
+        if let Expr::Ident(name) = &**callee {
+            return matches!(name.as_str(), "map" | "where" | "filter");
+        }
+    }
+    false
+}
+
+/// If `expr` is a streamable pipeline, stream it element-by-element and return
+/// `Some(emitted_count)`; otherwise return `None` so the caller eager-evaluates.
+fn try_stream_pipeline(
+    expr: &Expr,
+    env: &mut Env,
+    on_item: &mut dyn FnMut(Value),
+) -> Result<Option<usize>> {
+    // Flatten the left-associative pipe chain into source + ordered stages.
+    let mut stages: Vec<&Expr> = Vec::new();
+    let mut cur = expr;
+    while let Expr::Pipe { left, right } = cur {
+        stages.push(right);
+        cur = left;
+    }
+    if stages.is_empty() {
+        return Ok(None); // not a pipeline
+    }
+    stages.reverse();
+    if !stages.iter().all(|s| is_streamable_stage(s)) {
+        return Ok(None); // a whole-collection stage is present
+    }
+    // The source must be an array to stream element-wise.
+    let src = eval_expr(cur, env)?;
+    let items = match src {
+        Value::Array(items) => items,
+        _ => return Ok(None),
+    };
+    let mut count = 0usize;
+    for x in items {
+        // Push this single element through the stage chain using the SAME pipe
+        // mechanism the evaluator uses, so semantics are identical.
+        let mut batch = Value::Array(vec![x]);
+        for stage in &stages {
+            let saved = env.input().cloned();
+            env.set_input(Some(batch));
+            let res = eval_expr(stage, env);
+            match saved {
+                Some(v) => env.set_input(Some(v)),
+                None => env.set_input(None),
+            }
+            batch = res?;
+        }
+        match batch {
+            Value::Array(out) => {
+                for it in out {
+                    on_item(it);
+                    count += 1;
+                }
+            }
+            Value::Null => {}
+            other => {
+                on_item(other);
+                count += 1;
+            }
+        }
+    }
+    Ok(Some(count))
+}
+
 pub fn eval_stmt(stmt: &Stmt, env: &mut Env) -> Result<Value> {
     match stmt {
         Stmt::Let {
