@@ -38,10 +38,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `AETHER_MAX_OPS` — total guarded operations per run.
   - `AETHER_MAX_FILES` — filesystem ops (WriteLocal + Destructive).
   - `AETHER_MAX_PROCS` — process/exec ops (Process + Exec).
-  - `AETHER_MAX_NET` — network egress ops (Network). Enforced by routing the
-    egress builtins (`http_get`/`curl_exec`/`wget_download`/`web_fetch`/`web_post`/
-    `web_json_get`/`web_json_post`) through `guard()` with the `Network` effect,
-    which also brings them under the hash-chained audit log.
+  - `AETHER_MAX_NET` — network egress ops (Network). Enforced by routing **every
+    egress builtin** through `guard()` with the `Network` effect via the
+    `guard_network` helper — `http_get`, `curl_exec`, `wget_download`, and the full
+    `web_*` fetch family (`web_fetch`/`web_get`/`web_post`/`web_json_get`/
+    `web_json_post`/`web_scrape`/`web_download`/`web_headers`/`web_cookies`/
+    `web_form_submit`/`web_upload_file`/`web_rest_api`/`web_graphql`/`web_check_url`;
+    `web_robots_txt`/`web_sitemap` inherit via delegation) — which also brings every
+    network call under the hash-chained audit log.
   - `AETHER_TIMEOUT_MS` — wall-clock budget since the first guarded op.
 
   New builtins `governor_status()` (counts/limits/elapsed, also folded into

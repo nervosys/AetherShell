@@ -25274,6 +25274,7 @@ fn bi_web_scrape(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
+    guard_network("web_scrape", &url)?;
     let selector = args.get(1).and_then(|v| match v {
         Value::Str(s) => Some(s.clone()),
         _ => None,
@@ -25316,6 +25317,7 @@ fn bi_web_download(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Bool(false)),
     };
+    guard_network("web_download", &url)?;
     let path = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
         _ => {
@@ -25493,6 +25495,7 @@ fn bi_web_headers(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
+    guard_network("web_headers", &url)?;
 
     let output = std::process::Command::new("curl")
         .args(["-sS", "-I", "-L", &url])
@@ -25516,6 +25519,7 @@ fn bi_web_cookies(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Array(vec![])),
     };
+    guard_network("web_cookies", &url)?;
 
     let output = std::process::Command::new("curl")
         .args(["-sS", "-I", "-L", &url])
@@ -25538,6 +25542,7 @@ fn bi_web_form_submit(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
+    guard_network("web_form_submit", &url)?;
     let form_data = match args.get(1) {
         Some(Value::Record(r)) => r
             .iter()
@@ -25575,6 +25580,7 @@ fn bi_web_upload_file(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Bool(false)),
     };
+    guard_network("web_upload_file", &url)?;
     let file_path = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Bool(false)),
@@ -25610,6 +25616,7 @@ fn bi_web_rest_api(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
+    guard_network("web_rest_api", &url)?;
     let body = args
         .get(2)
         .map(|v| serde_json::to_string(&value_to_json(v.clone())).unwrap_or_default());
@@ -25659,6 +25666,7 @@ fn bi_web_graphql(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
+    guard_network("web_graphql", &url)?;
     let query = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
@@ -25697,6 +25705,7 @@ fn bi_web_check_url(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Bool(false)),
     };
+    guard_network("web_check_url", &url)?;
 
     let output = std::process::Command::new("curl")
         .args(["-sS", "-o", "/dev/null", "-w", "%{http_code}", "-L", &url])

@@ -622,15 +622,18 @@ shell."
   op, checked at each guard boundary). Counters tally *attempts* at the boundary (an
   op later denied by jail/policy still counts — the envelope bounds what the agent
   may try, the strictly-safe reading). The network cap is enforced by routing the
-  egress builtins (`http_get`, `curl_exec`, `wget_download`, `web_fetch`/`web_post`/
-  `web_json_get`/`web_json_post`) through `guard()` with the `Network` effect — which
+  **every egress builtin** (`http_get`, `curl_exec`, `wget_download`, and the full
+  `web_*` fetch family — `web_fetch`/`web_get`/`web_post`/`web_json_get`/`web_json_post`/
+  `web_scrape`/`web_download`/`web_headers`/`web_cookies`/`web_form_submit`/
+  `web_upload_file`/`web_rest_api`/`web_graphql`/`web_check_url`, with
+  `web_robots_txt`/`web_sitemap` inheriting it by delegating to `web_fetch`) through
+  `guard()` with the `Network` effect via the `guard_network` helper — which
   also brings them under the audit log (`Network` is policy-`allow`, so this meters +
   audits without prompting). `governor_status()` reports counts/limits/elapsed (also
   folded into `safety_status()`); `governor_reset()` starts a fresh envelope. Verified
   by 6 unit tests + an end-to-end test (a 2nd `rm` under `AETHER_MAX_FILES=1` returns
-  `E_BUDGET_EXCEEDED`, file untouched). *(Remaining: output-bytes is covered separately
-  by `--budget`/`AE_TOKEN_BUDGET` paging; the broader `web_*` scraper family routes
-  through the same `guard_network` helper as it's extended.)*
+  `E_BUDGET_EXCEEDED`, file untouched). (Output-bytes is covered separately by
+  `--budget`/`AE_TOKEN_BUDGET` paging.)
 - ✅ **Secret hygiene.** Two deterministic defenses in `src/safety.rs`, opt-out via
   `AETHER_REDACT=off`:
     - **Shape redaction** (`redact_str`/`redact_json`/`builtins::redact_value`) scrubs
