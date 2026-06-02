@@ -361,11 +361,13 @@ impl McpServer {
     /// Run a strict **JSON-RPC 2.0 over stdio** MCP server (the canonical MCP
     /// transport, complementing the HTTP server). Reads newline-delimited requests
     /// from stdin and dispatches:
-    ///   - `initialize` → protocol/capabilities/serverInfo;
-    ///   - `tools/list` → the builtin tool surface ([`Self::list_builtin_tools`]);
-    ///   - `tools/call` → routes through [`Self::call_builtin`], so policy / jail /
-    ///     approval / audit apply exactly as on the REPL and HTTP paths;
-    ///   - `ping` → `{}`.
+    ///
+    /// - `initialize` → protocol/capabilities/serverInfo;
+    /// - `tools/list` → the builtin tool surface ([`Self::list_builtin_tools`]);
+    /// - `tools/call` → routes through [`Self::call_builtin`], so policy / jail /
+    ///   approval / audit apply exactly as on the REPL and HTTP paths;
+    /// - `ping` → `{}`.
+    ///
     /// Writes one JSON-RPC response line per request to stdout. Notifications
     /// (messages with no `id`, e.g. `notifications/initialized`) get no reply.
     /// Loops until stdin EOF. Runs in whatever safety mode the process is in, so

@@ -69,7 +69,7 @@ fn reliability_tracks_pass_rate_and_actionable_failures() {
     // a structured (branchable) error, 1 fails opaquely.
     let cases = [0u8, 1, 2, 3, 4];
     let r: ReliabilityReport = assess_reliability(&cases, |&i| match i {
-        0 | 1 | 2 => Outcome::ok(),
+        0..=2 => Outcome::ok(),
         3 => Outcome::structured_failure(),
         _ => Outcome::opaque_failure(),
     });

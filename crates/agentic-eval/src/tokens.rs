@@ -16,8 +16,9 @@ pub enum Model {
     /// OpenAI GPT-4o / o-series family — `o200k_base` BPE.
     OpenAiGpt4o,
     /// Anthropic Claude. **Approximation:** Anthropic publishes no offline
-    /// tokenizer crate, so this uses the calibrated heuristic and should be read
-    /// as an estimate, not an exact count.
+    /// tokenizer crate, so this uses the shared [`heuristic_tokens`] estimate (the
+    /// same as [`Model::Heuristic`]) and must be read as an estimate, not an exact
+    /// count. [`Model::is_exact`] returns `false` for it.
     AnthropicClaude,
     /// A tokenizer-agnostic labeled heuristic (no model-specific BPE).
     Heuristic,
@@ -57,7 +58,8 @@ impl Model {
         match self {
             Model::OpenAiGpt4 => count_openai(text, false),
             Model::OpenAiGpt4o => count_openai(text, true),
-            // Claude ≈ a slightly denser-than-cl100k subword heuristic for code.
+            // Claude: no public offline tokenizer, so fall back to the shared
+            // heuristic — a documented approximation, not an exact count.
             Model::AnthropicClaude => heuristic_tokens(text),
             Model::Heuristic => heuristic_tokens(text),
         }
