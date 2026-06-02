@@ -238,11 +238,17 @@ column with 3 distinct values as real listings have (dictionary-encoded to one
 | powershell `ConvertTo-Json` | 1447 | **2.57×** |
 | nushell (boxed table) | 1402 | 2.49× |
 
-Honest reading (not rigged): on small all-varying results AECON beats PowerShell
-modestly (~1.4×). The **2×+ vs PowerShell** appears against the output an agent
-must actually *parse* — `Format-Table` is display-only (variable widths,
-truncation, culture-dependent), so a parsing agent uses `ConvertTo-Json`, where
-AECON is **~2.6×** cheaper. Three structural levers, all deterministic and all
+Honest reading (not rigged): the ratio vs PowerShell depends entirely on which
+output an agent parses, so we report the full spread rather than a single headline.
+`Format-Table` is display-only (variable widths, truncation, culture-dependent) and
+**not reliably parseable** — so a parsing agent uses `ConvertTo-Json`. Against its
+**default** (pretty) `ConvertTo-Json` — the idiomatic form an agent gets without
+flags — AECON is **~2.6×** cheaper on this constant-heavy listing (2.4–3× on a plain
+`name,size` listing as rows grow). Against the hand-compacted `ConvertTo-Json
+-Compress` the edge narrows to **~1.6×**, and against the (unparseable) `Format-Table`
+it's only **~1.4×**. The ≥2× claim is true and measured, but specifically against the
+default JSON serialization — which is the honest comparison since AECON is also
+AetherShell's *default* output. Three structural levers, all deterministic and all
 applied only where they're a measured *token* win:
 **constant-factoring** (cardinality-1 columns → one `@const` line);
 **dictionary encoding** (low-cardinality, multi-token string columns → one
