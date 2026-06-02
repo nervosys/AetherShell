@@ -440,7 +440,7 @@ across OS/locale; `canonical` gives byte-stable JSON for snapshot tests and cach
 | Workspace jail confining writes/deletes | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (`--workspace`) |
 | Tamper-evident (hash-chained) audit log | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ |
 | Secret redaction (output + audit) & env handle gating | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (agent mode) |
-| Resource governors (ops/files/procs/wall-clock → `E_BUDGET_EXCEEDED`) | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (agent mode) |
+| Resource governors (ops/files/procs/net/wall-clock → `E_BUDGET_EXCEEDED`) | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (agent mode) |
 | RBAC over effect classes | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ |
 | Filesystem transactions / rollback | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (`tx_*` + savepoints) |
 | Plan → approve → atomic apply | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (`plan`/`apply`) |

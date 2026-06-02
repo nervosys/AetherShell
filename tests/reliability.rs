@@ -89,6 +89,28 @@ fn shared_extraction_helpers_emit_structured_bad_arg() {
 }
 
 #[test]
+fn missing_argument_is_structured_bad_arg() {
+    // A missing required argument to a core agent-facing verb now surfaces a
+    // structured, catchable E_BAD_ARG (not ad-hoc prose) naming what's expected.
+    // `reduce([1,2,3])` is missing the lambda + init.
+    let src = r#"try { reduce([1,2,3]) } catch e { e }"#;
+    let stmts = aethershell::parser::parse_program(src).expect("parse");
+    let mut env = aethershell::env::Env::new();
+    let result = aethershell::eval::eval_program(&stmts, &mut env).expect("eval");
+
+    match result {
+        Value::Record(m) => match m.get("error") {
+            Some(Value::Record(e)) => {
+                assert_eq!(e.get("code"), Some(&Value::Str("E_BAD_ARG".to_string())));
+                assert!(e.contains_key("hint"), "carries an actionable hint");
+            }
+            other => panic!("error should be a nested record, got {other:?}"),
+        },
+        other => panic!("catch should bind a structured record, got {other:?}"),
+    }
+}
+
+#[test]
 fn canonical_is_deterministic_and_key_sorted() {
     // Exact, stable rendering with sorted keys regardless of insertion order.
     let a = canon(rec(&[("b", Value::Str("x".into())), ("a", Value::Int(1))]));

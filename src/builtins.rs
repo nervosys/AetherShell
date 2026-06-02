@@ -3889,6 +3889,34 @@ fn need_lambda<'a>(v: &'a Value, name: &str) -> Result<&'a Lambda> {
     }
 }
 
+/// Fetch a required positional argument, or return a structured `E_BAD_ARG`
+/// naming what was expected when it is missing — the arity counterpart to the
+/// `expect_*` type helpers. Lets a builtin surface a catchable, branchable
+/// missing-argument error instead of ad-hoc prose (or an index panic).
+#[allow(dead_code)]
+fn arg<'a>(builtin: &str, args: &'a [Value], idx: usize, expected: &str) -> Result<&'a Value> {
+    args.get(idx)
+        .ok_or_else(|| crate::safety::bad_arg(builtin, expected, "nothing"))
+}
+
+/// Gate a network-egress builtin through the safety guard with the `Network`
+/// effect, so the resource governor (`AETHER_MAX_NET`) bounds egress and the
+/// audit log records the request. `Network` is policy-`allow` in agent mode, so
+/// this never prompts for approval — it meters and audits. No-op outside the
+/// governor's reach (human mode / no limit set).
+fn guard_network(builtin: &str, url: &str) -> Result<()> {
+    crate::safety::guard(crate::safety::GuardCtx {
+        builtin,
+        effect: crate::safety::Effect::Network,
+        what: "request",
+        targets: vec![url.to_string()],
+        blast_radius: serde_json::json!({ "url": url }),
+        reversible: true,
+        fs_paths: false,
+    })?;
+    Ok(())
+}
+
 /// Evaluate a lambda with N positional arguments by temporarily binding its `params`
 /// in the environment, then `eval_expr` on its body. Restores env afterwards.
 fn call_lambda(lam: &Lambda, args: &[Value], env: &mut Env) -> Result<Value> {
@@ -4156,6 +4184,9 @@ fn bi_http_get(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         other => return Err(anyhow!("http_get expects URL string/uri, got {:?}", other)),
     };
 
+    // Meter + audit network egress (governor: AETHER_MAX_NET).
+    guard_network("http_get", &url)?;
+
     // SECURITY FIX (MED-008): Validate URL to prevent SSRF
     let validated_url = validate_http_url(&url).context("http_get: URL validation failed")?;
 
@@ -4185,7 +4216,7 @@ fn bi_call(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Valu
     let name_val = args
         .first()
         .cloned()
-        .ok_or_else(|| anyhow!("call requires name"))?;
+        .ok_or_else(|| crate::safety::bad_arg("call", "a builtin name", "nothing"))?;
     let name = match name_val {
         Value::Str(s) | Value::Uri(s) => s,
         other => {
@@ -4213,13 +4244,13 @@ fn bi_map(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Value
     } else {
         args.first()
             .cloned()
-            .ok_or_else(|| anyhow!("map requires array input"))?
+            .ok_or_else(|| crate::safety::bad_arg("map", "an array", "nothing"))?
     };
 
     let lam_val = if input.is_some() {
-        args.first().ok_or_else(|| anyhow!("map requires lambda"))?
+        arg("map", &args, 0, "a lambda")?
     } else {
-        args.get(1).ok_or_else(|| anyhow!("map requires lambda"))?
+        arg("map", &args, 1, "a lambda")?
     };
     let lam = need_lambda(lam_val, "map")?;
 
@@ -4241,15 +4272,13 @@ fn bi_where(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Val
     } else {
         args.first()
             .cloned()
-            .ok_or_else(|| anyhow!("where requires array input"))?
+            .ok_or_else(|| crate::safety::bad_arg("where", "an array", "nothing"))?
     };
 
     let lam_val = if input.is_some() {
-        args.first()
-            .ok_or_else(|| anyhow!("where requires lambda"))?
+        arg("where", &args, 0, "a lambda")?
     } else {
-        args.get(1)
-            .ok_or_else(|| anyhow!("where requires lambda"))?
+        arg("where", &args, 1, "a lambda")?
     };
     let lam = need_lambda(lam_val, "where")?;
 
@@ -4277,7 +4306,11 @@ fn bi_reduce(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Va
         v.clone()
     } else {
         if args.len() < 3 {
-            return Err(anyhow!("reduce expects <array> <fn(a,b)=> expr> <init>"));
+            return Err(crate::safety::bad_arg(
+                "reduce",
+                "<array> <fn(acc,x)> <init>",
+                "nothing",
+            ));
         }
         args[0].clone()
     };
@@ -4287,15 +4320,8 @@ fn bi_reduce(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Va
         (1usize, 2usize)
     };
 
-    let lam = need_lambda(
-        args.get(lam_idx)
-            .ok_or_else(|| anyhow!("reduce missing lambda"))?,
-        "reduce",
-    )?;
-    let init = args
-        .get(init_idx)
-        .cloned()
-        .ok_or_else(|| anyhow!("reduce missing init"))?;
+    let lam = need_lambda(arg("reduce", &args, lam_idx, "a lambda")?, "reduce")?;
+    let init = arg("reduce", &args, init_idx, "an initial value")?.clone();
 
     let arr = expect_array("reduce", &arr_val)?;
     let mut acc = init;
@@ -4315,7 +4341,7 @@ fn bi_take(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         (input_val, 0usize)
     } else {
         if args.len() < 2 {
-            return Err(anyhow!("take expects <array> <n>"));
+            return Err(crate::safety::bad_arg("take", "<array> <n>", "nothing"));
         }
         (args[0].clone(), 1usize)
     };
@@ -6390,7 +6416,7 @@ fn bi_agent(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Val
     let goal_str = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         Some(other) => return Err(anyhow!("agent: expected String goal, got {:?}", other)),
-        None => return Err(anyhow!("agent requires goal")),
+        None => return Err(crate::safety::bad_arg("agent", "a goal string", "nothing")),
     };
 
     // SECURITY: Validate AI prompt for injection (CVSS 7.8)
@@ -6504,7 +6530,7 @@ fn bi_swarm(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Val
     let goal = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         Some(other) => return Err(anyhow!("swarm: expected String goal, got {:?}", other)),
-        None => return Err(anyhow!("swarm requires goal")),
+        None => return Err(crate::safety::bad_arg("swarm", "a goal string", "nothing")),
     };
     let mut tools: Vec<String> = Vec::new();
     let mut max_steps: usize = 12;
@@ -10176,7 +10202,11 @@ fn bi_mcp_call(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     use std::collections::HashMap;
 
     if args.is_empty() {
-        return Err(anyhow!("mcp_call requires tool name as first argument"));
+        return Err(crate::safety::bad_arg(
+            "mcp_call",
+            "a tool name as the first argument",
+            "nothing",
+        ));
     }
 
     let tool_name = expect_string("mcp_call", &args[0])?;
@@ -24953,6 +24983,7 @@ fn bi_web_fetch(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
+    guard_network("web_fetch", &url)?;
 
     let output = std::process::Command::new("curl")
         .args(["-sS", "-L", &url])
@@ -24976,6 +25007,7 @@ fn bi_web_post(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
+    guard_network("web_post", &url)?;
     let data = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
         Some(v) => serde_json::to_string(&value_to_json(v.clone())).unwrap_or_default(),
@@ -25000,6 +25032,7 @@ fn bi_web_json_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
+    guard_network("web_json_get", &url)?;
 
     let output = std::process::Command::new("curl")
         .args(["-sS", "-L", "-H", "Accept: application/json", &url])
@@ -25019,6 +25052,7 @@ fn bi_web_json_post(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
+    guard_network("web_json_post", &url)?;
     let data = match args.get(1) {
         Some(v) => serde_json::to_string(&value_to_json(v.clone())).unwrap_or_default(),
         _ => "{}".to_string(),
@@ -38653,6 +38687,7 @@ pub fn bi_curl_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(anyhow!("curl_exec: first argument must be url string")),
     };
+    guard_network("curl_exec", &url)?;
     let method = match args.get(1) {
         Some(Value::Str(s)) => s.to_uppercase(),
         _ => "GET".to_string(),
@@ -43601,6 +43636,7 @@ fn bi_wget_download(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(anyhow!("wget requires a URL string")),
     };
+    guard_network("wget_download", &url)?;
     let output = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
         _ => {
