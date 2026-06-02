@@ -14716,6 +14716,31 @@ fn aecon_atom(v: &Value) -> String {
     }
 }
 
+/// Longest common character prefix shared by every string in `vals` (empty if
+/// they share none). Char-aligned, so the returned `String`'s byte length is a
+/// valid UTF-8 slice boundary in each input — used by `@prefix` factoring.
+fn longest_common_str_prefix(vals: &[&str]) -> String {
+    let mut prefix: Vec<char> = match vals.first() {
+        Some(s) => s.chars().collect(),
+        None => return String::new(),
+    };
+    for s in vals.iter().skip(1) {
+        let mut n = 0usize;
+        for (a, b) in prefix.iter().zip(s.chars()) {
+            if *a == b {
+                n += 1;
+            } else {
+                break;
+            }
+        }
+        prefix.truncate(n);
+        if prefix.is_empty() {
+            break;
+        }
+    }
+    prefix.into_iter().collect()
+}
+
 /// Render a Value as AECON (Aether Compact Object Notation). Tabular values
 /// (Table, or a homogeneous Array<Record>) become a `@aecon` header + TSV rows;
 /// single records become `{k=v ...}`; scalar arrays become `[a,b,c]`; scalars
@@ -14821,6 +14846,47 @@ fn aecon_render(v: &Value) -> String {
                     }
                 }
             }
+            // Common-prefix factoring for STRING columns whose values share a
+            // leading run (paths like `/home/user/…`, URIs, prefixed ids): the
+            // shared prefix is emitted once in a `@prefix col: …` line and stripped
+            // from every row. Deterministic (char-based, no tokenizer/float), gated
+            // to a real *char* win — the prefix must be ≥2 chars and removing it
+            // from N rows must beat the one-line overhead. Only bare-safe (no
+            // tab/newline, non-empty) string columns qualify, and never `@dict`
+            // columns (those already factor the whole value).
+            let mut prefix_cols: std::collections::BTreeMap<String, String> =
+                std::collections::BTreeMap::new();
+            if rows.len() >= 4 {
+                for k in &var_keys {
+                    if dict_index.contains_key(k) {
+                        continue;
+                    }
+                    let mut vals: Vec<&str> = Vec::with_capacity(rows.len());
+                    let mut all_bare = true;
+                    for r in &rows {
+                        match r.get(k) {
+                            Some(Value::Str(s))
+                                if !s.is_empty() && !s.contains('\t') && !s.contains('\n') =>
+                            {
+                                vals.push(s.as_str())
+                            }
+                            _ => {
+                                all_bare = false;
+                                break;
+                            }
+                        }
+                    }
+                    if !all_bare {
+                        continue;
+                    }
+                    let lcp = longest_common_str_prefix(&vals);
+                    let l = lcp.chars().count();
+                    // Net char win: l*(rows-1) saved vs a `@prefix <k>: <lcp>` line.
+                    if l >= 2 && l * (rows.len() - 1) > k.len() + 10 {
+                        prefix_cols.insert(k.clone(), lcp);
+                    }
+                }
+            }
             // Delta encoding for large-valued, slowly-varying INTEGER columns
             // (timestamps, sequential ids): row 0 carries the absolute value, each
             // later row carries the difference from the previous row; a `@delta:`
@@ -14876,7 +14942,10 @@ fn aecon_render(v: &Value) -> String {
             let mut type_tags: std::collections::BTreeMap<String, char> =
                 std::collections::BTreeMap::new();
             for k in const_keys.iter().chain(var_keys.iter()) {
-                if dict_index.contains_key(k) || delta_cols.contains_key(k) {
+                if dict_index.contains_key(k)
+                    || delta_cols.contains_key(k)
+                    || prefix_cols.contains_key(k)
+                {
                     continue;
                 }
                 let vals: Vec<&Value> = if const_keys.contains(k) {
@@ -14915,6 +14984,9 @@ fn aecon_render(v: &Value) -> String {
                 out.push_str(&format!("\n@dict {}: ", col));
                 out.push_str(&distinct.join("\t"));
             }
+            for (col, prefix) in &prefix_cols {
+                out.push_str(&format!("\n@prefix {}: {}", col, prefix));
+            }
             if !delta_cols.is_empty() {
                 out.push_str("\n@delta: ");
                 let names: Vec<&str> = delta_cols.keys().map(|s| s.as_str()).collect();
@@ -14936,6 +15008,10 @@ fn aecon_render(v: &Value) -> String {
                             return col[ri].clone();
                         }
                         let v = r.get(k).unwrap_or(&Value::Null);
+                        if let (Some(prefix), Value::Str(s)) = (prefix_cols.get(k), v) {
+                            // bare-safe by construction; emit only the suffix.
+                            return s[prefix.len()..].to_string();
+                        }
                         match (dict_index.get(k), v) {
                             (Some(idx), Value::Str(s)) => idx
                                 .get(s)
@@ -15083,6 +15159,7 @@ fn aecon_decode(s: &str) -> Value {
     let mut const_raw: Vec<(String, String)> = Vec::new();
     let mut dicts: std::collections::HashMap<String, Vec<String>> =
         std::collections::HashMap::new();
+    let mut prefixes: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     let mut delta_set: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut type_tags: std::collections::HashMap<String, char> = std::collections::HashMap::new();
     let mut row_start = 1;
@@ -15099,6 +15176,10 @@ fn aecon_decode(s: &str) -> Value {
                     col.to_string(),
                     vals.split('\t').map(|s| s.to_string()).collect(),
                 );
+            }
+        } else if let Some(rest) = line.strip_prefix("@prefix ") {
+            if let Some((col, p)) = rest.split_once(": ") {
+                prefixes.insert(col.to_string(), p.to_string());
             }
         } else if let Some(rest) = line.strip_prefix("@delta: ") {
             for c in rest.split('\t') {
@@ -15147,6 +15228,8 @@ fn aecon_decode(s: &str) -> Value {
                     Some(s) => Value::Str(s.clone()),
                     None => aecon_decode_atom(cell),
                 }
+            } else if let Some(prefix) = prefixes.get(k) {
+                Value::Str(format!("{prefix}{cell}"))
             } else {
                 aecon_decode_atom_typed(cell, type_tags.get(k))
             };
