@@ -209,6 +209,57 @@ fn apply_supports_append_and_is_atomic() {
 }
 
 #[test]
+fn apply_supports_copy_and_move_atomically() {
+    let _l = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    reset_tx();
+    let w = std::env::temp_dir().join(format!("ae_plan_copymove_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&w);
+    std::fs::create_dir_all(&w).unwrap();
+    std::env::set_var("AETHER_WORKSPACE", &w);
+
+    // Helper: an op record carrying a `dest` field.
+    let op_dest = |op: &str, path: &str, dest: &str| {
+        let mut m = std::collections::BTreeMap::new();
+        m.insert("op".to_string(), Value::Str(op.to_string()));
+        m.insert("path".to_string(), Value::Str(path.to_string()));
+        m.insert("dest".to_string(), Value::Str(dest.to_string()));
+        Value::Record(m)
+    };
+
+    let src = w.join("src.txt");
+    let copy_dst = w.join("copy.txt");
+    let move_dst = w.join("moved.txt");
+    std::fs::write(&src, b"payload").unwrap();
+
+    // copy src→copy.txt, then move src→moved.txt, atomically.
+    let ops = Value::Array(vec![
+        op_dest("copy", &src.to_string_lossy(), &copy_dst.to_string_lossy()),
+        op_dest("move", &src.to_string_lossy(), &move_dst.to_string_lossy()),
+    ]);
+    assert_eq!(get_str(&call("apply", vec![ops]), "status"), "applied");
+    assert_eq!(std::fs::read_to_string(&copy_dst).unwrap(), "payload");
+    assert_eq!(std::fs::read_to_string(&move_dst).unwrap(), "payload");
+    assert!(!src.exists(), "source removed by move");
+
+    // A destination outside the workspace is rejected by the jail.
+    std::fs::write(&src, b"again").unwrap();
+    let outside = if cfg!(windows) {
+        "C:/Windows/ae_escape.txt"
+    } else {
+        "/tmp/ae_escape.txt"
+    };
+    let bad = Value::Array(vec![op_dest("copy", &src.to_string_lossy(), outside)]);
+    assert_eq!(get_str(&call("apply", vec![bad]), "status"), "failed");
+    assert!(
+        !std::path::Path::new(outside).exists(),
+        "jailed dest never written"
+    );
+
+    std::env::remove_var("AETHER_WORKSPACE");
+    let _ = std::fs::remove_dir_all(&w);
+}
+
+#[test]
 fn apply_rolls_back_the_whole_batch_on_failure() {
     let _l = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     reset_tx();

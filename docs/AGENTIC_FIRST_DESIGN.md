@@ -447,15 +447,18 @@ Per call the Agent API records `tokens_in` / `tokens_out` /
 `tokens_total` and exposes them under `AgentResponse.metadata.token_accounting`
 (injected in `process_request`; ✅ implemented). The CLI `--budget N` flag sets
 `AE_TOKEN_BUDGET`, which the REPL applies via `budget_value` so every result is
-paged/truncated to fit (✅ implemented). Remaining: per-session aggregation and
-wiring `ai.usage()`/`ai.cost()` (stubs, `builtins.rs:3708`) to the same counters.
+paged/truncated to fit (✅ implemented). ✅ Per-session aggregation lands via
+`sess_usage(id)` (dispatch 1125) — running `tokens_in`/`tokens_out`/`tokens_total`/
+`evals` for a stateful session. ✅ `ai_usage()`/`ai_cost()` are wired to the live
+`ai::COST_TRACKER` (not stubs) and report cumulative provider cost/usage.
 
-> **STATUS:** implemented as builtins — `aecon` (compact render), `tokens`
-> (estimate), and `budget(value, max_tokens, cursor?)` (row paging with
+> **STATUS: ✅ complete.** Implemented as builtins — `aecon` (compact render),
+> `tokens` (estimate), and `budget(value, max_tokens, cursor?)` (row paging with
 > `next_cursor`/`elided`/`page_tokens` + lossless string truncation with an
 > explicit elision marker; dispatch 1109/1110/1118; see `tests/output_economy.rs`).
-> Remaining: a CLI `--budget`/`AE_TOKEN_BUDGET` flag that applies `budget`
-> automatically to results, and per-call `tokens_in/out` in `AgentResponse`.
+> The CLI `--budget`/`AE_TOKEN_BUDGET` flag applies `budget` automatically to every
+> result, and `AgentResponse.metadata.token_accounting` carries per-call
+> `tokens_in/out/total`.
 
 ### 6.2 Output budgeting + compact format (the biggest real win)
 
@@ -727,7 +730,9 @@ The `.ae` surface keeps readable, unambiguous syntax and gains:
   mode gates it on the plan token, paths are workspace-jailed, any failure rolls
   the whole batch back, and the outcome is audited (dispatch 1119/1120,
   `tests/transactions.rs`). Ties together approval + transactions + structured
-  output. Ops: `write`/`rm`/`mkdir`. *Remaining:* more op kinds; a plan diff view.
+  output. Ops: `write`/`append`/`rm`/`mkdir`/`copy`/`move` (the last two take a
+  `dest` path; both endpoints are jailed and snapshotted so a copy/move rolls back
+  cleanly). *Remaining:* a textual plan diff view.
 - ✅ **Be an MCP server, not just a client.** `McpServer::list_builtin_tools`
   exposes every AetherShell builtin as an MCP tool annotated with its `x-effect`
   class; `McpServer::call_builtin` routes calls through `builtins::call` so the
@@ -753,7 +758,7 @@ The `.ae` surface keeps readable, unambiguous syntax and gains:
 | **3** | **Safety core (headline)** | Policy engine + workspace jail (§7.1/7.4); approval protocol (§7.2); hash-chained audit (§7.5); wire RBAC | `src/security.rs`, `src/auth.rs`, `src/builtins.rs` (rm/kill/sh/db/docker), `src/agent_api.rs` |
 | **4** | **Token economy** | 🟡 First slice: `aecon(value)` compact rendering + `tokens(value)` estimate builtins (§6.2, tests prove AECON < JSON on homogeneous records) + `budget()` paging/truncation (§6.2) + `ontology_manifest`/`ontology_describe` progressive disclosure (§5.4, >4× cheaper than full dump) + CLI `--budget N` flag (REPL applies `budget_value`) + per-call `token_accounting` in `AgentResponse.metadata`. **Core complete.** *Remaining:* per-session token aggregation | `src/builtins.rs`, `src/agent_api.rs`, `tests/output_economy.rs`, `src/value.rs`, `src/metrics.rs`, `src/main.rs` |
 | **5** | **Grammar unification** | 🟡 Started: `|.field` projection (with `.a.b` chains) now parsed by the real grammar (`parser::parse_pipe`) + SI suffixes in the lexer + `~x: body` lambda + `?match` prefix + `if`-expression — all additive (`tests/grammar.rs`). **Transpiler retirement in progress** (2 passes retired): `expand_si_suffixes` and `expand_match` (`?`) are removed from the pipeline (grammar covers both); their golden tests migrated to behavior assertions (`eval_aeg` harness) and ONTOLOGY examples updated to pass-through. Recipe: remove the call → `#[allow(dead_code)]` the fn → behavior-migrate the affected text tests → update ONTOLOGY examples. (Lesson: text-coupled golden tests make each retirement cost real migration — SI touched 4 test sites + 2 ontology examples.) *Remaining:* `expand_lambdas`/`expand_pipelines` can only be *partially* retired (they also handle cipher forms the grammar lacks: `\x:`/`~.field`/`>`-pipe); `!try`/`^cond` ciphers overload `Bang`/`Caret`, so they stay transpiler-only; retire the 10-pass transpiler to a shim (§4.3); boundary type-checking (§8) | `src/parser.rs`, `src/typecheck.rs`, `src/transpile/agentic.rs` |
-| **6** | **Agentic features** | 🟡 Transactions/checkpoints (`tx_*`) + Plan/Apply (`plan`/`apply`) + builtins-as-MCP-tools (`McpServer::list_builtin_tools`/`call_builtin`) landed. *Remaining:* stateful sessions + streaming execute (§6.3); MCP stdio wire path for builtin tools | `src/tx.rs`, `src/builtins.rs`, `src/agent_api.rs`, `src/mcp.rs`, `src/ai_api/server.rs` |
+| **6** | **Agentic features** | ✅ Transactions/checkpoints (`tx_*` + savepoints) + Plan/Apply (`plan`/`apply`, ops `write`/`append`/`rm`/`mkdir`/`copy`/`move`) + builtins-as-MCP-tools (`McpServer::list_builtin_tools`/`call_builtin`) + **stateful sessions** (`sess_*`) + chunked **streaming execute** landed. *Remaining:* true stage-by-stage streaming *evaluation*; a strict stdio JSON-RPC MCP transport; full transaction nesting | `src/tx.rs`, `src/builtins.rs`, `src/agent_api.rs`, `src/mcp.rs`, `src/ai_api/server.rs` |
 
 Phases 2–3 are independent of the §4 benchmark and deliver the safety + reliability
 headline immediately; Phase 5 depends on the §4 outcome.
@@ -865,8 +870,11 @@ Verified end-to-end (`ae --agent -c 'safety_status()'` reports `mode: "agent"`).
 
 ### Immediate next steps (remaining Phase 3)
 
-- ✅ Extended `guard()` to the destructive db/docker/file builtins.
-  Remaining candidates to assess: `k8s_delete`, `svc_delete`, `platform_db_delete`.
+- ✅ Extended `guard()` to the destructive db/docker/file builtins. Assessed the
+  remaining candidates: `k8s_delete` and `platform_db_delete` are guarded
+  (`Destructive`); `svc_delete` is a no-op stub (returns a message, deletes nothing)
+  so it needs no guard. Network egress (`http_get`/`curl_exec`/`wget_download`/the
+  `web_*` fetch family) is now guarded too (`Network`).
 - ✅ Exposed `approve(token)` (dispatch index 1104) and `audit_verify(path?)`
   (1105) as builtins, so the loop is usable in-shell (not just via env):
   a guarded op returns `E_NEEDS_APPROVAL` with a token → `approve(token)` →

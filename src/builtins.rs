@@ -15746,7 +15746,8 @@ fn plan_token(ops: &Value) -> String {
 }
 
 /// Validate and normalize plan ops into `(op, path, content?)` tuples.
-fn parse_plan_ops(ops: &Value) -> Result<Vec<(String, String, Option<String>)>> {
+#[allow(clippy::type_complexity)]
+fn parse_plan_ops(ops: &Value) -> Result<Vec<(String, String, Option<String>, Option<String>)>> {
     let arr = match ops {
         Value::Array(a) => a,
         other => {
@@ -15790,6 +15791,11 @@ fn parse_plan_ops(ops: &Value) -> Result<Vec<(String, String, Option<String>)>> 
             Some(Value::Str(s)) => Some(s.clone()),
             _ => None,
         };
+        // `copy`/`move` carry a destination path in `dest` (or `to`).
+        let dest = match m.get("dest").or_else(|| m.get("to")) {
+            Some(Value::Str(s)) => Some(s.clone()),
+            _ => None,
+        };
         match op.as_str() {
             "write" | "append" if content.is_none() => {
                 return Err(crate::safety::arg_err(format!(
@@ -15797,16 +15803,22 @@ fn parse_plan_ops(ops: &Value) -> Result<Vec<(String, String, Option<String>)>> 
                     op, i
                 )))
             }
-            "write" | "append" | "rm" | "mkdir" => {}
+            "copy" | "move" if dest.is_none() => {
+                return Err(crate::safety::arg_err(format!(
+                    "plan: {} op #{} requires 'dest' (destination path)",
+                    op, i
+                )))
+            }
+            "write" | "append" | "rm" | "mkdir" | "copy" | "move" => {}
             other => {
                 return Err(anyhow!(
-                    "plan: op #{} unsupported op '{}' (expected write|append|rm|mkdir)",
+                    "plan: op #{} unsupported op '{}' (expected write|append|rm|mkdir|copy|move)",
                     i,
                     other
                 ))
             }
         }
-        out.push((op, path, content));
+        out.push((op, path, content, dest));
     }
     Ok(out)
 }
@@ -15820,13 +15832,16 @@ fn bi_plan(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .cloned()
         .ok_or_else(|| crate::safety::bad_arg("plan", "ops: Array<Record{op, path}>", "nothing"))?;
     let parsed = parse_plan_ops(&ops)?;
-    let (mut writes, mut appends, mut deletes, mut mkdirs) = (0i64, 0i64, 0i64, 0i64);
-    for (op, _, _) in &parsed {
+    let (mut writes, mut appends, mut deletes, mut mkdirs, mut copies, mut moves) =
+        (0i64, 0i64, 0i64, 0i64, 0i64, 0i64);
+    for (op, _, _, _) in &parsed {
         match op.as_str() {
             "write" => writes += 1,
             "append" => appends += 1,
             "rm" => deletes += 1,
             "mkdir" => mkdirs += 1,
+            "copy" => copies += 1,
+            "move" => moves += 1,
             _ => {}
         }
     }
@@ -15836,6 +15851,8 @@ fn bi_plan(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     summary.insert("appends".to_string(), Value::Int(appends));
     summary.insert("deletes".to_string(), Value::Int(deletes));
     summary.insert("mkdirs".to_string(), Value::Int(mkdirs));
+    summary.insert("copies".to_string(), Value::Int(copies));
+    summary.insert("moves".to_string(), Value::Int(moves));
     let mut r = BTreeMap::new();
     r.insert("operations".to_string(), Value::Int(parsed.len() as i64));
     r.insert("summary".to_string(), Value::Record(summary));
@@ -15883,12 +15900,22 @@ fn bi_apply(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     let mut applied = 0i64;
     let mut failure: Option<String> = None;
-    for (op, path, content) in &parsed {
+    for (op, path, content, dest) in &parsed {
         if enforce_jail && !crate::safety::within_workspace(path) {
             failure = Some(format!("'{}' is outside the workspace", path));
             break;
         }
+        // copy/move write a destination — it is jailed and snapshotted too.
+        if let Some(d) = dest {
+            if enforce_jail && !crate::safety::within_workspace(d) {
+                failure = Some(format!("destination '{}' is outside the workspace", d));
+                break;
+            }
+        }
         crate::tx::snapshot(path);
+        if let Some(d) = dest {
+            crate::tx::snapshot(d);
+        }
         let res: std::io::Result<()> = match op.as_str() {
             "write" => std::fs::write(path, content.as_deref().unwrap_or("")),
             "append" => {
@@ -15901,6 +15928,8 @@ fn bi_apply(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             }
             "rm" => std::fs::remove_file(path),
             "mkdir" => std::fs::create_dir_all(path),
+            "copy" => std::fs::copy(path, dest.as_deref().unwrap_or("")).map(|_| ()),
+            "move" => std::fs::rename(path, dest.as_deref().unwrap_or("")),
             _ => Ok(()),
         };
         if let Err(e) = res {
