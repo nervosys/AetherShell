@@ -782,7 +782,7 @@ The `.ae` surface keeps readable, unambiguous syntax and gains:
 
 | Phase | Theme | Key work | Primary files |
 | --- | --- | --- | --- |
-| **1** | **Measure** | ✅ Token-benchmark harness + **real cl100k tokenizer** (`--features bench-tokenizer`); verdict = legible-first, real-tokenizer-confirmed (§4.0). *Remaining:* broaden the corpus; add a Claude tokenizer for cross-provider check. | `examples/token_bench.rs`, `Cargo.toml` |
+| **1** | **Measure** | ✅ Token-benchmark harness + **real cl100k tokenizer** (`--features real-tokens`); verdict = legible-first, real-tokenizer-confirmed (§4.0). ✅ Corpus broadened to 13 tasks; ✅ **cross-tokenizer check** added — the §4 criterion is re-run under a second real BPE (GPT-4o `o200k_base`) and **the legible-first verdict holds under both** (standing-context ~11× under each). Anthropic ships no offline Claude tokenizer crate, so `o200k_base` serves as the cross-provider proxy. | `examples/token_bench.rs`, `Cargo.toml` |
 | **2** | **Core: errors + effects + determinism** | Structured-error `Value` (§5.2); effect taxonomy macro/table (§5.3); float/serialize determinism (§5.1) | `src/value.rs`, `src/builtins.rs`, `src/eval.rs` |
 | **3** | **Safety core (headline)** | Policy engine + workspace jail (§7.1/7.4); approval protocol (§7.2); hash-chained audit (§7.5); wire RBAC | `src/security.rs`, `src/auth.rs`, `src/builtins.rs` (rm/kill/sh/db/docker), `src/agent_api.rs` |
 | **4** | **Token economy** | 🟡 First slice: `aecon(value)` compact rendering + `tokens(value)` estimate builtins (§6.2, tests prove AECON < JSON on homogeneous records) + `budget()` paging/truncation (§6.2) + `ontology_manifest`/`ontology_describe` progressive disclosure (§5.4, >4× cheaper than full dump) + CLI `--budget N` flag (REPL applies `budget_value`) + per-call `token_accounting` in `AgentResponse.metadata`. **Core complete.** *Remaining:* per-session token aggregation | `src/builtins.rs`, `src/agent_api.rs`, `tests/output_economy.rs`, `src/value.rs`, `src/metrics.rs`, `src/main.rs` |
@@ -811,8 +811,12 @@ headline immediately; Phase 5 depends on the §4 outcome.
 
 ## 12. Open questions / risks
 
-- **Tokenizer dependence (§4):** the cipher-vs-legible answer may differ by
-  provider; the design accommodates per-provider syntax in schema export if so.
+- **Tokenizer dependence (§4):** ✅ *largely resolved* — the benchmark now runs
+  under two genuinely different real BPEs (cl100k_base and o200k_base) and the
+  legible-first verdict holds under both, so the result is not cl100k-specific. The
+  one residual unknown is Anthropic's own tokenizer (no public offline crate), for
+  which o200k_base is the closest available proxy; the design still accommodates
+  per-provider syntax in schema export should a provider's tokenizer ever invert it.
 - **Effect-tagging 1,100+ builtins** is labor; mitigate with conservative
   defaults (unknown → most-restrictive class that still runs) + a lint that fails
   CI on untagged builtins.
