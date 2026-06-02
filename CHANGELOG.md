@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **MCP stdio transport (§9).** `ae [--agent] mcp stdio` runs a strict JSON-RPC 2.0
+  MCP server over stdin/stdout (the canonical MCP transport) — `initialize`,
+  `tools/list`, `tools/call`, `ping` — exposing every builtin as a tool routed
+  through the safety model (policy/jail/approval/audit). `McpServer::serve_stdio`
+  drives the loop; `McpServer::handle_rpc` is the unit-tested per-request dispatch.
 - **Nested transactions (§9).** `tx_begin` now nests: a second begin while a
   transaction is active pushes a child frame (SQL nested-transaction semantics). A
   child `tx_commit` folds its changes into the parent (nothing is durable until the

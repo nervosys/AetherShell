@@ -20,6 +20,61 @@ static ENV_LOCK: Mutex<()> = Mutex::new(());
 // ============================================================================
 
 #[test]
+fn test_mcp_stdio_jsonrpc_dispatch() {
+    use serde_json::json;
+    let server = McpServer::new();
+
+    // initialize → protocol/serverInfo/capabilities, echoing the request id.
+    let init = server
+        .handle_rpc(&json!({"jsonrpc":"2.0","id":1,"method":"initialize"}))
+        .expect("initialize has a response");
+    assert_eq!(init["id"], 1);
+    assert_eq!(init["result"]["protocolVersion"], "2024-11-05");
+    assert_eq!(init["result"]["serverInfo"]["name"], "aethershell");
+    assert!(init["result"]["capabilities"]["tools"].is_object());
+
+    // tools/list → a non-empty array of builtin tools with inputSchema.
+    let list = server
+        .handle_rpc(&json!({"jsonrpc":"2.0","id":2,"method":"tools/list"}))
+        .expect("tools/list has a response");
+    let tools = list["result"]["tools"].as_array().expect("tools array");
+    assert!(!tools.is_empty(), "exposes builtin tools");
+    assert!(
+        tools[0]["inputSchema"].is_object(),
+        "MCP inputSchema present"
+    );
+
+    // tools/call → routes to call_builtin; `upper` is a pure builtin.
+    let call = server
+        .handle_rpc(&json!({
+            "jsonrpc":"2.0","id":3,"method":"tools/call",
+            "params": {"name":"upper","arguments":{"args":["hi"]}}
+        }))
+        .expect("tools/call has a response");
+    assert_eq!(call["id"], 3);
+    let text = call["result"]["content"][0]["text"].as_str().unwrap_or("");
+    assert_eq!(text, "HI", "builtin executed via MCP");
+    assert_eq!(call["result"]["isError"], false);
+
+    // ping → empty result.
+    let ping = server
+        .handle_rpc(&json!({"jsonrpc":"2.0","id":4,"method":"ping"}))
+        .expect("ping has a response");
+    assert!(ping["result"].is_object());
+
+    // Unknown method → JSON-RPC error -32601.
+    let unknown = server
+        .handle_rpc(&json!({"jsonrpc":"2.0","id":5,"method":"does/not/exist"}))
+        .expect("unknown method still responds with an error");
+    assert_eq!(unknown["error"]["code"], -32601);
+
+    // A notification (no id) gets no response.
+    assert!(server
+        .handle_rpc(&json!({"jsonrpc":"2.0","method":"notifications/initialized"}))
+        .is_none());
+}
+
+#[test]
 fn test_mcp_server_default_creation() {
     let server = McpServer::new();
     let info = server.initialize();

@@ -208,6 +208,10 @@ enum McpCommands {
         #[arg(long)]
         category: Option<String>,
     },
+    /// Serve over stdio as a strict JSON-RPC 2.0 MCP server (the canonical MCP
+    /// transport). Exposes every builtin as a tool, routed through the safety
+    /// model. Pair with `--agent` for default-deny gating: `ae --agent mcp stdio`.
+    Stdio,
 }
 
 #[derive(Subcommand)]
@@ -553,6 +557,11 @@ async fn handle_mcp_command(command: McpCommands) -> Result<()> {
                 };
                 println!("{:<25} {}", tool.name, desc);
             }
+            Ok(())
+        }
+        McpCommands::Stdio => {
+            let server = McpServer::new();
+            server.serve_stdio()?;
             Ok(())
         }
     }

@@ -751,8 +751,13 @@ The `.ae` surface keeps readable, unambiguous syntax and gains:
   `/mcp/v1/builtins` route lists them (kept separate from `/tools` so the OS-tool
   list stays small — progressive disclosure), and `/mcp/v1/tools/:name/execute`
   falls back to `call_builtin` for builtin names, so they're callable over the
-  server with full gating. *Remaining:* a strict stdio JSON-RPC MCP transport
-  (current server is HTTP) if a spec-exact `tools/list`/`tools/call` is required.
+  server with full gating. ✅ **Strict stdio JSON-RPC transport** (the canonical MCP
+  transport): `McpServer::serve_stdio` runs a JSON-RPC 2.0 loop over stdin/stdout
+  (`ae [--agent] mcp stdio`) handling `initialize`/`tools/list`/`tools/call`/`ping`,
+  routing every call through `call_builtin` (so policy/jail/approval/audit apply) and
+  echoing JSON-RPC ids; notifications get no reply. The per-request dispatch
+  (`McpServer::handle_rpc`) is unit-tested for all methods + the error/notification
+  cases (`tests/mcp_tools.rs::test_mcp_stdio_jsonrpc_dispatch`).
 - **Self-correcting loop** falls out of §5.2 + §7.3: structured `code`+`hint`
   errors let an agent repair calls without a human.
 
