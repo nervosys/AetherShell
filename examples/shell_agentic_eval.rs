@@ -332,10 +332,11 @@ fn rows_tokens(command: &str, output: &str) -> usize {
     .total_over(1)
 }
 
-/// Safety grade for a shell: a representative agent task that reads, writes,
+/// Safety assessment for a shell: a representative agent task that reads, writes,
 /// deletes, and execs. Traditional shells apply no agent policy (everything runs =
 /// allow-all = `Mode::Human`); AetherShell's agent mode gates the dangerous classes.
-fn shell_safety_grade(shell: &str) -> char {
+/// Returns the full report (`.grade` for display, `.score` for the composite).
+fn shell_safety(shell: &str) -> agentic_eval::SafetyReport {
     let effects = [
         Effect::ReadLocal,
         Effect::WriteLocal,
@@ -347,7 +348,17 @@ fn shell_safety_grade(shell: &str) -> char {
     } else {
         Mode::Human
     };
-    assess_safety(&effects, mode).grade
+    assess_safety(&effects, mode)
+}
+
+/// One shell's normalized per-axis scores (0–1) and their composite.
+struct AxisScore {
+    shell: &'static str,
+    token: f64,
+    determ: f64,
+    reliab: f64,
+    safety: f64,
+    composite: f64,
 }
 
 fn main() {
@@ -372,7 +383,7 @@ fn main() {
             s,
             tok,
             tok as f64 / ae_tokens as f64,
-            shell_safety_grade(s)
+            shell_safety(s).grade
         );
     }
 
@@ -481,6 +492,75 @@ fn main() {
     println!(
         "  (Traditional shells lack both by construction: locale/width/ANSI-variant\n\
          \x20  text output, and unstructured errors an agent can't branch on.)"
+    );
+
+    // ── Four-axis scorecard: individual normalized scores (0–1) + composite ──
+    // Rubric (all 0–1, higher is better):
+    //   token       relative — cheapest shell = 1.0, others = min/theirs (measured, all).
+    //   determ      1.0 if the shell emits byte-stable structured output an agent can
+    //               diff/cache (AECON + --deterministic, measured above); 0.0 for
+    //               locale/width/ANSI-variant text (structural, by construction).
+    //   reliab      AetherShell's measured (pass+actionable)/2; 0.0 for shells whose
+    //               results/errors are unstructured (no branchable failures).
+    //   safety      assess_safety .score — fraction of dangerous blast radius gated
+    //               (measured, all): agent-mode gating vs allow-all.
+    // Composite = equal-weight mean. token & safety are measured for every shell;
+    // determinism & reliability are measured for AetherShell and a structural
+    // capability (present=1 / absent=0) for the rest — matching the README matrices.
+    let min_tokens = SHELLS
+        .iter()
+        .map(|s| shell_tokens(s))
+        .min()
+        .unwrap_or(1)
+        .max(1) as f64;
+    let ae_det = if det.deterministic { 1.0 } else { 0.0 };
+    let ae_rel = (rel.pass_rate + rel.actionable_rate) / 2.0;
+    let mut scored: Vec<AxisScore> = SHELLS
+        .iter()
+        .map(|s| {
+            let token = min_tokens / shell_tokens(s) as f64;
+            let (determ, reliab) = if *s == "aethershell" {
+                (ae_det, ae_rel)
+            } else {
+                (0.0, 0.0)
+            };
+            let safety = shell_safety(s).score;
+            AxisScore {
+                shell: s,
+                token,
+                determ,
+                reliab,
+                safety,
+                composite: (token + determ + reliab + safety) / 4.0,
+            }
+        })
+        .collect();
+    scored.sort_by(|a, b| {
+        b.composite
+            .partial_cmp(&a.composite)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    println!("\nFour-axis scorecard — individual scores (0-10) and composite:");
+    println!(
+        "  {:<13}{:>7}{:>9}{:>9}{:>8} | {:>10}",
+        "shell", "token", "determ", "reliab", "safety", "COMPOSITE"
+    );
+    println!("  {}", "-".repeat(59));
+    for r in &scored {
+        println!(
+            "  {:<13}{:>7.1}{:>9.1}{:>9.1}{:>8.1} | {:>10.1}",
+            r.shell,
+            r.token * 10.0,
+            r.determ * 10.0,
+            r.reliab * 10.0,
+            r.safety * 10.0,
+            r.composite * 10.0
+        );
+    }
+    println!(
+        "  (0-10 scale. token & safety measured for every shell; determinism & reliability\n\
+         \x20  measured for AetherShell, structural capability for the rest. Equal-weight mean.)"
     );
 
     println!(
