@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **AECON `@prefix` lever** — a fourth output-compression lever alongside
+  `@const`/`@dict`/`@delta`: string columns whose values share a leading run (paths,
+  URIs, prefixed ids) emit the shared prefix once in a `@prefix col: …` line and
+  strip it from every row. Lossless (round-trip tested), deterministic (char-based
+  gate, no tokenizer/float), agent-mode only, never on `@dict` columns. Measured
+  44–69% fewer tokens on path-heavy listings (`examples/prefix_gain.rs`).
+- **Measurement examples** — `examples/prefix_gain.rs` (the `@prefix` saving),
+  `examples/standing_context.rs` (catalog overhead an agent pays per turn), and a
+  four-axis composite scorecard (0–10) in `examples/shell_agentic_eval.rs`.
+
+### Changed
+- **Compact MCP tool discovery by default** — `tools/list` now exposes a 3-tool
+  discovery surface (`ontology_manifest`, `ontology_describe`, and an `aether`
+  invoke meta-tool) instead of all ~1085 builtins, cutting the MCP `tools/list`
+  payload from ~49k to ~239 tokens (≈206×) of standing context per session. Effect
+  gating is unchanged — `aether` routes through `call_builtin`, so destructive ops
+  are still approval-gated. `AETHER_MCP_TOOLS=all` restores the flat per-builtin
+  `x-effect` listing.
+
 ## [1.4.0] - 2026-06-02
 
 Agentic safety, reliability, and tooling release. Backward-compatible; all additions.
