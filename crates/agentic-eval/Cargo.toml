@@ -1,0 +1,23 @@
+[package]
+name = "agentic-eval"
+version = "0.1.0"
+edition = "2021"
+description = "Evaluate programs for agentic AI use across four axes — token efficiency, determinism, reliability, and safety — under popular tokenizers (OpenAI GPT-4/GPT-4o, Anthropic Claude)."
+license = "AGPL-3.0-or-later"
+authors = ["Nervosys"]
+repository = "https://github.com/nervosys/AetherShell"
+keywords = ["llm", "agent", "tokens", "determinism", "safety"]
+categories = ["development-tools", "text-processing"]
+
+[features]
+# Off by default so the crate builds with zero heavy deps (token counts use a
+# labeled heuristic). Enable for exact OpenAI BPE counts via tiktoken-rs.
+default = []
+real-tokens = ["dep:tiktoken-rs"]
+
+[dependencies]
+tiktoken-rs = { version = "0.6", optional = true }
+
+[[example]]
+name = "evaluate"
+path = "examples/evaluate.rs"
