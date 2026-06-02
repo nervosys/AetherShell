@@ -2,7 +2,7 @@
 
 ## Project
 AetherShell (`ae`) — the shell built for AI agents. One language, every platform, deterministic typed output.
-Written in Rust (v1.3.1, AGPL-3.0-or-later). Traditional shells produce unstructured text that varies by OS, locale, and version — breaking agent workflows. AetherShell eliminates this: every command returns typed, structured data. A built-in ontology makes commands, arguments, and return types machine-discoverable.
+Written in Rust (v1.4.0, AGPL-3.0-or-later). Traditional shells produce unstructured text that varies by OS, locale, and version — breaking agent workflows. AetherShell eliminates this: every command returns typed, structured data. A built-in ontology makes commands, arguments, and return types machine-discoverable.
 430+ builtins in 50 modules. Multi-provider AI. MCP/A2A/A2UI/NANDA protocols.
 
 ## Architecture

@@ -1,6 +1,6 @@
 # AetherShell Stability Policy
 
-> **Version:** v1.3.1
+> **Version:** v1.4.0
 > **Last Updated:** February 2026
 
 This document defines backward compatibility guarantees, deprecation policies, and the roadmap to a v1.0.0 stable release.
@@ -121,12 +121,12 @@ After v1.0.0:
 
 ```ae
 sys.version()
-# → "1.3.1"
+# → "1.4.0"
 ```
 
 ```bash
 ae --version
-# → ae 1.3.1
+# → ae 1.4.0
 ```
 
 ---
