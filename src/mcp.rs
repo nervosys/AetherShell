@@ -280,12 +280,74 @@ impl McpServer {
         self.registered_tools.values().cloned().collect()
     }
 
-    /// Expose AetherShell builtins as MCP tools, each annotated with its safety
-    /// effect class under `x-effect` in the input schema, so any MCP-speaking
-    /// agent discovers the full typed surface and sees an operation's danger
-    /// level before calling. Calls route through [`Self::call_builtin`], which
-    /// runs the same safety guard as the REPL/Agent API.
+    /// The name of the compact-mode meta-tool that invokes any builtin by name.
+    pub const META_INVOKE_TOOL: &'static str = "aether";
+
+    /// Whether the MCP tool surface is in compact discovery mode (the default).
+    /// `AETHER_MCP_TOOLS=all` (or `full`) restores the flat per-builtin listing.
+    fn tools_compact_mode() -> bool {
+        match std::env::var("AETHER_MCP_TOOLS") {
+            Ok(v) => !(v.eq_ignore_ascii_case("all") || v.eq_ignore_ascii_case("full")),
+            Err(_) => true,
+        }
+    }
+
+    /// Expose AetherShell's builtins to an MCP agent. By **default** this is the
+    /// *compact discovery surface* — three meta-tools instead of ~1k individual
+    /// tool definitions, which otherwise cost ~26k tokens of standing context every
+    /// session (measured: `examples/standing_context.rs`). The agent indexes the
+    /// catalog via `ontology_manifest`, expands a slice with `ontology_describe`,
+    /// and invokes any builtin through the `aether` meta-tool — all routed through
+    /// [`Self::call_builtin`], so effect policy / approval / jail / audit apply
+    /// unchanged. Set `AETHER_MCP_TOOLS=all` for the flat, per-builtin `x-effect`
+    /// listing (every operation's danger level visible up front).
     pub fn list_builtin_tools(&self) -> Vec<McpTool> {
+        if Self::tools_compact_mode() {
+            Self::compact_discovery_tools()
+        } else {
+            Self::full_builtin_tools()
+        }
+    }
+
+    /// The compact discovery surface (default): `ontology_manifest` +
+    /// `ontology_describe` (progressive disclosure of the catalog) and the `aether`
+    /// invoke meta-tool. Effect classes remain discoverable per-category in the
+    /// manifest and per-builtin via describe; enforcement is unchanged on call.
+    fn compact_discovery_tools() -> Vec<McpTool> {
+        vec![
+            McpTool {
+                name: "ontology_manifest".to_string(),
+                description: "List AetherShell's builtin categories (name, count, effect classes) — the compact index of the full toolset. Call with no args, then ontology_describe(\"<category>\") to expand a slice.".to_string(),
+                input_schema: serde_json::json!({ "type": "object", "properties": {} }),
+            },
+            McpTool {
+                name: "ontology_describe".to_string(),
+                description: "Expand one slice of the ontology: a category name -> its builtins (name, signature, effect); or a builtin name -> full detail (params, examples, effect class). Arg: a single query string.".to_string(),
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "args": { "type": "array", "description": "[query]: a category or builtin name" }
+                    },
+                }),
+            },
+            McpTool {
+                name: Self::META_INVOKE_TOOL.to_string(),
+                description: "Invoke any AetherShell builtin by name (discover names via ontology_manifest / ontology_describe, and check a builtin's effect class there before invoking a destructive one). Runs under the same effect policy / approval / workspace jail / audit as every builtin.".to_string(),
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "name": { "type": "string", "description": "builtin name to invoke" },
+                        "args": { "type": "array", "description": "positional arguments" }
+                    },
+                    "required": ["name"],
+                }),
+            },
+        ]
+    }
+
+    /// The flat per-builtin listing (`AETHER_MCP_TOOLS=all`): every builtin as its
+    /// own MCP tool, annotated with its safety effect class under `x-effect`.
+    fn full_builtin_tools() -> Vec<McpTool> {
         crate::agent_api::builtin_tool_specs()
             .into_iter()
             .filter_map(|spec| {
@@ -356,6 +418,35 @@ impl McpServer {
                 is_error: Some(true),
             },
         }
+    }
+
+    /// Route an MCP `tools/call` by tool name. The compact-mode `aether` meta-tool
+    /// unwraps `{name, args}` and invokes that builtin; any other name is treated as
+    /// a builtin invoked with its `args` array. Every path goes through
+    /// [`Self::call_builtin`], so effect policy / approval / jail / audit apply
+    /// uniformly whether the agent is in compact or full mode.
+    pub fn route_tool_call(&self, name: &str, arguments: &JsonValue) -> McpToolResult {
+        if name == Self::META_INVOKE_TOOL {
+            let inner = arguments.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            if inner.is_empty() {
+                return McpToolResult {
+                    content: vec![McpContent::Text {
+                        text: "aether: missing 'name' (the builtin to invoke)".to_string(),
+                    }],
+                    is_error: Some(true),
+                };
+            }
+            let args = arguments
+                .get("args")
+                .cloned()
+                .unwrap_or_else(|| JsonValue::Array(vec![]));
+            return self.call_builtin(inner, &args);
+        }
+        let args = arguments
+            .get("args")
+            .cloned()
+            .unwrap_or_else(|| arguments.clone());
+        self.call_builtin(name, &args)
     }
 
     /// Run a strict **JSON-RPC 2.0 over stdio** MCP server (the canonical MCP
@@ -450,11 +541,11 @@ impl McpServer {
             .get("name")
             .and_then(|v| v.as_str())
             .ok_or((-32602, "missing tool name".to_string()))?;
-        let args = params
+        let arguments = params
             .get("arguments")
-            .map(|a| a.get("args").cloned().unwrap_or_else(|| a.clone()))
+            .cloned()
             .unwrap_or_else(|| JsonValue::Array(vec![]));
-        let result = self.call_builtin(name, &args);
+        let result = self.route_tool_call(name, &arguments);
         serde_json::to_value(result).map_err(|e| (-32603, format!("serialize result: {}", e)))
     }
 
@@ -1127,12 +1218,8 @@ pub mod server {
                 arguments: payload.arguments,
             })
         } else {
-            let args = payload
-                .arguments
-                .get("args")
-                .cloned()
-                .unwrap_or_else(|| serde_json::json!([]));
-            mcp.call_builtin(&name, &args)
+            let arguments = serde_json::json!(payload.arguments);
+            mcp.route_tool_call(&name, &arguments)
         };
 
         if result.is_error.unwrap_or(false) {

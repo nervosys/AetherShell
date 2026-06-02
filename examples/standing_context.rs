@@ -15,6 +15,7 @@
 
 use aethershell::agent_api::{builtin_tool_specs, ontology_describe_json, ontology_manifest_json};
 use aethershell::builtins::est_token_count;
+use aethershell::mcp::McpServer;
 
 fn toks(j: &serde_json::Value) -> usize {
     est_token_count(&serde_json::to_string(j).unwrap_or_default())
@@ -55,6 +56,21 @@ fn main() {
             t * 10,
         );
     }
+
+    // End-to-end: the real MCP `tools/list` payload an agent receives, compact
+    // (default) vs all (`AETHER_MCP_TOOLS=all`). list_builtin_tools reads the env
+    // at call time, so set it around each call.
+    let server = McpServer::new();
+    std::env::set_var("AETHER_MCP_TOOLS", "all");
+    let mcp_all = toks(&serde_json::to_value(server.list_builtin_tools()).unwrap_or_default());
+    std::env::remove_var("AETHER_MCP_TOOLS");
+    let mcp_compact = toks(&serde_json::to_value(server.list_builtin_tools()).unwrap_or_default());
+    println!(
+        "\nMCP tools/list payload (what the agent actually receives per session):\n  \
+         compact (default) {mcp_compact} tok   vs   all (AETHER_MCP_TOOLS=all) {mcp_all} tok   \
+         ({:.0}x)",
+        mcp_all as f64 / mcp_compact.max(1) as f64,
+    );
 
     println!(
         "\nProgressive disclosure ships the manifest ({manifest_tok} tok) and expands a\n\
