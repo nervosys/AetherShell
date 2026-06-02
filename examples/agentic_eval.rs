@@ -144,6 +144,15 @@ fn main() {
         saf.grade, saf.bounded, saf.allowed, saf.approval_gated, saf.denied
     );
 
+    // ── Combined — fold the four measured axes into one `Evaluation` and print its
+    //    `Display` + overall fitness score (the refined agentic-eval 0.2 API). ──
+    let eval = agentic_eval::Evaluation::new("AetherShell (legible .ae surface)")
+        .with_tokens(legible_cost)
+        .with_determinism(det)
+        .with_reliability(rel)
+        .with_safety(saf);
+    println!("\n=== Combined evaluation ===\n{eval}");
+
     println!("\nResult: AetherShell renders deterministically, surfaces wrong-typed arguments");
     println!("as structured (actionable) errors, and bounds the blast radius of its dangerous");
     println!(
