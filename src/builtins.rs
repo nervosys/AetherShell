@@ -11575,8 +11575,8 @@ fn bi_env(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
 
     let key = expect_string("env", &args[0])?;
-    match std::env::var(&key) {
-        Ok(val) => Ok(gate_env_secret(&key, val)),
+    match std::env::var(key) {
+        Ok(val) => Ok(gate_env_secret(key, val)),
         Err(_) => Ok(Value::Null),
     }
 }
