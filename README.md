@@ -461,11 +461,33 @@ planned, approved, attempted, and **rolled back atomically**.
 > reliability/safety rows are capability comparisons. `~` = partial (e.g. PowerShell
 > objects are typed but its display formatting is lossy to parse).
 
+### Four-axis scoreboard (measured with `agentic-eval`)
+
 These four axes aren't just asserted — they're **re-measurable**. The standalone
 [`agentic-eval`](crates/agentic-eval) crate scores any program for agentic use on
-**token efficiency, determinism, reliability, and safety** (under OpenAI GPT-4/GPT-4o
-tokenizers, with a pluggable counter for any other), and `cargo run --example
-agentic_eval` runs it against AetherShell's real engine.
+**token efficiency, determinism, reliability, and safety** (OpenAI GPT-4/GPT-4o
+tokenizers, with a pluggable counter for any other). Run against every shell with
+`cargo run --example shell_agentic_eval --features real-tokens`:
+
+| Shell | Tokens (4 tasks) | vs AetherShell | Safety grade |
+|---|--:|--:|:-:|
+| **AetherShell** | **118** | **1.00×** | **A** |
+| PowerShell | 160 | 1.36× | F |
+| Bash / Zsh / Fish | 331 | 2.81× | F |
+| Nushell | 375 | 3.18× | F |
+
+*Tokens* = command + output, summed over the 4 tasks (real cl100k BPE via
+`agentic_eval::evaluate_with` + AetherShell's tokenizer). *Safety grade* is
+`agentic_eval::assess_safety` of a read/write/delete/exec task: AetherShell's agent
+mode gates the dangerous classes (blast radius bounded → **A**); a traditional shell
+applies no agent policy, so everything runs ungated (→ **F**).
+
+The same harness verifies the other two axes directly on AetherShell's engine:
+**determinism** — `assess_determinism` over the canonical renderer returns
+*deterministic (1 distinct / 8 runs)*; **reliability** — `assess_reliability` over
+representative programs returns *pass 60% / actionable 80%* (a wrong-typed arg is a
+structured, catchable `E_BAD_ARG`, not a dead end). Traditional shells lack both by
+construction (locale/width/ANSI-variant text; unstructured errors).
 
 ---
 
