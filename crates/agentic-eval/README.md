@@ -24,7 +24,22 @@ languages); safety takes the program's declared effects.
 - **Heuristic** — a labeled, dependency-free fallback.
 
 By default the crate pulls **zero heavy dependencies** (heuristic counts). Enable
-exact OpenAI counts with `--features real-tokens`.
+exact OpenAI counts with `--features real-tokens`. The heuristic splits
+`snake_case` subwords (so `file_read` ≈ 2 tokens), tracking real BPE within
+~10–20% for code-like text.
+
+## Output & ergonomics
+
+- The most-used types are **re-exported at the crate root** (`agentic_eval::Model`,
+  `Program`, `AgentCost`, `Comparison`, `Effect`, `Mode`, `assess_*`, …).
+- Every report (`AgentCost`, `Comparison`, `DeterminismReport`,
+  `ReliabilityReport`, `SafetyReport`, `Evaluation`) implements **`Display`** for
+  ready-to-print summaries.
+- `--features serde` derives **`serde::Serialize`** on every report/config type for
+  machine-readable (e.g. JSON) output.
+- `Model::from_name` / `safety::Effect::from_name` parse identifiers for CLI/config
+  use; `tokens::rank` is the N-way generalization of `compare`; `Evaluation` has
+  `with_*` builders.
 
 ## Example
 

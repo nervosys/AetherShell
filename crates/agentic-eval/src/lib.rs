@@ -38,9 +38,18 @@ pub mod reliability;
 pub mod safety;
 pub mod tokens;
 
+// Ergonomic re-exports of the most-used types, so callers can write
+// `agentic_eval::Model` instead of `agentic_eval::tokens::Model`, etc.
+pub use determinism::{assess_determinism, DeterminismReport};
+pub use reliability::{assess_reliability, Outcome, ReliabilityReport};
+pub use safety::{assess_safety, Decision, Effect, Mode, SafetyReport};
+pub use tokens::{compare, evaluate, rank, AgentCost, Comparison, Model, Program};
+
 /// A combined, all-axes evaluation of a single program. Construct with
-/// [`Evaluation::new`] then fill in whichever axes you can measure; unset axes
-/// stay `None`. A convenience for reporting a program's overall agentic fitness.
+/// [`Evaluation::new`] then fill in whichever axes you can measure (directly or via
+/// the `with_*` builders); unset axes stay `None`. A convenience for reporting a
+/// program's overall agentic fitness.
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[derive(Debug, Clone, Default)]
 pub struct Evaluation {
     pub name: String,
@@ -56,6 +65,27 @@ impl Evaluation {
             name: name.into(),
             ..Default::default()
         }
+    }
+
+    /// Builder: attach the token-cost axis.
+    pub fn with_tokens(mut self, c: tokens::AgentCost) -> Self {
+        self.tokens = Some(c);
+        self
+    }
+    /// Builder: attach the determinism axis.
+    pub fn with_determinism(mut self, d: determinism::DeterminismReport) -> Self {
+        self.determinism = Some(d);
+        self
+    }
+    /// Builder: attach the reliability axis.
+    pub fn with_reliability(mut self, r: reliability::ReliabilityReport) -> Self {
+        self.reliability = Some(r);
+        self
+    }
+    /// Builder: attach the safety axis.
+    pub fn with_safety(mut self, s: safety::SafetyReport) -> Self {
+        self.safety = Some(s);
+        self
     }
 
     /// A coarse 0.0–1.0 "agentic fitness" score: the mean of the per-axis scores
@@ -81,5 +111,54 @@ impl Evaluation {
         } else {
             Some(sum / n)
         }
+    }
+}
+
+impl std::fmt::Display for Evaluation {
+    /// A compact multi-line report of every measured axis plus the fitness score.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "evaluation: {}", self.name)?;
+        if let Some(t) = &self.tokens {
+            writeln!(f, "  tokens:       {}", t)?;
+        }
+        if let Some(d) = &self.determinism {
+            writeln!(f, "  determinism:  {}", d)?;
+        }
+        if let Some(r) = &self.reliability {
+            writeln!(f, "  reliability:  {}", r)?;
+        }
+        if let Some(s) = &self.safety {
+            writeln!(f, "  safety:       {}", s)?;
+        }
+        match self.fitness() {
+            Some(score) => write!(f, "  fitness:      {:.2}", score),
+            None => write!(f, "  fitness:      n/a (no scorable axis measured)"),
+        }
+    }
+}
+
+#[cfg(all(test, feature = "serde"))]
+mod serde_tests {
+    use super::*;
+
+    /// Compile-time proof that the `serde` feature derives `Serialize` on every
+    /// report/config type (so machine-readable output is available). The call body
+    /// is a no-op; the trait bound is the assertion.
+    fn assert_serialize<T: serde::Serialize>() {}
+
+    #[test]
+    fn report_types_implement_serialize() {
+        assert_serialize::<Evaluation>();
+        assert_serialize::<AgentCost>();
+        assert_serialize::<Program>();
+        assert_serialize::<Comparison>();
+        assert_serialize::<Model>();
+        assert_serialize::<DeterminismReport>();
+        assert_serialize::<Outcome>();
+        assert_serialize::<ReliabilityReport>();
+        assert_serialize::<Effect>();
+        assert_serialize::<Mode>();
+        assert_serialize::<Decision>();
+        assert_serialize::<SafetyReport>();
     }
 }
