@@ -33,6 +33,7 @@ pub enum Effect {
 }
 
 impl Effect {
+    /// The effect's canonical snake_case name (inverse of [`Self::from_name`]).
     pub fn name(self) -> &'static str {
         match self {
             Effect::Pure => "pure",
@@ -78,7 +79,9 @@ impl Effect {
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
+    /// A human at a REPL — default-allow.
     Human,
+    /// An autonomous agent — default-deny for dangerous effect classes.
     Agent,
 }
 
@@ -114,10 +117,15 @@ pub fn decide(effect: Effect, mode: Mode) -> Decision {
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct SafetyReport {
+    /// The mode the assessment was run under.
     pub mode: Mode,
+    /// Total number of effects assessed.
     pub effects: usize,
+    /// Effects allowed to run without friction.
     pub allowed: usize,
+    /// Effects requiring approval before running.
     pub approval_gated: usize,
+    /// Effects denied outright.
     pub denied: usize,
     /// Dangerous effects that the policy would let run *without* gating. For the
     /// default agent policy this is 0 (every dangerous class is gated/denied); a

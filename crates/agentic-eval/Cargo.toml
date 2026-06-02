@@ -6,8 +6,17 @@ description = "Evaluate programs for agentic AI use across four axes — token e
 license = "AGPL-3.0-or-later"
 authors = ["Nervosys"]
 repository = "https://github.com/nervosys/AetherShell"
+homepage = "https://github.com/nervosys/AetherShell/tree/master/crates/agentic-eval"
+documentation = "https://docs.rs/agentic-eval"
+readme = "README.md"
 keywords = ["llm", "agent", "tokens", "determinism", "safety"]
 categories = ["development-tools", "text-processing"]
+rust-version = "1.75"
+
+# Build docs with all features on docs.rs so the serde-gated and real-tokens items
+# are visible.
+[package.metadata.docs.rs]
+all-features = true
 
 [features]
 # Off by default so the crate builds with zero heavy deps (token counts use a

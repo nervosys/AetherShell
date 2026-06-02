@@ -20,6 +20,7 @@ pub struct Outcome {
 }
 
 impl Outcome {
+    /// A successful invocation.
     pub fn ok() -> Self {
         Self {
             ok: true,
@@ -46,8 +47,11 @@ impl Outcome {
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct ReliabilityReport {
+    /// Number of invocations assessed.
     pub total: usize,
+    /// Number that succeeded.
     pub passed: usize,
+    /// Number that failed (`total - passed`).
     pub failed: usize,
     /// Of the failures, how many carried a structured/actionable error.
     pub structured_failures: usize,

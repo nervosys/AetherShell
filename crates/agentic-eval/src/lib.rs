@@ -33,6 +33,9 @@
 //! let _ = cmp.winner_is_a;
 //! ```
 
+#![forbid(unsafe_code)]
+#![deny(missing_docs)]
+
 pub mod determinism;
 pub mod reliability;
 pub mod safety;
@@ -54,14 +57,20 @@ pub use tokens::{
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[derive(Debug, Clone, Default)]
 pub struct Evaluation {
+    /// Identifier for the evaluated program.
     pub name: String,
+    /// Token-efficiency cost, if measured.
     pub tokens: Option<tokens::AgentCost>,
+    /// Determinism result, if measured.
     pub determinism: Option<determinism::DeterminismReport>,
+    /// Reliability result, if measured.
     pub reliability: Option<reliability::ReliabilityReport>,
+    /// Safety result, if measured.
     pub safety: Option<safety::SafetyReport>,
 }
 
 impl Evaluation {
+    /// A new, empty evaluation named `name`; fill axes via the `with_*` builders.
     pub fn new(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
