@@ -149,11 +149,13 @@ fn aecon_dictionary_encodes_low_cardinality_string_columns() {
 
 #[test]
 fn aecon_does_not_dictionary_encode_high_cardinality_columns() {
-    // Every `name` is distinct → a dict would only add overhead. Must stay literal.
-    let rows: Vec<Value> = (0..10)
+    // Every `name` is distinct → a dict would only add overhead (no @dict). The
+    // distinct suffixes stay literal, but the shared `unique_name_` prefix is
+    // factored once via @prefix — and the values still round-trip exactly.
+    let original: Vec<Value> = (0..10)
         .map(|i| rec(&[("name", Value::Str(format!("unique_name_{i}")))]))
         .collect();
-    let out = match call("aecon", vec![Value::Array(rows)]) {
+    let out = match call("aecon", vec![Value::Array(original.clone())]) {
         Value::Str(s) => s,
         other => panic!("expected string, got {other:?}"),
     };
@@ -161,7 +163,90 @@ fn aecon_does_not_dictionary_encode_high_cardinality_columns() {
         !out.contains("@dict"),
         "no dict for all-distinct column: {out}"
     );
-    assert!(out.contains("unique_name_0") && out.contains("unique_name_9"));
+    // The shared prefix is emitted once, not repeated on every row.
+    assert!(
+        out.contains("@prefix name: unique_name_"),
+        "shared prefix factored: {out}"
+    );
+    assert_eq!(
+        out.matches("unique_name_").count(),
+        1,
+        "shared prefix appears once, not 10x: {out}"
+    );
+    let decoded = match call("aecon_decode", vec![Value::Str(out)]) {
+        Value::Array(rows) => rows,
+        other => panic!("expected array, got {other:?}"),
+    };
+    assert_eq!(decoded, original, "values round-trip through @prefix");
+}
+
+#[test]
+fn aecon_prefix_factors_shared_string_prefixes_losslessly() {
+    // A path column where every value shares `/home/user/project/src/` — factored
+    // once via @prefix, stripped from each row, reconstructed exactly on decode.
+    let files = ["main.rs", "lib.rs", "ast.rs", "eval.rs", "parser.rs"];
+    let original: Vec<Value> = files
+        .iter()
+        .enumerate()
+        .map(|(i, f)| {
+            rec(&[
+                ("path", Value::Str(format!("/home/user/project/src/{f}"))),
+                ("size", Value::Int(1000 + i as i64)),
+            ])
+        })
+        .collect();
+    let arr = Value::Array(original.clone());
+
+    let encoded = match call("aecon", vec![arr.clone()]) {
+        Value::Str(s) => s,
+        other => panic!("{other:?}"),
+    };
+    assert!(
+        encoded.contains("@prefix path: /home/user/project/src/"),
+        "shared path prefix factored: {encoded}"
+    );
+    assert_eq!(
+        encoded.matches("/home/user/project/src/").count(),
+        1,
+        "long prefix emitted once, not per row: {encoded}"
+    );
+
+    // A real token win vs the same rows unfactored as canonical JSON.
+    let aecon_tok = match call("tokens", vec![Value::Str(encoded.clone())]) {
+        Value::Int(n) => n,
+        _ => panic!(),
+    };
+    let canon_tok = match call("tokens", vec![call("canonical", vec![arr])]) {
+        Value::Int(n) => n,
+        _ => panic!(),
+    };
+    assert!(
+        aecon_tok * 3 < canon_tok * 2,
+        "prefix AECON ({aecon_tok} tok) should be well under JSON ({canon_tok} tok)"
+    );
+
+    let decoded = match call("aecon_decode", vec![Value::Str(encoded)]) {
+        Value::Array(rows) => rows,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(decoded, original, "values round-trip through @prefix");
+}
+
+#[test]
+fn aecon_does_not_prefix_factor_when_not_a_win() {
+    // A short shared prefix on few rows: stripping it wouldn't beat the @prefix
+    // line overhead, so the values are left literal (gated, like @dict/@delta).
+    let original: Vec<Value> = (0..4)
+        .map(|i| rec(&[("k", Value::Str(format!("ab{i}")))]))
+        .collect();
+    let out = match call("aecon", vec![Value::Array(original)]) {
+        Value::Str(s) => s,
+        other => panic!("{other:?}"),
+    };
+    assert!(
+        !out.contains("@prefix"),
+        "no prefix factoring when it isn't a win: {out}"
+    );
 }
 
 #[test]
