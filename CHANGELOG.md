@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-06-02
+
+Agentic safety, reliability, and tooling release. Backward-compatible; all additions.
+Headlines: **secret hygiene** and **resource governors** (agent-mode blast-radius
+bounds); **structured `E_BAD_ARG`** for every argument/arity error plus rich human
+error rendering; a **strict stdio JSON-RPC MCP transport**; **nested transactions**
+and **plan/apply `copy`/`move`**; **RBAC startup config**; **streaming evaluation**;
+a **cross-tokenizer benchmark** (cl100k + o200k); and a new standalone
+**`agentic-eval`** crate (four-axis program evaluation) applied to the real engine.
+
 ### Changed
 - **`agentic-eval` refined to 0.3.0** — pluggable tokenizer: `tokens::evaluate_with`
   and `rank_with` take any `Fn(&str) -> usize`, so a host (e.g. AetherShell) flows its

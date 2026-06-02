@@ -1,18 +1,28 @@
-// Test self-describing tool registration with simon
-// Run with: cargo test --test test_simon_integration -- --nocapture
+// Test self-describing tool registration with an external `simon` binary.
+// This is an opt-in local integration test: set the SIMON_BIN environment variable
+// to the path of a `simon` executable to run it; it skips otherwise. (No path is
+// hardcoded, so the test carries no machine-specific/private information.)
+//   Run with: SIMON_BIN=/path/to/simon cargo test --test test_simon_integration -- --nocapture
 
 use aethershell::external_tools::ExternalToolRegistry;
-use std::path::Path;
+use std::path::PathBuf;
+
+/// The `simon` binary path from `SIMON_BIN`, or `None` to skip the test.
+fn simon_bin() -> Option<PathBuf> {
+    let p = PathBuf::from(std::env::var("SIMON_BIN").ok()?);
+    p.exists().then_some(p)
+}
 
 #[test]
 fn test_simon_self_describing() {
-    let simon_path =
-        Path::new(r"C:\Users\adamm\dev\nervosys\utilities\simon\target\release\simon.exe");
-
-    if !simon_path.exists() {
-        println!("Skipping test: simon not found at {}", simon_path.display());
-        return;
-    }
+    let simon_path = match simon_bin() {
+        Some(p) => p,
+        None => {
+            println!("Skipping: set SIMON_BIN=<path to simon> to run this test");
+            return;
+        }
+    };
+    let simon_path = simon_path.as_path();
 
     // Check if simon is self-describing
     let is_sd = ExternalToolRegistry::is_self_describing(simon_path);
@@ -53,16 +63,16 @@ fn test_simon_self_describing() {
 
 #[test]
 fn test_simon_execute_cpu() {
-    let simon_path =
-        Path::new(r"C:\Users\adamm\dev\nervosys\utilities\simon\target\release\simon.exe");
-
-    if !simon_path.exists() {
-        println!("Skipping test: simon not found");
-        return;
-    }
+    let simon_path = match simon_bin() {
+        Some(p) => p,
+        None => {
+            println!("Skipping: set SIMON_BIN=<path to simon> to run this test");
+            return;
+        }
+    };
 
     let registry = ExternalToolRegistry::new();
-    if let Ok(name) = registry.register_self_describing(simon_path, Some("simon")) {
+    if let Ok(name) = registry.register_self_describing(&simon_path, Some("simon")) {
         // Try to execute a capability
         let result = registry.execute(&name, "get_cpu_info", &serde_json::json!({}));
 

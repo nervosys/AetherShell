@@ -8,6 +8,10 @@ infra/
 
 # Environment and secrets
 .env
+.env.*
+# Agent-mode runtime artifacts: hash-chained audit log, transaction journals
+# (backups), and any locally-created rbac config / secrets under the workspace.
+.ae/
 
 # Temporary files
 temp/
