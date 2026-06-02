@@ -358,6 +358,7 @@ fn is_builtin(name: &str) -> bool {
             | "sort"
             | "uniq"
             | "wc"
+            | "len"
             | "grep"
             | "help"
             | "call"
@@ -539,6 +540,15 @@ fn type_builtin_call(
         }
         "group_by" => Ok(Type::Any),
         "agg" => Ok(Type::Any),
+        // Shape-preserving array transforms: reorder/slice/dedup keep element type.
+        "sort" | "uniq" | "take" | "head" | "tail" => {
+            if let Some(Type::Array(t)) = args.first() {
+                return Ok(Type::Array(t.clone()));
+            }
+            Ok(Type::Any)
+        }
+        // `len`/`wc` always count to an Int regardless of the collection's element type.
+        "len" | "wc" => Ok(Type::Int),
         "http_get" => {
             // http_get(url) -> { url:String, status:Int, headers:Record<String,String>, body:Any }
             let mut rec = BTreeMap::new();

@@ -617,16 +617,20 @@ shell."
   are unaffected until configured — and a breach returns the structured
   `E_BUDGET_EXCEEDED` (non-retryable) so an agent stops rather than loops:
   `AETHER_MAX_OPS` (total guarded ops), `AETHER_MAX_FILES` (WriteLocal +
-  Destructive), `AETHER_MAX_PROCS` (Process + Exec), and `AETHER_TIMEOUT_MS`
-  (wall-clock since the first guarded op, checked at each guard boundary). Counters
-  tally *attempts* at the boundary (an op later denied by jail/policy still counts —
-  the envelope bounds what the agent may try, the strictly-safe reading).
-  `governor_status()` reports counts/limits/elapsed (also folded into
-  `safety_status()`); `governor_reset()` starts a fresh envelope. Verified by 5 unit
-  tests + an end-to-end test (a 2nd `rm` under `AETHER_MAX_FILES=1` returns
-  `E_BUDGET_EXCEEDED` with the file untouched). *(Remaining: output-bytes is covered
-  separately by `--budget`/`AE_TOKEN_BUDGET` output paging; a network-egress cap is
-  out of v1 because network builtins don't yet route through `guard()`.)*
+  Destructive), `AETHER_MAX_PROCS` (Process + Exec), `AETHER_MAX_NET` (Network —
+  egress request count), and `AETHER_TIMEOUT_MS` (wall-clock since the first guarded
+  op, checked at each guard boundary). Counters tally *attempts* at the boundary (an
+  op later denied by jail/policy still counts — the envelope bounds what the agent
+  may try, the strictly-safe reading). The network cap is enforced by routing the
+  egress builtins (`http_get`, `curl_exec`, `wget_download`, `web_fetch`/`web_post`/
+  `web_json_get`/`web_json_post`) through `guard()` with the `Network` effect — which
+  also brings them under the audit log (`Network` is policy-`allow`, so this meters +
+  audits without prompting). `governor_status()` reports counts/limits/elapsed (also
+  folded into `safety_status()`); `governor_reset()` starts a fresh envelope. Verified
+  by 6 unit tests + an end-to-end test (a 2nd `rm` under `AETHER_MAX_FILES=1` returns
+  `E_BUDGET_EXCEEDED`, file untouched). *(Remaining: output-bytes is covered separately
+  by `--budget`/`AE_TOKEN_BUDGET` paging; the broader `web_*` scraper family routes
+  through the same `guard_network` helper as it's extended.)*
 - ✅ **Secret hygiene.** Two deterministic defenses in `src/safety.rs`, opt-out via
   `AETHER_REDACT=off`:
     - **Shape redaction** (`redact_str`/`redact_json`/`builtins::redact_value`) scrubs
@@ -668,9 +672,14 @@ The `.ae` surface keeps readable, unambiguous syntax and gains:
   instead of ad-hoc `anyhow!` prose. So a wrong-typed argument to any builtin that
   uses them surfaces a branchable `E_BAD_ARG` naming both the expected and the actual
   type — caught by try/catch as a structured record for agent self-correction
-  (`tests/reliability.rs`). *Remaining:* arity (missing-arg) checks are still
-  per-builtin prose; promoting those (and the few structured `type_builtin_call`
-  signatures) is the long tail.
+  (`tests/reliability.rs`). The arity (missing-arg) counterpart `arg(builtin, args,
+  idx, expected)` gives the same structured `E_BAD_ARG`; the core agent-facing verbs
+  (`map`/`where`/`reduce`/`take`/`call`/`agent`/`swarm`/`mcp_call`) now use it.
+  `type_builtin_call` static inference also gained the shape-preserving array
+  transforms (`sort`/`uniq`/`take`/`head`/`tail`) and `len`/`wc` → `Int`. *Remaining:*
+  the long tail of peripheral builtins still uses prose arity messages — functional
+  and error-returning, just not yet code-branchable; converting them via `arg()` is
+  safe mechanical follow-up.
 - ✅ **Great errors with `hint`** — humans benefit from the same structured errors,
   rendered richly. The human REPL unpacks an uncaught `SafetyError` into legible prose
   — `error[CODE]: message`, an indented `hint:` line, and (for an approvable action)
@@ -838,6 +847,7 @@ workspace, and writes the audit chain.
 | `AETHER_MAX_OPS=<n>` | Resource governor: max total guarded operations per run (agent mode; unset = unlimited). |
 | `AETHER_MAX_FILES=<n>` | Resource governor: max filesystem ops (WriteLocal + Destructive). |
 | `AETHER_MAX_PROCS=<n>` | Resource governor: max process/exec ops (Process + Exec). |
+| `AETHER_MAX_NET=<n>` | Resource governor: max network egress operations (Network). |
 | `AETHER_TIMEOUT_MS=<ms>` | Resource governor: wall-clock budget since the first guarded op (checked at each guard boundary). |
 
 CLI flags set these directly (no env export needed): `--agent` → `AETHER_MODE=agent`,

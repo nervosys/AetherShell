@@ -751,10 +751,8 @@ pub fn verify_audit(path: &PathBuf) -> Result<u64, String> {
 // | `AETHER_MAX_OPS`    | total guarded operations                            |
 // | `AETHER_MAX_FILES`  | filesystem ops (WriteLocal + Destructive)           |
 // | `AETHER_MAX_PROCS`  | process/exec ops (Process + Exec)                   |
+// | `AETHER_MAX_NET`    | network ops (Network) — egress request count        |
 // | `AETHER_TIMEOUT_MS` | wall-clock ms since the first guarded op (or reset) |
-//
-// (A network-egress cap is intentionally out of v1: network builtins do not yet
-// route through `guard()`, so a `guard`-based counter could not see them.)
 
 #[derive(Default)]
 struct GovernorState {
@@ -762,6 +760,7 @@ struct GovernorState {
     total: u64,
     files: u64,
     procs: u64,
+    net: u64,
 }
 
 lazy_static! {
@@ -844,6 +843,18 @@ fn governor_admit(effect: Effect, builtin: &str) -> Result<(), SafetyError> {
                 }
             }
         }
+        Effect::Network => {
+            g.net += 1;
+            if let Some(max) = env_u64("AETHER_MAX_NET") {
+                if g.net > max {
+                    return Err(budget_error(
+                        builtin,
+                        format!("network-egress budget exhausted ({} > {})", g.net, max),
+                        "raise AETHER_MAX_NET or call governor_reset()",
+                    ));
+                }
+            }
+        }
         _ => {}
     }
     Ok(())
@@ -873,11 +884,12 @@ pub fn governor_snapshot() -> Json {
     json!({
         "active": current_mode() == Mode::Agent,
         "elapsed_ms": elapsed_ms,
-        "used": { "ops": g.total, "files": g.files, "procs": g.procs },
+        "used": { "ops": g.total, "files": g.files, "procs": g.procs, "net": g.net },
         "limits": {
             "max_ops": lim("AETHER_MAX_OPS"),
             "max_files": lim("AETHER_MAX_FILES"),
             "max_procs": lim("AETHER_MAX_PROCS"),
+            "max_net": lim("AETHER_MAX_NET"),
             "timeout_ms": lim("AETHER_TIMEOUT_MS"),
         }
     })
@@ -1229,6 +1241,7 @@ mod tests {
             "AETHER_MAX_OPS",
             "AETHER_MAX_FILES",
             "AETHER_MAX_PROCS",
+            "AETHER_MAX_NET",
             "AETHER_TIMEOUT_MS",
         ] {
             std::env::remove_var(k);
@@ -1595,6 +1608,29 @@ mod tests {
         let snap = governor_snapshot();
         assert_eq!(snap["used"]["files"], json!(3)); // attempts counted, incl. the breached one
         assert_eq!(snap["limits"]["max_files"], json!(2));
+
+        clear_env();
+    }
+
+    #[test]
+    fn governor_enforces_network_egress_budget() {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        clear_env();
+        std::env::set_var("AETHER_MODE", "agent");
+        std::env::set_var("AETHER_MAX_NET", "2");
+
+        assert!(governor_admit(Effect::Network, "http_get").is_ok());
+        assert!(governor_admit(Effect::Network, "web_fetch").is_ok());
+        let err = governor_admit(Effect::Network, "http_get").unwrap_err();
+        assert_eq!(err.code, ErrorCode::BudgetExceeded);
+        assert!(err.message.contains("network-egress"));
+
+        // A non-network effect is not charged to the egress budget.
+        assert!(governor_admit(Effect::WriteLocal, "file_write").is_ok());
+
+        let snap = governor_snapshot();
+        assert_eq!(snap["used"]["net"], json!(3));
+        assert_eq!(snap["limits"]["max_net"], json!(2));
 
         clear_env();
     }

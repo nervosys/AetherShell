@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   both the expected and the actual type, instead of ad-hoc `anyhow!` prose. A
   wrong-typed argument to any builtin using them is now branchable by agents
   (caught by try/catch as `{error:{code,message,hint,…}}`) for self-correction.
+  The arity (missing-arg) counterpart `arg(builtin, args, idx, expected)` gives the
+  same structured `E_BAD_ARG`; the core agent-facing verbs (`map`/`where`/`reduce`/
+  `take`/`call`/`agent`/`swarm`/`mcp_call`) now use it. `type_builtin_call` static
+  inference also gained shape-preserving array transforms (`sort`/`uniq`/`take`/
+  `head`/`tail`) and `len`/`wc` → `Int`.
 - **Richer human error rendering (§8) — legibility.** The human REPL unpacks an
   uncaught `SafetyError` into legible prose — `error[CODE]: message`, an indented
   `hint:` line, and (for approvable actions) the exact `AETHER_APPROVE=…` re-run
@@ -28,6 +33,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `AETHER_MAX_OPS` — total guarded operations per run.
   - `AETHER_MAX_FILES` — filesystem ops (WriteLocal + Destructive).
   - `AETHER_MAX_PROCS` — process/exec ops (Process + Exec).
+  - `AETHER_MAX_NET` — network egress ops (Network). Enforced by routing the
+    egress builtins (`http_get`/`curl_exec`/`wget_download`/`web_fetch`/`web_post`/
+    `web_json_get`/`web_json_post`) through `guard()` with the `Network` effect,
+    which also brings them under the hash-chained audit log.
   - `AETHER_TIMEOUT_MS` — wall-clock budget since the first guarded op.
 
   New builtins `governor_status()` (counts/limits/elapsed, also folded into
