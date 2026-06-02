@@ -18,7 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   same structured `E_BAD_ARG`; the core agent-facing verbs (`map`/`where`/`reduce`/
   `take`/`call`/`agent`/`swarm`/`mcp_call`) now use it. `type_builtin_call` static
   inference also gained shape-preserving array transforms (`sort`/`uniq`/`take`/
-  `head`/`tail`) and `len`/`wc` → `Int`.
+  `head`/`tail`) and `len`/`wc` → `Int`. **All ~490 remaining prose arity/usage
+  errors across the builtins (plus the evaluator's lambda-arity checks) are now
+  structured `E_BAD_ARG`** via `safety::arg_err(message)` — message text preserved,
+  error type upgraded, so every argument/arity failure is branchable and renders as
+  legible prose for humans. Non-argument errors (API-response parsing, feature
+  gating, URL validation, workflow definitions) were intentionally left untouched.
 - **Richer human error rendering (§8) — legibility.** The human REPL unpacks an
   uncaught `SafetyError` into legible prose — `error[CODE]: message`, an indented
   `hint:` line, and (for approvable actions) the exact `AETHER_APPROVE=…` re-run
