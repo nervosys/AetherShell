@@ -89,6 +89,22 @@ const CORPUS: &[Task] = &[
         legible: r#"([1,2,3]) | each(fn(x) => echo(x))"#,
         cipher: r#"*[1,2,3]~x:echo(x)"#,
     },
+    // ── Broadened corpus (reusing only proven cipher forms) ──────────────
+    Task {
+        name: "ls+map+head",
+        legible: r#"ls(".") | map(fn(f) => f.name) | head(5)"#,
+        cipher: r#"l.|m~.name|h5"#,
+    },
+    Task {
+        name: "list+filter",
+        legible: r#"ls("/tmp") | where(fn(f) => f.size > 0)"#,
+        cipher: r#"l/tmp|w~.size>0"#,
+    },
+    Task {
+        name: "map double",
+        legible: r#"[1,2,3] | map(fn(x) => x * 2)"#,
+        cipher: r#"[1,2,3]|m~x:x*2"#,
+    },
 ];
 
 /// How many agent turns to amortize the one-time standing-context cost over,
@@ -99,6 +115,22 @@ const SESSION_TURNS: usize = 30;
 // Token count — the single source of truth shared with the runtime builtins.
 // Real GPT-4 cl100k BPE under `--features real-tokens`, heuristic otherwise.
 use aethershell::builtins::est_token_count as est_tokens;
+
+/// A SECOND real tokenizer — GPT-4o `o200k_base`, a genuinely different BPE — for
+/// the cross-tokenizer robustness check (confirm the verdict isn't cl100k-specific).
+/// Anthropic ships no offline Claude tokenizer crate, so o200k_base stands in as the
+/// cross-provider proxy. Falls back to the heuristic without `--features real-tokens`.
+#[cfg(feature = "real-tokens")]
+fn est_tokens_o200k(s: &str) -> usize {
+    use std::sync::OnceLock;
+    static BPE: OnceLock<tiktoken_rs::CoreBPE> = OnceLock::new();
+    let bpe = BPE.get_or_init(|| tiktoken_rs::o200k_base().expect("load o200k_base"));
+    bpe.encode_with_special_tokens(s).len()
+}
+#[cfg(not(feature = "real-tokens"))]
+fn est_tokens_o200k(s: &str) -> usize {
+    est_tokens(s)
+}
 
 /// Does the cipher line round-trip through the real transpiler and parse?
 fn cipher_ok(src: &str) -> bool {
@@ -213,6 +245,42 @@ fn main() {
     };
     println!("\nTokenizer: {tokenizer}");
     println!("Verdict: {verdict}");
+
+    // ── Cross-tokenizer robustness (§4 open question): re-run the criterion under
+    //    a SECOND real BPE (GPT-4o o200k_base) to confirm the verdict isn't
+    //    cl100k-specific. o200k_base stands in as the cross-provider proxy since
+    //    Anthropic publishes no offline Claude tokenizer crate.
+    {
+        let (mut c2_tok, mut l2_tok) = (0usize, 0usize);
+        for t in CORPUS {
+            c2_tok += est_tokens_o200k(t.cipher);
+            l2_tok += est_tokens_o200k(t.legible);
+        }
+        let cipher_sc2 = est_tokens_o200k(&cipher_cheatsheet);
+        let legible_sc2 = legible_sc_tok; // same conservative module-index estimate
+        let cipher_total2 = cipher_sc2 + (c2_tok * SESSION_TURNS) + c2_tok;
+        let legible_total2 = legible_sc2 + (l2_tok * SESSION_TURNS);
+        let verdict2 = if legible_total2 < cipher_total2 {
+            "LEGIBLE wins (verdict holds under o200k too)"
+        } else {
+            "CIPHER wins under o200k"
+        };
+        let label = if cfg!(feature = "real-tokens") {
+            "real GPT-4o BPE (o200k_base)"
+        } else {
+            "heuristic (same as cl100k column without --features real-tokens)"
+        };
+        println!("\nCross-tokenizer check — {label}:");
+        println!(
+            "  input tokens (cipher/legible): {} / {}   standing-context (cipher/legible): {} / {}",
+            c2_tok, l2_tok, cipher_sc2, legible_sc2
+        );
+        println!(
+            "  §4 over {} turns (cipher/legible): {} / {}",
+            SESSION_TURNS, cipher_total2, legible_total2
+        );
+        println!("  Verdict: {verdict2}");
+    }
 
     println!(
         "\nReliability: cipher round-trip failures = {}/{}, legible parse failures = {}/{}.",

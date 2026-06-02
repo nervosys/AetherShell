@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Cross-tokenizer benchmark check (§4/Phase 1).** `examples/token_bench.rs` now
+  re-runs the §4 cipher-vs-legible criterion under a second real BPE (GPT-4o
+  `o200k_base`) in addition to `cl100k_base`, and the legible-first verdict holds
+  under both (standing-context ~11× under each) — confirming the result isn't
+  cl100k-specific. Corpus broadened from 10 to 13 tasks. (Anthropic ships no offline
+  Claude tokenizer crate, so `o200k_base` serves as the cross-provider proxy.)
 - **Streaming evaluation (§6.3).** New `eval::eval_stream(code, env, on_item)`
   produces results incrementally instead of materializing the whole value first.
   For a final pipeline `source | map/where/filter…` over an array source, each
