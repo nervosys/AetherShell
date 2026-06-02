@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Plan/Apply `copy` and `move` ops (§9).** `plan`/`apply` now support `copy` and
+  `move` operations alongside `write`/`append`/`rm`/`mkdir`; each takes a `dest` (or
+  `to`) destination path. Both endpoints are workspace-jailed and snapshotted, so a
+  copy/move participates in the atomic transaction and rolls back cleanly on failure.
+
 ### Changed
 - **Boundary type-checking (§8) — reliability.** The shared argument-extraction
   helpers (`expect_string`/`expect_int`/`expect_array`/`need_lambda`, ~90 call
