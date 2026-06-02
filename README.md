@@ -297,8 +297,11 @@ Set `AETHER_MODE=agent` and every tabular result renders as **AECON** — a
 header-once format that emits each column name once, factors constant columns into
 a single `@const` line, dictionary-encodes low-cardinality string columns
 (`@dict`), and delta-encodes large slowly-varying integers (`@delta`). On realistic
-tabular results that's **~2.8× fewer output tokens than POSIX shells and ~2.6× vs
-PowerShell's parseable JSON** (measured with the real GPT-4 cl100k tokenizer).
+tabular results that's **~2.8× fewer output tokens than POSIX shells**. Versus
+PowerShell the ratio depends on which output an agent parses: ~1.4× vs its display
+`Format-Table` (not reliably parseable), ~1.6× vs compact `ConvertTo-Json -Compress`,
+and **~2.4–3× vs the default `ConvertTo-Json`** an agent gets without flags (measured
+with the real GPT-4 cl100k tokenizer; the gap widens with row count).
 
 ```sh
 AETHER_MODE=agent ae -c '[{name:"a",size:1,kind:"x"},{name:"b",size:2,kind:"x"}]'
@@ -373,7 +376,9 @@ there is no single-number benchmark to run there.
 
 ### Token efficiency (measured, real cl100k BPE)
 
-Per-task **output** tokens — what the agent must read back:
+Per-task **output** tokens — what the agent must read back, each shell's *idiomatic
+display* output (reliably-parseable forms are compared in the scale table and
+scoreboard below):
 
 | Task | AetherShell | Bash | Zsh | Fish | Nushell | PowerShell |
 |---|--:|--:|--:|--:|--:|--:|
@@ -391,24 +396,28 @@ Totals (command + output) over the 4 tasks:
 | Nushell | 34 | 341 | 375 | 3.18× |
 | PowerShell | 55 | 105 | 160 | 1.36× |
 
-**At scale** — a realistic 50-row listing where AECON's `@const`/`@dict`/`@delta`
-factoring compounds (output tokens):
+**The honest PowerShell spread** — AetherShell's edge over PowerShell depends entirely
+on *which output an agent parses*, and (for JSON) grows with row count because AECON
+emits each column name once while JSON repeats every key on every row. A plain
+`name,size` listing, every form token-counted with real cl100k
+(`cargo run --example shell_agentic_eval --features real-tokens`):
 
-| Output format | tokens | vs AECON |
-|---|--:|--:|
-| **AetherShell (AECON)** | 562 | 1.00× |
-| PowerShell `Format-Table`\* | 821 | 1.46× |
-| Nushell (boxed table) | 1402 | 2.49× |
-| PowerShell `ConvertTo-Json` | 1447 | 2.57× |
+| Rows | AetherShell (AECON) | PS `Format-Table`\* | PS `ConvertTo-Json -Compress` | PS `ConvertTo-Json` (default) |
+|--:|--:|--:|--:|--:|
+| 3 | 35 (1.00×) | 48 (1.37×) | 58 (1.66×) | 85 (2.43×) |
+| 25 | 189 (1.00×) | 224 (1.19×) | 300 (1.59×) | 547 (2.89×) |
+| 100 | 714 (1.00×) | 824 (1.15×) | 1125 (1.58×) | 2122 (2.97×) |
 
-\* `Format-Table` is display-only (variable widths, truncation, culture-dependent);
-an agent that must reliably *parse* the result uses `ConvertTo-Json`.
+\* `Format-Table` is display-only (variable widths, truncation, culture-dependent) and
+**not reliably parseable** — an agent that must parse the result uses `ConvertTo-Json`.
+With richer, constant-heavy columns, AECON's `@const`/`@dict`/`@delta` factoring widens
+the gap further (a 50-row listing: 562 vs 1447 for default `ConvertTo-Json` = 2.6×).
 
-**Takeaway:** ~**2.8× fewer tokens than the POSIX shells** and ~**2.5–3.2× vs
-Nushell / PowerShell's parseable JSON** on tabular results. Scalars are at parity;
-the savings live in structured output, where agents spend most of their tokens.
-AetherShell emits each column name once (constants once via `@const`); JSON repeats
-every key on every row.
+**Takeaway:** ~**2.8× fewer tokens than the POSIX shells**. Versus PowerShell the honest
+range is **~1.4× (display `Format-Table`, not reliably parseable) → ~1.6× (compact
+`-Compress` JSON) → ~2.4–3× (default `ConvertTo-Json`, the idiomatic form)**. Scalars
+are at parity; the savings live in structured output, where agents spend most of their
+tokens.
 
 **Verified with live capture.** The tables above use representative idiomatic
 output. Re-running against the *actual* shells installed on a test machine —
@@ -472,9 +481,17 @@ tokenizers, with a pluggable counter for any other). Run against every shell wit
 | Shell | Tokens (4 tasks) | vs AetherShell | Safety grade |
 |---|--:|--:|:-:|
 | **AetherShell** | **118** | **1.00×** | **A** |
-| PowerShell | 160 | 1.36× | F |
+| Nushell | 166 | 1.41× | F |
+| PowerShell | 199 | 1.69× | F |
 | Bash / Zsh / Fish | 331 | 2.81× | F |
-| Nushell | 375 | 3.18× | F |
+
+This scoreboard scores each shell on its **reliably-parseable** output — Nushell
+`to json -r`, PowerShell `ConvertTo-Json -Compress`, raw text for the POSIX shells
+(which have no structured mode), AECON for AetherShell. That's why Nushell and
+PowerShell land closer here than in the display-output per-task table above (their
+pretty tables are compact but not reliably parseable). Against PowerShell's *default*
+`ConvertTo-Json` the per-row ratio is **2.4–3×** (see the spread table above); the
+≥2× threshold holds there, not against the hand-compacted `-Compress` form.
 
 *Tokens* = command + output, summed over the 4 tasks (real cl100k BPE via
 `agentic_eval::evaluate_with` + AetherShell's tokenizer). *Safety grade* is
