@@ -296,8 +296,9 @@ is **safe**, and whether a mistake can be **undone**.
 Set `AETHER_MODE=agent` and every tabular result renders as **AECON** — a
 header-once format that emits each column name once, factors constant columns into
 a single `@const` line, dictionary-encodes low-cardinality string columns
-(`@dict`), and delta-encodes large slowly-varying integers (`@delta`). On realistic
-tabular results that's **~2.8× fewer output tokens than POSIX shells**. Versus
+(`@dict`), delta-encodes large slowly-varying integers (`@delta`), and factors a
+shared leading prefix out of path/URI/id columns into one `@prefix` line. On
+realistic tabular results that's **~2.8× fewer output tokens than POSIX shells**. Versus
 PowerShell the ratio depends on which output an agent parses: ~1.4× vs its display
 `Format-Table` (not reliably parseable), ~1.6× vs compact `ConvertTo-Json -Compress`,
 and **~2.4–3× vs the default `ConvertTo-Json`** an agent gets without flags (measured
@@ -410,8 +411,9 @@ emits each column name once while JSON repeats every key on every row. A plain
 
 \* `Format-Table` is display-only (variable widths, truncation, culture-dependent) and
 **not reliably parseable** — an agent that must parse the result uses `ConvertTo-Json`.
-With richer, constant-heavy columns, AECON's `@const`/`@dict`/`@delta` factoring widens
-the gap further (a 50-row listing: 562 vs 1447 for default `ConvertTo-Json` = 2.6×).
+With richer, constant-heavy columns, AECON's `@const`/`@dict`/`@delta`/`@prefix`
+factoring widens the gap further (a 50-row listing: 562 vs 1447 for default
+`ConvertTo-Json` = 2.6×; a path-heavy listing is 44–69% cheaper via `@prefix` alone).
 
 **Takeaway:** ~**2.8× fewer tokens than the POSIX shells**. Versus PowerShell the honest
 range is **~1.4× (display `Format-Table`, not reliably parseable) → ~1.6× (compact

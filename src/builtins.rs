@@ -15133,10 +15133,11 @@ fn aecon_decode_atom(cell: &str) -> Value {
 }
 
 /// Decode the tabular AECON form (header + optional `@const`/`@dict`/`@delta`/
-/// `@type` metadata lines + positional rows) back to an `Array<Record>`. Inverse
-/// of the tabular branch of `aecon_render`: `@const` columns are restored to every
-/// row, `@dict` indices are resolved to their string values, `@delta` columns are
-/// reconstructed by running sum, and `@type` tags force the exact type of columns
+/// `@prefix`/`@type` metadata lines + positional rows) back to an `Array<Record>`.
+/// Inverse of the tabular branch of `aecon_render`: `@const` columns are restored to
+/// every row, `@dict` indices are resolved to their string values, `@delta` columns
+/// are reconstructed by running sum, `@prefix` columns get their shared prefix
+/// re-prepended, and `@type` tags force the exact type of columns
 /// the compact form would otherwise infer wrongly (numeric-looking strings,
 /// integral floats) — making the round-trip lossless. Returns the parsed array;
 /// non-tabular input (a single `{k=v}` record, a scalar array, or a bare scalar)
@@ -15291,8 +15292,8 @@ fn bi_aecon(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 }
 
 /// aecon_decode(text?) - Parse tabular AECON text (argument or piped input) back
-/// into an `Array<Record>`, reversing `@const`/`@dict`/`@delta` factoring. The
-/// inverse of `aecon` for homogeneous tables; the string↔number boundary is
+/// into an `Array<Record>`, reversing `@const`/`@dict`/`@delta`/`@prefix` factoring.
+/// The inverse of `aecon` for homogeneous tables; the string↔number boundary is
 /// inferred (use `canonical` for lossless typing).
 fn bi_aecon_decode(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let v = args.into_iter().next().or(input).ok_or_else(|| {
@@ -15698,7 +15699,7 @@ pub fn budget_value(value: &Value, max: usize, cursor: usize) -> Value {
 
 /// Render a result for **agent mode** (`AETHER_MODE=agent`): compact, deterministic
 /// AECON instead of the human pretty-printer (no ANSI, keys emitted once, the
-/// three structural levers applied). `Null` prints nothing and a bare `Str` is
+/// four structural levers applied). `Null` prints nothing and a bare `Str` is
 /// returned raw (a single field value is what the agent asked for). When a token
 /// budget is set, the value is paged via `budget_value` and rendered as the AECON
 /// page followed by one compact `@page …` metadata line (`shown`/`total`/`elided`/

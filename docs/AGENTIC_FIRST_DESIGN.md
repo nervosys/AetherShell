@@ -248,14 +248,17 @@ flags — AECON is **~2.6×** cheaper on this constant-heavy listing (2.4–3× 
 -Compress` the edge narrows to **~1.6×**, and against the (unparseable) `Format-Table`
 it's only **~1.4×**. The ≥2× claim is true and measured, but specifically against the
 default JSON serialization — which is the honest comparison since AECON is also
-AetherShell's *default* output. Three structural levers, all deterministic and all
+AetherShell's *default* output. Four structural levers, all deterministic and all
 applied only where they're a measured *token* win:
 **constant-factoring** (cardinality-1 columns → one `@const` line);
 **dictionary encoding** (low-cardinality, multi-token string columns → one
-`@dict` line + 1-token indices); and **delta encoding** (large-valued,
+`@dict` line + 1-token indices); **delta encoding** (large-valued,
 slowly-varying integer columns such as timestamps/sequential ids → a `@delta:`
 line + per-row differences, where a 10-digit absolute ≈4 tokens collapses to a
-~1-token step). Each is gated so a cheap form can only ever *replace* an expensive
+~1-token step); and **common-prefix factoring** (string columns whose values share
+a leading run — paths, URIs, prefixed ids → one `@prefix col: …` line, the prefix
+stripped from every row; 44–69% fewer tokens on path-heavy listings). Each is gated
+so a cheap form can only ever *replace* an expensive
 one — delta, for instance, fires only when raws average ≥4 digits (genuinely
 multi-token) and the deltas are under half the raw width, so small or oscillating
 integers are left literal. The dict lever is what keeps AECON above 2× on this
@@ -506,7 +509,7 @@ paged/truncated to fit (✅ implemented). ✅ Per-session aggregation lands via
   records, emit field names *once* as a header, then positional rows. Typed,
   deterministic, ~CSV-of-records density with JSON fidelity. This is where the
   honest 50–70% *output*-token savings live — the dominant cost term. ✅
-  The header is followed by optional metadata lines, then positional rows. Three
+  The header is followed by optional metadata lines, then positional rows. Four
   deterministic, self-describing compression levers, each gated to fire only where
   it's a measured token win:
     - **`@const k=v …`** — columns identical across all rows, emitted once and
@@ -516,6 +519,10 @@ paged/truncated to fit (✅ implemented). ✅ Per-session aggregation lands via
     - **`@delta: col …`** — large-valued, slowly-varying *integer* columns
       (timestamps, sequential ids); row 0 holds the absolute value, each later row
       holds the difference from the previous (reconstruct by running sum).
+    - **`@prefix col: <prefix>`** — *string* columns whose values share a leading
+      run (paths, URIs, prefixed ids); the common prefix is emitted once and
+      stripped from every row (reconstruct by re-prepending). 44–69% fewer tokens
+      on path-heavy listings; gated to a real char win, never on `@dict` columns.
     - **`@type col:s|f …`** — type tags for *lossless* decode, emitted **only**
       where the compact form is ambiguous: a string that looks like a
       number/bool/null (`s`), or a float with an integral value that renders
@@ -525,11 +532,12 @@ paged/truncated to fit (✅ implemented). ✅ Per-session aggregation lands via
   none ever inflate a result — a cheaper encoding can only *replace* a costlier one.
   ✅ **Reversible — losslessly.** `aecon_decode(text)` (dispatch 1129) is the exact
   inverse for tabular AECON: it restores `@const` columns to every row, resolves
-  `@dict` indices, reconstructs `@delta` columns by running sum, and honors `@type`
-  tags so numeric-looking strings and integral floats decode to their exact type.
-  Two round-trip property tests assert `decode(aecon(v)) == v` — one with all three
-  compression levers active, one with the ambiguous string/float values that the
-  `@type` line resolves — so the compression is a genuine, lossless encoding rather
+  `@dict` indices, reconstructs `@delta` columns by running sum, re-prepends
+  `@prefix` columns, and honors `@type` tags so numeric-looking strings and integral
+  floats decode to their exact type. Round-trip property tests assert
+  `decode(aecon(v)) == v` — one with the `@const`/`@dict`/`@delta` levers active, one
+  with the ambiguous string/float values the `@type` line resolves, and one with
+  shared-prefix columns — so the compression is a genuine, lossless encoding rather
   than lossy display. (`canonical` remains the JSON-fidelity form for tooling that
   needs JSON specifically.)
 - ✅ **Source-side projection is first-class.** `pick(fields…)` (dispatch 1128)
