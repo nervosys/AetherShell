@@ -30,6 +30,8 @@ fn clear() {
         "AETHER_MAX_FILES",
         "AETHER_MAX_PROCS",
         "AETHER_TIMEOUT_MS",
+        "AETHER_RBAC_CONFIG",
+        "AETHER_PRINCIPAL",
     ] {
         std::env::remove_var(k);
     }
@@ -137,6 +139,50 @@ fn governor_file_budget_blocks_second_rm_in_agent_mode() {
         f2.exists(),
         "file must NOT be deleted once the budget is exhausted"
     );
+
+    let _ = std::fs::remove_dir_all(&dir);
+    clear();
+}
+
+#[test]
+fn rbac_config_loaded_at_startup_authorizes_principal() {
+    let _l = lock();
+    clear();
+    std::env::set_var("AETHER_MODE", "agent");
+    let dir = fresh_workspace("rbac_cfg");
+
+    // A config that grants the `ci` principal the `destructive` effect via a role.
+    let cfg = dir.join("rbac.toml");
+    std::fs::write(
+        &cfg,
+        r#"
+principal = "ci"
+[[role]]
+name = "deployer"
+permissions = ["effect:destructive"]
+[[user]]
+id = "ci"
+roles = ["deployer"]
+"#,
+    )
+    .unwrap();
+    std::env::set_var("AETHER_RBAC_CONFIG", cfg.to_string_lossy().to_string());
+
+    // Boot-time load installs the manager and sets the acting principal.
+    safety::init_rbac_from_env();
+    assert_eq!(safety::current_principal().as_deref(), Some("ci"));
+
+    // The authorized principal bypasses the approval gate for a destructive rm.
+    let file = dir.join("v.txt");
+    std::fs::write(&file, b"x").unwrap();
+    let res =
+        aethershell::builtins::bi_rm(vec![Value::Str(file.to_string_lossy().to_string())], None);
+    assert!(
+        res.is_ok(),
+        "RBAC-authorized principal should bypass approval: {:?}",
+        res.err()
+    );
+    assert!(!file.exists());
 
     let _ = std::fs::remove_dir_all(&dir);
     clear();

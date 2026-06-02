@@ -275,6 +275,9 @@ fn main() -> Result<()> {
     if cli.deterministic {
         std::env::set_var("AE_DETERMINISTIC", "1");
     }
+    // Load the RBAC manager + acting principal from config at startup, if
+    // configured (AETHER_RBAC_CONFIG / <workspace>/.ae/rbac.toml / AETHER_PRINCIPAL).
+    aethershell::safety::init_rbac_from_env();
 
     // Handle subcommands
     if let Some(cmd) = cli.subcommand {
