@@ -195,6 +195,30 @@ impl std::fmt::Display for SafetyReport {
     }
 }
 
+/// Assess safety from operation *names* plus a `classify` closure mapping each name
+/// to its [`Effect`] (e.g. a host's effect classifier). Names the classifier returns
+/// `None` for are skipped. Convenience over [`assess_safety`] when you start from
+/// names rather than effects.
+///
+/// ```
+/// use agentic_eval::safety::{assess_safety_named, Effect, Mode};
+/// let classify = |n: &str| match n {
+///     "read" => Some(Effect::ReadLocal),
+///     "rm" => Some(Effect::Destructive),
+///     _ => None,
+/// };
+/// let r = assess_safety_named(&["read", "rm", "unknown"], classify, Mode::Agent);
+/// assert!(r.bounded); // rm is approval-gated; unknown is skipped
+/// ```
+pub fn assess_safety_named<F: Fn(&str) -> Option<Effect>>(
+    names: &[&str],
+    classify: F,
+    mode: Mode,
+) -> SafetyReport {
+    let effects: Vec<Effect> = names.iter().filter_map(|n| classify(n)).collect();
+    assess_safety(&effects, mode)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -264,5 +288,19 @@ mod tests {
             assert_eq!(Effect::from_name(e.name()), Some(e));
         }
         assert_eq!(Effect::from_name("nonsense"), None);
+    }
+
+    #[test]
+    fn assess_safety_named_maps_and_skips_unknown() {
+        // Classifier maps names → effects via the canonical names; unknowns skipped.
+        let r = assess_safety_named(
+            &["read_local", "destructive", "exec", "??unknown??"],
+            Effect::from_name,
+            Mode::Agent,
+        );
+        assert_eq!(r.effects, 3, "unknown name skipped");
+        assert!(r.bounded); // destructive + exec are approval-gated
+        assert_eq!(r.approval_gated, 2);
+        assert_eq!(r.grade, 'A');
     }
 }

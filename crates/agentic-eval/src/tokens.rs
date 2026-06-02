@@ -147,6 +147,15 @@ impl AgentCost {
     pub fn total_over(&self, turns: usize) -> usize {
         self.standing_context + (self.input + self.output) * turns.max(1) + self.retries
     }
+
+    /// Total tokens over `turns` in the **no-prompt-caching** model: the standing
+    /// context is re-sent *every* turn (the worst case for a representation with a
+    /// heavy schema/cheatsheet). [`total_over`](Self::total_over) is the
+    /// caching-aware default (standing context paid once); this is the upper bound.
+    pub fn total_standing_per_turn(&self, turns: usize) -> usize {
+        let t = turns.max(1);
+        (self.standing_context + self.input + self.output) * t + self.retries
+    }
 }
 
 impl std::fmt::Display for AgentCost {
@@ -217,6 +226,26 @@ pub fn evaluate_all(program: &Program) -> Vec<(Model, AgentCost)> {
         .collect()
 }
 
+/// Evaluate a program with a **custom token counter** — any `Fn(&str) -> usize`,
+/// such as a host application's exact tokenizer or a model not in [`Model`]. This
+/// lets the crate's cost model work with any tokenizer, not just the built-in set.
+///
+/// ```
+/// use agentic_eval::tokens::{evaluate_with, Program};
+/// // A trivial whitespace counter standing in for a real tokenizer.
+/// let words = |s: &str| s.split_whitespace().count();
+/// let cost = evaluate_with(&Program::new("p", "read a file"), words);
+/// assert_eq!(cost.input, 3);
+/// ```
+pub fn evaluate_with<F: Fn(&str) -> usize>(program: &Program, count: F) -> AgentCost {
+    AgentCost {
+        standing_context: count(&program.standing_context),
+        input: count(&program.source),
+        output: count(&program.output_sample),
+        retries: program.retries,
+    }
+}
+
 /// The result of comparing two programs (e.g. two encodings of the same task).
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[derive(Debug, Clone)]
@@ -273,10 +302,20 @@ impl std::fmt::Display for Comparison {
 /// Returns `(index_into_programs, total_tokens)` pairs sorted ascending by total —
 /// the N-way generalization of [`compare`]. Ties keep input order (stable sort).
 pub fn rank(programs: &[Program], model: Model, turns: usize) -> Vec<(usize, usize)> {
+    rank_with(programs, |s| model.count(s), turns)
+}
+
+/// Like [`rank`], but with a custom token counter (see [`evaluate_with`]). Returns
+/// `(index, total_tokens)` pairs sorted cheapest-first; ties keep input order.
+pub fn rank_with<F: Fn(&str) -> usize>(
+    programs: &[Program],
+    count: F,
+    turns: usize,
+) -> Vec<(usize, usize)> {
     let mut ranked: Vec<(usize, usize)> = programs
         .iter()
         .enumerate()
-        .map(|(i, p)| (i, evaluate(p, model).total_over(turns)))
+        .map(|(i, p)| (i, evaluate_with(p, &count).total_over(turns)))
         .collect();
     ranked.sort_by_key(|&(_, total)| total);
     ranked
@@ -385,5 +424,43 @@ mod tests {
             10,
         );
         assert!(cmp.to_string().contains("wins"));
+    }
+
+    #[test]
+    fn evaluate_with_uses_a_custom_counter() {
+        // A counter that returns a fixed value lets us check wiring exactly.
+        let p = Program::new("p", "abc")
+            .with_output("de")
+            .with_standing_context("fghi")
+            .with_retries(7);
+        let cost = evaluate_with(&p, |s| s.chars().count());
+        assert_eq!(cost.input, 3);
+        assert_eq!(cost.output, 2);
+        assert_eq!(cost.standing_context, 4);
+        assert_eq!(cost.retries, 7); // carried from the program, not the counter
+    }
+
+    #[test]
+    fn standing_per_turn_is_the_no_caching_upper_bound() {
+        let c = AgentCost {
+            standing_context: 100,
+            input: 10,
+            output: 5,
+            retries: 0,
+        };
+        // Cached default pays standing once; per-turn pays it every turn → larger.
+        assert_eq!(c.total_over(10), 100 + 150);
+        assert_eq!(c.total_standing_per_turn(10), (100 + 15) * 10);
+        assert!(c.total_standing_per_turn(10) > c.total_over(10));
+    }
+
+    #[test]
+    fn rank_with_custom_counter_orders_cheapest_first() {
+        let progs = [
+            Program::new("long", "a much longer program body here"),
+            Program::new("short", "x"),
+        ];
+        let ranked = rank_with(&progs, |s| s.split_whitespace().count(), 1);
+        assert_eq!(ranked[0].0, 1); // "short" is cheapest
     }
 }

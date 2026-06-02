@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **`agentic-eval` refined to 0.3.0** — pluggable tokenizer: `tokens::evaluate_with`
+  and `rank_with` take any `Fn(&str) -> usize`, so a host (e.g. AetherShell) flows its
+  own exact tokenizer through the cost model instead of hand-building `AgentCost`.
+  Added `AgentCost::total_standing_per_turn` (no-prompt-caching upper bound, vs the
+  caching-amortized `total_over` default) and `safety::assess_safety_named` (score
+  from operation names + a classifier closure). The AetherShell integration test now
+  flows through `evaluate_with`/`assess_safety_named`. Doctests added; Clippy-clean
+  across all feature combinations.
 - **`agentic-eval` refined to 0.2.0** — ergonomic crate-root re-exports
   (`agentic_eval::Model`/`Program`/`Effect`/…), `Display` for every report type
   (printable summaries), an optional `serde` feature deriving `Serialize` on all

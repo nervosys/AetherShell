@@ -41,6 +41,23 @@ exact OpenAI counts with `--features real-tokens`. The heuristic splits
   use; `tokens::rank` is the N-way generalization of `compare`; `Evaluation` has
   `with_*` builders.
 
+## Pluggable tokenizer
+
+The cost model isn't locked to the built-in `Model` set. `tokens::evaluate_with`
+(and `rank_with`) take **any `Fn(&str) -> usize`**, so a host can flow its own exact
+tokenizer through the library:
+
+```rust
+use agentic_eval::tokens::{evaluate_with, Program};
+// e.g. pass a host's tokenizer (here, a stand-in word counter)
+let cost = evaluate_with(&Program::new("p", "read a file"), |s| s.split_whitespace().count());
+assert_eq!(cost.input, 3);
+```
+
+`AgentCost::total_over` amortizes the standing context once (the prompt-caching
+default); `total_standing_per_turn` is the no-caching upper bound. `safety::
+assess_safety_named` scores directly from operation names plus a classifier closure.
+
 ## Example
 
 ```sh

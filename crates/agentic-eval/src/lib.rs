@@ -42,8 +42,10 @@ pub mod tokens;
 // `agentic_eval::Model` instead of `agentic_eval::tokens::Model`, etc.
 pub use determinism::{assess_determinism, DeterminismReport};
 pub use reliability::{assess_reliability, Outcome, ReliabilityReport};
-pub use safety::{assess_safety, Decision, Effect, Mode, SafetyReport};
-pub use tokens::{compare, evaluate, rank, AgentCost, Comparison, Model, Program};
+pub use safety::{assess_safety, assess_safety_named, Decision, Effect, Mode, SafetyReport};
+pub use tokens::{
+    compare, evaluate, evaluate_with, rank, rank_with, AgentCost, Comparison, Model, Program,
+};
 
 /// A combined, all-axes evaluation of a single program. Construct with
 /// [`Evaluation::new`] then fill in whichever axes you can measure (directly or via
