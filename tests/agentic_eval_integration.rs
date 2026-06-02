@@ -12,8 +12,8 @@ use aethershell::value::Value;
 
 use agentic_eval::determinism::assess_determinism;
 use agentic_eval::reliability::{assess_reliability, Outcome};
-use agentic_eval::safety::{assess_safety, Effect, Mode};
-use agentic_eval::tokens::AgentCost;
+use agentic_eval::safety::{assess_safety_named, Effect, Mode};
+use agentic_eval::tokens::{evaluate_with, Program};
 
 fn eval_to_value(code: &str) -> anyhow::Result<Value> {
     let stmts = parse_program(code)?;
@@ -23,19 +23,20 @@ fn eval_to_value(code: &str) -> anyhow::Result<Value> {
 
 #[test]
 fn aethershell_token_surface_is_competitive_over_a_session() {
-    // Legible .ae vs .aeg cipher, charged the cipher its real ontology standing tax.
-    let legible = AgentCost {
-        standing_context: est_token_count("ls/where/map are standard names"),
-        input: est_token_count(r#"ls(".") | where(fn(f) => f.size > 1000)"#),
-        output: 0,
-        retries: 0,
-    };
-    let cipher = AgentCost {
-        standing_context: est_token_count(&aethershell::transpile::agentic::describe_ontology()),
-        input: est_token_count(r#"l.|w~.size>1k"#),
-        output: 0,
-        retries: 1,
-    };
+    // Flow AetherShell's real tokenizer through the library's cost model via
+    // `evaluate_with`: legible .ae vs the .aeg cipher (charged its real ontology tax).
+    let count = est_token_count;
+    let legible = evaluate_with(
+        &Program::new("legible", r#"ls(".") | where(fn(f) => f.size > 1000)"#)
+            .with_standing_context("ls/where/map are standard names"),
+        count,
+    );
+    let cipher = evaluate_with(
+        &Program::new("cipher", r#"l.|w~.size>1k"#)
+            .with_standing_context(aethershell::transpile::agentic::describe_ontology())
+            .with_retries(1),
+        count,
+    );
     // Over a session the legible form wins once the cipher's standing-context tax
     // (the cheatsheet it must carry every turn) is counted.
     assert!(
@@ -98,13 +99,18 @@ fn aethershell_bounds_dangerous_builtin_blast_radius_in_agent_mode() {
         "rm",
         "sh",
     ];
-    let effects: Vec<Effect> = builtins
-        .iter()
-        .filter_map(|b| Effect::from_name(safety::effect_of(b).as_str()))
-        .collect();
-    assert_eq!(effects.len(), builtins.len(), "every effect name maps");
-
-    let report = assess_safety(&effects, Mode::Agent);
+    // Map names → effects through AetherShell's real classifier via the library's
+    // `assess_safety_named` convenience (no hand-rolled filter_map).
+    let report = assess_safety_named(
+        &builtins,
+        |b| Effect::from_name(safety::effect_of(b).as_str()),
+        Mode::Agent,
+    );
+    assert_eq!(
+        report.effects,
+        builtins.len(),
+        "every builtin maps to an effect"
+    );
     // rm (Destructive), sh (Exec), proc_kill (Process) are the dangerous ones — all
     // gated behind approval under the agent policy, so the blast radius is bounded.
     assert!(
