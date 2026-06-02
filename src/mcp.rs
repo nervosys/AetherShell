@@ -358,6 +358,118 @@ impl McpServer {
         }
     }
 
+    /// Run a strict **JSON-RPC 2.0 over stdio** MCP server (the canonical MCP
+    /// transport, complementing the HTTP server). Reads newline-delimited requests
+    /// from stdin and dispatches:
+    ///   - `initialize` → protocol/capabilities/serverInfo;
+    ///   - `tools/list` → the builtin tool surface ([`Self::list_builtin_tools`]);
+    ///   - `tools/call` → routes through [`Self::call_builtin`], so policy / jail /
+    ///     approval / audit apply exactly as on the REPL and HTTP paths;
+    ///   - `ping` → `{}`.
+    /// Writes one JSON-RPC response line per request to stdout. Notifications
+    /// (messages with no `id`, e.g. `notifications/initialized`) get no reply.
+    /// Loops until stdin EOF. Runs in whatever safety mode the process is in, so
+    /// `ae --agent mcp stdio` serves with the agent default-deny policy active.
+    pub fn serve_stdio(&self) -> std::io::Result<()> {
+        use std::io::BufRead;
+        let stdin = std::io::stdin();
+        let stdout = std::io::stdout();
+        let mut out = stdout.lock();
+        let mut handle = stdin.lock();
+        let mut buf = String::new();
+        loop {
+            buf.clear();
+            if handle.read_line(&mut buf)? == 0 {
+                break; // EOF
+            }
+            let line = buf.trim();
+            if line.is_empty() {
+                continue;
+            }
+            let req: JsonValue = match serde_json::from_str(line) {
+                Ok(v) => v,
+                Err(e) => {
+                    Self::write_message(
+                        &mut out,
+                        &Self::rpc_error(JsonValue::Null, -32700, &format!("parse error: {}", e)),
+                    )?;
+                    continue;
+                }
+            };
+            if let Some(response) = self.handle_rpc(&req) {
+                Self::write_message(&mut out, &response)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Dispatch one JSON-RPC request, returning the response (or `None` for a
+    /// notification, which gets no reply). Pure w.r.t. I/O so it is unit-testable.
+    pub fn handle_rpc(&self, req: &JsonValue) -> Option<JsonValue> {
+        // Notifications carry no `id` → no response.
+        let id = match req.get("id") {
+            Some(v) if !v.is_null() => v.clone(),
+            _ => return None,
+        };
+        let method = req.get("method").and_then(|m| m.as_str()).unwrap_or("");
+        let response = match method {
+            "initialize" => Self::rpc_ok(id, self.stdio_initialize()),
+            "tools/list" => Self::rpc_ok(
+                id,
+                serde_json::json!({
+                    "tools": serde_json::to_value(self.list_builtin_tools())
+                        .unwrap_or_else(|_| serde_json::json!([])),
+                }),
+            ),
+            "tools/call" => match self.stdio_tools_call(req.get("params")) {
+                Ok(result) => Self::rpc_ok(id, result),
+                Err((code, msg)) => Self::rpc_error(id, code, &msg),
+            },
+            "ping" => Self::rpc_ok(id, serde_json::json!({})),
+            other => Self::rpc_error(id, -32601, &format!("method not found: {}", other)),
+        };
+        Some(response)
+    }
+
+    fn stdio_initialize(&self) -> JsonValue {
+        serde_json::json!({
+            "protocolVersion": "2024-11-05",
+            "capabilities": { "tools": { "listChanged": false } },
+            "serverInfo": { "name": "aethershell", "version": env!("CARGO_PKG_VERSION") },
+        })
+    }
+
+    /// Handle a `tools/call`: extract the tool name and positional args
+    /// (`arguments.args` if present, else the whole `arguments`), route through
+    /// `call_builtin`, and serialize the [`McpToolResult`].
+    fn stdio_tools_call(&self, params: Option<&JsonValue>) -> Result<JsonValue, (i64, String)> {
+        let params = params.ok_or((-32602, "missing params".to_string()))?;
+        let name = params
+            .get("name")
+            .and_then(|v| v.as_str())
+            .ok_or((-32602, "missing tool name".to_string()))?;
+        let args = params
+            .get("arguments")
+            .map(|a| a.get("args").cloned().unwrap_or_else(|| a.clone()))
+            .unwrap_or_else(|| JsonValue::Array(vec![]));
+        let result = self.call_builtin(name, &args);
+        serde_json::to_value(result).map_err(|e| (-32603, format!("serialize result: {}", e)))
+    }
+
+    fn rpc_ok(id: JsonValue, result: JsonValue) -> JsonValue {
+        serde_json::json!({ "jsonrpc": "2.0", "id": id, "result": result })
+    }
+
+    fn rpc_error(id: JsonValue, code: i64, message: &str) -> JsonValue {
+        serde_json::json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message } })
+    }
+
+    fn write_message(out: &mut impl std::io::Write, msg: &JsonValue) -> std::io::Result<()> {
+        let s = serde_json::to_string(msg).unwrap_or_else(|_| "{}".to_string());
+        writeln!(out, "{}", s)?;
+        out.flush()
+    }
+
     /// Get a specific tool by name
     pub fn get_tool(&self, name: &str) -> Option<&McpTool> {
         self.registered_tools.get(name)
