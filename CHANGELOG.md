@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Nested transactions (§9).** `tx_begin` now nests: a second begin while a
+  transaction is active pushes a child frame (SQL nested-transaction semantics). A
+  child `tx_commit` folds its changes into the parent (nothing is durable until the
+  outermost commit); a child `tx_rollback` reverts only the child's operations and
+  leaves the parent open. Each frame captures its own pre-image, so inner rollback
+  is correct even when an outer frame touched the same path; outer rollback still
+  undoes everything. `tx_begin`/`tx_status` report nesting `depth`. `apply` now
+  nests cleanly inside an outer transaction instead of erroring.
 - **RBAC startup config (§13).** `RbacManager::from_config_str` parses a TOML
   config (roles with permissions + inheritance; principals with role assignments +
   direct grants), and `safety::init_rbac_from_env()` (called from `main` at boot)

@@ -723,7 +723,16 @@ The `.ae` surface keeps readable, unambiguous syntax and gains:
   1135-1136): SQL-style partial rollback — revert only the operations recorded
   after a named savepoint while leaving the transaction open (and the savepoint
   re-usable). Verified by `savepoint_enables_partial_rollback_then_commit`.
-  *Remaining:* full nesting (a savepoint stack already covers most of its use).
+  ✅ **Full nesting.** `tx_begin` while a transaction is active pushes a child frame
+  (SQL nested-transaction semantics): a child `commit` folds its changes into the
+  parent (nothing durable until the **outermost** commit), a child `rollback` reverts
+  only the child's ops and leaves the parent open. Each frame keeps its own `seen`
+  set and captures its own pre-image, so an inner rollback restores a path to its
+  pre-*inner* state even when an outer frame also touched it, and replaying
+  inner→outer undos in reverse restores the pre-*outer* state. All frames share one
+  journal dir (removed when the outermost frame ends); `tx_begin`/`tx_status` report
+  `depth`. Verified by `nested_rollback_isolates_inner_then_outer` and
+  `nested_commit_folds_into_parent_then_outer_rollback_undoes_all` (`tests/transactions.rs`).
 - ✅ **Plan / Apply** (Terraform-style) for a destructive batch: `plan(ops)`
   returns a typed, reviewable summary + a content-bound approval token (executes
   nothing); `apply(ops)` runs the batch atomically inside a transaction — agent

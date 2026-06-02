@@ -15975,6 +15975,8 @@ fn bi_tx_begin(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut r = BTreeMap::new();
     r.insert("transaction".to_string(), Value::Str(id));
     r.insert("active".to_string(), Value::Bool(true));
+    // Nesting depth after this begin (1 = outermost; a nested begin pushes a child).
+    r.insert("depth".to_string(), Value::Int(crate::tx::depth() as i64));
     Ok(Value::Record(r))
 }
 
@@ -16005,9 +16007,11 @@ fn bi_tx_status(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             r.insert("active".to_string(), Value::Bool(true));
             r.insert("transaction".to_string(), Value::Str(id));
             r.insert("operations".to_string(), Value::Int(n as i64));
+            r.insert("depth".to_string(), Value::Int(crate::tx::depth() as i64));
         }
         None => {
             r.insert("active".to_string(), Value::Bool(false));
+            r.insert("depth".to_string(), Value::Int(0));
         }
     }
     Ok(Value::Record(r))
