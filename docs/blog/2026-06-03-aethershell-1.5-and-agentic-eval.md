@@ -163,21 +163,18 @@ sub-metrics; the composite is the mean of the four axes):
 | PowerShell | 5.9 | 6.4 | 0.0 | 0.0 | 5.0 | 0.0 | 0.0 | **2.2** |
 | Bash / Zsh / Fish | 3.6 | 2.6 | 0.0 | 0.0 | 5.0 | 0.0 | 0.0 | **1.4** |
 
-### On honesty
-
-A 9.6-vs-1.4 gap deserves scrutiny, so here's exactly how it's scored:
+### How it's scored
 
 - **`tok` / `scal` / `saf`** are measured for *every* shell — relative token cost,
   output per-item scaling, and the gated fraction of dangerous blast radius.
-- **`det` / `rel` / `err` / `rev`** are measured on AetherShell's engine and treated as
-  a **structural capability** for the others (0 = absent). Traditional shells genuinely
-  lack byte-stable output, machine-branchable errors, and rollback — these aren't
-  rigged zeros, they're documented `✗`s in the capability matrices.
-- AetherShell's reliability is **7.0, not 10** — the measured corpus deliberately
-  includes failing programs, and we kept the honest number rather than rounding up.
+- **`det` / `rel` / `err` / `rev`** are measured on AetherShell's engine and a
+  **structural capability** for the others (0 = absent): traditional shells lack
+  byte-stable output, machine-branchable errors, and rollback — the documented `✗`s in
+  the reliability and safety capability matrices.
+- AetherShell's reliability is **7.0, not 10** — the measured corpus includes failing
+  programs by design, so the score reflects that.
 
-The gap reflects real capability differences, not weighting tricks. And because the
-whole thing runs in a small open-source crate, you don't have to take our word for it.
+Every number above runs in a small open-source crate, so it's reproducible.
 
 ---
 
