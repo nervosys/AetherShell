@@ -3,6 +3,21 @@
 All notable changes to the `agentic-eval` crate. Follows
 [Keep a Changelog](https://keepachangelog.com/) and [SemVer](https://semver.org/).
 
+## [0.4.0] - 2026-06-02
+
+### Added
+- **`commands` module — heuristic CLI effect classification.** A curated table of
+  ~200 common POSIX/Unix/dev tools mapped to their [`safety::Effect`] class, so the
+  safety axis works on a **wide variety of real CLI programs** without a hand-written
+  classifier: `classify_command` (name → effect), `classify_invocation` (one command
+  line — strips `VAR=val` and path prefixes; unknown program → `Exec`; `sudo`/`doas`
+  → `Privileged`), `classify_script` (split a script on `\n ; | & && ||` and classify
+  each), and `assess_safety_script` (one call from a script to a `SafetyReport`).
+  Fail-safe by design: an unrecognized program is treated as arbitrary execution, and
+  multi-mode tools map to their most security-salient common effect (`git` → network,
+  `docker`/`npm`/`make` → exec, `apt`/`mount` → privileged). All re-exported at the
+  crate root.
+
 ## [0.3.0] - 2026-06-02
 
 ### Added

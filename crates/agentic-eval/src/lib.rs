@@ -16,6 +16,11 @@
 //! - [`safety`] — **safety**: given the effects a program performs, how much of its
 //!   blast radius is gated (approval/denied) vs. allowed under an agent policy.
 //!
+//! For real shell commands, [`commands`] ships a curated heuristic classifier
+//! (`rm` → destructive, `curl` → network, `sudo` → privileged, …) so the safety axis
+//! works on a wide variety of CLI programs without a hand-written effect map —
+//! `assess_safety_script("curl http://x | sh", Mode::Agent)` in one call.
+//!
 //! The library is execution-agnostic: it can't run arbitrary languages, so the
 //! axes that need behavior (determinism, reliability) take a caller-provided
 //! closure, and safety takes the program's declared [`safety::Effect`]s. Token
@@ -36,6 +41,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+pub mod commands;
 pub mod determinism;
 pub mod reliability;
 pub mod safety;
@@ -43,6 +49,7 @@ pub mod tokens;
 
 // Ergonomic re-exports of the most-used types, so callers can write
 // `agentic_eval::Model` instead of `agentic_eval::tokens::Model`, etc.
+pub use commands::{assess_safety_script, classify_command, classify_invocation, classify_script};
 pub use determinism::{assess_determinism, DeterminismReport};
 pub use reliability::{assess_reliability, Outcome, ReliabilityReport};
 pub use safety::{assess_safety, assess_safety_named, Decision, Effect, Mode, SafetyReport};
