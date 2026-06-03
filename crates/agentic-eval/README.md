@@ -19,8 +19,8 @@ languages); safety takes the program's declared effects.
 
 - **OpenAI GPT-4** (`cl100k_base`) and **GPT-4o** (`o200k_base`) — *exact* with
   `--features real-tokens` (via `tiktoken-rs`), heuristic otherwise.
-- **Anthropic Claude** — a calibrated heuristic *approximation*; Anthropic ships no
-  offline tokenizer crate, so this is labeled an estimate, not an exact count.
+- **Anthropic Claude** — a heuristic *approximation*; Anthropic ships no offline
+  tokenizer crate, so this is labeled an estimate, not an exact count.
 - **Heuristic** — a labeled, dependency-free fallback.
 
 By default the crate pulls **zero heavy dependencies** (heuristic counts). Enable
@@ -57,6 +57,20 @@ assert_eq!(cost.input, 3);
 `AgentCost::total_over` amortizes the standing context once (the prompt-caching
 default); `total_standing_per_turn` is the no-caching upper bound. `safety::
 assess_safety_named` scores directly from operation names plus a classifier closure.
+
+## CLI programs & a self-describing ontology
+
+- The [`commands`](src/commands.rs) module ships a curated heuristic classifier for
+  ~200 common CLI tools (`rm` → destructive, `curl` → network, `sudo` → privileged,
+  …), so the safety axis works on real shell programs out of the box —
+  `assess_safety_script("curl http://x | sh", Mode::Agent)` in one call.
+  Unrecognized programs are treated as arbitrary execution (fail-safe).
+- The crate is **self-describing**: [`ontology`](src/ontology.rs) exposes a compact,
+  deterministic `manifest()` (axes, the effect taxonomy with per-mode policy
+  decisions, models, command count) and `describe("<name>")` to expand any entry —
+  the same progressive-disclosure pattern the library measures, so an agent can
+  discover the whole surface without reading these docs. `ontology()` returns the
+  full structured catalog (serde-serializable).
 
 ## Example
 
