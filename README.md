@@ -510,32 +510,39 @@ construction (locale/width/ANSI-variant text; unstructured errors).
 
 #### Composite scorecard (0–10)
 
-Rolling all four axes into one number — individual per-axis scores plus an
-equal-weight composite:
+Seven sub-metrics grouped into the four axes (each axis = mean of its sub-metrics,
+so the axes stay equal-weighted), then an axis-grouped composite:
 
-| Shell | token | determ | reliab | safety | **Composite** |
-|---|--:|--:|--:|--:|--:|
-| **AetherShell** | 10.0 | 10.0 | 7.0 | 10.0 | **9.2** |
-| Nushell | 7.1 | 0.0 | 0.0 | 0.0 | **1.8** |
-| PowerShell | 5.9 | 0.0 | 0.0 | 0.0 | **1.5** |
-| Bash / Zsh / Fish | 3.6 | 0.0 | 0.0 | 0.0 | **0.9** |
+| Shell | tok | scal | det | rel | err | saf | rev | **Composite** |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|
+| **AetherShell** | 10.0 | 10.0 | 10.0 | 7.0 | 10.0 | 10.0 | 10.0 | **9.6** |
+| Nushell | 7.1 | 6.4 | 0.0 | 0.0 | 5.0 | 0.0 | 0.0 | **2.3** |
+| PowerShell | 5.9 | 6.4 | 0.0 | 0.0 | 5.0 | 0.0 | 0.0 | **2.2** |
+| Bash / Zsh / Fish | 3.6 | 2.6 | 0.0 | 0.0 | 5.0 | 0.0 | 0.0 | **1.4** |
+
+Sub-metrics: **tok** total-token efficiency · **scal** output per-item efficiency ·
+**det** determinism · **rel** pass/actionable · **err** error actionability ·
+**saf** blast-radius gated · **rev** reversibility. Composite = mean of four axes:
+token `(tok+scal)/2`, determinism, reliability `(rel+err)/2`, safety `(saf+rev)/2`.
 
 Scoring rubric (transparent, not weighted to flatter):
 
-- **token** & **safety** are *measured for every shell* — token is a relative score
-  (cheapest = 10; AECON 10.0, Nushell 7.1, PowerShell 5.9, POSIX 3.6), safety is
-  `assess_safety`'s gated-blast-radius fraction (agent-mode A = 10.0 vs allow-all
-  F = 0.0).
-- **determ** & **reliab** are *measured on AetherShell's engine* and a **structural
-  capability** for the rest (present = 10 / absent = 0) — matching the capability
-  matrices above, where traditional shells are ✗ on byte-stable structured output
-  and branchable errors.
-- AetherShell's reliability is **7.0, not 10** — the measured corpus includes
-  intentional-failure programs, so the score is held honest rather than rounded up.
+- **tok / scal / saf** are *measured for every shell* — relative token efficiency and
+  per-item output scaling (cheapest/flattest = 10), and `assess_safety`'s gated-blast-
+  radius fraction (agent-mode = 10 vs allow-all = 0).
+- **det / rel / err / rev** are *measured on AetherShell's engine* and a **structural
+  capability** for the rest — traditional shells are ✗ on byte-stable output, branchable
+  results, and rollback. `err` = 5.0 for them (errors carry a message+location but no
+  machine code or fix); AetherShell's structured `E_BAD_ARG` (code+hint+location) = 10.
+- AetherShell's `rel` is **7.0, not 10** — the measured corpus includes intentional-
+  failure programs, so the score is held honest rather than rounded up.
 
-The 9.2-vs-0.9–1.8 gap reflects real capability differences (three of four axes are
-things traditional shells structurally lack in agent use), not weighting tricks.
-Reproduce: `cargo run --example shell_agentic_eval --features real-tokens`.
+Two further v0.6 metrics are reported as context (not folded into the composite):
+**exfiltration risk** (0.60 for a read+network task — *shell-invariant*; only AetherShell
+can bound it via gating + the `AETHER_NET_ALLOW` egress allowlist) and **prompt-cache**
+headroom (a 90%-stable prefix is ~4.1× cheaper over 20 turns — and deterministic output
+is the precondition). The 9.6-vs-1.4–2.3 gap reflects real capability differences, not
+weighting tricks. Reproduce: `cargo run --example shell_agentic_eval --features real-tokens`.
 
 ---
 

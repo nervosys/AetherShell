@@ -34,8 +34,9 @@ use aethershell::parser::parse_program;
 use aethershell::safety::SafetyError;
 
 use agentic_eval::{
-    assess_determinism, assess_reliability, assess_safety, evaluate_with, Effect, Mode, Outcome,
-    Program,
+    assess_cache, assess_determinism, assess_error_quality, assess_exfiltration,
+    assess_reliability, assess_reversibility, assess_safety, assess_scaling, evaluate_with, Effect,
+    ErrorQuality, Mode, Outcome, Program,
 };
 
 struct Variant {
@@ -352,13 +353,82 @@ fn shell_safety(shell: &str) -> agentic_eval::SafetyReport {
 }
 
 /// One shell's normalized per-axis scores (0–1) and their composite.
+/// Per-shell normalized sub-scores (0–1) grouped into the four axes, plus the
+/// axis-grouped composite. Token and reliability/safety axes each blend two
+/// sub-metrics (the base measure + a v0.6 metric) so each *axis* stays equal-weighted.
 struct AxisScore {
     shell: &'static str,
-    token: f64,
-    determ: f64,
-    reliab: f64,
-    safety: f64,
-    composite: f64,
+    token: f64,         // token axis: relative total-token efficiency
+    scaling: f64,       // token axis: relative output per-item efficiency (v0.6)
+    determ: f64,        // determinism axis
+    reliab: f64,        // reliability axis: pass/actionable
+    err_quality: f64,   // reliability axis: graded error actionability (v0.6)
+    safety: f64,        // safety axis: dangerous blast-radius gated
+    reversibility: f64, // safety axis: dangerous effects with rollback (v0.6)
+    composite: f64,     // mean of the four axis scores
+}
+
+impl AxisScore {
+    /// The four axis rollups (token, determinism, reliability, safety), each a mean
+    /// of its sub-metrics.
+    fn axes(&self) -> [f64; 4] {
+        [
+            (self.token + self.scaling) / 2.0,
+            self.determ,
+            (self.reliab + self.err_quality) / 2.0,
+            (self.safety + self.reversibility) / 2.0,
+        ]
+    }
+}
+
+/// A reliably-parseable `n`-row file listing for `shell`, mirroring the corpus: AECON
+/// (AetherShell), compact JSON (Nushell/PowerShell), `ls -l` text (POSIX shells).
+/// Drives the per-item output-scaling measurement.
+fn listing_rows(shell: &str, n: usize) -> String {
+    match shell {
+        "aethershell" => aecon_rows(n),
+        "nushell" => {
+            let mut s = String::from("[");
+            for i in 0..n {
+                if i > 0 {
+                    s.push(',');
+                }
+                s.push_str(&format!(
+                    r#"{{"name":"file{i}.rs","size":{}}}"#,
+                    1000 + i * 7
+                ));
+            }
+            s.push(']');
+            s
+        }
+        "powershell" => pwsh_json_rows(n),
+        _ => {
+            // bash / zsh / fish: ls -l text (no structured mode).
+            let mut s = String::new();
+            for i in 0..n {
+                if i > 0 {
+                    s.push('\n');
+                }
+                s.push_str(&format!(
+                    "-rw-r--r-- 1 user staff {} Jun  1 10:23 ./src/file{i}.rs",
+                    1000 + i * 7
+                ));
+            }
+            s
+        }
+    }
+}
+
+/// Marginal output tokens per additional row for `shell` (the scaling slope).
+fn shell_per_item(shell: &str) -> f64 {
+    assess_scaling(&[10, 50, 100], |n| listing_rows(shell, n), est_token_count).per_item
+}
+
+/// Reversibility score for `shell`: AetherShell's destructive ops are rollback-backed
+/// (transactions / plan-apply); traditional shells' `rm`/`dd` are irreversible.
+fn shell_reversibility(shell: &str) -> f64 {
+    let reversible = shell == "aethershell";
+    assess_reversibility(&[(Effect::Destructive, reversible)]).score
 }
 
 fn main() {
@@ -494,45 +564,75 @@ fn main() {
          \x20  text output, and unstructured errors an agent can't branch on.)"
     );
 
-    // ── Four-axis scorecard: individual normalized scores (0–1) + composite ──
-    // Rubric (all 0–1, higher is better):
-    //   token       relative — cheapest shell = 1.0, others = min/theirs (measured, all).
-    //   determ      1.0 if the shell emits byte-stable structured output an agent can
-    //               diff/cache (AECON + --deterministic, measured above); 0.0 for
-    //               locale/width/ANSI-variant text (structural, by construction).
-    //   reliab      AetherShell's measured (pass+actionable)/2; 0.0 for shells whose
-    //               results/errors are unstructured (no branchable failures).
-    //   safety      assess_safety .score — fraction of dangerous blast radius gated
-    //               (measured, all): agent-mode gating vs allow-all.
-    // Composite = equal-weight mean. token & safety are measured for every shell;
-    // determinism & reliability are measured for AetherShell and a structural
-    // capability (present=1 / absent=0) for the rest — matching the README matrices.
+    // ── Four-axis scorecard (0–1, shown ×10) — enriched with agentic-eval v0.6 ──
+    // Each axis is the mean of its sub-metrics, so the four axes stay equal-weighted:
+    //   token   = relative total-token efficiency  + relative output per-item scaling
+    //   determ  = byte-stable structured output (AECON + --deterministic)
+    //   reliab  = pass/actionable rate             + graded error actionability
+    //   safety  = dangerous blast-radius gated     + dangerous-effect reversibility
+    // tok/scal/saf are measured for every shell; det/rel/err/rev are measured on
+    // AetherShell's engine and a structural capability for the rest (per the README).
     let min_tokens = SHELLS
         .iter()
         .map(|s| shell_tokens(s))
         .min()
         .unwrap_or(1)
         .max(1) as f64;
+    let best_per_item = SHELLS
+        .iter()
+        .map(|s| shell_per_item(s))
+        .fold(f64::INFINITY, f64::min)
+        .max(1e-9);
     let ae_det = if det.deterministic { 1.0 } else { 0.0 };
     let ae_rel = (rel.pass_rate + rel.actionable_rate) / 2.0;
+    // AetherShell's graded error actionability, measured over representative argument
+    // errors (the dominant agent failure mode) — each a structured E_BAD_ARG.
+    let ae_errq = assess_error_quality(&["env(123)", "len()", r#"upper(1,2,3)"#], |code| {
+        let mut env = Env::new();
+        match parse_program(code).and_then(|s| eval_program(&s, &mut env)) {
+            Err(e) if e.downcast_ref::<SafetyError>().is_some() => ErrorQuality {
+                has_code: true, // E_BAD_ARG — stable, branchable
+                has_message: true,
+                has_location: true, // names the builtin/argument
+                has_fix: true,      // carries a `hint`
+            },
+            Err(_) => ErrorQuality {
+                has_message: true, // prose only
+                ..Default::default()
+            },
+            Ok(_) => ErrorQuality::default(),
+        }
+    })
+    .mean_score;
+
     let mut scored: Vec<AxisScore> = SHELLS
         .iter()
         .map(|s| {
             let token = min_tokens / shell_tokens(s) as f64;
-            let (determ, reliab) = if *s == "aethershell" {
-                (ae_det, ae_rel)
+            let scaling = best_per_item / shell_per_item(s).max(1e-9);
+            // Traditional shells: no byte-stable output, no branchable results; errors
+            // are prose with (at best) a message+location — no machine code or fix.
+            let (determ, reliab, err_quality) = if *s == "aethershell" {
+                (ae_det, ae_rel, ae_errq)
             } else {
-                (0.0, 0.0)
+                (0.0, 0.0, 0.5)
             };
             let safety = shell_safety(s).score;
-            AxisScore {
+            let reversibility = shell_reversibility(s);
+            let mut sc = AxisScore {
                 shell: s,
                 token,
+                scaling,
                 determ,
                 reliab,
+                err_quality,
                 safety,
-                composite: (token + determ + reliab + safety) / 4.0,
-            }
+                reversibility,
+                composite: 0.0,
+            };
+            let axes = sc.axes();
+            sc.composite = axes.iter().sum::<f64>() / axes.len() as f64;
+            sc
         })
         .collect();
     scored.sort_by(|a, b| {
@@ -541,26 +641,49 @@ fn main() {
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    println!("\nFour-axis scorecard — individual scores (0-10) and composite:");
+    println!("\nFour-axis scorecard (0-10) — sub-metrics + axis-grouped composite:");
     println!(
-        "  {:<13}{:>7}{:>9}{:>9}{:>8} | {:>10}",
-        "shell", "token", "determ", "reliab", "safety", "COMPOSITE"
+        "  {:<12}{:>5}{:>6}{:>6}{:>6}{:>6}{:>6}{:>6} | {:>9}",
+        "shell", "tok", "scal", "det", "rel", "err", "saf", "rev", "COMPOSITE"
     );
-    println!("  {}", "-".repeat(59));
+    println!("  {}", "-".repeat(68));
     for r in &scored {
         println!(
-            "  {:<13}{:>7.1}{:>9.1}{:>9.1}{:>8.1} | {:>10.1}",
+            "  {:<12}{:>5.1}{:>6.1}{:>6.1}{:>6.1}{:>6.1}{:>6.1}{:>6.1} | {:>9.1}",
             r.shell,
             r.token * 10.0,
+            r.scaling * 10.0,
             r.determ * 10.0,
             r.reliab * 10.0,
+            r.err_quality * 10.0,
             r.safety * 10.0,
+            r.reversibility * 10.0,
             r.composite * 10.0
         );
     }
     println!(
-        "  (0-10 scale. token & safety measured for every shell; determinism & reliability\n\
-         \x20  measured for AetherShell, structural capability for the rest. Equal-weight mean.)"
+        "  (tok=total-token eff, scal=output per-item eff, det=determinism, rel=pass/actionable,\n\
+         \x20  err=error actionability, saf=blast-radius gated, rev=reversibility. Composite = mean\n\
+         \x20  of 4 axes: token=(tok+scal)/2, determinism, reliab=(rel+err)/2, safety=(saf+rev)/2.\n\
+         \x20  tok/scal/saf measured for every shell; det/rel/err/rev measured for AetherShell,\n\
+         \x20  structural capability for the rest.)"
+    );
+
+    // v0.6 context metrics (not folded into the composite): task-level exfiltration
+    // exposure is shell-invariant for the same effects; prompt-cache headroom depends
+    // on deterministic output, which only AetherShell guarantees.
+    let exfil = assess_exfiltration(&[Effect::ReadLocal, Effect::Network]);
+    let cache = assess_cache(900, 100, 20); // 90%-stable prefix over a 20-turn session
+    println!("\nv0.6 context metrics:");
+    println!(
+        "  exfiltration : a read+network task exposes risk {:.2} for ANY shell; only AetherShell\n\
+         \x20  can bound it (agent-mode gating + AETHER_NET_ALLOW egress allowlist).",
+        exfil.risk
+    );
+    println!(
+        "  prompt-cache : a 90%-stable prefix over {} turns is {:.1}x cheaper under prompt\n\
+         \x20  caching — and byte-stable (deterministic) output is the precondition for it.",
+        cache.turns, cache.savings_ratio
     );
 
     println!(
