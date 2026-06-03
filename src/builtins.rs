@@ -3969,8 +3969,14 @@ mod egress_tests {
 
     #[test]
     fn url_host_extraction() {
-        assert_eq!(url_host("https://api.example.com/v1/x?q=1").as_deref(), Some("api.example.com"));
-        assert_eq!(url_host("http://user:pw@Host.COM:8080/p").as_deref(), Some("host.com"));
+        assert_eq!(
+            url_host("https://api.example.com/v1/x?q=1").as_deref(),
+            Some("api.example.com")
+        );
+        assert_eq!(
+            url_host("http://user:pw@Host.COM:8080/p").as_deref(),
+            Some("host.com")
+        );
         assert_eq!(url_host("not a url").as_deref(), None);
     }
 
@@ -3981,7 +3987,10 @@ mod egress_tests {
         // Exact host and subdomain match.
         assert!(egress_allowed("https://example.com/x", "example.com"));
         assert!(egress_allowed("https://api.example.com/x", "example.com"));
-        assert!(egress_allowed("https://a.b.example.com/x", "foo.org; example.com"));
+        assert!(egress_allowed(
+            "https://a.b.example.com/x",
+            "foo.org; example.com"
+        ));
         // Non-allowed host denied; a lookalike suffix is NOT a subdomain match.
         assert!(!egress_allowed("https://evil.com/x", "example.com"));
         assert!(!egress_allowed("https://notexample.com/x", "example.com"));
@@ -26545,6 +26554,7 @@ fn bi_crypto_hash(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             _ => None,
         })
         .unwrap_or_else(|| "sha256".to_string());
+    crate::safety::require_fips_hash(&algo)?;
 
     let hash_cmd = match algo.as_str() {
         "md5" => "md5sum",
@@ -26618,6 +26628,7 @@ fn bi_crypto_hash_file(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
             _ => None,
         })
         .unwrap_or_else(|| "sha256".to_string());
+    crate::safety::require_fips_hash(&algo)?;
 
     #[cfg(target_os = "windows")]
     {
@@ -26681,6 +26692,7 @@ fn bi_crypto_hmac(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             _ => None,
         })
         .unwrap_or_else(|| "sha256".to_string());
+    crate::safety::require_fips_hash(&algo)?;
 
     #[cfg(target_os = "windows")]
     {
@@ -37969,6 +37981,7 @@ pub fn bi_file_checksum(args: Vec<Value>, _input: Option<Value>) -> Result<Value
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(anyhow!("file_checksum: expected algorithm (md5/sha256)")),
     };
+    crate::safety::require_fips_hash(&algo)?;
     let path = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(anyhow!("file_checksum: expected file path")),

@@ -272,7 +272,10 @@ impl RegistryClient {
                     hasher.update(&bytes);
                     format!("{:x}", hasher.finalize()) == agent.checksum
                 }
-                32 => format!("{:x}", md5::compute(&bytes)) == agent.checksum,
+                // Legacy MD5 — not accepted under FIPS-strict mode (non-approved).
+                32 if !crate::safety::fips_enabled() => {
+                    format!("{:x}", md5::compute(&bytes)) == agent.checksum
+                }
                 _ => false,
             };
             if !checksum_ok {

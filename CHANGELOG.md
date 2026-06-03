@@ -23,7 +23,10 @@ Hardening from a security audit (CVE / NIST FIPS / MITRE ATT&CK / CMMC 2.0):
 - **Network egress allowlist** — `AETHER_NET_ALLOW=<hosts>` restricts all network
   builtins to allowed hosts/subdomains (`E_EGRESS_DENIED` otherwise); opt-in, so
   default behavior is unchanged. Anti-exfiltration control (ATT&CK T1041).
-- Crypto/FIPS posture and the path to a FIPS-validated build documented in
+- **FIPS-strict mode** — `AETHER_FIPS=1` enforces approved-algorithms-only: the hash
+  builtins reject MD5/SHA-1 (`E_FIPS_DISALLOWED`) and integrity verification fails
+  closed on legacy MD5 digests (only SHA-256 accepted). Crypto/FIPS posture and the
+  remaining path to a FIPS-140-*validated* build documented in
   `docs/security/CRYPTO_AND_FIPS.md`.
 
 ## [1.5.0] - 2026-06-02

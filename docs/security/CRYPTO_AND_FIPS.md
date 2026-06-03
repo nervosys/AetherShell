@@ -29,6 +29,22 @@ Companion to the security audit (CVE / NIST FIPS / MITRE ATT&CK / CMMC 2.0).
 - **0 dependency CVEs** (`cargo audit`) after patch bumps; the TLS stack
   (`rustls-webpki`) cert-path-validation flaws are remediated.
 
+## Implemented: app-layer FIPS-strict mode (`AETHER_FIPS`)
+
+Set **`AETHER_FIPS=1`** (or `on`/`true`) to enforce *approved-algorithms-only* at the
+application layer (`safety::fips_enabled` / `safety::require_fips_hash`):
+
+- The hash builtins (`crypto_hash`, `file_checksum`, and the file-hash utilities)
+  **refuse MD5 and SHA-1**, returning `E_FIPS_DISALLOWED`; only the SHA-2 family is
+  permitted.
+- Integrity verification **fails closed** on legacy MD5 digests — `persistence.rs`
+  checkpoint restore and `marketplace.rs` package verification reject the 32-hex MD5
+  path in FIPS mode (only 64-hex SHA-256 is accepted).
+
+This enforces NIST's "approved algorithms only" requirement. It does **not** by
+itself make the underlying implementations FIPS-140-*validated modules* — that still
+requires the build below.
+
 ## FIPS 140-3 status — NOT validated (algorithms approved, modules not)
 
 AetherShell uses FIPS-**approved algorithms** (SHA-2 family) but **not
@@ -50,8 +66,8 @@ default (it requires a FIPS-validated C toolchain and changes CI):
    ideally behind a `fips` cargo feature.
 2. **DRBG:** ensure randomness flows from the validated module's DRBG for any
    security-relevant key/nonce generation.
-3. **Disallow legacy algorithms:** remove SHA-1 and MD5 from the security path
-   entirely (the file-hash *utility* options may stay, clearly labeled non-FIPS).
+3. **Disallow legacy algorithms:** ✅ available now via `AETHER_FIPS=1` (rejects
+   MD5/SHA-1 and fails closed on legacy MD5 digests). Set it for regulated runs.
 4. **Document the validation boundary** and the module certificate in the
    deployment's System Security Plan (SSP).
 

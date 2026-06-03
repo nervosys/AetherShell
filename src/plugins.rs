@@ -271,10 +271,12 @@ impl DynamicPlugin {
             .map(|r| r.trim())
             .filter(|r| !r.is_empty())
             .any(|root| {
-                let r = std::fs::canonicalize(root).unwrap_or_else(|_| std::path::PathBuf::from(root));
+                let r =
+                    std::fs::canonicalize(root).unwrap_or_else(|_| std::path::PathBuf::from(root));
                 canon.starts_with(&r)
             });
-        !(agent_mode && !allowed)
+        // Permitted unless we're in agent mode without an allowlist match.
+        allowed || !agent_mode
     }
 
     /// Security gate for native plugin loading, reading the runtime policy from the

@@ -1259,7 +1259,9 @@ fn integrity_checksum(data: &str) -> String {
 fn verify_integrity(data: &str, stored: &str) -> bool {
     match stored.len() {
         64 => integrity_checksum(data) == stored,
-        32 => format!("{:x}", md5::compute(data)) == stored,
+        // Legacy MD5 — accepted only when not in FIPS-strict mode (MD5 is not a
+        // FIPS-approved algorithm, so FIPS mode fails closed on a legacy digest).
+        32 if !crate::safety::fips_enabled() => format!("{:x}", md5::compute(data)) == stored,
         _ => false,
     }
 }

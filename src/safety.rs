@@ -92,6 +92,45 @@ impl Effect {
     }
 }
 
+/// Whether FIPS-strict mode is active (`AETHER_FIPS` ∈ {`1`,`on`,`true`}). In FIPS
+/// mode, non-FIPS-approved cryptographic algorithms (MD5, SHA-1) are refused, so any
+/// security-relevant operation uses only FIPS-approved algorithms (SHA-2 family).
+/// Note: this enforces *approved-algorithm-only* at the application layer; it does
+/// not by itself make the underlying crypto a FIPS-140-*validated* module (see
+/// `docs/security/CRYPTO_AND_FIPS.md`).
+pub fn fips_enabled() -> bool {
+    std::env::var("AETHER_FIPS")
+        .map(|v| {
+            let v = v.trim();
+            v.eq_ignore_ascii_case("1")
+                || v.eq_ignore_ascii_case("on")
+                || v.eq_ignore_ascii_case("true")
+        })
+        .unwrap_or(false)
+}
+
+/// Reject a non-FIPS-approved hash algorithm when FIPS mode is active. Returns an
+/// `E_FIPS_DISALLOWED` error for `md5`/`sha1`; approved algorithms (and all calls
+/// when FIPS mode is off) pass through. Pure aside from reading the FIPS flag.
+pub fn require_fips_hash(algo: &str) -> anyhow::Result<()> {
+    if fips_enabled() && is_weak_hash(algo) {
+        return Err(anyhow::anyhow!(
+            "E_FIPS_DISALLOWED: hash algorithm '{}' is not FIPS-approved (AETHER_FIPS active); \
+             use sha256/sha384/sha512",
+            algo
+        ));
+    }
+    Ok(())
+}
+
+/// Whether `algo` names a non-FIPS-approved (legacy/broken) hash: MD5 or SHA-1.
+pub fn is_weak_hash(algo: &str) -> bool {
+    matches!(
+        algo.trim().to_ascii_lowercase().as_str(),
+        "md5" | "sha1" | "sha-1"
+    )
+}
+
 /// Best-effort classifier for a builtin name, used by the ontology and audit
 /// when an explicit [`Effect`] was not supplied at the call site. Conservative:
 /// known-dangerous names are classified precisely; unknown names default to
@@ -1342,6 +1381,24 @@ mod tests {
         assert_eq!(decide(Effect::Destructive, Mode::Human), Decision::Allow);
         assert_eq!(decide(Effect::Exec, Mode::Human), Decision::Allow);
         assert_eq!(decide(Effect::Privileged, Mode::Human), Decision::Allow);
+    }
+
+    #[test]
+    fn fips_mode_rejects_non_approved_hashes() {
+        // Pure classifier (no env).
+        assert!(is_weak_hash("md5") && is_weak_hash("MD5") && is_weak_hash("sha-1"));
+        assert!(!is_weak_hash("sha256") && !is_weak_hash("sha512"));
+
+        let _l = ENV_LOCK.lock().unwrap();
+        clear_env();
+        // FIPS off (default) → all algorithms pass through.
+        assert!(require_fips_hash("md5").is_ok());
+        // FIPS on → md5/sha1 refused, SHA-2 family allowed.
+        std::env::set_var("AETHER_FIPS", "1");
+        assert!(require_fips_hash("md5").is_err());
+        assert!(require_fips_hash("sha1").is_err());
+        assert!(require_fips_hash("sha256").is_ok());
+        std::env::remove_var("AETHER_FIPS");
     }
 
     #[test]
