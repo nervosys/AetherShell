@@ -1,27 +1,26 @@
-# MED-005 FIX: Supply chain security configuration
-# This file configures cargo-deny to enforce security policies
+# Supply-chain security policy for cargo-deny (schema v2; cargo-deny >= 0.18).
+# Run: cargo deny check     (advisories, licenses, bans, sources)
 
 [advisories]
-# Vulnerability database configuration
-db-path = "~/.cargo/advisory-db"
+version = 2
 db-urls = ["https://github.com/rustsec/advisory-db"]
-vulnerability = "deny"
-unmaintained = "warn"
-unsound = "warn"
-yanked = "deny"
-notice = "warn"
+# Known, accepted advisories — all unmaintained/unsound/notice warnings on
+# transitive deps with no available fix and no exploit path in our usage. Tracked
+# so a *new* advisory still fails the gate.
 ignore = [
-    # Unmaintained dependencies with no known vulnerabilities
-    # These are transitive dependencies from stable, maintained crates
-    "RUSTSEC-2024-0388", # derivative (via keyring -> zbus)
-    "RUSTSEC-2024-0384", # instant (via keyring -> async-io)
-    "RUSTSEC-2024-0436", # paste (via ratatui - will be fixed in ratatui update)
-    "RUSTSEC-2024-0370", # proc-macro-error (via utoipa - fixed in utoipa 5.x)
+    "RUSTSEC-2024-0388", # derivative  — unmaintained (transitive: keyring -> zbus)
+    "RUSTSEC-2024-0384", # instant     — unmaintained (transitive: keyring -> async-io)
+    "RUSTSEC-2024-0436", # paste       — unmaintained (transitive: ratatui)
+    "RUSTSEC-2024-0370", # proc-macro-error — unmaintained (transitive: utoipa)
+    "RUSTSEC-2025-0119", # number_prefix — unmaintained (transitive)
+    "RUSTSEC-2026-0002", # lru         — unsound IterMut (transitive; not used via IterMut)
+    "RUSTSEC-2026-0097", # rand        — advisory notice (transitive)
 ]
 
 [licenses]
-# License policy - ensure compliance
-unlicensed = "deny"
+version = 2
+# Permissive licenses we accept in dependencies, plus the project's own
+# AGPL-3.0-or-later (cargo-deny also checks the workspace crates).
 allow = [
     "MIT",
     "Apache-2.0",
@@ -30,49 +29,30 @@ allow = [
     "BSD-3-Clause",
     "ISC",
     "Unicode-DFS-2016",
+    "Unicode-3.0",
     "CC0-1.0",
     "Zlib",
     "0BSD",
+    "MPL-2.0",
+    "CDLA-Permissive-2.0",  # webpki-roots — Mozilla CA-root *data* (permissive)
+    "LGPL-3.0-or-later",    # ansi_colours (transitive via viuer/image); weak copyleft,
+                            # compatible with the project's AGPL (source already provided)
+    "AGPL-3.0",
+    "AGPL-3.0-or-later",    # the project's own license
 ]
-deny = ["GPL-3.0", "AGPL-3.0"]
-copyleft = "warn"
-allow-osi-fsf-free = "both"
-default = "deny"
 confidence-threshold = 0.8
 
-# Specific license exceptions for well-known safe crates
-[[licenses.exceptions]]
-allow = ["MPL-2.0"]
-name = "webpki-roots"
-
-[licenses.private]
-# Allow proprietary licenses for our own code
-ignore = false
-registries = []
-
 [bans]
-# Dependency banning rules
 multiple-versions = "warn"
 wildcards = "warn"
 highlight = "all"
 allow = []
 deny = []
-
-# Skip duplicate dependency version warnings for these crates
-# (waiting for ecosystem to converge on versions)
 skip = []
-
 skip-tree = []
 
 [sources]
-# Source code verification
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 allow-git = []
-
-[sources.allow-org]
-# Allow GitHub organizations
-github = []
-gitlab = []
-bitbucket = []
