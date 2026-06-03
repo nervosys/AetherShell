@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+Hardening from a security audit (CVE / NIST FIPS / MITRE ATT&CK / CMMC 2.0):
+- **0 dependency CVEs** — patched `quinn-proto` (HIGH QUIC DoS), `rustls-webpki`
+  (4 TLS cert-path-validation flaws), and `tar` (symlink chmod / PAX); repaired the
+  `cargo-deny` supply-chain gate (was unparseable under cargo-deny ≥0.18, and denied
+  the project's own AGPL license).
+- **SHA-256 integrity** (was MD5, collision-broken) for checkpoint/state integrity
+  (`persistence.rs`) and package-download verification (`marketplace.rs`); legacy MD5
+  digests still read for backward compatibility, never written.
+- **Native plugin loader gated** — `DynamicPlugin::load` is now default-deny in agent
+  mode (`AETHER_MODE=agent`) unless allowlisted via `AETHER_PLUGIN_ALLOW=<dirs>`;
+  `AETHER_PLUGINS=off` is a kill switch. Closes a native-code-execution surface
+  (ATT&CK T1129/T1574).
+- **Network egress allowlist** — `AETHER_NET_ALLOW=<hosts>` restricts all network
+  builtins to allowed hosts/subdomains (`E_EGRESS_DENIED` otherwise); opt-in, so
+  default behavior is unchanged. Anti-exfiltration control (ATT&CK T1041).
+- Crypto/FIPS posture and the path to a FIPS-validated build documented in
+  `docs/security/CRYPTO_AND_FIPS.md`.
+
 ## [1.5.0] - 2026-06-02
 
 Token-efficiency release. Backward-compatible; all additions plus one default change
