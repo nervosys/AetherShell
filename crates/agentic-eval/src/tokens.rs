@@ -332,6 +332,162 @@ pub fn rank_with<F: Fn(&str) -> usize>(
     ranked
 }
 
+/// How a program's **output** token cost grows with result size — the curve that
+/// matters at agent scale, not a single-size sample. Fit from samples at several
+/// sizes: a marginal `per_item` cost (slope) and a `fixed_overhead` (intercept).
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+#[derive(Debug, Clone)]
+pub struct ScalingReport {
+    /// The `(size, output_tokens)` samples measured.
+    pub samples: Vec<(usize, usize)>,
+    /// Marginal tokens per additional item (least-squares slope); ~0 means O(1).
+    pub per_item: f64,
+    /// Fixed output overhead independent of size (intercept; header/framing).
+    pub fixed_overhead: f64,
+    /// True iff output is effectively constant-size (`per_item` below ~0.5 tok/item).
+    pub is_constant: bool,
+}
+
+/// Ordinary least-squares `(slope, intercept)` for `(x, y)` points. Returns
+/// `(0, mean_y)` when `x` has no variation, `(0, 0)` for an empty set.
+fn least_squares(points: &[(usize, usize)]) -> (f64, f64) {
+    let n = points.len() as f64;
+    if n == 0.0 {
+        return (0.0, 0.0);
+    }
+    let sx: f64 = points.iter().map(|&(x, _)| x as f64).sum();
+    let sy: f64 = points.iter().map(|&(_, y)| y as f64).sum();
+    let sxx: f64 = points.iter().map(|&(x, _)| (x as f64) * (x as f64)).sum();
+    let sxy: f64 = points.iter().map(|&(x, y)| (x as f64) * (y as f64)).sum();
+    let denom = n * sxx - sx * sx;
+    if denom.abs() < f64::EPSILON {
+        return (0.0, sy / n);
+    }
+    let slope = (n * sxy - sx * sy) / denom;
+    let intercept = (sy - slope * sx) / n;
+    (slope, intercept)
+}
+
+/// Measure output-token scaling: render the program's output at each of `sizes`
+/// items, count tokens with `count`, and fit a line. `produce(n)` returns the
+/// representative output for `n` result items.
+pub fn assess_scaling<P, C>(sizes: &[usize], produce: P, count: C) -> ScalingReport
+where
+    P: Fn(usize) -> String,
+    C: Fn(&str) -> usize,
+{
+    let samples: Vec<(usize, usize)> = sizes.iter().map(|&n| (n, count(&produce(n)))).collect();
+    let (per_item, fixed_overhead) = least_squares(&samples);
+    ScalingReport {
+        is_constant: per_item.abs() < 0.5,
+        per_item,
+        fixed_overhead,
+        samples,
+    }
+}
+
+impl std::fmt::Display for ScalingReport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{:.2} tok/item + {:.0} fixed{}",
+            self.per_item,
+            self.fixed_overhead,
+            if self.is_constant { " (≈O(1))" } else { "" }
+        )
+    }
+}
+
+/// Default prompt-cache pricing multiplier for *writing* the cache (Anthropic-style):
+/// 1.25× the base token price.
+pub const CACHE_WRITE_MULT: f64 = 1.25;
+/// Default prompt-cache pricing multiplier for a cache *read*: 0.1× the base price.
+pub const CACHE_READ_MULT: f64 = 0.1;
+
+/// How much a representation benefits from API **prompt-caching**: the per-turn
+/// prompt splits into a stable, cacheable prefix and a variable remainder. With
+/// caching the prefix is paid once at write price and thereafter at the cheap read
+/// price — so a representation with a large stable prefix is far cheaper per session.
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+#[derive(Debug, Clone)]
+pub struct CacheReport {
+    /// Tokens in the stable, cache-eligible prefix.
+    pub prefix: usize,
+    /// Tokens in the variable (non-cacheable) remainder of each turn's prompt.
+    pub variable: usize,
+    /// Session length modeled.
+    pub turns: usize,
+    /// Fraction of the per-turn prompt that is cacheable.
+    pub cacheable_ratio: f64,
+    /// Cost with no caching: `(prefix + variable) × turns`.
+    pub cost_uncached: usize,
+    /// Cost with prompt caching: prefix written once (×1.25), read on later turns
+    /// (×0.1), plus the variable remainder every turn.
+    pub cost_cached: usize,
+    /// `cost_uncached / cost_cached` (≥ 1.0): how many times cheaper caching is.
+    pub savings_ratio: f64,
+}
+
+/// Model prompt-cache savings for a `prefix`/`variable` token split over `turns`,
+/// using the default [`CACHE_WRITE_MULT`]/[`CACHE_READ_MULT`] multipliers.
+pub fn assess_cache(prefix: usize, variable: usize, turns: usize) -> CacheReport {
+    let turns = turns.max(1);
+    let t = turns as f64;
+    let (p, v) = (prefix as f64, variable as f64);
+    let cost_uncached = ((p + v) * t).round() as usize;
+    let cached = p * CACHE_WRITE_MULT + p * CACHE_READ_MULT * (t - 1.0) + v * t;
+    let cost_cached = (cached.round() as usize).max(1);
+    let total = (prefix + variable).max(1) as f64;
+    CacheReport {
+        prefix,
+        variable,
+        turns,
+        cacheable_ratio: p / total,
+        cost_uncached,
+        cost_cached,
+        savings_ratio: cost_uncached as f64 / cost_cached as f64,
+    }
+}
+
+impl std::fmt::Display for CacheReport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "cacheable {:.0}% → {} vs {} over {} turns ({:.2}x cheaper)",
+            self.cacheable_ratio * 100.0,
+            self.cost_cached,
+            self.cost_uncached,
+            self.turns,
+            self.savings_ratio
+        )
+    }
+}
+
+/// Tokens in the longest common *character* prefix shared by every prompt in
+/// `prompts` — an approximation of the cache-eligible region across turns, counted
+/// with `count`. Empty input or no shared prefix → 0.
+pub fn cacheable_prefix_tokens<C: Fn(&str) -> usize>(prompts: &[&str], count: C) -> usize {
+    let mut prefix: Vec<char> = match prompts.first() {
+        Some(s) => s.chars().collect(),
+        None => return 0,
+    };
+    for p in &prompts[1..] {
+        let mut n = 0;
+        for (a, b) in prefix.iter().zip(p.chars()) {
+            if *a == b {
+                n += 1;
+            } else {
+                break;
+            }
+        }
+        prefix.truncate(n);
+        if prefix.is_empty() {
+            break;
+        }
+    }
+    count(&prefix.into_iter().collect::<String>())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -473,5 +629,55 @@ mod tests {
         ];
         let ranked = rank_with(&progs, |s| s.split_whitespace().count(), 1);
         assert_eq!(ranked[0].0, 1); // "short" is cheapest
+    }
+
+    #[test]
+    fn scaling_fits_per_item_slope_and_overhead() {
+        // Output = a 3-word header + 2 words per item → slope 2, intercept 3 (words).
+        let produce = |n: usize| {
+            let mut s = String::from("name size kind");
+            for _ in 0..n {
+                s.push_str(" x y");
+            }
+            s
+        };
+        let words = |s: &str| s.split_whitespace().count();
+        let r = assess_scaling(&[0, 10, 50, 100], produce, words);
+        assert!((r.per_item - 2.0).abs() < 1e-6, "per_item {}", r.per_item);
+        assert!(
+            (r.fixed_overhead - 3.0).abs() < 1e-6,
+            "fixed {}",
+            r.fixed_overhead
+        );
+        assert!(!r.is_constant);
+
+        // Constant-size output → ~0 slope, flagged O(1).
+        let c = assess_scaling(&[1, 10, 100], |_| "fixed".to_string(), words);
+        assert!(c.is_constant && c.per_item.abs() < 0.5);
+    }
+
+    #[test]
+    fn cache_models_prefix_reuse_savings() {
+        // Big stable prefix (900) + small variable (100) over 10 turns.
+        let r = assess_cache(900, 100, 10);
+        assert!((r.cacheable_ratio - 0.9).abs() < 1e-9);
+        // Uncached pays the whole prompt every turn.
+        assert_eq!(r.cost_uncached, 10_000);
+        // Cached is much cheaper and the ratio reflects it.
+        assert!(r.cost_cached < r.cost_uncached);
+        assert!(r.savings_ratio > 2.0, "savings {}", r.savings_ratio);
+        // Single turn: caching can't help yet (write premium, no reads).
+        assert!(assess_cache(900, 100, 1).savings_ratio <= 1.0);
+    }
+
+    #[test]
+    fn cacheable_prefix_is_the_longest_common_prefix() {
+        let prompts = ["SYSTEM: tools…\nturn 1 do A", "SYSTEM: tools…\nturn 2 do B"];
+        let words = |s: &str| s.split_whitespace().count();
+        // Shared prefix is "SYSTEM: tools…\nturn " → 3 words.
+        assert_eq!(cacheable_prefix_tokens(&prompts, words), 3);
+        // No shared prefix → 0.
+        assert_eq!(cacheable_prefix_tokens(&["abc", "xyz"], words), 0);
+        assert_eq!(cacheable_prefix_tokens(&[], words), 0);
     }
 }

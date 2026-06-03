@@ -287,6 +287,117 @@ pub fn assess_safety_named<F: Fn(&str) -> Option<Effect>>(
     assess_safety(&effects, mode)
 }
 
+/// How much of a program's *dangerous* blast radius is **reversible** — backed by an
+/// undo/rollback (transaction, trash, snapshot) rather than permanent. Gating (see
+/// [`assess_safety`]) bounds *whether* a dangerous effect runs; reversibility bounds
+/// *the damage if it does*. Together they describe the real recoverable blast radius.
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+#[derive(Debug, Clone)]
+pub struct ReversibilityReport {
+    /// Number of dangerous effects considered.
+    pub dangerous: usize,
+    /// Dangerous effects that are reversible (an undo/rollback exists).
+    pub reversible: usize,
+    /// Dangerous effects with no undo path.
+    pub irreversible: usize,
+    /// Fraction of dangerous effects that are reversible (1.0 if none are dangerous).
+    pub score: f64,
+    /// True iff every dangerous effect is reversible — the blast radius is recoverable.
+    pub recoverable: bool,
+}
+
+/// Assess reversibility from `(effect, reversible)` pairs — each operation's effect
+/// class plus whether it has an undo/rollback. Only dangerous effects count toward
+/// the score (a pure read is trivially safe regardless of "reversibility").
+pub fn assess_reversibility(ops: &[(Effect, bool)]) -> ReversibilityReport {
+    let mut dangerous = 0usize;
+    let mut reversible = 0usize;
+    for &(effect, rev) in ops {
+        if effect.is_dangerous() {
+            dangerous += 1;
+            if rev {
+                reversible += 1;
+            }
+        }
+    }
+    let irreversible = dangerous - reversible;
+    let score = if dangerous == 0 {
+        1.0
+    } else {
+        reversible as f64 / dangerous as f64
+    };
+    ReversibilityReport {
+        dangerous,
+        reversible,
+        irreversible,
+        score,
+        recoverable: irreversible == 0,
+    }
+}
+
+impl std::fmt::Display for ReversibilityReport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "reversible {}/{} dangerous (score {:.2}, recoverable={})",
+            self.reversible, self.dangerous, self.score, self.recoverable
+        )
+    }
+}
+
+/// Whether a program has a data-**exfiltration path**: it both reads local/sensitive
+/// state (a *source*) and can send data out (a *sink* — network or arbitrary exec).
+/// The dangerous combination is source ∧ sink; either alone is not an exfil path.
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+#[derive(Debug, Clone)]
+pub struct ExfiltrationReport {
+    /// A data source is present (reads local state).
+    pub has_source: bool,
+    /// A network egress sink is present.
+    pub has_network: bool,
+    /// An arbitrary-exec sink is present (a covert channel).
+    pub has_exec: bool,
+    /// True iff both a source and at least one sink are present.
+    pub exposed: bool,
+    /// 0.0–1.0 exfiltration risk: 0 when no path exists; higher as the sink gets
+    /// more capable (network < exec < both).
+    pub risk: f64,
+}
+
+/// Assess data-exfiltration exposure from the effects a program performs — a read
+/// source ([`Effect::ReadLocal`]) combined with an egress sink ([`Effect::Network`]
+/// or [`Effect::Exec`]).
+pub fn assess_exfiltration(effects: &[Effect]) -> ExfiltrationReport {
+    let has_source = effects.contains(&Effect::ReadLocal);
+    let has_network = effects.contains(&Effect::Network);
+    let has_exec = effects.contains(&Effect::Exec);
+    let exposed = has_source && (has_network || has_exec);
+    let risk = match (exposed, has_network, has_exec) {
+        (false, _, _) => 0.0,
+        (true, true, true) => 1.0,
+        (true, _, true) => 0.9,
+        (true, true, false) => 0.6,
+        _ => 0.0,
+    };
+    ExfiltrationReport {
+        has_source,
+        has_network,
+        has_exec,
+        exposed,
+        risk,
+    }
+}
+
+impl std::fmt::Display for ExfiltrationReport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "exfiltration risk {:.2} (exposed={}; source={} network={} exec={})",
+            self.risk, self.exposed, self.has_source, self.has_network, self.has_exec
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -370,5 +481,48 @@ mod tests {
         assert!(r.bounded); // destructive + exec are approval-gated
         assert_eq!(r.approval_gated, 2);
         assert_eq!(r.grade, 'A');
+    }
+
+    #[test]
+    fn reversibility_scores_only_dangerous_effects() {
+        // A read + a reversible delete (rollback) + an irreversible exec.
+        let ops = [
+            (Effect::ReadLocal, false), // not dangerous → ignored
+            (Effect::Destructive, true),
+            (Effect::Exec, false),
+        ];
+        let r = assess_reversibility(&ops);
+        assert_eq!(r.dangerous, 2);
+        assert_eq!(r.reversible, 1);
+        assert_eq!(r.irreversible, 1);
+        assert_eq!(r.score, 0.5);
+        assert!(!r.recoverable);
+
+        // All dangerous effects reversible → recoverable, score 1.0.
+        let ok = assess_reversibility(&[(Effect::Destructive, true), (Effect::Process, true)]);
+        assert!(ok.recoverable && ok.score == 1.0);
+        // No dangerous effects → vacuously recoverable.
+        assert_eq!(assess_reversibility(&[(Effect::Pure, false)]).score, 1.0);
+    }
+
+    #[test]
+    fn exfiltration_needs_both_source_and_sink() {
+        // Read + network → exposed (network sink).
+        let r = assess_exfiltration(&[Effect::ReadLocal, Effect::Network]);
+        assert!(r.exposed && r.risk == 0.6);
+        // Read + exec → higher risk.
+        assert_eq!(
+            assess_exfiltration(&[Effect::ReadLocal, Effect::Exec]).risk,
+            0.9
+        );
+        // Read + network + exec → max risk.
+        assert_eq!(
+            assess_exfiltration(&[Effect::ReadLocal, Effect::Network, Effect::Exec]).risk,
+            1.0
+        );
+        // Source alone or sink alone → no path.
+        assert!(!assess_exfiltration(&[Effect::ReadLocal]).exposed);
+        assert!(!assess_exfiltration(&[Effect::Network]).exposed);
+        assert_eq!(assess_exfiltration(&[Effect::Network]).risk, 0.0);
     }
 }

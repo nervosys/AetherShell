@@ -3,6 +3,29 @@
 All notable changes to the `agentic-eval` crate. Follows
 [Keep a Changelog](https://keepachangelog.com/) and [SemVer](https://semver.org/).
 
+## [0.6.0] - 2026-06-03
+
+### Added
+Five new metrics across the cost/reliability/safety axes (each: typed report,
+`Display`, `serde`, ontology entry, tests):
+- **Token cost — output scaling** (`assess_scaling`, `ScalingReport`): least-squares
+  fit of output tokens vs result size → marginal `per_item` cost + `fixed_overhead`;
+  flags O(1) output. The curve that matters at agent scale, not a single sample.
+- **Token cost — prompt-cache efficiency** (`assess_cache`, `CacheReport`,
+  `cacheable_prefix_tokens`): models API prompt-caching — a stable prefix paid once
+  at write price (×1.25) then read price (×0.1) — reporting `cacheable_ratio` and the
+  session savings ratio.
+- **Reliability — graded error actionability** (`assess_error_quality`,
+  `ErrorQuality`/`ErrorQualityReport`): refines the binary actionable flag into a
+  0–1 score over code/message/location/fix.
+- **Safety — reversibility** (`assess_reversibility`, `ReversibilityReport`): fraction
+  of *dangerous* effects backed by undo/rollback — the recoverable-blast-radius
+  complement to gating.
+- **Safety — exfiltration risk** (`assess_exfiltration`, `ExfiltrationReport`):
+  source∧sink exposure — reads local state *and* has a network/exec egress path.
+
+All re-exported at the crate root and listed in the self-describing `ontology`.
+
 ## [0.5.0] - 2026-06-02
 
 ### Added

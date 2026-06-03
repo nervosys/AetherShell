@@ -106,10 +106,20 @@ pub fn axes() -> Vec<AxisDoc> {
         AxisDoc {
             name: "tokens",
             summary: "token efficiency: the four cost terms an agent pays — standing \
-                      context, input, output, retries — amortized over a session",
-            entry_points: &["evaluate", "evaluate_with", "compare", "rank", "rank_with"],
+                      context, input, output, retries — amortized over a session; plus \
+                      output scaling (per-item cost) and prompt-cache savings",
+            entry_points: &[
+                "evaluate",
+                "evaluate_with",
+                "compare",
+                "rank",
+                "rank_with",
+                "assess_scaling",
+                "assess_cache",
+                "cacheable_prefix_tokens",
+            ],
             needs_execution: false,
-            output_type: "AgentCost",
+            output_type: "AgentCost | ScalingReport | CacheReport",
         },
         AxisDoc {
             name: "determinism",
@@ -121,23 +131,27 @@ pub fn axes() -> Vec<AxisDoc> {
         },
         AxisDoc {
             name: "reliability",
-            summary: "success rate over representative invocations, and whether failures \
-                      are structured/actionable rather than dead ends",
-            entry_points: &["assess_reliability"],
+            summary: "success rate over representative invocations, whether failures are \
+                      structured/actionable rather than dead ends, and graded error \
+                      quality (code/message/location/fix)",
+            entry_points: &["assess_reliability", "assess_error_quality"],
             needs_execution: true,
-            output_type: "ReliabilityReport",
+            output_type: "ReliabilityReport | ErrorQualityReport",
         },
         AxisDoc {
             name: "safety",
             summary: "the fraction of a program's dangerous blast radius that is gated \
-                      (approval/denied) under an agent policy",
+                      (approval/denied) under an agent policy; plus reversibility \
+                      (recoverable blast radius) and data-exfiltration exposure",
             entry_points: &[
                 "assess_safety",
                 "assess_safety_named",
                 "assess_safety_script",
+                "assess_reversibility",
+                "assess_exfiltration",
             ],
             needs_execution: false,
-            output_type: "SafetyReport",
+            output_type: "SafetyReport | ReversibilityReport | ExfiltrationReport",
         },
     ]
 }

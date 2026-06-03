@@ -61,10 +61,17 @@ pub mod tokens;
 pub use commands::{assess_safety_script, classify_command, classify_invocation, classify_script};
 pub use determinism::{assess_determinism, DeterminismReport};
 pub use ontology::{ontology, Ontology};
-pub use reliability::{assess_reliability, Outcome, ReliabilityReport};
-pub use safety::{assess_safety, assess_safety_named, Decision, Effect, Mode, SafetyReport};
+pub use reliability::{
+    assess_error_quality, assess_reliability, ErrorQuality, ErrorQualityReport, Outcome,
+    ReliabilityReport,
+};
+pub use safety::{
+    assess_exfiltration, assess_reversibility, assess_safety, assess_safety_named, Decision,
+    Effect, ExfiltrationReport, Mode, ReversibilityReport, SafetyReport,
+};
 pub use tokens::{
-    compare, evaluate, evaluate_with, rank, rank_with, AgentCost, Comparison, Model, Program,
+    assess_cache, assess_scaling, cacheable_prefix_tokens, compare, evaluate, evaluate_with, rank,
+    rank_with, AgentCost, CacheReport, Comparison, Model, Program, ScalingReport,
 };
 
 /// A combined, all-axes evaluation of a single program. Construct with

@@ -108,6 +108,98 @@ impl std::fmt::Display for ReliabilityReport {
     }
 }
 
+/// A **graded** assessment of how *actionable* a failure is — refining the binary
+/// `structured_error` of [`Outcome`]. Each component an agent can use to
+/// self-correct contributes equally to the score.
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ErrorQuality {
+    /// A stable, machine-branchable error *code* (e.g. `E_BAD_ARG`).
+    pub has_code: bool,
+    /// A human-readable *message*.
+    pub has_message: bool,
+    /// *Where* it failed (line, argument index, field path).
+    pub has_location: bool,
+    /// A remediation *hint/suggestion* the agent can act on.
+    pub has_fix: bool,
+}
+
+impl ErrorQuality {
+    /// 0.0–1.0 actionability: the fraction of the four components present.
+    pub fn score(&self) -> f64 {
+        let present = [
+            self.has_code,
+            self.has_message,
+            self.has_location,
+            self.has_fix,
+        ]
+        .into_iter()
+        .filter(|b| *b)
+        .count();
+        present as f64 / 4.0
+    }
+}
+
+/// Aggregate [`ErrorQuality`] over a set of failures.
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+#[derive(Debug, Clone)]
+pub struct ErrorQualityReport {
+    /// Number of failures graded.
+    pub failures: usize,
+    /// How many carried a stable code.
+    pub with_code: usize,
+    /// How many pinpointed a location.
+    pub with_location: usize,
+    /// How many carried a remediation hint.
+    pub with_fix: usize,
+    /// Mean actionability score over the failures (1.0 for an empty set — no dead ends).
+    pub mean_score: f64,
+}
+
+/// Grade each failure with `grade` and aggregate. Pass only the *failing* cases (the
+/// successes carry no error to grade); an empty set scores 1.0 vacuously.
+pub fn assess_error_quality<I>(
+    failures: &[I],
+    grade: impl Fn(&I) -> ErrorQuality,
+) -> ErrorQualityReport {
+    let (mut with_code, mut with_location, mut with_fix, mut total) = (0, 0, 0, 0.0);
+    for case in failures {
+        let q = grade(case);
+        if q.has_code {
+            with_code += 1;
+        }
+        if q.has_location {
+            with_location += 1;
+        }
+        if q.has_fix {
+            with_fix += 1;
+        }
+        total += q.score();
+    }
+    let n = failures.len();
+    ErrorQualityReport {
+        failures: n,
+        with_code,
+        with_location,
+        with_fix,
+        mean_score: if n == 0 { 1.0 } else { total / n as f64 },
+    }
+}
+
+impl std::fmt::Display for ErrorQualityReport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "error quality {:.0}% over {} failures (code={} location={} fix={})",
+            self.mean_score * 100.0,
+            self.failures,
+            self.with_code,
+            self.with_location,
+            self.with_fix
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -145,5 +237,32 @@ mod tests {
         let r = assess_reliability(&cases, |_| Outcome::ok());
         assert_eq!(r.pass_rate, 1.0);
         assert_eq!(r.actionable_rate, 1.0);
+    }
+
+    #[test]
+    fn error_quality_grades_actionability_components() {
+        // Full E_*-code-plus-hint-plus-location error scores 1.0; bare prose 0.25.
+        let rich = ErrorQuality {
+            has_code: true,
+            has_message: true,
+            has_location: true,
+            has_fix: true,
+        };
+        assert_eq!(rich.score(), 1.0);
+        let prose = ErrorQuality {
+            has_message: true,
+            ..Default::default()
+        };
+        assert_eq!(prose.score(), 0.25);
+
+        // Aggregate over two failures: mean of 1.0 and 0.25 = 0.625.
+        let failures = [rich, prose];
+        let r = assess_error_quality(&failures, |q| *q);
+        assert_eq!(r.failures, 2);
+        assert_eq!(r.with_code, 1);
+        assert!((r.mean_score - 0.625).abs() < 1e-9);
+        // No failures → vacuously perfect.
+        let empty: [ErrorQuality; 0] = [];
+        assert_eq!(assess_error_quality(&empty, |q| *q).mean_score, 1.0);
     }
 }
