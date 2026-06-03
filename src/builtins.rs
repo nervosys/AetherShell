@@ -3899,12 +3899,58 @@ fn arg<'a>(builtin: &str, args: &'a [Value], idx: usize, expected: &str) -> Resu
         .ok_or_else(|| crate::safety::bad_arg(builtin, expected, "nothing"))
 }
 
+/// Extract the lowercased host from a URL, ignoring scheme, userinfo, port, and
+/// path. Returns `None` if no authority is present.
+fn url_host(url: &str) -> Option<String> {
+    let after_scheme = url.split("://").nth(1)?;
+    let authority = after_scheme.split(['/', '?', '#']).next()?;
+    let host_port = authority.rsplit('@').next()?; // drop any userinfo@
+    let host = host_port.split(':').next()?; // drop :port
+    if host.is_empty() {
+        None
+    } else {
+        Some(host.to_ascii_lowercase())
+    }
+}
+
+/// Egress allowlist decision (pure). When `allow` is empty the allowlist is not
+/// configured and egress is unchanged (returns `true`). Otherwise the URL's host
+/// must equal an allowed entry or be a subdomain of one (`api.x.com` matches
+/// `x.com`). A URL whose host can't be determined is denied under an allowlist.
+fn egress_allowed(url: &str, allow: &str) -> bool {
+    let allow = allow.trim();
+    if allow.is_empty() {
+        return true;
+    }
+    let host = match url_host(url) {
+        Some(h) => h,
+        None => return false,
+    };
+    allow
+        .split(';')
+        .map(|s| s.trim().to_ascii_lowercase())
+        .filter(|s| !s.is_empty())
+        .any(|entry| host == entry || host.ends_with(&format!(".{entry}")))
+}
+
 /// Gate a network-egress builtin through the safety guard with the `Network`
 /// effect, so the resource governor (`AETHER_MAX_NET`) bounds egress and the
 /// audit log records the request. `Network` is policy-`allow` in agent mode, so
-/// this never prompts for approval — it meters and audits. No-op outside the
-/// governor's reach (human mode / no limit set).
+/// this meters and audits rather than prompting.
+///
+/// Egress containment: when `AETHER_NET_ALLOW` is set (a `;`-separated host
+/// allowlist), only those hosts and their subdomains may be reached — a control
+/// against data exfiltration over an otherwise-open network channel. Unset → the
+/// allowlist is inactive and behavior is unchanged.
 fn guard_network(builtin: &str, url: &str) -> Result<()> {
+    let allow = std::env::var("AETHER_NET_ALLOW").unwrap_or_default();
+    if !egress_allowed(url, &allow) {
+        return Err(anyhow!(
+            "E_EGRESS_DENIED: {} target host is not in the AETHER_NET_ALLOW egress allowlist: {}",
+            builtin,
+            url
+        ));
+    }
     crate::safety::guard(crate::safety::GuardCtx {
         builtin,
         effect: crate::safety::Effect::Network,
@@ -3915,6 +3961,33 @@ fn guard_network(builtin: &str, url: &str) -> Result<()> {
         fs_paths: false,
     })?;
     Ok(())
+}
+
+#[cfg(test)]
+mod egress_tests {
+    use super::{egress_allowed, url_host};
+
+    #[test]
+    fn url_host_extraction() {
+        assert_eq!(url_host("https://api.example.com/v1/x?q=1").as_deref(), Some("api.example.com"));
+        assert_eq!(url_host("http://user:pw@Host.COM:8080/p").as_deref(), Some("host.com"));
+        assert_eq!(url_host("not a url").as_deref(), None);
+    }
+
+    #[test]
+    fn egress_allowlist_policy() {
+        // Unset allowlist → unchanged (allow all).
+        assert!(egress_allowed("https://anything.example/x", ""));
+        // Exact host and subdomain match.
+        assert!(egress_allowed("https://example.com/x", "example.com"));
+        assert!(egress_allowed("https://api.example.com/x", "example.com"));
+        assert!(egress_allowed("https://a.b.example.com/x", "foo.org; example.com"));
+        // Non-allowed host denied; a lookalike suffix is NOT a subdomain match.
+        assert!(!egress_allowed("https://evil.com/x", "example.com"));
+        assert!(!egress_allowed("https://notexample.com/x", "example.com"));
+        // Undeterminable host under an active allowlist → denied.
+        assert!(!egress_allowed("garbage", "example.com"));
+    }
 }
 
 /// Evaluate a lambda with N positional arguments by temporarily binding its `params`
