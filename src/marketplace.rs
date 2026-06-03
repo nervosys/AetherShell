@@ -261,9 +261,21 @@ impl RegistryClient {
             let response = client.get(&url).send().await?;
             let bytes = response.bytes().await?;
 
-            // Verify checksum
-            let checksum = format!("{:x}", md5::compute(&bytes));
-            if checksum != agent.checksum {
+            // Verify the download against the registry checksum. New packages
+            // publish a SHA-256 (64-hex) digest; legacy packages a 32-hex MD5,
+            // still accepted on read (by length) so existing packages keep working.
+            // MD5 is collision-broken, so registries should migrate to SHA-256.
+            let checksum_ok = match agent.checksum.len() {
+                64 => {
+                    use sha2::{Digest, Sha256};
+                    let mut hasher = Sha256::new();
+                    hasher.update(&bytes);
+                    format!("{:x}", hasher.finalize()) == agent.checksum
+                }
+                32 => format!("{:x}", md5::compute(&bytes)) == agent.checksum,
+                _ => false,
+            };
+            if !checksum_ok {
                 return Err(anyhow!("Checksum mismatch for agent {}", name));
             }
 

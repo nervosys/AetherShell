@@ -1040,7 +1040,7 @@ impl PersistenceManager {
 
         let checkpoint_id = Uuid::new_v4().to_string();
         let json = serde_json::to_string(&(&agent_state, &conversations))?;
-        let checksum = format!("{:x}", md5::compute(&json));
+        let checksum = integrity_checksum(&json);
         let size_bytes = json.len() as u64;
 
         let checkpoint = Checkpoint {
@@ -1074,8 +1074,7 @@ impl PersistenceManager {
 
         // Verify checksum
         let json = serde_json::to_string(&(&checkpoint.agent_state, &checkpoint.conversations))?;
-        let computed_checksum = format!("{:x}", md5::compute(&json));
-        if computed_checksum != checkpoint.checksum {
+        if !verify_integrity(&json, &checkpoint.checksum) {
             return Err(anyhow!("Checkpoint integrity check failed"));
         }
 
@@ -1169,7 +1168,7 @@ impl PersistenceManager {
                         let checkpoint_id = Uuid::new_v4().to_string();
                         let json = serde_json::to_string(&(&agent_state, &conversations))
                             .unwrap_or_default();
-                        let checksum = format!("{:x}", md5::compute(&json));
+                        let checksum = integrity_checksum(&json);
                         let size_bytes = json.len() as u64;
 
                         let checkpoint = Checkpoint {
@@ -1241,6 +1240,28 @@ fn current_timestamp() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_secs()
+}
+
+/// Compute the integrity checksum for persisted data — **SHA-256** (FIPS-approved),
+/// hex-encoded. Replaces the legacy MD5 checksum, which is collision-broken and
+/// therefore forgeable as an integrity guard.
+fn integrity_checksum(data: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(data.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+/// Verify `data` against a `stored` checksum. New checkpoints carry a 64-hex
+/// SHA-256 digest; **legacy** checkpoints written before the migration carry a
+/// 32-hex MD5 digest, which is still accepted on read (by length) so existing
+/// state validates and re-saves forward to SHA-256.
+fn verify_integrity(data: &str, stored: &str) -> bool {
+    match stored.len() {
+        64 => integrity_checksum(data) == stored,
+        32 => format!("{:x}", md5::compute(data)) == stored,
+        _ => false,
+    }
 }
 
 // =============================================================================

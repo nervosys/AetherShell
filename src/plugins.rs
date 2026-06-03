@@ -252,7 +252,66 @@ unsafe impl Sync for DynamicPlugin {}
 
 impl DynamicPlugin {
     /// Load a dynamic library plugin
+    /// Pure plugin-load policy decision (no env/IO): a native plugin runs arbitrary
+    /// in-process machine code at the host's privilege, so it is treated as a
+    /// privileged effect. Denied when the kill switch is set; in agent mode it is
+    /// default-deny unless the path is on the operator allowlist; human (interactive)
+    /// mode is default-allow.
+    fn is_load_permitted(
+        canon: &Path,
+        plugins_off: bool,
+        allow_roots: &[&str],
+        agent_mode: bool,
+    ) -> bool {
+        if plugins_off {
+            return false;
+        }
+        let allowed = allow_roots
+            .iter()
+            .map(|r| r.trim())
+            .filter(|r| !r.is_empty())
+            .any(|root| {
+                let r = std::fs::canonicalize(root).unwrap_or_else(|_| std::path::PathBuf::from(root));
+                canon.starts_with(&r)
+            });
+        !(agent_mode && !allowed)
+    }
+
+    /// Security gate for native plugin loading, reading the runtime policy from the
+    /// environment: `AETHER_PLUGINS=off` (kill switch), `AETHER_PLUGIN_ALLOW=<dir1;dir2>`
+    /// (allowlisted path prefixes), `AETHER_MODE=agent` (default-deny). See
+    /// [`Self::is_load_permitted`].
+    fn authorize_load(path: &Path) -> Result<()> {
+        let plugins_off = std::env::var("AETHER_PLUGINS")
+            .map(|v| v.eq_ignore_ascii_case("off") || v == "0")
+            .unwrap_or(false);
+        let agent_mode = std::env::var("AETHER_MODE")
+            .map(|m| m.eq_ignore_ascii_case("agent"))
+            .unwrap_or(false);
+        let allow = std::env::var("AETHER_PLUGIN_ALLOW").unwrap_or_default();
+        let allow_roots: Vec<&str> = allow.split(';').collect();
+        let canon = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+
+        if Self::is_load_permitted(&canon, plugins_off, &allow_roots, agent_mode) {
+            Ok(())
+        } else if plugins_off {
+            Err(anyhow::anyhow!(
+                "native plugin loading is disabled (AETHER_PLUGINS=off): {}",
+                path.display()
+            ))
+        } else {
+            Err(anyhow::anyhow!(
+                "refusing to load native plugin in agent mode (arbitrary code execution): {} — \
+                 allow an audited directory via AETHER_PLUGIN_ALLOW=<dir>",
+                path.display()
+            ))
+        }
+    }
+
     pub fn load(path: &Path) -> Result<Self> {
+        // Security gate: a native plugin executes arbitrary machine code in-process.
+        Self::authorize_load(path)?;
+
         // Get file modification time for hot-reload detection
         let last_modified = std::fs::metadata(path)
             .context("Failed to get plugin file metadata")?
@@ -2071,6 +2130,20 @@ mod tests {
     static REGISTRY_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
     fn registry_guard() -> std::sync::MutexGuard<'static, ()> {
         REGISTRY_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    #[test]
+    fn plugin_load_policy_is_default_deny_in_agent_mode() {
+        use std::path::Path;
+        let p = Path::new("/opt/plugins/libfoo.so");
+        // Kill switch: never load, regardless of mode.
+        assert!(!DynamicPlugin::is_load_permitted(p, true, &[], false));
+        assert!(!DynamicPlugin::is_load_permitted(p, true, &[], true));
+        // Agent mode, no allowlist → denied (closes the native-code surface).
+        assert!(!DynamicPlugin::is_load_permitted(p, false, &[], true));
+        assert!(!DynamicPlugin::is_load_permitted(p, false, &[""], true));
+        // Human/interactive mode → allowed by default (backward compatible).
+        assert!(DynamicPlugin::is_load_permitted(p, false, &[], false));
     }
 
     #[test]
