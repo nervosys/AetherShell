@@ -226,24 +226,24 @@ prefix), the small-result totals are **2.8× cheaper than the POSIX shells, 3.2�
 vs Nushell, and 1.36× vs PowerShell** (scalar results at parity).
 
 **At realistic scale** (`scale_comparison`, a 50-row listing rendered with the
-*real* `aecon`): variable-width `name`/`size` (incompressible), constant
-`owner`/`group` (factored to one `@const` line), and a low-cardinality `perm`
-column with 3 distinct values as real listings have (dictionary-encoded to one
-`@dict` line, referenced per-row by a 1-token index):
+*real* `aecon`): `name` (shared path prefix factored to one `@prefix` line) and
+variable-width `size`, constant `owner`/`group` (factored to one `@const` line), and
+a low-cardinality `perm` column with 3 distinct values as real listings have
+(dictionary-encoded to one `@dict` line, referenced per-row by a 1-token index):
 
 | Output format (50 rows) | tokens | vs AECON |
 | --- | --- | --- |
-| **aethershell (aecon)** | 562 | 1.00× |
-| powershell `Format-Table` | 821 | 1.46× |
-| powershell `ConvertTo-Json` | 1447 | **2.57×** |
-| nushell (boxed table) | 1402 | 2.49× |
+| **aethershell (aecon)** | 470 | 1.00× |
+| powershell `Format-Table` | 821 | 1.75× |
+| powershell `ConvertTo-Json` | 1447 | **3.08×** |
+| nushell (boxed table) | 1402 | 2.98× |
 
 Honest reading (not rigged): the ratio vs PowerShell depends entirely on which
 output an agent parses, so we report the full spread rather than a single headline.
 `Format-Table` is display-only (variable widths, truncation, culture-dependent) and
 **not reliably parseable** — so a parsing agent uses `ConvertTo-Json`. Against its
 **default** (pretty) `ConvertTo-Json` — the idiomatic form an agent gets without
-flags — AECON is **~2.6×** cheaper on this constant-heavy listing (2.4–3× on a plain
+flags — AECON is **~3.1×** cheaper on this constant-heavy listing (2.4–3× on a plain
 `name,size` listing as rows grow). Against the hand-compacted `ConvertTo-Json
 -Compress` the edge narrows to **~1.6×**, and against the (unparseable) `Format-Table`
 it's only **~1.4×**. The ≥2× claim is true and measured, but specifically against the
@@ -261,10 +261,11 @@ stripped from every row; 44–69% fewer tokens on path-heavy listings). Each is 
 so a cheap form can only ever *replace* an expensive
 one — delta, for instance, fires only when raws average ≥4 digits (genuinely
 multi-token) and the deltas are under half the raw width, so small or oscillating
-integers are left literal. The dict lever is what keeps AECON above 2× on this
-harder listing: without it, the literal `perm` string (~5 tok) × 50 rows would
-add ~185 tokens, pushing AECON to ~747 and the JSON ratio down to ~1.9×. In every
-case AECON emits each column name once where JSON repeats every key on every row,
+integers are left literal. The levers compound on this harder listing: dropping the
+dict lever alone (the literal `perm` string ~5 tok × 50 rows ≈ +185 tokens) would
+lift AECON from 470 to ~655 and narrow the default-`ConvertTo-Json` ratio from ~3.1×
+to ~2.2× — still a clear win. In every case AECON emits each column name once where
+JSON repeats every key on every row,
 and AECON is deterministic where the shell text formats are not.
 
 ### 4.0c Four-axis evaluation, applied to the real engine (`agentic-eval`)

@@ -412,8 +412,8 @@ emits each column name once while JSON repeats every key on every row. A plain
 \* `Format-Table` is display-only (variable widths, truncation, culture-dependent) and
 **not reliably parseable** — an agent that must parse the result uses `ConvertTo-Json`.
 With richer, constant-heavy columns, AECON's `@const`/`@dict`/`@delta`/`@prefix`
-factoring widens the gap further (a 50-row listing: 562 vs 1447 for default
-`ConvertTo-Json` = 2.6×; a path-heavy listing is 44–69% cheaper via `@prefix` alone).
+factoring widens the gap further (a 50-row listing: 470 vs 1447 for default
+`ConvertTo-Json` = 3.1×; a path-heavy listing is 44–69% cheaper via `@prefix` alone).
 
 **Takeaway:** ~**2.8× fewer tokens than the POSIX shells**. Versus PowerShell the honest
 range is **~1.4× (display `Format-Table`, not reliably parseable) → ~1.6× (compact
