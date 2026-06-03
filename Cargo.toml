@@ -46,6 +46,12 @@ exclude = [
     "CLA.md",
     "CONTRIBUTING.md",
     ".github/",
+    # Internal AI-assistant / editor config and separate artifacts — not part of
+    # the published library; kept out of the crate package.
+    ".clinerules",
+    ".cursor/",
+    ".windsurfrules",
+    "extensions/",
 ]
 
 [features]
