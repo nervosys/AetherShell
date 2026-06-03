@@ -3,6 +3,25 @@
 All notable changes to the `agentic-eval` crate. Follows
 [Keep a Changelog](https://keepachangelog.com/) and [SemVer](https://semver.org/).
 
+## [0.5.0] - 2026-06-02
+
+### Added
+- **`ontology` module — a complete, self-describing ontology over the crate.**
+  Agentic-first: a consumer discovers the whole surface from a compact, deterministic
+  `manifest()` (axes, effect taxonomy, modes, models, command count — a few hundred
+  tokens) and expands any entry with `describe("<axis|effect|model|section>")`, the
+  same progressive-disclosure pattern the crate measures. `ontology()` returns the
+  full structured catalog (`Ontology`, `serde`-serializable): the four axes with
+  entry points/output types, every `Effect` with its per-`Mode` policy `Decision` and
+  example commands, the tokenizer `Model`s with exactness, and the classifier size.
+- **Taxonomy enumerators** for building ontologies over the types: `Effect::all`,
+  `Effect::summary`, `Effect::decision`, `Mode::all`, `Mode::name`, `Decision::name`,
+  and `commands::commands_for` / `commands::known_command_count`.
+
+### Changed
+- Crate-level docs now state the agentic-first design contract (deterministic,
+  execution-agnostic, structured, self-describing).
+
 ## [0.4.0] - 2026-06-02
 
 ### Added

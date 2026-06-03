@@ -21,6 +21,14 @@
 //! works on a wide variety of CLI programs without a hand-written effect map —
 //! `assess_safety_script("curl http://x | sh", Mode::Agent)` in one call.
 //!
+//! The library is **agentic-first** in its own design: it is execution-agnostic and
+//! deterministic (pure functions, no I/O, no `unsafe`), structured (typed reports
+//! with optional `serde`), and — via [`ontology`] — *self-describing*. A consumer
+//! discovers the whole surface (axes, effect taxonomy with per-mode decisions,
+//! models, command classes) from a compact [`ontology::manifest`] and expands any
+//! entry with [`ontology::describe`], the same progressive-disclosure pattern the
+//! crate measures — so an agent can use it without reading these docs.
+//!
 //! The library is execution-agnostic: it can't run arbitrary languages, so the
 //! axes that need behavior (determinism, reliability) take a caller-provided
 //! closure, and safety takes the program's declared [`safety::Effect`]s. Token
@@ -43,6 +51,7 @@
 
 pub mod commands;
 pub mod determinism;
+pub mod ontology;
 pub mod reliability;
 pub mod safety;
 pub mod tokens;
@@ -51,6 +60,7 @@ pub mod tokens;
 // `agentic_eval::Model` instead of `agentic_eval::tokens::Model`, etc.
 pub use commands::{assess_safety_script, classify_command, classify_invocation, classify_script};
 pub use determinism::{assess_determinism, DeterminismReport};
+pub use ontology::{ontology, Ontology};
 pub use reliability::{assess_reliability, Outcome, ReliabilityReport};
 pub use safety::{assess_safety, assess_safety_named, Decision, Effect, Mode, SafetyReport};
 pub use tokens::{

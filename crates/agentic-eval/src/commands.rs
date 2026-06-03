@@ -276,6 +276,28 @@ pub fn classify_command(name: &str) -> Option<Effect> {
     }
 }
 
+/// The curated command names classified as `effect` (the table the heuristic uses).
+/// Exposed so the [`ontology`](crate::ontology) can describe what each effect class
+/// recognizes; the lists are illustrative, not exhaustive.
+pub fn commands_for(effect: Effect) -> &'static [&'static str] {
+    match effect {
+        Effect::Privileged => PRIVILEGED,
+        Effect::Exec => EXEC,
+        Effect::Destructive => DESTRUCTIVE,
+        Effect::Process => PROCESS,
+        Effect::Network => NETWORK,
+        Effect::WriteLocal => WRITE_LOCAL,
+        Effect::ReadLocal => READ_LOCAL,
+        Effect::Pure => PURE,
+    }
+}
+
+/// Total number of distinct CLI commands the classifier recognizes across all
+/// effect classes (the size of the built-in command ontology).
+pub fn known_command_count() -> usize {
+    Effect::all().iter().map(|&e| commands_for(e).len()).sum()
+}
+
 /// Whether `tok` is a leading `VAR=value` environment assignment (skipped when
 /// finding an invocation's program name, as the shell does).
 fn is_env_assignment(tok: &str) -> bool {
