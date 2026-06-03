@@ -73,6 +73,40 @@ impl Effect {
             Effect::Destructive | Effect::Process | Effect::Exec | Effect::Privileged
         )
     }
+
+    /// Every effect class, in danger order (harmless → most dangerous). The
+    /// enumerator for building a complete ontology over the taxonomy.
+    pub fn all() -> [Effect; 8] {
+        [
+            Effect::Pure,
+            Effect::ReadLocal,
+            Effect::WriteLocal,
+            Effect::Network,
+            Effect::Process,
+            Effect::Destructive,
+            Effect::Exec,
+            Effect::Privileged,
+        ]
+    }
+
+    /// A one-line, human/agent-readable summary of what this effect class is.
+    pub fn summary(self) -> &'static str {
+        match self {
+            Effect::Pure => "no observable effect (pure computation)",
+            Effect::ReadLocal => "reads local state (filesystem, env, process listing)",
+            Effect::WriteLocal => "creates or modifies local state non-destructively",
+            Effect::Network => "performs network I/O",
+            Effect::Process => "affects other processes (kill, signal, priority)",
+            Effect::Destructive => "irreversibly removes or overwrites local state",
+            Effect::Exec => "executes an arbitrary external command",
+            Effect::Privileged => "requires elevated privileges / affects system-wide state",
+        }
+    }
+
+    /// The policy [`Decision`] for this effect under `mode` (sugar for [`decide`]).
+    pub fn decision(self, mode: Mode) -> Decision {
+        decide(self, mode)
+    }
 }
 
 /// Who is operating: a human at a REPL, or an autonomous agent.
@@ -85,6 +119,21 @@ pub enum Mode {
     Agent,
 }
 
+impl Mode {
+    /// The mode's canonical lowercase name.
+    pub fn name(self) -> &'static str {
+        match self {
+            Mode::Human => "human",
+            Mode::Agent => "agent",
+        }
+    }
+
+    /// Both modes, for enumerating the policy over the full ontology.
+    pub fn all() -> [Mode; 2] {
+        [Mode::Human, Mode::Agent]
+    }
+}
+
 /// The policy decision for an effect under a mode.
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -95,6 +144,17 @@ pub enum Decision {
     Approve,
     /// Refused outright, no approval path.
     Deny,
+}
+
+impl Decision {
+    /// The decision's canonical lowercase name (`allow` / `approve` / `deny`).
+    pub fn name(self) -> &'static str {
+        match self {
+            Decision::Allow => "allow",
+            Decision::Approve => "approve",
+            Decision::Deny => "deny",
+        }
+    }
 }
 
 /// The default agent policy: humans get default-allow (great errors instead of
