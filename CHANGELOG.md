@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-06-02
+
+Token-efficiency release. Backward-compatible; all additions plus one default change
+(compact MCP discovery, opt out with `AETHER_MCP_TOOLS=all`).
+
 ### Added
 - **AECON `@prefix` lever** — a fourth output-compression lever alongside
   `@const`/`@dict`/`@delta`: string columns whose values share a leading run (paths,
