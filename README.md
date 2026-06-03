@@ -14,6 +14,7 @@
 <h3 align="center">The shell for AI agents. Typed pipelines. Multi-modal. Protocol-native.</h3>
 
 <p align="center">
+  <a href="#agentic-benchmark">Benchmark</a> •
   <a href="#-quick-start">Quick Start</a> •
   <a href="#-modules">Modules</a> •
   <a href="#-ai-agents">AI Agents</a> •
@@ -24,6 +25,36 @@
   <a href="#ai-context--discoverability">AI Context</a> •
   <a href="docs/TUI_GUIDE.md">TUI Guide</a>
 </p>
+
+---
+
+## Agentic Benchmark
+
+*Measured, not asserted.* The standalone [`agentic-eval`](crates/agentic-eval) crate
+scores any program for agentic use across the four axes that determine an agent's cost
+and trust — **token efficiency, determinism, reliability, safety** — and rolls them
+into a composite on a **0–10 scale**. Real GPT-4 cl100k tokenizer; reproduce with
+`cargo run --example shell_agentic_eval --features real-tokens`.
+
+| Shell | tok | scal | det | rel | err | saf | rev | **Composite (0–10)** |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|
+| **AetherShell** | 10.0 | 10.0 | 10.0 | 7.0 | 10.0 | 10.0 | 10.0 | **9.6** |
+| Nushell | 7.1 | 6.4 | 0.0 | 0.0 | 5.0 | 0.0 | 0.0 | **2.3** |
+| PowerShell | 5.9 | 6.4 | 0.0 | 0.0 | 5.0 | 0.0 | 0.0 | **2.2** |
+| Bash / Zsh / Fish | 3.6 | 2.6 | 0.0 | 0.0 | 5.0 | 0.0 | 0.0 | **1.4** |
+
+Sub-metrics: **tok** total-token efficiency · **scal** output per-item scaling · **det**
+determinism · **rel** pass/actionable · **err** error actionability · **saf** blast-radius
+gated · **rev** reversibility. Each axis is the mean of its sub-metrics; the composite is
+the mean of the four axes. `tok`/`scal`/`saf` are measured for every shell; `det`/`rel`/
+`err`/`rev` are measured on AetherShell's engine and a structural capability for the rest
+(traditional shells have no byte-stable output, branchable errors, or rollback).
+
+AetherShell leads on token cost (**~2.8× fewer than POSIX shells**, **2.4–3× vs
+PowerShell's default JSON**) and is the only shell with deterministic typed output,
+machine-branchable errors, effect-gated safety, and transactional rollback. Full
+methodology, per-task token tables, and capability matrices are in
+[Benchmarks](#benchmarks-vs-bash--zsh--fish--nushell--powershell) below.
 
 ---
 
@@ -472,13 +503,11 @@ planned, approved, attempted, and **rolled back atomically**.
 > reliability/safety rows are capability comparisons. `~` = partial (e.g. PowerShell
 > objects are typed but its display formatting is lossy to parse).
 
-### Four-axis scoreboard (measured with `agentic-eval`)
+### Four-axis scoreboard (token & safety detail)
 
-These four axes aren't just asserted — they're **re-measurable**. The standalone
-[`agentic-eval`](crates/agentic-eval) crate scores any program for agentic use on
-**token efficiency, determinism, reliability, and safety** (OpenAI GPT-4/GPT-4o
-tokenizers, with a pluggable counter for any other). Run against every shell with
-`cargo run --example shell_agentic_eval --features real-tokens`:
+The [composite scorecard](#agentic-benchmark) at the top rolls the four axes into one
+number; here is the token-and-safety detail it builds on — each shell scored on its
+**reliably-parseable** output (`cargo run --example shell_agentic_eval --features real-tokens`):
 
 | Shell | Tokens (4 tasks) | vs AetherShell | Safety grade |
 |---|--:|--:|:-:|
@@ -508,41 +537,20 @@ representative programs returns *pass 60% / actionable 80%* (a wrong-typed arg i
 structured, catchable `E_BAD_ARG`, not a dead end). Traditional shells lack both by
 construction (locale/width/ANSI-variant text; unstructured errors).
 
-#### Composite scorecard (0–10)
+#### Composite scorecard & context metrics
 
-Seven sub-metrics grouped into the four axes (each axis = mean of its sub-metrics,
-so the axes stay equal-weighted), then an axis-grouped composite:
-
-| Shell | tok | scal | det | rel | err | saf | rev | **Composite** |
-|---|--:|--:|--:|--:|--:|--:|--:|--:|
-| **AetherShell** | 10.0 | 10.0 | 10.0 | 7.0 | 10.0 | 10.0 | 10.0 | **9.6** |
-| Nushell | 7.1 | 6.4 | 0.0 | 0.0 | 5.0 | 0.0 | 0.0 | **2.3** |
-| PowerShell | 5.9 | 6.4 | 0.0 | 0.0 | 5.0 | 0.0 | 0.0 | **2.2** |
-| Bash / Zsh / Fish | 3.6 | 2.6 | 0.0 | 0.0 | 5.0 | 0.0 | 0.0 | **1.4** |
-
-Sub-metrics: **tok** total-token efficiency · **scal** output per-item efficiency ·
-**det** determinism · **rel** pass/actionable · **err** error actionability ·
-**saf** blast-radius gated · **rev** reversibility. Composite = mean of four axes:
-token `(tok+scal)/2`, determinism, reliability `(rel+err)/2`, safety `(saf+rev)/2`.
-
-Scoring rubric (transparent, not weighted to flatter):
-
-- **tok / scal / saf** are *measured for every shell* — relative token efficiency and
-  per-item output scaling (cheapest/flattest = 10), and `assess_safety`'s gated-blast-
-  radius fraction (agent-mode = 10 vs allow-all = 0).
-- **det / rel / err / rev** are *measured on AetherShell's engine* and a **structural
-  capability** for the rest — traditional shells are ✗ on byte-stable output, branchable
-  results, and rollback. `err` = 5.0 for them (errors carry a message+location but no
-  machine code or fix); AetherShell's structured `E_BAD_ARG` (code+hint+location) = 10.
-- AetherShell's `rel` is **7.0, not 10** — the measured corpus includes intentional-
-  failure programs, so the score is held honest rather than rounded up.
+The **0–10 composite scorecard is at the [top of this README](#agentic-benchmark)**.
+Rubric: each axis is the mean of its sub-metrics and the composite the mean of the four
+axes; `tok`/`scal`/`saf` are measured for every shell, `det`/`rel`/`err`/`rev` on
+AetherShell's engine and a structural capability for the rest. AetherShell's `rel` is
+**7.0, not 10** — the corpus includes intentional-failure programs, so it's held honest
+rather than rounded up.
 
 Two further v0.6 metrics are reported as context (not folded into the composite):
 **exfiltration risk** (0.60 for a read+network task — *shell-invariant*; only AetherShell
 can bound it via gating + the `AETHER_NET_ALLOW` egress allowlist) and **prompt-cache**
 headroom (a 90%-stable prefix is ~4.1× cheaper over 20 turns — and deterministic output
-is the precondition). The 9.6-vs-1.4–2.3 gap reflects real capability differences, not
-weighting tricks. Reproduce: `cargo run --example shell_agentic_eval --features real-tokens`.
+is the precondition).
 
 ---
 
