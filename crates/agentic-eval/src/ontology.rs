@@ -98,6 +98,23 @@ pub struct Ontology {
     pub models: Vec<ModelDoc>,
     /// How many CLI commands the built-in classifier recognizes.
     pub known_commands: usize,
+    /// Programming languages with curated agentic profiles (name + fitness).
+    pub languages: Vec<SubjectDoc>,
+    /// AI frameworks with curated agentic profiles (name + fitness).
+    pub frameworks: Vec<SubjectDoc>,
+    /// VM/sandbox systems with curated agentic profiles (name + fitness).
+    pub vms: Vec<SubjectDoc>,
+}
+
+/// A profiled evaluation subject (language, framework, or VM system) — compact
+/// index entry; expand with [`describe`] for full per-axis scores and evidence.
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+#[derive(Debug, Clone)]
+pub struct SubjectDoc {
+    /// Canonical name (`rust`, `pytorch`, …).
+    pub name: &'static str,
+    /// Composite agentic fitness (0.0–1.0, mean of axes).
+    pub fitness: f64,
 }
 
 /// The four evaluation axes, in canonical order.
@@ -183,18 +200,65 @@ pub fn models() -> Vec<ModelDoc> {
         .collect()
 }
 
+/// Compact index of the profiled programming languages.
+pub fn languages() -> Vec<SubjectDoc> {
+    crate::languages::Language::all()
+        .iter()
+        .map(|&l| {
+            let p = crate::languages::profile(l);
+            SubjectDoc {
+                name: l.name(),
+                fitness: p.fitness(),
+            }
+        })
+        .collect()
+}
+
+/// Compact index of the profiled AI frameworks.
+pub fn frameworks() -> Vec<SubjectDoc> {
+    crate::frameworks::Framework::all()
+        .iter()
+        .map(|&f| {
+            let p = crate::frameworks::profile(f);
+            SubjectDoc {
+                name: f.name(),
+                fitness: p.fitness(),
+            }
+        })
+        .collect()
+}
+
+/// Compact index of the profiled VM/sandbox systems.
+pub fn vms() -> Vec<SubjectDoc> {
+    crate::vms::Vm::all()
+        .iter()
+        .map(|&v| {
+            let p = crate::vms::profile(v);
+            SubjectDoc {
+                name: v.name(),
+                fitness: p.fitness(),
+            }
+        })
+        .collect()
+}
+
 /// The complete structured ontology of the crate.
 pub fn ontology() -> Ontology {
     Ontology {
         crate_name: "agentic-eval",
         version: VERSION,
-        summary: "evaluate programs for agentic AI use across four axes — token \
-                  efficiency, determinism, reliability, and safety",
+        summary: "evaluate programs, programming languages, AI frameworks, and \
+                  VM/sandbox systems for agentic AI use across four axes — token \
+                  efficiency, determinism, reliability, and safety (frameworks add \
+                  discoverability; VM systems use agent-native axes)",
         axes: axes(),
         effects: effects(),
         modes: Mode::all().iter().map(|m| m.name()).collect(),
         models: models(),
         known_commands: known_command_count(),
+        languages: languages(),
+        frameworks: frameworks(),
+        vms: vms(),
     }
 }
 
@@ -230,7 +294,27 @@ pub fn manifest() -> String {
         o.known_commands,
         o.effects.len()
     ));
-    s.push_str("\ndescribe(<axis|effect|model|\"axes\"|\"effects\"|\"models\">) for detail");
+    s.push_str(&format!("\nlanguages({}): ", o.languages.len()));
+    s.push_str(
+        &o.languages
+            .iter()
+            .map(|l| l.name)
+            .collect::<Vec<_>>()
+            .join(" "),
+    );
+    s.push_str(&format!("\nframeworks({}): ", o.frameworks.len()));
+    s.push_str(
+        &o.frameworks
+            .iter()
+            .map(|f| f.name)
+            .collect::<Vec<_>>()
+            .join(" "),
+    );
+    s.push_str(&format!("\nvms({}): ", o.vms.len()));
+    s.push_str(&o.vms.iter().map(|v| v.name).collect::<Vec<_>>().join(" "));
+    s.push_str(
+        "\ndescribe(<axis|effect|model|language|framework|vm|\"axes\"|\"effects\"|\"models\"|\"languages\"|\"frameworks\"|\"vms\">) for detail",
+    );
     s
 }
 
@@ -278,7 +362,65 @@ pub fn describe(query: &str) -> Option<String> {
                 o.known_commands
             ))
         }
+        "languages" => {
+            return Some(
+                crate::languages::rank_languages()
+                    .iter()
+                    .map(|p| p.to_string())
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            )
+        }
+        "frameworks" => {
+            return Some(
+                crate::frameworks::rank_frameworks()
+                    .iter()
+                    .map(|p| p.to_string())
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            )
+        }
+        "vms" => {
+            return Some(
+                crate::vms::rank_vms()
+                    .iter()
+                    .map(|p| p.to_string())
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            )
+        }
         _ => {}
+    }
+
+    // A specific language (full profile + evidence).
+    if let Some(l) = crate::languages::Language::from_name(&q) {
+        let p = crate::languages::profile(l);
+        let mut s = p.to_string();
+        for e in &p.evidence {
+            s.push_str("\n  - ");
+            s.push_str(e);
+        }
+        return Some(s);
+    }
+    // A specific framework (full profile + evidence).
+    if let Some(fw) = crate::frameworks::Framework::from_name(&q) {
+        let p = crate::frameworks::profile(fw);
+        let mut s = p.to_string();
+        for e in &p.evidence {
+            s.push_str("\n  - ");
+            s.push_str(e);
+        }
+        return Some(s);
+    }
+    // A specific VM/sandbox system (full profile + evidence).
+    if let Some(v) = crate::vms::Vm::from_name(&q) {
+        let p = crate::vms::profile(v);
+        let mut s = p.to_string();
+        for e in &p.evidence {
+            s.push_str("\n  - ");
+            s.push_str(e);
+        }
+        return Some(s);
     }
 
     // A specific axis.
@@ -358,8 +500,37 @@ mod tests {
         for e in Effect::all() {
             assert!(m.contains(e.name()), "manifest lists effect {}", e.name());
         }
+        // The new subject groups are indexed.
+        assert!(m.contains("languages("), "manifest lists languages");
+        assert!(m.contains("frameworks("), "manifest lists frameworks");
+        assert!(m.contains("vms("), "manifest lists vms");
+        assert!(m.contains("mechgen") && m.contains("framewerx"));
+        assert!(m.contains("aethervm") && m.contains("firecracker"));
         // Compact: a few hundred tokens, not a doc dump.
-        assert!(m.len() < 1200, "manifest stays compact ({} bytes)", m.len());
+        assert!(m.len() < 1800, "manifest stays compact ({} bytes)", m.len());
+    }
+
+    #[test]
+    fn describe_expands_languages_frameworks_and_vms() {
+        // Group expansions are ranked tables.
+        let langs = describe("languages").unwrap();
+        assert!(langs.contains("rust") && langs.contains("fitness"));
+        let fws = describe("frameworks").unwrap();
+        assert!(fws.contains("pytorch") && fws.contains("discoverability"));
+        let vms = describe("vms").unwrap();
+        assert!(vms.contains("firecracker") && vms.contains("agent-control"));
+        // Individual subjects expand to full profile + evidence bullets.
+        let rust = describe("rust").unwrap();
+        assert!(rust.contains("reliability") && rust.contains("\n  - "));
+        let torch = describe("torch").unwrap(); // alias resolution
+        assert!(torch.contains("pytorch"));
+        let aether = describe("aethervm").unwrap();
+        assert!(aether.contains("snapshot") && aether.contains("\n  - "));
+        assert!(describe("kvm").unwrap().contains("qemu-kvm")); // vm alias resolution
+                                                                // Effect names still win over any future subject collision
+                                                                // (lookup order: sections → languages → frameworks → vms → axes/effects/models
+                                                                //  — and effect/axis names are disjoint from subject names today).
+        assert!(describe("destructive").unwrap().contains("agent="));
     }
 
     #[test]

@@ -104,6 +104,88 @@ fn safety_scores_blast_radius_gating_under_agent_policy() {
     assert_eq!(human.grade, 'F');
 }
 
+// ── Languages & frameworks (curated subject profiles) ────────────────────────
+
+#[test]
+fn language_and_framework_subjects_via_public_api() {
+    use agentic_eval::{
+        compare_frameworks, compare_languages, rank_frameworks, rank_languages, Framework, Language,
+    };
+
+    // Root-level re-exports work and produce evidence-backed profiles.
+    let cmp = compare_languages(Language::Rust, Language::Bash);
+    assert!(
+        cmp.fitness_delta > 0.0,
+        "rust should out-fit bash for agentic use"
+    );
+    assert!(cmp.a.evidence.len() >= 3 && cmp.b.evidence.len() >= 3);
+
+    let fcmp = compare_frameworks(Framework::OnnxRuntime, Framework::PyTorch);
+    let safety_delta = fcmp
+        .axis_deltas
+        .iter()
+        .find(|(n, _)| *n == "safety")
+        .map(|(_, d)| *d)
+        .unwrap();
+    assert!(
+        safety_delta > 0.0,
+        "data-only artifacts beat pickle on safety"
+    );
+
+    // Rankings are full, deterministic, and discoverable from the ontology.
+    assert_eq!(rank_languages().len(), Language::all().len());
+    assert_eq!(rank_frameworks().len(), Framework::all().len());
+    let manifest = agentic_eval::ontology::manifest();
+    assert!(manifest.contains("languages(") && manifest.contains("frameworks("));
+    let rust_desc = agentic_eval::ontology::describe("rust").expect("describe(rust)");
+    assert!(rust_desc.contains("fitness") && rust_desc.contains("\n  - "));
+}
+
+#[test]
+fn vm_systems_via_public_api() {
+    use agentic_eval::{compare_vms, rank_vms, Vm};
+
+    // AetherVM leads on the agent-native axes (snapshotting + agent-control),
+    // while Firecracker leads on raw microVM start/density — an honest split.
+    let cmp = compare_vms(Vm::AetherVm, Vm::Firecracker);
+    let by_axis = |name: &str| {
+        cmp.axis_deltas
+            .iter()
+            .find(|(n, _)| *n == name)
+            .map(|(_, d)| *d)
+            .unwrap()
+    };
+    assert!(
+        by_axis("agent-control") > 0.0,
+        "MCP-native control beats a bring-your-own REST socket"
+    );
+    assert!(
+        by_axis("start-latency") < 0.0,
+        "Firecracker's ~125ms microVM boot leads on raw cold-start"
+    );
+    assert!(cmp.a.evidence.len() >= 3 && cmp.b.evidence.len() >= 3);
+
+    // Hardware isolation beats a shared kernel for untrusted agent code.
+    let iso = compare_vms(Vm::QemuKvm, Vm::Docker);
+    let iso_delta = iso
+        .axis_deltas
+        .iter()
+        .find(|(n, _)| *n == "isolation")
+        .map(|(_, d)| *d)
+        .unwrap();
+    assert!(
+        iso_delta > 0.0,
+        "hardware virt out-isolates a shared kernel"
+    );
+
+    // Ranking is full and discoverable from the ontology.
+    assert_eq!(rank_vms().len(), Vm::all().len());
+    let manifest = agentic_eval::ontology::manifest();
+    assert!(manifest.contains("vms(") && manifest.contains("firecracker"));
+    let fc = agentic_eval::ontology::describe("fc").expect("describe(fc alias)");
+    assert!(fc.contains("firecracker") && fc.contains("\n  - "));
+}
+
 // ── Combined evaluation ───────────────────────────────────────────────────────
 
 #[test]

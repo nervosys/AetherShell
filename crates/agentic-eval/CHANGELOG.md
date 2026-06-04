@@ -3,6 +3,55 @@
 All notable changes to the `agentic-eval` crate. Follows
 [Keep a Changelog](https://keepachangelog.com/) and [SemVer](https://semver.org/).
 
+## [0.8.0] - 2026-06-03
+
+### Added
+- **`vms`** — curated agentic profiles of 7 VM/sandbox systems (AetherVM,
+  Firecracker, Cloud Hypervisor, gVisor, Kata Containers, QEMU/KVM, Docker) for
+  the *ephemeral agent-sandbox* workload an agent runtime drives. Scored on five
+  **agent-native axes** (distinct from the program axes, since a VM isn't text):
+  **start-latency** (cold-start per tool call), **density** (sandboxes per host),
+  **isolation** (boundary strength for untrusted agent-generated code),
+  **snapshotting** (CoW fork / warm-pool branching), and **agent-control**
+  (tool/MCP-native control plane vs. bring-your-own glue). Each profile carries
+  evidence strings; `profile`/`profiles`/`rank_vms`/`compare_vms`,
+  `Vm::from_name` aliases (`fc`, `chv`, `runsc`, `kvm`, `runc`, `hypermachine`).
+  Wired into the self-describing ontology: `describe("vms")`,
+  `describe("firecracker")`, and the `manifest()` index now lists VM systems.
+
+### Notes
+- The VM axes are workload-specific by design: a strong long-lived datacenter VM
+  can rank low for the spawn-and-tear-down sandbox loop, and a shared-kernel
+  container ranks high on speed/density but low on isolation for untrusted code.
+  Scores are honest curated judgments with rationale — including AetherVM's
+  (strong on snapshotting/agent-control, with an explicit "younger, less
+  battle-tested at scale" caveat on isolation).
+
+## [0.7.0] - 2026-06-03
+
+### Added
+Two new evaluation **subjects** — beyond programs, the crate now profiles what
+agents *build with*:
+- **`languages`** — curated agentic profiles of 10 programming languages
+  (Python, Rust, JS, TS, Go, Bash, C, C++, Java, MechGen) on the four axes:
+  token efficiency, determinism, reliability (does the toolchain catch agent
+  mistakes with actionable diagnostics?), and safety (default blast radius).
+  Each profile carries evidence strings; `profile`/`profiles`/`rank_languages`/
+  `compare_languages`, `Language::from_name` aliases (`js`, `c++`, `golang`, …).
+- **`frameworks`** — curated agentic profiles of 9 AI frameworks (PyTorch,
+  TensorFlow, JAX, HF Transformers, ONNX Runtime, scikit-learn, Candle, Burn,
+  Framewerx-RMI) on the four axes **plus discoverability** (can an agent learn
+  the surface from the framework itself — schemas/ontology/introspection — vs
+  scraping prose?). Notes artifact-safety facts (pickle ≈ arbitrary code,
+  `trust_remote_code`, safetensors). `profile`/`rank_frameworks`/
+  `compare_frameworks`, `Framework::from_name` aliases (`torch`, `tf`, `hf`, `rmi`).
+
+Both are static curated judgments (deterministic, serializable, with rationale),
+not measurements — use the program-level axes to measure your own code. Wired
+into the self-describing ontology: `manifest()` lists both groups;
+`describe("languages")`/`describe("rust")`/`describe("pytorch")` expand them
+(ranked tables / full profiles + evidence). All types re-exported at the root.
+
 ## [0.6.0] - 2026-06-03
 
 ### Added

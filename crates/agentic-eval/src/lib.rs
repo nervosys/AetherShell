@@ -36,6 +36,13 @@
 //! heuristic tokenizer by default; enable `--features real-tokens` for exact
 //! OpenAI BPE counts via `tiktoken-rs`).
 //!
+//! Beyond per-program axes, the crate ships curated agentic profiles of whole
+//! *subjects* an agent must live with — programming [`languages`], AI
+//! [`frameworks`], and VM/sandbox [`vms`] systems (the latter scored on
+//! agent-native axes: start-latency, density, isolation, snapshotting, and
+//! agent-control). Each is a deterministic, comparable 0.0–1.0 judgment with
+//! evidence (`rank_vms()`, `compare_vms(a, b)`, …).
+//!
 //! ```
 //! use agentic_eval::tokens::{Model, Program};
 //! let legible = Program::new("ls", "file.read(\"README.md\")");
@@ -51,15 +58,24 @@
 
 pub mod commands;
 pub mod determinism;
+pub mod frameworks;
+pub mod languages;
 pub mod ontology;
 pub mod reliability;
 pub mod safety;
 pub mod tokens;
+pub mod vms;
 
 // Ergonomic re-exports of the most-used types, so callers can write
 // `agentic_eval::Model` instead of `agentic_eval::tokens::Model`, etc.
 pub use commands::{assess_safety_script, classify_command, classify_invocation, classify_script};
 pub use determinism::{assess_determinism, DeterminismReport};
+pub use frameworks::{
+    compare_frameworks, rank_frameworks, Framework, FrameworkComparison, FrameworkProfile,
+};
+pub use languages::{
+    compare_languages, rank_languages, Language, LanguageComparison, LanguageProfile,
+};
 pub use ontology::{ontology, Ontology};
 pub use reliability::{
     assess_error_quality, assess_reliability, ErrorQuality, ErrorQualityReport, Outcome,
@@ -73,6 +89,7 @@ pub use tokens::{
     assess_cache, assess_scaling, cacheable_prefix_tokens, compare, evaluate, evaluate_with, rank,
     rank_with, AgentCost, CacheReport, Comparison, Model, Program, ScalingReport,
 };
+pub use vms::{compare_vms, rank_vms, Vm, VmComparison, VmProfile};
 
 /// A combined, all-axes evaluation of a single program. Construct with
 /// [`Evaluation::new`] then fill in whichever axes you can measure (directly or via

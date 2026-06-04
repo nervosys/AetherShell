@@ -15,6 +15,30 @@ It is **execution-agnostic**: token efficiency works on text directly; determini
 and reliability take a caller-provided closure (the library can't run arbitrary
 languages); safety takes the program's declared effects.
 
+## Beyond programs: languages, AI frameworks & VM systems
+
+Three further modules profile what agents *build with* and *run on*:
+
+| Subject | Module | What it scores |
+|---|---|---|
+| **Programming languages** | [`languages`](src/languages.rs) | 10 languages (Python, Rust, JS, TS, Go, Bash, C, C++, Java, MechGen): code token economy, toolchain reproducibility, whether the compiler catches agent mistakes with actionable diagnostics, and default blast radius. |
+| **AI frameworks** | [`frameworks`](src/frameworks.rs) | 9 frameworks (PyTorch, TensorFlow, JAX, HF Transformers, ONNX Runtime, scikit-learn, Candle, Burn, Framewerx-RMI): the four axes **plus discoverability** — can an agent learn the surface from the framework itself (schemas/ontology/introspection) instead of prose? Includes artifact-safety facts (pickle ≈ arbitrary code on load, `trust_remote_code`, safetensors). |
+| **VM / sandbox systems** | [`vms`](src/vms.rs) | 7 systems (AetherVM, Firecracker, Cloud Hypervisor, gVisor, Kata, QEMU/KVM, Docker) on **agent-native axes** for the *ephemeral sandbox* workload an agent runtime drives: **start-latency** (cold-start per tool call), **density** (sandboxes per host), **isolation** (boundary strength for untrusted agent-generated code), **snapshotting** (CoW fork / warm-pool branching), and **agent-control** (is the control plane tool/MCP-native, or bring-your-own glue?). |
+
+These are **curated static profiles** (deterministic, serializable, each score
+backed by evidence strings), not measurements of your codebase — use the
+program-level axes for that. `rank_languages()` / `rank_frameworks()` /
+`rank_vms()` order by composite fitness; `compare_languages(a, b)` /
+`compare_frameworks(a, b)` / `compare_vms(a, b)` give per-axis deltas;
+everything is reachable from the ontology (`describe("vms")`,
+`describe("firecracker")`, `describe("aethervm")`).
+
+> The VM axes are deliberately *workload-specific*: a great long-lived
+> datacenter VM (QEMU/KVM) can rank low for the spawn-and-tear-down agent
+> sandbox, and a shared-kernel container (Docker) ranks high on speed/density
+> but low on isolation for untrusted code — exactly the trade-offs that matter
+> when an agent runs code it just wrote.
+
 ## Tokenizers
 
 - **OpenAI GPT-4** (`cl100k_base`) and **GPT-4o** (`o200k_base`) — *exact* with
