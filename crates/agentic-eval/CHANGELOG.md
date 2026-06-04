@@ -40,7 +40,7 @@ agents *build with*:
   `compare_languages`, `Language::from_name` aliases (`js`, `c++`, `golang`, …).
 - **`frameworks`** — curated agentic profiles of 9 AI frameworks (PyTorch,
   TensorFlow, JAX, HF Transformers, ONNX Runtime, scikit-learn, Candle, Burn,
-  Framewerx-RMI) on the four axes **plus discoverability** (can an agent learn
+  RecursiveMachineIntelligence (RMI)) on the four axes **plus discoverability** (can an agent learn
   the surface from the framework itself — schemas/ontology/introspection — vs
   scraping prose?). Notes artifact-safety facts (pickle ≈ arbitrary code,
   `trust_remote_code`, safetensors). `profile`/`rank_frameworks`/

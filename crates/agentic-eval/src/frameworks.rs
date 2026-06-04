@@ -45,8 +45,8 @@ pub enum Framework {
     ScikitLearn,
     Candle,
     Burn,
-    /// Framewerx (RMI) — the agentic-first framework this crate's ecosystem
-    /// ships: self-describing ontology + manifest, binary-first protocol,
+    /// RecursiveMachineIntelligence (RMI) — the built-in agentic-first framework of
+    /// MachineGenetics (MechGen): self-describing ontology + manifest, binary-first
     /// effect-typed compute. Scored on the same axes as everything else.
     FramewerxRmi,
 }
@@ -78,7 +78,7 @@ impl Framework {
             Framework::ScikitLearn => "sklearn",
             Framework::Candle => "candle",
             Framework::Burn => "burn",
-            Framework::FramewerxRmi => "framewerx",
+            Framework::FramewerxRmi => "rmi",
         }
     }
 
@@ -94,7 +94,7 @@ impl Framework {
             "sklearn" | "scikit-learn" | "scikit" => Some(Framework::ScikitLearn),
             "candle" => Some(Framework::Candle),
             "burn" => Some(Framework::Burn),
-            "framewerx" | "rmi" | "framewerx-rmi" => Some(Framework::FramewerxRmi),
+            "rmi" | "recursivemachineintelligence" | "framewerx" => Some(Framework::FramewerxRmi),
             _ => None,
         }
     }
@@ -428,6 +428,6 @@ mod tests {
         let cmp = compare_frameworks(Framework::FramewerxRmi, Framework::PyTorch);
         let sum: f64 = cmp.axis_deltas.iter().map(|(_, d)| d).sum();
         assert!((sum / 5.0 - cmp.fitness_delta).abs() < 1e-9);
-        assert!(format!("{cmp}").contains("framewerx vs pytorch"));
+        assert!(format!("{cmp}").contains("rmi vs pytorch"));
     }
 }

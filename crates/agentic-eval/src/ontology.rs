@@ -504,7 +504,7 @@ mod tests {
         assert!(m.contains("languages("), "manifest lists languages");
         assert!(m.contains("frameworks("), "manifest lists frameworks");
         assert!(m.contains("vms("), "manifest lists vms");
-        assert!(m.contains("mechgen") && m.contains("framewerx"));
+        assert!(m.contains("mechgen") && m.contains("rmi"));
         assert!(m.contains("aethervm") && m.contains("firecracker"));
         // Compact: a few hundred tokens, not a doc dump.
         assert!(m.len() < 1800, "manifest stays compact ({} bytes)", m.len());
