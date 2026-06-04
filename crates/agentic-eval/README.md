@@ -15,6 +15,36 @@ It is **execution-agnostic**: token efficiency works on text directly; determini
 and reliability take a caller-provided closure (the library can't run arbitrary
 languages); safety takes the program's declared effects.
 
+## Benchmark: VM / sandbox systems for agentic AI use
+
+Curated benchmark of the VM/sandbox systems an agent runtime spawns (one isolated
+environment per tool call), scored on five **agent-native** axes. Reproduce with
+`cargo run -p agentic-eval --example vm_benchmark`; ranked best-first by composite
+fitness:
+
+| System | Fitness | start-latency | density | isolation | snapshotting | agent-control |
+|---|--:|--:|--:|--:|--:|--:|
+| **AetherVM** | **0.86** | 0.80 | 0.85 | 0.80 | **0.90** | **0.95** |
+| Firecracker | 0.79 | **0.90** | **0.90** | 0.85 | 0.80 | 0.50 |
+| Cloud Hypervisor | 0.76 | 0.85 | 0.80 | 0.85 | 0.80 | 0.50 |
+| gVisor | 0.65 | 0.85 | 0.85 | 0.60 | 0.40 | 0.55 |
+| Docker | 0.65 | **0.95** | **0.95** | 0.35 | 0.40 | 0.60 |
+| Kata Containers | 0.62 | 0.65 | 0.60 | 0.85 | 0.40 | 0.60 |
+| QEMU/KVM | 0.61 | 0.40 | 0.45 | **0.90** | 0.85 | 0.45 |
+
+**Head-to-head — AetherVM vs Firecracker** (+ = AetherVM fits agentic use better):
+fitness `+0.07`; agent-control `+0.45`, snapshotting `+0.10`; start-latency `−0.10`,
+density `−0.05`, isolation `−0.05`.
+
+**Reading.** AetherVM leads on the axes it was *designed* for — instant CoW
+branching (fork a primed context per call) and an MCP-native control plane — while
+the microVMs (Firecracker, Cloud Hypervisor) lead on raw cold-start and
+battle-tested isolation, and shared-kernel containers (Docker) top speed/density
+but rank low on isolation for untrusted, agent-generated code. Scores are honest
+curated judgments with evidence (AetherVM's isolation carries an explicit "younger,
+less battle-tested at scale" caveat); see [`vms`](src/vms.rs) and
+`describe("aethervm")`.
+
 ## Beyond programs: languages, AI frameworks & VM systems
 
 Three further modules profile what agents *build with* and *run on*:
