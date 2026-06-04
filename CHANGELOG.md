@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-06-04
+
+### Added
+- **agentic-eval 0.8.0** — the bundled evaluation library gains a `vms` module:
+  a curated benchmark of VM/sandbox systems (AetherVM, Firecracker, Cloud
+  Hypervisor, gVisor, Kata Containers, QEMU/KVM, Docker) for agentic AI use,
+  scored on agent-native axes (start-latency, density, isolation, snapshotting,
+  agent-control). See `crates/agentic-eval/CHANGELOG.md`.
+
 ### Security
 Hardening from a security audit (CVE / NIST FIPS / MITRE ATT&CK / CMMC 2.0):
 - **0 dependency CVEs** — patched `quinn-proto` (HIGH QUIC DoS), `rustls-webpki`
