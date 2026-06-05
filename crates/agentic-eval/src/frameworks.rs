@@ -266,19 +266,42 @@ pub fn profile(fw: Framework) -> FrameworkProfile {
                 "derive-macro module system is introspectable in-code but lacks a runtime ontology",
             ],
         },
+        // The defining premise of this profile: for agentic ML use the model
+        // artifact IS the binary RMIL IR — what the agent emits, ships, loads,
+        // and introspects — not text source. Axes are anchored to MEASURED
+        // numbers (MechGen benchmarks/IR_ARTIFACT_REPORT.md), not estimates.
         Framework::FramewerxRmi => FrameworkProfile {
             framework: fw,
+            // CORRECTED 0.80→0.75. The byte win (144 B vs 440 B text) is real
+            // for STORAGE/TRANSPORT/LOAD but is NOT a token win for an LLM
+            // EMITTING the model: measured, RMIL-as-base64 ≈ 106 tokens and hex
+            // ≈ 144, vs ~134 text tokens — the byte advantage evaporates under
+            // base64/hex emission (LLMs emit tokens, not raw bytes). The only
+            // genuine token edge over PyTorch (0.70) is zero import/config
+            // boilerplate (you write the `net {}` block, no `import torch`). So
+            // ~0.75, not 0.80. The byte compaction is credited where it actually
+            // pays off — determinism (byte-stable) and safety (no-exec load).
             token_efficiency: 0.75,
-            determinism: 0.85,
-            reliability: 0.8,
-            safety: 0.75,
+            // Measured byte-identical across emissions (cmp → identical):
+            // content-hashable cache keys, meaningful diffs. Exceeds PyTorch
+            // (0.50), whose pickle artifacts / runs aren't byte-stable.
+            determinism: 0.9,
+            // Agent emits structured BYTES, not text — the text syntax-error
+            // class is gone; plus shape inference + typed Result on every
+            // Backend op and exact-F32 fallback for quant/half paths.
+            reliability: 0.84,
+            // Verified: RMIL decode is pure bounds-checked data — loading a
+            // model CANNOT execute code (`--from=rmil-bytes` round-trips
+            // structure without running). Contrast torch.load=pickle=arbitrary
+            // code (PyTorch safety 0.30). Plus effect-typed compute.
+            safety: 0.88,
             discoverability: 0.95,
             evidence: vec![
-                "designed agentic-first: FrameworkOntology + token-compact manifest()/describe() — the surface is discoverable without prose docs (the property this axis measures, built in)",
-                "deterministic ontology/manifest (fixed order), binary-first RMIL artifacts, deterministic formatter: byte-stable for agent caching/diffing",
-                "typed Result errors on every Backend op; quantized/half paths fall back to exact F32 rather than failing or silently degrading",
-                "effect-typed compute + feature-gated CUDA with driver-checked construction; no pickle-style artifact execution",
-                "young framework: minimal training-data presence means agents rely on its self-description (which is the design bet)",
+                "token (MEASURED, honest): the 144 B RMIL artifact is 56–67% smaller than text for STORAGE/TRANSPORT/LOAD, but that byte win does NOT survive LLM emission — base64 ≈ 106 tokens / hex ≈ 144 vs ~134 text tokens. The real token edge over PyTorch is just zero import/config boilerplate (write the `net {}` block, no `import`). Byte compaction is credited under determinism/safety, not token",
+                "deterministic artifact (MEASURED byte-identical across emissions): content-hashable cache keys + meaningful diffs; deterministic ontology/manifest. Exceeds frameworks whose artifacts/runs aren't byte-stable",
+                "reliability: emitting structured IR bytes removes the text syntax-error class entirely; shape inference + typed Result on every Backend op; quant/half paths fall back to exact F32 rather than silently degrading",
+                "safety (VERIFIED): RMIL load is bounds-checked data decode with NO code execution (vs torch.load=pickle=arbitrary code); effect-typed compute; driver-checked CUDA construction",
+                "discoverable from itself: FrameworkOntology + token-compact manifest()/describe(). Young framework — minimal training-data presence, so agents rely on this self-description (the design bet)",
             ],
         },
     }
@@ -353,6 +376,24 @@ impl std::fmt::Display for FrameworkComparison {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rmi_ir_artifact_claims_stay_measured() {
+        // The rmi profile's IR-as-artifact axes are anchored to measured facts
+        // (benchmarks/IR_ARTIFACT_REPORT.md). These guard the *direction* of
+        // those measured advantages — not a target number.
+        let rmi = profile(Framework::FramewerxRmi);
+        let torch = profile(Framework::PyTorch);
+        // Measured byte-identical artifact ⇒ strictly more deterministic than
+        // pickle-based PyTorch.
+        assert!(rmi.determinism > torch.determinism, "byte-stable IR must beat pickle on determinism");
+        // Verified no-exec data decode ⇒ strictly safer artifact than torch.load.
+        assert!(rmi.safety > torch.safety, "no-pickle load must beat torch.load on safety");
+        // Honesty caps: nothing maxed for a young framework.
+        for v in [rmi.token_efficiency, rmi.determinism, rmi.reliability, rmi.safety] {
+            assert!(v < 0.98, "axis {v} implausibly high");
+        }
+    }
 
     #[test]
     fn every_framework_profiles_with_evidence() {
