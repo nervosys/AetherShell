@@ -4,12 +4,12 @@ A small, standalone Rust library for evaluating how well a **program** (a comman
 script, snippet, or any text an LLM writes or reads) serves an **agentic AI
 system** — across the four axes that actually determine an agent's cost and trust:
 
-| Axis | Module | Question it answers |
-|---|---|---|
-| **Token efficiency** | [`tokens`](src/tokens.rs) | How many tokens does it cost — standing context + input + output + retries — under popular tokenizers, amortized over a session? |
-| **Determinism** | [`determinism`](src/determinism.rs) | Is the output byte-stable across runs, so an agent can parse / cache / diff it? |
-| **Reliability** | [`reliability`](src/reliability.rs) | What's the success rate over representative invocations, and are failures *structured/actionable* (so the agent can self-correct)? |
-| **Safety** | [`safety`](src/safety.rs) | Given the effects it performs, how much of its blast radius is gated (approval/denied) under an agent policy? |
+| Axis                 | Module                              | Question it answers                                                                                                                |
+| -------------------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| **Token efficiency** | [`tokens`](src/tokens.rs)           | How many tokens does it cost — standing context + input + output + retries — under popular tokenizers, amortized over a session?   |
+| **Determinism**      | [`determinism`](src/determinism.rs) | Is the output byte-stable across runs, so an agent can parse / cache / diff it?                                                    |
+| **Reliability**      | [`reliability`](src/reliability.rs) | What's the success rate over representative invocations, and are failures *structured/actionable* (so the agent can self-correct)? |
+| **Safety**           | [`safety`](src/safety.rs)           | Given the effects it performs, how much of its blast radius is gated (approval/denied) under an agent policy?                      |
 
 It is **execution-agnostic**: token efficiency works on text directly; determinism
 and reliability take a caller-provided closure (the library can't run arbitrary
@@ -22,15 +22,15 @@ environment per tool call), scored on five **agent-native** axes. Reproduce with
 `cargo run -p agentic-eval --example vm_benchmark`; ranked best-first by composite
 fitness:
 
-| System | Fitness | start-latency | density | isolation | snapshotting | agent-control |
-|---|--:|--:|--:|--:|--:|--:|
-| **AetherVM** | **0.86** | 0.80 | 0.85 | 0.80 | **0.90** | **0.95** |
-| Firecracker | 0.79 | **0.90** | **0.90** | 0.85 | 0.80 | 0.50 |
-| Cloud Hypervisor | 0.76 | 0.85 | 0.80 | 0.85 | 0.80 | 0.50 |
-| gVisor | 0.65 | 0.85 | 0.85 | 0.60 | 0.40 | 0.55 |
-| Docker | 0.65 | **0.95** | **0.95** | 0.35 | 0.40 | 0.60 |
-| Kata Containers | 0.62 | 0.65 | 0.60 | 0.85 | 0.40 | 0.60 |
-| QEMU/KVM | 0.61 | 0.40 | 0.45 | **0.90** | 0.85 | 0.45 |
+| System           |  Fitness | start-latency |  density | isolation | snapshotting | agent-control |
+| ---------------- | -------: | ------------: | -------: | --------: | -----------: | ------------: |
+| **AetherVM**     | **0.86** |          0.80 |     0.85 |      0.80 |     **0.90** |      **0.95** |
+| Firecracker      |     0.79 |      **0.90** | **0.90** |      0.85 |         0.80 |          0.50 |
+| Cloud Hypervisor |     0.76 |          0.85 |     0.80 |      0.85 |         0.80 |          0.50 |
+| gVisor           |     0.65 |          0.85 |     0.85 |      0.60 |         0.40 |          0.55 |
+| Docker           |     0.65 |      **0.95** | **0.95** |      0.35 |         0.40 |          0.60 |
+| Kata Containers  |     0.62 |          0.65 |     0.60 |      0.85 |         0.40 |          0.60 |
+| QEMU/KVM         |     0.61 |          0.40 |     0.45 |  **0.90** |         0.85 |          0.45 |
 
 **Head-to-head — AetherVM vs Firecracker** (+ = AetherVM fits agentic use better):
 fitness `+0.07`; agent-control `+0.45`, snapshotting `+0.10`; start-latency `−0.10`,
@@ -49,11 +49,11 @@ less battle-tested at scale" caveat); see [`vms`](src/vms.rs) and
 
 Three further modules profile what agents *build with* and *run on*:
 
-| Subject | Module | What it scores |
-|---|---|---|
-| **Programming languages** | [`languages`](src/languages.rs) | 10 languages (Python, Rust, JS, TS, Go, Bash, C, C++, Java, MechGen): code token economy, toolchain reproducibility, whether the compiler catches agent mistakes with actionable diagnostics, and default blast radius. |
-| **AI frameworks** | [`frameworks`](src/frameworks.rs) | 9 frameworks (PyTorch, TensorFlow, JAX, HF Transformers, ONNX Runtime, scikit-learn, Candle, Burn, RecursiveMachineIntelligence-RMI): the four axes **plus discoverability** — can an agent learn the surface from the framework itself (schemas/ontology/introspection) instead of prose? Includes artifact-safety facts (pickle ≈ arbitrary code on load, `trust_remote_code`, safetensors). |
-| **VM / sandbox systems** | [`vms`](src/vms.rs) | 7 systems (AetherVM, Firecracker, Cloud Hypervisor, gVisor, Kata, QEMU/KVM, Docker) on **agent-native axes** for the *ephemeral sandbox* workload an agent runtime drives: **start-latency** (cold-start per tool call), **density** (sandboxes per host), **isolation** (boundary strength for untrusted agent-generated code), **snapshotting** (CoW fork / warm-pool branching), and **agent-control** (is the control plane tool/MCP-native, or bring-your-own glue?). |
+| Subject                   | Module                            | What it scores                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------------- | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Programming languages** | [`languages`](src/languages.rs)   | 10 languages (Python, Rust, JS, TS, Go, Bash, C, C++, Java, MechGen): code token economy, toolchain reproducibility, whether the compiler catches agent mistakes with actionable diagnostics, and default blast radius.                                                                                                                                                                                                                                                    |
+| **AI frameworks**         | [`frameworks`](src/frameworks.rs) | 9 frameworks (PyTorch, TensorFlow, JAX, HF Transformers, ONNX Runtime, scikit-learn, Candle, Burn, RecursiveMachineIntelligence-RMI): the four axes **plus discoverability** — can an agent learn the surface from the framework itself (schemas/ontology/introspection) instead of prose? Includes artifact-safety facts (pickle ≈ arbitrary code on load, `trust_remote_code`, safetensors).                                                                             |
+| **VM / sandbox systems**  | [`vms`](src/vms.rs)               | 7 systems (AetherVM, Firecracker, Cloud Hypervisor, gVisor, Kata, QEMU/KVM, Docker) on **agent-native axes** for the *ephemeral sandbox* workload an agent runtime drives: **start-latency** (cold-start per tool call), **density** (sandboxes per host), **isolation** (boundary strength for untrusted agent-generated code), **snapshotting** (CoW fork / warm-pool branching), and **agent-control** (is the control plane tool/MCP-native, or bring-your-own glue?). |
 
 These are **curated static profiles** (deterministic, serializable, each score
 backed by evidence strings), not measurements of your codebase — use the
