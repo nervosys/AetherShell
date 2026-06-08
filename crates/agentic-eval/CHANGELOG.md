@@ -3,6 +3,18 @@
 All notable changes to the `agentic-eval` crate. Follows
 [Keep a Changelog](https://keepachangelog.com/) and [SemVer](https://semver.org/).
 
+## [0.12.0] - 2026-06-08
+
+### Changed
+- **SPINE `interop` 0.45 → 0.50** after SPINE v1.6.0 made the MCP bridge a
+  *runnable* server (`mcp::serve_stdio` + the `mcp_stdio_server` example speak
+  the MCP stdio JSON-RPC transport). The bridge is no longer just mapping code:
+  a Claude Desktop / Claude Code `mcpServers` config entry spawns it and drives
+  a SPINE agent today with zero SPINE-specific code. SPINE composite **0.85 →
+  0.86** (still 1st of 7). The honest caveat is unchanged — these are deployable
+  *adapters* into MCP/OpenAI, not native ecosystem adoption, so interop remains
+  SPINE's lowest axis. Evidence string updated.
+
 ## [0.11.0] - 2026-06-08
 
 ### Changed

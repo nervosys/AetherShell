@@ -55,7 +55,7 @@ composite fitness:
 
 | Stack             |  Fitness | streaming |  tools | encoding | interop | security |
 | ----------------- | -------: | --------: | -----: | -------: | ------: | -------: |
-| **SPINE**         | **0.85** |  **0.97** |**0.95**| **0.95** |    0.45 | **0.95** |
+| **SPINE**         | **0.86** |  **0.97** |**0.95**| **0.95** |    0.50 | **0.95** |
 | gRPC              |     0.83 |      0.70 |   0.85 | **0.95** |    0.85 |     0.80 |
 | OpenAI API        |     0.69 |      0.85 |   0.70 |     0.35 |**1.00** |     0.55 |
 | Anthropic API     |     0.66 |      0.85 |   0.70 |     0.35 |    0.85 |     0.55 |
@@ -64,8 +64,8 @@ composite fitness:
 | HTTP+JSON         |     0.54 |      0.55 |   0.40 |     0.30 |**1.00** |     0.45 |
 
 **Head-to-head — SPINE vs OpenAI API** (+ = SPINE fits agentic use better):
-fitness `+0.16`; streaming `+0.12`, tool-discoverability `+0.25`,
-encoding-efficiency `+0.60`, security-primitives `+0.40`; **interop `−0.55`**.
+fitness `+0.17`; streaming `+0.12`, tool-discoverability `+0.25`,
+encoding-efficiency `+0.60`, security-primitives `+0.40`; **interop `−0.50`**.
 
 **Reading.** SPINE leads the four protocol-semantics axes it was *designed*
 for — LLM-native `StreamStart/Token/End` frames (with multiplex-aware
@@ -73,10 +73,11 @@ for — LLM-native `StreamStart/Token/End` frames (with multiplex-aware
 handshake, inline W3C `TraceContext`, and per-message Ed25519 signed frames
 that give message-level non-repudiation beyond channel mTLS. v1.4.0 closed the
 encoding gap with a binary CBOR wire format, and v1.5.0's byte-string tensor
-payloads bring it to **parity with protobuf** (0.95). The v1.5.0 MCP bridge is
-the inflection on interop: any MCP host now drives a SPINE agent with no
-SPINE-specific code, lifting interop 0.15 → 0.45 — enough, combined with the
-other gains, to put SPINE **first on the composite (0.85), edging gRPC
+payloads bring it to **parity with protobuf** (0.95). The MCP bridge is the
+inflection on interop: it became a *runnable* stdio server in v1.6.0, so any
+MCP host (Claude Desktop, Claude Code) drives a SPINE agent today with no
+SPINE-specific code, lifting interop 0.15 → 0.50 — enough, combined with the
+other gains, to put SPINE **first on the composite (0.86), edging gRPC
 (0.83)**. The honest caveat stands: interop is still SPINE's weakest axis,
 because the MCP and OpenAI-compatible routes are *adapters into* the dominant
 contracts, not the native install base gRPC enjoys or the universality every
