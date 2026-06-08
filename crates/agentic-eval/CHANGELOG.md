@@ -3,6 +3,21 @@
 All notable changes to the `agentic-eval` crate. Follows
 [Keep a Changelog](https://keepachangelog.com/) and [SemVer](https://semver.org/).
 
+## [0.13.0] - 2026-06-08
+
+### Changed
+- **SPINE `interop` 0.50 → 0.60** after SPINE v1.8.0 added a third ecosystem
+  bridge: the `spine-grpc` crate, a tonic `AgentService` exposing the agentic
+  surface (ListCapabilities / CallTool / streaming StreamChat) over gRPC,
+  verified end-to-end over real HTTP/2. SPINE is now reachable from the three
+  dominant agent ecosystems — MCP (runnable stdio server), OpenAI (gateway), and
+  gRPC/protobuf — via deployable, standards-compliant servers a client calls
+  with 100% standard stubs. SPINE composite **0.86 → 0.88** (1st of 7). Honest
+  caveat unchanged: the bridges map the agentic surface (not SPINE's native
+  binary latent frames) and SPINE's own protocol has ~zero native install base,
+  so interop remains its lowest axis despite the breadth. Evidence string,
+  README, and benchmark note updated.
+
 ## [0.12.1] - 2026-06-08
 
 ### Changed

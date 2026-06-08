@@ -43,7 +43,7 @@ fn main() {
     }
 
     println!(
-        "\nReading: SPINE now leads the composite (0.86), edging gRPC (0.83).\n\
+        "\nReading: SPINE now leads the composite (0.88), edging gRPC (0.83).\n\
          It was always strong on the agent-native axes it was designed for\n\
          (LLM StreamStart/Token/End frames with multiplex-aware StreamCancel +\n\
          mid-stream usage, a CapabilityQuery handshake, inline W3C TraceContext).\n\
@@ -51,11 +51,12 @@ fn main() {
          bring encoding to parity with protobuf (0.95; 89% smaller embedding\n\
          frames), and per-message Ed25519 signed frames give message-level\n\
          non-repudiation beyond channel mTLS (security 0.95). The inflection is\n\
-         the MCP bridge, a runnable stdio server as of v1.6.0: any MCP host\n\
-         drives a SPINE agent with no SPINE-specific code, lifting interop\n\
-         0.15 -> 0.50. Honest caveat:\n\
-         interop is still SPINE's weakest axis — the MCP + OpenAI-compatible\n\
-         routes are adapters into the dominant contracts, not the native\n\
-         install base gRPC enjoys or the universality of the OpenAI shape."
+         three deployable bridges: a runnable MCP stdio server (v1.6.0), the\n\
+         OpenAI-compatible gateway, and a gRPC AgentService (v1.8.0, verified\n\
+         over real HTTP/2) — reachable from the three dominant agent ecosystems\n\
+         with standard client stubs, lifting interop 0.15 -> 0.60. Honest\n\
+         caveat: interop is still SPINE's weakest axis — the bridges map the\n\
+         agentic surface (not SPINE's native binary frames) and SPINE's own\n\
+         protocol has ~zero native install base."
     );
 }
