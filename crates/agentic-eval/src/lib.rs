@@ -38,10 +38,12 @@
 //!
 //! Beyond per-program axes, the crate ships curated agentic profiles of whole
 //! *subjects* an agent must live with — programming [`languages`], AI
-//! [`frameworks`], and VM/sandbox [`vms`] systems (the latter scored on
-//! agent-native axes: start-latency, density, isolation, snapshotting, and
-//! agent-control). Each is a deterministic, comparable 0.0–1.0 judgment with
-//! evidence (`rank_vms()`, `compare_vms(a, b)`, …).
+//! [`frameworks`], VM/sandbox [`vms`] systems (scored on agent-native axes:
+//! start-latency, density, isolation, snapshotting, agent-control), and
+//! [`web`] stacks / wire protocols (scored on streaming, tool-discoverability,
+//! encoding-efficiency, interop, security-primitives). Each is a deterministic,
+//! comparable 0.0–1.0 judgment with evidence (`rank_vms()`,
+//! `rank_web_stacks()`, `compare_vms(a, b)`, …).
 //!
 //! ```
 //! use agentic_eval::tokens::{Model, Program};
@@ -65,6 +67,7 @@ pub mod reliability;
 pub mod safety;
 pub mod tokens;
 pub mod vms;
+pub mod web;
 
 // Ergonomic re-exports of the most-used types, so callers can write
 // `agentic_eval::Model` instead of `agentic_eval::tokens::Model`, etc.
@@ -90,6 +93,7 @@ pub use tokens::{
     rank_with, AgentCost, CacheReport, Comparison, Model, Program, ScalingReport,
 };
 pub use vms::{compare_vms, rank_vms, Vm, VmComparison, VmProfile};
+pub use web::{compare_web_stacks, rank_web_stacks, WebStack, WebStackComparison, WebStackProfile};
 
 /// A combined, all-axes evaluation of a single program. Construct with
 /// [`Evaluation::new`] then fill in whichever axes you can measure (directly or via

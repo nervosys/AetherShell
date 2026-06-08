@@ -104,6 +104,9 @@ pub struct Ontology {
     pub frameworks: Vec<SubjectDoc>,
     /// VM/sandbox systems with curated agentic profiles (name + fitness).
     pub vms: Vec<SubjectDoc>,
+    /// Web stacks / wire protocols with curated agentic profiles
+    /// (name + fitness).
+    pub web_stacks: Vec<SubjectDoc>,
 }
 
 /// A profiled evaluation subject (language, framework, or VM system) — compact
@@ -242,15 +245,33 @@ pub fn vms() -> Vec<SubjectDoc> {
         .collect()
 }
 
+/// Compact index of the profiled web stacks / wire protocols.
+pub fn web_stacks() -> Vec<SubjectDoc> {
+    crate::web::WebStack::all()
+        .iter()
+        .map(|&w| {
+            let p = crate::web::profile(w);
+            SubjectDoc {
+                name: w.name(),
+                fitness: p.fitness(),
+            }
+        })
+        .collect()
+}
+
 /// The complete structured ontology of the crate.
 pub fn ontology() -> Ontology {
     Ontology {
         crate_name: "agentic-eval",
         version: VERSION,
-        summary: "evaluate programs, programming languages, AI frameworks, and \
-                  VM/sandbox systems for agentic AI use across four axes — token \
-                  efficiency, determinism, reliability, and safety (frameworks add \
-                  discoverability; VM systems use agent-native axes)",
+        summary: "evaluate programs, programming languages, AI frameworks, \
+                  VM/sandbox systems, and web stacks / wire protocols for \
+                  agentic AI use across four axes — token efficiency, \
+                  determinism, reliability, and safety (frameworks add \
+                  discoverability; VM systems use agent-native axes: \
+                  start-latency, density, isolation, snapshotting, agent-control; \
+                  web stacks use streaming, tool-discoverability, \
+                  encoding-efficiency, interop, security-primitives)",
         axes: axes(),
         effects: effects(),
         modes: Mode::all().iter().map(|m| m.name()).collect(),
@@ -259,6 +280,7 @@ pub fn ontology() -> Ontology {
         languages: languages(),
         frameworks: frameworks(),
         vms: vms(),
+        web_stacks: web_stacks(),
     }
 }
 
@@ -312,8 +334,16 @@ pub fn manifest() -> String {
     );
     s.push_str(&format!("\nvms({}): ", o.vms.len()));
     s.push_str(&o.vms.iter().map(|v| v.name).collect::<Vec<_>>().join(" "));
+    s.push_str(&format!("\nweb_stacks({}): ", o.web_stacks.len()));
     s.push_str(
-        "\ndescribe(<axis|effect|model|language|framework|vm|\"axes\"|\"effects\"|\"models\"|\"languages\"|\"frameworks\"|\"vms\">) for detail",
+        &o.web_stacks
+            .iter()
+            .map(|w| w.name)
+            .collect::<Vec<_>>()
+            .join(" "),
+    );
+    s.push_str(
+        "\ndescribe(<axis|effect|model|language|framework|vm|web|\"axes\"|\"effects\"|\"models\"|\"languages\"|\"frameworks\"|\"vms\"|\"web\">) for detail",
     );
     s
 }
@@ -389,6 +419,15 @@ pub fn describe(query: &str) -> Option<String> {
                     .join("\n"),
             )
         }
+        "web" | "web-stacks" | "web_stacks" => {
+            return Some(
+                crate::web::rank_web_stacks()
+                    .iter()
+                    .map(|p| p.to_string())
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            )
+        }
         _ => {}
     }
 
@@ -415,6 +454,16 @@ pub fn describe(query: &str) -> Option<String> {
     // A specific VM/sandbox system (full profile + evidence).
     if let Some(v) = crate::vms::Vm::from_name(&q) {
         let p = crate::vms::profile(v);
+        let mut s = p.to_string();
+        for e in &p.evidence {
+            s.push_str("\n  - ");
+            s.push_str(e);
+        }
+        return Some(s);
+    }
+    // A specific web stack / wire protocol (full profile + evidence).
+    if let Some(w) = crate::web::WebStack::from_name(&q) {
+        let p = crate::web::profile(w);
         let mut s = p.to_string();
         for e in &p.evidence {
             s.push_str("\n  - ");
@@ -504,14 +553,16 @@ mod tests {
         assert!(m.contains("languages("), "manifest lists languages");
         assert!(m.contains("frameworks("), "manifest lists frameworks");
         assert!(m.contains("vms("), "manifest lists vms");
+        assert!(m.contains("web_stacks("), "manifest lists web stacks");
         assert!(m.contains("mechgen") && m.contains("rmi"));
         assert!(m.contains("aethervm") && m.contains("firecracker"));
+        assert!(m.contains("spine") && m.contains("grpc"));
         // Compact: a few hundred tokens, not a doc dump.
         assert!(m.len() < 1800, "manifest stays compact ({} bytes)", m.len());
     }
 
     #[test]
-    fn describe_expands_languages_frameworks_and_vms() {
+    fn describe_expands_languages_frameworks_vms_and_web() {
         // Group expansions are ranked tables.
         let langs = describe("languages").unwrap();
         assert!(langs.contains("rust") && langs.contains("fitness"));
@@ -519,6 +570,16 @@ mod tests {
         assert!(fws.contains("pytorch") && fws.contains("discoverability"));
         let vms = describe("vms").unwrap();
         assert!(vms.contains("firecracker") && vms.contains("agent-control"));
+        let web = describe("web").unwrap();
+        assert!(
+            web.contains("spine") && web.contains("streaming"),
+            "describe(\"web\") should list ranked web stacks with the streaming axis"
+        );
+        assert_eq!(
+            describe("web-stacks").unwrap(),
+            web,
+            "describe(\"web-stacks\") alias matches describe(\"web\")"
+        );
         // Individual subjects expand to full profile + evidence bullets.
         let rust = describe("rust").unwrap();
         assert!(rust.contains("reliability") && rust.contains("\n  - "));
@@ -527,9 +588,15 @@ mod tests {
         let aether = describe("aethervm").unwrap();
         assert!(aether.contains("snapshot") && aether.contains("\n  - "));
         assert!(describe("kvm").unwrap().contains("qemu-kvm")); // vm alias resolution
-                                                                // Effect names still win over any future subject collision
-                                                                // (lookup order: sections → languages → frameworks → vms → axes/effects/models
-                                                                //  — and effect/axis names are disjoint from subject names today).
+        let spine = describe("spine").unwrap();
+        assert!(
+            spine.contains("fitness") && spine.contains("\n  - "),
+            "describe(\"spine\") expands to profile + evidence bullets"
+        );
+        assert!(describe("openai").unwrap().contains("openai-api")); // web alias resolution
+                                                                    // Effect names still win over any future subject collision
+                                                                    // (lookup order: sections → languages → frameworks → vms → web → axes/effects/models
+                                                                    //  — and effect/axis names are disjoint from subject names today).
         assert!(describe("destructive").unwrap().contains("agent="));
     }
 
@@ -540,6 +607,11 @@ mod tests {
         assert_eq!(o.effects.len(), 8); // every Effect variant
         assert_eq!(o.modes.len(), 2);
         assert_eq!(o.models.len(), 4);
+        assert_eq!(o.web_stacks.len(), 7); // every WebStack variant
+        assert!(
+            o.web_stacks.iter().any(|w| w.name == "spine"),
+            "web_stacks index includes SPINE"
+        );
         assert!(o.known_commands > 100, "classifier ontology is substantial");
         // The effect docs carry the real policy decisions.
         let destructive = o.effects.iter().find(|e| e.name == "destructive").unwrap();

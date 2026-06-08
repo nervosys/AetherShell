@@ -45,23 +45,64 @@ curated judgments with evidence (AetherVM's isolation carries an explicit "young
 less battle-tested at scale" caveat); see [`vms`](src/vms.rs) and
 `describe("aethervm")`.
 
-## Beyond programs: languages, AI frameworks & VM systems
+## Benchmark: web stacks / wire protocols for agentic AI use
 
-Three further modules profile what agents *build with* and *run on*:
+Curated benchmark of the **wire protocols** an agent has to speak when calling
+another service — scored on five **agent-native** axes (streaming, tool-
+discoverability, encoding-efficiency, interop, security-primitives). Reproduce
+with `cargo run -p agentic-eval --example web_benchmark`; ranked best-first by
+composite fitness:
+
+| Stack             |  Fitness | streaming |  tools | encoding | interop | security |
+| ----------------- | -------: | --------: | -----: | -------: | ------: | -------: |
+| gRPC              |     0.83 |      0.70 |   0.85 | **0.95** |    0.85 |     0.80 |
+| **SPINE**         | **0.76** |  **0.95** |   0.90 |     0.92 |    0.15 | **0.90** |
+| OpenAI API        |     0.69 |      0.85 |   0.70 |     0.35 |**1.00** |     0.55 |
+| Anthropic API     |     0.66 |      0.85 |   0.70 |     0.35 |    0.85 |     0.55 |
+| GraphQL           |     0.60 |      0.50 |**0.95**|     0.35 |    0.75 |     0.45 |
+| MCP               |     0.56 |      0.40 |**0.95**|     0.40 |    0.65 |     0.40 |
+| HTTP+JSON         |     0.54 |      0.55 |   0.40 |     0.30 |**1.00** |     0.45 |
+
+**Head-to-head — SPINE vs OpenAI API** (+ = SPINE fits agentic use better):
+fitness `+0.07`; streaming `+0.10`, tool-discoverability `+0.20`,
+encoding-efficiency `+0.57`, security-primitives `+0.35`; **interop `−0.85`**.
+
+**Reading.** SPINE leads the four protocol-semantics axes it was *designed*
+for — LLM-native `StreamStart/Token/End` frames including encoded latents, a
+`CapabilityQuery` handshake, inline W3C `TraceContext`, and a secure-by-default
+auth contract as of v1.3.0 (gateway refuses to start without an explicit
+choice). As of v1.4.0 it also closes the encoding gap: a binary CBOR wire
+format (+ opportunistic zstd) takes encoding-efficiency from 0.65 to 0.92 —
+86% smaller embedding frames, 60% smaller capability ads — landing just behind
+protobuf. It still pays for being new on the one axis that doesn't reward
+novelty: the OpenAI API and plain HTTP+JSON tie on interop because every SDK
+already speaks them. gRPC tops the composite by being broadly excellent
+(protobuf binary efficiency + mTLS + reflection + bidi streaming + huge install
+base) even though it has no LLM-token shape out of the box. MCP and GraphQL win
+tool-discoverability because their protocols *are* their schemas. The
+practical bridge for SPINE adoption is the OpenAI-compatible gateway
+(`/v1/chat/completions`, `/v1/embeddings`, `/v1/agentic/{capabilities,codecs}`);
+see [`web`](src/web.rs) and `describe("spine")`.
+
+## Beyond programs: languages, AI frameworks, VM systems & web stacks
+
+Four further modules profile what agents *build with*, *run on*, and *talk to*:
 
 | Subject                   | Module                            | What it scores                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | ------------------------- | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Programming languages** | [`languages`](src/languages.rs)   | 10 languages (Python, Rust, JS, TS, Go, Bash, C, C++, Java, MechGen): code token economy, toolchain reproducibility, whether the compiler catches agent mistakes with actionable diagnostics, and default blast radius.                                                                                                                                                                                                                                                    |
 | **AI frameworks**         | [`frameworks`](src/frameworks.rs) | 9 frameworks (PyTorch, TensorFlow, JAX, HF Transformers, ONNX Runtime, scikit-learn, Candle, Burn, RecursiveMachineIntelligence-RMI): the four axes **plus discoverability** — can an agent learn the surface from the framework itself (schemas/ontology/introspection) instead of prose? Includes artifact-safety facts (pickle ≈ arbitrary code on load, `trust_remote_code`, safetensors).                                                                             |
 | **VM / sandbox systems**  | [`vms`](src/vms.rs)               | 7 systems (AetherVM, Firecracker, Cloud Hypervisor, gVisor, Kata, QEMU/KVM, Docker) on **agent-native axes** for the *ephemeral sandbox* workload an agent runtime drives: **start-latency** (cold-start per tool call), **density** (sandboxes per host), **isolation** (boundary strength for untrusted agent-generated code), **snapshotting** (CoW fork / warm-pool branching), and **agent-control** (is the control plane tool/MCP-native, or bring-your-own glue?). |
+| **Web stacks / wire protocols** | [`web`](src/web.rs)         | 7 stacks (SPINE, OpenAI API, Anthropic API, MCP, gRPC, HTTP+JSON, GraphQL) scored on **streaming** (LLM-shaped output as a first-class frame family), **tool-discoverability** (introspect tools from the protocol vs. from prose), **encoding-efficiency** (binary framing vs. JSON-over-HTTP/1.1), **interop** (does the agent ecosystem speak it?), and **security-primitives** (auth + W3C tracing + content integrity inline, or someone-else's-problem). |
 
 These are **curated static profiles** (deterministic, serializable, each score
 backed by evidence strings), not measurements of your codebase — use the
 program-level axes for that. `rank_languages()` / `rank_frameworks()` /
-`rank_vms()` order by composite fitness; `compare_languages(a, b)` /
-`compare_frameworks(a, b)` / `compare_vms(a, b)` give per-axis deltas;
-everything is reachable from the ontology (`describe("vms")`,
-`describe("firecracker")`, `describe("aethervm")`).
+`rank_vms()` / `rank_web_stacks()` order by composite fitness;
+`compare_languages(a, b)` / `compare_frameworks(a, b)` / `compare_vms(a, b)` /
+`compare_web_stacks(a, b)` give per-axis deltas; everything is reachable from
+the ontology (`describe("vms")`, `describe("web")`, `describe("firecracker")`,
+`describe("spine")`).
 
 > The VM axes are deliberately *workload-specific*: a great long-lived
 > datacenter VM (QEMU/KVM) can rank low for the spawn-and-tear-down agent

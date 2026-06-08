@@ -3,6 +3,58 @@
 All notable changes to the `agentic-eval` crate. Follows
 [Keep a Changelog](https://keepachangelog.com/) and [SemVer](https://semver.org/).
 
+## [0.10.0] - 2026-06-08
+
+### Changed
+- **SPINE re-scored on `encoding-efficiency`: 0.65 → 0.92**, from measured
+  data after SPINE v1.4.0 shipped a binary wire format. The body is no longer
+  serde_json behind a header — it is a self-describing CBOR codec (8-byte
+  `SpineWireHeader` + CBOR/RFC 8949, with opportunistic zstd past 128 B).
+  Measured against the old JSON body (`spine-protocol`
+  `examples/wire_sizes.rs`, header included): a 1 KiB embedding frame
+  3975→546 B (86% smaller), a 2-capability advertisement 806→322 B (60%), a
+  tool call 323→255 B (21%); every frame beats JSON. SPINE now sits in the
+  binary-efficient tier next to gRPC/protobuf (0.95) — gRPC stays marginally
+  ahead because protobuf elides field names while CBOR keeps self-describing
+  keys, but SPINE's `EncodedFrame` moves raw tensor bytes zero-token, which
+  protobuf has no native equivalent for. Evidence string and the
+  `axis_judgments_hold_directionally` directional test updated accordingly;
+  the honest `interop` 0.15 is unchanged (interop is a later concern).
+
+## [0.9.0] - 2026-06-04
+
+### Added
+- **`web`** — curated agentic profiles of 7 **web stacks / wire protocols**
+  (SPINE, OpenAI API, Anthropic API, MCP, gRPC, HTTP+JSON, GraphQL) for the
+  *agent-to-service* traffic an agent actually has to speak. Scored on five
+  agent-native axes distinct from the VM axes (since a wire protocol is not
+  a sandbox): **streaming** (LLM-shaped output as a first-class frame family
+  vs. a bolt-on on top of a document protocol), **tool-discoverability**
+  (introspect the surface from the protocol itself vs. read prose),
+  **encoding-efficiency** (binary framing + content-typed payloads vs.
+  JSON-over-HTTP/1.1 baseline), **interop** (does the agent ecosystem already
+  speak it?), and **security-primitives** (auth, W3C distributed tracing,
+  content integrity inline vs. someone-else's-problem). Each profile carries
+  ≥3 evidence strings; `profile` / `profiles` / `rank_web_stacks` /
+  `compare_web_stacks`, `WebStack::from_name` aliases (`openai`, `claude-api`,
+  `mcp` / `model-context-protocol`, `rest`, `gql`, `nervosys-spine`). Wired
+  into the self-describing ontology: `describe("web")`, `describe("spine")`,
+  `describe("grpc")`, and the `manifest()` index now lists web stacks.
+- `examples/web_benchmark.rs` — ranked table + SPINE-vs-OpenAI head-to-head +
+  SPINE evidence dump + reading summary. Run with
+  `cargo run -p agentic-eval --example web_benchmark`.
+
+### Notes
+- **SPINE is evaluated honestly**: it leads on the protocol-semantics axes it
+  was designed for (streaming, tool-discoverability, security-primitives) and
+  carries an explicit 0.15 on `interop` for being brand new — the gateway's
+  OpenAI-compatible `/v1/chat/completions`, `/v1/embeddings`, and
+  `/v1/agentic/{capabilities,codecs}` routes are documented as the migration
+  bridge. gRPC tops the unweighted composite because its broad strengths
+  (protobuf efficiency + mTLS + reflection + bidi streaming + huge install
+  base) outweigh SPINE's narrower edge on LLM-native frames; that ranking is
+  the point of the benchmark.
+
 ## [0.8.0] - 2026-06-03
 
 ### Added
