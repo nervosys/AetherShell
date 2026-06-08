@@ -3,6 +3,25 @@
 All notable changes to the `agentic-eval` crate. Follows
 [Keep a Changelog](https://keepachangelog.com/) and [SemVer](https://semver.org/).
 
+## [0.14.0] - 2026-06-08
+
+### Changed
+- **SPINE re-scored after SPINE v1.9.0; composite reaches 0.90 (1st of 7).**
+  v1.9.0 made the gRPC bridge production-grade with a real, pluggable model
+  backend and server reflection:
+  - `streaming` 0.97 → **0.98**: gRPC `StreamChat` is now backed by a real
+    pluggable model (`OpenAiChatModel` streams any OpenAI-compatible endpoint),
+    mapped *lazily* so cancelling the stream actually stops upstream
+    generation — verified by test. A genuine streaming-completeness gain over
+    the prior demo generator.
+  - `interop` 0.60 → **0.67**: the spine-grpc bridge matured from demo to
+    deployable — gRPC server reflection (grpcurl introspects with zero stubs), a
+    runnable `serve` example, and a real model backend that can point at SPINE's
+    own gateway (the bridges compose). Still adapter-into-ecosystem, not native
+    adoption, so interop remains SPINE's lowest axis.
+  Composite **0.88 → 0.90**. Evidence strings, README, and benchmark note
+  updated; directional tests unchanged (all still hold).
+
 ## [0.13.0] - 2026-06-08
 
 ### Changed

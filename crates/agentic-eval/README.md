@@ -55,7 +55,7 @@ composite fitness:
 
 | Stack             |  Fitness | streaming |  tools | encoding | interop | security |
 | ----------------- | -------: | --------: | -----: | -------: | ------: | -------: |
-| **SPINE**         | **0.88** |  **0.97** |**0.95**| **0.95** |    0.60 | **0.95** |
+| **SPINE**         | **0.90** |  **0.98** |**0.95**| **0.95** |    0.67 | **0.95** |
 | gRPC              |     0.83 |      0.70 |   0.85 | **0.95** |    0.85 |     0.80 |
 | OpenAI API        |     0.69 |      0.85 |   0.70 |     0.35 |**1.00** |     0.55 |
 | Anthropic API     |     0.66 |      0.85 |   0.70 |     0.35 |    0.85 |     0.55 |
@@ -64,8 +64,8 @@ composite fitness:
 | HTTP+JSON         |     0.54 |      0.55 |   0.40 |     0.30 |**1.00** |     0.45 |
 
 **Head-to-head — SPINE vs OpenAI API** (+ = SPINE fits agentic use better):
-fitness `+0.19`; streaming `+0.12`, tool-discoverability `+0.25`,
-encoding-efficiency `+0.60`, security-primitives `+0.40`; **interop `−0.40`**.
+fitness `+0.21`; streaming `+0.13`, tool-discoverability `+0.25`,
+encoding-efficiency `+0.60`, security-primitives `+0.40`; **interop `−0.33`**.
 
 **Reading.** SPINE leads the four protocol-semantics axes it was *designed*
 for — LLM-native `StreamStart/Token/End` frames (with multiplex-aware
@@ -75,10 +75,11 @@ that give message-level non-repudiation beyond channel mTLS. v1.4.0 closed the
 encoding gap with a binary CBOR wire format, and v1.5.0's byte-string tensor
 payloads bring it to **parity with protobuf** (0.95). Interop is where the
 deployable bridges compound: a *runnable* MCP stdio server (v1.6.0), the
-OpenAI-compatible gateway, and a gRPC `AgentService` (v1.8.0, verified over
-real HTTP/2) make SPINE reachable from the three dominant agent ecosystems with
-standard client stubs — lifting interop 0.15 → 0.60 and putting SPINE **first
-on the composite (0.88), edging gRPC (0.83)**. The honest caveat stands: interop is still SPINE's weakest axis,
+OpenAI-compatible gateway, and a production-grade gRPC `AgentService` (v1.8.0,
+made reflection-enabled and real-model-backed in v1.9.0) make SPINE reachable
+from the three dominant agent ecosystems with standard client stubs — lifting
+interop 0.15 → 0.67 and putting SPINE **first on the composite (0.90), edging
+gRPC (0.83)**. The honest caveat stands: interop is still SPINE's weakest axis,
 because the MCP and OpenAI-compatible routes are *adapters into* the dominant
 contracts, not the native install base gRPC enjoys or the universality every
 SDK gives the OpenAI shape. gRPC remains broadly excellent (protobuf + mTLS +

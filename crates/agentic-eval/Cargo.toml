@@ -1,6 +1,6 @@
 [package]
 name = "agentic-eval"
-version = "0.13.0"
+version = "0.14.0"
 edition = "2021"
 description = "Evaluate programs, CLI commands, programming languages, AI frameworks, and VM/sandbox systems for agentic AI use across four axes — token efficiency, determinism, reliability, and safety — under popular tokenizers (OpenAI GPT-4/GPT-4o, Anthropic Claude). Includes a CLI effect classifier, curated language/framework/VM profiles, and a self-describing ontology."
 license = "AGPL-3.0-or-later"
