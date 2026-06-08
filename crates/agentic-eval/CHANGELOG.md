@@ -3,6 +3,22 @@
 All notable changes to the `agentic-eval` crate. Follows
 [Keep a Changelog](https://keepachangelog.com/) and [SemVer](https://semver.org/).
 
+## [0.14.1] - 2026-06-08
+
+### Added
+- **SPINE profile now includes the measured transport benchmarks.** A sixth
+  evidence string on `WebStack::Spine` cites SPINE's own agentic web-stack
+  benchmarks (`src/spine-transport/benches/{spine_vs_http2,agentic_ai_workload,
+  llm_tok_per_sec}`, re-run 2026-06-08 against the real `h2` HTTP/2 crate):
+  single-stream latency 1.6–2.4× / throughput 1.8–2.3×, ~32× on N=64 pipelined
+  multiplexing (≈1.3M req/s), embedding batches ~6–25× over HTTP/2+JSON, and
+  token streaming at hundreds of M tok/s (9–15× over HTTP/2+binary at large
+  batches) where JSON-SSE caps near ~10M. Honest framing kept: TCP-loopback
+  medians whose absolutes are machine-dependent; direction/order-of-magnitude
+  reproduce. **Scores unchanged** — the benchmarks substantiate the existing
+  `encoding_efficiency` 0.95 and `streaming` 0.98, they do not move them.
+  Directional tests unchanged (all still hold).
+
 ## [0.14.0] - 2026-06-08
 
 ### Changed
