@@ -3,6 +3,19 @@
 All notable changes to the `agentic-eval` crate. Follows
 [Keep a Changelog](https://keepachangelog.com/) and [SemVer](https://semver.org/).
 
+## [0.12.1] - 2026-06-08
+
+### Changed
+- **SPINE `encoding-efficiency` evidence corrected (score unchanged at 0.95).**
+  After SPINE v1.7.0 made `wire::encode` plain CBOR by default (a benchmark
+  caught the prior zstd-per-frame design costing ~250 µs/frame; the fast path
+  now encodes a 1 KiB embedding in ~590 ns, ~10× faster than JSON), the evidence
+  string now reports the honest *default* numbers — a 1 KiB embedding frame
+  3975→1263 B (68% smaller) on the fast path, 3975→446 B (89%) via the opt-in
+  `wire::encode_compressed` — rather than presenting the compressed figure as
+  the default. The 0.95 score (protobuf-class density) stands and is in fact
+  better supported now: fast *and* small, not small-but-slow.
+
 ## [0.12.0] - 2026-06-08
 
 ### Changed
