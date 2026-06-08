@@ -1,0 +1,7 @@
+# Source maps: never commit. They bloat artifacts and embed dependency source
+# (including upstream authors' copyright email addresses).
+*.map
+dist/**/*.map
+
+# Local build / dependency dirs
+node_modules/

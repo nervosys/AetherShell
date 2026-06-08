@@ -18,6 +18,9 @@ export default defineConfig({
     },
     build: {
         outDir: 'dist',
-        sourcemap: true,
+        // No source maps in production builds: they bloat the bundle and embed
+        // third-party dependency source (including upstream authors' copyright
+        // email addresses) into shipped artifacts.
+        sourcemap: false,
     },
 })
