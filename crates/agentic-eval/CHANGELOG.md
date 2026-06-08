@@ -3,6 +3,34 @@
 All notable changes to the `agentic-eval` crate. Follows
 [Keep a Changelog](https://keepachangelog.com/) and [SemVer](https://semver.org/).
 
+## [0.11.0] - 2026-06-08
+
+### Changed
+- **SPINE re-scored across all five axes after SPINE v1.5.0**, which shipped
+  real capabilities on every axis the web benchmark measures (not score
+  tweaks). SPINE now **leads the composite at 0.85 (1st of 7), edging gRPC
+  (0.83)** — earned by working, tested code:
+  - `streaming` 0.95 → **0.97**: `Message::StreamCancel` (multiplex-aware
+    per-stream cancel) + `StreamToken.usage` (mid-stream cumulative usage).
+  - `tool-discoverability` 0.90 → **0.95**: the `spine_protocol::mcp` bridge
+    re-exposes capabilities over MCP `tools/list` / `tools/call` — matching the
+    introspection gold standard while keeping native semantic capability search.
+  - `encoding-efficiency` 0.92 → **0.95** (parity with gRPC/protobuf):
+    `serde_bytes` byte-string tensor payloads bring `EncodedFrame` to
+    protobuf-class density; the 1 KiB embedding frame is now 446 B (89% smaller
+    than JSON), and `EncodedFrame` still moves tensors zero-token.
+  - `interop` 0.15 → **0.45**: the MCP bridge means any MCP host (Claude
+    Desktop/Code, MCP-capable IDEs) drives a SPINE agent with no SPINE-specific
+    code, alongside the OpenAI-compatible gateway. Scored honestly as *adapters
+    into the dominant contracts*, not native adoption — it still trails gRPC's
+    install base and OpenAI's universality, which is why it remains the lowest
+    SPINE axis.
+  - `security-primitives` 0.90 → **0.95**: `spine_agentic::signed_frame` adds
+    per-message Ed25519 signatures (integrity + authenticity + non-repudiation,
+    verified before decode) — message-level guarantees beyond channel mTLS.
+  Evidence strings rewritten and `axis_judgments_hold_directionally` extended
+  (SPINE now leads composite; still trails interop; leads security over gRPC).
+
 ## [0.10.0] - 2026-06-08
 
 ### Changed

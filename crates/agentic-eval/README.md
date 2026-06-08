@@ -55,8 +55,8 @@ composite fitness:
 
 | Stack             |  Fitness | streaming |  tools | encoding | interop | security |
 | ----------------- | -------: | --------: | -----: | -------: | ------: | -------: |
+| **SPINE**         | **0.85** |  **0.97** |**0.95**| **0.95** |    0.45 | **0.95** |
 | gRPC              |     0.83 |      0.70 |   0.85 | **0.95** |    0.85 |     0.80 |
-| **SPINE**         | **0.76** |  **0.95** |   0.90 |     0.92 |    0.15 | **0.90** |
 | OpenAI API        |     0.69 |      0.85 |   0.70 |     0.35 |**1.00** |     0.55 |
 | Anthropic API     |     0.66 |      0.85 |   0.70 |     0.35 |    0.85 |     0.55 |
 | GraphQL           |     0.60 |      0.50 |**0.95**|     0.35 |    0.75 |     0.45 |
@@ -64,25 +64,29 @@ composite fitness:
 | HTTP+JSON         |     0.54 |      0.55 |   0.40 |     0.30 |**1.00** |     0.45 |
 
 **Head-to-head — SPINE vs OpenAI API** (+ = SPINE fits agentic use better):
-fitness `+0.07`; streaming `+0.10`, tool-discoverability `+0.20`,
-encoding-efficiency `+0.57`, security-primitives `+0.35`; **interop `−0.85`**.
+fitness `+0.16`; streaming `+0.12`, tool-discoverability `+0.25`,
+encoding-efficiency `+0.60`, security-primitives `+0.40`; **interop `−0.55`**.
 
 **Reading.** SPINE leads the four protocol-semantics axes it was *designed*
-for — LLM-native `StreamStart/Token/End` frames including encoded latents, a
-`CapabilityQuery` handshake, inline W3C `TraceContext`, and a secure-by-default
-auth contract as of v1.3.0 (gateway refuses to start without an explicit
-choice). As of v1.4.0 it also closes the encoding gap: a binary CBOR wire
-format (+ opportunistic zstd) takes encoding-efficiency from 0.65 to 0.92 —
-86% smaller embedding frames, 60% smaller capability ads — landing just behind
-protobuf. It still pays for being new on the one axis that doesn't reward
-novelty: the OpenAI API and plain HTTP+JSON tie on interop because every SDK
-already speaks them. gRPC tops the composite by being broadly excellent
-(protobuf binary efficiency + mTLS + reflection + bidi streaming + huge install
-base) even though it has no LLM-token shape out of the box. MCP and GraphQL win
+for — LLM-native `StreamStart/Token/End` frames (with multiplex-aware
+`StreamCancel` and mid-stream usage as of v1.5.0), a `CapabilityQuery`
+handshake, inline W3C `TraceContext`, and per-message Ed25519 signed frames
+that give message-level non-repudiation beyond channel mTLS. v1.4.0 closed the
+encoding gap with a binary CBOR wire format, and v1.5.0's byte-string tensor
+payloads bring it to **parity with protobuf** (0.95). The v1.5.0 MCP bridge is
+the inflection on interop: any MCP host now drives a SPINE agent with no
+SPINE-specific code, lifting interop 0.15 → 0.45 — enough, combined with the
+other gains, to put SPINE **first on the composite (0.85), edging gRPC
+(0.83)**. The honest caveat stands: interop is still SPINE's weakest axis,
+because the MCP and OpenAI-compatible routes are *adapters into* the dominant
+contracts, not the native install base gRPC enjoys or the universality every
+SDK gives the OpenAI shape. gRPC remains broadly excellent (protobuf + mTLS +
+reflection + bidi + huge base); MCP and GraphQL still tie SPINE on
 tool-discoverability because their protocols *are* their schemas. The
-practical bridge for SPINE adoption is the OpenAI-compatible gateway
-(`/v1/chat/completions`, `/v1/embeddings`, `/v1/agentic/{capabilities,codecs}`);
-see [`web`](src/web.rs) and `describe("spine")`.
+practical bridges for SPINE adoption are the `spine_protocol::mcp` MCP server
+adapter and the OpenAI-compatible gateway (`/v1/chat/completions`,
+`/v1/embeddings`, `/v1/agentic/{capabilities,codecs}`); see [`web`](src/web.rs)
+and `describe("spine")`.
 
 ## Beyond programs: languages, AI frameworks, VM systems & web stacks
 

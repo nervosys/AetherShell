@@ -172,17 +172,17 @@ pub fn profile(stack: WebStack) -> WebStackProfile {
     match stack {
         WebStack::Spine => WebStackProfile {
             stack,
-            streaming: 0.95,
-            tool_discoverability: 0.90,
-            encoding_efficiency: 0.92,
-            interop: 0.15,
-            security_primitives: 0.90,
+            streaming: 0.97,
+            tool_discoverability: 0.95,
+            encoding_efficiency: 0.95,
+            interop: 0.45,
+            security_primitives: 0.95,
             evidence: vec![
-                "StreamStart / StreamToken { seq, data } / StreamEnd are first-class Message variants; StreamData carries Text | Bytes | ToolCall | Encoded(EncodedFrame), so latents and mid-stream function calls fall out of the same frame without a second framing layer",
-                "CapabilityQuery (Exact | Prefix | Semantic { embedding, top_k } | All) → CapabilityAdvertisement with input/output JSON Schema per Capability and an optional embedding for similarity-matched discovery; CodecAdvertisement / CodecNegotiation do the same for neural encoder/decoder pairs",
-                "as of SPINE v1.4.0 the wire body is a self-describing binary codec: 8-byte SpineWireHeader + CBOR (RFC 8949), format byte auto-selecting CBOR / CBOR+zstd (zstd opportunistic past 128 B). Measured vs the prior JSON body (spine-protocol examples/wire_sizes.rs, header included): a 1 KiB embedding frame 3975→546 B (86% smaller), a 2-capability advertisement 806→322 B (60%), a tool call 323→255 B (21%); every frame beats JSON. CBOR keeps self-describing map keys so it is marginally less dense than schema-eliding protobuf on small structs — hence just shy of gRPC — but EncodedFrame still ships raw f32/f16/bf16/q8/q4 tensor bytes with inline shape+dtype, so latents move zero-token, a path gRPC has no native equivalent for",
-                "brand-new, nervosys/SPINE only; the OpenAI-compatible /v1/chat/completions + /v1/embeddings + /v1/agentic/capabilities + /v1/agentic/codecs gateway is the bridge to existing SDKs",
-                "W3C TraceContext attached inline on tool calls, results, and stream starts; bearer auth is SECURE BY DEFAULT as of v1.3.0 (gateway refuses to start without an explicit choice via SPINE_GATEWAY_BEARER_TOKEN or _ALLOW_UNAUTH=1); zeroize-on-drop on every key-bearing struct; optional FIPS 140-3 build via aws-lc-rs CryptoProvider; Chameleon moving-target protocol + Certificate Transparency log policy in the box",
+                "StreamStart / StreamToken { seq, data, usage? } / StreamEnd are first-class Message variants; StreamData carries Text | Bytes | ToolCall | Encoded(EncodedFrame), so latents and mid-stream function calls fall out of the same frame. v1.5.0 adds Message::StreamCancel (cancel one stream by id — SPINE multiplexes many streams per connection, so closing the socket like SSE is too blunt) and optional StreamToken.usage (mid-stream cumulative token budget, the multiplexed analogue of OpenAI stream_options.include_usage)",
+                "two discovery surfaces: native CapabilityQuery (Exact | Prefix | Semantic { embedding, top_k } | All) → CapabilityAdvertisement with input/output JSON Schema per Capability plus optional embedding for similarity-matched lookup; and, as of v1.5.0, the spine_protocol::mcp bridge that re-exposes the same capabilities over the MCP tools/list / tools/call contract — so SPINE matches the introspection gold standard AND adds semantic capability search MCP lacks",
+                "as of v1.4.0 the wire body is a self-describing binary codec (8-byte SpineWireHeader + CBOR/RFC 8949, format byte auto-selecting CBOR / CBOR+zstd past 128 B); v1.5.0 serializes EncodedFrame.data and StreamData::Bytes as CBOR byte strings (serde_bytes), bringing tensor payloads to protobuf-class density. Measured (spine-protocol examples/wire_sizes.rs, header included): a 1 KiB embedding frame 3975→446 B (89% smaller), a 2-capability advertisement 806→322 B (60%), a tool call 323→255 B (21%); every frame beats JSON, and EncodedFrame moves raw f32/f16/bf16/q8/q4 tensor bytes zero-token — a path gRPC has no native equivalent for. At parity with protobuf for the agentic data plane",
+                "still young (nervosys/SPINE), but no longer isolated: the v1.5.0 spine_protocol::mcp bridge means any MCP host (Claude Desktop, Claude Code, MCP-capable IDEs) drives a SPINE agent with zero SPINE-specific code, and the OpenAI-compatible /v1/chat/completions + /v1/embeddings + /v1/agentic/{capabilities,codecs} gateway bridges existing SDKs. These are adapters into the two dominant agent contracts rather than native ecosystem adoption — real reach, but not yet gRPC's install base or OpenAI's universality",
+                "message-level security, not just channel: v1.5.0 spine_agentic::signed_frame wraps any frame in an Ed25519 detached signature over the exact wire bytes (integrity + authenticity + non-repudiation, verified before decode) — a guarantee mTLS does not give once a message leaves the socket. Plus W3C TraceContext inline on tool calls/results/stream starts; bearer auth SECURE BY DEFAULT since v1.3.0; zeroize-on-drop on every key-bearing struct; optional FIPS 140-3 build via aws-lc-rs; Chameleon moving-target protocol + Certificate Transparency policy in the box",
             ],
         },
         WebStack::OpenAiApi => WebStackProfile {
@@ -447,9 +447,8 @@ mod tests {
             "protobuf binary beats verbose JSON over HTTP"
         );
 
-        // SPINE's v1.4.0 CBOR wire format moved encoding from a weakness to a
-        // near-top-tier strength: far past the JSON baselines, and within reach
-        // of protobuf (gRPC stays marginally ahead on schema-elided density).
+        // SPINE's CBOR wire format (v1.4.0) plus byte-string tensor payloads
+        // (v1.5.0) moved encoding from a weakness to protobuf-class density.
         assert!(
             spine.encoding_efficiency > openai.encoding_efficiency,
             "binary CBOR (+opportunistic zstd) crushes JSON-over-HTTP"
@@ -459,16 +458,30 @@ mod tests {
             "binary CBOR beats JSON-RPC text envelopes"
         );
         assert!(
-            grpc.encoding_efficiency >= spine.encoding_efficiency,
-            "protobuf's schema-elided field tags stay marginally denser than self-describing CBOR on small structs"
-        );
-        assert!(
-            spine.encoding_efficiency > 0.85,
-            "CBOR wire format puts SPINE in the binary-efficient tier"
+            spine.encoding_efficiency >= grpc.encoding_efficiency,
+            "byte-string tensor payloads bring SPINE to parity with protobuf for the agentic data plane"
         );
         assert!(
             grpc.security_primitives > http.security_primitives,
             "mTLS + interceptors beat bring-your-own bearer-headers"
+        );
+
+        // v1.5.0 lifted every axis with real capabilities (MCP bridge for
+        // interop + tools, byte-string payloads for encoding, per-message
+        // Ed25519 signatures for security, StreamCancel/usage for streaming),
+        // so SPINE now edges gRPC on the composite — while STILL trailing badly
+        // on interop, the one axis that only rewards real ecosystem adoption.
+        assert!(
+            spine.fitness() > grpc.fitness(),
+            "v1.5.0 capability work puts SPINE first on composite agentic fitness"
+        );
+        assert!(
+            grpc.interop > spine.interop,
+            "SPINE reaches the ecosystem through MCP/OpenAI bridges, not native adoption; gRPC's install base is broader"
+        );
+        assert!(
+            spine.security_primitives > grpc.security_primitives,
+            "per-message Ed25519 signatures (non-repudiation) exceed channel-only mTLS"
         );
 
         // MCP / GraphQL win on introspection because the protocol IS the schema.
