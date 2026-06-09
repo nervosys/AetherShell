@@ -3,6 +3,21 @@
 All notable changes to the `agentic-eval` crate. Follows
 [Keep a Changelog](https://keepachangelog.com/) and [SemVer](https://semver.org/).
 
+## [0.14.2] - 2026-06-08
+
+### Added
+- **SPINE profile now also cites the neural codec benchmark.** A seventh
+  evidence string on `WebStack::Spine` references SPINE's neural
+  encoder-decoder benchmark (`spine-protocol/benches/neural_codec_bench.rs`,
+  2026-06-08): the real `TitansLatentCodec` projects text into a Titans latent
+  and frames it as a self-describing `EncodedFrame` that is **66–71 % smaller
+  than its JSON form** (dim 256: 1241 B vs 3942 B; dim 1024: 4314 B vs
+  14803 B). The honest cost is recorded too — it is a genuine Titans forward
+  pass (superlinear encode: ~94 µs at dim 128 to ~26 ms at dim 1024), a
+  one-time sender-side price separate from the wire-size win. **Scores
+  unchanged** — this substantiates the existing `encoding_efficiency` 0.95 for
+  the latent data plane; it does not move it. Directional tests unchanged.
+
 ## [0.14.1] - 2026-06-08
 
 ### Added
