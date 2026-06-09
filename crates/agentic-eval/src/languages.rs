@@ -45,7 +45,7 @@ pub enum Language {
     C,
     Cpp,
     Java,
-    /// MechGen — the agentic-first language (token-budgeted syntax, RMIL binary
+    /// MechGen — the agentic-first language (token-budgeted syntax, Machine Language binary
     /// IR target, self-healing compiler). Included because this crate's parent
     /// ecosystem ships it; scored on the same axes as everything else.
     MechGen,
@@ -308,10 +308,10 @@ pub fn profile(lang: Language) -> LanguageProfile {
             // + unsafe sentinels — the same machinery that earns its 0.95 safety.
             // So token ≈ C/Go tier (0.60), NOT above them. Sigils + zero-import
             // builtins roughly offset the safety-ceremony verbosity → ~tied with
-            // C/Go. The big win remains only in the binary RMIL track.
+            // C/Go. The big win remains only in the binary Machine Language track.
             token_efficiency: 0.6,
             // MechGen's most verifiably superior axis. ALL FOUR output channels
-            // are now EMPIRICALLY verified reproducible: byte-stable RMIL IR
+            // are now EMPIRICALLY verified reproducible: byte-stable Machine Language IR
             // (cmp-identical), idempotent formatter (property-verified this
             // session — fmt(fmt x)==fmt x, after fixing 2 round-trip bugs the
             // property test found), deterministic ontology/manifest
@@ -354,8 +354,8 @@ pub fn profile(lang: Language) -> LanguageProfile {
             // (inflated) -> 0.92 -> 0.94 -> 0.95 (transitive soundness added).
             safety: 0.95,
             evidence: vec![
-                "token (MEASURED, multi-language): ~7% terser than Rust BUT MORE verbose than C/Go head-to-head (factorial+binsearch tokens: Go 102, C 106, Rust 134, MechGen 137) — its Option/Result + explicit-effect + type machinery (which earns 0.95 safety) costs the tokens that C/Go save via inference + unsafe sentinels. So ≈ C/Go tier (0.60), NOT above them. Earlier 0.73 was Rust-only-anchored bias, corrected. The big text→bytes win is only in the separate binary RMIL artifact",
-                "determinism — MechGen's most verifiably superior axis: ALL FOUR output channels EMPIRICALLY verified reproducible — byte-stable RMIL IR (cmp-identical), formatter idempotence (property-verified this session after fixing 2 round-trip bugs the property found), deterministic ontology/manifest, byte-identical `--check --json`. No mainstream toolchain offers a byte-stable IR artifact or deterministic structured-diagnostic channel by design",
+                "token (MEASURED, multi-language): ~7% terser than Rust BUT MORE verbose than C/Go head-to-head (factorial+binsearch tokens: Go 102, C 106, Rust 134, MechGen 137) — its Option/Result + explicit-effect + type machinery (which earns 0.95 safety) costs the tokens that C/Go save via inference + unsafe sentinels. So ≈ C/Go tier (0.60), NOT above them. Earlier 0.73 was Rust-only-anchored bias, corrected. The big text→bytes win is only in the separate binary Machine Language artifact",
+                "determinism — MechGen's most verifiably superior axis: ALL FOUR output channels EMPIRICALLY verified reproducible — byte-stable Machine Language IR (cmp-identical), formatter idempotence (property-verified this session after fixing 2 round-trip bugs the property found), deterministic ontology/manifest, byte-identical `--check --json`. No mainstream toolchain offers a byte-stable IR artifact or deterministic structured-diagnostic channel by design",
                 "reliability = catching + first-pass success. Catches broadly (static types, sound effects, match exhaustiveness, arity, contracts) with machine-readable code+span+fix diagnostics + self-healing. First-pass: a deterministic, COMPLETE self-ontology (--emit-ontology; keyword section derived from the lexer's own table — 102 keywords, 100% coverage, drift-guarded by test; effects verified to match exactly) lets an agent ground in verified ground-truth instead of guessing syntax — unique among the profiled languages. Crash-robustness empirically demonstrated (60k fuzzed inputs, 0 panics) AND formatter round-trip property-tested. DISCOUNTED below Rust for *correctness* maturity: that property test FOUND 2 real round-trip bugs this week (effect annotation + path separator) — now fixed with permanent regression coverage, but finding them confirms the discount is warranted",
                 "memory-safe AND sound/mandatory/enforced capability effects: a function can't perform net/fs/io/exec it didn't declare. Soundness PROPERTY-VERIFIED single-function (6000 programs) AND transitively through call chains (4000 chains — the propagation path that previously had a bug), every undeclared effect flagged, zero false positives. Best-in-class containment vs Rust's ambient authority; `--check --json` exposes every function's declared-vs-inferred effect surface for pre-run sandboxing",
             ],
