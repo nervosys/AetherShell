@@ -2,7 +2,7 @@
 //! the same four axes this crate exposes. The agent built two working neural
 //! artifacts (an affine regressor and a cycle LM) and measures its own SWE
 //! loop here — reliability (attempt success + actionable failures), determinism
-//! (byte-stable artifacts), token efficiency (compact RMIL IR), and safety
+//! (byte-stable artifacts), token efficiency (compact ABL IR), and safety
 //! (effect-gated CLI surface used).
 //!
 //! Run: cargo run -p agentic-eval --example swe_self_eval
@@ -55,15 +55,15 @@ fn main() {
     );
 
     // ── Determinism ─────────────────────────────────────────────────────────
-    // Measured directly in-session: `--target=rmil` on the built net produced
+    // Measured directly in-session: `--target=abl` on the built net produced
     // byte-identical lowering (hash 98f166a675ab7d72) across repeated runs.
     println!("DETERMINISM");
-    println!("  RMIL lowering of agent_built_mlp.mg: byte-identical across runs");
+    println!("  ABL lowering of agent_built_mlp.mg: byte-identical across runs");
     println!("  (hash 98f166a675ab7d72, wire=77B) → cacheable/diffable: YES\n");
 
     // ── Token efficiency ────────────────────────────────────────────────────
     // The agentic value: the trained net's structure lives in a tiny binary IR.
-    println!("TOKEN EFFICIENCY (RMIL binary IR — the agent-facing artifact)");
+    println!("TOKEN EFFICIENCY (ABL binary IR — the agent-facing artifact)");
     println!("  AffineRegressor: 11 nodes → 77 bytes wire");
     println!("  CycleLM:         compact Embedding+Linear → checkpoint 412 bytes");
     println!("  → an agent ships/loads model structure as ~tens of bytes, not KB of text\n");
@@ -73,8 +73,8 @@ fn main() {
     // The whole session stayed within read_local / write_local — no exec, no
     // network. Score the blast radius under an agent policy.
     let effects_used = [
-        Effect::ReadLocal,  // --check, --target=rmil, --target=rmil-infer/generate
-        Effect::WriteLocal, // --target=rmil-train (writes .ckpt)
+        Effect::ReadLocal,  // --check, --target=abl, --target=abl-infer/generate
+        Effect::WriteLocal, // --target=abl-train (writes .ckpt)
     ];
     let safety = assess_safety(&effects_used, Mode::Agent);
     println!("SAFETY (effect blast radius of the CLI modes used)");
@@ -96,5 +96,5 @@ fn main() {
     println!("Built 2 working ML artifacts end-to-end (build→train→infer/generate)");
     println!("on MechGen + RMI. General-purpose (non-NN) MechGen programs do NOT");
     println!("yet check clean in this prototype — the functional, dogfoodable");
-    println!("surface is the net→RMIL→compute path. Reported honestly above.");
+    println!("surface is the net→ABL→compute path. Reported honestly above.");
 }
