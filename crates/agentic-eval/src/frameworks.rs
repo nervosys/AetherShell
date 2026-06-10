@@ -267,14 +267,14 @@ pub fn profile(fw: Framework) -> FrameworkProfile {
             ],
         },
         // The defining premise of this profile: for agentic ML use the model
-        // artifact IS the binary Machine Language IR — what the agent emits, ships, loads,
+        // artifact IS the binary Agentic Binary Language IR — what the agent emits, ships, loads,
         // and introspects — not text source. Axes are anchored to MEASURED
         // numbers (MechGen benchmarks/IR_ARTIFACT_REPORT.md), not estimates.
         Framework::FramewerxRmi => FrameworkProfile {
             framework: fw,
             // CORRECTED 0.80→0.75. The byte win (144 B vs 440 B text) is real
             // for STORAGE/TRANSPORT/LOAD but is NOT a token win for an LLM
-            // EMITTING the model: measured, Machine Language-as-base64 ≈ 106 tokens and hex
+            // EMITTING the model: measured, Agentic Binary Language-as-base64 ≈ 106 tokens and hex
             // ≈ 144, vs ~134 text tokens — the byte advantage evaporates under
             // base64/hex emission (LLMs emit tokens, not raw bytes). The only
             // genuine token edge over PyTorch (0.70) is zero import/config
@@ -289,7 +289,7 @@ pub fn profile(fw: Framework) -> FrameworkProfile {
             // Agent emits structured BYTES, not text — the text syntax-error
             // class is gone; plus shape inference + typed Result on every
             // Backend op and exact-F32 fallback for quant/half paths. +0.02 →
-            // 0.86: the tool-mediated construction layer (`--build=ml`) is now
+            // 0.86: the tool-mediated construction layer (`--build=abl`) is now
             // PROPERTY-VERIFIED reject-by-construction over 6000 generated specs
             // — no structurally-valid net is ever spuriously refused (3000
             // cases lower to clean-resolving, deterministically-constructed
@@ -301,18 +301,18 @@ pub fn profile(fw: Framework) -> FrameworkProfile {
             // and stronger than Burn's type-state reliability (0.80) because the
             // errors are machine-actionable, not Rust type-error prose.
             reliability: 0.86,
-            // Verified: Machine Language decode is pure bounds-checked data — loading a
-            // model CANNOT execute code (`--from=ml-bytes` round-trips
+            // Verified: Agentic Binary Language decode is pure bounds-checked data — loading a
+            // model CANNOT execute code (`--from=abl-bytes` round-trips
             // structure without running). Contrast torch.load=pickle=arbitrary
             // code (PyTorch safety 0.30). Plus effect-typed compute.
             safety: 0.88,
             discoverability: 0.95,
             evidence: vec![
-                "token (MEASURED, honest): the 144 B Machine Language artifact is 56–67% smaller than text for STORAGE/TRANSPORT/LOAD, but that byte win does NOT survive LLM emission — base64 ≈ 106 tokens / hex ≈ 144 vs ~134 text tokens. The real token edge over PyTorch is just zero import/config boilerplate (write the `net {}` block, no `import`). Byte compaction is credited under determinism/safety, not token",
+                "token (MEASURED, honest): the 144 B Agentic Binary Language artifact is 56–67% smaller than text for STORAGE/TRANSPORT/LOAD, but that byte win does NOT survive LLM emission — base64 ≈ 106 tokens / hex ≈ 144 vs ~134 text tokens. The real token edge over PyTorch is just zero import/config boilerplate (write the `net {}` block, no `import`). Byte compaction is credited under determinism/safety, not token",
                 "deterministic artifact (MEASURED byte-identical across emissions): content-hashable cache keys + meaningful diffs; deterministic ontology/manifest. Exceeds frameworks whose artifacts/runs aren't byte-stable",
-                "reliability (PROPERTY-VERIFIED): emitting structured IR bytes removes the text syntax-error class; the tool-mediated `--build=ml` layer is reject-by-construction, verified over 6000 generated specs — every valid net lowers to clean, deterministically-constructed source; every invalid net (unknown op / wrong arity / bad dims / shape mismatch) is caught with a machine-readable code+fix BEFORE any artifact exists. Plus shape inference + typed Result on every Backend op; quant/half paths fall back to exact F32 rather than silently degrading",
-                "safety (VERIFIED): Machine Language load is bounds-checked data decode with NO code execution (vs torch.load=pickle=arbitrary code); effect-typed compute; driver-checked CUDA construction",
-                "discoverable from itself: FrameworkOntology + token-compact manifest()/describe(), plus a typed self-describing construction schema (`--build=schema`: op catalog/arities/shape-rule/error-codes, deterministic + drift-guarded against the validator) and no-exec structured introspection (`--describe=ml`: decode the artifact as pure data into JSON). Young framework — minimal training-data presence, so agents rely on this self-description (the design bet)",
+                "reliability (PROPERTY-VERIFIED): emitting structured IR bytes removes the text syntax-error class; the tool-mediated `--build=abl` layer is reject-by-construction, verified over 6000 generated specs — every valid net lowers to clean, deterministically-constructed source; every invalid net (unknown op / wrong arity / bad dims / shape mismatch) is caught with a machine-readable code+fix BEFORE any artifact exists. Plus shape inference + typed Result on every Backend op; quant/half paths fall back to exact F32 rather than silently degrading",
+                "safety (VERIFIED): Agentic Binary Language load is bounds-checked data decode with NO code execution (vs torch.load=pickle=arbitrary code); effect-typed compute; driver-checked CUDA construction",
+                "discoverable from itself: FrameworkOntology + token-compact manifest()/describe(), plus a typed self-describing construction schema (`--build=schema`: op catalog/arities/shape-rule/error-codes, deterministic + drift-guarded against the validator) and no-exec structured introspection (`--describe=abl`: decode the artifact as pure data into JSON). Young framework — minimal training-data presence, so agents rely on this self-description (the design bet)",
             ],
         },
     }
