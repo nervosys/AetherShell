@@ -25,11 +25,12 @@ fn main() {
             "fn factorial(n: u64) -> u64 { if n <= 1 { 1 } else { n * factorial(n - 1) } }",
             "f factorial(n) { if n <= 1 { 1 } else { n * factorial(n - 1) } }",
         ),
-        // Multi-statement body — also exercises the `;`-optional layout change.
+        // Multi-statement body — fully brace-free + semicolon-free + inferred
+        // (return + param inference, `;`-optional, AND layout blocks — all landed).
         (
             "area3",
             "fn area3(w: i32, h: i32) -> i32 { val a = w * h; val b = a + a; b }",
-            "f area3(w, h) { val a = w * h\n val b = a + a\n b }",
+            "f area3(w, h)\n  val a = w * h\n  val b = a + a\n  b",
         ),
     ];
 
@@ -45,6 +46,19 @@ fn main() {
         100 - 100 * inf_cl / ann_cl, 100 - 100 * inf_o / ann_o);
     println!("\nThe inferred forms are now ACCEPTED by the compiler (return + param inference,");
     println!("recursion-correct), so this saving is real, not hypothetical. The remaining tokens");
-    println!("are the payload (names/ops/literals) — the irreducible floor. `;` is now optional");
-    println!("too (area3, newline-separated); brace-optional layout blocks are the next lever staged.");
+    println!("are the payload (names/ops/literals) — the irreducible floor. area3 is now FULLY");
+    println!("brace-free + semicolon-free + inferred (layout blocks landed) — the form-C surface.");
+
+    // Honest sub-finding: is dropping braces a token win, or just aesthetic?
+    let braced_nosemi = "f area3(w, h) { val a = w * h\n val b = a + a\n b }";
+    let layout = "f area3(w, h)\n  val a = w * h\n  val b = a + a\n  b";
+    println!(
+        "\nBRACE vs LAYOUT (same fn, no `;`): braced {} → layout {} cl100k tokens",
+        cl.count(braced_nosemi),
+        cl.count(layout)
+    );
+    println!("  Dropping braces is ~token-NEUTRAL (often slightly worse): BPE charges for the");
+    println!("  indentation whitespace about what the two brace tokens saved. Same lesson as the");
+    println!("  'digital rain' — whitespace tokenizes too. The real wins were inference + `;`,");
+    println!("  NOT braces→layout. Layout is a readability/aesthetic choice, not a token lever.");
 }
