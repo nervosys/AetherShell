@@ -25,6 +25,12 @@ fn main() {
             "fn factorial(n: u64) -> u64 { if n <= 1 { 1 } else { n * factorial(n - 1) } }",
             "f factorial(n) { if n <= 1 { 1 } else { n * factorial(n - 1) } }",
         ),
+        // Multi-statement body — also exercises the `;`-optional layout change.
+        (
+            "area3",
+            "fn area3(w: i32, h: i32) -> i32 { val a = w * h; val b = a + a; b }",
+            "f area3(w, h) { val a = w * h\n val b = a + a\n b }",
+        ),
     ];
 
     println!("{:<11} {:>9} {:>9} {:>9}", "fn", "annot", "inferred", "saved");
@@ -39,6 +45,6 @@ fn main() {
         100 - 100 * inf_cl / ann_cl, 100 - 100 * inf_o / ann_o);
     println!("\nThe inferred forms are now ACCEPTED by the compiler (return + param inference,");
     println!("recursion-correct), so this saving is real, not hypothetical. The remaining tokens");
-    println!("are the payload (names/ops/literals) — the irreducible floor. Offside layout (drop");
-    println!("braces/`;`) is the next lever still staged.");
+    println!("are the payload (names/ops/literals) — the irreducible floor. `;` is now optional");
+    println!("too (area3, newline-separated); brace-optional layout blocks are the next lever staged.");
 }
