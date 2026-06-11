@@ -128,8 +128,9 @@ fn main() {
     println!("\nCROSSOVER (token-weight at which a terse language overtakes MechGen)");
     println!("  vs bash (token {:.2}):   {:.0}% token weight", bash.token_efficiency, crossover(&bash) * 100.0);
     println!("  vs python (token {:.2}): {:.0}% token weight", py.token_efficiency, crossover(&py) * 100.0);
-    println!("  → no realistic SWE weighting (token ≤ 40%) flips it; you need ~70% token weight");
-    println!("    (i.e. near-pure code-golf that ignores correctness) for a terse language to win.");
+    println!("  → no realistic SWE weighting (token ≤ 40%) flips it; the crossover above (now even");
+    println!("    higher, since the landed inference made MechGen's token axis competitive) needs");
+    println!("    near-pure code-golf that ignores correctness for a terse language to win.");
 
     // ── Honest reading ────────────────────────────────────────────────────────
     println!("\nREADING (honest — MechGen is the project's own language):");

@@ -100,11 +100,13 @@ fn main() {
     );
     println!("\nHONESTY (this is the project's own language — bias is the risk):");
     println!(
-        "  • MechGen's scores were CORRECTED DOWN twice for honesty (composite 0.95→0.865; token\n    \
-         0.73→0.60 after a C/Go head-to-head exposed it is MORE verbose, not less).");
+        "  • Scores move on EVIDENCE, both ways: token was corrected DOWN 0.73→0.60 (a C/Go\n    \
+         head-to-head exposed the old surface as MORE verbose), then RAISED 0.60→0.80 after the\n    \
+         ab-initio migration LANDED type inference + `;`-removal (1166 tests green) and measured\n    \
+         #1 of six on the real-BPE swe_token_benchmark. Composite was also corrected 0.95→0.865.");
     println!(
-        "  • Falsifiable guards hold: token ({:.2}) ≤ Python ({:.2}); reliability ({:.2}) ≤ Rust ({:.2});\n    \
-         no axis ≥ 0.98 (prototype discount). Token is its FLOOR, not a win.",
+        "  • Falsifiable guards still hold: token ({:.2}) ≤ Python ({:.2}) — measured tersest but\n    \
+         scored at parity, not above; reliability ({:.2}) ≤ Rust ({:.2}); no axis ≥ 0.98 (prototype).",
         mg.token_efficiency, py.token_efficiency, mg.reliability, rust.reliability
     );
     println!(

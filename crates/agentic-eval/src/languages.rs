@@ -289,27 +289,24 @@ pub fn profile(lang: Language) -> LanguageProfile {
         // the measured/falsifiable basis and the discount.
         Language::MechGen => LanguageProfile {
             language: lang,
-            // Measurement-anchored (re-measured 2026-06-04 on valid, compiling
-            // pairs): IDIOMATIC MechGen — bindings using type inference rather
-            // than the corpus's redundant annotations — is 10.6% terser than
-            // Rust on dense bytes (verified: each terser form re-`--check`ed;
-            // over-annotated corpus form was only 5.9%). Imports are included
-            // (27/100 Rust solutions carry `use`; MechGen needs none). 10.6%
-            // over Rust (0.55) places it ≈ Go/TS tier on raw text — modestly
-            // above Rust, still well below genuinely terse Python (0.85)/Bash
-            // (0.90). The dramatic win (~83%) exists only in the separate
-            // CORRECTED DOWN 0.73→0.60 after a direct C/Go comparison exposed
-            // bias: the old score was anchored ONLY to Rust (MechGen ~7% terser
-            // there). But measured head-to-head on equal tasks, MechGen has the
-            // MOST tokens of the four (factorial+binsearch: Go 102, C 106, Rust
-            // 134, MechGen 137) — MechGen is MORE verbose than C/Go, not less.
-            // Its safety machinery (Option/Result wrapping, explicit effects,
-            // explicit types) is precisely what costs tokens vs C/Go's inference
-            // + unsafe sentinels — the same machinery that earns its 0.95 safety.
-            // So token ≈ C/Go tier (0.60), NOT above them. Sigils + zero-import
-            // builtins roughly offset the safety-ceremony verbosity → ~tied with
-            // C/Go. The big win remains only in the binary Agentic Binary Language track.
-            token_efficiency: 0.6,
+            // RAISED 0.60→0.80 (2026-06-10) on a VERIFIED, LANDED property: the
+            // ab-initio migration shipped return-type inference, parameter-type
+            // inference, and `;`-removal in the compiler (1166 tests green), which
+            // INVERTED the old verbosity. The old 0.60 was measured on the
+            // pre-migration, over-annotated surface where MechGen was the MOST
+            // verbose of its peers (factorial+binsearch: Go 102, C 106, MechGen
+            // 137). Re-measured on the LANDED surface with the real cl100k/o200k
+            // BPE (`--example swe_token_benchmark`, every MechGen snippet
+            // `--check`ed): MechGen is now #1 of six — total 85 cl100k vs Python
+            // 89, Go 93, Java 98, TS 102, Rust 113. It drops the per-parameter and
+            // per-return type annotations that Rust/Go/TS/Java all carry, landing
+            // ≈ Python (annotation-free) — the tersest tier. CONSERVATIVE: set to
+            // 0.80, BELOW Python (0.85) even though MechGen measured slightly
+            // terser, because the sample is 3 tasks and Python won the
+            // expression-heavy ones (the aggregate win came from the struct task).
+            // Erring against the project's own language. The payload floor still
+            // bounds it; the further win remains in the binary ABL track.
+            token_efficiency: 0.8,
             // MechGen's most verifiably superior axis. ALL FOUR output channels
             // are now EMPIRICALLY verified reproducible: byte-stable Agentic Binary Language IR
             // (cmp-identical), idempotent formatter (property-verified this
@@ -367,11 +364,14 @@ pub fn profile(lang: Language) -> LanguageProfile {
         // writes. See IDEAL_AGENTIC_LANGUAGE.md for the full derivation.
         Language::Ideal => LanguageProfile {
             language: lang,
-            // The floor, not a knob: ~62% of bytes are identifiers+literals
-            // (irreducible). The ideal recovers C/Go-level terseness via maximal
-            // inference (no type/mutability ceremony) WITHOUT dropping safety —
-            // ~0.72 is the most a safe text language can reach.
-            token_efficiency: 0.72,
+            // RAISED 0.72→0.85 (2026-06-10): the real-BPE design_tokens +
+            // swe_token_benchmark measurements showed the ceremony headroom was
+            // larger than the conservative 0.72 assumed — full inference reaches
+            // the payload floor (~48% of ceremony-heavy code), ≈ the tersest tier
+            // (Python). The residue (identifiers+literals) is still irreducible,
+            // so ~0.85 is the most a safe text language an LLM writes can reach.
+            // (See AB_INITIO_DESIGN.md §4, which revised this ceiling first.)
+            token_efficiency: 0.85,
             // Fully designable and demonstrated: byte-stable IR + idempotent
             // formatter + deterministic diagnostics/ontology, all verifiable.
             determinism: 0.97,
@@ -461,14 +461,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ideal_is_the_ceiling_at_about_0_90() {
+    fn ideal_is_the_ceiling_at_about_0_93() {
         // The Ideal design target marks the honest composite ceiling for a text
-        // language (~0.90, token-floored). It must rank #1, and NO real
-        // (implemented) language may exceed it — that's the finding.
+        // language (~0.93 after the ab-initio token measurements revised the
+        // floor up from 0.72→0.85). It must rank #1, and NO real (implemented)
+        // language may exceed it — that's the finding.
         let ideal = profile(Language::Ideal);
         assert!(
-            (ideal.fitness() - 0.90).abs() < 0.01,
-            "Ideal composite {:.4} should be ~0.90 (token floor)",
+            (ideal.fitness() - 0.93).abs() < 0.01,
+            "Ideal composite {:.4} should be ~0.93 (revised token floor)",
             ideal.fitness()
         );
         assert_eq!(rank_languages()[0].language, Language::Ideal, "Ideal must top the field");
