@@ -4,8 +4,10 @@
 //! expresses an SWE intent in fewer *payload* tokens than hand-rolling it.
 //!
 //! Measured with the real cl100k/o200k BPE: hand-rolled (compiles today) vs the
-//! same intent via a proposed standard-vocabulary primitive. The primitive form
-//! is the design proposal; the point is the token delta the vocabulary buys.
+//! same intent via a standard-vocabulary primitive. The combinators (map/filter/
+//! fold/reduce/sum/freq/sort/…) are now REGISTERED in MechGen (resolve + type,
+//! `--check`ed) and audited single-token (`vocabulary_audit`); precise totality
+//! typing is a staged backend follow-on. The point is the token delta they buy.
 //!
 //!   cargo run -p agentic-eval --example abstraction_tokens --features real-tokens
 
