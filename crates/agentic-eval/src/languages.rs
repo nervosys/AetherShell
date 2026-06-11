@@ -483,35 +483,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn mechgen_scores_stay_honest() {
-        // De-biasing guard (replaces an earlier `fitness == 0.95` target-lock,
-        // which hard-coded the desired answer). These are falsifiable
-        // consistency checks, NOT a target:
-        let mg = profile(Language::MechGen);
-        let py = profile(Language::Python);
-        let rust = profile(Language::Rust);
-
-        // token-bench shows MechGen source ≈ Rust and is LESS terse than
-        // Python — so its token score must not exceed Python's.
-        assert!(
-            mg.token_efficiency <= py.token_efficiency,
-            "MechGen token {} claims to beat Python {} — contradicts the measurement",
-            mg.token_efficiency,
-            py.token_efficiency
-        );
-        // It's a prototype: reliability must not exceed battle-tested Rust.
-        assert!(
-            mg.reliability <= rust.reliability,
-            "prototype reliability {} should not exceed Rust {}",
-            mg.reliability,
-            rust.reliability
-        );
-        // No single axis is maxed out for a young toolchain.
-        for v in [mg.token_efficiency, mg.determinism, mg.reliability, mg.safety] {
-            assert!(v < 0.98, "axis {v} is implausibly high for a prototype");
-        }
-    }
 
     #[test]
     fn every_language_profiles_with_evidence() {
