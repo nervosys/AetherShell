@@ -11,6 +11,8 @@ const VOCAB: &[&str] = &[
     "map", "filter", "fold", "reduce", "sum", "len", "sort", "reverse", "zip",
     "freq", "first", "last", "count", "any", "all", "find", "take", "range",
     "keys", "values", "flatten", "group", "scan", "contains", "min", "max", "abs",
+    // string / text vocabulary
+    "split", "join", "chars", "words", "lines", "upper", "lower",
 ];
 
 fn main() {
