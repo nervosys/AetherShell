@@ -61,4 +61,18 @@ fn main() {
     println!("  indentation whitespace about what the two brace tokens saved. Same lesson as the");
     println!("  'digital rain' — whitespace tokenizes too. The real wins were inference + `;`,");
     println!("  NOT braces→layout. Layout is a readability/aesthetic choice, not a token lever.");
+
+    // Effect inference (trust-boundary model): a PRIVATE effectful function now
+    // infers its effects and drops the `/ effect` annotation — the public
+    // boundary still declares them, so safety is unchanged (boundary-enforced).
+    let with_eff = "f process(x: i32) / io { print(x) }";
+    let no_eff = "f process(x: i32) { print(x) }";
+    println!(
+        "\nEFFECT ANNOTATION (private fn): `/ io` {} → inferred {} cl100k tokens (−{})",
+        cl.count(with_eff),
+        cl.count(no_eff),
+        cl.count(with_eff) - cl.count(no_eff)
+    );
+    println!("  Private effectful fns now infer effects (the pub boundary still declares them) —");
+    println!("  a real, SAFETY-PRESERVING token saving: enforcement moved to the module surface.");
 }
