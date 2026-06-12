@@ -1,140 +1,116 @@
-//! Agentic-SWE **executability** benchmark — the gate the other axes assume.
+//! Agentic-SWE **executability** benchmark — the gate the other axes assume,
+//! reported from MEASURED execution only (no curated 0–1 judgments, no assumed
+//! category partitions).
 //!
 //! The token / determinism / reliability / safety axes all presuppose one thing:
 //! that the agent's generated code actually *runs* and produces a checkable
 //! result. The edit→build→test→debug loop only converges if `test` can execute
-//! the program and compare output to an expectation. A language whose
-//! general-purpose programs do not execute cannot close that loop at all — no
-//! matter how terse or safe its surface is. So executability is a **gate**, not
-//! a graded axis: below threshold, the other scores are moot.
+//! the program and compare output to an expectation. Executability is therefore
+//! a **gate**, not a graded axis: below threshold the other scores are moot.
 //!
-//! Mature languages (Python/Rust/Go/TS/Java) clear this gate trivially — their
-//! runtimes execute essentially any well-formed program. The interesting subject
-//! is MechGen: until this session its dogfoodable surface was ONLY the
-//! net→ABL→compute path (the old `swe_self_eval` notes general programs "do NOT
-//! yet check clean"). This session landed a focused tree-walking evaluator
-//! (`prototype/src/eval.rs`, driven by `MechGen-parse --eval`) that executes
-//! general-purpose programs across the full reachable surface.
+//! Every figure below is produced by compiling+running real programs and
+//! comparing stdout to a known value, or by counting real BPE tokens of those
+//! exact files:
 //!
-//! The numbers below are MEASURED from MechGen's `eval_bench` (an `#[ignore]`
-//! correctness harness): each program computes a known exact result, and the
-//! suite asserts every one matches. They are not aspiration — they are the
-//! current green count, by feature category.
+//!  • Cross-language micro-task matrix — `MechGen/benchmarks/cross_lang/run.sh`
+//!    compiles+runs the SAME 5 tasks (fact/sumto/fib/distinct/collatz, known
+//!    integer outputs) in each language with the host toolchain, comparing real
+//!    stdout. Tokens are the real cl100k count of the executed files
+//!    (`tokens_of` example). Measured 2026-06-11 on this host.
+//!  • MechGen surface coverage — its `eval_bench` (#[ignore] correctness harness)
+//!    asserts that N general-purpose programs each compute an exact result; the
+//!    number below is the asserted green total, re-run live (not remembered).
 //!
 //!   cargo run -p agentic-eval --example swe_executability
-//!   (with --features real-tokens it also prints the per-task token floor)
 
-use agentic_eval::reliability::{assess_reliability, Outcome};
-
-/// One executability category exercised by MechGen's `eval_bench`, with the
-/// number of distinct programs in it — all of which compute exact results.
-struct Category {
-    name: &'static str,
-    programs: u32,
-    detail: &'static str,
+/// One MEASURED language row: tasks passed of 5, real cl100k tokens of the
+/// executed source, and source bytes (wc -c). All from cross_lang/run.sh +
+/// tokens_of on identical 5-task programs; `None` toolchain = not installed.
+struct Measured {
+    lang: &'static str,
+    passed: Option<u32>, // of 5; None = runtime absent on this host
+    cl100k: Option<u32>,
+    bytes: Option<u32>,
 }
 
-/// Measured MechGen executability coverage (eval_bench, all exact). The per-
-/// category counts sum to the suite's asserted green total; categories reflect
-/// the language surface each program exercises end-to-end (lex→parse→eval).
-const MECHGEN_COVERAGE: &[Category] = &[
-    Category { name: "vocabulary (collection)", programs: 9,
-        detail: "map/filter/fold/reduce/scan/sum/sort/zip/flatten/freq/group/range/…" },
-    Category { name: "vocabulary (text)", programs: 5,
-        detail: "split/join/words/lines/chars/upper/lower over strings" },
-    Category { name: "options + `?`", programs: 4,
-        detail: "Some/None construction, `?` propagation, first/find totality" },
-    Category { name: "control flow", programs: 6,
-        detail: "if/else, while, for, loop+break-value, return, recursion (fib/fac)" },
-    Category { name: "pattern matching", programs: 8,
-        detail: "tuple, slice [h,..t], struct @P{..}, options, literals, `is`" },
-    Category { name: "structs + methods", programs: 3,
-        detail: "@Name{..} construction, field access, method-chaining" },
-    Category { name: "f-string interpolation", programs: 5,
-        detail: "{expr} holes calling vocabulary, {{}} escapes, nested values" },
-    Category { name: "mutation + lvalues", programs: 7,
-        detail: "indexed/field assign, nested grid[r][c], compound +=, histograms" },
-    Category { name: "destructuring", programs: 5,
-        detail: "let (a,b)/[h,..t], for (k,v) in map, assignment destructure" },
-    Category { name: "operators + literals", programs: 11,
-        detail: "bitwise/shift, mixed Int/Float arith+compare, hex/bin/oct/_, casts" },
-    Category { name: "strings + slicing", programs: 6,
-        detail: "indexing s[i], slicing xs[a..b]/s[..n], escapes \\n\\t, iteration" },
-    Category { name: "iteration coercion", programs: 3,
-        detail: "for over string→chars, for over map→pairs, combinators over both" },
+/// Measured 2026-06-11. Source: MechGen/benchmarks/cross_lang (run.sh, tokens_of).
+const MATRIX: &[Measured] = &[
+    Measured { lang: "MechGen",    passed: Some(5), cl100k: Some(173), bytes: Some(401) },
+    Measured { lang: "JavaScript", passed: Some(5), cl100k: Some(199), bytes: Some(513) },
+    Measured { lang: "TypeScript", passed: Some(5), cl100k: Some(220), bytes: Some(593) },
+    Measured { lang: "Go",         passed: Some(5), cl100k: Some(271), bytes: Some(727) },
+    Measured { lang: "Rust",       passed: Some(5), cl100k: Some(275), bytes: Some(769) },
+    Measured { lang: "Java",       passed: Some(5), cl100k: Some(297), bytes: Some(1033) },
+    // Python runtime is NOT installed on the measurement host — excluded, not
+    // estimated. Re-run run.sh on a host with python to fill this in.
+    Measured { lang: "Python",     passed: None, cl100k: None, bytes: None },
 ];
 
+/// MechGen `eval_bench` asserted green total — re-run live before reporting.
+const EVAL_BENCH_EXACT: u32 = 72;
+
 fn main() {
-    println!("=== Agentic-SWE executability benchmark — the gate the axes assume ===\n");
+    println!("=== Agentic-SWE executability benchmark (measured; zero curated scores) ===\n");
 
-    let total: u32 = MECHGEN_COVERAGE.iter().map(|c| c.programs).sum();
-
-    // ── 1. The gate, stated ───────────────────────────────────────────────────
     println!("THE GATE");
     println!("  Agentic SWE = an autonomous edit→build→test→debug loop. `test` must EXECUTE");
     println!("  the program and compare output to an expectation, or the loop cannot converge.");
-    println!("  Executability is therefore a threshold: a language that cannot run its own");
-    println!("  general-purpose programs scores 0 on every other axis *in practice*, because");
-    println!("  the agent never gets a signal back. Mature languages clear it trivially; the");
-    println!("  question this benchmark answers is whether MechGen now clears it too.\n");
+    println!("  So executability is a threshold the other four axes presuppose. This benchmark");
+    println!("  reports it from real compile+run, not judgment.\n");
 
-    // ── 2. MechGen measured coverage ──────────────────────────────────────────
-    println!("MECHGEN EXECUTABILITY (measured: eval_bench, every program computes EXACT result)");
-    println!("  {:<26} {:>5}   {}", "category", "progs", "surface exercised");
-    for c in MECHGEN_COVERAGE {
-        println!("  {:<26} {:>5}   {}", c.name, c.programs, c.detail);
+    // ── Cross-language matrix (fully measured) ────────────────────────────────
+    println!("CROSS-LANGUAGE MICRO-TASK MATRIX (compile+run; stdout vs known value)");
+    println!("  5 tasks: fact(12)=479001600 sumto(100)=5050 fib(25)=75025 distinct=5 collatz(27)=111");
+    println!("  {:<12} {:>8}  {:>10}  {:>11}", "language", "exec", "cl100k tok", "src bytes");
+    for m in MATRIX {
+        let exec = m.passed.map_or("n/a".to_string(), |p| format!("{p}/5"));
+        let tok = m.cl100k.map_or("—".to_string(), |t| t.to_string());
+        let by = m.bytes.map_or("—".to_string(), |b| b.to_string());
+        let note = match (m.lang, m.passed) {
+            (_, None) => "  ← runtime absent on host (excluded, not estimated)",
+            ("MechGen", _) => "  ← tree-walking evaluator (this project)",
+            _ => "",
+        };
+        println!("  {:<12} {:>8}  {:>10}  {:>11}{}", m.lang, exec, tok, by, note);
     }
-    println!("  {:<26} {:>5}   (all exact — the harness asserts green == total)", "TOTAL", total);
 
-    // Each program is an executability case; all currently pass (exact result).
-    let cases: Vec<String> = MECHGEN_COVERAGE
-        .iter()
-        .flat_map(|c| (0..c.programs).map(move |i| format!("{}#{i}", c.name)))
-        .collect();
-    let rel = assess_reliability(&cases, |_| Outcome::ok());
+    // Quantitative readings off the measured matrix — computed, not asserted.
+    let runnable: Vec<&Measured> = MATRIX.iter().filter(|m| m.passed.is_some()).collect();
+    let all_pass = runnable.iter().all(|m| m.passed == Some(5));
+    let mg = MATRIX.iter().find(|m| m.lang == "MechGen").unwrap();
+    let min_tok = runnable.iter().filter_map(|m| m.cl100k).min().unwrap();
+    let tersest = runnable.iter().find(|m| m.cl100k == Some(min_tok)).unwrap().lang;
     println!(
-        "\n  executability: {}/{} programs run to an exact, checked result ({:.0}%)",
-        rel.passed,
-        rel.total,
-        rel.pass_rate * 100.0
+        "\n  measured: {}/{} runnable languages execute all 5 tasks correctly{}.",
+        runnable.iter().filter(|m| m.passed == Some(5)).count(),
+        runnable.len(),
+        if all_pass { " (incl. MechGen)" } else { "" }
+    );
+    println!(
+        "  measured: fewest real cl100k tokens = {tersest} ({min_tok}); MechGen {} ({:.2}x the min).",
+        mg.cl100k.unwrap(),
+        mg.cl100k.unwrap() as f64 / min_tok as f64
     );
 
-    // ── 3. Cross-language gate comparison ──────────────────────────────────────
-    println!("\nGATE STATUS BY LANGUAGE (does the agent's general-purpose code execute + verify?)");
-    println!("  {:<12} {:>10}   {}", "language", "clears?", "evidence");
-    let rows: &[(&str, &str, &str)] = &[
-        ("Python",     "YES", "mature CPython runtime; executes any well-formed program"),
-        ("Rust",       "YES", "rustc + native/`cargo test`; full execution"),
-        ("Go",         "YES", "gc toolchain; `go test` executes"),
-        ("TypeScript", "YES", "tsc→node; full execution"),
-        ("Java",       "YES", "javac→JVM; full execution"),
-        ("MechGen",    "NEW", "tree-walking evaluator landed THIS session — see coverage above"),
-    ];
-    for (lang, clears, ev) in rows {
-        let mark = if *lang == "MechGen" { "  ←" } else { "    " };
-        println!("{mark}{lang:<10} {clears:>10}   {ev}");
-    }
+    // ── MechGen surface coverage (measured by its own suite) ──────────────────
+    println!("\nMECHGEN SURFACE COVERAGE (eval_bench, re-run live before reporting)");
+    println!(
+        "  {EVAL_BENCH_EXACT} general-purpose programs each compute an EXACT result; the harness\n  \
+         asserts green == total. They exercise every reachable Expr+Stmt variant, all pattern\n  \
+         forms (tuple/slice/struct/option), and the §8 vocabulary over lists/strings/maps. The\n  \
+         count is the suite's assertion, not a partition estimate — `cargo test --release\n  \
+         eval_bench -- --ignored` reproduces it."
+    );
 
-    // ── 4. The delta this session ──────────────────────────────────────────────
-    println!("\nDELTA (MechGen, this session)");
-    println!("  BEFORE: general-purpose `.mg` programs did not run — only net→ABL→compute did");
-    println!("          (the dogfood self-eval scored the functional surface as the NN path only).");
-    println!("  AFTER:  {total} general-purpose programs execute to exact results across the full");
-    println!("          reachable surface (every Expr + Stmt variant, all pattern forms, the §8");
-    println!("          vocabulary over lists/strings/maps). Found+fixed silent-correctness bugs");
-    println!("          a passing test-suite missed — e.g. boolean true literals evaluated false,");
-    println!("          mixed Int/Float comparison was wrong, numeric literals (hex/bin/_) misparsed.");
-
-    // ── 5. Honesty ─────────────────────────────────────────────────────────────
-    println!("\nHONESTY (this is the project's own language — read the gate, not a graded score)");
-    println!("  • Executability is a GATE, not a claim of parity: MechGen now CLEARS it for the");
-    println!("    measured surface, but the runtime is a young tree-walker, not a production VM —");
-    println!("    no JIT, no real async (await is run-to-completion), no separate-compilation.");
-    println!("  • The {total} programs are curated micro-tasks that exercise each feature, NOT a");
-    println!("    representative application corpus — coverage of the surface, not of all programs.");
-    println!("  • The mature languages clear the SAME gate and have decades of runtime hardening;");
-    println!("    this benchmark records that MechGen crossed the threshold, not that it leads here.");
-    println!("  • What it DOES change: the other agentic-eval axes (token #1, determinism/safety");
-    println!("    leads) were measured on a surface that an agent could write but not RUN. They now");
-    println!("    describe a language whose general programs also execute and self-verify.");
+    // ── Honesty ───────────────────────────────────────────────────────────────
+    println!("\nHONESTY (read the gate, not a graded score)");
+    println!("  • Executability is a GATE: the matrix shows MechGen CLEARS it (5/5 measured), and");
+    println!("    is the tersest of the runnable set on real tokens — but every other language also");
+    println!("    clears it. This records a threshold crossed, not a lead on a graded axis.");
+    println!("  • The runtime is a young tree-walker (no JIT, await=run-to-completion); the 5 tasks");
+    println!("    and the {EVAL_BENCH_EXACT}-program suite are curated coverage, not an app corpus.");
+    println!("  • Python is excluded because its runtime is absent on the host — a gap in coverage");
+    println!("    stated as such, not filled with an estimate.");
+    println!("  • What it changes: agentic-eval's other axes were measured on a surface an agent");
+    println!("    could WRITE; the matrix shows those programs also RUN and self-verify.");
 }
