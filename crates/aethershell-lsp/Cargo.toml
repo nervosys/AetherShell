@@ -2,10 +2,16 @@
 name = "aethershell-lsp"
 version = "1.6.0"
 edition = "2021"
-description = "Language Server Protocol implementation for AetherShell"
+description = "Language Server Protocol implementation for AetherShell — diagnostics, completion, hover, and symbols for .ae scripts."
 license = "AGPL-3.0-or-later"
-authors = ["Nervosys"]
+authors = ["Nervosys <contact@nervosys.ai>"]
 repository = "https://github.com/nervosys/AetherShell"
+homepage = "https://github.com/nervosys/AetherShell/tree/master/crates/aethershell-lsp"
+documentation = "https://docs.rs/aethershell-lsp"
+readme = "README.md"
+keywords = ["lsp", "shell", "language-server", "aethershell", "ide"]
+categories = ["development-tools", "command-line-utilities"]
+rust-version = "1.75"
 
 [[bin]]
 name = "aethershell-lsp"
