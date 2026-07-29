@@ -19,7 +19,11 @@ fn main() {
     println!("=== Abstraction as the post-floor token lever (real BPE) ===");
     println!(
         "tokenizer: {}\n",
-        if cl.is_exact() { "REAL tiktoken (exact)" } else { "HEURISTIC — rerun with --features real-tokens" }
+        if cl.is_exact() {
+            "REAL tiktoken (exact)"
+        } else {
+            "HEURISTIC — rerun with --features real-tokens"
+        }
     );
 
     // (intent, hand-rolled [compiles today], with-vocabulary [proposed primitive])
@@ -46,23 +50,39 @@ fn main() {
         ),
     ];
 
-    println!("{:<18} {:>9} {:>9} {:>7}", "intent", "handrolled", "vocab", "saved");
+    println!(
+        "{:<18} {:>9} {:>9} {:>7}",
+        "intent", "handrolled", "vocab", "saved"
+    );
     let (mut h_cl, mut v_cl, mut h_o, mut v_o) = (0, 0, 0, 0);
     for (name, hand, vocab) in cases {
         let (h, v) = (cl.count(hand), cl.count(vocab));
         println!("{name:<18} {h:>9} {v:>9} {:>6}%", 100 - 100 * v / h);
-        h_cl += h; v_cl += v;
-        h_o += o2.count(hand); v_o += o2.count(vocab);
+        h_cl += h;
+        v_cl += v;
+        h_o += o2.count(hand);
+        v_o += o2.count(vocab);
     }
-    println!("\nTOTAL  cl100k {h_cl} → {v_cl} ({}% saved)   o200k {h_o} → {v_o} ({}% saved)",
-        100 - 100 * v_cl / h_cl, 100 - 100 * v_o / h_o);
+    println!(
+        "\nTOTAL  cl100k {h_cl} → {v_cl} ({}% saved)   o200k {h_o} → {v_o} ({}% saved)",
+        100 - 100 * v_cl / h_cl,
+        100 - 100 * v_o / h_o
+    );
 
     println!("\nFINDING");
-    println!("  At the surface floor, abstraction is the only per-call token lever left, and it is");
+    println!(
+        "  At the surface floor, abstraction is the only per-call token lever left, and it is"
+    );
     println!("  POSITIVE-SUM: a single-token, total, capability-typed primitive (a) cuts payload");
-    println!("  tokens (above), (b) RAISES reliability (no hand-rolled off-by-one / empty-list bug),");
+    println!(
+        "  tokens (above), (b) RAISES reliability (no hand-rolled off-by-one / empty-list bug),"
+    );
     println!("  and (c) preserves safety (the primitive's effect rides its type to the boundary).");
-    println!("  Encoding tricks (binary, dense UTF-8) and layout were all token-neutral-or-worse —");
-    println!("  vocabulary is the one that pays. The discipline: name primitives as single BPE tokens,");
+    println!(
+        "  Encoding tricks (binary, dense UTF-8) and layout were all token-neutral-or-worse —"
+    );
+    println!(
+        "  vocabulary is the one that pays. The discipline: name primitives as single BPE tokens,"
+    );
     println!("  make them total, and choose them by the empirical frequency of SWE intents.");
 }

@@ -35,15 +35,50 @@ struct Measured {
 
 /// Measured 2026-06-11. Source: MechGen/benchmarks/cross_lang (run.sh, tokens_of).
 const MATRIX: &[Measured] = &[
-    Measured { lang: "MechGen",    passed: Some(5), cl100k: Some(173), bytes: Some(401) },
-    Measured { lang: "JavaScript", passed: Some(5), cl100k: Some(199), bytes: Some(513) },
-    Measured { lang: "TypeScript", passed: Some(5), cl100k: Some(220), bytes: Some(593) },
-    Measured { lang: "Go",         passed: Some(5), cl100k: Some(271), bytes: Some(727) },
-    Measured { lang: "Rust",       passed: Some(5), cl100k: Some(275), bytes: Some(769) },
-    Measured { lang: "Java",       passed: Some(5), cl100k: Some(297), bytes: Some(1033) },
+    Measured {
+        lang: "MechGen",
+        passed: Some(5),
+        cl100k: Some(173),
+        bytes: Some(401),
+    },
+    Measured {
+        lang: "JavaScript",
+        passed: Some(5),
+        cl100k: Some(199),
+        bytes: Some(513),
+    },
+    Measured {
+        lang: "TypeScript",
+        passed: Some(5),
+        cl100k: Some(220),
+        bytes: Some(593),
+    },
+    Measured {
+        lang: "Go",
+        passed: Some(5),
+        cl100k: Some(271),
+        bytes: Some(727),
+    },
+    Measured {
+        lang: "Rust",
+        passed: Some(5),
+        cl100k: Some(275),
+        bytes: Some(769),
+    },
+    Measured {
+        lang: "Java",
+        passed: Some(5),
+        cl100k: Some(297),
+        bytes: Some(1033),
+    },
     // Python runtime is NOT installed on the measurement host — excluded, not
     // estimated. Re-run run.sh on a host with python to fill this in.
-    Measured { lang: "Python",     passed: None, cl100k: None, bytes: None },
+    Measured {
+        lang: "Python",
+        passed: None,
+        cl100k: None,
+        bytes: None,
+    },
 ];
 
 /// MechGen `eval_bench` asserted green total — re-run live before reporting.
@@ -60,8 +95,13 @@ fn main() {
 
     // ── Cross-language matrix (fully measured) ────────────────────────────────
     println!("CROSS-LANGUAGE MICRO-TASK MATRIX (compile+run; stdout vs known value)");
-    println!("  5 tasks: fact(12)=479001600 sumto(100)=5050 fib(25)=75025 distinct=5 collatz(27)=111");
-    println!("  {:<12} {:>8}  {:>10}  {:>11}", "language", "exec", "cl100k tok", "src bytes");
+    println!(
+        "  5 tasks: fact(12)=479001600 sumto(100)=5050 fib(25)=75025 distinct=5 collatz(27)=111"
+    );
+    println!(
+        "  {:<12} {:>8}  {:>10}  {:>11}",
+        "language", "exec", "cl100k tok", "src bytes"
+    );
     for m in MATRIX {
         let exec = m.passed.map_or("n/a".to_string(), |p| format!("{p}/5"));
         let tok = m.cl100k.map_or("—".to_string(), |t| t.to_string());
@@ -71,7 +111,10 @@ fn main() {
             ("MechGen", _) => "  ← tree-walking evaluator (this project)",
             _ => "",
         };
-        println!("  {:<12} {:>8}  {:>10}  {:>11}{}", m.lang, exec, tok, by, note);
+        println!(
+            "  {:<12} {:>8}  {:>10}  {:>11}{}",
+            m.lang, exec, tok, by, note
+        );
     }
 
     // Quantitative readings off the measured matrix — computed, not asserted.
@@ -79,7 +122,11 @@ fn main() {
     let all_pass = runnable.iter().all(|m| m.passed == Some(5));
     let mg = MATRIX.iter().find(|m| m.lang == "MechGen").unwrap();
     let min_tok = runnable.iter().filter_map(|m| m.cl100k).min().unwrap();
-    let tersest = runnable.iter().find(|m| m.cl100k == Some(min_tok)).unwrap().lang;
+    let tersest = runnable
+        .iter()
+        .find(|m| m.cl100k == Some(min_tok))
+        .unwrap()
+        .lang;
     println!(
         "\n  measured: {}/{} runnable languages execute all 5 tasks correctly{}.",
         runnable.iter().filter(|m| m.passed == Some(5)).count(),
@@ -105,11 +152,19 @@ fn main() {
     // ── Honesty ───────────────────────────────────────────────────────────────
     println!("\nHONESTY (read the gate, not a graded score)");
     println!("  • Executability is a GATE: the matrix shows MechGen CLEARS it (5/5 measured), and");
-    println!("    is the tersest of the runnable set on real tokens — but every other language also");
+    println!(
+        "    is the tersest of the runnable set on real tokens — but every other language also"
+    );
     println!("    clears it. This records a threshold crossed, not a lead on a graded axis.");
-    println!("  • The runtime is a young tree-walker (no JIT, await=run-to-completion); the 5 tasks");
-    println!("    and the {EVAL_BENCH_EXACT}-program suite are curated coverage, not an app corpus.");
-    println!("  • Python is excluded because its runtime is absent on the host — a gap in coverage");
+    println!(
+        "  • The runtime is a young tree-walker (no JIT, await=run-to-completion); the 5 tasks"
+    );
+    println!(
+        "    and the {EVAL_BENCH_EXACT}-program suite are curated coverage, not an app corpus."
+    );
+    println!(
+        "  • Python is excluded because its runtime is absent on the host — a gap in coverage"
+    );
     println!("    stated as such, not filled with an estimate.");
     println!("  • What it changes: agentic-eval's other axes were measured on a surface an agent");
     println!("    could WRITE; the matrix shows those programs also RUN and self-verify.");

@@ -15,7 +15,9 @@
 //!
 //! Run: cargo run -p agentic-eval --example swe_languages
 
-use agentic_eval::languages::{compare_languages, profile, rank_languages, Language, LanguageProfile};
+use agentic_eval::languages::{
+    compare_languages, profile, rank_languages, Language, LanguageProfile,
+};
 
 /// SWE-weighted composite (reliability + determinism emphasized).
 fn swe_score(p: &LanguageProfile) -> f64 {
@@ -76,7 +78,12 @@ fn main() {
 
     // ── 3. Head-to-head: MechGen vs the popular real languages ─────────────────
     println!("\nHEAD-TO-HEAD (positive = MechGen fits agentic SWE better)");
-    for other in [Language::Rust, Language::Python, Language::Go, Language::TypeScript] {
+    for other in [
+        Language::Rust,
+        Language::Python,
+        Language::Go,
+        Language::TypeScript,
+    ] {
         let c = compare_languages(Language::MechGen, other);
         print!("{c}");
     }

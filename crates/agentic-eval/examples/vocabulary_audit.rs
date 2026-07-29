@@ -8,10 +8,9 @@ use agentic_eval::tokens::Model;
 
 /// MechGen's standard SWE vocabulary (resolve.rs register_builtins, §8).
 const VOCAB: &[&str] = &[
-    "map", "filter", "fold", "reduce", "sum", "len", "sort", "reverse", "zip",
-    "freq", "first", "last", "count", "any", "all", "find", "take", "range",
-    "keys", "values", "flatten", "group", "scan", "contains", "min", "max", "abs",
-    // string / text vocabulary
+    "map", "filter", "fold", "reduce", "sum", "len", "sort", "reverse", "zip", "freq", "first",
+    "last", "count", "any", "all", "find", "take", "range", "keys", "values", "flatten", "group",
+    "scan", "contains", "min", "max", "abs", // string / text vocabulary
     "split", "join", "chars", "words", "lines", "upper", "lower",
 ];
 
@@ -21,7 +20,11 @@ fn main() {
     println!("=== Standard-vocabulary tokenizer audit (§8b) ===");
     println!(
         "tokenizer: {}   names: {}\n",
-        if cl.is_exact() { "REAL tiktoken (exact)" } else { "HEURISTIC — rerun with --features real-tokens" },
+        if cl.is_exact() {
+            "REAL tiktoken (exact)"
+        } else {
+            "HEURISTIC — rerun with --features real-tokens"
+        },
         VOCAB.len()
     );
 
@@ -38,7 +41,10 @@ fn main() {
         }
     }
 
-    println!("SINGLE BPE TOKEN (both tokenizers): {single}/{}", VOCAB.len());
+    println!(
+        "SINGLE BPE TOKEN (both tokenizers): {single}/{}",
+        VOCAB.len()
+    );
     if offenders.is_empty() {
         println!("  ✓ every vocabulary name is a single token — the §8b discipline holds.");
     } else {

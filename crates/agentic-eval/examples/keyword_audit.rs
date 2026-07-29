@@ -10,16 +10,100 @@ use agentic_eval::tokens::Model;
 
 /// MechGen's reserved words (from prototype/src/lexer.rs KEYWORDS).
 const KEYWORDS: &[&str] = &[
-    "C", "D", "E", "Err", "I", "M", "None", "Ok", "S", "Some", "T", "U", "Y", "Z",
-    "af", "agent", "async", "break", "const", "continue", "data", "defer", "df",
-    "effect", "else", "enum", "evolve", "extend", "extern", "f", "fact", "fitness",
-    "fn", "for", "forward", "fx", "gd", "genome", "grad", "grammar_extension",
-    "guard", "handle", "hx", "if", "impl", "in", "is", "kb", "layer", "let", "loop",
-    "m", "match", "mod", "mut", "mutate", "net", "or", "param", "pipeline", "pub",
-    "query", "ret", "return", "rule", "select", "sp", "spec", "static", "struct",
-    "sw", "swarm", "swarm_fan_out", "swarm_map_reduce", "swarm_pipeline",
-    "swarm_race", "swarm_saga", "tensor", "train", "trait", "type", "u", "uf",
-    "unsafe", "use", "v", "val", "var", "where", "while", "xd", "xn", "yield", "yl",
+    "C",
+    "D",
+    "E",
+    "Err",
+    "I",
+    "M",
+    "None",
+    "Ok",
+    "S",
+    "Some",
+    "T",
+    "U",
+    "Y",
+    "Z",
+    "af",
+    "agent",
+    "async",
+    "break",
+    "const",
+    "continue",
+    "data",
+    "defer",
+    "df",
+    "effect",
+    "else",
+    "enum",
+    "evolve",
+    "extend",
+    "extern",
+    "f",
+    "fact",
+    "fitness",
+    "fn",
+    "for",
+    "forward",
+    "fx",
+    "gd",
+    "genome",
+    "grad",
+    "grammar_extension",
+    "guard",
+    "handle",
+    "hx",
+    "if",
+    "impl",
+    "in",
+    "is",
+    "kb",
+    "layer",
+    "let",
+    "loop",
+    "m",
+    "match",
+    "mod",
+    "mut",
+    "mutate",
+    "net",
+    "or",
+    "param",
+    "pipeline",
+    "pub",
+    "query",
+    "ret",
+    "return",
+    "rule",
+    "select",
+    "sp",
+    "spec",
+    "static",
+    "struct",
+    "sw",
+    "swarm",
+    "swarm_fan_out",
+    "swarm_map_reduce",
+    "swarm_pipeline",
+    "swarm_race",
+    "swarm_saga",
+    "tensor",
+    "train",
+    "trait",
+    "type",
+    "u",
+    "uf",
+    "unsafe",
+    "use",
+    "v",
+    "val",
+    "var",
+    "where",
+    "while",
+    "xd",
+    "xn",
+    "yield",
+    "yl",
 ];
 
 fn main() {
@@ -28,7 +112,11 @@ fn main() {
     println!("=== MechGen keyword tokenizer audit (migration step 4) ===");
     println!(
         "tokenizer: {}   keywords: {}\n",
-        if cl.is_exact() { "REAL tiktoken (exact)" } else { "HEURISTIC — rerun with --features real-tokens" },
+        if cl.is_exact() {
+            "REAL tiktoken (exact)"
+        } else {
+            "HEURISTIC — rerun with --features real-tokens"
+        },
         KEYWORDS.len()
     );
 
@@ -48,12 +136,15 @@ fn main() {
         }
     }
 
-    println!("SINGLE BPE TOKEN (both tokenizers): {single}/{}", KEYWORDS.len());
+    println!(
+        "SINGLE BPE TOKEN (both tokenizers): {single}/{}",
+        KEYWORDS.len()
+    );
     println!("\nOFFENDERS (>1 token in cl100k or o200k):");
     if offenders.is_empty() {
         println!("  (none)");
     } else {
-        offenders.sort_by(|a, b| b.1.cmp(&a.1));
+        offenders.sort_by_key(|&(_, c, _)| std::cmp::Reverse(c));
         for (kw, c, o) in &offenders {
             println!("  {kw:<20} cl100k {c}  o200k {o}");
         }
@@ -62,13 +153,19 @@ fn main() {
     println!("\nVERDICT");
     println!(
         "  {}/{} keywords are already single-token (the agent-mode single/double-char forms",
-        single, KEYWORDS.len()
+        single,
+        KEYWORDS.len()
     );
     println!("  f/m/v/u/… and common words if/for/match/… cost exactly one token).");
     if !offenders.is_empty() {
-        println!("  The {} offenders are compound/rare words (snake_case splits on `_`); each should", offenders.len());
+        println!(
+            "  The {} offenders are compound/rare words (snake_case splits on `_`); each should",
+            offenders.len()
+        );
         println!("  get a single-token agent-mode alias. They are specialized (swarm combinators,");
-        println!("  grammar extension) — rare in practice, so the realized token cost is small, but");
+        println!(
+            "  grammar extension) — rare in practice, so the realized token cost is small, but"
+        );
         println!("  the surface is not yet uniformly single-token. This is the concrete step-4 work-list.");
     }
 }

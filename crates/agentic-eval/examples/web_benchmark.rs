@@ -34,7 +34,10 @@ fn main() {
 
     // ── Head-to-head: SPINE vs the OpenAI API (the dominant baseline) ───────
     println!("\nhead-to-head (positive = SPINE fits agentic use better):");
-    print!("{}", compare_web_stacks(WebStack::Spine, WebStack::OpenAiApi));
+    print!(
+        "{}",
+        compare_web_stacks(WebStack::Spine, WebStack::OpenAiApi)
+    );
 
     // ── Evidence behind SPINE's profile ─────────────────────────────────────
     println!("\nwhy SPINE scores where it does:");

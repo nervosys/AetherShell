@@ -390,7 +390,10 @@ mod tests {
             assert_eq!(WebStack::from_name(stack.name()), Some(stack));
         }
         assert_eq!(WebStack::from_name("OpenAI"), Some(WebStack::OpenAiApi));
-        assert_eq!(WebStack::from_name("claude-api"), Some(WebStack::AnthropicApi));
+        assert_eq!(
+            WebStack::from_name("claude-api"),
+            Some(WebStack::AnthropicApi)
+        );
         assert_eq!(WebStack::from_name("REST"), Some(WebStack::HttpJson));
         assert_eq!(
             WebStack::from_name("model-context-protocol"),

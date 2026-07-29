@@ -186,11 +186,7 @@ fn find_let_declaration(content: &str, name: &str, _stmt_idx: usize) -> Option<R
             let after_let = &line[let_pos + 4..];
 
             // Check for mut
-            let check_str = if after_let.starts_with("mut ") {
-                &after_let[4..]
-            } else {
-                after_let
-            };
+            let check_str = after_let.strip_prefix("mut ").unwrap_or(after_let);
 
             // Find the variable name
             let var_start = check_str

@@ -298,11 +298,7 @@ fn main() {
         } else {
             "a labeled heuristic"
         },
-        if legible_sc_tok > 0 {
-            cipher_sc_tok / legible_sc_tok
-        } else {
-            0
-        }
+        cipher_sc_tok.checked_div(legible_sc_tok).unwrap_or(0)
     );
 }
 

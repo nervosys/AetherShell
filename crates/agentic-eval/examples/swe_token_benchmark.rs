@@ -18,7 +18,11 @@ fn main() {
     println!("=== Agentic-SWE token benchmark — 6 languages × 3 tasks (real BPE) ===");
     println!(
         "tokenizer: {}\n",
-        if cl.is_exact() { "REAL tiktoken (exact)" } else { "HEURISTIC — rerun with --features real-tokens" }
+        if cl.is_exact() {
+            "REAL tiktoken (exact)"
+        } else {
+            "HEURISTIC — rerun with --features real-tokens"
+        }
     );
 
     // [language] = [factorial, sum-loop, point+dist2]
@@ -73,7 +77,10 @@ fn main() {
         ),
     ];
 
-    println!("{:<12} {:>9} {:>9} {:>9} {:>9}", "language", "factori", "sum", "point", "TOTAL cl");
+    println!(
+        "{:<12} {:>9} {:>9} {:>9} {:>9}",
+        "language", "factori", "sum", "point", "TOTAL cl"
+    );
     let mut totals: Vec<(&str, usize, usize)> = Vec::new();
     for (name, progs) in langs {
         let c: Vec<usize> = progs.iter().map(|p| cl.count(p)).collect();
@@ -88,17 +95,27 @@ fn main() {
     let best = totals[0].1 as f64;
     let mg = totals.iter().find(|t| t.0 == "MechGen").unwrap().1;
     for (i, (name, tot, o)) in totals.iter().enumerate() {
-        let mark = if *name == "MechGen" { "  ← landed ab-initio surface" } else { "" };
-        println!("  {}. {name:<11} {tot:>3} cl100k  {o:>3} o200k  ({:.2}x){mark}", i + 1, *tot as f64 / best);
+        let mark = if *name == "MechGen" {
+            "  ← landed ab-initio surface"
+        } else {
+            ""
+        };
+        println!(
+            "  {}. {name:<11} {tot:>3} cl100k  {o:>3} o200k  ({:.2}x){mark}",
+            i + 1,
+            *tot as f64 / best
+        );
     }
 
     println!("\nREADING");
     let py = totals.iter().find(|t| t.0 == "Python").unwrap().1;
-    println!("  MechGen total {mg} cl100k vs Python {py}, Rust {}, Go {}, TS {}, Java {}.",
+    println!(
+        "  MechGen total {mg} cl100k vs Python {py}, Rust {}, Go {}, TS {}, Java {}.",
         totals.iter().find(|t| t.0 == "Rust").unwrap().1,
         totals.iter().find(|t| t.0 == "Go").unwrap().1,
         totals.iter().find(|t| t.0 == "TypeScript").unwrap().1,
-        totals.iter().find(|t| t.0 == "Java").unwrap().1);
+        totals.iter().find(|t| t.0 == "Java").unwrap().1
+    );
     println!("  Every MechGen snippet compiles (--check). The terseness is from inference +");
     println!("  `;`-removal (real, landed), NOT layout (token-neutral) — names/ops/literals are");
     println!("  the irreducible payload floor that bounds all of them.");

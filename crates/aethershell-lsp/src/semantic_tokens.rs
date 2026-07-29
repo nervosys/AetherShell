@@ -387,6 +387,10 @@ fn is_operator(ch: char) -> bool {
     )
 }
 
+// The LSP semantic-token encoding is positional by specification (line, char,
+// length, type, modifiers, plus the running delta state), so the argument list
+// mirrors the wire format rather than being decomposable into a struct.
+#[allow(clippy::too_many_arguments)]
 fn add_token(
     tokens: &mut Vec<SemanticToken>,
     line: u32,

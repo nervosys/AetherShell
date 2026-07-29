@@ -1277,8 +1277,8 @@ mod tests {
         assert!(perms.can_write_files);
         assert!(perms.can_execute_shell);
         assert!(perms.can_access_network);
-        assert!(perms.allowed_paths.contains(&"*".to_string()));
-        assert!(perms.allowed_hosts.contains(&"*".to_string()));
+        assert!(perms.allowed_paths.iter().any(|p| p == "*"));
+        assert!(perms.allowed_hosts.iter().any(|h| h == "*"));
     }
 
     #[test]

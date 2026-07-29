@@ -472,7 +472,11 @@ mod tests {
             "Ideal composite {:.4} should be ~0.93 (revised token floor)",
             ideal.fitness()
         );
-        assert_eq!(rank_languages()[0].language, Language::Ideal, "Ideal must top the field");
+        assert_eq!(
+            rank_languages()[0].language,
+            Language::Ideal,
+            "Ideal must top the field"
+        );
         for l in Language::all() {
             if l != Language::Ideal {
                 assert!(
@@ -483,7 +487,6 @@ mod tests {
             }
         }
     }
-
 
     #[test]
     fn every_language_profiles_with_evidence() {

@@ -594,9 +594,9 @@ mod tests {
             "describe(\"spine\") expands to profile + evidence bullets"
         );
         assert!(describe("openai").unwrap().contains("openai-api")); // web alias resolution
-                                                                    // Effect names still win over any future subject collision
-                                                                    // (lookup order: sections → languages → frameworks → vms → web → axes/effects/models
-                                                                    //  — and effect/axis names are disjoint from subject names today).
+                                                                     // Effect names still win over any future subject collision
+                                                                     // (lookup order: sections → languages → frameworks → vms → web → axes/effects/models
+                                                                     //  — and effect/axis names are disjoint from subject names today).
         assert!(describe("destructive").unwrap().contains("agent="));
     }
 

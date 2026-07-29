@@ -58,7 +58,11 @@ fn rain(src: &str) -> (String, String) {
         });
         stream.push(g);
     }
-    let legend_text = legend.iter().map(|(g, t)| format!("{g}\t{t}")).collect::<Vec<_>>().join("\n");
+    let legend_text = legend
+        .iter()
+        .map(|(g, t)| format!("{g}\t{t}"))
+        .collect::<Vec<_>>()
+        .join("\n");
     (stream, legend_text)
 }
 
@@ -89,7 +93,11 @@ fn main() {
     println!("=== MechGen 'digital rain' vs token streams (cl100k + o200k BPE) ===");
     println!(
         "tokenizer: {}\n",
-        if exact { "REAL tiktoken (exact)" } else { "HEURISTIC (CJK undercounted — rerun with --features real-tokens)" }
+        if exact {
+            "REAL tiktoken (exact)"
+        } else {
+            "HEURISTIC (CJK undercounted — rerun with --features real-tokens)"
+        }
     );
 
     let samples: &[(&str, &str)] = &[
@@ -98,7 +106,10 @@ fn main() {
         ("kb", "kb Family { fact parent(alice, bob); fact parent(bob, carol); rule gp(x: i32, z: i32) where parent(x, y), parent(y, z) { x } }"),
     ];
 
-    println!("{:<5} {:>10} {:>22} {:>22} {:>14}", "kind", "form", "cl100k tok", "o200k tok", "chars");
+    println!(
+        "{:<5} {:>10} {:>22} {:>22} {:>14}",
+        "kind", "form", "cl100k tok", "o200k tok", "chars"
+    );
     let cl = Model::OpenAiGpt4;
     let o2 = Model::OpenAiGpt4o;
     let (mut s_cl, mut s_o, mut r_cl, mut r_o, mut rl_cl, mut rl_o) = (0, 0, 0, 0, 0, 0);
@@ -108,31 +119,53 @@ fn main() {
         let bytes = src.as_bytes();
         let base = b64(bytes);
         let row = |label: &str, s: &str| {
-            println!("{:<5} {:>10} {:>22} {:>22} {:>14}", "", label, cl.count(s), o2.count(s), chars(s));
+            println!(
+                "{:<5} {:>10} {:>22} {:>22} {:>14}",
+                "",
+                label,
+                cl.count(s),
+                o2.count(s),
+                chars(s)
+            );
         };
         println!("[{name}]");
         row("source", src);
         row("rain(stream)", &stream);
         row("rain+legend", &rl);
         row("base64(bytes)", &base);
-        s_cl += cl.count(src); s_o += o2.count(src);
-        r_cl += cl.count(&stream); r_o += o2.count(&stream);
-        rl_cl += cl.count(&rl); rl_o += o2.count(&rl);
+        s_cl += cl.count(src);
+        s_o += o2.count(src);
+        r_cl += cl.count(&stream);
+        r_o += o2.count(&stream);
+        rl_cl += cl.count(&rl);
+        rl_o += o2.count(&rl);
     }
 
     println!("\nTOTALS (3 samples) — token ratio vs source (>1.0 = rain is WORSE):");
     println!("  source            cl100k {s_cl:>4}   o200k {s_o:>4}");
-    println!("  rain(stream)      cl100k {r_cl:>4} ({:.2}x)   o200k {r_o:>4} ({:.2}x)", r_cl as f64 / s_cl as f64, r_o as f64 / s_o as f64);
-    println!("  rain+legend       cl100k {rl_cl:>4} ({:.2}x)   o200k {rl_o:>4} ({:.2}x)", rl_cl as f64 / s_cl as f64, rl_o as f64 / s_o as f64);
+    println!(
+        "  rain(stream)      cl100k {r_cl:>4} ({:.2}x)   o200k {r_o:>4} ({:.2}x)",
+        r_cl as f64 / s_cl as f64,
+        r_o as f64 / s_o as f64
+    );
+    println!(
+        "  rain+legend       cl100k {rl_cl:>4} ({:.2}x)   o200k {rl_o:>4} ({:.2}x)",
+        rl_cl as f64 / s_cl as f64,
+        rl_o as f64 / s_o as f64
+    );
 
     println!("\nVERDICT");
     println!("  Digital rain shrinks CHARACTERS (~3x — the Matrix look) but the dense glyph");
     println!("  stream costs MORE BPE tokens than the ASCII source (ratios above), because the");
-    println!("  tokenizer splits each rare multi-byte glyph into several tokens. Adding the legend");
+    println!(
+        "  tokenizer splits each rare multi-byte glyph into several tokens. Adding the legend"
+    );
     println!("  (needed for reversibility) makes a one-off snippet far worse still. Even an");
     println!("  amortized shared codebook (stream only) does not beat source on tokens.");
     println!("  This is the project's token-floor finding, re-confirmed on the dense-symbol idea:");
-    println!("  an LLM emits TOKENS, not glyphs/bytes — the information (names/ops/dims) is the floor.");
+    println!(
+        "  an LLM emits TOKENS, not glyphs/bytes — the information (names/ops/dims) is the floor."
+    );
     if !exact {
         println!("\n  (heuristic run: it counts ~1 token/char and UNDER-counts CJK — the real cl100k/o200k");
         println!("   gap is larger. Rerun with --features real-tokens for the exact, even-worse numbers.)");

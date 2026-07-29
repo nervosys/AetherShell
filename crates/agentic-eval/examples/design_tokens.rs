@@ -21,7 +21,11 @@ fn main() {
     println!("=== Token-efficiency design levers (real cl100k + o200k BPE) ===");
     println!(
         "tokenizer: {}\n",
-        if cl.is_exact() { "REAL tiktoken (exact)" } else { "HEURISTIC — rerun with --features real-tokens" }
+        if cl.is_exact() {
+            "REAL tiktoken (exact)"
+        } else {
+            "HEURISTIC — rerun with --features real-tokens"
+        }
     );
 
     // Each task: (name, ceremony-heavy, current-ish, ab-initio).
@@ -49,28 +53,56 @@ fn main() {
         ),
     ];
 
-    println!("{:<13} {:>4} {:>9} {:>8} {:>7}", "task", "form", "cl100k", "o200k", "chars");
+    println!(
+        "{:<13} {:>4} {:>9} {:>8} {:>7}",
+        "task", "form", "cl100k", "o200k", "chars"
+    );
     let (mut a_cl, mut b_cl, mut c_cl) = (0, 0, 0);
     let (mut a_o, mut b_o, mut c_o) = (0, 0, 0);
     for (name, a, b, c) in tasks {
         let row = |label: &str, s: &str| {
-            println!("{:<13} {:>4} {:>9} {:>8} {:>7}", "", label, cl.count(s), o2.count(s), s.chars().count());
+            println!(
+                "{:<13} {:>4} {:>9} {:>8} {:>7}",
+                "",
+                label,
+                cl.count(s),
+                o2.count(s),
+                s.chars().count()
+            );
         };
         println!("[{name}]");
         row("A heavy", a);
         row("B curr", b);
         row("C abinit", c);
-        a_cl += cl.count(a); b_cl += cl.count(b); c_cl += cl.count(c);
-        a_o += o2.count(a); b_o += o2.count(b); c_o += o2.count(c);
+        a_cl += cl.count(a);
+        b_cl += cl.count(b);
+        c_cl += cl.count(c);
+        a_o += o2.count(a);
+        b_o += o2.count(b);
+        c_o += o2.count(c);
     }
 
     println!("\nTOTALS (3 tasks):");
     println!("  A ceremony-heavy   cl100k {a_cl:>3}   o200k {a_o:>3}   (baseline)");
-    println!("  B current-ish      cl100k {b_cl:>3} ({:.0}%)   o200k {b_o:>3} ({:.0}%)", 100.0 * b_cl as f64 / a_cl as f64, 100.0 * b_o as f64 / a_o as f64);
-    println!("  C ab-initio        cl100k {c_cl:>3} ({:.0}%)   o200k {c_o:>3} ({:.0}%)", 100.0 * c_cl as f64 / a_cl as f64, 100.0 * c_o as f64 / a_o as f64);
-    println!("\n  → ab-initio cuts ~{:.0}% of cl100k tokens vs ceremony-heavy by REMOVING ceremony",
-        100.0 * (1.0 - c_cl as f64 / a_cl as f64));
-    println!("    (types/mutability/return/imports inferred; layout replaces braces+`;`; terse safety");
+    println!(
+        "  B current-ish      cl100k {b_cl:>3} ({:.0}%)   o200k {b_o:>3} ({:.0}%)",
+        100.0 * b_cl as f64 / a_cl as f64,
+        100.0 * b_o as f64 / a_o as f64
+    );
+    println!(
+        "  C ab-initio        cl100k {c_cl:>3} ({:.0}%)   o200k {c_o:>3} ({:.0}%)",
+        100.0 * c_cl as f64 / a_cl as f64,
+        100.0 * c_o as f64 / a_o as f64
+    );
+    println!(
+        "\n  → ab-initio cuts ~{:.0}% of cl100k tokens vs ceremony-heavy by REMOVING ceremony",
+        100.0 * (1.0 - c_cl as f64 / a_cl as f64)
+    );
+    println!(
+        "    (types/mutability/return/imports inferred; layout replaces braces+`;`; terse safety"
+    );
     println!("    sigils; ambient builtins). The remaining tokens are the irreducible payload —");
-    println!("    names/ops/literals — which no design can remove. That residue IS the token floor.");
+    println!(
+        "    names/ops/literals — which no design can remove. That residue IS the token floor."
+    );
 }

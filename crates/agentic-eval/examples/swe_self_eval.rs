@@ -21,25 +21,26 @@ fn main() {
     // self-correctable diagnostic (parse error w/ line:col, flat-loss signal);
     // an opaque failure would be a dead end with no signal (there were none).
     let cases = [
-        "mlp:check",       // attempt 1 — clean first try
-        "mlp:train-relu",  // flat loss — actionable (loss signal → diagnosed dead ReLU)
-        "mlp:train-linear",// fixed — 100% reduction
-        "mlp:infer",       // checkpoint round-trip — exact predictions
-        "rpn:check-1",     // parse error `:: ` — actionable (line:col)
-        "rpn:check-2",     // parse error `vec!` — actionable (line:col)
-        "rpn:check-3",     // type mismatch [T]~ vs array — actionable
-        "rpn:abandoned",   // general front-end not functional — diagnosed, pivoted
-        "lm:check",        // clean
-        "lm:train",        // 100% reduction
-        "lm:generate",     // exact 6-cycle output
+        "mlp:check",        // attempt 1 — clean first try
+        "mlp:train-relu",   // flat loss — actionable (loss signal → diagnosed dead ReLU)
+        "mlp:train-linear", // fixed — 100% reduction
+        "mlp:infer",        // checkpoint round-trip — exact predictions
+        "rpn:check-1",      // parse error `:: ` — actionable (line:col)
+        "rpn:check-2",      // parse error `vec!` — actionable (line:col)
+        "rpn:check-3",      // type mismatch [T]~ vs array — actionable
+        "rpn:abandoned",    // general front-end not functional — diagnosed, pivoted
+        "lm:check",         // clean
+        "lm:train",         // 100% reduction
+        "lm:generate",      // exact 6-cycle output
     ];
     let r = assess_reliability(&cases, |&c| match c {
         // Clean successes.
         "mlp:check" | "mlp:train-linear" | "mlp:infer" | "lm:check" | "lm:train"
         | "lm:generate" => Outcome::ok(),
         // Failures that came with an actionable signal the agent corrected from.
-        "mlp:train-relu" | "rpn:check-1" | "rpn:check-2" | "rpn:check-3"
-        | "rpn:abandoned" => Outcome::structured_failure(),
+        "mlp:train-relu" | "rpn:check-1" | "rpn:check-2" | "rpn:check-3" | "rpn:abandoned" => {
+            Outcome::structured_failure()
+        }
         _ => Outcome::opaque_failure(),
     });
     println!("RELIABILITY");
@@ -50,9 +51,7 @@ fn main() {
         r.total,
         r.actionable_rate * 100.0
     );
-    println!(
-        "  → working artifacts shipped: 2/2 attempted (affine regressor, cycle LM)\n"
-    );
+    println!("  → working artifacts shipped: 2/2 attempted (affine regressor, cycle LM)\n");
 
     // ── Determinism ─────────────────────────────────────────────────────────
     // Measured directly in-session: `--target=abl` on the built net produced
@@ -79,9 +78,7 @@ fn main() {
     let safety = assess_safety(&effects_used, Mode::Agent);
     println!("SAFETY (effect blast radius of the CLI modes used)");
     println!("  {safety}");
-    println!(
-        "  → only read_local + write_local exercised; no exec/network all session\n"
-    );
+    println!("  → only read_local + write_local exercised; no exec/network all session\n");
 
     // ── Combined ────────────────────────────────────────────────────────────
     let mut eval = Evaluation::new("agent-swe-session: MechGen/RMI dogfooding");

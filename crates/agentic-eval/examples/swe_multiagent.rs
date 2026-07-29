@@ -28,14 +28,14 @@ fn main() {
     // implementation slip caught with an actionable signal and self-corrected.
     let cases = [
         // Live collaboration operations — all succeeded.
-        "decompose:work-dag-acyclic",   // build→review→merge, deps correct
-        "assign:claim-capability-match",// builder claims build (CodeExecution)
-        "build:artifact-sign-verify",   // content-addressed + Ed25519 signed
-        "gate:deny-out-of-policy",      // reviewer 'deploy' denied
-        "share:content-address-store",  // dedup by SHA-256
-        "review:weighted-supermajority",// consensus decided=accept (75% ≥ 67%)
-        "merge:complete-on-consensus",  // merge gated on the vote, 3/3 done
-        "determinism:rebuild-same-hash",// reproducible collective outcome
+        "decompose:work-dag-acyclic", // build→review→merge, deps correct
+        "assign:claim-capability-match", // builder claims build (CodeExecution)
+        "build:artifact-sign-verify", // content-addressed + Ed25519 signed
+        "gate:deny-out-of-policy",    // reviewer 'deploy' denied
+        "share:content-address-store", // dedup by SHA-256
+        "review:weighted-supermajority", // consensus decided=accept (75% ≥ 67%)
+        "merge:complete-on-consensus", // merge gated on the vote, 3/3 done
+        "determinism:rebuild-same-hash", // reproducible collective outcome
         // Negative guards (the system correctly refused the wrong thing).
         "guard:claim-blocked-rejected",
         "guard:complete-unclaimed-rejected",
@@ -43,8 +43,8 @@ fn main() {
         "guard:frame-digest-mismatch-rejected",
         "guard:wrong-key-signature-rejected",
         // Implementation slips — actionable, self-corrected while building.
-        "impl:size-assert-9-not-7",     // off-by-count in a test, fixed
-        "impl:format-string-arity",     // println! arg mismatch, fixed
+        "impl:size-assert-9-not-7", // off-by-count in a test, fixed
+        "impl:format-string-arity", // println! arg mismatch, fixed
     ];
     let r = assess_reliability(&cases, |&c| {
         if c.starts_with("impl:") {
@@ -57,7 +57,9 @@ fn main() {
     println!("  {r}");
     println!(
         "  → {}/{} ops clean; {:.0}% actionable; 0 opaque. The multi-agent round COMPLETED:",
-        r.passed, r.total, r.actionable_rate * 100.0
+        r.passed,
+        r.total,
+        r.actionable_rate * 100.0
     );
     println!("    decompose→assign→build→gate→share→review(consensus)→merge, all 3 tasks done.\n");
 
@@ -96,16 +98,37 @@ fn main() {
     // ── Multi-agent collaboration coverage ────────────────────────────────────
     println!("MULTI-AGENT COLLABORATION COVERAGE");
     let coverage = [
-        ("decomposition",    "WorkGraph DAG with deps + Kahn cycle check"),
-        ("assignment",       "capability-matched claim; Ready/Claimed/Done states"),
-        ("parallel-ready",   "ready() exposes the unblocked frontier"),
-        ("artifact-sharing", "content-addressed (SHA-256), deduped store"),
-        ("integrity",        "Ed25519-signed artifacts; verify-before-trust"),
-        ("provenance",       "producer AgentId + supersedes lineage"),
-        ("consensus/review", "weighted vote → tally → supermajority decision"),
-        ("containment",      "per-agent capability gating; no out-of-policy actions"),
-        ("no-exec safety",   "artifacts load as pure data; merge needs consensus"),
-        ("determinism",      "reproducible artifact hash + collective decision"),
+        (
+            "decomposition",
+            "WorkGraph DAG with deps + Kahn cycle check",
+        ),
+        (
+            "assignment",
+            "capability-matched claim; Ready/Claimed/Done states",
+        ),
+        ("parallel-ready", "ready() exposes the unblocked frontier"),
+        (
+            "artifact-sharing",
+            "content-addressed (SHA-256), deduped store",
+        ),
+        ("integrity", "Ed25519-signed artifacts; verify-before-trust"),
+        ("provenance", "producer AgentId + supersedes lineage"),
+        (
+            "consensus/review",
+            "weighted vote → tally → supermajority decision",
+        ),
+        (
+            "containment",
+            "per-agent capability gating; no out-of-policy actions",
+        ),
+        (
+            "no-exec safety",
+            "artifacts load as pure data; merge needs consensus",
+        ),
+        (
+            "determinism",
+            "reproducible artifact hash + collective decision",
+        ),
     ];
     for (dim, how) in coverage {
         println!("  ✓ {dim:<17} {how}");

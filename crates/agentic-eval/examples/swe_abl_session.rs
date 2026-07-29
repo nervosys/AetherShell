@@ -31,21 +31,21 @@ fn main() {
     // dead end with no signal (there were none — every failure pointed at its fix).
     let cases = [
         // Clean cycles — built + tests green first validate.
-        "canon:measure",          // wrapper→sigil canon; MEASURED no token win (honest null result)
-        "builder:schema",         // --build=schema typed interface
-        "builder:describe",       // --describe=abl no-exec introspection
-        "builder:property-6k",    // reject-by-construction verified over 6000 specs
-        "fw:reliability-verify",  // framework reliability 0.84→0.86 on verified basis
-        "kb:lower-describe",      // kb facts/rules round-trip
-        "unified:multi-item",     // net+kb in one container
-        "symtab:roundtrip",       // symbol table serialized; names recover
-        "agentswarm:roundtrip",   // agent caps / swarm fields round-trip
-        "datalog:forward-chain",  // kb fixpoint derives grandparent(a,c)
-        "warnings:dedup",         // unreachable patterns 28→0
-        "exec:agent-policy",      // capability-gating evaluator
-        "exec:swarm-consensus",   // quorum/majority evaluator
-        "arch:doc",               // ARCHITECTURE.md
-        "verify:full-suite",      // 979 + 132 + 30 + 80 green
+        "canon:measure", // wrapper→sigil canon; MEASURED no token win (honest null result)
+        "builder:schema", // --build=schema typed interface
+        "builder:describe", // --describe=abl no-exec introspection
+        "builder:property-6k", // reject-by-construction verified over 6000 specs
+        "fw:reliability-verify", // framework reliability 0.84→0.86 on verified basis
+        "kb:lower-describe", // kb facts/rules round-trip
+        "unified:multi-item", // net+kb in one container
+        "symtab:roundtrip", // symbol table serialized; names recover
+        "agentswarm:roundtrip", // agent caps / swarm fields round-trip
+        "datalog:forward-chain", // kb fixpoint derives grandparent(a,c)
+        "warnings:dedup", // unreachable patterns 28→0
+        "exec:agent-policy", // capability-gating evaluator
+        "exec:swarm-consensus", // quorum/majority evaluator
+        "arch:doc",      // ARCHITECTURE.md
+        "verify:full-suite", // 979 + 132 + 30 + 80 green
         // Structured failures — actionable signal, self-corrected.
         "kb:rmib-ref",            // E0433 cannot find `rmib` (renamed) → crate::abl
         "kb:closure-borrow",      // E0521 borrowed data escapes closure → plain loops
@@ -54,8 +54,8 @@ fn main() {
         "agentswarm:caps-idents", // ParseError: caps are bare idents, not strings
         "datalog:where-bug",      // real parser bug: dead `where` branch (TildeArrow)
         "rename:cli-test",        // test fail: bare "ml-bytes" not renamed → "abl-bytes"
-        "rename:ps-corruption",   // PowerShell array-flatten corrupted 5 files → recovered from file-history
-        "exec:name-undefined",    // compile error: undefined helper → inline .map
+        "rename:ps-corruption", // PowerShell array-flatten corrupted 5 files → recovered from file-history
+        "exec:name-undefined",  // compile error: undefined helper → inline .map
     ];
     let r = assess_reliability(&cases, |&c| {
         if c.starts_with("kb:rmib")
@@ -96,7 +96,8 @@ fn main() {
     // The agent fetches the construction schema ONCE (standing context), then
     // emits compact specs; structured failures = retry-token cost. Informational
     // (the crate's fitness() does not fold tokens — reported for completeness).
-    let schema_ctx = "--build=schema: op catalog + arities + shape-rule + error codes (cached once)";
+    let schema_ctx =
+        "--build=schema: op catalog + arities + shape-rule + error codes (cached once)";
     let spec_out = r#"{"items":[{"net":"Enc","layers":[["fc","Linear",[4,2]]]},{"kb":"F","facts":[["parent",["a","b"]]],"rules":[]}]}"#;
     let cost = eval_tokens(
         &Program::new("abl-unified-spec", spec_out)
@@ -108,7 +109,9 @@ fn main() {
     println!("  {cost}");
     println!("  artifact at rest: unified net+kb ~163–219 B; kb Family 113 B");
     println!("  honest: the TEXT token axis is floored — sigil canon measured 0 corpus reduction;");
-    println!("  the win is at-rest size + amortized schema + fewer retries (reject-by-construction)\n");
+    println!(
+        "  the win is at-rest size + amortized schema + fewer retries (reject-by-construction)\n"
+    );
 
     // ── Safety ──────────────────────────────────────────────────────────────
     // The effect classes the agent actually exercised this session. Honest and
@@ -131,17 +134,47 @@ fn main() {
     // "write code". Each cycle above maps to a real SWE activity:
     println!("SWE ACTIVITY COVERAGE (the 24 cycles span the full lifecycle)");
     let coverage = [
-        ("plan/decompose", "phased build: paradigm → kb → unified → exec, scoped per turn"),
-        ("implement",      "builder schema/describe, kb lower, unified, symtab, exec evaluators"),
-        ("test/verify",    "property tests (6k specs), full-suite gate (979+132+30+80)"),
-        ("debug",          "E0433/E0521/E0599 compiler errors + a real parser `where` bug, each fixed"),
-        ("refactor",       "warnings dedup (28→0), type-alias cleanup"),
-        ("rename/migrate", "Machine Language → ABL across ~45 files + wire magic + flags"),
-        ("recover",        "5 files restored from file-history after a scripting mishap"),
-        ("measure",        "token-floor null result accepted honestly (no inflation)"),
-        ("version-control","~12 commits authored + pushed to GitHub (2 repos)"),
-        ("document",       "ARCHITECTURE.md, IDEAL_AGENTIC_LANGUAGE.md, memory log"),
-        ("execute",        "kb Datalog fixpoint, agent policy, swarm consensus run live"),
+        (
+            "plan/decompose",
+            "phased build: paradigm → kb → unified → exec, scoped per turn",
+        ),
+        (
+            "implement",
+            "builder schema/describe, kb lower, unified, symtab, exec evaluators",
+        ),
+        (
+            "test/verify",
+            "property tests (6k specs), full-suite gate (979+132+30+80)",
+        ),
+        (
+            "debug",
+            "E0433/E0521/E0599 compiler errors + a real parser `where` bug, each fixed",
+        ),
+        ("refactor", "warnings dedup (28→0), type-alias cleanup"),
+        (
+            "rename/migrate",
+            "Machine Language → ABL across ~45 files + wire magic + flags",
+        ),
+        (
+            "recover",
+            "5 files restored from file-history after a scripting mishap",
+        ),
+        (
+            "measure",
+            "token-floor null result accepted honestly (no inflation)",
+        ),
+        (
+            "version-control",
+            "~12 commits authored + pushed to GitHub (2 repos)",
+        ),
+        (
+            "document",
+            "ARCHITECTURE.md, IDEAL_AGENTIC_LANGUAGE.md, memory log",
+        ),
+        (
+            "execute",
+            "kb Datalog fixpoint, agent policy, swarm consensus run live",
+        ),
     ];
     for (activity, how) in coverage {
         println!("  ✓ {activity:<16} {how}");

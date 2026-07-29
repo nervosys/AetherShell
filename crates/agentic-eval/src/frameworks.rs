@@ -397,11 +397,22 @@ mod tests {
         let torch = profile(Framework::PyTorch);
         // Measured byte-identical artifact ⇒ strictly more deterministic than
         // pickle-based PyTorch.
-        assert!(rmi.determinism > torch.determinism, "byte-stable IR must beat pickle on determinism");
+        assert!(
+            rmi.determinism > torch.determinism,
+            "byte-stable IR must beat pickle on determinism"
+        );
         // Verified no-exec data decode ⇒ strictly safer artifact than torch.load.
-        assert!(rmi.safety > torch.safety, "no-pickle load must beat torch.load on safety");
+        assert!(
+            rmi.safety > torch.safety,
+            "no-pickle load must beat torch.load on safety"
+        );
         // Honesty caps: nothing maxed for a young framework.
-        for v in [rmi.token_efficiency, rmi.determinism, rmi.reliability, rmi.safety] {
+        for v in [
+            rmi.token_efficiency,
+            rmi.determinism,
+            rmi.reliability,
+            rmi.safety,
+        ] {
             assert!(v < 0.98, "axis {v} implausibly high");
         }
     }
