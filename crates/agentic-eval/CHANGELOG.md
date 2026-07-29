@@ -3,7 +3,7 @@
 All notable changes to the `agentic-eval` crate. Follows
 [Keep a Changelog](https://keepachangelog.com/) and [SemVer](https://semver.org/).
 
-## [0.14.3] - 2026-07-29
+## [0.14.4] - 2026-07-29
 
 ### Added
 - **`sigil_audit` example** — measures every AetherShell agentic-mode construct
