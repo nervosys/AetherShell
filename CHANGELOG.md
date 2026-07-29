@@ -112,9 +112,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `providers::platform::test_platform_detection` asserted
   `caps.full_shell || !caps.full_shell`, a tautology that could never fail. It
   now checks detection stability and the desktop/mobile capability invariants.
-- Workspace is clean under `cargo fmt --check` and `cargo clippy --all-targets
-  -D warnings` again; several pre-existing lint failures (including a
-  `clippy::correctness` error) would have failed the CI gate.
+- **CI is green again on all three platforms.** It had failed on every push to
+  master since 2026-06-11 (8 consecutive runs), for three independent reasons:
+  - `cargo fmt --check` failed on 19 `agentic-eval` files.
+  - `cargo clippy -D warnings` failed on a `clippy::correctness` error, plus 63
+    style lints that fire *only* inside `#[cfg(not(target_os = "windows"))]`
+    blocks — invisible to a Windows checkout, which is why they accumulated.
+    One (`unused_mut`) is fixed; the rest are baselined in `lib.rs` alongside
+    the existing deferred-cleanup allows, with a note on how to clear them from
+    a Linux checkout. None has a correctness component.
+  - Every test in `tests/examples_smoke.rs` failed on Linux and macOS: the file
+    hard-coded `target/debug/ae.exe`, so the binary was never found off Windows.
+    It now uses `env!("CARGO_BIN_EXE_ae")`, which also fixes `--release` and
+    custom `CARGO_TARGET_DIR` runs.
+- Crate documentation claimed "430+ built-in functions across 50 modules" and
+  "MCP (130+ tools)" on the docs.rs front page; the real figures are 1,284
+  builtins across 108 modules, and MCP defaults to a three-tool compact
+  discovery surface. A test now pins the module count so it cannot drift again.
 
 ## [1.6.0] - 2026-06-04
 

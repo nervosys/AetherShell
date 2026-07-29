@@ -5,11 +5,12 @@ use std::path::Path;
 use std::process::Command;
 
 fn run_example(name: &str) -> Result<String, String> {
-    let ae_exe = if cfg!(debug_assertions) {
-        "target/debug/ae.exe"
-    } else {
-        "target/release/ae.exe"
-    };
+    // Cargo hands integration tests the exact path of the binary it just built,
+    // including the platform's executable suffix. The previous hard-coded
+    // "target/debug/ae.exe" meant every test in this file failed on Linux and
+    // macOS — the binary there is named `ae` — and also broke under
+    // `--release` or a custom CARGO_TARGET_DIR.
+    let ae_exe = env!("CARGO_BIN_EXE_ae");
 
     let example_path = format!("examples/{}", name);
 

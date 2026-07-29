@@ -1588,3 +1588,37 @@ pub fn all_modules() -> Vec<(&'static str, Value)> {
         ("netcat", nc_module()),
     ]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The module count is quoted in the crate docs (`lib.rs`), `AGENTS.md`, and
+    /// `README.md`. It had drifted badly — `lib.rs` claimed "50 modules" against
+    /// a real 108 — so this pins it. If you add or remove a module, update those
+    /// three places and this number together.
+    const DOCUMENTED_MODULE_COUNT: usize = 108;
+
+    #[test]
+    fn documented_module_count_matches_the_registry() {
+        let names: std::collections::BTreeSet<&str> =
+            all_modules().iter().map(|(n, _)| *n).collect();
+        assert_eq!(
+            names.len(),
+            DOCUMENTED_MODULE_COUNT,
+            "module count changed: update lib.rs, AGENTS.md, README.md and \
+             DOCUMENTED_MODULE_COUNT together"
+        );
+    }
+
+    #[test]
+    fn module_names_are_unique() {
+        // Aliases intentionally map several names to the same module (nc /
+        // netcat), but a name registered twice would make dispatch depend on
+        // vec order.
+        let mut seen = std::collections::BTreeSet::new();
+        for (name, _) in all_modules() {
+            assert!(seen.insert(name), "module {name:?} is registered twice");
+        }
+    }
+}

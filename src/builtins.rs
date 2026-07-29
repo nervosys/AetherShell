@@ -26199,7 +26199,10 @@ fn bi_clipboard_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "linux")]
     {
-        let mut child = std::process::Command::new("xclip")
+        // Not `mut`: the binding is moved into the `if let` below, never
+        // reassigned. (rustc's unused_mut fires here only on Linux, so it was
+        // invisible to a Windows checkout.)
+        let child = std::process::Command::new("xclip")
             .args(["-selection", "clipboard"])
             .stdin(std::process::Stdio::piped())
             .spawn();

@@ -152,7 +152,7 @@ greeting = "Hello, ${name}!"
 
 ## Modules
 
-All 1,100+ builtins are organized into **106 namespaced modules**:
+All 1,280+ builtins are organized into **108 namespaced modules**:
 
 ```ae
 # File operations
@@ -892,7 +892,7 @@ src/
   main.rs          # Entry point
   eval.rs          # Expression evaluator
   parser.rs        # AetherShell syntax parser
-  builtins.rs      # 1,100+ builtin functions
+  builtins.rs      # 1,280+ builtin functions
   modules.rs       # Module system (file, sys, net, ...)
   ai.rs            # AI provider integration
   agent.rs         # Autonomous agent framework
