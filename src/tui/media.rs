@@ -177,9 +177,23 @@ fn generate_thumbnail(img: &DynamicImage) -> Result<Option<String>> {
     Ok(Some(general_purpose::STANDARD.encode(buffer)))
 }
 
-/// Media player functionality for audio files
+/// Audio playback — **not implemented**.
+///
+/// This type has always been a stub. It previously printed "🎵 Playing audio…"
+/// and returned `Ok(())` without playing anything, which is worse than doing
+/// nothing: a caller (or an agent) cannot distinguish it from success.
+///
+/// The `rodio` dependency it was meant to use was declared but never imported,
+/// and it pulled `cpal` → `alsa` → `alsa-sys`, whose build script needs ALSA
+/// headers for the *target* architecture. That single unused dependency was the
+/// last thing preventing the `x86_64-unknown-linux-musl` and
+/// `aarch64-unknown-linux-gnu` release builds from compiling.
+///
+/// It is now removed. If audio playback is implemented later, reintroduce the
+/// dependency behind its own feature flag so cross-compiled builds can opt out,
+/// and make these methods actually do the work.
 pub struct AudioPlayer {
-    // In a full implementation, this would use rodio for playback
+    _private: (),
 }
 
 impl Default for AudioPlayer {
@@ -190,18 +204,22 @@ impl Default for AudioPlayer {
 
 impl AudioPlayer {
     pub fn new() -> Self {
-        Self {}
+        Self { _private: () }
     }
 
-    pub fn play(&self, _path: &str) -> Result<()> {
-        // Placeholder - would use rodio to play audio
-        println!("🎵 Playing audio...");
-        Ok(())
+    /// Always returns an error: audio playback is not implemented.
+    pub fn play(&self, path: &str) -> Result<()> {
+        Err(anyhow::anyhow!(
+            "audio playback is not implemented (requested {path:?}); \
+             AetherShell has no audio backend compiled in"
+        ))
     }
 
+    /// Always returns an error: audio playback is not implemented.
     pub fn stop(&self) -> Result<()> {
-        println!("⏹️  Stopped audio");
-        Ok(())
+        Err(anyhow::anyhow!(
+            "audio playback is not implemented; nothing to stop"
+        ))
     }
 }
 

@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.2] - 2026-07-29
+
+### Removed
+- **`rodio` (and with it `cpal`, `alsa`, `alsa-sys`, `symphonia`).** The
+  dependency was declared and pulled into the `native` feature, but never
+  imported anywhere — the only references were two comments saying "would use
+  rodio". It pulled `alsa-sys`, whose build script needs ALSA headers for the
+  *target* architecture, and after the TLS fix it was the **last** thing
+  preventing the `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-gnu`
+  release builds from compiling. Verified absent from both targets with
+  `cargo tree --target <triple> -i alsa-sys`.
+
+  No functionality is lost, because none existed.
+
+### Fixed
+- **`AudioPlayer` no longer claims to succeed at nothing.** `play()` printed
+  "🎵 Playing audio…" and returned `Ok(())` without playing anything, and
+  `stop()` did the same — indistinguishable from success to a caller or an
+  agent. Both now return an explicit "not implemented" error, matching how the
+  unsupported `gui.*` builtins behave.
+
 ## [1.7.1] - 2026-07-29
 
 ### Changed

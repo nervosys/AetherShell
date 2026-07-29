@@ -96,12 +96,21 @@ mod tui_media_tests {
     }
 
     #[test]
-    fn test_audio_player_creation() {
+    fn test_audio_player_reports_not_implemented() {
+        // This test previously asserted `play(...).is_ok()`, which locked in the
+        // stub's dishonesty: it printed "🎵 Playing audio…" and returned Ok
+        // without playing anything, so a caller could not tell it apart from
+        // success. There is no audio backend compiled in, so both calls must
+        // now say so.
         let player = AudioPlayer::new();
 
-        // Test basic operations don't panic
-        assert!(player.play("test.mp3").is_ok());
-        assert!(player.stop().is_ok());
+        for result in [player.play("test.mp3"), player.stop()] {
+            let err = result.expect_err("audio is not implemented").to_string();
+            assert!(
+                err.contains("not implemented"),
+                "the error must say why; got: {err}"
+            );
+        }
     }
 
     #[test]
