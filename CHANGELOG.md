@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-07-29
+
 ### Added
 - **Prompt styles** (`src/prompt.rs`) — `[prompt] style` selects `classic`,
   `fish`, `powerline` (oh-my-posh style), `pure`, or `custom`. fish-style path

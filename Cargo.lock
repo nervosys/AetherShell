@@ -21,7 +21,7 @@ dependencies = [
 
 [[package]]
 name = "aethershell"
-version = "1.6.0"
+version = "1.7.0"
 dependencies = [
  "agentic-eval",
  "anyhow",
@@ -94,7 +94,7 @@ dependencies = [
 
 [[package]]
 name = "aethershell-lsp"
-version = "1.6.0"
+version = "1.7.0"
 dependencies = [
  "aethershell",
  "anyhow",
@@ -116,7 +116,7 @@ dependencies = [
 
 [[package]]
 name = "agentic-eval"
-version = "0.14.2"
+version = "0.14.3"
 dependencies = [
  "serde",
  "tiktoken-rs",

@@ -3,6 +3,31 @@
 All notable changes to the `agentic-eval` crate. Follows
 [Keep a Changelog](https://keepachangelog.com/) and [SemVer](https://semver.org/).
 
+## [0.14.3] - 2026-07-29
+
+### Added
+- **`sigil_audit` example** — measures every AetherShell agentic-mode construct
+  against the real cl100k/o200k BPE, tests candidate alternative encodings
+  against the incumbent, and records an explicit **adopted/rejected**
+  disposition with a reason for each cheaper candidate, so an encoding rejected
+  as ambiguous is not re-proposed on the next run. It produced the v3 bare-dot
+  lambda (`|w.size>1k`), a measured **23.7% token reduction on predicate
+  pipelines**, and reports honest non-results too (`F.r("p")`, `DK.p()` show no
+  win over their verbose forms).
+
+  Run with:
+  `cargo run -p agentic-eval --example sigil_audit --features real-tokens`
+
+### Changed
+- **README now separates measured from curated.** The crate's two headline
+  benchmarks (VM/sandbox systems, web stacks) are hand-assigned expert
+  judgments, not measurements, and Nervosys's own entries rank first in both —
+  yet they sat in the same document as genuinely measured BPE token counts. A
+  new "Epistemic status" section names which examples produce reproducible
+  measurements and which encode judgment, both benchmarks are retitled
+  "(curated)", and the conflict of interest is stated plainly rather than left
+  for the reader to infer.
+
 ## [0.14.2] - 2026-06-08
 
 ### Added
