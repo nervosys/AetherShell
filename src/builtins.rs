@@ -8121,56 +8121,40 @@ fn csv_escape(s: &str) -> String {
     }
 }
 
-/// from-yaml: Parse YAML into structured data (simplified)
-fn bi_from_yaml(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    // Simplified YAML parsing - in a real implementation, use serde_yaml
-    let yaml_str = if let Some(input) = input {
-        match input {
-            Value::Str(s) => s,
-            _ => return Err(anyhow!("from-yaml: input must be a YAML string")),
-        }
-    } else {
-        return Err(crate::safety::arg_err("from-yaml: requires YAML input"));
+/// from-yaml: Parse YAML into structured data.
+///
+/// Delegates to [`crate::yaml`], which implements a documented subset (nested
+/// mappings, sequences, quoting, comments, JSON-style flow collections) and
+/// returns an error naming any construct outside it. It never silently
+/// mis-parses — see that module for why that matters here.
+fn bi_from_yaml(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    // Accepts either a pipeline value or a positional argument, matching
+    // `from-json`'s contract.
+    let yaml_str = match input {
+        Some(Value::Str(s)) => s,
+        Some(_) => return Err(anyhow!("from-yaml: input must be a YAML string")),
+        None => match args.first() {
+            Some(Value::Str(s)) => s.clone(),
+            Some(_) => return Err(anyhow!("from-yaml: argument must be a YAML string")),
+            None => return Err(crate::safety::arg_err("from-yaml: requires YAML input")),
+        },
     };
-
-    // For now, treat simple key-value pairs
-    let mut result = BTreeMap::new();
-    for line in yaml_str.lines() {
-        if let Some((key, value)) = line.split_once(':') {
-            let key = key.trim().to_string();
-            let value = value.trim();
-
-            let parsed_value = if let Ok(int_val) = value.parse::<i64>() {
-                Value::Int(int_val)
-            } else if let Ok(float_val) = value.parse::<f64>() {
-                Value::Float(float_val)
-            } else if let Ok(bool_val) = value.parse::<bool>() {
-                Value::Bool(bool_val)
-            } else {
-                Value::Str(value.to_string())
-            };
-
-            result.insert(key, parsed_value);
-        }
-    }
-
-    Ok(Value::Record(result))
+    crate::yaml::parse(&yaml_str).map_err(|e| anyhow!("from-yaml: {e}"))
 }
 
-/// to-yaml: Convert structured data to YAML (simplified)
-fn bi_to_yaml(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let input = input.ok_or_else(|| crate::safety::arg_err("to-yaml: requires pipeline input"))?;
-
-    match input {
-        Value::Record(record) => {
-            let mut yaml_output = String::new();
-            for (key, value) in record {
-                yaml_output.push_str(&format!("{}: {}\n", key, value_to_string(&value)));
-            }
-            Ok(Value::Str(yaml_output))
-        }
-        _ => Ok(Value::Str(format!("value: {}\n", value_to_string(&input)))),
-    }
+/// to-yaml: Convert structured data to YAML.
+///
+/// Output is quoted wherever quoting is required, so the result parses back to
+/// the same value.
+fn bi_to_yaml(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let value = match input {
+        Some(v) => v,
+        None => args
+            .into_iter()
+            .next()
+            .ok_or_else(|| crate::safety::arg_err("to-yaml: requires pipeline input"))?,
+    };
+    Ok(Value::Str(crate::yaml::emit(&value)))
 }
 
 /// columns: Get column names from structured data

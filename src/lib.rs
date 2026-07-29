@@ -86,6 +86,9 @@ pub mod parser;
 pub mod types;
 /// Runtime values — the typed output contract (Int, Float, String, Array, Record, Lambda).
 pub mod value;
+/// YAML — a documented subset parser/emitter that fails loudly outside it.
+#[cfg(feature = "native")]
+pub mod yaml;
 
 // Core modules available in both native and WASM builds
 /// Shell feature flags — runtime capability detection.

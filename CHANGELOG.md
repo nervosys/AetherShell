@@ -47,6 +47,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   avoids letting one agent monopolize the swarm. Deterministic and LLM-free —
   routing runs every tick.
 
+### Changed
+- **`from-yaml` / `to-yaml` are now a real YAML implementation** (`src/yaml.rs`).
+  The previous version split each line on the first `:` into one flat record,
+  which silently mis-parsed almost every real document: nesting collapsed,
+  sequences vanished entirely (a `- item` line has no colon, so it was dropped),
+  `#` comments were kept as part of the value, and `---` became a `{"---": ""}`
+  entry. `to-yaml` emitted values unquoted, so any string containing `: `
+  produced output that would not read back.
+
+  The replacement handles nested mappings, sequences, quoted scalars with
+  escapes, comments, document markers, and JSON-style flow collections — and
+  **fails loudly** on what it does not implement (anchors, aliases, merge keys,
+  block scalars, tags, multi-document streams), naming the construct. Duplicate
+  keys are an error rather than silent last-wins. Emitted output is quoted
+  wherever required, so `to-yaml` then `from-yaml` round-trips.
+
+  For a shell whose pitch is deterministic typed output, silently returning
+  wrong data is the worst available behavior — an agent cannot detect it. No new
+  dependency: `serde_yaml` was deprecated upstream in 2024 and would have
+  introduced an unmaintained advisory into the `cargo-deny` gate.
+
+  Both builtins now also accept a positional argument, matching `from-json`.
+
 ### Security
 - **Invisible and bidi-override characters are rejected in paths**
   (`validate_safe_path`, CWE-1007). A zero-width space or RTL override makes two
