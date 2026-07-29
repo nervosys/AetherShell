@@ -256,7 +256,7 @@ pub fn abbreviate_path(cwd: &str, home: &str, abbreviate: bool, max_segments: us
     let home_n = home.replace('\\', "/");
 
     // Collapse the home prefix to `~`, but only on a component boundary so
-    // `/home/adamm2` is not mistaken for a child of `/home/adamm`.
+    // `/home/ada2` is not mistaken for a child of `/home/ada`.
     let (prefix, rest) = if !home_n.is_empty()
         && (normalized == home_n
             || normalized.starts_with(&format!("{}/", home_n.trim_end_matches('/'))))

@@ -48,6 +48,10 @@ exclude = [
     ".github/",
     # Internal AI-assistant / editor config and separate artifacts — not part of
     # the published library; kept out of the crate package.
+    # `.mailmap` is a git-side authorship tool with no meaning inside a
+    # published crate, and it maps a maintainer's personal email address —
+    # keep it out of the permanent crates.io archive.
+    ".mailmap",
     ".clinerules",
     ".cursor/",
     ".windsurfrules",

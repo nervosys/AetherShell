@@ -49157,3 +49157,53 @@ fn bi_nodemon_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     );
     Ok(Value::Record(rec))
 }
+
+#[cfg(test)]
+mod fips_tests {
+    use super::*;
+
+    /// The FIPS posture (`safety::require_fips_hash`) had no test coverage at
+    /// all, despite being the enforcement point the compliance claim rests on.
+    /// This pins it: MD5 and SHA-1 are refused under `AETHER_FIPS`, SHA-256
+    /// still works, and MD5 stays available for legacy interop when FIPS is off.
+    #[test]
+    fn file_checksum_honors_the_fips_gate() {
+        let _env = crate::safety::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+
+        let dir = std::env::temp_dir().join("ae_fips_checksum_test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("sample.txt");
+        std::fs::write(&path, b"aethershell").unwrap();
+        // Argument order is (algorithm, path).
+        let call = |algo: &str| {
+            bi_file_checksum(
+                vec![
+                    Value::Str(algo.to_string()),
+                    Value::Str(path.to_string_lossy().to_string()),
+                ],
+                None,
+            )
+        };
+
+        std::env::remove_var("AETHER_FIPS");
+        assert!(
+            call("md5").is_ok(),
+            "MD5 stays available for legacy interop when FIPS is off"
+        );
+
+        std::env::set_var("AETHER_FIPS", "1");
+        for weak in ["md5", "sha1"] {
+            let err = call(weak).unwrap_err().to_string();
+            assert!(
+                err.contains("E_FIPS_DISALLOWED"),
+                "FIPS mode must refuse {weak} with a machine-readable code; got: {err}"
+            );
+        }
+        assert!(call("sha256").is_ok(), "sha256 is FIPS-approved");
+
+        std::env::remove_var("AETHER_FIPS");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
