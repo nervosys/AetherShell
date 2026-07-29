@@ -8,7 +8,7 @@
 - **Tagline**: One language, every platform, deterministic typed output
 - **Binary**: `ae`
 - **Language**: Rust
-- **Version**: 1.5.0
+- **Version**: 1.6.0
 - **Repository**: https://github.com/nervosys/AetherShell
 - **License**: AGPL-3.0-or-later
 - **File Extension**: `.ae`
@@ -112,12 +112,26 @@ echo 'e"hello"' | ae --agentic
 | `e"msg"`              | `#e "msg"`     | `echo("msg")`                      | 2 tokens |
 | `l"."`                | `#l "."`       | `ls(".")`                          | 2 tokens |
 | `w~.size>1k`          | `#w \.size>1k` | `where(fn(__) => __.size > 1000)`  | 8 tokens |
+| `\|w.size>1k`          | —              | `\| where(fn(__) => __.size > 1000)` | +2 tokens |
 | `m~x:x*2`             | `#m \x:x*2`    | `map(fn(x) => x * 2)`              | 6 tokens |
 | `t5`                  | `#t 5`         | `take(5)`                          | 2 tokens |
 | `1k` / `1M` / `1G`    | same           | `1000` / `1000000` / `1000000000`  | 1 token  |
 | `?val{A=>"x",_=>"z"}` | same           | `match val { A => "x", _ => "z" }` | 3 tokens |
 | `!{expr}{"fb"}`       | same           | `try { expr } catch e { "fb" }`    | 5 tokens |
 | `; comment`           | same           | `// comment`                       | same     |
+
+**Bare-dot implicit lambda (v3).** In pipe position, the `~` before a field
+access is implied for lambda-taking builtins (`w`, `m`, `r`, `a`, `y`):
+
+```ae
+l"./src"|w.size>1k|.name        # 11 cl100k tokens
+l"./src"|w~.size>1k|m~.name     # 15 cl100k tokens — same program
+```
+
+Measured at **23.7% fewer tokens on predicate pipelines**; reproduce with
+`cargo run -p agentic-eval --example sigil_audit --features real-tokens`. The
+short form is restricted to pipe position on purpose — at statement start
+`m.name` is still a field access on a variable named `m`.
 
 **v5 features — auto-parens and for-each:**
 

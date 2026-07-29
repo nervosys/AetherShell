@@ -35,6 +35,8 @@
 //! e"msg"                        → echo("msg")
 //! l"."                          → ls(".")
 //! w~.size>1k                    → where(fn(__) => __.size > 1000)
+//! |w.size>1k                    → | where(fn(__) => __.size > 1000)  (v3: bare dot,
+//!                                 tilde implied in pipe position — 2 tokens cheaper)
 //! m~x:x*2                      → map(fn(x) => x * 2)
 //! t5                            → take(5)
 //! o                             → sort()          (zero-arg after |)
@@ -698,6 +700,15 @@ pub const ONTOLOGY: &[OntologyCategory] = &[
                 version: 2,
                 constraints: "Builtin letter + tilde lambda",
                 example: ("w~.size>1k", "where(fn(__) => __.size>1k)"),
+            },
+            OntologyRule {
+                pattern: "|w.field",
+                expansion: "#w ~.field",
+                version: 3,
+                constraints: "Pipe position + lambda-taking builtin only; \
+                              the tilde is implied. 2 cl100k tokens cheaper \
+                              than w~.field (examples/sigil_audit.rs)",
+                example: ("l\".\"|w.size>1k", "ls(\".\") | where(fn(__) => __.size>1k)"),
             },
             OntologyRule {
                 pattern: "t5",
@@ -1679,7 +1690,7 @@ fn consume_sigil(chars: &[char], i: &mut usize, out: &mut String) {
 /// the builtin letter already emitted via caller).
 fn consume_builtin(chars: &[char], i: &mut usize, out: &mut String, hash: bool) {
     let code = if hash { chars[*i + 1] } else { chars[*i] };
-    let (name, _) = BUILTIN_SHORT.get(&code).copied().unwrap();
+    let (name, takes_lambda) = BUILTIN_SHORT.get(&code).copied().unwrap();
     *i += if hash { 2 } else { 1 };
     while *i < chars.len() && chars[*i] == ' ' {
         *i += 1;
@@ -1713,7 +1724,21 @@ fn consume_builtin(chars: &[char], i: &mut usize, out: &mut String, hash: bool) 
         *i += 1;
     }
     let args_raw: String = chars[args_start..*i].iter().collect();
-    let args = scan(args_raw.trim());
+    let trimmed = args_raw.trim();
+
+    // Bare-dot implicit lambda: `w.size>1k` ≡ `w~.size>1k`.
+    //
+    // Measured at 5 vs 7 cl100k tokens (`cargo run -p agentic-eval --example
+    // sigil_audit`), a 2-token saving on predicate filters — the most frequent
+    // construct in the language. It is unambiguous because only lambda-taking
+    // builtins accept it, and such a builtin is never itself a record whose
+    // field could be accessed, so a leading `.` can only mean "field of the
+    // implicit parameter".
+    let args = if takes_lambda && trimmed.starts_with('.') {
+        scan(&format!("~{trimmed}"))
+    } else {
+        scan(trimmed)
+    };
     if args.is_empty() {
         out.push_str(&format!("{}()", name));
     } else {
@@ -1966,6 +1991,20 @@ fn consume_ident(chars: &[char], i: &mut usize, out: &mut String, after_bar: boo
                         emit_bare_path_builtin(chars, i, out, c);
                         return;
                     }
+                    // Bare-dot implicit lambda: `|w.size>1k` ≡ `|w~.size>1k`,
+                    // measured 2 cl100k tokens cheaper (examples/sigil_audit.rs)
+                    // on the language's most common construct.
+                    //
+                    // Restricted to pipe position on purpose: at statement start
+                    // `m.name` is a field access on a variable named `m`, and
+                    // rewriting that would silently break existing scripts. After
+                    // a `|` there is no such reading — the stage has to be a
+                    // function — so the short form is unambiguous exactly here.
+                    let takes_lambda = BUILTIN_SHORT.get(&c).map(|(_, l)| *l).unwrap_or(false);
+                    if after_bar && takes_lambda {
+                        consume_builtin(chars, i, out, false);
+                        return;
+                    }
                 }
                 None | Some('|')
                     // Zero-arg bare builtin fires ONLY right after an explicit `|`
@@ -2203,6 +2242,71 @@ mod tests {
             replace_standalone("\"fetch\" is good", "fetch", "http.get"),
             "\"fetch\" is good"
         );
+    }
+
+    // -- Bare-dot implicit lambda (token lever, see examples/sigil_audit.rs) --
+
+    #[test]
+    fn test_bare_dot_lambda_in_where() {
+        // SI suffixes are deliberately passed through to the evaluator rather
+        // than expanded here (see the `1k` ontology rule), so the expected body
+        // keeps `1k`.
+        let ae = transpile_agentic_to_ae("l\".\"|w.size>1k\n").unwrap();
+        assert!(ae.contains("where(fn(__) => __.size>1k)"), "got:\n{ae}");
+    }
+
+    #[test]
+    fn test_bare_dot_lambda_in_map() {
+        let ae = transpile_agentic_to_ae("l\".\"|m.name\n").unwrap();
+        assert!(ae.contains("map(fn(__) => __.name)"), "got:\n{ae}");
+    }
+
+    #[test]
+    fn test_bare_dot_lambda_matches_tilde_form() {
+        // The new short form must be exactly equivalent to the incumbent, or
+        // the saving comes at the cost of a second dialect to learn.
+        let short = transpile_agentic_to_ae("l\".\"|w.size>1k|m.name\n").unwrap();
+        let tilde = transpile_agentic_to_ae("l\".\"|w~.size>1k|m~.name\n").unwrap();
+        assert_eq!(short, tilde);
+    }
+
+    #[test]
+    fn test_bare_dot_equivalence_across_realized_corpus() {
+        // The corpus measured in `agentic-eval --example sigil_audit`. The
+        // reported saving is only honest if every short form transpiles to
+        // exactly what the long form did.
+        for (long, short) in [
+            ("l\".\"|w~.size>1k", "l\".\"|w.size>1k"),
+            (
+                "l\"./src\"|w~.size>1k|m~.name",
+                "l\"./src\"|w.size>1k|.name",
+            ),
+            (
+                "F.r(\"log\")|w~.level=='E'|m~.msg|t10",
+                "F.r(\"log\")|w.level=='E'|.msg|t10",
+            ),
+            ("P.l()|w~.cpu>80|m~.pid", "P.l()|w.cpu>80|.pid"),
+        ] {
+            let a = transpile_agentic_to_ae(&format!("{long}\n")).unwrap();
+            let b = transpile_agentic_to_ae(&format!("{short}\n")).unwrap();
+            assert_eq!(a, b, "\nlong:  {long}\nshort: {short}");
+        }
+    }
+
+    #[test]
+    fn test_bare_dot_only_applies_to_lambda_builtins() {
+        // `t` (take) does not take a lambda, so a leading dot must not be
+        // rewritten into one.
+        let ae = transpile_agentic_to_ae("l\".\"|t5\n").unwrap();
+        assert!(ae.contains("take(5)"), "got:\n{ae}");
+        assert!(!ae.contains("fn(__)"), "got:\n{ae}");
+    }
+
+    #[test]
+    fn test_tilde_lambda_still_supported() {
+        // Backward compatibility: every existing `.aeg` script must keep working.
+        let ae = transpile_agentic_to_ae("l\".\"|w~x:x.size>1k\n").unwrap();
+        assert!(ae.contains("where(fn(x) => x.size>1k)"), "got:\n{ae}");
     }
 
     // End-to-end behaviour through the full single-pass transpiler.
