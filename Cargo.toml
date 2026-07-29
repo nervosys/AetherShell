@@ -4,7 +4,7 @@ exclude = ["web", "integrations/python"]
 
 [package]
 name = "aethershell"
-version = "1.7.0"
+version = "1.7.1"
 edition = "2021"
 authors = ["Nervosys <contact@nervosys.ai>"]
 description = "The world's first multi-agent shell with typed functional pipelines and multi-modal AI"
@@ -60,6 +60,16 @@ exclude = [
 
 [features]
 default = ["native"]
+
+# Opt-in: use the platform's native TLS (and therefore its system trust store)
+# instead of rustls, with OpenSSL compiled from vendored source so the build
+# still cross-compiles to musl/aarch64. Needed if you rely on enterprise CAs
+# installed in the OS trust store, which rustls+webpki-roots does not consult.
+#
+#   cargo build --features vendored-tls
+#
+# Costs a from-source OpenSSL build and requires a C toolchain for the target.
+vendored-tls = ["reqwest/native-tls", "dep:openssl"]
 native = [
     "dep:walkdir",
     "dep:which",
@@ -188,11 +198,29 @@ libc = "0.2"
 
 # HTTP client - non-optional for non-wasm targets
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-reqwest = { version = "0.12", features = [
+# Only pulled in by the opt-in `vendored-tls` feature; `vendored` builds
+# OpenSSL from source so it cross-compiles rather than needing target headers.
+openssl = { version = "0.10", features = ["vendored"], optional = true }
+
+# `default-features = false` is load-bearing: reqwest's default `default-tls`
+# feature is native-tls, which pulls `openssl-sys`. Its build script needs
+# OpenSSL headers for the *target* arch, so every cross-compiled release build
+# (musl, aarch64) failed. `rustls-tls` was already requested here, but without
+# disabling defaults both TLS stacks were compiled and openssl-sys still blocked
+# cross-compilation. The other three defaults are re-added explicitly so this is
+# purely a TLS-backend change — `http2` in particular must not be lost.
+#
+# For anyone who needs the system trust store instead, the `vendored-tls`
+# feature switches back to native-tls with OpenSSL built from source, which
+# also cross-compiles.
+reqwest = { version = "0.12", default-features = false, features = [
     "blocking",
     "json",
     "rustls-tls",
     "stream",
+    "charset",
+    "http2",
+    "macos-system-configuration",
 ] }
 
 # WASM-only dependencies

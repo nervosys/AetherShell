@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-07-29
+
+### Changed
+- **TLS now uses rustls rather than the platform's native TLS**, fixing every
+  cross-compiled release build. `reqwest` already requested `rustls-tls`, but
+  `default-features` was never disabled — so reqwest's default `default-tls`
+  (native-tls) was compiled *as well*, pulling `openssl-sys`, whose build
+  script needs OpenSSL headers for the **target** architecture. That is why the
+  `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-gnu` release jobs had
+  failed on every tagged release since at least v1.3.1.
+
+  `openssl-sys` is now absent from every target (verified with
+  `cargo tree --target <triple> -i openssl-sys`). reqwest's other three default
+  features (`charset`, `http2`, `macos-system-configuration`) are re-added
+  explicitly, so this is purely a TLS-backend change.
+
+  **Behavioral note:** rustls uses its own bundled root store and does *not*
+  consult the operating system trust store. If you depend on an enterprise CA
+  installed in the OS, build with the new opt-in feature:
+
+  ```
+  cargo build --features vendored-tls
+  ```
+
+  which restores native-tls with OpenSSL compiled from vendored source — so it
+  still cross-compiles, unlike the previous configuration.
+
 ## [1.7.0] - 2026-07-29
 
 ### Added
