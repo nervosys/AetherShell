@@ -490,6 +490,9 @@ impl fmt::Display for Value {
             Value::AsyncLambda(_) => write!(f, "<async lambda>"),
             Value::Future(_) => write!(f, "<future>"),
             Value::Error(msg) => write!(f, "Error: {}", msg),
+            // Mirrors the native renderer, which prints `<builtin:name>`.
+            // Omitting this arm broke the wasm32 build outright.
+            Value::Builtin(b) => write!(f, "<builtin:{}>", b.name),
         }
     }
 }

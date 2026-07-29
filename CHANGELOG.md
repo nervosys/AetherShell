@@ -125,6 +125,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     hard-coded `target/debug/ae.exe`, so the binary was never found off Windows.
     It now uses `env!("CARGO_BIN_EXE_ae")`, which also fixes `--release` and
     custom `CARGO_TARGET_DIR` runs.
+  - **The crate did not compile on macOS at all.** Twelve `gui.*` builtins had
+    Windows and Linux branches and no third arm, so on macOS the function body
+    yielded `()` where `Result<Value>` was required (12 × E0308). Each now
+    returns an explicit "not implemented on this platform" error — an error
+    rather than `Ok(false)`, which would conflate "this platform can't" with
+    "the window wasn't found".
+  - **The WASM build was broken** by three non-exhaustive matches: `Value` grew
+    a `Builtin` variant that the non-native `Display` impl and two `wasm.rs`
+    formatters never handled. Reproduce a fix locally with
+    `cd web && cargo check --target wasm32-unknown-unknown` — unlike the
+    Linux-only lints, this one *is* checkable from any host.
 - Crate documentation claimed "430+ built-in functions across 50 modules" and
   "MCP (130+ tools)" on the docs.rs front page; the real figures are 1,284
   builtins across 108 modules, and MCP defaults to a three-tool compact

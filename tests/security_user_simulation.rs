@@ -374,8 +374,10 @@ fn adversarial_privilege_escalation_attempts() {
     #[cfg(unix)]
     {
         use aethershell::security::{configure_path_security, PathSecurityConfig};
-        let mut cfg = PathSecurityConfig::default();
-        cfg.allowed_base_dirs = vec![std::env::current_dir().unwrap()];
+        let cfg = PathSecurityConfig {
+            allowed_base_dirs: vec![std::env::current_dir().unwrap()],
+            ..Default::default()
+        };
         configure_path_security(cfg).unwrap();
 
         let result = validate_safe_path("/usr/bin/sudo");

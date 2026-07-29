@@ -13,7 +13,7 @@ use crate::{env::Env, parser::parse_program, value::Value};
 use crate::ast::{BinOp, Expr, Pattern, Stmt, UnOp};
 
 #[cfg(feature = "web")]
-use crate::value::{Lambda, Table};
+use crate::value::Lambda;
 
 #[cfg(feature = "web")]
 use std::collections::BTreeMap;
@@ -1168,6 +1168,7 @@ fn value_to_serde_json(value: &Value) -> serde_json::Value {
         Value::AsyncLambda(lam) => serde_json::json!({"type": "AsyncLambda", "params": lam.params}),
         Value::Future(_) => serde_json::json!({"type": "Future"}),
         Value::Error(e) => serde_json::json!({"type": "Error", "message": e}),
+        Value::Builtin(b) => serde_json::json!({"type": "Builtin", "name": b.name}),
     }
 }
 
@@ -1250,6 +1251,7 @@ fn format_value(value: &Value) -> String {
         Value::AsyncLambda(lam) => format!("async fn({}) => ...", lam.params.join(", ")),
         Value::Future(_) => "<Future>".to_string(),
         Value::Error(e) => format!("Error: {}", e),
+        Value::Builtin(b) => format!("<builtin:{}>", b.name),
     }
 }
 
