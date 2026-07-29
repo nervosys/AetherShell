@@ -2309,11 +2309,123 @@ pub mod agents {
             }
         }
 
-        /// Router coordinator (stub): could inspect blackboard and route.
-        pub struct RouterCoord;
+        /// Words carrying no routing signal. Kept small and fixed rather than
+        /// learned, so routing stays deterministic across runs.
+        const ROUTING_STOPWORDS: &[&str] = &[
+            "the", "and", "for", "you", "are", "not", "but", "with", "that", "this", "from",
+            "have", "has", "was", "were", "will", "can", "should", "would", "your", "its", "it's",
+            "please", "use", "using", "need", "needs", "want", "let", "get", "make", "about",
+            "into", "then", "than", "when", "what", "which", "who", "how", "why", "all", "any",
+            "may", "must", "each", "also", "been", "being", "does", "did", "done", "such",
+        ];
+
+        /// Split text into lowercase content words for lexical matching.
+        fn routing_terms(text: &str) -> std::collections::HashSet<String> {
+            text.split(|c: char| !c.is_alphanumeric())
+                .map(|w| w.to_ascii_lowercase())
+                .filter(|w| w.len() > 2 && !ROUTING_STOPWORDS.contains(&w.as_str()))
+                .collect()
+        }
+
+        /// Score how well an agent matches a request, in `[0, 1]`.
+        ///
+        /// The score is the share of the request's content words covered by the
+        /// agent's declared capability surface — its system prompt plus its tool
+        /// names. Tool names count double: a tool named `docker` is far stronger
+        /// evidence that an agent should handle a Docker request than the same
+        /// word appearing somewhere in prose.
+        ///
+        /// Purely lexical and deterministic by design. Routing runs on every
+        /// swarm tick, so it must not cost an LLM call, and two identical runs
+        /// must pick the same agent.
+        pub fn score_agent(system: &str, tool_names: &[String], request: &str) -> f32 {
+            let want = routing_terms(request);
+            if want.is_empty() {
+                return 0.0;
+            }
+            let have = routing_terms(system);
+            let tools: std::collections::HashSet<String> =
+                tool_names.iter().flat_map(|t| routing_terms(t)).collect();
+
+            let mut score = 0.0f32;
+            for term in &want {
+                if tools.contains(term) {
+                    score += 2.0;
+                } else if have.contains(term) {
+                    score += 1.0;
+                }
+            }
+            // Normalize against the best achievable score so the result is
+            // comparable across requests of different lengths.
+            (score / (want.len() as f32 * 2.0)).min(1.0)
+        }
+
+        /// Pick the highest-scoring agent, avoiding an immediate repeat of the
+        /// previous speaker so one agent cannot monopolize the swarm.
+        ///
+        /// Ties break toward the lowest index, keeping selection deterministic.
+        pub fn select_by_score(scores: &[f32], last: Option<usize>) -> usize {
+            if scores.is_empty() {
+                return 0;
+            }
+            let pick = |skip: Option<usize>| -> Option<(usize, f32)> {
+                scores
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| Some(*i) != skip)
+                    .fold(None, |best: Option<(usize, f32)>, (i, &s)| match best {
+                        Some((_, bs)) if bs >= s => best,
+                        _ => Some((i, s)),
+                    })
+            };
+            // Prefer a different agent than last tick, but only when that agent
+            // has something to offer; a zero score means no one else matched, so
+            // fall back to the global best rather than routing at random.
+            match pick(last) {
+                Some((i, s)) if s > 0.0 => i,
+                _ => pick(None).map(|(i, _)| i).unwrap_or(0),
+            }
+        }
+
+        /// Router coordinator: routes each turn to the agent whose declared
+        /// capabilities best match the most recent blackboard message.
+        ///
+        /// Falls back to round-robin behavior when nothing has been posted yet,
+        /// so an empty blackboard does not pin every turn on agent 0.
+        #[derive(Default)]
+        pub struct RouterCoord {
+            last: Option<usize>,
+        }
+
+        impl RouterCoord {
+            pub fn new() -> Self {
+                Self::default()
+            }
+        }
+
         impl Coordinator for RouterCoord {
-            fn select(&mut self, _swarm: &Swarm, _tick: usize) -> usize {
-                0 // stub: always pick agent 0; replace with scoring/LLM routing
+            fn select(&mut self, swarm: &Swarm, tick: usize) -> usize {
+                if swarm.agents.is_empty() {
+                    return 0;
+                }
+                let Some(latest) = swarm.blackboard.last() else {
+                    // Nothing to route on yet — spread the first turns out.
+                    let i = tick % swarm.agents.len();
+                    self.last = Some(i);
+                    return i;
+                };
+                let scores: Vec<f32> = swarm
+                    .agents
+                    .iter()
+                    .map(|(cfg, _)| {
+                        let tool_names: Vec<String> =
+                            cfg.tools.iter().map(|t| t.name().to_string()).collect();
+                        score_agent(&cfg.system, &tool_names, &latest.content)
+                    })
+                    .collect();
+                let chosen = select_by_score(&scores, self.last);
+                self.last = Some(chosen);
+                chosen
             }
         }
 
@@ -2330,7 +2442,7 @@ pub mod agents {
             pub fn new(policy: Policy, max_iters: usize) -> Self {
                 let coord: Box<dyn Coordinator> = match policy {
                     Policy::RoundRobin => Box::new(RoundRobinCoord::new()),
-                    Policy::Router => Box::new(RouterCoord),
+                    Policy::Router => Box::new(RouterCoord::new()),
                 };
                 Self {
                     policy,
@@ -2538,6 +2650,36 @@ pub mod mcp {
         pub output_schema: Option<J>,
     }
 
+    /// Validate a JSON value against a JSON Schema, collecting every violation.
+    ///
+    /// Separated from [`McpClient`] so it can be exercised without a server and
+    /// reused anywhere a tool argument needs checking before dispatch.
+    pub fn validate_against_schema(schema: &J, instance: &J) -> Result<()> {
+        let compiled = jsonschema::JSONSchema::compile(schema)
+            .map_err(|e| anyhow!("invalid JSON Schema: {e}"))?;
+        // The error iterator borrows `compiled`, so every message has to be
+        // materialized into owned Strings before this scope ends.
+        let violations: Vec<String> = match compiled.validate(instance) {
+            Ok(()) => Vec::new(),
+            Err(errors) => errors
+                .map(|e| {
+                    let path = e.instance_path.to_string();
+                    if path.is_empty() {
+                        e.to_string()
+                    } else {
+                        format!("{path}: {e}")
+                    }
+                })
+                .collect(),
+        };
+
+        if violations.is_empty() {
+            Ok(())
+        } else {
+            Err(anyhow!("{}", violations.join("; ")))
+        }
+    }
+
     /// MCP Client for communicating with MCP servers
     #[derive(Debug, Clone)]
     pub struct McpClient {
@@ -2636,25 +2778,30 @@ pub mod mcp {
             Ok(result.to_string())
         }
 
-        /// Validate tool input against schema (if available)
-        pub fn validate_input(&self, tool_name: &str, _input: &J) -> Result<()> {
+        /// Validate tool input against the tool's declared JSON Schema.
+        ///
+        /// Errors are aggregated rather than reported one at a time: the caller
+        /// is usually an LLM deciding how to fix its own tool call, and giving
+        /// it every violation at once turns a multi-turn repair loop into a
+        /// single retry.
+        ///
+        /// An unknown tool or an absent schema validates successfully — the
+        /// server is the authority on tools it never described to us, and
+        /// failing closed here would break every server that omits schemas.
+        pub fn validate_input(&self, tool_name: &str, input: &J) -> Result<()> {
             // SECURITY: Replace .unwrap() with proper error handling (CVSS 7.1)
             let cache = self
                 .tools_cache
                 .lock()
                 .map_err(|e| anyhow!("Failed to acquire tools cache lock: {}", e))?;
-            if let Some(tool) = cache.get(tool_name) {
-                // For now, just check if schema exists
-                // Full validation would use jsonschema crate
-                if tool.input_schema != J::Null {
-                    // Schema exists, assume valid for now
-                    // TODO: Implement full JSONSchema validation
-                }
-                Ok(())
-            } else {
-                // Tool not in cache, can't validate
-                Ok(())
+            let Some(tool) = cache.get(tool_name) else {
+                return Ok(());
+            };
+            if tool.input_schema == J::Null {
+                return Ok(());
             }
+            validate_against_schema(&tool.input_schema, input)
+                .map_err(|e| anyhow!("MCP tool '{tool_name}' input validation failed: {e}"))
         }
 
         /// Health check for MCP server
@@ -2726,5 +2873,141 @@ pub mod mcp {
                 client: Arc::clone(&self.client),
             }))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ---- Swarm router scoring ----
+    use agents::swarm::{score_agent, select_by_score};
+
+    fn tools(names: &[&str]) -> Vec<String> {
+        names.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn router_scores_a_matching_agent_above_an_unrelated_one() {
+        let docker = score_agent(
+            "You manage container workloads.",
+            &tools(["docker", "kubectl"].as_ref()),
+            "restart the docker container running the api",
+        );
+        let writer = score_agent(
+            "You write documentation and release notes.",
+            &tools(["markdown"].as_ref()),
+            "restart the docker container running the api",
+        );
+        assert!(
+            docker > writer,
+            "docker {docker} should beat writer {writer}"
+        );
+    }
+
+    #[test]
+    fn router_weights_tool_names_above_prose() {
+        // Same word, but one agent owns the tool. Owning the tool must win.
+        let owns_tool = score_agent(
+            "General assistant.",
+            &tools(["docker"].as_ref()),
+            "docker ps",
+        );
+        let mentions = score_agent("I know about docker.", &tools([].as_ref()), "docker ps");
+        assert!(owns_tool > mentions);
+    }
+
+    #[test]
+    fn router_score_is_bounded_and_zero_for_no_overlap() {
+        let s = score_agent("Database specialist.", &tools(["psql"].as_ref()), "");
+        assert_eq!(s, 0.0, "an empty request has no signal to route on");
+        let s = score_agent(
+            "Database specialist.",
+            &tools(["psql"].as_ref()),
+            "paint a mural",
+        );
+        assert_eq!(s, 0.0);
+        let s = score_agent("docker", &tools(["docker"].as_ref()), "docker");
+        assert!((0.0..=1.0).contains(&s), "score {s} out of range");
+    }
+
+    #[test]
+    fn router_avoids_repeating_the_previous_speaker() {
+        // Agent 1 scores highest, but just spoke; agent 2 also matches.
+        let scores = [0.0, 0.9, 0.5];
+        assert_eq!(select_by_score(&scores, Some(1)), 2);
+    }
+
+    #[test]
+    fn router_repeats_the_last_agent_when_nobody_else_matches() {
+        // Starvation avoidance must not route to an agent with no relevance.
+        let scores = [0.0, 0.9, 0.0];
+        assert_eq!(select_by_score(&scores, Some(1)), 1);
+    }
+
+    #[test]
+    fn router_breaks_ties_deterministically() {
+        let scores = [0.5, 0.5, 0.5];
+        assert_eq!(select_by_score(&scores, None), 0);
+        assert_eq!(select_by_score(&scores, None), 0, "must be reproducible");
+    }
+
+    #[test]
+    fn router_handles_an_empty_swarm() {
+        assert_eq!(select_by_score(&[], None), 0);
+    }
+
+    // ---- MCP schema validation ----
+    use mcp::validate_against_schema;
+
+    fn schema() -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+                "limit": {"type": "integer", "minimum": 1}
+            },
+            "required": ["path"]
+        })
+    }
+
+    #[test]
+    fn accepts_a_conforming_instance() {
+        let input = serde_json::json!({"path": "/tmp", "limit": 5});
+        assert!(validate_against_schema(&schema(), &input).is_ok());
+    }
+
+    #[test]
+    fn rejects_a_missing_required_field() {
+        let input = serde_json::json!({"limit": 5});
+        let err = validate_against_schema(&schema(), &input)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("path"), "error should name the field: {err}");
+    }
+
+    #[test]
+    fn rejects_a_wrong_type() {
+        let input = serde_json::json!({"path": 42});
+        assert!(validate_against_schema(&schema(), &input).is_err());
+    }
+
+    #[test]
+    fn reports_every_violation_at_once() {
+        // An LLM repairing its own tool call should see all problems in one
+        // turn rather than discovering them one retry at a time.
+        let input = serde_json::json!({"path": 42, "limit": 0});
+        let err = validate_against_schema(&schema(), &input)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("path"), "got: {err}");
+        assert!(err.contains("limit"), "got: {err}");
+    }
+
+    #[test]
+    fn rejects_a_malformed_schema_rather_than_passing_it() {
+        let bad = serde_json::json!({"type": "not-a-real-type"});
+        let input = serde_json::json!({});
+        assert!(validate_against_schema(&bad, &input).is_err());
     }
 }
