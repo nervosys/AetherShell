@@ -1,0 +1,15 @@
+# Cross-compilation linkers.
+#
+# Cargo defaults to the host `cc` for every target, so cross-compiling to
+# aarch64 compiled every crate correctly and then failed at link time with
+#
+#     rust-lld: error: symbols.o is incompatible with elf64-x86-64
+#
+# The release workflow installs `gcc-aarch64-linux-gnu` but nothing told Cargo
+# to use it. This mapping does. It applies only when building inside this
+# repository, and only for that target.
+#
+# Requires the cross toolchain to be present:
+#   Debian/Ubuntu: sudo apt-get install gcc-aarch64-linux-gnu
+[target.aarch64-unknown-linux-gnu]
+linker = "aarch64-linux-gnu-gcc"

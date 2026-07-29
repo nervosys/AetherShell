@@ -4,7 +4,7 @@ exclude = ["web", "integrations/python"]
 
 [package]
 name = "aethershell"
-version = "1.7.2"
+version = "1.7.3"
 edition = "2021"
 authors = ["Nervosys <contact@nervosys.ai>"]
 description = "The world's first multi-agent shell with typed functional pipelines and multi-modal AI"
@@ -52,6 +52,10 @@ exclude = [
     # published crate, and it maps a maintainer's personal email address —
     # keep it out of the permanent crates.io archive.
     ".mailmap",
+    # The cross-compilation linker mapping must NOT ship: on a native aarch64
+    # machine `cargo install aethershell` would pick it up and demand
+    # `aarch64-linux-gnu-gcc`, which such a host has no reason to have.
+    ".cargo/",
     ".clinerules",
     ".cursor/",
     ".windsurfrules",

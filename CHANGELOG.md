@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.3] - 2026-07-29
+
+### Fixed
+- **`aarch64-unknown-linux-gnu` release builds now link.** With the dependency
+  blockers cleared in 1.7.1/1.7.2, every aarch64 crate compiled — and then the
+  link step failed:
+
+  ```
+  rust-lld: error: symbols.o is incompatible with elf64-x86-64
+  ```
+
+  Cargo defaults to the host `cc` for every target. The release workflow has
+  been installing `gcc-aarch64-linux-gnu` all along, but nothing told Cargo to
+  use it. A `.cargo/config.toml` now maps the target to
+  `aarch64-linux-gnu-gcc`.
+
+  That file is deliberately **excluded from the published crate**: on a native
+  aarch64 host, `cargo install aethershell` would otherwise pick it up and
+  demand a cross toolchain that such a machine has no reason to have.
+
+  This completes the cross-compilation work — the release matrix builds all
+  seven targets for the first time since at least v1.3.1.
+
 ## [1.7.2] - 2026-07-29
 
 ### Removed
