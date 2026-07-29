@@ -35,9 +35,57 @@ fn get_theme_colors() -> crate::config::CustomColors {
     }
 }
 
+/// Load persisted history, oldest first.
+///
+/// A missing or unreadable history file is not an error — a fresh shell simply
+/// starts with no suggestions.
+fn load_history() -> Vec<String> {
+    let config = get_config();
+    if !config.history.enabled {
+        return Vec::new();
+    }
+    let path = crate::config::ShellConfig::history_file();
+    std::fs::read_to_string(path)
+        .map(|s| {
+            s.lines()
+                .filter(|l| !l.trim().is_empty())
+                .map(|l| l.to_string())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Append one command to the history file, honoring the ignore rules.
+fn append_history(command: &str, previous: Option<&String>) {
+    let config = get_config();
+    if !config.history.enabled {
+        return;
+    }
+    if config.history.ignore_space && command.starts_with(' ') {
+        return;
+    }
+    if config.history.ignore_duplicates && previous.is_some_and(|p| p == command) {
+        return;
+    }
+    let path = crate::config::ShellConfig::history_file();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        use std::io::Write as _;
+        let _ = writeln!(f, "{command}");
+    }
+}
+
 /// Interactive REPL. Ctrl-D exits or type 'exit'/'quit'.
 pub fn run(env: &mut Env) -> Result<()> {
-    let stdin = io::stdin();
+    use crate::line_editor::{read_line, EditAction, LineState};
+    use crate::prompt::{render_line, render_transient, PromptContext};
+
     let mut stdout = io::stdout();
     let config = get_config();
 
@@ -58,39 +106,71 @@ pub fn run(env: &mut Env) -> Result<()> {
         stdout.flush()?;
     }
 
-    loop {
-        // Prompt: æ❯ with colors if enabled
-        if config.colors.enabled {
-            write!(stdout, "{}{} ", "æ".cyan(), "❯".dark_grey())?;
-        } else {
-            write!(stdout, "æ> ")?;
-        }
-        stdout.flush()?;
+    let mut history = load_history();
+    // Exit status and duration of the previous command feed the prompt's
+    // status/duration segments.
+    let mut last_status = 0i32;
+    let mut last_duration_ms = 0u64;
 
-        // Read one line
-        let mut line = String::new();
-        let n = stdin.read_line(&mut line)?;
-        if n == 0 {
-            writeln!(stdout)?;
-            break;
-        }
-        let code = line.trim();
+    loop {
+        let ctx = PromptContext::current(&config.prompt).with_result(last_status, last_duration_ms);
+        let rendered = render_line(&config.prompt, &ctx);
+
+        let mut state = LineState::new(&config.prompt, history.clone());
+        let action = read_line(&rendered, &mut state, config.colors.enabled)?;
+
+        let code = match action {
+            EditAction::Submit(line) => line,
+            EditAction::Cancelled => {
+                last_status = 130; // 128 + SIGINT, as a shell reports it
+                continue;
+            }
+            EditAction::Eof => {
+                writeln!(stdout)?;
+                break;
+            }
+            // read_line only returns terminal actions; Continue/ClearScreen are
+            // handled inside its event loop.
+            _ => continue,
+        };
+
+        let code = code.trim();
         if code.is_empty() {
             continue;
         }
-
-        // Handle exit commands
         if code == "exit" || code == "quit" {
             break;
         }
 
-        match eval_line(env, code) {
+        // Replace the full prompt with a compact one now that the command has
+        // been submitted, so scrollback stays readable (oh-my-posh's
+        // "transient prompt").
+        if config.prompt.transient && config.colors.enabled {
+            write!(
+                stdout,
+                "\x1b[1A\r\x1b[2K{}{}\n",
+                render_transient(&config.prompt, &ctx),
+                code
+            )?;
+            stdout.flush()?;
+        }
+
+        append_history(code, history.last());
+        history.push(code.to_string());
+
+        let started = std::time::Instant::now();
+        let result = eval_line(env, code);
+        last_duration_ms = started.elapsed().as_millis() as u64;
+
+        match result {
             Ok(v) => {
+                last_status = 0;
                 if let Some(out) = render_for_repl(&v) {
                     writeln!(stdout, "{out}")?;
                 }
             }
             Err(e) => {
+                last_status = 1;
                 if config.colors.enabled {
                     writeln!(stdout, "{} {e}", "error:".red().bold())?;
                 } else {

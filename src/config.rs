@@ -151,6 +151,37 @@ pub struct PromptConfig {
     pub time_threshold_ms: u64,
     /// Transient prompt: clear previous prompts on new command
     pub transient: bool,
+
+    // -- Prompt styles (see `crate::prompt`) ---------------------------------
+    /// Prompt style: "classic", "fish", "powerline", "pure", or "custom".
+    /// Anything else falls back to "classic".
+    pub style: String,
+    /// The prompt character itself. Defaults to fish's `❯`.
+    pub symbol: String,
+    /// Segments rendered by the "powerline" style, in order. Recognized names:
+    /// `os`, `user`, `host`, `user@host`, `cwd`, `git`, `status`, `duration`,
+    /// `time`, `symbol`. Any other value is rendered as literal text.
+    pub segments: Vec<String>,
+    /// Per-segment color override, `"#fg"` or `"#fg:#bg"`, keyed by segment name.
+    pub segment_colors: HashMap<String, String>,
+    /// Glyph joining powerline segments (U+E0B0 by default).
+    pub powerline_separator: String,
+    /// Abbreviate intermediate path components fish-style (`~/d/n/proj`).
+    pub abbreviate_path: bool,
+    /// Keep only the trailing N path components (0 = keep all).
+    pub max_path_segments: usize,
+    /// Render the powerline prompt as two lines, with the symbol on its own line.
+    pub two_line: bool,
+    /// Include `user@host` in the fish-style prompt (off by default, as in fish
+    /// when the session is local).
+    pub show_user_host: bool,
+    /// Mark a dirty worktree in the git segment. Costs a `git status` per
+    /// prompt, so it is opt-in.
+    pub show_git_dirty: bool,
+    /// Suggest completions from history as dimmed ghost text, fish-style.
+    pub autosuggestions: bool,
+    /// Abbreviations expanded when you press space, fish-style.
+    pub abbreviations: HashMap<String, String>,
 }
 
 /// AI and agent configuration
@@ -287,6 +318,24 @@ impl Default for PromptConfig {
             show_time: true,
             time_threshold_ms: 1000,
             transient: false,
+            style: "classic".to_string(),
+            symbol: "❯".to_string(),
+            segments: vec![
+                "os".to_string(),
+                "cwd".to_string(),
+                "git".to_string(),
+                "status".to_string(),
+                "duration".to_string(),
+            ],
+            segment_colors: HashMap::new(),
+            powerline_separator: "\u{e0b0}".to_string(),
+            abbreviate_path: true,
+            max_path_segments: 0,
+            two_line: false,
+            show_user_host: false,
+            show_git_dirty: false,
+            autosuggestions: true,
+            abbreviations: HashMap::new(),
         }
     }
 }
@@ -552,6 +601,40 @@ show_time = true
 time_threshold_ms = 1000
 # Clear previous prompts when entering new command
 transient = false
+
+# Prompt style: "classic" (æ❯), "fish", "powerline" (oh-my-posh style),
+# "pure" (minimal two-line), or "custom" (expands `format` above).
+style = "classic"
+# The prompt character
+symbol = "❯"
+# Abbreviate parent path components fish-style: ~/d/n/AetherShell
+abbreviate_path = true
+# Keep only the last N path components (0 = keep all)
+max_path_segments = 0
+# Show user@host in the fish style
+show_user_host = false
+# Mark a dirty worktree in the git segment (costs a `git status` per prompt)
+show_git_dirty = false
+# Dimmed ghost-text suggestions from history, fish-style
+autosuggestions = true
+
+# Segments for the "powerline" style, in order. Recognized names:
+# os, user, host, user@host, cwd, git, status, duration, time, symbol.
+# Anything else is rendered as literal text.
+segments = ["os", "cwd", "git", "status", "duration"]
+# Powerline separator glyph (needs a Nerd Font)
+powerline_separator = ""
+# Put the prompt symbol on its own second line
+two_line = false
+
+# Per-segment colors: "#fg" or "#fg:#bg"
+[prompt.segment_colors]
+# cwd = "#1e1e2e:#89b4fa"
+
+# fish-style abbreviations, expanded when you press space
+[prompt.abbreviations]
+# gco = "git.checkout"
+# ll = "ls(\".\") | sort()"
 
 [ai]
 # Default AI provider

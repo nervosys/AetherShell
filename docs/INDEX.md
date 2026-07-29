@@ -9,6 +9,7 @@ Welcome to the AetherShell documentation! This index provides a comprehensive gu
 | [README.md](../README.md)                | Main project overview and quick start guide         |
 | [QUICK_REFERENCE.md](QUICK_REFERENCE.md) | Quick reference for AetherShell syntax and commands |
 | [TUI_GUIDE.md](TUI_GUIDE.md)             | Complete guide to the Terminal User Interface       |
+| [PROMPT_GUIDE.md](PROMPT_GUIDE.md)       | Prompt styles (fish, oh-my-posh) and line editing   |
 | [EXAMPLES](../examples/)                 | Working examples and demonstrations                 |
 
 ## 🏗️ Architecture & Implementation

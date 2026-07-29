@@ -124,6 +124,9 @@ pub mod evolution;
 /// External tools — integration with system-installed CLI tools.
 #[cfg(feature = "native")]
 pub mod external_tools;
+/// Line editing — fish-style autosuggestions, abbreviations, history recall.
+#[cfg(feature = "native")]
+pub mod line_editor;
 /// Local inference — Candle and ONNX Runtime backends for in-process model inference.
 #[cfg(feature = "native")]
 pub mod local_inference;
@@ -154,6 +157,9 @@ pub mod persistence;
 /// Plugin system — dynamic TOML-based plugin loading.
 #[cfg(feature = "native")]
 pub mod plugins;
+/// Prompt rendering — fish-, oh-my-posh-, and pure-inspired prompt styles.
+#[cfg(feature = "native")]
+pub mod prompt;
 /// AI providers — provider registry and model routing.
 #[cfg(feature = "native")]
 pub mod providers;

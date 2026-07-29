@@ -3,7 +3,7 @@ use std::env;
 use std::fs;
 use std::io::{self, Read};
 
-use aethershell::{env::Env, eval, modules, parser, transpile};
+use aethershell::{env::Env, modules, transpile};
 use clap::{Parser, Subcommand};
 
 /// Create an environment with all builtin modules pre-registered
@@ -965,40 +965,15 @@ fn assist_once(
     Ok(cleaned.to_string())
 }
 fn repl() -> Result<()> {
-    // Simple REPL; keep it lean and rely on your existing `repl.rs` if you have one.
-    // Here we do a tiny inline REPL to avoid extra wires.
-    use std::io::Write;
+    // Delegates to `repl.rs`, which owns prompt rendering (fish / powerline /
+    // pure styles), fish-style line editing, and history persistence.
+    //
+    // This used to be a second, inline REPL that printed a hard-coded `ae> `
+    // and `{:?}`-formatted values — added "to avoid extra wires" — which meant
+    // the real REPL was never reached interactively and none of the prompt or
+    // history configuration had any effect.
     let mut env = create_env_with_modules();
-    let mut line = String::new();
-
-    println!("Æther REPL — type 'exit', 'quit', or Ctrl-D to exit");
-    loop {
-        line.clear();
-        print!("ae> ");
-        io::stdout().flush().ok();
-        if io::stdin().read_line(&mut line)? == 0 {
-            println!();
-            break;
-        }
-        let src = line.trim();
-        if src.is_empty() {
-            continue;
-        }
-
-        // Handle exit commands
-        if src == "exit" || src == "quit" {
-            break;
-        }
-
-        match parser::parse_program(src) {
-            Ok(stmts) => match eval::eval_program(&stmts, &mut env) {
-                Ok(val) => println!("{:?}", val),
-                Err(e) => eprintln!("eval error: {e}"),
-            },
-            Err(e) => eprintln!("parse error: {e}"),
-        }
-    }
-    Ok(())
+    aethershell::repl::run(&mut env)
 }
 
 /// Transpilation mode for legacy shell compatibility.

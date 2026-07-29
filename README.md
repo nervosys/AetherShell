@@ -95,6 +95,25 @@ agent("Find bugs in src/", ["file.read", "grep"])
 
 > Set `OPENAI_API_KEY` for AI features
 
+### Make the shell yours
+
+The REPL ships fish-style autosuggestions (dimmed ghost text from history, `→`
+to accept), abbreviations, and four prompt styles — including an oh-my-posh-style
+powerline:
+
+```toml
+# ~/.config/aether/config.toml
+[prompt]
+style = "fish"          # classic | fish | powerline | pure | custom
+show_git_dirty = true
+transient = true
+
+[prompt.abbreviations]
+ll = "ls(\".\") | sort()"
+```
+
+See [docs/PROMPT_GUIDE.md](docs/PROMPT_GUIDE.md).
+
 ---
 
 ## Language
