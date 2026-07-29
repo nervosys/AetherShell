@@ -15,7 +15,30 @@ It is **execution-agnostic**: token efficiency works on text directly; determini
 and reliability take a caller-provided closure (the library can't run arbitrary
 languages); safety takes the program's declared effects.
 
-## Benchmark: VM / sandbox systems for agentic AI use
+## Epistemic status: measured vs. curated
+
+This crate contains two very different kinds of number, and they should not be
+read the same way.
+
+**Measured.** Computed from the artifact itself, reproducible on your machine,
+and falsifiable. Token counts come from real BPE (`--features real-tokens`:
+tiktoken cl100k/o200k); determinism and reliability come from actually running
+the caller's closure. Examples: `tokens_of`, `sigil_audit`, `vocabulary_audit`,
+`keyword_audit`, `inference_tokens`, `swe_token_benchmark`,
+`swe_executability`. These are the numbers to trust, argue with, and reproduce.
+
+**Curated.** Hand-assigned expert scores on a 0–1 scale, with written evidence
+per score, for things this library cannot execute — VM isolation strength, a
+wire protocol's interop breadth, a language's ecosystem maturity. They encode
+judgment, not measurement. Two informed people would assign different numbers.
+
+> **Conflict of interest, stated plainly.** Nervosys builds AetherShell,
+> AetherVM, and SPINE, and those entries currently rank first in the curated
+> VM and web-stack benchmarks below. Those rankings are *our judgment of our
+> own systems*. Treat them as a documented argument to check, not as an
+> independent evaluation — and weight the measured sections accordingly.
+
+## Benchmark (curated): VM / sandbox systems for agentic AI use
 
 Curated benchmark of the VM/sandbox systems an agent runtime spawns (one isolated
 environment per tool call), scored on five **agent-native** axes. Reproduce with
@@ -45,7 +68,7 @@ curated judgments with evidence (AetherVM's isolation carries an explicit "young
 less battle-tested at scale" caveat); see [`vms`](src/vms.rs) and
 `describe("aethervm")`.
 
-## Benchmark: web stacks / wire protocols for agentic AI use
+## Benchmark (curated): web stacks / wire protocols for agentic AI use
 
 Curated benchmark of the **wire protocols** an agent has to speak when calling
 another service — scored on five **agent-native** axes (streaming, tool-
@@ -128,6 +151,25 @@ By default the crate pulls **zero heavy dependencies** (heuristic counts). Enabl
 exact OpenAI counts with `--features real-tokens`. The heuristic splits
 `snake_case` subwords (so `file_read` ≈ 2 tokens), tracking real BPE within
 ~10–20% for code-like text.
+
+### Tokenizer co-design (measured)
+
+A syntax saves tokens only if the *tokenizer* agrees. These examples audit that
+assumption against real BPE and are the basis for actual language changes:
+
+```bash
+cargo run -p agentic-eval --example sigil_audit       --features real-tokens
+cargo run -p agentic-eval --example vocabulary_audit  --features real-tokens
+cargo run -p agentic-eval --example keyword_audit     --features real-tokens
+```
+
+`sigil_audit` measures every AetherShell agentic-mode construct, tests candidate
+alternative encodings against the incumbent, and records an explicit
+**adopted/rejected** disposition with a reason for each cheaper candidate — so a
+rejected-as-ambiguous encoding is not re-proposed on the next run. It is what
+produced the v3 bare-dot lambda (`|w.size>1k`), a measured **23.7% token
+reduction on predicate pipelines**. It also reports honest non-results: several
+constructs (`F.r("p")`, `DK.p()`) show **no win** over their verbose forms.
 
 ## Output & ergonomics
 

@@ -7,6 +7,92 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Prompt styles** (`src/prompt.rs`) — `[prompt] style` selects `classic`,
+  `fish`, `powerline` (oh-my-posh style), `pure`, or `custom`. fish-style path
+  abbreviation (`~/d/n/AetherShell`), powerline segment blocks with per-segment
+  colors, right-aligned and transient prompts, and a two-line mode. Git branch
+  is read straight from `.git/HEAD`, so the prompt costs no subprocess; the
+  optional `show_git_dirty` is the only path that shells out. See
+  [docs/PROMPT_GUIDE.md](docs/PROMPT_GUIDE.md).
+- **`PromptConfig::format` is now actually rendered.** The `{cwd}`,
+  `{git_branch}`, `{user}`, `{host}`, `{time}`, `{status}`, `{symbol}`
+  placeholders have been documented in the shipped config since the config
+  system landed, but nothing expanded them — the REPL printed a hard-coded
+  `æ❯`. They work now, along with new `{full_cwd}`, `{duration}`, `{newline}`.
+- **fish-style line editing** (`src/line_editor.rs`) — history-backed ghost-text
+  autosuggestions (→ / Ctrl-F to accept), abbreviations expanded on space or
+  Enter, history recall that restores your in-progress draft, and emacs-style
+  cursor/word keys. Falls back to plain reads when stdin is not a TTY. History
+  now persists to `$XDG_DATA_HOME/aether/history`.
+- **Agentic syntax v3: bare-dot implicit lambda.** In pipe position the `~` is
+  implied for lambda-taking builtins — `|w.size>1k` ≡ `|w~.size>1k`. Measured
+  **23.7% fewer tokens on predicate pipelines** (real cl100k BPE); reproduce
+  with `cargo run -p agentic-eval --example sigil_audit --features real-tokens`.
+  Restricted to pipe position so `m.name` at statement start remains a field
+  access on a variable named `m`.
+- **agentic-eval `sigil_audit` example** — measures every agentic construct
+  against real cl100k/o200k BPE and tests candidate alternative encodings, so
+  sigil choices are made on data rather than intuition.
+
+### Changed
+- **MCP tool inputs are now validated against their JSON Schema**
+  (`ai::mcp::validate_against_schema`). Previously `validate_input` accepted
+  everything with a `TODO: Implement full JSONSchema validation`. All violations
+  are reported at once, so an LLM repairing its own tool call needs one retry
+  rather than several.
+- **The swarm `Router` policy now routes.** It previously always selected agent
+  0; it now scores each agent's declared capability surface (system prompt plus
+  tool names, tools weighted double) against the latest blackboard message, and
+  avoids letting one agent monopolize the swarm. Deterministic and LLM-free —
+  routing runs every tick.
+
+### Security
+- **Invisible and bidi-override characters are rejected in paths**
+  (`validate_safe_path`, CWE-1007). A zero-width space or RTL override makes two
+  paths render identically while resolving to different files — so an agent
+  approving `config.toml` could be handed `config\u{200B}.toml`. Rejected rather
+  than stripped, since silently rewriting a path means the caller acts on a file
+  it did not name. Ordinary non-ASCII (`é`, `日`) is unaffected. Found by
+  strengthening a test that previously asserted `is_ok() || is_err()`.
+
+### Fixed
+- **`agent api serve` panicked on a hostname bind address.** `SocketAddr` parses
+  literal addresses only, so a config with `host = "localhost"` aborted the
+  server via `.parse().unwrap()`. It now reports the problem and suggests a
+  literal IP.
+- **Vacuous test assertions replaced with real properties.** Thirteen assertions
+  of the form `assert!(x.is_ok() || x.is_err())` /
+  `assert!(v.is_empty() || !v.is_empty())` could never fail. They now assert
+  what the tests were actually for: detected MCP servers are well-formed, model
+  URIs are *understood* even when the call fails for lack of a key, failures
+  carry actionable messages, agent trace steps record a thought or a command,
+  and MCP detection does not change AI backend selection.
+- **The interactive REPL was never reaching `repl.rs`.** `main.rs` carried a
+  second, inline REPL — added "to avoid extra wires" — that printed a
+  hard-coded `ae> ` prompt and `{:?}`-formatted values. `ae` now delegates to
+  the real REPL, so prompt configuration, history, and value rendering apply.
+- **Intermittent test failure in `tests/advanced_ai.rs`.** The RAG index,
+  knowledge graph, and semantic cache are process-global, and 28 of the 29 tests
+  in that file populate or clear them; run in parallel, one test's
+  `semantic_cache_clear` landed between another's put and get, turning an
+  expected hit into a miss. All tests in the file now take a shared,
+  poison-tolerant `store_lock()`.
+- **Intermittent test failure in `security::tests::test_path_validation_basic`**
+  (failed in roughly half of full-workspace runs). `validate_safe_path` consults
+  `safety::current_mode()`, which reads the process-global `AETHER_MODE`; the
+  ~10 `safety` tests that set `AETHER_MODE=agent` were serialized behind a
+  module-private `ENV_LOCK` that the `security` test could not take, so a
+  concurrent safety test switched the workspace jail on and made even `"."`
+  fail validation. `ENV_LOCK` is now crate-visible (`safety::ENV_LOCK`) and both
+  modules take it.
+- `providers::platform::test_platform_detection` asserted
+  `caps.full_shell || !caps.full_shell`, a tautology that could never fail. It
+  now checks detection stability and the desktop/mobile capability invariants.
+- Workspace is clean under `cargo fmt --check` and `cargo clippy --all-targets
+  -D warnings` again; several pre-existing lint failures (including a
+  `clippy::correctness` error) would have failed the CI gate.
+
 ## [1.6.0] - 2026-06-04
 
 ### Added
