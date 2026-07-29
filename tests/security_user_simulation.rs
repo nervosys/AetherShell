@@ -332,8 +332,14 @@ fn adversarial_unicode_attacks() {
     // Attack 2: Zero-width characters
     let zero_width = "file\u{200B}name.txt"; // Zero-width space
     let result = validate_safe_path(zero_width);
-    // Should handle gracefully
-    assert!(result.is_ok() || result.is_err()); // Either way is acceptable if safe
+    // A zero-width character makes two paths render identically while
+    // resolving to different files, so it must be rejected outright rather
+    // than silently accepted. (`is_ok() || is_err()` asserted nothing here,
+    // and the character did in fact survive validation until this was fixed.)
+    assert!(
+        result.is_err(),
+        "zero-width character was accepted in a path: {result:?}"
+    );
 
     // Attack 3: Homograph attack (lookalike characters)
     let homograph = "pаypal.com"; // Cyrillic 'а' instead of Latin 'a'

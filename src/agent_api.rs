@@ -3697,8 +3697,16 @@ pub mod server {
             );
         }
 
-        let addr: std::net::SocketAddr =
-            format!("{}:{}", config.host, config.port).parse().unwrap();
+        // `SocketAddr` parses literal addresses only — `localhost:3002` is a
+        // perfectly reasonable thing to put in a config file and does *not*
+        // parse. Report it instead of panicking the server at startup.
+        let bind = format!("{}:{}", config.host, config.port);
+        let addr: std::net::SocketAddr = bind.parse().map_err(|e| {
+            anyhow::anyhow!(
+                "invalid bind address {bind:?}: {e}. \
+                 Use a literal IP such as 127.0.0.1 or 0.0.0.0, not a hostname."
+            )
+        })?;
 
         println!("🤖 AetherShell Agent API starting on http://{}", addr);
         println!("   Supports: OpenAI, Claude, Gemini, Llama, Mistral, Cohere, Grok, DeepSeek,");

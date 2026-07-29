@@ -225,6 +225,23 @@ pub fn configure_path_security(config: PathSecurityConfig) -> Result<()> {
     Ok(())
 }
 
+/// Characters that are invisible when rendered, or that reorder the text
+/// around them, and so let two different paths look identical to a human or an
+/// LLM reviewing a proposed action.
+///
+/// Covers the zero-width joiners/spaces, the word joiner, the BOM, and both
+/// bidi-control ranges (the explicit embeddings/overrides and the isolates).
+pub fn is_deceptive_char(c: char) -> bool {
+    matches!(c,
+        '\u{200B}'..='\u{200F}'   // zero-width space/non-joiner/joiner, LRM, RLM
+        | '\u{2028}' | '\u{2029}' // line/paragraph separators
+        | '\u{202A}'..='\u{202E}' // LRE, RLE, PDF, LRO, RLO
+        | '\u{2060}'..='\u{2064}' // word joiner and invisible operators
+        | '\u{2066}'..='\u{2069}' // bidi isolates
+        | '\u{FEFF}'              // BOM / zero-width no-break space
+    )
+}
+
 /// Validate a path is safe to access (prevents path traversal attacks)
 ///
 /// This function implements multiple security checks:
@@ -252,6 +269,22 @@ pub fn validate_safe_path(path: &str) -> Result<PathBuf> {
     if path.contains('\0') {
         return Err(anyhow!(
             "Path contains null byte - potential security attack"
+        ));
+    }
+
+    // Reject invisible and bidirectional-override characters.
+    //
+    // These make two paths that render identically resolve to different files
+    // — the spoofing half of the "Trojan Source" class (CWE-1007). An agent
+    // approving `config.toml` must not be handed `config\u{200B}.toml`.
+    //
+    // Rejected rather than stripped on purpose: silently rewriting a path
+    // means the caller acts on a different file than the one it named.
+    if let Some(c) = path.chars().find(|c| is_deceptive_char(*c)) {
+        return Err(anyhow!(
+            "Path contains invisible or bidi-override character U+{:04X} - \
+             potential spoofing attack (CWE-1007)",
+            c as u32
         ));
     }
 
@@ -1437,6 +1470,16 @@ mod tests {
 
     #[test]
     fn test_path_validation_basic() {
+        // `validate_safe_path` consults `safety::current_mode()`, which reads
+        // the process-global `AETHER_MODE`. Several `safety` tests set that to
+        // "agent" while they run, which switches the workspace jail on and makes
+        // even `.` fail here. Take the same lock those tests use so the two
+        // cannot interleave. (Without this the test fails intermittently — it
+        // did so in roughly half of full-workspace runs.)
+        let _env = crate::safety::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+
         // Always-on hygiene (every mode): the current dir resolves, null bytes
         // are rejected.
         assert!(validate_safe_path(".").is_ok());
@@ -1450,6 +1493,36 @@ mod tests {
         assert!(validate_safe_path("../../../etc/passwd").is_err());
         // Restore the default (unrestricted) config so other code is unaffected.
         configure_path_security(PathSecurityConfig::default()).unwrap();
+    }
+
+    #[test]
+    fn rejects_invisible_and_bidi_characters_in_paths() {
+        let _env = crate::safety::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+
+        // Each of these renders as (or reorders into) something other than what
+        // it resolves to — the spoofing half of CWE-1007.
+        for (name, path) in [
+            ("zero-width space", "file\u{200B}name.txt"),
+            ("zero-width non-joiner", "fi\u{200C}le.txt"),
+            ("right-to-left override", "exploit\u{202E}gnp.txt"),
+            ("bidi isolate", "safe\u{2066}evil\u{2069}.txt"),
+            ("word joiner", "a\u{2060}b.txt"),
+            ("BOM", "\u{FEFF}config.toml"),
+        ] {
+            assert!(
+                validate_safe_path(path).is_err(),
+                "{name} was accepted in a path"
+            );
+        }
+
+        // Ordinary non-ASCII must still be allowed — this is a spoofing guard,
+        // not an ASCII-only policy.
+        assert!(is_deceptive_char('\u{200B}'));
+        assert!(!is_deceptive_char('é'));
+        assert!(!is_deceptive_char('日'));
+        assert!(!is_deceptive_char('_'));
     }
 
     #[test]
