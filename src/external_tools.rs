@@ -310,11 +310,11 @@ impl ExternalToolRegistry {
                 #[cfg(windows)]
                 tool_path
                     .join("target/release")
-                    .join(format!("{}.exe", &manifest.tool.executable)),
+                    .join(format!("{}.exe", manifest.tool.executable)),
                 #[cfg(windows)]
                 tool_path
                     .join("target/debug")
-                    .join(format!("{}.exe", &manifest.tool.executable)),
+                    .join(format!("{}.exe", manifest.tool.executable)),
             ];
 
             let found_path = possible_paths.iter().find(|p| p.exists());

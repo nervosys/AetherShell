@@ -48,7 +48,7 @@ pub fn transpile_bash_to_ae(src: &str) -> Result<String> {
             if block_depth > 0 {
                 block_lines.push(raw_line.to_string());
             } else {
-                out.push_str(&format!("// {}\n", &line[1..].trim_start()));
+                out.push_str(&format!("// {}\n", line[1..].trim_start()));
             }
             continue;
         }
@@ -245,10 +245,9 @@ fn parse_simple_assignment(line: &str) -> Option<String> {
                 return None;
             }
         } else if rhs.starts_with('$') {
-            if let Some(var) = parse_var_ref(rhs) {
+            {
+                let var = parse_var_ref(rhs)?;
                 return Some(format!("let {} = {};", lhs, var));
-            } else {
-                return None;
             }
         } else if is_int_literal(rhs) {
             return Some(format!("let {} = {};", lhs, rhs));

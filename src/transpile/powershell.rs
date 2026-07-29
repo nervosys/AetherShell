@@ -63,7 +63,7 @@ pub fn transpile_powershell_to_ae(src: &str) -> Result<String> {
             if brace_depth > 0 {
                 block_lines.push(raw_line.to_string());
             } else {
-                out.push_str(&format!("// {}\n", &line[1..].trim_start()));
+                out.push_str(&format!("// {}\n", line[1..].trim_start()));
             }
             continue;
         }

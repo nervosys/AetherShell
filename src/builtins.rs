@@ -24255,6 +24255,7 @@ public class WindowHelper {
     Ok(Value::Array(vec![]))
 }
 
+#[allow(unused_variables)]
 fn bi_gui_focus_window(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let title_or_hwnd = match args.first() {
         Some(Value::Str(s)) => s.clone(),
@@ -24292,8 +24293,18 @@ if ($hwnd -eq [IntPtr]::Zero) {{ $hwnd = [IntPtr]::new({}) }}
             .output()?;
         return Ok(Value::Bool(output.status.success()));
     }
+    // No implementation on this platform (macOS, BSD, ...). An explicit
+    // error keeps "unsupported here" distinguishable from "the target was
+    // not found", which a bare `false` would conflate.
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        Err(anyhow!(
+            "gui.focus_window: desktop automation is not implemented on this platform"
+        ))
+    }
 }
 
+#[allow(unused_variables)]
 fn bi_gui_minimize_window(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let title = match args.first() {
         Some(Value::Str(s)) => s.clone(),
@@ -24329,8 +24340,18 @@ $hwnd = [WindowMin]::FindWindow($null, "{}")
             .output()?;
         return Ok(Value::Bool(output.status.success()));
     }
+    // No implementation on this platform (macOS, BSD, ...). An explicit
+    // error keeps "unsupported here" distinguishable from "the target was
+    // not found", which a bare `false` would conflate.
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        Err(anyhow!(
+            "gui.minimize_window: desktop automation is not implemented on this platform"
+        ))
+    }
 }
 
+#[allow(unused_variables)]
 fn bi_gui_maximize_window(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let title = match args.first() {
         Some(Value::Str(s)) => s.clone(),
@@ -24366,8 +24387,18 @@ $hwnd = [WindowMax]::FindWindow($null, "{}")
             .output()?;
         return Ok(Value::Bool(output.status.success()));
     }
+    // No implementation on this platform (macOS, BSD, ...). An explicit
+    // error keeps "unsupported here" distinguishable from "the target was
+    // not found", which a bare `false` would conflate.
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        Err(anyhow!(
+            "gui.maximize_window: desktop automation is not implemented on this platform"
+        ))
+    }
 }
 
+#[allow(unused_variables)]
 fn bi_gui_close_window(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let title = match args.first() {
         Some(Value::Str(s)) => s.clone(),
@@ -24403,8 +24434,18 @@ $hwnd = [WindowClose]::FindWindow($null, "{}")
             .output()?;
         return Ok(Value::Bool(output.status.success()));
     }
+    // No implementation on this platform (macOS, BSD, ...). An explicit
+    // error keeps "unsupported here" distinguishable from "the target was
+    // not found", which a bare `false` would conflate.
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        Err(anyhow!(
+            "gui.close_window: desktop automation is not implemented on this platform"
+        ))
+    }
 }
 
+#[allow(unused_variables)]
 fn bi_gui_move_window(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let title = match args.first() {
         Some(Value::Str(s)) => s.clone(),
@@ -24448,8 +24489,18 @@ $hwnd = [WindowMove]::FindWindow($null, "{}")
             .output()?;
         return Ok(Value::Bool(output.status.success()));
     }
+    // No implementation on this platform (macOS, BSD, ...). An explicit
+    // error keeps "unsupported here" distinguishable from "the target was
+    // not found", which a bare `false` would conflate.
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        Err(anyhow!(
+            "gui.move_window: desktop automation is not implemented on this platform"
+        ))
+    }
 }
 
+#[allow(unused_variables)]
 fn bi_gui_resize_window(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let title = match args.first() {
         Some(Value::Str(s)) => s.clone(),
@@ -24492,6 +24543,15 @@ $hwnd = [WindowResize]::FindWindow($null, "{}")
             .args(["-r", &title, "-e", &format!("0,−1,−1,{},{}", w, h)])
             .output()?;
         return Ok(Value::Bool(output.status.success()));
+    }
+    // No implementation on this platform (macOS, BSD, ...). An explicit
+    // error keeps "unsupported here" distinguishable from "the target was
+    // not found", which a bare `false` would conflate.
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        Err(anyhow!(
+            "gui.resize_window: desktop automation is not implemented on this platform"
+        ))
     }
 }
 
@@ -24583,6 +24643,7 @@ fn bi_gui_screenshot_window(args: Vec<Value>, _input: Option<Value>) -> Result<V
     Ok(Value::Null)
 }
 
+#[allow(unused_variables)]
 fn bi_gui_mouse_move(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let x = match args.first() {
         Some(Value::Int(n)) => *n,
@@ -24620,8 +24681,18 @@ public class MouseMove {{
             .output()?;
         return Ok(Value::Bool(output.status.success()));
     }
+    // No implementation on this platform (macOS, BSD, ...). An explicit
+    // error keeps "unsupported here" distinguishable from "the target was
+    // not found", which a bare `false` would conflate.
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        Err(anyhow!(
+            "gui.mouse_move: desktop automation is not implemented on this platform"
+        ))
+    }
 }
 
+#[allow(unused_variables)]
 fn bi_gui_mouse_click(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let button = args
         .first()
@@ -24671,6 +24742,15 @@ public class MouseClick {{
             .args(["click", btn])
             .output()?;
         return Ok(Value::Bool(output.status.success()));
+    }
+    // No implementation on this platform (macOS, BSD, ...). An explicit
+    // error keeps "unsupported here" distinguishable from "the target was
+    // not found", which a bare `false` would conflate.
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        Err(anyhow!(
+            "gui.mouse_click: desktop automation is not implemented on this platform"
+        ))
     }
 }
 
@@ -24723,6 +24803,7 @@ fn bi_gui_mouse_drag(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
 }
 
+#[allow(unused_variables)]
 fn bi_gui_mouse_scroll(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let amount = match args.first() {
         Some(Value::Int(n)) => *n,
@@ -24756,6 +24837,15 @@ public class MouseScroll {{
             .args(["click", "--repeat", &amount.abs().to_string(), dir])
             .output()?;
         return Ok(Value::Bool(output.status.success()));
+    }
+    // No implementation on this platform (macOS, BSD, ...). An explicit
+    // error keeps "unsupported here" distinguishable from "the target was
+    // not found", which a bare `false` would conflate.
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        Err(anyhow!(
+            "gui.mouse_scroll: desktop automation is not implemented on this platform"
+        ))
     }
 }
 
@@ -24806,6 +24896,7 @@ $point = New-Object MousePos+POINT
     Ok(Value::Null)
 }
 
+#[allow(unused_variables)]
 fn bi_gui_key_press(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let key = match args.first() {
         Some(Value::Str(s)) => s.clone(),
@@ -24835,8 +24926,18 @@ Add-Type -AssemblyName System.Windows.Forms
             .output()?;
         return Ok(Value::Bool(output.status.success()));
     }
+    // No implementation on this platform (macOS, BSD, ...). An explicit
+    // error keeps "unsupported here" distinguishable from "the target was
+    // not found", which a bare `false` would conflate.
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        Err(anyhow!(
+            "gui.key_press: desktop automation is not implemented on this platform"
+        ))
+    }
 }
 
+#[allow(unused_variables)]
 fn bi_gui_key_combo(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let keys: Vec<String> = args
         .iter()
@@ -24871,8 +24972,18 @@ Add-Type -AssemblyName System.Windows.Forms
             .output()?;
         Ok(Value::Bool(output.status.success()))
     }
+    // No implementation on this platform (macOS, BSD, ...). An explicit
+    // error keeps "unsupported here" distinguishable from "the target was
+    // not found", which a bare `false` would conflate.
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        Err(anyhow!(
+            "gui.key_combo: desktop automation is not implemented on this platform"
+        ))
+    }
 }
 
+#[allow(unused_variables)]
 fn bi_gui_type_text(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let text = match args.first() {
         Some(Value::Str(s)) => s.clone(),
@@ -24907,6 +25018,15 @@ Add-Type -AssemblyName System.Windows.Forms
             .args(["type", "--", &text])
             .output()?;
         return Ok(Value::Bool(output.status.success()));
+    }
+    // No implementation on this platform (macOS, BSD, ...). An explicit
+    // error keeps "unsupported here" distinguishable from "the target was
+    // not found", which a bare `false` would conflate.
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        Err(anyhow!(
+            "gui.type_text: desktop automation is not implemented on this platform"
+        ))
     }
 }
 
@@ -26721,7 +26841,14 @@ $hash = $hmac.ComputeHash($data)
         if let Ok(out) = output {
             if out.status.success() {
                 let result = String::from_utf8_lossy(&out.stdout);
-                let hash = result.split('=').last().unwrap_or("").trim().to_string();
+                // `next_back()` rather than `last()`: the iterator is
+                // double-ended, so `last()` would walk the whole string.
+                let hash = result
+                    .split('=')
+                    .next_back()
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
                 return Ok(Value::Str(hash));
             }
         }
@@ -38415,8 +38542,8 @@ pub fn bi_sysctl_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         if !key.is_empty() {
             // Single value: "key = value" or "key: value"
             let val = text
-                .splitn(2, |c| c == '=' || c == ':')
-                .nth(1)
+                .split_once(['=', ':'])
+                .map(|(_, v)| v)
                 .unwrap_or("")
                 .trim()
                 .to_string();

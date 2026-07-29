@@ -37,7 +37,7 @@ pub fn transpile_zsh_to_ae(src: &str) -> Result<String> {
             if block_depth > 0 {
                 block_lines.push(raw_line.to_string());
             } else {
-                out.push_str(&format!("// {}\n", &line[1..].trim_start()));
+                out.push_str(&format!("// {}\n", line[1..].trim_start()));
             }
             continue;
         }
