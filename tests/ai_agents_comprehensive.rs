@@ -32,6 +32,35 @@ fn setup_stub_env() -> Env {
     env
 }
 
+/// Assert that a model URI was *understood*, whatever the runtime outcome.
+///
+/// These tests run without API keys and without a local Ollama, so failure is
+/// expected and fine. What is not fine is failing because the URI could not be
+/// parsed, or failing with an empty/unhelpful message — an agent retrying the
+/// call has nothing to act on. Asserting only `is_ok() || is_err()` (as these
+/// tests previously did) would pass even if URI parsing were completely broken.
+fn assert_model_uri_understood<T>(result: &anyhow::Result<T>, uri: &str) {
+    let Err(e) = result else {
+        return; // Succeeded outright — the URI was certainly understood.
+    };
+    let msg = e.to_string();
+    assert!(
+        !msg.trim().is_empty(),
+        "failure for {uri} produced an empty error message"
+    );
+    let lowered = msg.to_lowercase();
+    for bad in [
+        "unknown model uri",
+        "failed to parse model",
+        "invalid model uri",
+    ] {
+        assert!(
+            !lowered.contains(bad),
+            "model URI {uri} was not understood: {msg}"
+        );
+    }
+}
+
 // ========== Basic Agent Tests ==========
 
 #[test]
@@ -137,16 +166,19 @@ fn test_agent_with_model_uri_openai_format() {
     let mut env = setup_stub_env();
     // This will use stub since no API key
     let result = run_sync_with_model("Test", &["print"], "openai:gpt-4o-mini", 2, true, &mut env);
-    // Should fail gracefully or use stub
-    assert!(result.is_ok() || result.is_err());
+    // Without an API key this may fail — but it must fail for a *runtime*
+    // reason, not because the model URI was unparseable, and the error has to
+    // be actionable. (The previous assertion, `is_ok() || is_err()`, was
+    // vacuous and would have passed on a URI parser that was entirely broken.)
+    assert_model_uri_understood(&result, "openai:gpt-4o-mini");
 }
 
 #[test]
 fn test_agent_with_model_uri_ollama_format() {
     let mut env = setup_stub_env();
     let result = run_sync_with_model("Test", &["print"], "ollama:llama3", 2, true, &mut env);
-    // May fail if Ollama not running, but should parse correctly
-    assert!(result.is_ok() || result.is_err());
+    // May fail if Ollama is not running, but the URI must still be understood.
+    assert_model_uri_understood(&result, "ollama:llama3");
 }
 
 #[test]
@@ -290,12 +322,15 @@ fn test_agent_trace_includes_thoughts() {
     if result.is_err() && !ai_available() {
         return;
     }
-    if !agent.trace.is_empty() {
-        // Each step should have a thought (even if empty)
-        for step in &agent.trace {
-            // Thought exists for each step
-            assert!(step.thought.is_empty() || !step.thought.is_empty());
-        }
+    // Every recorded step must carry something: a trace entry with neither a
+    // thought nor a command is useless for debugging an agent run. (The
+    // previous assertion, `thought.is_empty() || !thought.is_empty()`, was
+    // vacuous and would have passed on an all-blank trace.)
+    for step in &agent.trace {
+        assert!(
+            !step.thought.trim().is_empty() || step.command.is_some(),
+            "trace step recorded neither a thought nor a command"
+        );
     }
 }
 

@@ -23,6 +23,22 @@ fn setup_stub_env() -> Env {
     env
 }
 
+/// Assert a swarm run either succeeded or failed *actionably*.
+///
+/// These runs have no API key and no local Ollama, so an error is expected.
+/// What must hold is that the failure is reportable — an empty error message
+/// leaves a calling agent with nothing to retry on. Asserting only
+/// `is_ok() || is_err()` (as these tests previously did) proved nothing at all.
+fn assert_actionable<T>(result: &anyhow::Result<T>, context: &str) {
+    if let Err(e) = result {
+        let msg = e.to_string();
+        assert!(
+            !msg.trim().is_empty(),
+            "{context} failed with an empty error message"
+        );
+    }
+}
+
 // ========== Basic Swarm Tests ==========
 
 #[test]
@@ -400,7 +416,7 @@ fn test_swarm_agent_with_openai_format_model() {
     swarm.add_agent(config);
     // Will fall back to stub without API key
     let result = swarm.run_sync("Test", &mut env, true);
-    assert!(result.is_ok() || result.is_err()); // May fail without key
+    assert_actionable(&result, "swarm run with an openai URI and no API key");
 }
 
 #[test]
@@ -419,9 +435,9 @@ fn test_swarm_agent_with_ollama_format_model() {
     };
 
     swarm.add_agent(config);
-    // Will fail if Ollama not running, but should parse correctly
+    // Will fail if Ollama is not running, but should parse correctly.
     let result = swarm.run_sync("Test", &mut env, true);
-    assert!(result.is_ok() || result.is_err());
+    assert_actionable(&result, "swarm run with an ollama model URI");
 }
 
 #[test]
@@ -620,8 +636,7 @@ fn test_swarm_handles_agent_with_invalid_tools() {
 
     swarm.add_agent(config);
     let result = swarm.run_sync("Task", &mut env, true);
-    // Should handle gracefully
-    assert!(result.is_ok() || result.is_err());
+    assert_actionable(&result, "swarm run with mixed model URIs");
 }
 
 #[test]

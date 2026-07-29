@@ -181,6 +181,20 @@ fn truthy_env(name: &str) -> bool {
     )
 }
 
+#[cfg(test)]
+lazy_static! {
+    /// Serializes any test that mutates the process-global environment this
+    /// module reads (`AETHER_MODE`, `AETHER_AGENT`, `AETHER_WORKSPACE`, …).
+    ///
+    /// Crate-visible on purpose. `security::validate_safe_path` consults
+    /// [`current_mode`], so `security`'s tests are affected by an
+    /// `AETHER_MODE=agent` set by a concurrently-running `safety` test — a
+    /// `.` path that is fine in human mode gets jailed in agent mode. Every
+    /// test on either side of that coupling must take *this* lock, not a
+    /// module-private one.
+    pub(crate) static ref ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+}
+
 /// The active execution mode, derived from the environment.
 pub fn current_mode() -> Mode {
     if std::env::var("AETHER_MODE").ok().as_deref() == Some("agent") || truthy_env("AETHER_AGENT") {
@@ -1329,12 +1343,11 @@ pub fn redact_json(v: &mut Json) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex as StdMutex;
 
-    // Env mutation in these tests is process-global; serialize them.
-    lazy_static! {
-        static ref ENV_LOCK: StdMutex<()> = StdMutex::new(());
-    }
+    // Env mutation in these tests is process-global; serialize them via the
+    // crate-wide lock (defined at module scope, since tests in other modules
+    // read `AETHER_MODE` too and must take the same lock).
+    use super::ENV_LOCK;
 
     fn clear_env() {
         for k in [

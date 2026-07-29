@@ -4,10 +4,28 @@ use aethershell::builtins::call;
 use aethershell::env::Env;
 use aethershell::value::Value;
 
+/// Serializes every test in this file.
+///
+/// The RAG index, knowledge graph, and semantic cache are all *process-global*
+/// stores, and 28 of the 29 tests here populate or clear them. Run in parallel,
+/// one test's `semantic_cache_clear` lands between another's put and get and
+/// turns an expected hit into a miss — which is exactly how
+/// `test_semantic_cache_get_hit` failed intermittently in full-workspace runs.
+///
+/// Poison-tolerant: a panic in one test must not cascade into spurious
+/// failures in all the others.
+fn store_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    LOCK.get_or_init(|| std::sync::Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+}
+
 // ===================== RAG Tests =====================
 
 #[test]
 fn test_rag_index_basic() {
+    let _store = store_lock();
     let mut env = Env::new();
     let result = call(
         "rag_index",
@@ -28,6 +46,7 @@ fn test_rag_index_basic() {
 
 #[test]
 fn test_rag_index_with_source() {
+    let _store = store_lock();
     let mut env = Env::new();
     let result = call(
         "rag_index",
@@ -51,6 +70,7 @@ fn test_rag_index_with_source() {
 
 #[test]
 fn test_index_docs_alias() {
+    let _store = store_lock();
     let mut env = Env::new();
     let result = call(
         "index_docs",
@@ -68,6 +88,7 @@ fn test_index_docs_alias() {
 
 #[test]
 fn test_rag_search() {
+    let _store = store_lock();
     let mut env = Env::new();
 
     // Clear any existing state from other tests
@@ -115,6 +136,7 @@ fn test_rag_search() {
 
 #[test]
 fn test_search_docs_alias() {
+    let _store = store_lock();
     let mut env = Env::new();
 
     call(
@@ -140,6 +162,7 @@ fn test_search_docs_alias() {
 
 #[test]
 fn test_rag_query() {
+    let _store = store_lock();
     let mut env = Env::new();
 
     // Index documents
@@ -182,6 +205,7 @@ fn test_rag_query() {
 
 #[test]
 fn test_rag_alias() {
+    let _store = store_lock();
     let mut env = Env::new();
 
     call(
@@ -202,6 +226,7 @@ fn test_rag_alias() {
 
 #[test]
 fn test_rag_clear() {
+    let _store = store_lock();
     let mut env = Env::new();
 
     // Clear first to get a clean state
@@ -238,6 +263,7 @@ fn test_rag_clear() {
 
 #[test]
 fn test_kg_add_entity() {
+    let _store = store_lock();
     let mut env = Env::new();
     let result = call(
         "kg_add",
@@ -260,6 +286,7 @@ fn test_kg_add_entity() {
 
 #[test]
 fn test_add_entity_alias() {
+    let _store = store_lock();
     let mut env = Env::new();
     let result = call(
         "add_entity",
@@ -280,6 +307,7 @@ fn test_add_entity_alias() {
 
 #[test]
 fn test_kg_relate() {
+    let _store = store_lock();
     let mut env = Env::new();
 
     // Add entities first
@@ -336,6 +364,7 @@ fn test_kg_relate() {
 
 #[test]
 fn test_add_relation_alias() {
+    let _store = store_lock();
     let mut env = Env::new();
 
     let e1 = call(
@@ -386,6 +415,7 @@ fn test_add_relation_alias() {
 
 #[test]
 fn test_kg_relate_invalid_entity() {
+    let _store = store_lock();
     let mut env = Env::new();
 
     let result = call(
@@ -403,6 +433,7 @@ fn test_kg_relate_invalid_entity() {
 
 #[test]
 fn test_kg_query() {
+    let _store = store_lock();
     let mut env = Env::new();
 
     // Add some entities
@@ -437,6 +468,7 @@ fn test_kg_query() {
 
 #[test]
 fn test_query_kg_alias() {
+    let _store = store_lock();
     let mut env = Env::new();
 
     call(
@@ -465,6 +497,7 @@ fn test_query_kg_alias() {
 
 #[test]
 fn test_kg_entities_list() {
+    let _store = store_lock();
     let mut env = Env::new();
 
     call(
@@ -488,6 +521,7 @@ fn test_kg_entities_list() {
 
 #[test]
 fn test_entities_alias() {
+    let _store = store_lock();
     let mut env = Env::new();
     let result = call("entities", vec![], &mut env).unwrap();
 
@@ -500,6 +534,7 @@ fn test_entities_alias() {
 
 #[test]
 fn test_kg_relations_list() {
+    let _store = store_lock();
     let mut env = Env::new();
 
     // Create entities and relation
@@ -553,6 +588,7 @@ fn test_kg_relations_list() {
 
 #[test]
 fn test_relations_alias() {
+    let _store = store_lock();
     let mut env = Env::new();
     let result = call("relations", vec![], &mut env).unwrap();
 
@@ -567,6 +603,7 @@ fn test_relations_alias() {
 
 #[test]
 fn test_semantic_cache_put() {
+    let _store = store_lock();
     let mut env = Env::new();
     let result = call(
         "semantic_cache",
@@ -588,6 +625,7 @@ fn test_semantic_cache_put() {
 
 #[test]
 fn test_cache_ai_alias() {
+    let _store = store_lock();
     let mut env = Env::new();
     let result = call(
         "cache_ai",
@@ -608,6 +646,7 @@ fn test_cache_ai_alias() {
 
 #[test]
 fn test_semantic_cache_get_hit() {
+    let _store = store_lock();
     let mut env = Env::new();
 
     // Clear any existing state from other tests
@@ -643,6 +682,7 @@ fn test_semantic_cache_get_hit() {
 
 #[test]
 fn test_semantic_cache_get_miss() {
+    let _store = store_lock();
     let mut env = Env::new();
 
     // Query without caching first
@@ -664,6 +704,7 @@ fn test_semantic_cache_get_miss() {
 
 #[test]
 fn test_cache_get_alias() {
+    let _store = store_lock();
     let mut env = Env::new();
     let result = call(
         "cache_get",
@@ -681,6 +722,7 @@ fn test_cache_get_alias() {
 
 #[test]
 fn test_semantic_cache_clear() {
+    let _store = store_lock();
     let mut env = Env::new();
 
     // Clear first to start fresh
@@ -725,6 +767,7 @@ fn test_semantic_cache_clear() {
 
 #[test]
 fn test_cache_clear_ai_alias() {
+    let _store = store_lock();
     let mut env = Env::new();
 
     call(
@@ -748,6 +791,7 @@ fn test_cache_clear_ai_alias() {
 
 #[test]
 fn test_semantic_similarity_caching() {
+    let _store = store_lock();
     let mut env = Env::new();
 
     // Cache a response
@@ -779,6 +823,7 @@ fn test_semantic_similarity_caching() {
 
 #[test]
 fn test_rag_workflow() {
+    let _store = store_lock();
     let mut env = Env::new();
 
     // Clear any existing state first
@@ -832,6 +877,7 @@ fn test_rag_workflow() {
 
 #[test]
 fn test_knowledge_graph_workflow() {
+    let _store = store_lock();
     let mut env = Env::new();
 
     // Full knowledge graph workflow

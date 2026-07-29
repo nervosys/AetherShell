@@ -308,19 +308,17 @@ mod tui_ui_tests {
         };
 
         // Simulate event handling logic
-        let should_quit = match quit_key.code {
-            KeyCode::Char('q') if quit_key.modifiers.is_empty() => true,
-            _ => false,
-        };
+        let should_quit =
+            matches!(quit_key.code, KeyCode::Char('q') if quit_key.modifiers.is_empty());
 
-        let is_interrupt = match ctrl_c {
+        let is_interrupt = matches!(
+            ctrl_c,
             KeyEvent {
                 code: KeyCode::Char('c'),
                 modifiers: KeyModifiers::CONTROL,
                 ..
-            } => true,
-            _ => false,
-        };
+            }
+        );
 
         assert!(should_quit);
         assert!(is_interrupt);

@@ -22,18 +22,26 @@ fn test_mcp_server_info_structure() {
 
 #[test]
 fn test_detect_mcp_servers_returns_vec() {
-    let servers = detect_mcp_servers();
-    // Should return a vector (may be empty if no servers running)
-    // Length is always >= 0 for Vec, so just verify it's a valid Vec
-    assert!(servers.is_empty() || !servers.is_empty());
+    // The list may legitimately be empty (no server running), so the property
+    // under test is that every entry it *does* return is well-formed.
+    for s in detect_mcp_servers() {
+        assert!(!s.name.is_empty(), "detected server has no name");
+        assert!(!s.endpoint.is_empty(), "detected server has no endpoint");
+    }
 }
 
 #[test]
 fn test_detect_mcp_servers_with_no_servers() {
-    let servers = detect_mcp_servers();
-    // When no MCP servers are running, should return empty vec
-    // This is the expected behavior for graceful degradation
-    assert!(servers.is_empty() || !servers.is_empty());
+    // Graceful degradation: with nothing listening, detection returns rather
+    // than erroring, and never reports a server as available without an
+    // endpoint to reach it at.
+    for s in detect_mcp_servers() {
+        assert!(
+            !s.available || !s.endpoint.is_empty(),
+            "server {} marked available with no endpoint",
+            s.name
+        );
+    }
 }
 
 #[test]
@@ -56,18 +64,33 @@ fn test_mcp_server_info_clone() {
 
 #[test]
 fn test_mcp_detection_scans_standard_ports() {
-    // Should scan ports 3001-3005 and 8080-8081
-    let _servers = detect_mcp_servers();
-    // Test passes if it doesn't panic
-    assert!(true);
+    // Should scan ports 3001-3005 and 8080-8081. With no server running the
+    // list is legitimately empty, so the property under test is that detection
+    // completes and returns a well-formed list rather than panicking or hanging.
+    let servers = detect_mcp_servers();
+    for s in &servers {
+        assert!(
+            !s.endpoint.is_empty(),
+            "a detected server needs an endpoint"
+        );
+    }
 }
 
 #[test]
 fn test_mcp_detection_handles_unreachable_servers() {
-    // Should gracefully handle servers that don't respond
-    let servers = detect_mcp_servers();
-    // Should not panic even if all servers are unreachable
-    assert!(servers.is_empty() || !servers.is_empty());
+    // Unreachable servers must be filtered out or reported unavailable — never
+    // surfaced as usable. Reaching the end of this test is itself the
+    // "did not panic / did not hang" assertion.
+    for s in detect_mcp_servers() {
+        if s.available {
+            assert!(
+                s.endpoint.starts_with("http://") || s.endpoint.starts_with("https://"),
+                "available server {} has an unusable endpoint {}",
+                s.name,
+                s.endpoint
+            );
+        }
+    }
 }
 
 // ========== MCP Server Properties Tests ==========
@@ -168,21 +191,34 @@ fn test_mcp_detection_integration_with_ai_backends() {
     let ai_backends = detect_available_backends();
     let mcp_servers = detect_mcp_servers();
 
-    // Both detection systems should work independently
-    assert!(ai_backends.is_empty() || !ai_backends.is_empty());
-    assert!(mcp_servers.is_empty() || !mcp_servers.is_empty());
+    // The two detectors are independent: neither may return malformed entries
+    // because the other ran. Both lists may be empty on a bare machine.
+    for b in &ai_backends {
+        assert!(!b.name.is_empty(), "backend name must not be blank");
+    }
+    for s in &mcp_servers {
+        assert!(!s.name.is_empty(), "server name must not be blank");
+    }
 }
 
 #[test]
 fn test_mcp_detection_does_not_block_ai_detection() {
     use aethershell::ai::{auto_select_backend, detect_mcp_servers};
 
-    // MCP detection should not interfere with AI backend selection
+    // MCP detection must not interfere with AI backend selection: whatever
+    // `auto_select_backend` returns on its own, it must still return after MCP
+    // detection has run.
+    let before = auto_select_backend();
     let _ = detect_mcp_servers();
-    let backend = auto_select_backend();
+    let after = auto_select_backend();
 
-    // Should still be able to select AI backend
-    assert!(backend.is_some() || backend.is_none());
+    assert_eq!(
+        before, after,
+        "MCP detection changed which AI backend gets selected"
+    );
+    if let Some(name) = after {
+        assert!(!name.is_empty(), "selected backend must be named");
+    }
 }
 
 // ========== MCP Detection Timeout Tests ==========

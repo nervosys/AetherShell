@@ -971,8 +971,29 @@ mod tests {
     fn test_platform_detection() {
         let os = OperatingSystem::current();
         let caps = PlatformCapabilities::for_os(&os);
-        // Should have some capabilities
-        assert!(caps.full_shell || !caps.full_shell); // Always true, just checking no panic
+        // Detection must be stable, and the capability set must match the
+        // platform it was derived from. (The previous assertion here was
+        // `caps.full_shell || !caps.full_shell`, a tautology that could not
+        // fail — it only proved `for_os` did not panic.)
+        assert_eq!(
+            os,
+            OperatingSystem::current(),
+            "platform detection must be deterministic"
+        );
+        match os {
+            OperatingSystem::Linux
+            | OperatingSystem::BSD
+            | OperatingSystem::MacOS
+            | OperatingSystem::Windows => {
+                assert!(caps.full_shell, "desktop platforms have a full shell");
+                assert!(caps.background_processes, "and background processes");
+            }
+            // Mobile platforms are shell-constrained; the point of the
+            // capability table is that callers can tell the difference.
+            OperatingSystem::iOS | OperatingSystem::Android => {
+                assert!(!caps.service_management);
+            }
+        }
     }
 
     #[test]
