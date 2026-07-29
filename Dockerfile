@@ -16,14 +16,31 @@ RUN apt-get update && apt-get install -y \
 COPY Cargo.toml Cargo.lock ./
 COPY crates/ crates/
 
-# Create dummy main to cache dependencies
-RUN mkdir -p src && \
+# Create stubs for EVERY target declared in Cargo.toml, so the dependency-cache
+# layer can parse the manifest.
+#
+# Cargo refuses to parse a manifest whose declared targets do not exist on disk,
+# and this layer deliberately copies only Cargo.toml/Cargo.lock — not src/ or
+# benches/. It previously stubbed just src/main.rs and src/lib.rs, so the build
+# died on the first missing target:
+#
+#   error: failed to parse manifest at `/app/Cargo.toml`
+#   Caused by: can't find `mcp_performance` bench at `benches/mcp_performance.rs`
+#
+# That is why the Docker workflow had failed on every run since 2026-02-11.
+# If a [[bin]] or [[bench]] is added to Cargo.toml, add its stub here too.
+RUN mkdir -p src src/bin benches && \
     echo "fn main() {}" > src/main.rs && \
-    echo "pub fn dummy() {}" > src/lib.rs
+    echo "pub fn dummy() {}" > src/lib.rs && \
+    echo "fn main() {}" > src/bin/aimodel.rs && \
+    for b in mcp_performance builtin_performance parser_performance \
+             eval_performance pipeline_performance; do \
+        echo "fn main() {}" > "benches/$b.rs"; \
+    done
 
 # Build dependencies only
 RUN cargo build --release --features native && \
-    rm -rf src target/release/deps/aether_shell*
+    rm -rf src benches target/release/deps/aether_shell*
 
 # Copy actual source
 COPY src/ src/

@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **The Docker image builds again.** The Docker workflow had failed on *every*
+  run since 2026-02-11 — a separate pipeline from CI and Release, and the last
+  one still broken.
+
+  The Dockerfile caches dependencies by copying only `Cargo.toml`/`Cargo.lock`
+  and stubbing `src/`. But cargo refuses to parse a manifest whose declared
+  targets are missing from disk, and the stub set covered only `src/main.rs`
+  and `src/lib.rs` — not the `aimodel` bin or the five `[[bench]]` targets:
+
+      error: failed to parse manifest at `/app/Cargo.toml`
+      Caused by: can't find `mcp_performance` bench at `benches/mcp_performance.rs`
+
+  The layer now stubs every declared target. Verified by reproducing the layer
+  locally (manifests + `crates/` only): the old stub set fails with exactly the
+  CI error, the new one parses.
+
 ## [1.7.3] - 2026-07-29
 
 ### Fixed
