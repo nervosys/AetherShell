@@ -56,7 +56,6 @@ if ($DryRun) {
     Write-Host "   • WASM package build" -ForegroundColor Gray
     Write-Host "   • crates.io publish" -ForegroundColor Gray
     Write-Host "   • npm publish (WASM)" -ForegroundColor Gray
-    Write-Host "   • Docker image build" -ForegroundColor Gray
     exit 0
 }
 
@@ -75,7 +74,6 @@ Write-Host "   2. Build WASM package" -ForegroundColor Gray
 Write-Host "   3. Create GitHub Release (draft)" -ForegroundColor Gray
 Write-Host "   4. Publish to crates.io" -ForegroundColor Gray
 Write-Host "   5. Publish to npm" -ForegroundColor Gray
-Write-Host "   6. Build and push Docker image" -ForegroundColor Gray
 Write-Host ""
 Write-Host "Monitor progress at:" -ForegroundColor White
 Write-Host "   https://github.com/nervosys/AetherShell/actions" -ForegroundColor Cyan

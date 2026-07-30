@@ -7,22 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-- **The Docker image builds again.** The Docker workflow had failed on *every*
-  run since 2026-02-11 — a separate pipeline from CI and Release, and the last
-  one still broken.
+### Removed
+- **Docker is no longer a distribution channel.** The `Dockerfile` and the
+  Docker workflow have been deleted, along with the `docker pull` /
+  `docker run` instructions on the website, in `ROADMAP.md`, and in the
+  productization plan. No image is published for new releases; install via
+  the release binaries, Homebrew, crates.io, npm, or PyPI instead.
 
-  The Dockerfile caches dependencies by copying only `Cargo.toml`/`Cargo.lock`
-  and stubbing `src/`. But cargo refuses to parse a manifest whose declared
-  targets are missing from disk, and the stub set covered only `src/main.rs`
-  and `src/lib.rs` — not the `aimodel` bin or the five `[[bench]]` targets:
+  The workflow had failed on *every* run since 2026-02-11 and only ever ran on
+  `v*` tags, so it broke unnoticed for five months. Three separate faults were
+  found and fixed before the channel was dropped — missing cargo target stubs
+  in the dependency-cache layer (twice, in both build steps), and a `rust:1.75`
+  base image that can no longer parse a dependency tree which has moved to
+  edition 2024. The first fix was confirmed; the rest are moot now.
 
-      error: failed to parse manifest at `/app/Cargo.toml`
-      Caused by: can't find `mcp_performance` bench at `benches/mcp_performance.rs`
+  AetherShell's *support for* Docker is unaffected — the `docker`, `podman`,
+  and `container` builtins, the `docker-compose` wrapper, and running MCP
+  servers in containers all remain.
 
-  The layer now stubs every declared target. Verified by reproducing the layer
-  locally (manifests + `crates/` only): the old stub set fails with exactly the
-  CI error, the new one parses.
+### Changed
+- **Declared MSRV corrected from 1.75 to 1.88.** `rust-version = "1.75"` in all
+  three manifests had become false: dependencies now declare `rust-version` up
+  to 1.88, and several (`base64ct`, `bcrypt`, `pbkdf2`, `time`, `url`, `home`)
+  have moved to edition 2024, which Cargo 1.75 rejects outright. 1.88 is the
+  floor implied by the dependency tree; it is not verified by a build on 1.88
+  itself, as there is no MSRV job in CI.
 
 ## [1.7.3] - 2026-07-29
 

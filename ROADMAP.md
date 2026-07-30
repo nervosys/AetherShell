@@ -31,7 +31,7 @@ This document tracks the development progress of AetherShell, the world's first 
 | VS Code Extension | ✅ Complete | Marketplace published                     |
 | MCP Protocol      | ✅ Complete | 130+ tools, HTTP server                   |
 | Agent API         | ✅ Complete | 27 provider schema formats                |
-| Distribution      | ✅ Complete | Homebrew, Docker, npm                     |
+| Distribution      | ✅ Complete | Homebrew, npm, PyPI                       |
 | CI/CD             | ✅ Complete | GitHub Actions, CLA check                 |
 | Licensing         | ✅ Complete | AGPL-3.0 + commercial                     |
 
@@ -82,7 +82,7 @@ This document tracks the development progress of AetherShell, the world's first 
 - [x] Implicit match scrutinee in lambda bodies
 - [x] Bash transpiler improvements
 - [x] Python SDK (integrations/python/)
-- [x] GitHub Actions CI/CD (ci.yml, release.yml, docker.yml, security-audit.yml)
+- [x] GitHub Actions CI/CD (ci.yml, release.yml, security-audit.yml)
 - [x] CLA check workflow
 
 ### v0.2.0 — January 2026
@@ -102,7 +102,7 @@ This document tracks the development progress of AetherShell, the world's first 
 - [x] Module visibility (pub/private, export)
 - [x] Package management (import, aether.toml)
 - [x] WASM support with browser REPL
-- [x] Distribution: Homebrew, Docker, npm, browser extension
+- [x] Distribution: Homebrew, npm, browser extension
 
 ### v0.1.x — December 2025
 - [x] Core language: AST evaluator, Hindley-Milner type inference
@@ -206,11 +206,10 @@ This document tracks the development progress of AetherShell, the world's first 
 - [x] LSP server (`aethershell-lsp`) — completions, diagnostics, symbols, go-to-def
 - [x] TextMate grammar + Markdown injection grammar
 - [x] Homebrew formula
-- [x] Docker image (multi-stage)
 - [x] npm package (`@nervosys/aethershell`)
 - [x] Python SDK (`integrations/python/`)
 - [x] WASM support with browser REPL
-- [x] GitHub Actions CI/CD (test, release, Docker, security audit, CLA)
+- [x] GitHub Actions CI/CD (test, release, security audit, CLA)
 
 ---
 
@@ -337,7 +336,6 @@ This document tracks the development progress of AetherShell, the world's first 
 - **VS Code:** [admercs.aethershell](https://marketplace.visualstudio.com/items?itemName=admercs.aethershell)
 - **GitHub:** [nervosys/AetherShell](https://github.com/nervosys/AetherShell) — v0.3.1 release with binaries
 - **Homebrew:** `brew install nervosys/tap/aethershell`
-- **Docker:** `docker pull nervosys/aethershell`
 - **npm:** `npm install @nervosys/aethershell`
 
 ---

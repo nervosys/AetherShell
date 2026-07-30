@@ -36,7 +36,6 @@ exclude = [
     "/temp_test.ae",
     "/test_assignment.ae",
     "/temp_section.md",
-    "Dockerfile",
     "deny.toml",
     "DIRECTORY_OVERVIEW.md",
     "PROJECT_STRUCTURE.md",

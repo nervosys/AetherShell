@@ -67,7 +67,6 @@ AetherShell uniquely combines:
 ```
 - npm: `npm install -g aethershell` (via WASM)
 - PyPI: `pip install aethershell` (Python SDK)
-- Docker Hub: `docker pull nervosys/aethershell`
 ```
 
 ### 2.2 Browser Extension Stores
