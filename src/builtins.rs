@@ -37529,11 +37529,11 @@ pub fn bi_cal(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     for d in 1..=days_in_month {
         cal.push_str(&format!("{:2} ", d));
-        if (weekday_offset + d) % 7 == 0 {
+        if (weekday_offset + d).is_multiple_of(7) {
             cal.push('\n');
         }
     }
-    if (weekday_offset + days_in_month) % 7 != 0 {
+    if !(weekday_offset + days_in_month).is_multiple_of(7) {
         cal.push('\n');
     }
     Ok(Value::Str(cal))

@@ -703,7 +703,7 @@ impl DQNAgent {
         self.steps += 1;
 
         // Update target network periodically
-        if self.steps % self.target_update_freq == 0 {
+        if self.steps.is_multiple_of(self.target_update_freq) {
             self.update_target_network();
         }
 
