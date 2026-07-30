@@ -27,6 +27,24 @@ if ($Clean) {
 
 # Build WASM module
 Write-Host "📦 Building WASM module..." -ForegroundColor Yellow
+
+# Strip absolute source paths out of the artifact. Without this, rustc bakes
+# panic-location strings such as
+#   C:\Users\<you>\.cargo\registry\src\...\serde_json-1.0.149\src\error.rs
+# into the .wasm, publishing the building developer's username to anyone who
+# loads the extension. The generated wasm/ output used to be committed, which
+# is how one developer's home directory ended up in the repository.
+#
+# Cargo's [profile] trim-paths would be the tidy fix, but it is still unstable
+# as of Cargo 1.97, so remap the prefixes directly. CARGO_ENCODED_RUSTFLAGS is
+# used rather than RUSTFLAGS because it is separated by 0x1f instead of spaces,
+# so it survives paths containing spaces.
+$Unit = [char]0x1f
+$env:CARGO_ENCODED_RUSTFLAGS = @(
+    "--remap-path-prefix=$env:USERPROFILE=~"
+    "--remap-path-prefix=$RootDir=."
+) -join $Unit
+
 Push-Location "$RootDir\web"
 try {
     if ($Release) {
