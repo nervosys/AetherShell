@@ -27159,7 +27159,14 @@ fn bi_crypto_encrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             ));
         }
     }
-    Ok(Value::Str("Encryption requires OpenSSL".to_string()))
+    // Fail closed. Returning a message here would hand the caller a non-empty
+    // string — which `is_truthy` treats as success — in place of ciphertext, so
+    // `file.write(out, crypto.encrypt(secret, pass))` would silently persist
+    // this sentence instead of the encrypted secret.
+    Err(anyhow::anyhow!(
+        "E_UNIMPLEMENTED: crypto.encrypt requires the openssl CLI (Unix only); \
+         nothing was encrypted"
+    ))
 }
 
 fn bi_crypto_decrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -27198,18 +27205,27 @@ fn bi_crypto_decrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             ));
         }
     }
-    Ok(Value::Str("Decryption requires OpenSSL".to_string()))
-}
-
-fn bi_crypto_sign(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str(
-        "Digital signatures require key management - use openssl directly".to_string(),
+    Err(anyhow::anyhow!(
+        "E_UNIMPLEMENTED: crypto.decrypt requires the openssl CLI (Unix only); \
+         nothing was decrypted"
     ))
 }
 
+fn bi_crypto_sign(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Err(anyhow::anyhow!(
+        "E_UNIMPLEMENTED: crypto.sign needs key management that AetherShell does not \
+         provide; use the openssl CLI directly. No signature was produced"
+    ))
+}
+
+/// Unimplemented, and therefore an error rather than a value: a stub that
+/// returned a message would be truthy under `is_truthy`, so
+/// `if crypto.verify(sig, data, key) { ... }` would take the trusted branch
+/// without any signature ever having been checked (CWE-347).
 fn bi_crypto_verify(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str(
-        "Signature verification requires key management - use openssl directly".to_string(),
+    Err(anyhow::anyhow!(
+        "E_UNIMPLEMENTED: crypto.verify needs key management that AetherShell does not \
+         provide; use the openssl CLI directly. NOTHING WAS VERIFIED"
     ))
 }
 
@@ -27311,8 +27327,8 @@ fn bi_crypto_cert_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
             ));
         }
     }
-    Ok(Value::Str(
-        "Certificate parsing requires OpenSSL".to_string(),
+    Err(anyhow::anyhow!(
+        "E_UNIMPLEMENTED: crypto.cert_parse requires the openssl CLI (Unix only)"
     ))
 }
 
@@ -27872,8 +27888,12 @@ fn bi_crypto_cert_verify(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
     #[cfg(not(unix))]
     {
         let _ = cert_path;
-        Ok(Value::Str(
-            "Certificate verification requires OpenSSL".to_string(),
+        // The Unix arm above returns Value::Bool from openssl's exit status. A
+        // string here would be truthy, so certificate verification would appear
+        // to *succeed* on every non-Unix platform.
+        Err(anyhow::anyhow!(
+            "E_UNIMPLEMENTED: crypto.verify_cert requires the openssl CLI (Unix only); \
+             the certificate was NOT verified"
         ))
     }
 }
@@ -27882,9 +27902,11 @@ fn bi_crypto_generate_key(args: Vec<Value>, _input: Option<Value>) -> Result<Val
     bi_crypto_key_generate(args, None)
 }
 
+/// See [`bi_crypto_verify`] — same fail-open hazard, same resolution.
 fn bi_crypto_verify_signature(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str(
-        "Signature verification requires key management - use openssl directly".to_string(),
+    Err(anyhow::anyhow!(
+        "E_UNIMPLEMENTED: crypto.verify_signature needs key management that AetherShell \
+         does not provide; use the openssl CLI directly. NOTHING WAS VERIFIED"
     ))
 }
 
