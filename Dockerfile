@@ -50,8 +50,11 @@ RUN mkdir -p src src/bin benches && \
 RUN cargo build --release --features native && \
     rm -rf src benches target/release/deps/aether_shell*
 
-# Copy actual source
+# Copy actual source. benches/ must come along even though we only build the two
+# bins below: the cleanup above deleted the bench stubs, and cargo will not parse
+# a manifest whose declared [[bench]] targets are missing from disk.
 COPY src/ src/
+COPY benches/ benches/
 COPY examples/ examples/
 
 # Build release binary
