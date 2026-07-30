@@ -2,7 +2,15 @@
 # Multi-stage build for minimal final image
 
 # Stage 1: Build
-FROM rust:1.75-slim-bookworm AS builder
+#
+# Track the latest 1.x stable rather than pinning a patch release, so this image
+# stays in step with the `stable` toolchain the CI and Release workflows use. The
+# previous `rust:1.75-slim-bookworm` pin broke once dependencies moved to edition
+# 2024 (base64ct, bcrypt, pbkdf2, time, url, home), which Cargo 1.75 cannot parse:
+#
+#   The package requires the Cargo feature called `edition2024`, but that feature
+#   is not stabilized in this version of Cargo (1.75.0)
+FROM rust:1-slim-bookworm AS builder
 
 WORKDIR /app
 

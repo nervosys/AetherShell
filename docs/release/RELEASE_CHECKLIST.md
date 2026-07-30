@@ -21,7 +21,7 @@
 - [x] **keywords** - shell, ai, multi-agent, functional, multimodal
 - [x] **categories** - command-line-utilities, development-tools
 - [x] **readme** - "README.md"
-- [x] **rust-version** - "1.75"
+- [x] **rust-version** - "1.88"
 
 ### Code Quality
 - [x] **Examples** - 18/18 passing (100% pass rate)
@@ -89,7 +89,7 @@ cargo publish
 
 - **Version**: 0.1.0
 - **Rust Edition**: 2021
-- **Minimum Rust**: 1.75
+- **Minimum Rust**: 1.88
 - **Examples**: 18 (100% passing)
 - **Tests**: 25+ unit/integration tests
 - **Documentation**: 5+ guides, comprehensive README

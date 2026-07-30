@@ -11,7 +11,7 @@ documentation = "https://docs.rs/aethershell-lsp"
 readme = "README.md"
 keywords = ["lsp", "shell", "language-server", "aethershell", "ide"]
 categories = ["development-tools", "command-line-utilities"]
-rust-version = "1.75"
+rust-version = "1.88"
 
 [[bin]]
 name = "aethershell-lsp"

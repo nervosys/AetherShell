@@ -4,7 +4,7 @@ How to set up a development environment for contributing to AetherShell.
 
 ## Prerequisites
 
-- **Rust** 1.75+ (install via [rustup](https://rustup.rs))
+- **Rust** 1.88+ (install via [rustup](https://rustup.rs))
 - **Git**
 - **pkg-config** and **OpenSSL dev headers** (Linux)
 - Optional: **Ollama** for local AI model testing

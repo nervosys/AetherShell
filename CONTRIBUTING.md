@@ -15,7 +15,7 @@ Thank you for your interest in contributing to AetherShell! This document provid
 
 ### Prerequisites
 
-- Rust 1.75 or later
+- Rust 1.88 or later
 - Git
 - Basic understanding of Rust and shell scripting
 
@@ -251,7 +251,7 @@ result = data.user.name  // Panics here
 
 **Environment:**
 - OS: Windows 11
-- Rust: 1.75.0
+- Rust: 1.88.0
 - AetherShell: 0.1.0
 ```
 

@@ -11,7 +11,7 @@ documentation = "https://docs.rs/agentic-eval"
 readme = "README.md"
 keywords = ["llm", "agent", "tokens", "determinism", "safety"]
 categories = ["development-tools", "text-processing"]
-rust-version = "1.75"
+rust-version = "1.88"
 
 # Build docs with all features on docs.rs so the serde-gated and real-tokens items
 # are visible.

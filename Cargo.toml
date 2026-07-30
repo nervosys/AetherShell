@@ -15,7 +15,7 @@ documentation = "https://github.com/nervosys/AetherShell/blob/master/README.md"
 keywords = ["shell", "ai", "multi-agent", "functional", "multimodal"]
 categories = ["command-line-utilities", "development-tools"]
 readme = "README.md"
-rust-version = "1.75"
+rust-version = "1.88"
 exclude = [
     "assets/",
     "demos/",

@@ -4,7 +4,7 @@ This guide covers installing AetherShell on your system.
 
 ## Requirements
 
-- **Rust 1.75+** (for building from source)
+- **Rust 1.88+** (for building from source)
 - **OS**: Windows, macOS, or Linux
 - **Optional**: API keys for AI providers (OpenAI, Anthropic, etc.)
 
