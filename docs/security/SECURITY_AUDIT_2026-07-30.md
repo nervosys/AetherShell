@@ -1,13 +1,16 @@
-# Security Audit — 2026-07-30
+# Security Audit — 2026-07-30, updated 2026-08-04
 
-Scope: the `master` tree at `2d8b969`, covering the `aethershell`,
-`aethershell-lsp` and `agentic-eval` crates, the browser extension, and the CI
-and release workflows.
+Scope: the `master` tree, covering the `aethershell`, `aethershell-lsp` and
+`agentic-eval` crates, the browser extension, and the CI and release workflows.
+The first pass reviewed `2d8b969`; the second pass (2026-08-04, findings 6–8)
+reviewed `30e3586` and reached the surfaces the first pass did not: the HTTP
+API, the process-execution gate, native plugin loading, and `unsafe`.
 
 Method: `cargo audit` (1173 RUSTSEC advisories), `cargo deny check` (advisories,
-bans, licenses, sources), targeted source review of the cryptographic, policy
-and audit surfaces, and a repository-wide scan for credentials and personal
-data. Findings were fixed in this pass unless recorded otherwise below.
+bans, licenses, sources), targeted source review of the cryptographic, policy,
+audit, HTTP and process-spawning surfaces, review of all 31 `unsafe` blocks, and
+a repository-wide scan for credentials and personal data. Findings were fixed in
+this pass unless recorded otherwise below.
 
 Frameworks requested and addressed: CVE/RUSTSEC, MITRE ATT&CK, NIST FIPS, and
 CMMC 2.0.
@@ -18,16 +21,133 @@ CMMC 2.0.
 
 | # | Finding | Class | Severity | Status |
 |---|---------|-------|----------|--------|
+| 6 | Agent API executed code for unauthenticated callers | CWE-306 / CWE-352 | **Critical** | Fixed |
+| 7 | Exec gate covered the name `sh`, not the capability | CWE-184 / CWE-693 | **High** | Fixed |
 | 1 | `quinn-proto` remote memory exhaustion | RUSTSEC-2026-0185 | High (7.5) | Fixed |
 | 2 | Unimplemented crypto builtins reported success | CWE-347 / CWE-311 | High | Fixed |
-| 3 | Committed WASM leaked a developer's username | CWE-532 | Low | Fixed (tree only) |
 | 4 | `rbac.*`, `perm.acl_*`, `sso.*` advertised but unimplemented | CWE-1104 | Medium | Documented, not implemented |
+| 8 | `static mut` PRNG state mutated without synchronization | CWE-362 | Low | Fixed |
+| 3 | Committed WASM leaked a developer's username | CWE-532 | Low | Fixed (tree only) |
 | 5 | Builtin registry split hides names from agent discovery | Correctness | Low | Documented |
 
 Nothing in this audit indicates a compromise or data exposure to a third party.
 Finding 3 concerns one developer's username, published in a public repository.
 
+The table is ordered by severity; the sections below are numbered in discovery
+order, so the second pass (6–8) is written up first.
+
+Findings 6 and 7 are the significant ones, and both were reachable in the
+*intended* configuration rather than an unusual one. Note that they compound: an
+unauthenticated `/api/v1/eval` (6) reaching an exec surface that agent mode did
+not actually gate (7) means the hardening a deployment believed it had from
+`AETHER_MODE=agent` would not have constrained a drive-by request.
+
 ---
+
+## 6. Agent API executed code for unauthenticated callers (CWE-306, CWE-352)
+
+The most serious finding in either pass.
+
+`agent_api::server` mounted `POST /api/v1/eval` — documented as "evaluate raw
+AetherShell code" — with **no authentication on any route**. `enable_cors`
+defaults to `true`, which layered:
+
+```rust
+CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any)
+```
+
+on top. Binding loopback is not a boundary against a browser: any web page the
+user visited while the server was running could preflight successfully and POST
+to `127.0.0.1:3002`. That is drive-by remote code execution on the user's
+machine, triggered by visiting a page, not a local-only convenience.
+
+Every route except `/health` now requires `Authorization: Bearer <token>`,
+enforced by `axum::middleware::from_fn` applied *before* the CORS layer so it
+wraps every route. `/health` stays open so liveness probes keep working, which
+is why the exemption is itself tested.
+
+The token comes from `--token`, else `AETHER_API_TOKEN`, else one is generated
+from 32 random bytes and printed at startup. There is deliberately no
+configuration that disables authentication. `AETHER_API_TOKEN` is the documented
+path because an argv token is readable by every other process on the host.
+
+Comparison is constant-time, so the token cannot be recovered a byte at a time
+by timing the 401. Binding a non-loopback address now warns that the token is
+the only thing in front of an arbitrary-code evaluator.
+
+`tests/agent_api_auth.rs` drives the real router over a real TCP socket rather
+than a reimplementation of the middleware: no token, three wrong tokens
+(including a *prefix* of the real one, which catches a comparison that stops at
+the shorter length), the correct token, and `/health` without one.
+
+**Residual risk.** A bearer token over plain HTTP is readable by anything on the
+path. Non-loopback deployments need TLS; the warning says so, but nothing
+enforces it. There is no token rotation, revocation, or per-client identity —
+this is one shared secret, appropriate for a local agent bridge and not for a
+multi-tenant service.
+
+**Breaking change.** Existing API clients must send the header.
+
+## 7. The exec gate covered the name `sh`, not the capability (CWE-184, CWE-693)
+
+`bi_sh` was the **only** builtin in the tree that called `safety::guard` with
+`Effect::Exec` — 14 guard calls in total against 668 `Command::new` sites. The
+exec control was therefore a denylist of exactly one *name*, while several other
+builtins hand a caller-controlled string straight to a shell:
+
+```rust
+Command::new("timeout").args([&secs, "sh", "-c", &command])   // bi_timeout_cmd
+Command::new("sh").args(["-c", &full_cmd])                     // bi_xargs_exec
+Command::new(&cmd).args(&spawn_args)                           // bi_proc_spawn
+```
+
+This was demonstrated rather than inferred. In agent mode, with `sh` disabled
+outright — the intended hardened configuration, since `sh` refuses unless
+`AETHER_ALLOW_SH=true` — the following ran to completion:
+
+```
+sh          => Err("sh() is disabled for security…")
+timeout_cmd => Ok({exit_code: 0, …})     and the marker file existed afterwards
+```
+
+No approval prompt, and no `exec`-classified audit entry, so the hash-chained
+log recorded the wrong thing as well. An agent denied `sh` had nine other names
+for the same capability: `timeout`, `xargs`, `proc.spawn`, `nohup`, `strace`,
+`ltrace`, `perf.stat`, `perf.record`, `lxc.exec`.
+
+`safety::guard_exec` is now the single choke point for "the argument *is* a
+command", applied to all nine. `safety::effect_of` classifies the same set as
+`Effect::Exec`, because it feeds `agent_api`'s dynamic discovery — which was
+telling agents that `timeout("rm -rf /")` was a `pure` call.
+
+`tests/exec_gate_coverage.rs` asserts the property that matters — after a gated
+call, *the side effect does not exist* — rather than any error string, and pins
+`effect_of` against the `guard_exec` call sites, since drift between those two
+lists is exactly what reopens this. Human mode is default-allow by design and a
+test holds that line.
+
+**Scope of the fix, stated precisely.** This closes the *arbitrary command*
+class. It does **not** gate the ~650 remaining `Command::new` sites that invoke
+a fixed program with caller-supplied data arguments (`ping -c 4 $host`,
+`helm status $release`). Those are a materially weaker class — they cannot run
+an attacker-chosen program — but they are not zero risk, and several accept
+enough argument control to be worth a dedicated pass. Not attempted here.
+
+**Breaking change.** Agent-mode scripts using these nine now need approval.
+
+## 8. `static mut` PRNG state mutated without synchronization (CWE-362)
+
+`neural::rand_f64` and `evolution::rand_f64` mutated a `static mut` from an
+`unsafe` block with no synchronization. Builtins are reachable from the
+multi-threaded agent API server, so two concurrent requests were a data race —
+undefined behaviour irrespective of how benign the values are.
+
+Both are now `AtomicU64` with `Relaxed` ordering: the state orders nothing else,
+and a single-threaded caller sees the identical sequence, so `seed_rng`
+reproducibility is preserved. Both are now documented as non-cryptographic,
+because an LCG named `rand_f64` is a tempting thing to reach for. They are used
+only for network weights and mutation rates; no key, token or salt derives from
+them, which was checked rather than assumed.
 
 ## 1. CVE / advisory posture — RUSTSEC-2026-0185
 
@@ -50,7 +170,7 @@ four gates.
 
 ## 2. Unimplemented crypto builtins reported success (CWE-347, CWE-311)
 
-The most serious finding, and not dependency-related.
+The most serious finding of the first pass, and not dependency-related.
 
 `eval::is_truthy` maps `Value::Str(s)` to `!s.is_empty()` and `Value::Error` to
 `false`. Seven cryptographic builtins were stubs that returned an explanatory
@@ -154,6 +274,38 @@ unifying the two is deferred.
 
 ---
 
+## Reviewed and found sound
+
+Recorded so a later pass knows these were examined rather than skipped.
+
+**Native plugin loading** (`plugins.rs`, 13 of the 31 `unsafe` blocks). A native
+plugin executes arbitrary machine code in-process, so the gate matters more than
+the FFI. `Plugin::load` calls `authorize_load` first, and `libloading::Library::
+new` appears at exactly one site, so the gate cannot be bypassed by another
+path. Policy: `AETHER_PLUGINS=off` is a kill switch, agent mode is default-deny,
+and `AETHER_PLUGIN_ALLOW` allowlists directories. The allowlist check uses
+`Path::starts_with`, which is component-wise — so `/opt/plugins-evil` does *not*
+match an `/opt/plugins` root, the bug this idiom usually has. Both the plugin
+path and each allow root are canonicalized first, defeating `..` traversal.
+
+One weakness, not fixed: a non-existent allow root falls back to a literal
+string comparison rather than failing. That only weakens a misconfiguration
+(a root that does not exist matches nothing useful either way), so it is noted
+rather than treated as a finding.
+
+**The remaining 18 `unsafe` blocks.** `agent.rs` (5) uses `pre_exec` +
+`setrlimit` to bound CPU, address space and file size on Unix — sandbox
+hardening, and the standard idiom for it. `builtins.rs` (4), `os_tools.rs`,
+`providers/platform.rs` are `libc::geteuid`/`getuid`/`getgid` calls, trivially
+sound. `external_tools.rs` is a `libc::kill` on a pid the same function spawned.
+Only `neural.rs`/`evolution.rs` were unsound (finding 8).
+
+**Published artifact contents.** `cargo package --list` is 273 files with no
+`.wasm`, `.js`, `.pdb`, `.env`, `.pem` or key material, and `.mailmap` — the one
+file carrying a personal address — is excluded. The working tree contains no
+occurrence of the developer's username; the two remaining `C:\Users\` strings
+are a `<you>` placeholder in a comment and a synthetic `ada` test fixture.
+
 ## NIST FIPS
 
 `AETHER_FIPS` gates non-approved hash algorithms. `require_fips_hash` rejects
@@ -180,7 +332,8 @@ verification against a pinned key would be required for that, and
 
 | Technique | Relevance | Control |
 |---|---|---|
-| T1059 Command and Scripting Interpreter | AetherShell *is* an interpreter; 668 `Command::new` sites in `builtins.rs` | Effect classification (`safety::effect_of`), policy gates, approval prompts, hash-chained audit log |
+| T1059 Command and Scripting Interpreter | AetherShell *is* an interpreter; 668 `Command::new` sites in `builtins.rs` | Effect classification (`safety::effect_of`), policy gates, approval prompts, hash-chained audit log. Until finding 7, the gate covered one builtin name; it now covers all ten arbitrary-command builtins. Fixed-program sites remain ungated |
+| T1190 Exploit Public-Facing Application | Agent API HTTP listener evaluating arbitrary code | Bearer token on every route but `/health` (finding 6); loopback default; non-loopback bind warns |
 | T1195 Supply Chain Compromise | Agent packages fetched from a registry | Checksum verified; **no signature verification** (findings 2, 4) — residual risk |
 | T1552 Unsecured Credentials | Secrets in env/output/logs | Redaction of secret shapes and names; env reads gated in agent mode; secrets excluded from the audit log (`tests/secret_hygiene.rs`) |
 | T1027 Obfuscated Files or Information | Homograph/invisible-character path spoofing | `is_deceptive_char` rejects invisible and bidi characters in `validate_safe_path` (CWE-1007) |
@@ -195,8 +348,8 @@ organisations, so this maps practice families to implemented controls only.
 | Family | Implemented | Gap |
 |---|---|---|
 | AU (Audit & Accountability) | Hash-chained audit log, verifiable, secrets redacted before persistence | `audit_stream`, `audit_retention` unimplemented — no retention enforcement |
-| AC (Access Control) | Workspace confinement, egress policy, approval gates, budget limits | `rbac.*` and `perm.acl_*` unimplemented (finding 4) |
-| IA (Identification & Authentication) | Keyring-backed credential storage | `sso.*` unimplemented |
+| AC (Access Control) | Workspace confinement, egress policy, approval gates, budget limits, exec gate over all arbitrary-command builtins (finding 7) | `rbac.*` and `perm.acl_*` unimplemented (finding 4); ~650 fixed-program `Command::new` sites ungated |
+| IA (Identification & Authentication) | Keyring-backed credential storage; bearer token on the Agent API (finding 6) | `sso.*` unimplemented; the API token is a single shared secret with no rotation, revocation or per-client identity |
 | SC (System & Communications Protection) | TLS via rustls by default | `crypto.encrypt`/`sign` unimplemented; now fail closed rather than silently (finding 2) |
 | SI (System & Information Integrity) | `cargo audit`/`cargo deny` in CI; advisories clean | Package integrity lacks signature verification |
 
@@ -204,13 +357,37 @@ organisations, so this maps practice families to implemented controls only.
 
 ## Limitations
 
-- Static and test-based review; no fuzzing, no dynamic analysis, no penetration
-  testing, no formal threat model.
+- Static and test-based review, with targeted dynamic probes for findings 6 and
+  7. No fuzzing, no sustained penetration testing, no formal threat model.
+- **Two passes found two critical/high issues in surfaces the previous pass had
+  not reached.** The first pass concentrated on dependencies, crypto and
+  secrets, and reported clean; the HTTP listener and the exec gate were where
+  the real problems were. Treat the current result as "no further findings in
+  the surfaces examined", not as an assurance that the codebase is clean. In
+  particular, MCP server trust boundaries and deserialization of untrusted
+  input remain unreviewed.
+- The ~650 fixed-program `Command::new` sites were characterized as a class but
+  not individually reviewed for argument-injection potential (finding 7).
 - The 71 unimplemented aliases were enumerated, not individually reviewed for
   what a caller might assume of them.
 - FIPS assessment covers algorithm restriction only. No validated cryptographic
   module is present or claimed.
 - Finding 3's history exposure is unresolved by design; it needs an explicit
-  decision to rewrite history.
+  decision to rewrite history and force-push.
 - Verification ran on Windows with the 1.97 toolchain. The Unix-only `openssl`
-  paths in the crypto builtins were reviewed by reading, not executed.
+  paths in the crypto builtins, the `setrlimit` sandbox in `agent.rs`, and the
+  Linux-only `strace`/`perf` builtins were reviewed by reading, not executed.
+
+## Open decisions for the maintainer
+
+Not audit fixes; each needs an explicit call.
+
+1. **Scrub the leaked WASM from git history** (finding 3) — requires a history
+   rewrite and force-push. Currently the artifact is still fetchable from prior
+   commits.
+2. **Implement or withdraw `rbac.*`, `perm.acl_*`, `sso.*`** (finding 4).
+   Advertising an unimplemented access-control surface is worse than not
+   advertising one.
+3. **Gate or review the fixed-program `Command::new` sites** (finding 7).
+4. **Delete the published `nervosys/aethershell` container images** on Docker
+   Hub and ghcr.io, now that Docker is no longer a distribution channel.

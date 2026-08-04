@@ -326,33 +326,40 @@ fn test_mcp_tool_execution_url_construction() {
 
 #[test]
 fn test_mcp_client_creation_performance() {
-    let start = std::time::Instant::now();
-    for _ in 0..100 {
-        let _ = McpClient::new("http://localhost:8080");
+    // This deliberately asserts no wall-clock bound. It used to require 100
+    // constructions in under 5s, which passed in 2.4s alone and took 11.4s
+    // under the full parallel suite — the threshold was measuring machine load,
+    // not the code, so it failed on exactly the busy CI runs where a real
+    // regression matters least. Any replacement threshold has the same defect.
+    //
+    // What is worth pinning is that construction is repeatable and each client
+    // keeps its own endpoint: `McpClient::new` falls back to a default reqwest
+    // client if the secure one cannot be built, and that fallback must not be
+    // shared or cached across instances.
+    for i in 0..100 {
+        let endpoint = format!("http://localhost:{}", 8080 + i);
+        let client = McpClient::new(&endpoint);
+        assert_eq!(client.endpoint, endpoint);
     }
-    let duration = start.elapsed();
-
-    // Should be reasonably fast (< 5 seconds for 100 clients)
-    // Note: This is a lenient threshold to avoid flakiness on slower machines
-    assert!(
-        duration.as_secs() < 5,
-        "Client creation took {:?}, expected < 5s",
-        duration
-    );
 }
 
 #[test]
 fn test_mcp_cache_access_performance() {
     let client = McpClient::new("http://localhost:8080");
 
-    let start = std::time::Instant::now();
+    // No wall-clock bound here either — a 100ms budget for 1000 lookups is the
+    // most load-sensitive assertion in the suite, and it says nothing about
+    // correctness. See `test_mcp_client_creation_performance` above.
+    //
+    // The property worth holding is that a cache miss stays a miss and does not
+    // reach the network: the endpoint is unreachable, so a lookup that returned
+    // `Some` — or blocked — would mean the cache had been bypassed.
     for _ in 0..1000 {
-        let _ = client.get_tool_description("test");
+        assert!(
+            client.get_tool_description("test").is_none(),
+            "an empty cache must miss rather than fall through to the server"
+        );
     }
-    let duration = start.elapsed();
-
-    // Cache access should be very fast
-    assert!(duration.as_millis() < 100);
 }
 
 // ========== Edge Cases ==========

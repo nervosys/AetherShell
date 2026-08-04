@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- **The Agent API now requires a bearer token.** `POST /api/v1/eval`
+  ("evaluate raw code") was mounted with no authentication on *any* route,
+  while `enable_cors` defaults to true and layered
+  `allow_origin(Any) / allow_methods(Any) / allow_headers(Any)` on top. Any web
+  page visited while the server was running could preflight successfully and
+  POST to the user's loopback interface — drive-by remote code execution.
+
+  Every route except `/health` now requires `Authorization: Bearer <token>`,
+  compared in constant time. The token comes from `--token`, else
+  `AETHER_API_TOKEN`, else one is generated and printed at startup; there is no
+  way to disable authentication. **Breaking** for existing API clients: they
+  must now send the header. See `docs/api/AGENT_API.md`.
+
+- **The exec gate covers the capability, not just the name `sh`.** `bi_sh` was
+  the only builtin that gated on `Effect::Exec`, so in agent mode — with `sh`
+  disabled outright, the intended hardened configuration — `timeout`, `xargs`,
+  `proc.spawn`, `nohup`, `strace`, `ltrace`, `perf.stat`, `perf.record` and
+  `lxc.exec` still ran arbitrary commands with no approval prompt and no
+  exec-classified audit entry. Confirmed by execution, not by reading:
+  `timeout(5, "touch <marker>")` returned 0 and created the file.
+
+  All nine now route through `safety::guard_exec`, and `effect_of` classifies
+  them as `Effect::Exec` so the agent API stops advertising them as
+  side-effect free. Human mode is unchanged. **Breaking** for agent-mode
+  scripts that used these without approval.
+
+- **`static mut` PRNG state replaced with atomics** in `neural` and
+  `evolution`. Reachable from the multi-threaded API server, so concurrent
+  calls were a data race. Sequence and `seed_rng` reproducibility unchanged.
+
 ### Removed
 - **Docker is no longer a distribution channel.** The `Dockerfile` and the
   Docker workflow have been deleted, along with the `docker pull` /

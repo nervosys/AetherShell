@@ -6,6 +6,38 @@ The Agent API provides a structured JSON-based HTTP interface for AI agents to i
 
 ---
 
+## Authentication
+
+Every endpoint except `GET /health` requires a bearer token:
+
+```
+Authorization: Bearer <token>
+```
+
+Start the server one of three ways:
+
+```sh
+aethershell agent-api serve                    # generates a token, prints it at startup
+AETHER_API_TOKEN=<token> aethershell agent-api serve
+aethershell agent-api serve --token <token>    # visible in the process list; prefer the env var
+```
+
+There is deliberately no way to run with authentication disabled.
+`POST /api/v1/eval` evaluates arbitrary AetherShell code, which can spawn
+processes, so an unauthenticated listener is remote code execution for anyone
+who can reach the port. With CORS enabled (the default), that includes any web
+page the user happens to visit while the server is running — the browser will
+send the cross-origin request; it just cannot read the token.
+
+A missing or wrong token returns **401 Unauthorized** with
+`WWW-Authenticate: Bearer`. `/health` stays open so liveness probes work.
+
+Binding a non-loopback address prints a warning: the token is then the only
+thing between an arbitrary-code evaluator and the network. Put it behind TLS —
+a bearer token over plain HTTP is readable by anything on the path.
+
+---
+
 ## Common Response Format
 
 All endpoints return `AgentResponse`:
