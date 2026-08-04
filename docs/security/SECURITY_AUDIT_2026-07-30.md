@@ -2,9 +2,10 @@
 
 Scope: the `master` tree, covering the `aethershell`, `aethershell-lsp` and
 `agentic-eval` crates, the browser extension, and the CI and release workflows.
-The first pass reviewed `2d8b969`; the second pass (2026-08-04, findings 6–8)
+The first pass reviewed `2d8b969`; the second pass (2026-08-04, findings 6–9)
 reviewed `30e3586` and reached the surfaces the first pass did not: the HTTP
-API, the process-execution gate, native plugin loading, and `unsafe`.
+API, the process-execution gate, native plugin loading, `unsafe`, MCP
+discovery, and deserialization of untrusted input.
 
 Method: `cargo audit` (1173 RUSTSEC advisories), `cargo deny check` (advisories,
 bans, licenses, sources), targeted source review of the cryptographic, policy,
@@ -35,7 +36,7 @@ Nothing in this audit indicates a compromise or data exposure to a third party.
 Finding 3 concerns one developer's username, published in a public repository.
 
 The table is ordered by severity; the sections below are numbered in discovery
-order, so the second pass (6–8) is written up first.
+order, so the second pass (6–9) is written up first.
 
 Findings 6 and 7 are the significant ones, and both were reachable in the
 *intended* configuration rather than an unusual one. Note that they compound: an
