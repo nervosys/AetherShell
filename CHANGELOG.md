@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.2] - 2026-08-04
+
+### Security
+- **Double-quoted PowerShell and AppleScript injection (CWE-78).** Completes
+  2.0.1. That release fixed the single-quoted PowerShell sites and asserted the
+  double-quoted ones were safe because they escape `"`. **That assertion was
+  made from reading and was wrong.**
+
+  A double-quoted PowerShell string expands `$`, so `$(command)` executes with
+  no quote character in the payload at all — escaping `"` as `` `" `` stops
+  nothing. Verified: `crypto.base64_encode("$(New-Item …)")` created the file.
+  21 sites were affected — GUI window control, screenshot paths, toast
+  notifications, dialog titles, `Read-Host` prompts, password generation,
+  `crypto.hash`, `crypto.hmac`, and base64 encode/decode.
+
+  All 21 now interpolate through `safety::ps_quote` into a **single**-quoted
+  literal, which removes expansion outright rather than trying to enumerate
+  which metacharacters need escaping.
+
+  The two macOS `osascript` sites (`display notification`, `display dialog`)
+  had the same shape — an unescaped `"` closes an AppleScript literal, after
+  which `" & (do shell script "…") & "` runs. `safety::applescript_quote`
+  escapes backslash first, then the quote; the other order is undone by the
+  payload.
+
+  If you are on 2.0.0 or 2.0.1, upgrade. 2.0.0 additionally lacks the 2.0.1
+  fixes.
+
 ## [2.0.1] - 2026-08-04
 
 ### Security

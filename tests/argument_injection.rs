@@ -15,7 +15,62 @@
 //!    `-TT` does the same. Both were reachable with no policy gate, so they
 //!    bypassed the `Effect::Exec` approval added the same day.
 
-use aethershell::safety::{ps_quote, reject_option_like};
+use aethershell::safety::{applescript_quote, ps_quote, reject_option_like};
+
+/// The reason single-quoting is the fix rather than escaping `"`.
+///
+/// A *double*-quoted PowerShell string expands `$`, so `$(command)` runs even
+/// with no quote character anywhere in the payload. Several sites escaped only
+/// `"` (as `` `" ``) and were therefore still injectable; this was demonstrated
+/// by `base64_encode("$(New-Item …)")` creating the file. Moving those sites to
+/// a single-quoted literal removes expansion entirely.
+#[test]
+fn ps_quote_defeats_subexpression_payloads_that_quote_escaping_missed() {
+    // No apostrophes here, so the only transformation under test is that `$`
+    // passes through untouched — it needs no escaping once the literal is
+    // single-quoted, which is the whole point.
+    let payload = "$(New-Item -ItemType File -Path C:\\tmp\\pwned -Force)";
+    let quoted = ps_quote(payload);
+
+    assert_eq!(quoted, format!("'{payload}'"));
+    assert!(
+        !quoted.starts_with('"'),
+        "a double-quoted literal would re-enable $() expansion"
+    );
+
+    // And when the payload *does* carry apostrophes, they are doubled so it
+    // still cannot break out.
+    let with_quotes = "$(Get-Content 'C:\\secret')";
+    assert_eq!(
+        ps_quote(with_quotes),
+        "'$(Get-Content ''C:\\secret'')'",
+        "apostrophes must be doubled while `$` stays inert"
+    );
+}
+
+/// AppleScript literals escape with a backslash, so the backslash itself must be
+/// escaped first — otherwise escaping the quote is undone by the payload.
+#[test]
+fn applescript_quote_escapes_backslash_before_quote() {
+    assert_eq!(applescript_quote("plain"), "\"plain\"");
+
+    // `\"` would close the literal if the backslash were not doubled first.
+    assert_eq!(applescript_quote(r#"a\"#), r#""a\\""#);
+
+    let attack = r#"" & (do shell script "touch /tmp/pwned") & ""#;
+    let quoted = applescript_quote(attack);
+    assert!(quoted.starts_with('"') && quoted.ends_with('"'));
+    // No bare quote may remain in the interior.
+    let interior = &quoted[1..quoted.len() - 1];
+    let mut chars = interior.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            chars.next();
+        } else {
+            assert_ne!(c, '"', "an unescaped quote closes the AppleScript literal");
+        }
+    }
+}
 
 /// The escaping rule itself. PowerShell closes a single-quoted string on `'`
 /// and escapes one by doubling it; nothing else is special in that context.

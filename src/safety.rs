@@ -1145,6 +1145,20 @@ pub fn ps_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
 }
 
+/// Quote a value for interpolation into an AppleScript string literal
+/// (CWE-78, macOS).
+///
+/// The `osascript` counterpart to [`ps_quote`]. AppleScript string literals are
+/// double-quoted and escape with a backslash, so an unescaped `"` closes the
+/// literal — after which `" & (do shell script "…") & "` runs a command.
+///
+/// Backslash is escaped first, or escaping the quote would itself be undone.
+/// As with `ps_quote`, the surrounding quotes are included so a missed call site
+/// is a syntax error rather than a silently unquoted value.
+pub fn applescript_quote(value: &str) -> String {
+    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
 /// Gate an effecting call. Returns `Ok(())` if the call may proceed (and records
 /// an audit entry), or a [`SafetyError`] with a stable code, an actionable hint,
 /// and — for approvable actions — a bound approval token.

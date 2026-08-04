@@ -24302,11 +24302,12 @@ public class WindowFocus {{
     [DllImport("user32.dll")] public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
 }}
 "@
-$hwnd = [WindowFocus]::FindWindow($null, "{}")
+$hwnd = [WindowFocus]::FindWindow($null, {})
 if ($hwnd -eq [IntPtr]::Zero) {{ $hwnd = [IntPtr]::new({}) }}
 [WindowFocus]::SetForegroundWindow($hwnd)
 "#,
-            title_or_hwnd, title_or_hwnd
+            crate::safety::ps_quote(&title_or_hwnd),
+            crate::safety::ps_quote(&title_or_hwnd)
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
@@ -24350,10 +24351,10 @@ public class WindowMin {{
     [DllImport("user32.dll")] public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
 }}
 "@
-$hwnd = [WindowMin]::FindWindow($null, "{}")
+$hwnd = [WindowMin]::FindWindow($null, {})
 [WindowMin]::ShowWindow($hwnd, 6)
 "#,
-            title
+            crate::safety::ps_quote(&title)
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
@@ -24397,10 +24398,10 @@ public class WindowMax {{
     [DllImport("user32.dll")] public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
 }}
 "@
-$hwnd = [WindowMax]::FindWindow($null, "{}")
+$hwnd = [WindowMax]::FindWindow($null, {})
 [WindowMax]::ShowWindow($hwnd, 3)
 "#,
-            title
+            crate::safety::ps_quote(&title)
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
@@ -24444,10 +24445,10 @@ public class WindowClose {{
     [DllImport("user32.dll")] public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
 }}
 "@
-$hwnd = [WindowClose]::FindWindow($null, "{}")
+$hwnd = [WindowClose]::FindWindow($null, {})
 [WindowClose]::SendMessage($hwnd, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)
 "#,
-            title
+            crate::safety::ps_quote(&title)
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
@@ -24499,10 +24500,12 @@ public class WindowMove {{
     [DllImport("user32.dll")] public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
 }}
 "@
-$hwnd = [WindowMove]::FindWindow($null, "{}")
+$hwnd = [WindowMove]::FindWindow($null, {})
 [WindowMove]::SetWindowPos($hwnd, [IntPtr]::Zero, {}, {}, 0, 0, 0x0001)
 "#,
-            title, x, y
+            crate::safety::ps_quote(&title),
+            x,
+            y
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
@@ -24554,10 +24557,12 @@ public class WindowResize {{
     [DllImport("user32.dll")] public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
 }}
 "@
-$hwnd = [WindowResize]::FindWindow($null, "{}")
+$hwnd = [WindowResize]::FindWindow($null, {})
 [WindowResize]::SetWindowPos($hwnd, [IntPtr]::Zero, 0, 0, {}, {}, 0x0002)
 "#,
-            title, w, h
+            crate::safety::ps_quote(&title),
+            w,
+            h
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
@@ -24606,9 +24611,9 @@ $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
 $bitmap = New-Object System.Drawing.Bitmap($screen.Width, $screen.Height)
 $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
 $graphics.CopyFromScreen($screen.Location, [System.Drawing.Point]::Empty, $screen.Size)
-$bitmap.Save("{}")
+$bitmap.Save({})
 "#,
-            path
+            crate::safety::ps_quote(&path)
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
@@ -25183,12 +25188,13 @@ fn bi_gui_notify(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 $template = [Windows.UI.Notifications.ToastTemplateType]::ToastText02
 $xml = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent($template)
 $text = $xml.GetElementsByTagName("text")
-$text[0].AppendChild($xml.CreateTextNode("{}")) | Out-Null
-$text[1].AppendChild($xml.CreateTextNode("{}")) | Out-Null
+$text[0].AppendChild($xml.CreateTextNode({})) | Out-Null
+$text[1].AppendChild($xml.CreateTextNode({})) | Out-Null
 $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
 [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("AetherShell").Show($toast)
 "#,
-            title, message
+            crate::safety::ps_quote(&title),
+            crate::safety::ps_quote(&message)
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
@@ -25208,8 +25214,9 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
             .args([
                 "-e",
                 &format!(
-                    "display notification \"{}\" with title \"{}\"",
-                    message, title
+                    "display notification {} with title {}",
+                    crate::safety::applescript_quote(&message),
+                    crate::safety::applescript_quote(&title)
                 ),
             ])
             .output()?;
@@ -25256,7 +25263,11 @@ Add-Type -AssemblyName System.Windows.Forms
         let output = std::process::Command::new("osascript")
             .args([
                 "-e",
-                &format!("display dialog \"{}\" with title \"{}\"", message, title),
+                &format!(
+                    "display dialog {} with title {}",
+                    crate::safety::applescript_quote(&message),
+                    crate::safety::applescript_quote(&title)
+                ),
             ])
             .output()?;
         return Ok(Value::Bool(output.status.success()));
@@ -25305,10 +25316,10 @@ fn bi_gui_dialog_file_open(args: Vec<Value>, _input: Option<Value>) -> Result<Va
             r#"
 Add-Type -AssemblyName System.Windows.Forms
 $dialog = New-Object System.Windows.Forms.OpenFileDialog
-$dialog.Title = "{}"
+$dialog.Title = {}
 if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{ $dialog.FileName }}
 "#,
-            title
+            crate::safety::ps_quote(&title)
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
@@ -25349,10 +25360,10 @@ fn bi_gui_dialog_file_save(args: Vec<Value>, _input: Option<Value>) -> Result<Va
             r#"
 Add-Type -AssemblyName System.Windows.Forms
 $dialog = New-Object System.Windows.Forms.SaveFileDialog
-$dialog.Title = "{}"
+$dialog.Title = {}
 if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{ $dialog.FileName }}
 "#,
-            title
+            crate::safety::ps_quote(&title)
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
@@ -25393,10 +25404,10 @@ fn bi_gui_dialog_folder(args: Vec<Value>, _input: Option<Value>) -> Result<Value
             r#"
 Add-Type -AssemblyName System.Windows.Forms
 $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
-$dialog.Description = "{}"
+$dialog.Description = {}
 if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{ $dialog.SelectedPath }}
 "#,
-            title
+            crate::safety::ps_quote(&title)
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
@@ -26442,11 +26453,11 @@ fn bi_input_read_password(args: Vec<Value>, _input: Option<Value>) -> Result<Val
     {
         let ps_script = format!(
             r#"
-$password = Read-Host -Prompt "{}" -AsSecureString
+$password = Read-Host -Prompt {} -AsSecureString
 $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($password)
 [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
 "#,
-            prompt.trim_end_matches(": ").trim_end_matches(":")
+            crate::safety::ps_quote(prompt.trim_end_matches(": ").trim_end_matches(":"))
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
@@ -26710,13 +26721,13 @@ fn bi_crypto_hash(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         };
         let ps_script = format!(
             r#"
-$bytes = [System.Text.Encoding]::UTF8.GetBytes("{}")
-$hash = [System.Security.Cryptography.HashAlgorithm]::Create("{}")
+$bytes = [System.Text.Encoding]::UTF8.GetBytes({})
+$hash = [System.Security.Cryptography.HashAlgorithm]::Create({})
 $hashBytes = $hash.ComputeHash($bytes)
 [System.BitConverter]::ToString($hashBytes).Replace("-", "").ToLower()
 "#,
-            data.replace("\"", "`\""),
-            ps_algo
+            crate::safety::ps_quote(&data),
+            crate::safety::ps_quote(&ps_algo)
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
@@ -26840,16 +26851,16 @@ fn bi_crypto_hmac(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         };
         let ps_script = format!(
             r#"
-$key = [System.Text.Encoding]::UTF8.GetBytes("{}")
-$data = [System.Text.Encoding]::UTF8.GetBytes("{}")
+$key = [System.Text.Encoding]::UTF8.GetBytes({})
+$data = [System.Text.Encoding]::UTF8.GetBytes({})
 $hmac = New-Object System.Security.Cryptography.HMAC{}
 $hmac.Key = $key
 $hash = $hmac.ComputeHash($data)
 [System.BitConverter]::ToString($hash).Replace("-", "").ToLower()
 "#,
-            key.replace("\"", "`\""),
-            data.replace("\"", "`\""),
-            ps_algo
+            crate::safety::ps_quote(&key),
+            crate::safety::ps_quote(&data),
+            crate::safety::ps_quote(&ps_algo)
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
@@ -26988,7 +26999,7 @@ fn bi_crypto_random_string(args: Vec<Value>, _input: Option<Value>) -> Result<Va
     {
         let ps_script = format!(
             r#"
-$charset = "{}"
+$charset = {}
 $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
 $result = ""
 for ($i = 0; $i -lt {}; $i++) {{
@@ -26998,7 +27009,8 @@ for ($i = 0; $i -lt {}; $i++) {{
 }}
 $result
 "#,
-            charset, length
+            crate::safety::ps_quote(&charset),
+            length
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
@@ -27042,9 +27054,9 @@ fn bi_crypto_base64_encode(args: Vec<Value>, input: Option<Value>) -> Result<Val
     {
         let ps_script = format!(
             r#"
-[Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes("{}"))
+[Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes({}))
 "#,
-            data.replace("\"", "`\"")
+            crate::safety::ps_quote(&data)
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
@@ -27088,9 +27100,9 @@ fn bi_crypto_base64_decode(args: Vec<Value>, input: Option<Value>) -> Result<Val
     {
         let ps_script = format!(
             r#"
-[System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("{}"))
+[System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String({}))
 "#,
-            data
+            crate::safety::ps_quote(&data)
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
@@ -27960,9 +27972,9 @@ fn bi_crypto_jwt_decode(args: Vec<Value>, _input: Option<Value>) -> Result<Value
         {
             let ps_script = format!(
                 r#"
-[System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("{}"))
+[System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String({}))
 "#,
-                padded.replace('-', "+").replace('_', "/")
+                crate::safety::ps_quote(&padded.replace('-', "+").replace('_', "/"))
             );
             let output = std::process::Command::new("powershell")
                 .args(["-Command", &ps_script])

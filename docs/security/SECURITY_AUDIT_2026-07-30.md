@@ -25,7 +25,7 @@ CMMC 2.0.
 |---|---------|-------|----------|--------|
 | 6 | Agent API executed code for unauthenticated callers | CWE-306 / CWE-352 | **Critical** | Fixed |
 | 7 | Exec gate covered the name `sh`, not the capability | CWE-184 / CWE-693 | **High** | Fixed |
-| 10 | Argument injection into PowerShell and archivers | CWE-78 / CWE-88 | **High** | Fixed |
+| 10 | Argument injection into PowerShell, AppleScript and archivers | CWE-78 / CWE-88 | **High** | Fixed |
 | 1 | `quinn-proto` remote memory exhaustion | RUSTSEC-2026-0185 | High (7.5) | Fixed |
 | 2 | Unimplemented crypto builtins reported success | CWE-347 / CWE-311 | High | Fixed |
 | 4 | `rbac.*`, `perm.acl_*`, `sso.*` advertised but unimplemented | CWE-1104 | Medium | Documented, not implemented |
@@ -43,7 +43,7 @@ order, so the later passes (6–10) are written up first.
 Findings 6, 7 and 10 are the significant ones, and all were reachable in the
 *intended* configuration rather than an unusual one. They compound: an
 unauthenticated `/api/v1/eval` (6) reaching an exec surface that agent mode did
-not actually gate (7), with two further routes to execution that bypassed even
+not actually gate (7), with further routes to execution that bypassed even
 that gate (10), means the hardening a deployment believed it had from
 `AETHER_MODE=agent` would not have constrained a drive-by request.
 
@@ -139,7 +139,7 @@ fixed program with caller-supplied data arguments (`ping -c 4 $host`,
 Those were assumed to be a materially weaker class, on the reasoning that they
 cannot run an attacker-chosen program. **That assumption was wrong**, and
 finding 10 is the result of testing it rather than resting on it: a fixed
-program can still be *told* to run a command by an argument, and 20 such sites
+program can still be *told* to run a command by an argument, and 43 such sites
 were reachable. The remaining sites in this class pass data to programs with no
 known command-executing flag, which is a weaker claim than "safe" and is why
 this stays on the open list.
@@ -160,13 +160,14 @@ because an LCG named `rand_f64` is a tempting thing to reach for. They are used
 only for network weights and mutation rates; no key, token or salt derives from
 them, which was checked rather than assumed.
 
-## 10. Argument injection into PowerShell and archivers (CWE-78, CWE-88)
+## 10. Argument injection into PowerShell, AppleScript and archivers (CWE-78, CWE-88)
 
 Found in the third pass, while reviewing the fixed-program `Command::new` sites
-that finding 7 explicitly did not cover. Two distinct defects, both verified by
-execution.
+that finding 7 explicitly did not cover. Three defects, each verified by
+execution — and 10c only because the first write-up of 10a made an untested
+claim that the rest of the class was safe.
 
-### 10a. PowerShell command injection (CWE-78, Windows)
+### 10a. Single-quoted PowerShell command injection (CWE-78, Windows)
 
 Windows builtins build commands by interpolating values into single-quoted
 PowerShell literals:
@@ -220,11 +221,37 @@ to reach a file genuinely called that.
 alters nothing but quotes), the exact payload proven to execute, the archiver
 option payloads, and that ordinary paths still pass.
 
-**Residual.** This closes single-quoted PowerShell interpolation and the
-positional-path class. Double-quoted PowerShell interpolation — where `$` and
-backtick also expand — was reviewed and the sites found either use fixed strings
-or already backtick-escape, but that escaping is ad-hoc rather than centralized
-and would benefit from the same treatment.
+### 10c. Double-quoted PowerShell and AppleScript interpolation (CWE-78)
+
+**A correction.** The first write-up of finding 10 claimed the double-quoted
+PowerShell sites "use fixed strings or already backtick-escape". That was
+asserted from reading and was wrong. Tested, it fails:
+
+A *double*-quoted PowerShell string expands `$`, so `$(command)` executes with
+no quote character in the payload at all. The sites that escaped `"` as `` `" ``
+— `crypto.hash`, `crypto.hmac`, `base64_encode`/`decode` — stopped nothing,
+and several more escaped nothing whatsoever: 21 sites across GUI window
+control (`FindWindow`), screenshot paths, toast notifications, dialog titles
+and descriptions, `Read-Host` prompts, and password generation.
+
+Demonstrated: `[Convert]::ToBase64String(…GetBytes("$(New-Item …)"))` created
+the file. After the fix the same input is base64-encoded as literal text.
+
+All 21 now interpolate through `ps_quote`, i.e. into a **single**-quoted
+literal, which removes expansion entirely rather than trying to enumerate the
+metacharacters that need escaping. That is why the fix is single-quoting rather
+than a better double-quote escaper.
+
+The two macOS `osascript` sites (`display notification`, `display dialog`) have
+the same shape: AppleScript literals are double-quoted and escape with a
+backslash, so an unescaped `"` closes the literal and `" & (do shell script
+"…") & "` runs a command. `safety::applescript_quote` escapes backslash *first*,
+then the quote — the other order is undone by the payload.
+
+**Residual.** The escaping helpers are now the only sanctioned path, but nothing
+mechanically prevents a future site from interpolating directly. A lint or a
+newtype that only the helpers can produce would make that structural rather than
+a matter of review discipline.
 
 ## 9. MCP servers are adopted by port convention, unauthenticated (CWE-306)
 
@@ -490,8 +517,8 @@ organisations, so this maps practice families to implemented controls only.
   interpolated, and whether any reach an exec path — was not traced end to end.
 - The fixed-program `Command::new` sites were reviewed for the two injection
   mechanisms known to reach execution — option injection into a program that
-  runs commands, and interpolation into a PowerShell literal (finding 10) — and
-  20 were fixed. They were **not** exhaustively reviewed program by program: the
+  runs commands, and interpolation into a PowerShell or AppleScript literal
+  (finding 10) — and 43 were fixed. They were **not** exhaustively reviewed program by program: the
   remaining sites pass data to programs with no *known* command-executing flag,
   which is weaker than a demonstration that none exists. Finding 10 exists
   because this class was assumed benign in the previous pass, so the assumption
