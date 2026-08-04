@@ -149,7 +149,14 @@ pub fn effect_of(name: &str) -> Effect {
         | "k8s_delete"
         | "platform_db_delete" => Effect::Destructive,
         "proc_kill" | "kill" | "signal" => Effect::Process,
-        "sh" | "exec" | "system" => Effect::Exec,
+        // Every builtin whose argument *is* a command to run. These are the
+        // same capability as `sh` under different names; classifying them as
+        // `Pure` told `agent_api`'s discovery — and any other consumer of this
+        // function — that `timeout("rm -rf /")` was a side-effect-free call.
+        // Keep in step with the `guard_exec` call sites in `builtins.rs`.
+        "sh" | "exec" | "system" | "timeout" | "timeout_cmd" | "xargs" | "xargs_exec"
+        | "proc_spawn" | "nohup_run" | "strace" | "strace_cmd" | "ltrace" | "ltrace_cmd"
+        | "perf_stat" | "perf_record" | "lxc_exec" => Effect::Exec,
         n if n.starts_with("http") || n.starts_with("net_") || n.starts_with("nc_") => {
             Effect::Network
         }
@@ -1053,6 +1060,32 @@ impl<'a> GuardCtx<'a> {
             fs_paths: effect.is_filesystem(),
         }
     }
+}
+
+/// Gate a builtin that runs a caller-supplied program or shell command.
+///
+/// Until 2026-08-04 `sh` was the only builtin that gated on [`Effect::Exec`],
+/// which made the exec control a denylist of exactly one *name* rather than of
+/// the *capability*. `timeout`, `xargs`, `proc.spawn`, `nohup`, `strace`,
+/// `ltrace` and the `perf` builtins all hand a caller-controlled string to a
+/// shell, so in agent mode — with `sh` disabled outright, the intended hardened
+/// configuration — an agent could still run any command it liked, with no
+/// approval prompt and no `exec`-classified audit entry.
+///
+/// Every builtin whose argument *is* a command must route through here, so that
+/// adding another such builtin cannot silently reopen the hole.
+pub fn guard_exec(builtin: &str, command: impl Into<String>) -> Result<(), SafetyError> {
+    let command = command.into();
+    guard(GuardCtx {
+        builtin,
+        effect: Effect::Exec,
+        what: "exec",
+        targets: vec![command.clone()],
+        blast_radius: serde_json::json!({ "command": command }),
+        reversible: false,
+        // A command string is not a path, so it must not be jailed as one.
+        fs_paths: false,
+    })
 }
 
 /// Gate an effecting call. Returns `Ok(())` if the call may proceed (and records

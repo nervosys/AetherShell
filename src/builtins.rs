@@ -18320,6 +18320,11 @@ fn bi_proc_spawn(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
     }
 
+    // Avoiding shell interpolation (below) stops argument injection, but the
+    // program itself is still caller-chosen, so this is the same capability
+    // `sh` grants and takes the same policy gate.
+    crate::safety::guard_exec("proc_spawn", format!("{} {}", cmd, spawn_args.join(" ")))?;
+
     // Security: log the spawn attempt
     eprintln!(
         "[SECURITY] proc.spawn: cmd='{}', args={:?}",
@@ -36786,6 +36791,7 @@ fn bi_lxc_stop(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_lxc_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = require_str(&args, 0, "lxc.exec")?;
     let command = require_str(&args, 1, "lxc.exec")?;
+    crate::safety::guard_exec("lxc_exec", &command)?;
     let mut cmd_args = vec!["exec", name.as_str(), "--"];
     let parts: Vec<&str> = command.split_whitespace().collect();
     cmd_args.extend(parts);
@@ -37807,6 +37813,7 @@ pub fn bi_strace_cmd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(anyhow!("strace_cmd: expected command string")),
     };
+    crate::safety::guard_exec("strace", &command)?;
     #[cfg(target_os = "linux")]
     {
         let out = Command::new("strace")
@@ -38081,6 +38088,7 @@ pub fn bi_nohup_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(anyhow!("nohup_run: expected command string")),
     };
+    crate::safety::guard_exec("nohup_run", &command)?;
     let (shell, flag) = if cfg!(windows) {
         ("cmd", "/C")
     } else {
@@ -41676,6 +41684,7 @@ pub fn bi_perf_stat(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     } else {
         "cycles,instructions,cache-misses".to_string()
     };
+    crate::safety::guard_exec("perf_stat", &command)?;
 
     #[cfg(target_os = "linux")]
     {
@@ -41762,6 +41771,7 @@ pub fn bi_perf_record(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
     } else {
         "perf.data".to_string()
     };
+    crate::safety::guard_exec("perf_record", &command)?;
 
     #[cfg(target_os = "linux")]
     {
@@ -44932,6 +44942,10 @@ fn bi_xargs_exec(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         },
         _ => return Err(anyhow!("xargs input must be an array or string")),
     };
+    // Gate once on the command template rather than per item: the capability
+    // being granted is "run this command", and prompting N times for N items
+    // trains an operator to approve without reading.
+    crate::safety::guard_exec("xargs", &command)?;
     let mut results = Vec::new();
     for item in &items {
         let full_cmd = format!("{} {}", command, item);
@@ -45917,6 +45931,7 @@ fn bi_timeout_cmd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(crate::safety::arg_err("timeout requires a command string")),
     };
+    crate::safety::guard_exec("timeout", &command)?;
     let timeout_str = seconds.to_string();
     let output = if cfg!(target_os = "windows") {
         // Windows: use Start-Process with timeout via powershell
@@ -46184,6 +46199,7 @@ fn bi_ltrace_cmd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(crate::safety::arg_err("ltrace requires a command to trace")),
     };
+    crate::safety::guard_exec("ltrace", &command)?;
     let output = std::process::Command::new("ltrace")
         .args(["-c", &command])
         .output();
