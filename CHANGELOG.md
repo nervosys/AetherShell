@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-08-04
+
+A major version because three changes break existing callers, all of them
+consequences of closing security findings. Read this section before upgrading:
+
+- **HTTP API clients must now send `Authorization: Bearer <token>`** or every
+  request returns 401.
+- **Library consumers constructing `AgentApiConfig` with struct-literal syntax
+  will not compile** — it gained an `auth_token` field.
+- **Agent-mode scripts calling `timeout`, `xargs`, `proc.spawn`, `nohup`,
+  `strace`, `ltrace`, `perf.stat`, `perf.record` or `lxc.exec` now require
+  approval**, the same as `sh` always did.
+
+Human/REPL mode is unchanged.
+
 ### Security
 - **The Agent API now requires a bearer token.** `POST /api/v1/eval`
   ("evaluate raw code") was mounted with no authentication on *any* route,
