@@ -713,20 +713,34 @@ impl NetworkRegistry {
     }
 }
 
-// Simple pseudo-random number generator for reproducibility
-static mut RNG_STATE: u64 = 12345;
+// Simple pseudo-random number generator for reproducibility.
+//
+// Not cryptographic, and deliberately so — it seeds network weights, where
+// reproducibility from `seed_rng` is the point. Never use it for tokens, salts
+// or keys.
+//
+// An `AtomicU64` rather than a `static mut`: builtins are reachable from the
+// multi-threaded agent API server, so two concurrent requests mutating a plain
+// `static mut` would be a data race, which is undefined behaviour regardless of
+// how benign the values are. `Relaxed` is sufficient because the state is not
+// ordering anything else, and single-threaded callers see the identical
+// sequence they did before.
+static RNG_STATE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(12345);
 
 fn rand_f64() -> f64 {
-    unsafe {
-        RNG_STATE = RNG_STATE.wrapping_mul(6364136223846793005).wrapping_add(1);
-        (RNG_STATE >> 33) as f64 / (1u64 << 31) as f64
-    }
+    use std::sync::atomic::Ordering;
+    let next = RNG_STATE
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |s| {
+            Some(s.wrapping_mul(6364136223846793005).wrapping_add(1))
+        })
+        // The closure always returns `Some`, so this cannot fail.
+        .map(|prev| prev.wrapping_mul(6364136223846793005).wrapping_add(1))
+        .unwrap_or(0);
+    (next >> 33) as f64 / (1u64 << 31) as f64
 }
 
 pub fn seed_rng(seed: u64) {
-    unsafe {
-        RNG_STATE = seed;
-    }
+    RNG_STATE.store(seed, std::sync::atomic::Ordering::Relaxed);
 }
 
 #[cfg(test)]

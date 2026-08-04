@@ -916,13 +916,19 @@ impl Evolvable for ConsensusNetwork {
     }
 }
 
-// Simple pseudo-random number generator
+// Simple pseudo-random number generator. Not cryptographic — it drives mutation
+// and selection, never anything security-bearing. See `neural::rand_f64` for why
+// this is an atomic rather than a `static mut`.
 fn rand_f64() -> f64 {
-    static mut STATE: u64 = 54321;
-    unsafe {
-        STATE = STATE.wrapping_mul(6364136223846793005).wrapping_add(1);
-        (STATE >> 33) as f64 / (1u64 << 31) as f64
-    }
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static STATE: AtomicU64 = AtomicU64::new(54321);
+    let next = STATE
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |s| {
+            Some(s.wrapping_mul(6364136223846793005).wrapping_add(1))
+        })
+        .map(|prev| prev.wrapping_mul(6364136223846793005).wrapping_add(1))
+        .unwrap_or(0);
+    (next >> 33) as f64 / (1u64 << 31) as f64
 }
 
 #[cfg(test)]
