@@ -227,6 +227,11 @@ enum AgentApiCommands {
         /// Enable CORS for browser/API access
         #[arg(long)]
         cors: bool,
+        /// Bearer token required by every endpoint except /health. Omit to have
+        /// one generated and printed at startup. Prefer AETHER_API_TOKEN over
+        /// this flag, so the token stays out of the process list.
+        #[arg(long)]
+        token: Option<String>,
     },
     /// Execute a JSON request (read from stdin or argument)
     #[command(alias = "exec")]
@@ -572,13 +577,27 @@ fn handle_agent_api_command(command: AgentApiCommands) -> Result<()> {
     use std::io::{BufRead, Write};
 
     match command {
-        AgentApiCommands::Serve { host, port, cors } => {
+        AgentApiCommands::Serve {
+            host,
+            port,
+            cors,
+            token,
+        } => {
             #[cfg(feature = "native")]
             {
+                // The flag wins, but AETHER_API_TOKEN is the documented path:
+                // an argv token is visible to every other process on the box.
+                let auth_token = token.or_else(|| {
+                    std::env::var("AETHER_API_TOKEN")
+                        .ok()
+                        .filter(|t| !t.trim().is_empty())
+                });
+
                 let config = agent_api::server::AgentApiConfig {
                     host,
                     port,
                     enable_cors: cors,
+                    auth_token,
                 };
 
                 tokio::runtime::Runtime::new()?

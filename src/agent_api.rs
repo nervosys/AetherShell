@@ -3550,6 +3550,16 @@ pub mod server {
         pub host: String,
         pub port: u16,
         pub enable_cors: bool,
+        /// Bearer token required on every route except `/health`.
+        ///
+        /// `None` means "generate one at startup and print it", which is the
+        /// safe default. It is deliberately not possible to configure the server
+        /// with no authentication at all: `/api/v1/eval` evaluates arbitrary
+        /// AetherShell code, so an unauthenticated listener is remote code
+        /// execution for anyone who can reach the port — including, when CORS is
+        /// enabled, any web page the user happens to visit while the server is
+        /// running.
+        pub auth_token: Option<String>,
     }
 
     impl Default for AgentApiConfig {
@@ -3558,8 +3568,30 @@ pub mod server {
                 host: "127.0.0.1".to_string(),
                 port: 3002,
                 enable_cors: true,
+                auth_token: None,
             }
         }
+    }
+
+    /// Mint a bearer token, matching `auth::generate_token`'s construction.
+    fn generate_api_token() -> String {
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+        let bytes: [u8; 32] = rand::random();
+        URL_SAFE_NO_PAD.encode(bytes)
+    }
+
+    /// Constant-time comparison, so a token cannot be recovered a byte at a time
+    /// by timing the response.
+    fn tokens_match(presented: &str, expected: &str) -> bool {
+        let (a, b) = (presented.as_bytes(), expected.as_bytes());
+        if a.len() != b.len() {
+            return false;
+        }
+        let mut diff = 0u8;
+        for (x, y) in a.iter().zip(b.iter()) {
+            diff |= x ^ y;
+        }
+        diff == 0
     }
 
     /// Start the Agent API HTTP server
@@ -3688,7 +3720,53 @@ pub mod server {
             // Health check
             .route("/health", get(handle_health));
 
+        // Authentication. Applied before CORS below so that it wraps every
+        // route; `/health` is exempted inside the middleware so liveness probes
+        // keep working without a credential.
+        let token = Arc::new(match config.auth_token.clone() {
+            Some(t) if !t.trim().is_empty() => t,
+            _ => generate_api_token(),
+        });
+        let auth_token = Arc::clone(&token);
+        app = app.layer(axum::middleware::from_fn(
+            move |req: axum::extract::Request, next: axum::middleware::Next| {
+                let expected = Arc::clone(&auth_token);
+                async move {
+                    if req.uri().path() == "/health" {
+                        return next.run(req).await;
+                    }
+                    let presented = req
+                        .headers()
+                        .get(header::AUTHORIZATION)
+                        .and_then(|v| v.to_str().ok())
+                        .and_then(|v| v.strip_prefix("Bearer "))
+                        .map(str::trim)
+                        .unwrap_or("");
+
+                    if tokens_match(presented, &expected) {
+                        next.run(req).await
+                    } else {
+                        (
+                            StatusCode::UNAUTHORIZED,
+                            [(header::WWW_AUTHENTICATE, "Bearer")],
+                            Json(serde_json::json!({
+                                "error": "unauthorized",
+                                "detail": "Send `Authorization: Bearer <token>`. \
+                                           The token is printed when the server starts.",
+                            })),
+                        )
+                            .into_response()
+                    }
+                }
+            },
+        ));
+
         if config.enable_cors {
+            // `allow_origin(Any)` tells every browser that any web page may talk
+            // to this server. That is only tolerable because the bearer token
+            // above is required and a cross-origin page cannot read it: without
+            // authentication this combination let any site the user visited POST
+            // to /api/v1/eval on their loopback interface and execute code.
             app = app.layer(
                 CorsLayer::new()
                     .allow_origin(Any)
@@ -3708,7 +3786,22 @@ pub mod server {
             )
         })?;
 
+        if !addr.ip().is_loopback() {
+            println!(
+                "⚠  Binding {} — this API evaluates arbitrary code, so it is now\n\
+                 ⚠  reachable by anything that can route to this host. The bearer\n\
+                 ⚠  token below is the only thing standing in front of it.",
+                addr.ip()
+            );
+        }
+
         println!("🤖 AetherShell Agent API starting on http://{}", addr);
+        if config.auth_token.is_none() {
+            println!("   Auth token (generated): {}", token);
+        } else {
+            println!("   Auth token: (from configuration)");
+        }
+        println!("   Send it as: Authorization: Bearer <token>");
         println!("   Supports: OpenAI, Claude, Gemini, Llama, Mistral, Cohere, Grok, DeepSeek,");
         println!("             Bedrock, Azure, Qwen, Ollama, vLLM, HuggingFace, OpenRouter,");
         println!("             Kimi, Yi, GLM, Reka, AI21, Perplexity, Together, Groq, Fireworks");
