@@ -103,6 +103,12 @@ fn proc_spawn_cannot_launch_a_program_unapproved_in_agent_mode() {
 }
 
 /// Human mode is a REPL and must stay default-allow: the gate is about agents.
+///
+/// This asserts the call is not *refused by the gate*, not that it succeeds.
+/// `timeout_cmd` shells out to GNU `timeout`, which macOS does not ship (it has
+/// `gtimeout` via coreutils), so "the command ran" is a statement about the
+/// runner's PATH rather than about the policy — and asserting it fails CI on
+/// macOS for a reason that has nothing to do with what this test is for.
 #[test]
 fn human_mode_is_unaffected() {
     let _l = lock();
@@ -121,7 +127,16 @@ fn human_mode_is_unaffected() {
         ],
         &mut env,
     );
-    assert!(res.is_ok(), "human mode should not be gated: {res:?}");
+
+    if let Err(e) = &res {
+        let rendered = e.to_string();
+        for refusal in ["E_NEEDS_APPROVAL", "E_POLICY_DENY", "E_OUTSIDE_WORKSPACE"] {
+            assert!(
+                !rendered.contains(refusal),
+                "human mode must not be gated, but got {refusal}: {rendered}"
+            );
+        }
+    }
 
     let _ = std::fs::remove_dir_all(&dir);
 }
