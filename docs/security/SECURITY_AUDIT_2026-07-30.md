@@ -26,6 +26,7 @@ CMMC 2.0.
 | 1 | `quinn-proto` remote memory exhaustion | RUSTSEC-2026-0185 | High (7.5) | Fixed |
 | 2 | Unimplemented crypto builtins reported success | CWE-347 / CWE-311 | High | Fixed |
 | 4 | `rbac.*`, `perm.acl_*`, `sso.*` advertised but unimplemented | CWE-1104 | Medium | Documented, not implemented |
+| 9 | MCP servers adopted by port convention, unauthenticated | CWE-306 | Medium | Documented, not fixed |
 | 8 | `static mut` PRNG state mutated without synchronization | CWE-362 | Low | Fixed |
 | 3 | Committed WASM leaked a developer's username | CWE-532 | Low | Fixed (tree only) |
 | 5 | Builtin registry split hides names from agent discovery | Correctness | Low | Documented |
@@ -148,6 +149,33 @@ reproducibility is preserved. Both are now documented as non-cryptographic,
 because an LCG named `rand_f64` is a tempting thing to reach for. They are used
 only for network weights and mutation rates; no key, token or salt derives from
 them, which was checked rather than assumed.
+
+## 9. MCP servers are adopted by port convention, unauthenticated (CWE-306)
+
+`detect_mcp_servers_uncached` probes seven hardcoded `http://localhost` ports
+(3001–3005, 8080, 8081) and adopts as a tool provider anything that answers
+`GET /mcp/v1/tools` with a parseable list of tool schemas.
+
+That contract is narrow enough that an unrelated listener will not match by
+accident, which bounds the severity. But there is no allowlist, no
+authentication of the server, no TLS, and no operator confirmation: any local
+process that implements one path becomes a tool source for the agent. On a
+shared or multi-user host, or after any other local compromise, that is a
+tool-poisoning foothold.
+
+Discovered tool *descriptions* do not currently flow into a model prompt — this
+was checked, and it is the difference between "a trust-boundary weakness" and a
+prompt-injection vulnerability. If that changes, this becomes considerably more
+serious, so it is recorded now.
+
+Noted rather than fixed: an allowlist or explicit configuration is a product
+decision about how MCP discovery should work, not an audit change.
+
+One incidental interaction worth recording: `3002` is in the probe list *and* is
+the Agent API's default port, so AetherShell would probe itself. Since finding 6
+the API answers `401` to an unauthenticated `GET /mcp/v1/tools`, so it is no
+longer adopted — the auth fix closed a self-detection collision as a side
+effect.
 
 ## 1. CVE / advisory posture — RUSTSEC-2026-0185
 
@@ -300,6 +328,20 @@ hardening, and the standard idiom for it. `builtins.rs` (4), `os_tools.rs`,
 sound. `external_tools.rs` is a `libc::kill` on a pid the same function spawned.
 Only `neural.rs`/`evolution.rs` were unsound (finding 8).
 
+**Deserialization of untrusted input.** The Agent API's 50 `Json` extractors
+rely on axum's default body limit — `DEFAULT_LIMIT = 2_097_152` in axum-core
+0.4.5, applied whenever no `DefaultBodyLimit` is set, and nothing in the tree
+sets one — so an oversized body is rejected before allocation.
+`serde_json`'s default 128-level recursion limit bounds deeply nested input, so
+a nesting bomb cannot overflow the stack. No `unsafe` deserialization, no
+`bincode`/`rmp` over untrusted bytes, and no `serde` type that executes on
+deserialize.
+
+The gap is that the server sets **no request timeout**: a slow client, or an
+`/api/v1/eval` body that runs indefinitely, occupies a worker. Since finding 6
+that requires a valid token, which reduces it to an authenticated-caller
+denial of service — worth a `TimeoutLayer`, not treated as a finding.
+
 **Published artifact contents.** `cargo package --list` is 273 files with no
 `.wasm`, `.js`, `.pdb`, `.env`, `.pem` or key material, and `.mailmap` — the one
 file carrying a personal address — is excluded. The working tree contains no
@@ -363,9 +405,10 @@ organisations, so this maps practice families to implemented controls only.
   not reached.** The first pass concentrated on dependencies, crypto and
   secrets, and reported clean; the HTTP listener and the exec gate were where
   the real problems were. Treat the current result as "no further findings in
-  the surfaces examined", not as an assurance that the codebase is clean. In
-  particular, MCP server trust boundaries and deserialization of untrusted
-  input remain unreviewed.
+  the surfaces examined", not as an assurance that the codebase is clean.
+- MCP trust boundaries were reviewed at the *discovery* layer (finding 9). The
+  handling of tool *results* returned by an MCP server — where they are
+  interpolated, and whether any reach an exec path — was not traced end to end.
 - The ~650 fixed-program `Command::new` sites were characterized as a class but
   not individually reviewed for argument-injection potential (finding 7).
 - The 71 unimplemented aliases were enumerated, not individually reviewed for
@@ -389,5 +432,9 @@ Not audit fixes; each needs an explicit call.
    Advertising an unimplemented access-control surface is worse than not
    advertising one.
 3. **Gate or review the fixed-program `Command::new` sites** (finding 7).
-4. **Delete the published `nervosys/aethershell` container images** on Docker
+4. **Decide how MCP servers should be trusted** (finding 9) — an allowlist or
+   explicit configuration, rather than adoption by port convention.
+5. **Delete the published `nervosys/aethershell` container images** on Docker
    Hub and ghcr.io, now that Docker is no longer a distribution channel.
+6. **Add a `TimeoutLayer` to the Agent API** — currently an authenticated
+   caller can hold a worker indefinitely.
