@@ -18589,8 +18589,9 @@ fn bi_proc_set_priority(args: Vec<Value>, _input: Option<Value>) -> Result<Value
             _ => "Idle",
         };
         let cmd = format!(
-            "(Get-Process -Id {}).PriorityClass = '{}'",
-            pid, priority_class
+            "(Get-Process -Id {}).PriorityClass = {}",
+            pid,
+            crate::safety::ps_quote(&priority_class)
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &cmd])
@@ -21709,8 +21710,8 @@ fn bi_svc_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args([
                 "-Command",
                 &format!(
-                    "Get-Service '{}' | Select-Object Name,Status | ConvertTo-Json",
-                    name
+                    "Get-Service {} | Select-Object Name,Status | ConvertTo-Json",
+                    crate::safety::ps_quote(&name)
                 ),
             ])
             .output()?;
@@ -21771,7 +21772,10 @@ fn bi_svc_start(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
-            .args(["-Command", &format!("Start-Service '{}'", name)])
+            .args([
+                "-Command",
+                &format!("Start-Service {}", crate::safety::ps_quote(&name)),
+            ])
             .output()?;
         return Ok(Value::Bool(output.status.success()));
     }
@@ -21805,7 +21809,10 @@ fn bi_svc_stop(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
-            .args(["-Command", &format!("Stop-Service '{}'", name)])
+            .args([
+                "-Command",
+                &format!("Stop-Service {}", crate::safety::ps_quote(&name)),
+            ])
             .output()?;
         return Ok(Value::Bool(output.status.success()));
     }
@@ -21839,7 +21846,10 @@ fn bi_svc_restart(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
-            .args(["-Command", &format!("Restart-Service '{}'", name)])
+            .args([
+                "-Command",
+                &format!("Restart-Service {}", crate::safety::ps_quote(&name)),
+            ])
             .output()?;
         return Ok(Value::Bool(output.status.success()));
     }
@@ -21878,7 +21888,10 @@ fn bi_svc_enable(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let output = std::process::Command::new("powershell")
             .args([
                 "-Command",
-                &format!("Set-Service '{}' -StartupType Automatic", name),
+                &format!(
+                    "Set-Service {} -StartupType Automatic",
+                    crate::safety::ps_quote(&name)
+                ),
             ])
             .output()?;
         return Ok(Value::Bool(output.status.success()));
@@ -21915,7 +21928,10 @@ fn bi_svc_disable(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let output = std::process::Command::new("powershell")
             .args([
                 "-Command",
-                &format!("Set-Service '{}' -StartupType Disabled", name),
+                &format!(
+                    "Set-Service {} -StartupType Disabled",
+                    crate::safety::ps_quote(&name)
+                ),
             ])
             .output()?;
         return Ok(Value::Bool(output.status.success()));
@@ -21960,8 +21976,8 @@ fn bi_svc_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args([
                 "-Command",
                 &format!(
-                    "Get-EventLog -LogName Application -Source '{}' -Newest {} | Select-Object TimeGenerated,EntryType,Message | ConvertTo-Json",
-                    name, lines
+                    "Get-EventLog -LogName Application -Source {} -Newest {} | Select-Object TimeGenerated,EntryType,Message | ConvertTo-Json",
+                    crate::safety::ps_quote(&name), lines
                 ),
             ])
             .output()?;
@@ -22365,13 +22381,13 @@ fn bi_zip_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
         let cmd = format!(
-            "Compress-Archive -Path {} -DestinationPath '{}'",
+            "Compress-Archive -Path {} -DestinationPath {}",
             files
                 .iter()
-                .map(|f| format!("'{}'", f))
+                .map(|f| crate::safety::ps_quote(f))
                 .collect::<Vec<_>>()
                 .join(","),
-            archive
+            crate::safety::ps_quote(&archive)
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &cmd])
@@ -22404,8 +22420,9 @@ fn bi_zip_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
         let cmd = format!(
-            "Expand-Archive -Path '{}' -DestinationPath '{}'",
-            archive, dest
+            "Expand-Archive -Path {} -DestinationPath {}",
+            crate::safety::ps_quote(&archive),
+            crate::safety::ps_quote(&dest)
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &cmd])
@@ -22430,7 +22447,7 @@ fn bi_zip_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
-            .args(["-Command", &format!("Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::OpenRead('{}').Entries | Select-Object FullName,Length | ConvertTo-Json", archive)])
+            .args(["-Command", &format!("Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::OpenRead({}).Entries | Select-Object FullName,Length | ConvertTo-Json", crate::safety::ps_quote(&archive))])
             .output()?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
@@ -22522,13 +22539,13 @@ fn bi_zip_add(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
         let cmd = format!(
-            "Compress-Archive -Path {} -Update -DestinationPath '{}'",
+            "Compress-Archive -Path {} -Update -DestinationPath {}",
             files
                 .iter()
-                .map(|f| format!("'{}'", f))
+                .map(|f| crate::safety::ps_quote(f))
                 .collect::<Vec<_>>()
                 .join(","),
-            archive
+            crate::safety::ps_quote(&archive)
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &cmd])
@@ -22551,8 +22568,13 @@ fn bi_tar_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         })
         .collect();
 
+    crate::safety::reject_option_like("tar_create", &files)?;
+
     let output = std::process::Command::new("tar")
         .args(["-cvf", &archive])
+        // `--` stops tar parsing the file list as options; the check above is
+        // the belt to this braces, since not every tar honours it identically.
+        .arg("--")
         .args(&files)
         .output()?;
     Ok(Value::Bool(output.status.success()))
@@ -22815,8 +22837,8 @@ fn bi_group_members(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args([
                 "-Command",
                 &format!(
-                    "Get-LocalGroupMember '{}' | Select-Object Name | ConvertTo-Json",
-                    group
+                    "Get-LocalGroupMember {} | Select-Object Name | ConvertTo-Json",
+                    crate::safety::ps_quote(&group)
                 ),
             ])
             .output()?;
@@ -26305,7 +26327,7 @@ fn bi_clipboard_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         let output = std::process::Command::new("powershell")
             .args([
                 "-Command",
-                &format!("Set-Clipboard -Value '{}'", text.replace("'", "''")),
+                &format!("Set-Clipboard -Value {}", crate::safety::ps_quote(&text)),
             ])
             .output()?;
         Ok(Value::Bool(output.status.success()))
@@ -26755,8 +26777,9 @@ fn bi_crypto_hash_file(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
             .args([
                 "-Command",
                 &format!(
-                    "(Get-FileHash -Path '{}' -Algorithm {}).Hash.ToLower()",
-                    path, ps_algo
+                    "(Get-FileHash -Path {} -Algorithm {}).Hash.ToLower()",
+                    crate::safety::ps_quote(&path),
+                    ps_algo
                 ),
             ])
             .output()?;
@@ -33771,8 +33794,8 @@ fn bi_platform_disk_usage(args: Vec<Value>, _input: Option<Value>) -> Result<Val
         };
         // Use PowerShell Get-CimInstance instead of WMIC
         let ps_cmd = format!(
-            "$disk = Get-CimInstance Win32_LogicalDisk | Where-Object {{ $_.DeviceID -eq '{}' }};              if ($disk) {{                $disk | Select-Object @{{N='Size';E={{$_.Size}}}}, @{{N='FreeSpace';E={{$_.FreeSpace}}}} |                ForEach-Object {{ 'Size=' + $_.Size; 'FreeSpace=' + $_.FreeSpace }}              }}",
-            drive
+            "$disk = Get-CimInstance Win32_LogicalDisk | Where-Object {{ $_.DeviceID -eq {} }};              if ($disk) {{                $disk | Select-Object @{{N='Size';E={{$_.Size}}}}, @{{N='FreeSpace';E={{$_.FreeSpace}}}} |                ForEach-Object {{ 'Size=' + $_.Size; 'FreeSpace=' + $_.FreeSpace }}              }}",
+            crate::safety::ps_quote(&drive)
         );
         if let Ok(out) = std::process::Command::new("powershell")
             .args(["-NoProfile", "-Command", &ps_cmd])
@@ -36058,7 +36081,7 @@ fn bi_vm_start(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = require_str(&args, 0, "vm.start")?;
     match detect_hypervisor() {
         "hyperv" => {
-            let script = format!("Start-VM -Name '{}'", name);
+            let script = format!("Start-VM -Name {}", crate::safety::ps_quote(&name));
             vm_run_powershell(&script)?;
             Ok(Value::Str(format!("VM '{}' started (Hyper-V)", name)))
         }
@@ -36081,7 +36104,7 @@ fn bi_vm_stop(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = require_str(&args, 0, "vm.stop")?;
     match detect_hypervisor() {
         "hyperv" => {
-            let script = format!("Stop-VM -Name '{}' -Force", name);
+            let script = format!("Stop-VM -Name {} -Force", crate::safety::ps_quote(&name));
             vm_run_powershell(&script)?;
             Ok(Value::Str(format!("VM '{}' stopped (Hyper-V)", name)))
         }
@@ -36104,7 +36127,7 @@ fn bi_vm_restart(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = require_str(&args, 0, "vm.restart")?;
     match detect_hypervisor() {
         "hyperv" => {
-            let script = format!("Restart-VM -Name '{}' -Force", name);
+            let script = format!("Restart-VM -Name {} -Force", crate::safety::ps_quote(&name));
             vm_run_powershell(&script)?;
             Ok(Value::Str(format!("VM '{}' restarted (Hyper-V)", name)))
         }
@@ -36127,7 +36150,10 @@ fn bi_vm_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = require_str(&args, 0, "vm.status")?;
     match detect_hypervisor() {
         "hyperv" => {
-            let script = format!("(Get-VM -Name '{}').State.ToString()", name);
+            let script = format!(
+                "(Get-VM -Name {}).State.ToString()",
+                crate::safety::ps_quote(&name)
+            );
             let text = vm_run_powershell(&script)?;
             Ok(Value::Str(text.trim().to_string()))
         }
@@ -36156,7 +36182,7 @@ fn bi_vm_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = require_str(&args, 0, "vm.info")?;
     match detect_hypervisor() {
         "hyperv" => {
-            let script = format!("Get-VM -Name '{}' | Select-Object Name,State,CPUUsage,MemoryAssigned,MemoryDemand,Uptime,Status,Version | ConvertTo-Json", name);
+            let script = format!("Get-VM -Name {} | Select-Object Name,State,CPUUsage,MemoryAssigned,MemoryDemand,Uptime,Status,Version | ConvertTo-Json", crate::safety::ps_quote(&name));
             vm_run_powershell_json(&script)
         }
         "virsh" => {
@@ -36236,8 +36262,8 @@ fn bi_vm_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     match detect_hypervisor() {
         "hyperv" => {
             let script = format!(
-                "New-VM -Name '{}' -MemoryStartupBytes {} -NewVHDSizeBytes {} -Generation 2 | ConvertTo-Json",
-                name, memory, disk
+                "New-VM -Name {} -MemoryStartupBytes {} -NewVHDSizeBytes {} -Generation 2 | ConvertTo-Json",
+                crate::safety::ps_quote(&name), memory, disk
             );
             vm_run_powershell_json(&script)
         }
@@ -36296,7 +36322,7 @@ fn bi_vm_delete(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = require_str(&args, 0, "vm.delete")?;
     match detect_hypervisor() {
         "hyperv" => {
-            let script = format!("Remove-VM -Name '{}' -Force", name);
+            let script = format!("Remove-VM -Name {} -Force", crate::safety::ps_quote(&name));
             vm_run_powershell(&script)?;
             Ok(Value::Str(format!("VM '{}' deleted (Hyper-V)", name)))
         }
@@ -36360,7 +36386,7 @@ fn bi_vm_snapshot_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     let vm_name = require_str(&args, 0, "vm.snapshot_list")?;
     match detect_hypervisor() {
         "hyperv" => {
-            let script = format!("Get-VMSnapshot -VMName '{}' | Select-Object Name,CreationTime,SnapshotType | ConvertTo-Json", vm_name);
+            let script = format!("Get-VMSnapshot -VMName {} | Select-Object Name,CreationTime,SnapshotType | ConvertTo-Json", crate::safety::ps_quote(&vm_name));
             vm_run_powershell_json(&script)
         }
         "virsh" => {
@@ -36426,8 +36452,11 @@ fn bi_vm_clone(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     match detect_hypervisor() {
         "hyperv" => {
             let script = format!(
-                "$vm = Get-VM -Name '{}'; Export-VM -Name '{}' -Path $env:TEMP; Import-VM -Path (Join-Path $env:TEMP '{}' 'Virtual Machines' '*.vmcx') -Copy -GenerateNewId | Rename-VM -NewName '{}' | ConvertTo-Json",
-                source, source, source, new_name
+                "$vm = Get-VM -Name {}; Export-VM -Name {} -Path $env:TEMP; Import-VM -Path (Join-Path $env:TEMP {} 'Virtual Machines' '*.vmcx') -Copy -GenerateNewId | Rename-VM -NewName {} | ConvertTo-Json",
+                crate::safety::ps_quote(&source),
+                crate::safety::ps_quote(&source),
+                crate::safety::ps_quote(&source),
+                crate::safety::ps_quote(&new_name)
             );
             vm_run_powershell_json(&script)
         }
@@ -36471,7 +36500,7 @@ fn bi_hyperv_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // ---------------------------------------------------------------------------
 fn bi_hyperv_start(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = require_str(&args, 0, "hyperv.start")?;
-    let script = format!("Start-VM -Name '{}'", name);
+    let script = format!("Start-VM -Name {}", crate::safety::ps_quote(&name));
     vm_run_powershell(&script)?;
     Ok(Value::Str(format!("Hyper-V VM '{}' started", name)))
 }
@@ -36481,7 +36510,7 @@ fn bi_hyperv_start(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // ---------------------------------------------------------------------------
 fn bi_hyperv_stop(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = require_str(&args, 0, "hyperv.stop")?;
-    let script = format!("Stop-VM -Name '{}' -Force", name);
+    let script = format!("Stop-VM -Name {} -Force", crate::safety::ps_quote(&name));
     vm_run_powershell(&script)?;
     Ok(Value::Str(format!("Hyper-V VM '{}' stopped", name)))
 }
@@ -36492,8 +36521,8 @@ fn bi_hyperv_stop(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_hyperv_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = require_str(&args, 0, "hyperv.status")?;
     let script = format!(
-        "Get-VM -Name '{}' | Select-Object Name,State,CPUUsage,MemoryAssigned,MemoryDemand,Uptime,Status,Version,Generation,ProcessorCount | ConvertTo-Json",
-        name
+        "Get-VM -Name {} | Select-Object Name,State,CPUUsage,MemoryAssigned,MemoryDemand,Uptime,Status,Version,Generation,ProcessorCount | ConvertTo-Json",
+        crate::safety::ps_quote(&name)
     );
     vm_run_powershell_json(&script)
 }
@@ -38599,7 +38628,10 @@ pub fn bi_sysctl_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args([
                 "-NoProfile",
                 "-Command",
-                &format!("Get-ItemProperty '{}' | ConvertTo-Json", key),
+                &format!(
+                    "Get-ItemProperty {} | ConvertTo-Json",
+                    crate::safety::ps_quote(&key)
+                ),
             ])
             .output()
             .map_err(|e| anyhow!("sysctl_get: {}", e))?;
@@ -39626,8 +39658,8 @@ pub fn bi_firewall_allow(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
         let out = sec_run_cmd("powershell", &[
             "-NoProfile", "-Command",
             &format!(
-                "New-NetFirewallRule -DisplayName '{}' -Direction Inbound -LocalPort {} -Protocol TCP -Action Allow | Select-Object Name,DisplayName | ConvertTo-Json",
-                name, port_only
+                "New-NetFirewallRule -DisplayName {} -Direction Inbound -LocalPort {} -Protocol TCP -Action Allow | Select-Object Name,DisplayName | ConvertTo-Json",
+                crate::safety::ps_quote(&name), port_only
             ),
         ])?;
         Ok(rec(vec![
@@ -39698,8 +39730,8 @@ pub fn bi_firewall_deny(args: Vec<Value>, _input: Option<Value>) -> Result<Value
         let out = sec_run_cmd("powershell", &[
             "-NoProfile", "-Command",
             &format!(
-                "New-NetFirewallRule -DisplayName '{}' -Direction Inbound -LocalPort {} -Protocol TCP -Action Block | Select-Object Name,DisplayName | ConvertTo-Json",
-                name, port_only
+                "New-NetFirewallRule -DisplayName {} -Direction Inbound -LocalPort {} -Protocol TCP -Action Block | Select-Object Name,DisplayName | ConvertTo-Json",
+                crate::safety::ps_quote(&name), port_only
             ),
         ])?;
         Ok(rec(vec![
@@ -39764,13 +39796,17 @@ pub fn bi_firewall_delete(args: Vec<Value>, _input: Option<Value>) -> Result<Val
 
     #[cfg(target_os = "windows")]
     {
-        let out = sec_run_cmd("powershell", &[
-            "-NoProfile", "-Command",
-            &format!(
-                "Remove-NetFirewallRule -DisplayName '{}' -ErrorAction Stop; Write-Output 'deleted'",
-                rule_id
+        let out = sec_run_cmd(
+            "powershell",
+            &[
+                "-NoProfile",
+                "-Command",
+                &format!(
+                "Remove-NetFirewallRule -DisplayName {} -ErrorAction Stop; Write-Output 'deleted'",
+                crate::safety::ps_quote(&rule_id)
             ),
-        ])?;
+            ],
+        )?;
         Ok(rec(vec![
             ("action", s("delete")),
             ("rule", s(&rule_id)),

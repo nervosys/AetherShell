@@ -1088,6 +1088,63 @@ pub fn guard_exec(builtin: &str, command: impl Into<String>) -> Result<(), Safet
     })
 }
 
+/// Reject caller-supplied *positional* arguments that a tool would parse as
+/// options (CWE-88).
+///
+/// Fixing the program name is not enough when the program can be told to run a
+/// command by a flag. `tar -cvf out.tar <files>` with a "file" named
+/// `--use-compress-program=sh -c '…'` executes it; Info-ZIP's `-TT` sets the
+/// command used to test an archive. Both turn a file list into arbitrary
+/// execution while the builtin still looks like a pure archiving call.
+///
+/// `--` would stop option parsing in `tar` and `zip`, and is passed as well
+/// where those are invoked, but support is not universal and getting it wrong is
+/// silent. Refusing the argument outright is the check that does not depend on
+/// the tool's parser. A path that genuinely starts with `-` is reachable as
+/// `./-name`, which the hint says.
+pub fn reject_option_like(builtin: &str, values: &[String]) -> anyhow::Result<()> {
+    for v in values {
+        if v.starts_with('-') {
+            return Err(anyhow::Error::new(SafetyError {
+                code: ErrorCode::BadArg,
+                message: format!(
+                    "{}: refusing an option-like path argument: {:?}",
+                    builtin, v
+                ),
+                builtin: builtin.to_string(),
+                hint: "this position is a file path, and a leading '-' would be parsed as \
+                       an option by the underlying tool — several of which can be made to \
+                       run a command that way; pass './-name' if the file really is named \
+                       that"
+                    .to_string(),
+                approval: None,
+            }));
+        }
+    }
+    Ok(())
+}
+
+/// Quote a value for interpolation into a **single-quoted** PowerShell string
+/// literal (CWE-78).
+///
+/// Many Windows builtins build a command with `format!("Start-Service '{}'",
+/// name)`. In a single-quoted PowerShell literal the only metacharacter is `'`
+/// itself, so a value containing one closes the string and everything after it
+/// is executed. Verified, not assumed: a service name of
+/// `x'; New-Item -ItemType File -Path '…' -Force; '` created the file.
+///
+/// PowerShell escapes a quote inside a single-quoted string by doubling it, so
+/// that is the whole transformation. The returned string **includes** the
+/// surrounding quotes — callers interpolate it with `{}`, not `'{}'`, which
+/// makes a missed call site visible as a syntax error rather than silently
+/// unquoted.
+///
+/// This is for single-quoted context only. A double-quoted PowerShell string
+/// also expands `$` and backtick, and must not use this.
+pub fn ps_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
+
 /// Gate an effecting call. Returns `Ok(())` if the call may proceed (and records
 /// an audit entry), or a [`SafetyError`] with a stable code, an actionable hint,
 /// and — for approvable actions — a bound approval token.

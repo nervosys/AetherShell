@@ -2,10 +2,11 @@
 
 Scope: the `master` tree, covering the `aethershell`, `aethershell-lsp` and
 `agentic-eval` crates, the browser extension, and the CI and release workflows.
-The first pass reviewed `2d8b969`; the second pass (2026-08-04, findings 6–9)
+The first pass reviewed `2d8b969`; the second and third passes (2026-08-04, findings 6–10)
 reviewed `30e3586` and reached the surfaces the first pass did not: the HTTP
 API, the process-execution gate, native plugin loading, `unsafe`, MCP
-discovery, and deserialization of untrusted input.
+discovery, deserialization of untrusted input, and argument handling at the
+fixed-program `Command::new` sites.
 
 Method: `cargo audit` (1173 RUSTSEC advisories), `cargo deny check` (advisories,
 bans, licenses, sources), targeted source review of the cryptographic, policy,
@@ -24,6 +25,7 @@ CMMC 2.0.
 |---|---------|-------|----------|--------|
 | 6 | Agent API executed code for unauthenticated callers | CWE-306 / CWE-352 | **Critical** | Fixed |
 | 7 | Exec gate covered the name `sh`, not the capability | CWE-184 / CWE-693 | **High** | Fixed |
+| 10 | Argument injection into PowerShell and archivers | CWE-78 / CWE-88 | **High** | Fixed |
 | 1 | `quinn-proto` remote memory exhaustion | RUSTSEC-2026-0185 | High (7.5) | Fixed |
 | 2 | Unimplemented crypto builtins reported success | CWE-347 / CWE-311 | High | Fixed |
 | 4 | `rbac.*`, `perm.acl_*`, `sso.*` advertised but unimplemented | CWE-1104 | Medium | Documented, not implemented |
@@ -36,19 +38,20 @@ Nothing in this audit indicates a compromise or data exposure to a third party.
 Finding 3 concerns one developer's username, published in a public repository.
 
 The table is ordered by severity; the sections below are numbered in discovery
-order, so the second pass (6–9) is written up first.
+order, so the later passes (6–10) are written up first.
 
-Findings 6 and 7 are the significant ones, and both were reachable in the
-*intended* configuration rather than an unusual one. Note that they compound: an
+Findings 6, 7 and 10 are the significant ones, and all were reachable in the
+*intended* configuration rather than an unusual one. They compound: an
 unauthenticated `/api/v1/eval` (6) reaching an exec surface that agent mode did
-not actually gate (7) means the hardening a deployment believed it had from
+not actually gate (7), with two further routes to execution that bypassed even
+that gate (10), means the hardening a deployment believed it had from
 `AETHER_MODE=agent` would not have constrained a drive-by request.
 
 ---
 
 ## 6. Agent API executed code for unauthenticated callers (CWE-306, CWE-352)
 
-The most serious finding in either pass.
+The most serious finding of the three passes.
 
 `agent_api::server` mounted `POST /api/v1/eval` — documented as "evaluate raw
 AetherShell code" — with **no authentication on any route**. `enable_cors`
@@ -129,11 +132,17 @@ lists is exactly what reopens this. Human mode is default-allow by design and a
 test holds that line.
 
 **Scope of the fix, stated precisely.** This closes the *arbitrary command*
-class. It does **not** gate the ~650 remaining `Command::new` sites that invoke
-a fixed program with caller-supplied data arguments (`ping -c 4 $host`,
-`helm status $release`). Those are a materially weaker class — they cannot run
-an attacker-chosen program — but they are not zero risk, and several accept
-enough argument control to be worth a dedicated pass. Not attempted here.
+class. It does not gate the ~650 remaining `Command::new` sites that invoke a
+fixed program with caller-supplied data arguments (`ping -c 4 $host`,
+`helm status $release`).
+
+Those were assumed to be a materially weaker class, on the reasoning that they
+cannot run an attacker-chosen program. **That assumption was wrong**, and
+finding 10 is the result of testing it rather than resting on it: a fixed
+program can still be *told* to run a command by an argument, and 20 such sites
+were reachable. The remaining sites in this class pass data to programs with no
+known command-executing flag, which is a weaker claim than "safe" and is why
+this stays on the open list.
 
 **Breaking change.** Agent-mode scripts using these nine now need approval.
 
@@ -150,6 +159,72 @@ reproducibility is preserved. Both are now documented as non-cryptographic,
 because an LCG named `rand_f64` is a tempting thing to reach for. They are used
 only for network weights and mutation rates; no key, token or salt derives from
 them, which was checked rather than assumed.
+
+## 10. Argument injection into PowerShell and archivers (CWE-78, CWE-88)
+
+Found in the third pass, while reviewing the fixed-program `Command::new` sites
+that finding 7 explicitly did not cover. Two distinct defects, both verified by
+execution.
+
+### 10a. PowerShell command injection (CWE-78, Windows)
+
+Windows builtins build commands by interpolating values into single-quoted
+PowerShell literals:
+
+```rust
+format!("Start-Service '{}'", name)
+```
+
+A single-quoted PowerShell string ends at the first `'`, so a value containing
+one closes the literal and everything after it is executed. Demonstrated with a
+service name of `x'; New-Item -ItemType File -Path '<tmp>' -Force; '`, which
+created the file. Re-run after the fix, the same payload is treated as an
+ordinary string and no file appears.
+
+This was **not** limited to one builtin. 17 sites interpolated caller-controlled
+strings into PowerShell: service control (start/stop/restart/set), Hyper-V
+(create/delete/start/stop/restart/status/snapshot/clone), `Get-EventLog`,
+`Get-LocalGroupMember`, `Get-FileHash`, `Get-ItemProperty` (registry), three
+`NetFirewallRule` operations, `Set-Clipboard`, `Compress-Archive`,
+`Expand-Archive` and `ZipFile::OpenRead`. Escaping was inconsistent rather than
+absent — two sites already doubled quotes correctly, which is why the defect
+survived: the pattern looked handled.
+
+Severity is high but Windows-only, and it bypasses everything else: an agent
+denied `sh` and denied the nine exec builtins from finding 7 could still reach
+arbitrary execution through `service.start`.
+
+`safety::ps_quote` is now the single escaping point. It returns the value
+*including* its surrounding quotes, so callers interpolate `{}` rather than
+`'{}'` — a missed call site is then a PowerShell syntax error rather than a
+silently unquoted value. It is documented as single-quoted-context only, since a
+double-quoted PowerShell string also expands `$` and backtick.
+
+### 10b. Option injection into archivers (CWE-88)
+
+`tar -cvf <archive> <files>` passed a caller-supplied file list with no `--`
+separator. GNU tar parses a "file" named `--use-compress-program=sh -c '…'` as
+an option and runs it; Info-ZIP's `-TT` sets the command used to test an
+archive; `zip <archive> <files>` took the archive name as the *first
+positional*, so that was injectable too.
+
+Like 10a, these had no policy gate, so they bypassed the `Effect::Exec`
+approval added by finding 7 the same day.
+
+`safety::reject_option_like` refuses positional path arguments beginning with
+`-`, and `--` is passed to `tar` as defence in depth. Refusing is the check that
+does not depend on the tool's own parser; the error names `./-name` as the way
+to reach a file genuinely called that.
+
+`tests/argument_injection.rs` covers both: the escaping rule (including that it
+alters nothing but quotes), the exact payload proven to execute, the archiver
+option payloads, and that ordinary paths still pass.
+
+**Residual.** This closes single-quoted PowerShell interpolation and the
+positional-path class. Double-quoted PowerShell interpolation — where `$` and
+backtick also expand — was reviewed and the sites found either use fixed strings
+or already backtick-escape, but that escaping is ad-hoc rather than centralized
+and would benefit from the same treatment.
 
 ## 9. MCP servers are adopted by port convention, unauthenticated (CWE-306)
 
@@ -405,13 +480,22 @@ organisations, so this maps practice families to implemented controls only.
 - **Two passes found two critical/high issues in surfaces the previous pass had
   not reached.** The first pass concentrated on dependencies, crypto and
   secrets, and reported clean; the HTTP listener and the exec gate were where
-  the real problems were. Treat the current result as "no further findings in
-  the surfaces examined", not as an assurance that the codebase is clean.
+  the real problems were. The third pass then found a High in a class the second
+  pass had explicitly written off as weaker. Treat the current result as "no
+  further findings in the surfaces examined", not as an assurance that the
+  codebase is clean — each pass so far has found something the previous one
+  reasoned its way past.
 - MCP trust boundaries were reviewed at the *discovery* layer (finding 9). The
   handling of tool *results* returned by an MCP server — where they are
   interpolated, and whether any reach an exec path — was not traced end to end.
-- The ~650 fixed-program `Command::new` sites were characterized as a class but
-  not individually reviewed for argument-injection potential (finding 7).
+- The fixed-program `Command::new` sites were reviewed for the two injection
+  mechanisms known to reach execution — option injection into a program that
+  runs commands, and interpolation into a PowerShell literal (finding 10) — and
+  20 were fixed. They were **not** exhaustively reviewed program by program: the
+  remaining sites pass data to programs with no *known* command-executing flag,
+  which is weaker than a demonstration that none exists. Finding 10 exists
+  because this class was assumed benign in the previous pass, so the assumption
+  should not be made a second time.
 - The 71 unimplemented aliases were enumerated, not individually reviewed for
   what a caller might assume of them.
 - FIPS assessment covers algorithm restriction only. No validated cryptographic

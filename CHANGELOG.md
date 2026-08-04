@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-08-04
+
+### Security
+- **Argument injection into PowerShell and archivers (CWE-78, CWE-88).** Found
+  while reviewing the fixed-program `Command::new` sites that 2.0.0's exec gate
+  deliberately did not cover. Both defects bypassed that gate entirely: an agent
+  denied `sh` and denied the nine exec builtins could still reach arbitrary
+  execution.
+
+  *PowerShell (Windows).* 17 builtins built commands by interpolating
+  caller-controlled values into single-quoted PowerShell literals — service
+  control, Hyper-V, `Get-EventLog`, `Get-LocalGroupMember`, `Get-FileHash`,
+  registry reads, firewall rules, clipboard, and the zip builtins. A value
+  containing `'` closed the literal and the rest executed. Verified: a service
+  name of `x'; New-Item -ItemType File -Path '<tmp>' -Force; '` created the
+  file; the same payload after the fix is treated as a string.
+  `safety::ps_quote` is now the single escaping point, and it returns the value
+  *with* its quotes so a missed call site is a syntax error rather than a
+  silently unquoted value.
+
+  *Archivers.* `tar -cvf <archive> <files>` passed a caller-supplied file list
+  with no `--`, so a "file" named `--use-compress-program=sh -c '…'` ran that
+  command; Info-ZIP's `-TT` is equivalent; and `zip` took the archive name as
+  the first positional. `safety::reject_option_like` now refuses positional path
+  arguments beginning with `-` (pass `./-name` for a file genuinely so named),
+  and `--` is passed to `tar` as well.
+
+  Escaping was previously inconsistent rather than absent — two sites already
+  doubled quotes correctly, which is why the defect survived review: the pattern
+  looked handled.
+
 ## [2.0.0] - 2026-08-04
 
 A major version because three changes break existing callers, all of them
