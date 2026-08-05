@@ -156,6 +156,8 @@ fn every_guarded_exec_builtin_is_classified_as_exec() {
         "perf_stat",
         "perf_record",
         "lxc_exec",
+        "tmux_new",
+        "tmux_send",
     ] {
         assert_eq!(
             safety::effect_of(name),

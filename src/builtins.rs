@@ -27386,6 +27386,9 @@ fn bi_db_sqlite_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
         _ => return Ok(Value::Null),
     };
 
+    crate::safety::reject_sqlite_dot_command("db_sqlite_query", &query)?;
+    crate::safety::reject_option_like("db_sqlite_query", std::slice::from_ref(&db_path))?;
+
     let output = std::process::Command::new("sqlite3")
         .args(["-json", &db_path, &query])
         .output()?;
@@ -27396,6 +27399,7 @@ fn bi_db_sqlite_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
             return Ok(json_to_value(json));
         }
         // Fallback to CSV mode
+        // Already validated at the top of this function.
         let output = std::process::Command::new("sqlite3")
             .args(["-header", "-csv", &db_path, &query])
             .output()?;
@@ -27439,6 +27443,9 @@ fn bi_db_sqlite_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // routes through here, so snapshotting the db file at this single chokepoint
     // makes those mutations reversible inside a transaction. No-op when no
     // transaction is active.
+    crate::safety::reject_sqlite_dot_command("db_sqlite_exec", &sql)?;
+    crate::safety::reject_option_like("db_sqlite_exec", std::slice::from_ref(&db_path))?;
+
     crate::tx::snapshot(&db_path);
 
     let output = std::process::Command::new("sqlite3")
@@ -27559,6 +27566,8 @@ fn bi_db_sqlite_export_csv(args: Vec<Value>, _input: Option<Value>) -> Result<Va
         format!("SELECT * FROM {}", table_or_query)
     };
 
+    crate::safety::reject_sqlite_dot_command("db_sqlite_export_csv", &query)?;
+    crate::safety::reject_option_like("db_sqlite_export_csv", std::slice::from_ref(&db_path))?;
     let output = std::process::Command::new("sqlite3")
         .args(["-header", "-csv", &db_path, &query])
         .output()?;
@@ -45772,6 +45781,9 @@ fn bi_tmux_new(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let cmd_str;
     let full_args: Vec<&str>;
     if let Some(Value::Str(c)) = args.get(1) {
+        // tmux runs this string as the session's command, so it is `sh -c` by
+        // another name and takes the same gate.
+        crate::safety::guard_exec("tmux_new", c)?;
         cmd_str = c.clone();
         full_args = vec!["new-session", "-d", "-s", name_ref, &cmd_str];
     } else {
@@ -45875,6 +45887,11 @@ fn bi_tmux_send(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(crate::safety::arg_err("tmux_send requires keys to send")),
     };
+    // `send-keys … Enter` types the string into a live shell and presses
+    // return, which is execution in every sense that matters — the only
+    // difference from `sh` is that the process is someone else's.
+    crate::safety::guard_exec("tmux_send", &keys)?;
+
     let output = std::process::Command::new("tmux")
         .args(["send-keys", "-t", &target, &keys, "Enter"])
         .output();

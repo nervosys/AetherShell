@@ -156,7 +156,7 @@ pub fn effect_of(name: &str) -> Effect {
         // Keep in step with the `guard_exec` call sites in `builtins.rs`.
         "sh" | "exec" | "system" | "timeout" | "timeout_cmd" | "xargs" | "xargs_exec"
         | "proc_spawn" | "nohup_run" | "strace" | "strace_cmd" | "ltrace" | "ltrace_cmd"
-        | "perf_stat" | "perf_record" | "lxc_exec" => Effect::Exec,
+        | "perf_stat" | "perf_record" | "lxc_exec" | "tmux_new" | "tmux_send" => Effect::Exec,
         n if n.starts_with("http") || n.starts_with("net_") || n.starts_with("nc_") => {
             Effect::Network
         }
@@ -1157,6 +1157,35 @@ pub fn ps_quote(value: &str) -> String {
 /// is a syntax error rather than a silently unquoted value.
 pub fn applescript_quote(value: &str) -> String {
     format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+/// Reject a sqlite3 CLI *dot-command* where SQL is expected (CWE-77).
+///
+/// `sqlite3 <db> "<sql>"` accepts the CLI's own dot-commands in the SQL
+/// position, and two of them run programs: `.system` and `.shell`. Verified —
+/// `sqlite3 db ".system cmd /c echo … > file"` created the file. That turns
+/// `db.sqlite_query` from "run a query" into "run anything", with no
+/// `Effect::Exec` gate in front of it.
+///
+/// Dot-commands are a feature of the `sqlite3` shell, not of SQL, so refusing
+/// them costs a caller nothing that SQL can express. The check is on the first
+/// non-whitespace character: SQL statements never begin with `.`.
+pub fn reject_sqlite_dot_command(builtin: &str, sql: &str) -> anyhow::Result<()> {
+    if sql.trim_start().starts_with('.') {
+        return Err(anyhow::Error::new(SafetyError {
+            code: ErrorCode::BadArg,
+            message: format!(
+                "{}: refusing a sqlite3 dot-command where SQL is expected",
+                builtin
+            ),
+            builtin: builtin.to_string(),
+            hint: "`.system` and `.shell` run programs, so dot-commands are not \
+                   accepted here; pass a SQL statement"
+                .to_string(),
+            approval: None,
+        }));
+    }
+    Ok(())
 }
 
 /// Gate an effecting call. Returns `Ok(())` if the call may proceed (and records

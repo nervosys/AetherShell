@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.3] - 2026-08-04
+
+### Security
+- **`sqlite3` dot-commands and two `tmux` exec paths were ungated (CWE-77).**
+  Findings 7 and 10 were each produced by assuming a class of `Command::new`
+  sites was safe and being wrong. So rather than reason a third time, all 647
+  literal sites were reduced to their **216 distinct programs** and each was
+  checked for a way to make it run a command. Three more turned up:
+
+  - `sqlite3 <db> "<sql>"` accepts the CLI's own dot-commands where SQL is
+    expected, and `.system` / `.shell` run programs. Verified:
+    `sqlite3 db ".system cmd /c echo … > file"` created the file — so
+    `db.sqlite_query`, `db.sqlite_exec` and `db.sqlite_export_csv` were
+    arbitrary execution wearing a database API. `reject_sqlite_dot_command`
+    refuses them; dot-commands belong to the shell, not to SQL, so no SQL is
+    lost. `db_path` is the first positional and now goes through
+    `reject_option_like` too.
+  - `tmux new-session -d -s <name> <cmd>` runs `<cmd>` — `sh -c` renamed.
+  - `tmux send-keys -t <target> <keys> Enter` types into a live shell and
+    presses return.
+
+  Both tmux paths now take `guard_exec` and are classified `Effect::Exec`.
+
+  Checked and sound: `git` (its command-executing options must precede the
+  subcommand, and all 32 sites fix the subcommand first), `find` (fixed
+  predicates, never `-exec`), `wmic` (`get` only, never `process call
+  create`), and the programs where caller values land after a fixed flag.
+
+  This is a review against command-execution mechanisms that are known, across
+  216 tools — stronger than the two assumptions that preceded it, but not a
+  proof that no other mechanism exists.
+
 ## [2.0.2] - 2026-08-04
 
 ### Security

@@ -15,7 +15,9 @@
 //!    `-TT` does the same. Both were reachable with no policy gate, so they
 //!    bypassed the `Effect::Exec` approval added the same day.
 
-use aethershell::safety::{applescript_quote, ps_quote, reject_option_like};
+use aethershell::safety::{
+    applescript_quote, ps_quote, reject_option_like, reject_sqlite_dot_command,
+};
 
 /// The reason single-quoting is the fix rather than escaping `"`.
 ///
@@ -111,6 +113,44 @@ fn ps_quote_leaves_everything_else_alone() {
             ps_quote(s),
             format!("'{s}'"),
             "only the quote character needs escaping in a single-quoted literal"
+        );
+    }
+}
+
+/// `sqlite3` accepts its own dot-commands where SQL is expected, and `.system`
+/// and `.shell` run programs. Verified before the fix:
+/// `sqlite3 db ".system cmd /c echo … > file"` created the file — so
+/// `db.sqlite_query` was arbitrary execution with no `Effect::Exec` gate.
+#[test]
+fn sqlite_dot_commands_are_refused_where_sql_is_expected() {
+    for payload in [
+        ".system cmd /c calc",
+        ".shell /bin/sh",
+        // Leading whitespace must not smuggle one past the check.
+        "   .system id",
+        "\t.shell id",
+        "\n.system id",
+    ] {
+        assert!(
+            reject_sqlite_dot_command("db_sqlite_query", payload).is_err(),
+            "{payload:?} must be refused — .system and .shell run programs"
+        );
+    }
+}
+
+/// Ordinary SQL must still work, including statements that merely mention a dot.
+#[test]
+fn ordinary_sql_still_passes() {
+    for sql in [
+        "SELECT * FROM t",
+        "SELECT t.a FROM t",
+        "  INSERT INTO t VALUES (1)",
+        "UPDATE t SET x = 1.5",
+        "SELECT '.system' FROM t",
+    ] {
+        assert!(
+            reject_sqlite_dot_command("db_sqlite_query", sql).is_ok(),
+            "{sql:?} is SQL and must be allowed"
         );
     }
 }

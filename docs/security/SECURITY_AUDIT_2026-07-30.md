@@ -2,7 +2,7 @@
 
 Scope: the `master` tree, covering the `aethershell`, `aethershell-lsp` and
 `agentic-eval` crates, the browser extension, and the CI and release workflows.
-The first pass reviewed `2d8b969`; the second and third passes (2026-08-04, findings 6–10)
+The first pass reviewed `2d8b969`; the second and third passes (2026-08-04, findings 6–11)
 reviewed `30e3586` and reached the surfaces the first pass did not: the HTTP
 API, the process-execution gate, native plugin loading, `unsafe`, MCP
 discovery, deserialization of untrusted input, and argument handling at the
@@ -26,6 +26,7 @@ CMMC 2.0.
 | 6 | Agent API executed code for unauthenticated callers | CWE-306 / CWE-352 | **Critical** | Fixed |
 | 7 | Exec gate covered the name `sh`, not the capability | CWE-184 / CWE-693 | **High** | Fixed |
 | 10 | Argument injection into PowerShell, AppleScript and archivers | CWE-78 / CWE-88 | **High** | Fixed |
+| 11 | sqlite3 dot-commands and tmux exec paths ungated | CWE-77 | **High** | Fixed |
 | 1 | `quinn-proto` remote memory exhaustion | RUSTSEC-2026-0185 | High (7.5) | Fixed |
 | 2 | Unimplemented crypto builtins reported success | CWE-347 / CWE-311 | High | Fixed |
 | 4 | `rbac.*`, `perm.acl_*`, `sso.*` advertised but unimplemented | CWE-1104 | Medium | Documented, not implemented |
@@ -38,14 +39,19 @@ Nothing in this audit indicates a compromise or data exposure to a third party.
 Finding 3 concerns one developer's username, published in a public repository.
 
 The table is ordered by severity; the sections below are numbered in discovery
-order, so the later passes (6–10) are written up first.
+order, so the later passes (6–11) are written up first.
 
-Findings 6, 7 and 10 are the significant ones, and all were reachable in the
-*intended* configuration rather than an unusual one. They compound: an
+Findings 6, 7, 10 and 11 are the significant ones, and all were reachable in
+the *intended* configuration rather than an unusual one. They compound: an
 unauthenticated `/api/v1/eval` (6) reaching an exec surface that agent mode did
-not actually gate (7), with further routes to execution that bypassed even
-that gate (10), means the hardening a deployment believed it had from
+not actually gate (7), with five further routes to execution that bypassed even
+that gate (10, 11), means the hardening a deployment believed it had from
 `AETHER_MODE=agent` would not have constrained a drive-by request.
+
+A pattern worth naming: 7, 10 and 11 were each found by testing an assumption
+the *previous* finding had rested on. Reasoning about which programs are
+dangerous produced two wrong answers before enumeration produced a defensible
+one.
 
 ---
 
@@ -252,6 +258,51 @@ then the quote — the other order is undone by the payload.
 mechanically prevents a future site from interpolating directly. A lint or a
 newtype that only the helpers can produce would make that structural rather than
 a matter of review discipline.
+
+## 11. Three more exec paths found by enumerating programs, not reasoning (CWE-77)
+
+Findings 7 and 10 were both produced by *assuming* a class was safe and being
+wrong. So this pass enumerated instead: all 647 literal `Command::new("…")`
+sites reduce to **216 distinct programs**, and each was considered for whether
+it can be made to run a command by an argument.
+
+That found three more, all reachable with no `Effect::Exec` gate:
+
+**`sqlite3` dot-commands.** `sqlite3 <db> "<sql>"` accepts the CLI's own
+dot-commands in the SQL position, and `.system` / `.shell` run programs.
+Verified: `sqlite3 db ".system cmd /c echo … > file"` created the file. So
+`db.sqlite_query`, `db.sqlite_exec` and `db.sqlite_export_csv` were arbitrary
+execution wearing a database API. `safety::reject_sqlite_dot_command` refuses
+them — dot-commands are a feature of the shell, not of SQL, so nothing
+expressible in SQL is lost. The `db_path` argument is also the first positional
+and is now passed through `reject_option_like`, since a leading `-` would reach
+sqlite3's own option parser.
+
+**`tmux new-session -d -s <name> <cmd>`.** The trailing argument is the command
+tmux runs for the session — `sh -c` under another name. Now gated.
+
+**`tmux send-keys -t <target> <keys> Enter`.** Types a string into a live shell
+and presses return. That is execution in every sense that matters; the only
+difference from `sh` is that the process belongs to someone else. Now gated.
+
+Both tmux builtins are added to `effect_of`, and to the test that pins that list
+against the `guard_exec` call sites.
+
+**What this pass did *not* do.** 216 programs were considered against known
+command-execution mechanisms — `-exec`, `-e`, `--use-compress-program`,
+`ProxyCommand`, dot-commands, `run-shell`, and the like. That is a review
+against a list of mechanisms I know about, which is not a proof that no other
+mechanism exists in any of those 216 tools. It is a stronger claim than the two
+that preceded it and were wrong, but it is not a guarantee.
+
+Sites checked and found sound include: `git` (its command-executing options —
+`-c core.sshCommand`, `--upload-pack`, `--exec-path` — must precede the
+subcommand, and all 32 sites fix the subcommand first, so a caller value can
+never reach that position); `find` (all five sites use fixed `-name`/`-type`/
+`-size` predicates, never `-exec`); `wmic` (all six use `get`, never
+`process call create`); and `curl`, `openssl`, `systemctl`, `journalctl`,
+`ps`, `ip` and `netstat`, where caller values land in value positions after a
+fixed flag.
 
 ## 9. MCP servers are adopted by port convention, unauthenticated (CWE-306)
 
