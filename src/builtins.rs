@@ -19846,8 +19846,8 @@ fn bi_net_dns_lookup(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args([
                 "-Command",
                 &format!(
-                    "Resolve-DnsName '{}' | Select-Object IPAddress | ConvertTo-Json",
-                    hostname
+                    "Resolve-DnsName {} | Select-Object IPAddress | ConvertTo-Json",
+                    crate::safety::ps_quote(&hostname)
                 ),
             ])
             .output()?;
@@ -19903,8 +19903,8 @@ fn bi_net_dns_reverse(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
             .args([
                 "-Command",
                 &format!(
-                    "Resolve-DnsName '{}' | Select-Object NameHost | ConvertTo-Json",
-                    ip
+                    "Resolve-DnsName {} | Select-Object NameHost | ConvertTo-Json",
+                    crate::safety::ps_quote(&ip)
                 ),
             ])
             .output()?;
@@ -24943,9 +24943,9 @@ fn bi_gui_key_press(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 &format!(
                     r#"
 Add-Type -AssemblyName System.Windows.Forms
-[System.Windows.Forms.SendKeys]::SendWait("{}")
+[System.Windows.Forms.SendKeys]::SendWait({})
 "#,
-                    key
+                    crate::safety::ps_quote(&key)
                 ),
             ])
             .output()?;
@@ -24996,9 +24996,9 @@ fn bi_gui_key_combo(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 &format!(
                     r#"
 Add-Type -AssemblyName System.Windows.Forms
-[System.Windows.Forms.SendKeys]::SendWait("{}")
+[System.Windows.Forms.SendKeys]::SendWait({})
 "#,
-                    combo
+                    crate::safety::ps_quote(&combo)
                 ),
             ])
             .output()?;
@@ -25036,9 +25036,9 @@ fn bi_gui_type_text(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 &format!(
                     r#"
 Add-Type -AssemblyName System.Windows.Forms
-[System.Windows.Forms.SendKeys]::SendWait("{}")
+[System.Windows.Forms.SendKeys]::SendWait({})
 "#,
-                    escaped
+                    crate::safety::ps_quote(&escaped)
                 ),
             ])
             .output()?;
@@ -25242,9 +25242,10 @@ fn bi_gui_dialog_message(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
         let ps_script = format!(
             r#"
 Add-Type -AssemblyName System.Windows.Forms
-[System.Windows.Forms.MessageBox]::Show("{}", "{}")
+[System.Windows.Forms.MessageBox]::Show({}, {})
 "#,
-            message, title
+            crate::safety::ps_quote(&message),
+            crate::safety::ps_quote(&title)
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])

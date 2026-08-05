@@ -254,10 +254,37 @@ backslash, so an unescaped `"` closes the literal and `" & (do shell script
 "…") & "` runs a command. `safety::applescript_quote` escapes backslash *first*,
 then the quote — the other order is undone by the payload.
 
-**Residual.** The escaping helpers are now the only sanctioned path, but nothing
-mechanically prevents a future site from interpolating directly. A lint or a
-newtype that only the helpers can produce would make that structural rather than
-a matter of review discipline.
+### 10d. The lint that found what three manual passes missed
+
+The residual noted above — that nothing *mechanically* prevented a future site
+from interpolating directly — was closed with
+`tests/no_raw_shell_interpolation.rs`, which scans for the shape of the bug
+(a quoted `{}` on a line that looks like a PowerShell or AppleScript command).
+
+It failed on first run, flagging **six sites that 10a and 10c had both missed**:
+
+```
+Resolve-DnsName '{}'                              ×2  (hostname, ip)
+[System.Windows.Forms.SendKeys]::SendWait("{}")   ×3  (key, combo, escaped)
+[System.Windows.Forms.MessageBox]::Show("{}","{}")×1  (message, title)
+```
+
+All six were live injection vectors, and all six survived three passes of
+careful manual review by the same reviewer who wrote the earlier findings. That
+is the strongest evidence in this document for a specific claim: **on a codebase
+this size, reading does not find this class reliably, and a mechanical check
+does.** The finding is not really the six sites; it is that they existed after
+the class had supposedly been closed twice.
+
+The lint is heuristic and carries an `ALLOWED` list for error messages that
+legitimately contain `'{}'`. It has a companion test asserting it still fires on
+the pre-fix shapes, because a lint that cannot fail reads as coverage while
+providing none.
+
+**Remaining residual.** A lint catches the shape, not the semantics. The
+structural fix is a newtype that only `ps_quote`/`applescript_quote` can
+construct, so a raw `String` cannot reach a command builder at all — a refactor
+across ~117 PowerShell sites, not attempted here.
 
 ## 11. Three more exec paths found by enumerating programs, not reasoning (CWE-77)
 

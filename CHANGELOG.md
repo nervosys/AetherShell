@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.4] - 2026-08-04
+
+### Security
+- **Six more PowerShell injection sites, found by a lint rather than by
+  reading (CWE-78).** 2.0.1 and 2.0.2 closed this class by hand. This release
+  adds `tests/no_raw_shell_interpolation.rs`, which scans the source for the
+  *shape* of the bug — a quoted `{}` placeholder on a line that looks like a
+  PowerShell or AppleScript command.
+
+  It failed on its first run, flagging six sites that both earlier passes had
+  missed: `Resolve-DnsName '{}'` (×2, `net.dns_lookup` and reverse lookup),
+  `SendKeys::SendWait("{}")` (×3), and `MessageBox::Show("{}", "{}")`. All six
+  were live injection vectors. All six survived three rounds of careful manual
+  review.
+
+  That is the point worth taking from this release: on a codebase with ~117
+  PowerShell call sites, reading does not find this class reliably and a
+  mechanical check does. The lint has a companion test asserting it still fires
+  on the pre-fix shapes, because a lint that cannot fail reads as coverage
+  while providing none.
+
 ## [2.0.3] - 2026-08-04
 
 ### Security
