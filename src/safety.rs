@@ -1141,8 +1141,41 @@ pub fn reject_option_like(builtin: &str, values: &[String]) -> anyhow::Result<()
 ///
 /// This is for single-quoted context only. A double-quoted PowerShell string
 /// also expands `$` and backtick, and must not use this.
-pub fn ps_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "''"))
+pub fn ps_quote(value: &str) -> PsLiteral {
+    PsLiteral(format!("'{}'", value.replace('\'', "''")))
+}
+
+/// A PowerShell string literal, quoted and escaped, that only [`ps_quote`] can
+/// build.
+///
+/// The point is that the *type* records that quoting happened. A `String` in a
+/// command builder proves nothing — findings 10a, 10c and 10d were all raw
+/// strings reaching a `format!` that looked fine on review, three times. A value
+/// of this type cannot be constructed except by going through the escaper,
+/// because the field is private to this module.
+///
+/// It renders through `Display`, so `format!("Start-Service {}", ps_quote(&n))`
+/// works unchanged. It deliberately does **not** implement `Deref<Target=str>`
+/// or `From<String>`: either would let an unescaped value be substituted for an
+/// escaped one, which is the whole thing this prevents.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PsLiteral(String);
+
+impl std::fmt::Display for PsLiteral {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// An AppleScript string literal, quoted and escaped, that only
+/// [`applescript_quote`] can build. See [`PsLiteral`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AppleScriptLiteral(String);
+
+impl std::fmt::Display for AppleScriptLiteral {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
 }
 
 /// Quote a value for interpolation into an AppleScript string literal
@@ -1155,8 +1188,11 @@ pub fn ps_quote(value: &str) -> String {
 /// Backslash is escaped first, or escaping the quote would itself be undone.
 /// As with `ps_quote`, the surrounding quotes are included so a missed call site
 /// is a syntax error rather than a silently unquoted value.
-pub fn applescript_quote(value: &str) -> String {
-    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
+pub fn applescript_quote(value: &str) -> AppleScriptLiteral {
+    AppleScriptLiteral(format!(
+        "\"{}\"",
+        value.replace('\\', "\\\\").replace('"', "\\\"")
+    ))
 }
 
 /// Reject a sqlite3 CLI *dot-command* where SQL is expected (CWE-77).

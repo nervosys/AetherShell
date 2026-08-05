@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **`safety::ps_quote` and `safety::applescript_quote` return newtypes**
+  (`PsLiteral`, `AppleScriptLiteral`) rather than `String`, so the *type*
+  records that escaping happened. Both have private fields, so nothing outside
+  `safety` can construct one, and neither implements `From<String>` or
+  `Deref<Target = str>` — either would let an unescaped value stand in for an
+  escaped one.
+
+  Both render through `Display`, so every `format!("… {}", ps_quote(&v))` call
+  site was unaffected; the compiler surfaced exactly two places that had relied
+  on the `String` (a `Vec::join` in each zip builtin). Doing it this way round
+  means the compiler enumerates the call sites, which is what manual review
+  failed at three times in this cycle.
+
+  Technically a breaking change to a public API, but `safety::ps_quote` was
+  introduced in 2.0.1 (yanked) and 2.0.2 (yanked) and has no downstream
+  consumers. It will ship with the next release rather than as another patch.
+
 ## [2.0.4] - 2026-08-04
 
 ### Security

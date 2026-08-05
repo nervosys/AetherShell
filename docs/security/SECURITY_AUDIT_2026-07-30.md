@@ -281,10 +281,40 @@ legitimately contain `'{}'`. It has a companion test asserting it still fires on
 the pre-fix shapes, because a lint that cannot fail reads as coverage while
 providing none.
 
-**Remaining residual.** A lint catches the shape, not the semantics. The
-structural fix is a newtype that only `ps_quote`/`applescript_quote` can
-construct, so a raw `String` cannot reach a command builder at all — a refactor
-across ~117 PowerShell sites, not attempted here.
+### 10e. The type now records that quoting happened
+
+The residual left by 10d — that a lint catches the *shape* but not the
+semantics — is closed. `ps_quote` and `applescript_quote` no longer return
+`String`; they return `PsLiteral` and `AppleScriptLiteral`, newtypes with a
+private field that nothing outside `safety` can construct.
+
+The refactor was almost free, because both render through `Display`: every
+existing `format!("… {}", ps_quote(&v))` site compiled unchanged, and the
+compiler surfaced exactly two places that had relied on the `String` (a
+`Vec::join` in each zip builtin). That is the argument for doing it this way
+round — the compiler enumerated the call sites, which is the thing manual review
+demonstrably failed at three times in this document.
+
+Neither type implements `From<String>` or `Deref<Target = str>`. Either would
+let an unescaped value stand in for an escaped one, which is the entire property
+being bought.
+
+**What is now defended, and how.** Three independent layers, in increasing
+order of strength:
+
+1. The escapers themselves (10a, 10c) — correct behaviour.
+2. `tests/no_raw_shell_interpolation.rs` (10d) — catches the textual shape of a
+   new raw interpolation, including in code the type system never sees.
+3. The newtypes (10e) — a `String` cannot be passed where a quoted literal is
+   required.
+
+**Remaining residual, honestly.** `format!` accepts anything that implements
+`Display`, so a *new* site can still write `format!("Start-Service '{}'", name)`
+with a bare `String` and compile. Layer 2 is what catches that, and layer 2 is a
+heuristic. Closing it completely needs a `ps_script!` macro that accepts only
+`PsLiteral` arguments, applied at all ~117 PowerShell sites. Not attempted:
+after five releases in one session, a mechanical change of that size belongs in
+its own review cycle rather than at the end of this one.
 
 ## 11. Three more exec paths found by enumerating programs, not reasoning (CWE-77)
 

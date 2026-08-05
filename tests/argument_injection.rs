@@ -32,7 +32,7 @@ fn ps_quote_defeats_subexpression_payloads_that_quote_escaping_missed() {
     // passes through untouched — it needs no escaping once the literal is
     // single-quoted, which is the whole point.
     let payload = "$(New-Item -ItemType File -Path C:\\tmp\\pwned -Force)";
-    let quoted = ps_quote(payload);
+    let quoted = ps_quote(payload).to_string();
 
     assert_eq!(quoted, format!("'{payload}'"));
     assert!(
@@ -44,7 +44,7 @@ fn ps_quote_defeats_subexpression_payloads_that_quote_escaping_missed() {
     // still cannot break out.
     let with_quotes = "$(Get-Content 'C:\\secret')";
     assert_eq!(
-        ps_quote(with_quotes),
+        ps_quote(with_quotes).to_string(),
         "'$(Get-Content ''C:\\secret'')'",
         "apostrophes must be doubled while `$` stays inert"
     );
@@ -54,13 +54,13 @@ fn ps_quote_defeats_subexpression_payloads_that_quote_escaping_missed() {
 /// escaped first — otherwise escaping the quote is undone by the payload.
 #[test]
 fn applescript_quote_escapes_backslash_before_quote() {
-    assert_eq!(applescript_quote("plain"), "\"plain\"");
+    assert_eq!(applescript_quote("plain").to_string(), "\"plain\"");
 
     // `\"` would close the literal if the backslash were not doubled first.
-    assert_eq!(applescript_quote(r#"a\"#), r#""a\\""#);
+    assert_eq!(applescript_quote(r#"a\"#).to_string(), r#""a\\""#);
 
     let attack = r#"" & (do shell script "touch /tmp/pwned") & ""#;
-    let quoted = applescript_quote(attack);
+    let quoted = applescript_quote(attack).to_string();
     assert!(quoted.starts_with('"') && quoted.ends_with('"'));
     // No bare quote may remain in the interior.
     let interior = &quoted[1..quoted.len() - 1];
@@ -78,11 +78,11 @@ fn applescript_quote_escapes_backslash_before_quote() {
 /// and escapes one by doubling it; nothing else is special in that context.
 #[test]
 fn ps_quote_neutralizes_the_quote_that_ends_the_string() {
-    assert_eq!(ps_quote("plain"), "'plain'");
+    assert_eq!(ps_quote("plain").to_string(), "'plain'");
 
     // The exact payload that was demonstrated to execute.
     let attack = "x'; New-Item -ItemType File -Path 'C:\\tmp\\pwned' -Force; '";
-    let quoted = ps_quote(attack);
+    let quoted = ps_quote(attack).to_string();
 
     assert!(quoted.starts_with('\'') && quoted.ends_with('\''));
 
@@ -110,7 +110,7 @@ fn ps_quote_leaves_everything_else_alone() {
         "a b c",
     ] {
         assert_eq!(
-            ps_quote(s),
+            ps_quote(s).to_string(),
             format!("'{s}'"),
             "only the quote character needs escaping in a single-quoted literal"
         );
@@ -153,6 +153,36 @@ fn ordinary_sql_still_passes() {
             "{sql:?} is SQL and must be allowed"
         );
     }
+}
+
+/// The escapers return a type, not a `String`, so the *type* records that
+/// quoting happened.
+///
+/// A `String` reaching a command builder proves nothing — findings 10a, 10c and
+/// 10d were all raw strings reaching a `format!` that read as fine, three
+/// separate times. `PsLiteral` and `AppleScriptLiteral` have a private field, so
+/// they cannot be built except through the escaper.
+///
+/// This test documents the guarantee; the compiler enforces it. The negative
+/// cases are listed as comments below rather than as code, because they do not
+/// compile — which is precisely the property being claimed.
+#[test]
+fn quoted_literals_are_a_distinct_type_that_only_the_escapers_produce() {
+    // Renders through Display, so existing `format!("… {}", ps_quote(&v))` call
+    // sites are unaffected.
+    let rendered = format!("Start-Service {}", ps_quote("my service"));
+    assert_eq!(rendered, "Start-Service 'my service'");
+
+    let apple = format!("display dialog {}", applescript_quote("hi"));
+    assert_eq!(apple, "display dialog \"hi\"");
+
+    // Deliberately absent from the API, and each would defeat the guarantee:
+    //
+    //   let _: PsLiteral = PsLiteral(evil);            // private field
+    //   let _: PsLiteral = evil.into();                // no From<String>
+    //   let _: &str = &*ps_quote("x");                 // no Deref<Target=str>
+    //
+    // If any of those start compiling, the newtype has become decorative.
 }
 
 /// Option-like positional arguments are refused before the tool ever sees them.

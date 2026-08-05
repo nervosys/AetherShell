@@ -22384,7 +22384,7 @@ fn bi_zip_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             "Compress-Archive -Path {} -DestinationPath {}",
             files
                 .iter()
-                .map(|f| crate::safety::ps_quote(f))
+                .map(|f| crate::safety::ps_quote(f).to_string())
                 .collect::<Vec<_>>()
                 .join(","),
             crate::safety::ps_quote(&archive)
@@ -22542,7 +22542,7 @@ fn bi_zip_add(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             "Compress-Archive -Path {} -Update -DestinationPath {}",
             files
                 .iter()
-                .map(|f| crate::safety::ps_quote(f))
+                .map(|f| crate::safety::ps_quote(f).to_string())
                 .collect::<Vec<_>>()
                 .join(","),
             crate::safety::ps_quote(&archive)
