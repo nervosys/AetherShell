@@ -1167,6 +1167,142 @@ impl std::fmt::Display for PsLiteral {
     }
 }
 
+/// Build a PowerShell command string, accepting only already-escaped values.
+///
+/// `format!` is the hole the newtypes alone cannot close: it accepts anything
+/// implementing `Display`, so `format!("Start-Service '{}'", name)` with a bare
+/// `String` still compiles. That is the exact shape of findings 10a, 10c and
+/// 10d, and it got past manual review three times.
+///
+/// This macro binds every argument to `&PsLiteral` before formatting, so a
+/// `String` is a *compile* error rather than an injection:
+///
+/// ```
+/// use aethershell::{ps_script, safety::ps_quote};
+/// let name = "my service";
+/// assert_eq!(
+///     ps_script!("Start-Service {}", ps_quote(name)),
+///     "Start-Service 'my service'"
+/// );
+/// ```
+///
+/// Note the template uses `{}`, not `'{}'` — the literal carries its own
+/// quotes, so adding more would nest them.
+#[macro_export]
+macro_rules! ps_script {
+    ($fmt:literal $(, $arg:expr)* $(,)?) => {{
+        // Type-check every argument. A `String` or a borrowed `&str` fails
+        // here, naming the argument, before it can reach a shell.
+        $($crate::safety::ps_arg(&$arg);)*
+        format!($fmt $(, $arg)*)
+    }};
+}
+
+/// Argument types [`ps_script!`] will accept.
+///
+/// Deliberately **not** implemented for `String` or for a non-`'static` `&str`:
+/// those are how caller data arrives, and letting them through is the defect
+/// this whole mechanism exists to prevent. To pass one, quote it with
+/// [`ps_quote`] first.
+///
+/// The three things that *are* safe:
+///
+/// - [`PsLiteral`] — escaped by construction.
+/// - Integers — no PowerShell metacharacter has a numeric representation.
+/// - `&'static str` — a compile-time literal, so it cannot be caller data. This
+///   covers the common `match algo { "sha256" => "SHA256", … }` shape, where the
+///   value is one of a fixed set chosen in-tree. (`String::leak` could forge a
+///   `&'static str`, but that is a deliberate act, not an accident.)
+pub trait PsArg {}
+
+impl PsArg for PsLiteral {}
+impl PsArg for &'static str {}
+macro_rules! impl_ps_arg_for_numbers {
+    ($($t:ty),*) => { $(impl PsArg for $t {})* };
+}
+impl_ps_arg_for_numbers!(i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize);
+
+/// Type-check a [`ps_script!`] argument. Called by the macro; not useful alone.
+#[doc(hidden)]
+pub fn ps_arg<T: PsArg + ?Sized>(_: &T) {}
+
+/// Validate a value that must be interpolated **unquoted** — a size or a port.
+///
+/// Some PowerShell parameters cannot take a quoted string: `-MemoryStartupBytes
+/// '4GB'` is not the same as `-MemoryStartupBytes 4GB`, because `4GB` is a
+/// numeric literal. So [`ps_quote`] is not available for them, and they were
+/// interpolated bare — which the source lint cannot flag either, because it
+/// looks for *quoted* placeholders.
+///
+/// Found by [`ps_script!`]'s type check, which is the one layer that sees an
+/// unquoted interpolation: `vm.create(name, memory, disk)` and
+/// `firewall.allow(port)` both put caller strings straight into a command.
+///
+/// The check is a whitelist — digits, at most one decimal point, and an
+/// optional size suffix — so nothing that could carry a metacharacter survives.
+/// The returned [`PsLiteral`] carries no quotes; the type here means "checked
+/// safe to interpolate", which for this shape is validation rather than quoting.
+pub fn ps_bare_number(builtin: &str, value: &str) -> anyhow::Result<PsLiteral> {
+    let v = value.trim();
+    let (digits, suffix) = match v.find(|c: char| c.is_ascii_alphabetic()) {
+        Some(i) => (&v[..i], &v[i..]),
+        None => (v, ""),
+    };
+
+    let digits_ok = !digits.is_empty()
+        && digits.chars().all(|c| c.is_ascii_digit() || c == '.')
+        && digits.matches('.').count() <= 1;
+    let suffix_ok = matches!(
+        suffix.to_ascii_uppercase().as_str(),
+        "" | "KB" | "MB" | "GB" | "TB" | "PB"
+    );
+
+    if digits_ok && suffix_ok {
+        return Ok(PsLiteral(v.to_string()));
+    }
+    Err(anyhow::Error::new(SafetyError {
+        code: ErrorCode::BadArg,
+        message: format!("{}: expected a number or size, got {:?}", builtin, value),
+        builtin: builtin.to_string(),
+        hint: "this value is interpolated into a command unquoted, so it is \
+               restricted to digits with an optional KB/MB/GB/TB/PB suffix"
+            .to_string(),
+        approval: None,
+    }))
+}
+
+/// Join already-escaped literals into one, for the `-Path a,b,c` shape.
+///
+/// Exists so that building a list does not require dropping to `String` and
+/// thereby losing the type that says "this was escaped".
+pub fn ps_join(values: impl IntoIterator<Item = PsLiteral>, sep: &str) -> PsLiteral {
+    PsLiteral(
+        values
+            .into_iter()
+            .map(|v| v.0)
+            .collect::<Vec<_>>()
+            .join(sep),
+    )
+}
+
+/// Type-check an [`applescript!`] argument. Called by the macro.
+#[doc(hidden)]
+pub fn applescript_arg<T: AppleScriptArg + ?Sized>(_: &T) {}
+
+/// Argument types [`applescript!`] accepts. See [`PsArg`].
+pub trait AppleScriptArg {}
+impl AppleScriptArg for AppleScriptLiteral {}
+impl AppleScriptArg for &'static str {}
+
+/// The AppleScript counterpart to [`ps_script!`].
+#[macro_export]
+macro_rules! applescript {
+    ($fmt:literal $(, $arg:expr)* $(,)?) => {{
+        $($crate::safety::applescript_arg(&$arg);)*
+        format!($fmt $(, $arg)*)
+    }};
+}
+
 /// An AppleScript string literal, quoted and escaped, that only
 /// [`applescript_quote`] can build. See [`PsLiteral`].
 #[derive(Debug, Clone, PartialEq, Eq)]

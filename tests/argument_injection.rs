@@ -1,22 +1,35 @@
 //! A fixed program name is not enough: the *arguments* must not be able to
 //! turn a benign-looking builtin into arbitrary execution.
 //!
-//! Two distinct defects, both found on 2026-08-04 and both verified by
-//! execution rather than by reading:
+//! Four defects, all found on 2026-08-04, each by a *different* method — which
+//! is the most useful thing in this file:
 //!
-//! 1. **PowerShell injection (CWE-78).** Windows builtins build commands by
-//!    interpolating values into single-quoted PowerShell literals, e.g.
-//!    `format!("Start-Service '{}'", name)`. A value containing `'` closes the
-//!    string and the rest is executed. Proof: a service name of
-//!    `x'; New-Item -ItemType File -Path '<tmp>' -Force; '` created the file.
+//! 1. **PowerShell injection, single-quoted (CWE-78)** — found by reading.
+//!    `format!("Start-Service '{}'", name)`: a value containing `'` closes the
+//!    literal and the rest executes. Proved with a service name of
+//!    `x'; New-Item -ItemType File -Path '<tmp>' -Force; '`.
 //!
-//! 2. **Option injection (CWE-88).** `tar -cvf out.tar <files>` with a "file"
-//!    named `--use-compress-program=sh -c '…'` runs that command; Info-ZIP's
-//!    `-TT` does the same. Both were reachable with no policy gate, so they
-//!    bypassed the `Effect::Exec` approval added the same day.
+//! 2. **Option injection (CWE-88)** — found by reading. `tar -cvf out.tar
+//!    <files>` with a "file" named `--use-compress-program=sh -c '…'` runs it;
+//!    Info-ZIP's `-TT` likewise.
+//!
+//! 3. **PowerShell injection, double-quoted (CWE-78)** — found by *testing an
+//!    assertion* that (1) had made from reading and got wrong. A double-quoted
+//!    string expands `$`, so `$(cmd)` runs with no quote in the payload at all.
+//!
+//! 4. **Unquoted numeric interpolation** — found by the `ps_script!` type
+//!    check, and findable no other way here: `-MemoryStartupBytes {}` and
+//!    `-LocalPort {}` take caller strings *bare*, so neither reading (which had
+//!    missed them twice) nor the source lint (which looks for quoted
+//!    placeholders) could see them.
+//!
+//! The defence is layered accordingly: correct escapers, a source lint for the
+//! textual shape, and types that make an unescaped value a compile error. Each
+//! layer caught something the others could not.
 
 use aethershell::safety::{
-    applescript_quote, ps_quote, reject_option_like, reject_sqlite_dot_command,
+    applescript_quote, ps_bare_number, ps_join, ps_quote, reject_option_like,
+    reject_sqlite_dot_command,
 };
 
 /// The reason single-quoting is the fix rather than escaping `"`.
@@ -183,6 +196,51 @@ fn quoted_literals_are_a_distinct_type_that_only_the_escapers_produce() {
     //   let _: &str = &*ps_quote("x");                 // no Deref<Target=str>
     //
     // If any of those start compiling, the newtype has become decorative.
+}
+
+/// Values that must be interpolated *unquoted* are validated instead.
+///
+/// `-MemoryStartupBytes '4GB'` is not `-MemoryStartupBytes 4GB` — the latter is
+/// a PowerShell numeric literal — so `ps_quote` is unavailable for these, and
+/// they were going in bare. The source lint cannot catch that either: it looks
+/// for *quoted* placeholders. `ps_script!`'s type check is the layer that found
+/// them (`vm.create` memory/disk, `firewall.allow` port).
+#[test]
+fn bare_numeric_interpolations_are_validated_not_quoted() {
+    for good in ["4GB", "512MB", "1.5TB", "8080", "0", "20gb"] {
+        let v = ps_bare_number("vm_create", good)
+            .unwrap_or_else(|e| panic!("{good:?} should be accepted: {e}"));
+        assert_eq!(v.to_string(), good.trim(), "the value must pass through");
+    }
+
+    for bad in [
+        "4GB; calc",
+        "8080 && id",
+        "$(id)",
+        "1GB'",
+        "",
+        "GB",
+        "1.2.3",
+        "4 GB; rm -rf /",
+    ] {
+        assert!(
+            ps_bare_number("vm_create", bad).is_err(),
+            "{bad:?} reaches a command unquoted and must be refused"
+        );
+    }
+}
+
+/// `ps_join` keeps a list of escaped values in the type, rather than dropping to
+/// `String` and losing the evidence that escaping happened.
+#[test]
+fn ps_join_preserves_escaping_across_a_list() {
+    let joined = ps_join(
+        ["a b".to_string(), "c'd".to_string()]
+            .iter()
+            .map(|s| ps_quote(s)),
+        ",",
+    );
+    assert_eq!(joined.to_string(), "'a b','c''d'");
 }
 
 /// Option-like positional arguments are refused before the tool ever sees them.

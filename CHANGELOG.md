@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-08-05
+
+### Security
+- **Two more injection sites, found by a type check that nothing else could
+  see.** `ps_script!` and `applescript!` now accept only pre-escaped literals
+  (a sealed `PsArg` trait: `PsLiteral`, integers, and `&'static str` — never
+  `String` or a borrowed `&str`), so passing caller data into a shell command
+  is a compile error naming the argument. 56 PowerShell and 2 AppleScript
+  sites were converted.
+
+  Converting them immediately surfaced two live vectors that interpolate
+  **unquoted** — `New-VM -MemoryStartupBytes {}` (`vm.create`) and
+  `New-NetFirewallRule -LocalPort {}` (`firewall.allow`). The 2.0.4 lint is
+  blind to these by construction, since it looks for *quoted* placeholders,
+  and three manual passes had missed them. Neither can be quoted (`4GB` must
+  stay a numeric literal), so `safety::ps_bare_number` validates them against
+  digits plus an optional size suffix.
+
+  Four defects in this class, found four different ways: reading, testing an
+  assertion reading had got wrong, a lint, and a type check. All three defence
+  layers are kept, because each caught what the others could not.
+
 ### Changed
 - **`safety::ps_quote` and `safety::applescript_quote` return newtypes**
   (`PsLiteral`, `AppleScriptLiteral`) rather than `String`, so the *type*
@@ -21,9 +43,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   means the compiler enumerates the call sites, which is what manual review
   failed at three times in this cycle.
 
-  Technically a breaking change to a public API, but `safety::ps_quote` was
-  introduced in 2.0.1 (yanked) and 2.0.2 (yanked) and has no downstream
-  consumers. It will ship with the next release rather than as another patch.
+  This is a breaking change to public API — `safety::ps_quote` ships in 2.0.4 —
+  hence the major version, even though the practical blast radius is nil: the
+  helper is a day old, has no known downstream consumers, and the common use
+  `format!("… {}", ps_quote(v))` is unaffected because the newtype implements
+  `Display`. Semver is about the contract, not the download count.
 
 ## [2.0.4] - 2026-08-04
 

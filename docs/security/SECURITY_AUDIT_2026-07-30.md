@@ -308,13 +308,55 @@ order of strength:
 3. The newtypes (10e) — a `String` cannot be passed where a quoted literal is
    required.
 
-**Remaining residual, honestly.** `format!` accepts anything that implements
-`Display`, so a *new* site can still write `format!("Start-Service '{}'", name)`
-with a bare `String` and compile. Layer 2 is what catches that, and layer 2 is a
-heuristic. Closing it completely needs a `ps_script!` macro that accepts only
-`PsLiteral` arguments, applied at all ~117 PowerShell sites. Not attempted:
-after five releases in one session, a mechanical change of that size belongs in
-its own review cycle rather than at the end of this one.
+### 10f. The macro, and the two sites only a type check could find
+
+The residual above — that `format!` accepts anything `Display`, so a bare
+`String` still compiles — is now closed. `ps_script!` and `applescript!` bind
+every argument through a sealed `PsArg`/`AppleScriptArg` trait before
+formatting, so a `String` is a compile error naming the argument. 56 PowerShell
+sites and 2 AppleScript sites were converted mechanically, with the
+transformation verified by normalising macro names and diffing: nothing changed
+but the call.
+
+`PsArg` is implemented for exactly three things, and the reasoning for each
+matters:
+
+- `PsLiteral` — escaped by construction.
+- Integers — no PowerShell metacharacter has a numeric representation.
+- `&'static str` — a compile-time literal cannot be caller data. This covers the
+  common `match algo { "sha256" => "SHA256", … }` shape. (`String::leak` could
+  forge one, but that is a deliberate act, not an accident.)
+
+Not implemented for `String` or a borrowed `&str`: that is how caller data
+arrives.
+
+**The macro immediately found two injection sites that nothing else could
+have.** Both interpolate *unquoted*, so the 10d lint — which looks for quoted
+placeholders — is blind to them by construction, and three manual passes had
+missed them:
+
+```
+New-VM -MemoryStartupBytes {} -NewVHDSizeBytes {}   vm.create(name, memory, disk)
+New-NetFirewallRule -LocalPort {}                   firewall.allow(port)
+```
+
+Neither can be quoted — `-MemoryStartupBytes '4GB'` is not
+`-MemoryStartupBytes 4GB`, because `4GB` is a numeric literal — so
+`safety::ps_bare_number` validates them instead against a whitelist of digits,
+at most one decimal point, and an optional `KB`/`MB`/`GB`/`TB`/`PB` suffix.
+
+**Four defects, four different detection methods.** 10a and 10b came from
+reading. 10c came from testing an assertion that reading had produced and got
+wrong. 10d came from a lint that fired on six sites reading had missed twice.
+10f came from a type check, on two sites the lint could not see. No single
+method found this class; that is the durable lesson, and it is why all three
+layers are kept rather than the newest one replacing the others.
+
+**Remaining residual.** `ps_script!` is enforced only where it is used — a new
+site can still call `format!` directly. The 10d lint is what catches that, and
+it remains a heuristic. Making the macro mandatory would need a lint rule
+rejecting `format!` in any expression reaching a `Command::new("powershell")`,
+which is a dataflow question a text scan cannot answer.
 
 ## 11. Three more exec paths found by enumerating programs, not reasoning (CWE-77)
 

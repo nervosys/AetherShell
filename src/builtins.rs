@@ -18588,7 +18588,7 @@ fn bi_proc_set_priority(args: Vec<Value>, _input: Option<Value>) -> Result<Value
             p if p < 10 => "BelowNormal",
             _ => "Idle",
         };
-        let cmd = format!(
+        let cmd = crate::ps_script!(
             "(Get-Process -Id {}).PriorityClass = {}",
             pid,
             crate::safety::ps_quote(&priority_class)
@@ -19845,7 +19845,7 @@ fn bi_net_dns_lookup(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let output = std::process::Command::new("powershell")
             .args([
                 "-Command",
-                &format!(
+                &crate::ps_script!(
                     "Resolve-DnsName {} | Select-Object IPAddress | ConvertTo-Json",
                     crate::safety::ps_quote(&hostname)
                 ),
@@ -19902,7 +19902,7 @@ fn bi_net_dns_reverse(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
         let output = std::process::Command::new("powershell")
             .args([
                 "-Command",
-                &format!(
+                &crate::ps_script!(
                     "Resolve-DnsName {} | Select-Object NameHost | ConvertTo-Json",
                     crate::safety::ps_quote(&ip)
                 ),
@@ -21709,7 +21709,7 @@ fn bi_svc_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let output = std::process::Command::new("powershell")
             .args([
                 "-Command",
-                &format!(
+                &crate::ps_script!(
                     "Get-Service {} | Select-Object Name,Status | ConvertTo-Json",
                     crate::safety::ps_quote(&name)
                 ),
@@ -21774,7 +21774,7 @@ fn bi_svc_start(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let output = std::process::Command::new("powershell")
             .args([
                 "-Command",
-                &format!("Start-Service {}", crate::safety::ps_quote(&name)),
+                &crate::ps_script!("Start-Service {}", crate::safety::ps_quote(&name)),
             ])
             .output()?;
         return Ok(Value::Bool(output.status.success()));
@@ -21811,7 +21811,7 @@ fn bi_svc_stop(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let output = std::process::Command::new("powershell")
             .args([
                 "-Command",
-                &format!("Stop-Service {}", crate::safety::ps_quote(&name)),
+                &crate::ps_script!("Stop-Service {}", crate::safety::ps_quote(&name)),
             ])
             .output()?;
         return Ok(Value::Bool(output.status.success()));
@@ -21848,7 +21848,7 @@ fn bi_svc_restart(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let output = std::process::Command::new("powershell")
             .args([
                 "-Command",
-                &format!("Restart-Service {}", crate::safety::ps_quote(&name)),
+                &crate::ps_script!("Restart-Service {}", crate::safety::ps_quote(&name)),
             ])
             .output()?;
         return Ok(Value::Bool(output.status.success()));
@@ -21888,7 +21888,7 @@ fn bi_svc_enable(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let output = std::process::Command::new("powershell")
             .args([
                 "-Command",
-                &format!(
+                &crate::ps_script!(
                     "Set-Service {} -StartupType Automatic",
                     crate::safety::ps_quote(&name)
                 ),
@@ -21928,7 +21928,7 @@ fn bi_svc_disable(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let output = std::process::Command::new("powershell")
             .args([
                 "-Command",
-                &format!(
+                &crate::ps_script!(
                     "Set-Service {} -StartupType Disabled",
                     crate::safety::ps_quote(&name)
                 ),
@@ -21975,7 +21975,7 @@ fn bi_svc_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let output = std::process::Command::new("powershell")
             .args([
                 "-Command",
-                &format!(
+                &crate::ps_script!(
                     "Get-EventLog -LogName Application -Source {} -Newest {} | Select-Object TimeGenerated,EntryType,Message | ConvertTo-Json",
                     crate::safety::ps_quote(&name), lines
                 ),
@@ -22380,13 +22380,9 @@ fn bi_zip_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     #[cfg(target_os = "windows")]
     {
-        let cmd = format!(
+        let cmd = crate::ps_script!(
             "Compress-Archive -Path {} -DestinationPath {}",
-            files
-                .iter()
-                .map(|f| crate::safety::ps_quote(f).to_string())
-                .collect::<Vec<_>>()
-                .join(","),
+            crate::safety::ps_join(files.iter().map(|f| crate::safety::ps_quote(f)), ","),
             crate::safety::ps_quote(&archive)
         );
         let output = std::process::Command::new("powershell")
@@ -22419,7 +22415,7 @@ fn bi_zip_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     #[cfg(target_os = "windows")]
     {
-        let cmd = format!(
+        let cmd = crate::ps_script!(
             "Expand-Archive -Path {} -DestinationPath {}",
             crate::safety::ps_quote(&archive),
             crate::safety::ps_quote(&dest)
@@ -22447,7 +22443,7 @@ fn bi_zip_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
-            .args(["-Command", &format!("Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::OpenRead({}).Entries | Select-Object FullName,Length | ConvertTo-Json", crate::safety::ps_quote(&archive))])
+            .args(["-Command", &crate::ps_script!("Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::OpenRead({}).Entries | Select-Object FullName,Length | ConvertTo-Json", crate::safety::ps_quote(&archive))])
             .output()?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
@@ -22538,13 +22534,9 @@ fn bi_zip_add(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "windows")]
     {
-        let cmd = format!(
+        let cmd = crate::ps_script!(
             "Compress-Archive -Path {} -Update -DestinationPath {}",
-            files
-                .iter()
-                .map(|f| crate::safety::ps_quote(f).to_string())
-                .collect::<Vec<_>>()
-                .join(","),
+            crate::safety::ps_join(files.iter().map(|f| crate::safety::ps_quote(f)), ","),
             crate::safety::ps_quote(&archive)
         );
         let output = std::process::Command::new("powershell")
@@ -22836,7 +22828,7 @@ fn bi_group_members(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let output = std::process::Command::new("powershell")
             .args([
                 "-Command",
-                &format!(
+                &crate::ps_script!(
                     "Get-LocalGroupMember {} | Select-Object Name | ConvertTo-Json",
                     crate::safety::ps_quote(&group)
                 ),
@@ -24292,7 +24284,7 @@ fn bi_gui_focus_window(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 
     #[cfg(target_os = "windows")]
     {
-        let ps_script = format!(
+        let ps_script = crate::ps_script!(
             r#"
 Add-Type @"
 using System;
@@ -24341,7 +24333,7 @@ fn bi_gui_minimize_window(args: Vec<Value>, _input: Option<Value>) -> Result<Val
 
     #[cfg(target_os = "windows")]
     {
-        let ps_script = format!(
+        let ps_script = crate::ps_script!(
             r#"
 Add-Type @"
 using System;
@@ -24388,7 +24380,7 @@ fn bi_gui_maximize_window(args: Vec<Value>, _input: Option<Value>) -> Result<Val
 
     #[cfg(target_os = "windows")]
     {
-        let ps_script = format!(
+        let ps_script = crate::ps_script!(
             r#"
 Add-Type @"
 using System;
@@ -24435,7 +24427,7 @@ fn bi_gui_close_window(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 
     #[cfg(target_os = "windows")]
     {
-        let ps_script = format!(
+        let ps_script = crate::ps_script!(
             r#"
 Add-Type @"
 using System;
@@ -24490,7 +24482,7 @@ fn bi_gui_move_window(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 
     #[cfg(target_os = "windows")]
     {
-        let ps_script = format!(
+        let ps_script = crate::ps_script!(
             r#"
 Add-Type @"
 using System;
@@ -24547,7 +24539,7 @@ fn bi_gui_resize_window(args: Vec<Value>, _input: Option<Value>) -> Result<Value
 
     #[cfg(target_os = "windows")]
     {
-        let ps_script = format!(
+        let ps_script = crate::ps_script!(
             r#"
 Add-Type @"
 using System;
@@ -24604,7 +24596,7 @@ fn bi_gui_screenshot(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     #[cfg(target_os = "windows")]
     {
-        let ps_script = format!(
+        let ps_script = crate::ps_script!(
             r#"
 Add-Type -AssemblyName System.Windows.Forms
 $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
@@ -24940,7 +24932,7 @@ fn bi_gui_key_press(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let output = std::process::Command::new("powershell")
             .args([
                 "-Command",
-                &format!(
+                &crate::ps_script!(
                     r#"
 Add-Type -AssemblyName System.Windows.Forms
 [System.Windows.Forms.SendKeys]::SendWait({})
@@ -24993,7 +24985,7 @@ fn bi_gui_key_combo(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let output = std::process::Command::new("powershell")
             .args([
                 "-Command",
-                &format!(
+                &crate::ps_script!(
                     r#"
 Add-Type -AssemblyName System.Windows.Forms
 [System.Windows.Forms.SendKeys]::SendWait({})
@@ -25033,7 +25025,7 @@ fn bi_gui_type_text(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let output = std::process::Command::new("powershell")
             .args([
                 "-Command",
-                &format!(
+                &crate::ps_script!(
                     r#"
 Add-Type -AssemblyName System.Windows.Forms
 [System.Windows.Forms.SendKeys]::SendWait({})
@@ -25182,7 +25174,7 @@ fn bi_gui_notify(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     #[cfg(target_os = "windows")]
     {
-        let ps_script = format!(
+        let ps_script = crate::ps_script!(
             r#"
 [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
 $template = [Windows.UI.Notifications.ToastTemplateType]::ToastText02
@@ -25213,7 +25205,7 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
         let output = std::process::Command::new("osascript")
             .args([
                 "-e",
-                &format!(
+                &crate::applescript!(
                     "display notification {} with title {}",
                     crate::safety::applescript_quote(&message),
                     crate::safety::applescript_quote(&title)
@@ -25239,7 +25231,7 @@ fn bi_gui_dialog_message(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
 
     #[cfg(target_os = "windows")]
     {
-        let ps_script = format!(
+        let ps_script = crate::ps_script!(
             r#"
 Add-Type -AssemblyName System.Windows.Forms
 [System.Windows.Forms.MessageBox]::Show({}, {})
@@ -25264,7 +25256,7 @@ Add-Type -AssemblyName System.Windows.Forms
         let output = std::process::Command::new("osascript")
             .args([
                 "-e",
-                &format!(
+                &crate::applescript!(
                     "display dialog {} with title {}",
                     crate::safety::applescript_quote(&message),
                     crate::safety::applescript_quote(&title)
@@ -25313,7 +25305,7 @@ fn bi_gui_dialog_file_open(args: Vec<Value>, _input: Option<Value>) -> Result<Va
 
     #[cfg(target_os = "windows")]
     {
-        let ps_script = format!(
+        let ps_script = crate::ps_script!(
             r#"
 Add-Type -AssemblyName System.Windows.Forms
 $dialog = New-Object System.Windows.Forms.OpenFileDialog
@@ -25357,7 +25349,7 @@ fn bi_gui_dialog_file_save(args: Vec<Value>, _input: Option<Value>) -> Result<Va
 
     #[cfg(target_os = "windows")]
     {
-        let ps_script = format!(
+        let ps_script = crate::ps_script!(
             r#"
 Add-Type -AssemblyName System.Windows.Forms
 $dialog = New-Object System.Windows.Forms.SaveFileDialog
@@ -25401,7 +25393,7 @@ fn bi_gui_dialog_folder(args: Vec<Value>, _input: Option<Value>) -> Result<Value
 
     #[cfg(target_os = "windows")]
     {
-        let ps_script = format!(
+        let ps_script = crate::ps_script!(
             r#"
 Add-Type -AssemblyName System.Windows.Forms
 $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
@@ -26339,7 +26331,7 @@ fn bi_clipboard_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         let output = std::process::Command::new("powershell")
             .args([
                 "-Command",
-                &format!("Set-Clipboard -Value {}", crate::safety::ps_quote(&text)),
+                &crate::ps_script!("Set-Clipboard -Value {}", crate::safety::ps_quote(&text)),
             ])
             .output()?;
         Ok(Value::Bool(output.status.success()))
@@ -26452,7 +26444,7 @@ fn bi_input_read_password(args: Vec<Value>, _input: Option<Value>) -> Result<Val
 
     #[cfg(target_os = "windows")]
     {
-        let ps_script = format!(
+        let ps_script = crate::ps_script!(
             r#"
 $password = Read-Host -Prompt {} -AsSecureString
 $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($password)
@@ -26720,7 +26712,7 @@ fn bi_crypto_hash(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             "sha512" | "sha-512" => "SHA512",
             _ => "SHA256",
         };
-        let ps_script = format!(
+        let ps_script = crate::ps_script!(
             r#"
 $bytes = [System.Text.Encoding]::UTF8.GetBytes({})
 $hash = [System.Security.Cryptography.HashAlgorithm]::Create({})
@@ -26788,7 +26780,7 @@ fn bi_crypto_hash_file(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         let output = std::process::Command::new("powershell")
             .args([
                 "-Command",
-                &format!(
+                &crate::ps_script!(
                     "(Get-FileHash -Path {} -Algorithm {}).Hash.ToLower()",
                     crate::safety::ps_quote(&path),
                     ps_algo
@@ -26850,7 +26842,7 @@ fn bi_crypto_hmac(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             "sha512" | "sha-512" => "SHA512",
             _ => "SHA256",
         };
-        let ps_script = format!(
+        let ps_script = crate::ps_script!(
             r#"
 $key = [System.Text.Encoding]::UTF8.GetBytes({})
 $data = [System.Text.Encoding]::UTF8.GetBytes({})
@@ -26998,7 +26990,7 @@ fn bi_crypto_random_string(args: Vec<Value>, _input: Option<Value>) -> Result<Va
 
     #[cfg(target_os = "windows")]
     {
-        let ps_script = format!(
+        let ps_script = crate::ps_script!(
             r#"
 $charset = {}
 $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
@@ -27053,7 +27045,7 @@ fn bi_crypto_base64_encode(args: Vec<Value>, input: Option<Value>) -> Result<Val
 
     #[cfg(target_os = "windows")]
     {
-        let ps_script = format!(
+        let ps_script = crate::ps_script!(
             r#"
 [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes({}))
 "#,
@@ -27099,7 +27091,7 @@ fn bi_crypto_base64_decode(args: Vec<Value>, input: Option<Value>) -> Result<Val
 
     #[cfg(target_os = "windows")]
     {
-        let ps_script = format!(
+        let ps_script = crate::ps_script!(
             r#"
 [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String({}))
 "#,
@@ -27980,7 +27972,7 @@ fn bi_crypto_jwt_decode(args: Vec<Value>, _input: Option<Value>) -> Result<Value
 
         #[cfg(target_os = "windows")]
         {
-            let ps_script = format!(
+            let ps_script = crate::ps_script!(
                 r#"
 [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String({}))
 "#,
@@ -33815,7 +33807,7 @@ fn bi_platform_disk_usage(args: Vec<Value>, _input: Option<Value>) -> Result<Val
             "C:"
         };
         // Use PowerShell Get-CimInstance instead of WMIC
-        let ps_cmd = format!(
+        let ps_cmd = crate::ps_script!(
             "$disk = Get-CimInstance Win32_LogicalDisk | Where-Object {{ $_.DeviceID -eq {} }};              if ($disk) {{                $disk | Select-Object @{{N='Size';E={{$_.Size}}}}, @{{N='FreeSpace';E={{$_.FreeSpace}}}} |                ForEach-Object {{ 'Size=' + $_.Size; 'FreeSpace=' + $_.FreeSpace }}              }}",
             crate::safety::ps_quote(&drive)
         );
@@ -36103,7 +36095,7 @@ fn bi_vm_start(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = require_str(&args, 0, "vm.start")?;
     match detect_hypervisor() {
         "hyperv" => {
-            let script = format!("Start-VM -Name {}", crate::safety::ps_quote(&name));
+            let script = crate::ps_script!("Start-VM -Name {}", crate::safety::ps_quote(&name));
             vm_run_powershell(&script)?;
             Ok(Value::Str(format!("VM '{}' started (Hyper-V)", name)))
         }
@@ -36126,7 +36118,8 @@ fn bi_vm_stop(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = require_str(&args, 0, "vm.stop")?;
     match detect_hypervisor() {
         "hyperv" => {
-            let script = format!("Stop-VM -Name {} -Force", crate::safety::ps_quote(&name));
+            let script =
+                crate::ps_script!("Stop-VM -Name {} -Force", crate::safety::ps_quote(&name));
             vm_run_powershell(&script)?;
             Ok(Value::Str(format!("VM '{}' stopped (Hyper-V)", name)))
         }
@@ -36149,7 +36142,8 @@ fn bi_vm_restart(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = require_str(&args, 0, "vm.restart")?;
     match detect_hypervisor() {
         "hyperv" => {
-            let script = format!("Restart-VM -Name {} -Force", crate::safety::ps_quote(&name));
+            let script =
+                crate::ps_script!("Restart-VM -Name {} -Force", crate::safety::ps_quote(&name));
             vm_run_powershell(&script)?;
             Ok(Value::Str(format!("VM '{}' restarted (Hyper-V)", name)))
         }
@@ -36172,7 +36166,7 @@ fn bi_vm_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = require_str(&args, 0, "vm.status")?;
     match detect_hypervisor() {
         "hyperv" => {
-            let script = format!(
+            let script = crate::ps_script!(
                 "(Get-VM -Name {}).State.ToString()",
                 crate::safety::ps_quote(&name)
             );
@@ -36204,7 +36198,7 @@ fn bi_vm_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = require_str(&args, 0, "vm.info")?;
     match detect_hypervisor() {
         "hyperv" => {
-            let script = format!("Get-VM -Name {} | Select-Object Name,State,CPUUsage,MemoryAssigned,MemoryDemand,Uptime,Status,Version | ConvertTo-Json", crate::safety::ps_quote(&name));
+            let script = crate::ps_script!("Get-VM -Name {} | Select-Object Name,State,CPUUsage,MemoryAssigned,MemoryDemand,Uptime,Status,Version | ConvertTo-Json", crate::safety::ps_quote(&name));
             vm_run_powershell_json(&script)
         }
         "virsh" => {
@@ -36283,9 +36277,11 @@ fn bi_vm_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     match detect_hypervisor() {
         "hyperv" => {
-            let script = format!(
+            let script = crate::ps_script!(
                 "New-VM -Name {} -MemoryStartupBytes {} -NewVHDSizeBytes {} -Generation 2 | ConvertTo-Json",
-                crate::safety::ps_quote(&name), memory, disk
+                crate::safety::ps_quote(&name),
+                crate::safety::ps_bare_number("vm_create", &memory)?,
+                crate::safety::ps_bare_number("vm_create", &disk)?
             );
             vm_run_powershell_json(&script)
         }
@@ -36344,7 +36340,8 @@ fn bi_vm_delete(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = require_str(&args, 0, "vm.delete")?;
     match detect_hypervisor() {
         "hyperv" => {
-            let script = format!("Remove-VM -Name {} -Force", crate::safety::ps_quote(&name));
+            let script =
+                crate::ps_script!("Remove-VM -Name {} -Force", crate::safety::ps_quote(&name));
             vm_run_powershell(&script)?;
             Ok(Value::Str(format!("VM '{}' deleted (Hyper-V)", name)))
         }
@@ -36408,7 +36405,7 @@ fn bi_vm_snapshot_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     let vm_name = require_str(&args, 0, "vm.snapshot_list")?;
     match detect_hypervisor() {
         "hyperv" => {
-            let script = format!("Get-VMSnapshot -VMName {} | Select-Object Name,CreationTime,SnapshotType | ConvertTo-Json", crate::safety::ps_quote(&vm_name));
+            let script = crate::ps_script!("Get-VMSnapshot -VMName {} | Select-Object Name,CreationTime,SnapshotType | ConvertTo-Json", crate::safety::ps_quote(&vm_name));
             vm_run_powershell_json(&script)
         }
         "virsh" => {
@@ -36473,7 +36470,7 @@ fn bi_vm_clone(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let new_name = require_str(&args, 1, "vm.clone")?;
     match detect_hypervisor() {
         "hyperv" => {
-            let script = format!(
+            let script = crate::ps_script!(
                 "$vm = Get-VM -Name {}; Export-VM -Name {} -Path $env:TEMP; Import-VM -Path (Join-Path $env:TEMP {} 'Virtual Machines' '*.vmcx') -Copy -GenerateNewId | Rename-VM -NewName {} | ConvertTo-Json",
                 crate::safety::ps_quote(&source),
                 crate::safety::ps_quote(&source),
@@ -36522,7 +36519,7 @@ fn bi_hyperv_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // ---------------------------------------------------------------------------
 fn bi_hyperv_start(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = require_str(&args, 0, "hyperv.start")?;
-    let script = format!("Start-VM -Name {}", crate::safety::ps_quote(&name));
+    let script = crate::ps_script!("Start-VM -Name {}", crate::safety::ps_quote(&name));
     vm_run_powershell(&script)?;
     Ok(Value::Str(format!("Hyper-V VM '{}' started", name)))
 }
@@ -36532,7 +36529,7 @@ fn bi_hyperv_start(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // ---------------------------------------------------------------------------
 fn bi_hyperv_stop(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = require_str(&args, 0, "hyperv.stop")?;
-    let script = format!("Stop-VM -Name {} -Force", crate::safety::ps_quote(&name));
+    let script = crate::ps_script!("Stop-VM -Name {} -Force", crate::safety::ps_quote(&name));
     vm_run_powershell(&script)?;
     Ok(Value::Str(format!("Hyper-V VM '{}' stopped", name)))
 }
@@ -36542,7 +36539,7 @@ fn bi_hyperv_stop(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // ---------------------------------------------------------------------------
 fn bi_hyperv_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = require_str(&args, 0, "hyperv.status")?;
-    let script = format!(
+    let script = crate::ps_script!(
         "Get-VM -Name {} | Select-Object Name,State,CPUUsage,MemoryAssigned,MemoryDemand,Uptime,Status,Version,Generation,ProcessorCount | ConvertTo-Json",
         crate::safety::ps_quote(&name)
     );
@@ -38650,7 +38647,7 @@ pub fn bi_sysctl_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args([
                 "-NoProfile",
                 "-Command",
-                &format!(
+                &crate::ps_script!(
                     "Get-ItemProperty {} | ConvertTo-Json",
                     crate::safety::ps_quote(&key)
                 ),
@@ -39679,9 +39676,10 @@ pub fn bi_firewall_allow(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
         let port_only = port_str.split('/').next().unwrap_or(&port_str);
         let out = sec_run_cmd("powershell", &[
             "-NoProfile", "-Command",
-            &format!(
+            &crate::ps_script!(
                 "New-NetFirewallRule -DisplayName {} -Direction Inbound -LocalPort {} -Protocol TCP -Action Allow | Select-Object Name,DisplayName | ConvertTo-Json",
-                crate::safety::ps_quote(&name), port_only
+                crate::safety::ps_quote(&name),
+                crate::safety::ps_bare_number("firewall_rule", port_only)?
             ),
         ])?;
         Ok(rec(vec![
@@ -39751,9 +39749,10 @@ pub fn bi_firewall_deny(args: Vec<Value>, _input: Option<Value>) -> Result<Value
         let port_only = port_str.split('/').next().unwrap_or(&port_str);
         let out = sec_run_cmd("powershell", &[
             "-NoProfile", "-Command",
-            &format!(
+            &crate::ps_script!(
                 "New-NetFirewallRule -DisplayName {} -Direction Inbound -LocalPort {} -Protocol TCP -Action Block | Select-Object Name,DisplayName | ConvertTo-Json",
-                crate::safety::ps_quote(&name), port_only
+                crate::safety::ps_quote(&name),
+                crate::safety::ps_bare_number("firewall_rule", port_only)?
             ),
         ])?;
         Ok(rec(vec![
@@ -39823,7 +39822,7 @@ pub fn bi_firewall_delete(args: Vec<Value>, _input: Option<Value>) -> Result<Val
             &[
                 "-NoProfile",
                 "-Command",
-                &format!(
+                &crate::ps_script!(
                 "Remove-NetFirewallRule -DisplayName {} -ErrorAction Stop; Write-Output 'deleted'",
                 crate::safety::ps_quote(&rule_id)
             ),
