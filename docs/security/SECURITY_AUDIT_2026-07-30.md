@@ -758,3 +758,24 @@ Not audit fixes; each needs an explicit call.
    Hub and ghcr.io, now that Docker is no longer a distribution channel.
 6. **Add a `TimeoutLayer` to the Agent API** — currently an authenticated
    caller can hold a worker indefinitely.
+
+## Decisions taken, 2026-08-06
+
+**Every version other than 3.0.1 is now yanked, on both crates.** The eight
+pre-audit releases (`1.7.3`–`1.6.0`, `0.3.1`–`0.2.0`) each predate finding 6,
+so `cargo install aethershell --version 1.7.3` served an agent API that
+executed code for unauthenticated callers. Leaving them installable while
+`2.0.0`–`3.0.0` were yanked for strictly lesser defects was inconsistent in
+the wrong direction. Yanking does not alter any existing `Cargo.lock`; it only
+removes these versions from new resolution, and it is reversible with
+`cargo unyank`. The same reasoning was applied to `aethershell-lsp`, whose
+pre-audit versions depend on the vulnerable `aethershell`.
+
+**The crates.io publishing token is knowingly unrotated.** It was exposed in a
+maintainer's terminal session on 2026-08-05 — an `echo` using `${VAR:+…}${VAR:-…}`
+printed the value rather than a yes/no — and has been used for twelve
+publishes since. The maintainer has weighed this and is deferring rotation. It
+is recorded here rather than left implicit: anyone with that value can publish
+or yank arbitrary versions of both crates. Rotation is at
+`crates.io/settings/tokens`, and the new value must also replace the
+`CARGO_REGISTRY_TOKEN` GitHub Actions secret.
