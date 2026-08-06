@@ -5,6 +5,11 @@ on:
         branches: [main, master]
     pull_request:
         branches: [main, master]
+    # Manual re-run. Added 2026-08-06, during a GitHub Actions incident that
+    # throttled webhook delivery: pushes landed but triggered no runs, and
+    # without this the only way to get CI to run on an already-pushed commit
+    # was an empty commit. Release and Security Audit already had it.
+    workflow_dispatch:
 
 env:
     CARGO_TERM_COLOR: always
