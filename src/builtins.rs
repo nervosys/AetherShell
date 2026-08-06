@@ -18205,7 +18205,7 @@ fn bi_proc_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     #[cfg(target_os = "windows")]
     {
-        let cmd = format!(
+        let cmd = crate::ps_script!(
             "Get-Process -Id {} | Select-Object Id,ProcessName,CPU,WorkingSet64,StartTime,Path | ConvertTo-Json",
             pid
         );
@@ -18359,7 +18359,7 @@ fn bi_proc_wait(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             let output = std::process::Command::new("powershell")
                 .args([
                     "-Command",
-                    &format!("Get-Process -Id {} -ErrorAction SilentlyContinue", pid),
+                    &crate::ps_script!("Get-Process -Id {} -ErrorAction SilentlyContinue", pid),
                 ])
                 .output()?;
             if !output.status.success() || output.stdout.is_empty() {
@@ -18392,7 +18392,7 @@ fn bi_proc_exists(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let output = std::process::Command::new("powershell")
             .args([
                 "-Command",
-                &format!("Get-Process -Id {} -ErrorAction SilentlyContinue", pid),
+                &crate::ps_script!("Get-Process -Id {} -ErrorAction SilentlyContinue", pid),
             ])
             .output()?;
         Ok(Value::Bool(
@@ -18416,7 +18416,7 @@ fn bi_proc_children(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     #[cfg(target_os = "windows")]
     {
-        let cmd = format!(
+        let cmd = crate::ps_script!(
             "Get-CimInstance Win32_Process | Where-Object {{ $_.ParentProcessId -eq {} }} | Select-Object ProcessId | ConvertTo-Json",
             pid
         );
@@ -18465,7 +18465,7 @@ fn bi_proc_parent(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     #[cfg(target_os = "windows")]
     {
-        let cmd = format!(
+        let cmd = crate::ps_script!(
             "(Get-CimInstance Win32_Process -Filter \"ProcessId={}\" ).ParentProcessId",
             pid
         );
@@ -18516,7 +18516,7 @@ fn bi_proc_priority(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // Returns a consistent Record {nice: Int, class: String} on all platforms
     #[cfg(target_os = "windows")]
     {
-        let cmd = format!("(Get-Process -Id {}).PriorityClass", pid);
+        let cmd = crate::ps_script!("(Get-Process -Id {}).PriorityClass", pid);
         let output = std::process::Command::new("powershell")
             .args(["-Command", &cmd])
             .output()?;
@@ -18615,7 +18615,7 @@ fn bi_proc_cpu_usage(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     #[cfg(target_os = "windows")]
     {
-        let cmd = format!("(Get-Process -Id {}).CPU", pid);
+        let cmd = crate::ps_script!("(Get-Process -Id {}).CPU", pid);
         let output = std::process::Command::new("powershell")
             .args(["-Command", &cmd])
             .output()?;
@@ -18651,7 +18651,7 @@ fn bi_proc_mem_usage(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     #[cfg(target_os = "windows")]
     {
-        let cmd = format!("(Get-Process -Id {}).WorkingSet64", pid);
+        let cmd = crate::ps_script!("(Get-Process -Id {}).WorkingSet64", pid);
         let output = std::process::Command::new("powershell")
             .args(["-Command", &cmd])
             .output()?;
@@ -18687,7 +18687,7 @@ fn bi_proc_threads(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     #[cfg(target_os = "windows")]
     {
-        let cmd = format!("(Get-Process -Id {}).Threads.Count", pid);
+        let cmd = crate::ps_script!("(Get-Process -Id {}).Threads.Count", pid);
         let output = std::process::Command::new("powershell")
             .args(["-Command", &cmd])
             .output()?;
@@ -18730,7 +18730,7 @@ fn bi_proc_env(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
         // Windows: use WMI to get process environment (requires elevation for other processes)
-        let cmd = format!(
+        let cmd = crate::ps_script!(
             "(Get-CimInstance Win32_Process -Filter \"ProcessId={}\").GetOwner() | Out-Null; [System.Environment]::GetEnvironmentVariables() | ConvertTo-Json",
             pid
         );
@@ -18828,7 +18828,7 @@ fn bi_proc_exe(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     #[cfg(target_os = "windows")]
     {
-        let cmd = format!("(Get-Process -Id {}).Path", pid);
+        let cmd = crate::ps_script!("(Get-Process -Id {}).Path", pid);
         let output = std::process::Command::new("powershell")
             .args(["-Command", &cmd])
             .output()?;
@@ -18868,7 +18868,7 @@ fn bi_proc_cmdline(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // Always returns Array<String> on all platforms
     #[cfg(target_os = "windows")]
     {
-        let cmd = format!(
+        let cmd = crate::ps_script!(
             "(Get-CimInstance Win32_Process -Filter \"ProcessId={}\").CommandLine",
             pid
         );
@@ -18922,7 +18922,7 @@ fn bi_proc_start_time(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 
     #[cfg(target_os = "windows")]
     {
-        let cmd = format!("(Get-Process -Id {}).StartTime.ToString('o')", pid);
+        let cmd = crate::ps_script!("(Get-Process -Id {}).StartTime.ToString('o')", pid);
         let output = std::process::Command::new("powershell")
             .args(["-Command", &cmd])
             .output()?;
@@ -24680,7 +24680,7 @@ fn bi_gui_mouse_move(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     #[cfg(target_os = "windows")]
     {
-        let ps_script = format!(
+        let ps_script = crate::ps_script!(
             r#"
 Add-Type @"
 using System;
@@ -24691,7 +24691,8 @@ public class MouseMove {{
 "@
 [MouseMove]::SetCursorPos({}, {})
 "#,
-            x, y
+            x,
+            y
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
@@ -24736,7 +24737,7 @@ fn bi_gui_mouse_click(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
             "middle" => (0x0020, 0x0040),
             _ => (0x0002, 0x0004), // left
         };
-        let ps_script = format!(
+        let ps_script = crate::ps_script!(
             r#"
 Add-Type @"
 using System;
@@ -24748,7 +24749,8 @@ public class MouseClick {{
 [MouseClick]::mouse_event({}, 0, 0, 0, [UIntPtr]::Zero)
 [MouseClick]::mouse_event({}, 0, 0, 0, [UIntPtr]::Zero)
 "#,
-            down, up
+            down,
+            up
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
@@ -24836,7 +24838,7 @@ fn bi_gui_mouse_scroll(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 
     #[cfg(target_os = "windows")]
     {
-        let ps_script = format!(
+        let ps_script = crate::ps_script!(
             r#"
 Add-Type @"
 using System;
@@ -26942,7 +26944,7 @@ fn bi_crypto_random_bytes(args: Vec<Value>, _input: Option<Value>) -> Result<Val
 
     #[cfg(target_os = "windows")]
     {
-        let ps_script = format!(
+        let ps_script = crate::ps_script!(
             r#"
 $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
 $bytes = New-Object byte[] {}
@@ -37721,12 +37723,15 @@ pub fn bi_dmesg(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "windows")]
     {
-        let count = match args.first() {
-            Some(Value::Int(n)) => n.to_string(),
-            _ => "50".to_string(),
+        // Kept as an integer rather than a pre-stringified count: `ps_script!`
+        // only accepts pre-escaped literals and numbers, so a `String` here
+        // would not compile even though this one happens to be safe.
+        let count: i64 = match args.first() {
+            Some(Value::Int(n)) => *n,
+            _ => 50,
         };
         let out = Command::new("powershell").args(["-NoProfile", "-Command",
-            &format!("Get-WinEvent -LogName System -MaxEvents {} | Select-Object TimeCreated,Id,LevelDisplayName,Message | ConvertTo-Json", count)])
+            &crate::ps_script!("Get-WinEvent -LogName System -MaxEvents {} | Select-Object TimeCreated,Id,LevelDisplayName,Message | ConvertTo-Json", count)])
             .output().map_err(|e| anyhow!("dmesg: {}", e))?;
         let json: serde_json::Value = serde_json::from_slice(&out.stdout)
             .map_err(|e| anyhow!("dmesg: parse error: {}", e))?;
@@ -41390,7 +41395,7 @@ pub fn bi_ip_addr(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
         let ps_cmd = if let Some(ref iface_name) = iface {
-            format!("Get-NetIPAddress | Where-Object {{ $_.InterfaceAlias -like '*{}*' }} | Select-Object InterfaceAlias, IPAddress, PrefixLength, AddressFamily, Type | ConvertTo-Json -Depth 3", iface_name)
+            crate::ps_script!("Get-NetIPAddress | Where-Object {{ $_.InterfaceAlias -like {} }} | Select-Object InterfaceAlias, IPAddress, PrefixLength, AddressFamily, Type | ConvertTo-Json -Depth 3", crate::safety::ps_quote(&format!("*{}*", iface_name)))
         } else {
             "Get-NetIPAddress | Select-Object InterfaceAlias, IPAddress, PrefixLength, AddressFamily, Type | ConvertTo-Json -Depth 3".to_string()
         };
@@ -41561,7 +41566,7 @@ pub fn bi_ip_link(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
         let ps_cmd = if let Some(ref iface_name) = iface {
-            format!("Get-NetAdapter | Where-Object {{ $_.Name -like '*{}*' }} | Select-Object Name, InterfaceDescription, Status, MacAddress, LinkSpeed, MediaType | ConvertTo-Json -Depth 3", iface_name)
+            crate::ps_script!("Get-NetAdapter | Where-Object {{ $_.Name -like {} }} | Select-Object Name, InterfaceDescription, Status, MacAddress, LinkSpeed, MediaType | ConvertTo-Json -Depth 3", crate::safety::ps_quote(&format!("*{}*", iface_name)))
         } else {
             "Get-NetAdapter | Select-Object Name, InterfaceDescription, Status, MacAddress, LinkSpeed, MediaType | ConvertTo-Json -Depth 3".to_string()
         };
@@ -42011,7 +42016,7 @@ pub fn bi_last_logins(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 
     #[cfg(target_os = "windows")]
     {
-        let ps_cmd = format!(
+        let ps_cmd = crate::ps_script!(
             r#"try {{
     Get-WinEvent -FilterHashtable @{{LogName='Security'; Id=4624}} -MaxEvents {} -ErrorAction Stop |
         Select-Object TimeCreated, Id, @{{Name='User';Expression={{$_.Properties[5].Value}}}}, @{{Name='LogonType';Expression={{$_.Properties[8].Value}}}}, @{{Name='SourceIP';Expression={{$_.Properties[18].Value}}}} |
@@ -42107,17 +42112,17 @@ pub fn bi_syslog_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value
 
     #[cfg(target_os = "windows")]
     {
-        let ps_cmd = format!(
+        let ps_cmd = crate::ps_script!(
             r#"try {{
     Get-WinEvent -FilterHashtable @{{LogName='System'}} -MaxEvents 500 -ErrorAction Stop |
-        Where-Object {{ $_.Message -like '*{}*' }} |
+        Where-Object {{ $_.Message -like {} }} |
         Select-Object -First {} |
         Select-Object TimeCreated, Id, LevelDisplayName, ProviderName, Message |
         ConvertTo-Json -Depth 3
 }} catch {{
     @{{available = $false; reason = $_.Exception.Message}} | ConvertTo-Json
 }}"#,
-            keyword.replace("'", "''"),
+            crate::safety::ps_quote(&format!("*{}*", keyword)),
             count
         );
         let output = Command::new("powershell")
@@ -46001,9 +46006,9 @@ fn bi_timeout_cmd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = if cfg!(target_os = "windows") {
         // Windows: use Start-Process with timeout via powershell
         std::process::Command::new("powershell")
-            .args(["-Command", &format!(
-                "$p = Start-Process -FilePath cmd -ArgumentList '/C {}' -PassThru -NoNewWindow; if(!$p.WaitForExit({}000)){{ $p.Kill(); 'TIMEOUT' }} else {{ $p.ExitCode }}",
-                command, seconds
+            .args(["-Command", &crate::ps_script!(
+                "$p = Start-Process -FilePath cmd -ArgumentList {} -PassThru -NoNewWindow; if(!$p.WaitForExit({}000)){{ $p.Kill(); 'TIMEOUT' }} else {{ $p.ExitCode }}",
+                crate::safety::ps_quote(&format!("/C {}", command)), seconds
             )])
             .output()
     } else {

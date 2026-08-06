@@ -1,4 +1,4 @@
-# Security Audit — 2026-07-30, updated 2026-08-04
+# Security Audit — 2026-07-30, updated 2026-08-06
 
 Scope: the `master` tree, covering the `aethershell`, `aethershell-lsp` and
 `agentic-eval` crates, the browser extension, and the CI and release workflows.
@@ -52,6 +52,12 @@ A pattern worth naming: 7, 10 and 11 were each found by testing an assumption
 the *previous* finding had rested on. Reasoning about which programs are
 dangerous produced two wrong answers before enumeration produced a defensible
 one.
+
+The pattern held through a fifth iteration (10g, 2026-08-06): a second lint,
+written to close 10f's stated residual, found three further live injections of a
+shape the *first* lint could not match. Each layer has now found something every
+prior layer missed. Read the green state as "no defect the current five methods
+can see", not as absence.
 
 ---
 
@@ -357,6 +363,58 @@ site can still call `format!` directly. The 10d lint is what catches that, and
 it remains a heuristic. Making the macro mandatory would need a lint rule
 rejecting `format!` in any expression reaching a `Command::new("powershell")`,
 which is a dataflow question a text scan cannot answer.
+
+### 10g. Making the macro mandatory, and four more live injections
+
+The 10f residual — that the macro is only enforced where it is already used — is
+now closed by a second lint,
+`powershell_commands_with_values_use_the_checked_macro`. It approximates the
+dataflow question 10f called unanswerable by a text scan, and the approximation
+is deliberately crude: any line that looks like a PowerShell or AppleScript
+command, contains a `{}`, and sits inside a `format!` rather than `ps_script!`
+is an offender. It over-flags, and `ALLOWED` absorbs the false positives. That
+is the correct trade here — a missed site is an injection, a false positive is
+an annoyance.
+
+It flagged 21 sites. Seventeen were numeric interpolations that only needed
+routing through the macro. **Three were live injections, and a fourth was
+hand-escaped rather than helper-escaped:**
+
+| Builtin | Fragment | Status before |
+| --- | --- | --- |
+| `net.ip_addresses` | `Get-NetIPAddress … -like '*{}*'` | unescaped |
+| `net.adapters` | `Get-NetAdapter … -like '*{}*'` | unescaped |
+| `timeout` (Windows) | `Start-Process … -ArgumentList '/C {}'` | unescaped |
+| `log.search` | `Get-WinEvent … -like '*{}*'` | hand-escaped |
+
+An interface name or command containing `'` terminates the string and the rest
+executes. `timeout` is the worst of the four: the injected text lands in a
+`cmd /C` argument list, so it needs no PowerShell knowledge to exploit.
+
+**Why four detection layers had all missed them.** The 10d lint matches the
+exact shapes `'{}'` and `"{}"`. These *embed* the placeholder in a larger quoted
+string — `'*{}*'`, `'/C {}'` — so the substring never appears. The lint had
+looked like coverage for this class while being blind to its most common shape.
+`is_suspect` now pairs single quotes around a placeholder generally, with the
+four shapes above as regression assertions. It is restricted to single quotes on
+purpose: a `"` on these lines is usually the Rust literal's own delimiter, so
+pairing across it would flag the correct unquoted `-Id {}` numeric form.
+
+All four are fixed by `ps_quote` over the full pattern — `ps_quote(&format!("*{}*", v))`
+— which escapes the value and supplies the quotes, leaving the wildcards outside
+the escaped span where they belong.
+
+The type check also rejected one further site, `dmesg`, which passed a
+pre-stringified `count` into `-MaxEvents {}`. That one was safe in fact — the
+value is either a stringified `Int` or the literal `"50"` — but the type cannot
+see that, and it should not have to. It is now carried as an `i64`.
+
+**Five defects, five detection methods.** This is the fifth consecutive time a
+new method found what every previous method had missed: reading, then a test of
+reading's conclusion, then a lint, then a type check, now a second lint aimed at
+the first lint's blind spot. The pattern has not yet broken. That is the
+strongest available evidence that this class is not exhausted, and it argues
+against reading the current green state as proof of absence.
 
 ## 11. Three more exec paths found by enumerating programs, not reasoning (CWE-77)
 

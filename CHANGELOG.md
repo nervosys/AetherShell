@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.1] - 2026-08-06
+
+### Security
+- **Three more live PowerShell injection sites (CWE-78), found by a second lint
+  aimed at the first lint's blind spot.** 3.0.0 closed the "a new site can call
+  `format!` instead of `ps_script!`" residual only by convention. This release
+  adds `powershell_commands_with_values_use_the_checked_macro`, which flags any
+  shell-shaped line containing `{}` that sits inside a `format!`.
+
+  It flagged 21 sites. Seventeen were numeric interpolations needing only the
+  macro. Three were exploitable, and a fourth was hand-escaped rather than
+  helper-escaped:
+
+  | Builtin | Fragment | Before |
+  | --- | --- | --- |
+  | `net.ip_addresses` | `Get-NetIPAddress … -like '*{}*'` | unescaped |
+  | `net.adapters` | `Get-NetAdapter … -like '*{}*'` | unescaped |
+  | `timeout` (Windows) | `Start-Process … -ArgumentList '/C {}'` | unescaped |
+  | `log.search` | `Get-WinEvent … -like '*{}*'` | hand-escaped |
+
+  An interface name or command containing `'` terminates the string and the
+  remainder executes. `timeout` is the most serious: the injected text lands in
+  a `cmd /C` argument list, requiring no PowerShell knowledge to exploit.
+
+  The 2.0.4 lint missed all four because it matches the exact shapes `'{}'` and
+  `"{}"`, while these *embed* the placeholder in a larger quoted string. It had
+  read as coverage for this class while being blind to its most common shape.
+  `is_suspect` now pairs single quotes around a placeholder generally, with all
+  four shapes as regression assertions, and asserts that the correct unquoted
+  numeric form (`-Id {}`) stays unflagged.
+
+  Fixed by escaping the whole pattern — `ps_quote(&format!("*{}*", v))` — so the
+  wildcards sit outside the escaped span.
+
+- Five defects in this class, five detection methods, none of which found what
+  the others did. See `docs/security/SECURITY_AUDIT_2026-07-30.md` §10g.
+
+### Changed
+- `dmesg` carries its Windows event count as an `i64` rather than a
+  pre-stringified value. The site was safe in fact but not by type; `ps_script!`
+  rejected it, which is the check working as intended.
+
 ## [3.0.0] - 2026-08-05
 
 ### Security
