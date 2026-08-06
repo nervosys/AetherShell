@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-08-06
+
+### Security
+- **The Agent API now enforces a request deadline — and, more to the point, the
+  deadline actually fires.** Closes the last open code item from the audit: an
+  authenticated caller could hold a worker indefinitely, and since
+  `/api/v1/eval` evaluates arbitrary code, a wedged request was a one-line POST.
+
+  A `TimeoutLayer` alone would have been decorative. `process_request` is
+  synchronous and was called directly from the `async` handlers, so it pinned an
+  async worker for the whole evaluation and never yielded. Tower races the
+  deadline against the inner future *within the same poll*, so the timeout
+  branch was never reached. Measured rather than assumed: with the layer
+  mounted and a 1-second deadline, a 20-second request was not interrupted at
+  all — the test asserting 408 failed before the handlers were changed.
+
+  The four execution handlers now run on the blocking pool, which lets the
+  deadline fire, frees the async worker, and returns 408.
+
+  **What this does not do**, stated plainly: dropping a `spawn_blocking` handle
+  does not cancel the closure, so a wedged evaluation keeps a blocking-pool
+  thread until it finishes on its own. This converts "one request wedges the
+  server" into "the server keeps answering while leaked threads accumulate"
+  against a bounded (512-thread default) pool. Actually interrupting evaluation
+  needs a deadline checked inside the interpreter loop, which remains open.
+
+  The SSE `/api/v1/stream/*` routes and the WebSocket are deliberately exempt —
+  they are long-lived by design, and a per-request deadline would sever them
+  rather than protect anything. There is a test for that too, so the exemption
+  cannot be silently lost.
+
+### Added
+- `ae agent-api serve --request-timeout <secs>` (default `300`). `0` disables
+  the deadline and reintroduces the exhaustion above; prefer raising it.
+
+### Changed
+- **BREAKING: `AgentApiConfig` gained a `request_timeout_secs` field.** The
+  struct has public fields and is not `#[non_exhaustive]`, so any downstream
+  struct-literal construction stops compiling — this project's own integration
+  test did. That is a breaking change to a published API regardless of how
+  small the addition is, hence the major version. Semver is about the contract,
+  not the size of the diff.
+
 ## [3.0.1] - 2026-08-06
 
 ### Security

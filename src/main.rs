@@ -232,6 +232,12 @@ enum AgentApiCommands {
         /// this flag, so the token stays out of the process list.
         #[arg(long)]
         token: Option<String>,
+        /// Seconds a single request/response route may run before it is
+        /// cancelled with 408. Does not apply to the SSE stream or WebSocket
+        /// routes, which are long-lived by design. 0 disables the deadline,
+        /// which lets one caller hold a worker indefinitely.
+        #[arg(long, default_value = "300")]
+        request_timeout: u64,
     },
     /// Execute a JSON request (read from stdin or argument)
     #[command(alias = "exec")]
@@ -582,6 +588,7 @@ fn handle_agent_api_command(command: AgentApiCommands) -> Result<()> {
             port,
             cors,
             token,
+            request_timeout,
         } => {
             #[cfg(feature = "native")]
             {
@@ -598,6 +605,7 @@ fn handle_agent_api_command(command: AgentApiCommands) -> Result<()> {
                     port,
                     enable_cors: cors,
                     auth_token,
+                    request_timeout_secs: request_timeout,
                 };
 
                 tokio::runtime::Runtime::new()?

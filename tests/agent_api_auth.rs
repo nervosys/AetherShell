@@ -17,6 +17,12 @@ use aethershell::agent_api::server::{start_agent_api_server, AgentApiConfig};
 
 /// Bind an ephemeral port, start the server on it, and wait for it to accept.
 async fn serve(token: &str) -> u16 {
+    serve_with_timeout(token, 300).await
+}
+
+/// As `serve`, but with an explicit request deadline so the timeout test does
+/// not have to wait out the 300-second default.
+async fn serve_with_timeout(token: &str, request_timeout_secs: u64) -> u16 {
     // Port 0 asks the OS for a free port; find one, release it, then hand it to
     // the server. A small race remains but is confined to this test process.
     let probe = std::net::TcpListener::bind("127.0.0.1:0").expect("bind probe");
@@ -28,6 +34,7 @@ async fn serve(token: &str) -> u16 {
         port,
         enable_cors: true,
         auth_token: Some(token.to_string()),
+        request_timeout_secs,
     };
     tokio::spawn(async move {
         let _ = start_agent_api_server(config).await;
@@ -113,6 +120,69 @@ async fn eval_with_the_right_token_is_allowed() {
         reqwest::StatusCode::UNAUTHORIZED,
         "the configured token must be accepted, or the server is simply broken \
          rather than secure"
+    );
+}
+
+/// An authenticated caller must not be able to hold a worker indefinitely.
+///
+/// `/api/v1/eval` evaluates arbitrary code, so a wedged request is a one-line
+/// POST. The deadline has to *actually fire*, which is a stronger claim than
+/// "a TimeoutLayer is mounted": the handler calls `process_request`
+/// synchronously, so unless that work is moved off the async worker the
+/// timeout branch is never polled and the layer is decorative.
+#[tokio::test]
+async fn a_wedged_request_is_cancelled_rather_than_holding_a_worker() {
+    let token = "timeout-token";
+    let port = serve_with_timeout(token, 1).await;
+
+    let started = std::time::Instant::now();
+    let res = reqwest::Client::new()
+        .post(eval_url(port))
+        .bearer_auth(token)
+        .json(&serde_json::json!({ "code": "sleep 20" }))
+        .timeout(std::time::Duration::from_secs(15))
+        .send()
+        .await
+        .expect("request");
+    let elapsed = started.elapsed();
+
+    assert_eq!(
+        res.status(),
+        reqwest::StatusCode::REQUEST_TIMEOUT,
+        "a request exceeding the deadline must be cancelled with 408, not run \
+         to completion (took {elapsed:?})"
+    );
+    assert!(
+        elapsed < std::time::Duration::from_secs(10),
+        "the deadline must fire near its configured 1s, not after the work \
+         finishes — took {elapsed:?}, which means the timeout branch is not \
+         being polled"
+    );
+}
+
+/// The deadline must not sever the long-lived routes, which are supposed to
+/// stay open past it.
+#[tokio::test]
+async fn streaming_routes_are_exempt_from_the_deadline() {
+    let token = "stream-token";
+    let port = serve_with_timeout(token, 1).await;
+
+    let started = std::time::Instant::now();
+    let res = reqwest::Client::new()
+        .post(format!("http://127.0.0.1:{port}/api/v1/stream/eval"))
+        .bearer_auth(token)
+        .json(&serde_json::json!({ "type": "Eval", "code": "sleep 3" }))
+        .timeout(std::time::Duration::from_secs(30))
+        .send()
+        .await
+        .expect("request");
+
+    assert_ne!(
+        res.status(),
+        reqwest::StatusCode::REQUEST_TIMEOUT,
+        "SSE routes are long-lived by design and must not be wrapped by the \
+         per-request deadline (took {:?})",
+        started.elapsed()
     );
 }
 

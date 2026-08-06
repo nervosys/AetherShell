@@ -59,6 +59,12 @@ shape the *first* lint could not match. Each layer has now found something every
 prior layer missed. Read the green state as "no defect the current five methods
 can see", not as absence.
 
+And a sixth (6a, same day), in a different form: the *obvious* fix for the Agent
+API's missing deadline — mounting a `TimeoutLayer` — does nothing, because the
+handlers never yield to it. Only running the assertion before the fix revealed
+that. The recurring lesson across every finding in this audit is the same one:
+a change that reviews as correct is not evidence that it works.
+
 ---
 
 ## 6. Agent API executed code for unauthenticated callers (CWE-306, CWE-352)
@@ -102,6 +108,53 @@ path. Non-loopback deployments need TLS; the warning says so, but nothing
 enforces it. There is no token rotation, revocation, or per-client identity —
 this is one shared secret, appropriate for a local agent bridge and not for a
 multi-tenant service.
+
+### 6a. The request deadline, and why mounting the layer was not the fix
+
+Authentication turned "anyone can run code here" into "an authenticated caller
+can run code here". That left availability: no route had a deadline, and
+`/api/v1/eval` evaluates arbitrary code, so holding a worker forever was a
+one-line POST. Listed as open item 6 for the maintainer until 2026-08-06.
+
+The obvious fix is a `TimeoutLayer`, and the obvious fix is **wrong on its own**
+— which is worth recording, because mounting it produces a diff that reviews as
+correct and changes nothing.
+
+`process_request` is synchronous and was called directly from the `async`
+handlers. Tower's timeout races the deadline against the inner future *within
+the same poll*: if the inner call never yields, the timeout branch is never
+reached. A handler that blocks its worker for twenty seconds is therefore
+immune to a one-second deadline mounted directly above it.
+
+This was **measured, not reasoned about**. The test asserting a 408 was written
+before the handler change and failed: the client hit its own 15-second timeout
+while the server never responded. That failure is the evidence the layer alone
+was decorative; without running it, the mounted layer would have been recorded
+as a fix.
+
+The four execution handlers now run via `tokio::task::spawn_blocking`, so the
+handler future yields, the deadline fires, the async worker is freed, and the
+caller gets 408.
+
+**Bounded honestly.** Dropping a `spawn_blocking` handle does not cancel the
+closure. A wedged evaluation keeps a blocking-pool thread until it finishes on
+its own. So this converts *one request wedges the server* into *the server keeps
+answering while leaked threads accumulate* against a bounded pool (512 threads
+by default). It is a real improvement and it is not a bound on evaluation.
+Actually interrupting evaluation requires a deadline checked inside the
+interpreter loop — that remains open, and is now the honest statement of the
+residual rather than "timeouts added".
+
+The SSE `/api/v1/stream/*` routes and the WebSocket are exempt by construction:
+the deadline is applied to the timed router before the long-lived routes are
+merged in. Both properties are tested — that the deadline fires, and that it
+does not touch the streaming routes — so neither can be lost silently.
+
+**A sixth detection method, and the same lesson.** Findings 10a–10g came from
+reading, testing, two lints and a type check. This one came from *executing the
+assertion before the fix* and watching it fail for a reason the code review
+would not have surfaced. Writing the failing test first is what distinguished
+"layer mounted" from "deadline enforced".
 
 **Breaking change.** Existing API clients must send the header.
 
@@ -756,8 +809,11 @@ Not audit fixes; each needs an explicit call.
    explicit configuration, rather than adoption by port convention.
 5. **Delete the published `nervosys/aethershell` container images** on Docker
    Hub and ghcr.io, now that Docker is no longer a distribution channel.
-6. **Add a `TimeoutLayer` to the Agent API** — currently an authenticated
-   caller can hold a worker indefinitely.
+6. ~~**Add a `TimeoutLayer` to the Agent API**~~ — done in 4.0.0, though not by
+   adding a `TimeoutLayer`, which on its own does nothing here. See §6a. What
+   remains open is the narrower and harder problem: **a deadline checked inside
+   the interpreter loop**, so a wedged evaluation is actually interrupted rather
+   than merely disowned.
 
 ## Decisions taken, 2026-08-06
 

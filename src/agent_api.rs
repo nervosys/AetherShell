@@ -3175,8 +3175,10 @@ pub mod server {
     use std::collections::HashMap;
     use std::convert::Infallible;
     use std::sync::Arc;
+    use std::time::Duration;
     use tokio::sync::{broadcast, mpsc, RwLock};
     use tower_http::cors::{Any, CorsLayer};
+    use tower_http::timeout::TimeoutLayer;
 
     // ========================================================================
     // WebSocket Types
@@ -3560,6 +3562,19 @@ pub mod server {
         /// enabled, any web page the user happens to visit while the server is
         /// running.
         pub auth_token: Option<String>,
+        /// Deadline for a single request/response route, in seconds.
+        ///
+        /// Without one, an authenticated caller can hold a worker indefinitely
+        /// — `/api/v1/eval` evaluates arbitrary code, so an infinite loop is a
+        /// one-line request. Enough of those and the server stops answering.
+        ///
+        /// This does *not* apply to the SSE `/api/v1/stream/*` routes or the
+        /// WebSocket, which are long-lived by design; see `build_router`.
+        ///
+        /// `0` disables the deadline, which reintroduces the exhaustion above.
+        /// It exists because a legitimately long evaluation is a real use case,
+        /// but prefer raising the value over disabling it.
+        pub request_timeout_secs: u64,
     }
 
     impl Default for AgentApiConfig {
@@ -3569,6 +3584,9 @@ pub mod server {
                 port: 3002,
                 enable_cors: true,
                 auth_token: None,
+                // Generous enough that ordinary evaluation is unaffected, short
+                // enough that a wedged request frees its worker the same minute.
+                request_timeout_secs: 300,
             }
         }
     }
@@ -3599,13 +3617,10 @@ pub mod server {
         // Create shared orchestrator state
         let state = Arc::new(OrchestratorState::new());
 
-        let mut app = Router::new()
-            // Main execution endpoint
-            .route("/api/v1/execute", post(handle_execute))
-            // Convenience endpoints
-            .route("/api/v1/call/:builtin", post(handle_call))
-            .route("/api/v1/pipeline", post(handle_pipeline))
-            .route("/api/v1/eval", post(handle_eval))
+        // Long-lived routes, kept out of the timed router below. An SSE stream
+        // and a WebSocket are *supposed* to stay open, so a per-request deadline
+        // would sever them at the deadline rather than protect anything.
+        let long_lived = Router::new()
             // Streaming endpoints (SSE)
             .route("/api/v1/stream/execute", post(handle_stream_execute))
             .route("/api/v1/stream/pipeline", post(handle_stream_pipeline))
@@ -3617,7 +3632,15 @@ pub mod server {
                     let state = Arc::clone(&state);
                     move |ws| handle_websocket(ws, state)
                 }),
-            )
+            );
+
+        let mut app = Router::new()
+            // Main execution endpoint
+            .route("/api/v1/execute", post(handle_execute))
+            // Convenience endpoints
+            .route("/api/v1/call/:builtin", post(handle_call))
+            .route("/api/v1/pipeline", post(handle_pipeline))
+            .route("/api/v1/eval", post(handle_eval))
             // Orchestration endpoints
             .route(
                 "/api/v1/orchestration/agents",
@@ -3719,6 +3742,15 @@ pub mod server {
             .route("/api/v1/types", get(handle_types))
             // Health check
             .route("/health", get(handle_health));
+
+        // The deadline goes on before the merge, so it wraps only the routes
+        // added above — `Router::layer` applies to what is already registered.
+        if config.request_timeout_secs > 0 {
+            app = app.layer(TimeoutLayer::new(Duration::from_secs(
+                config.request_timeout_secs,
+            )));
+        }
+        let mut app = app.merge(long_lived);
 
         // Authentication. Applied before CORS below so that it wraps every
         // route; `/health` is exempted inside the middleware so liveness probes
@@ -3829,26 +3861,59 @@ pub mod server {
         Ok(())
     }
 
-    async fn handle_execute(Json(request): Json<AgentRequest>) -> impl IntoResponse {
-        let response = process_request(&request);
-        if response.success {
-            (StatusCode::OK, Json(response))
-        } else {
-            (StatusCode::BAD_REQUEST, Json(response))
+    /// Run a request on the blocking pool and shape the response.
+    ///
+    /// `process_request` is synchronous and can run arbitrary evaluated code,
+    /// so calling it directly from an `async fn` pins an async worker for the
+    /// whole evaluation. That is not merely a throughput concern: it also made
+    /// `TimeoutLayer` decorative, because tower races the deadline against the
+    /// inner future *within the same poll*. If the inner call never yields, the
+    /// timeout branch is never reached and the deadline cannot fire — measured,
+    /// not assumed: before this change a 1-second deadline did not interrupt a
+    /// 20-second request at all.
+    ///
+    /// What this bounds and what it does not. Moving the work here lets the
+    /// deadline fire, frees the async worker, and returns 408 to the caller.
+    /// It does **not** stop the evaluation: dropping a `spawn_blocking` handle
+    /// does not cancel the closure, so a wedged evaluation keeps a
+    /// blocking-pool thread until it finishes on its own. The pool is bounded
+    /// (512 threads by default), so this converts "one request wedges the
+    /// server" into "the server keeps answering while leaked threads
+    /// accumulate". Actually interrupting evaluation needs a deadline checked
+    /// inside the interpreter loop, which is tracked separately.
+    async fn run_blocking(request: AgentRequest) -> (StatusCode, Json<AgentResponse>) {
+        match tokio::task::spawn_blocking(move || process_request(&request)).await {
+            Ok(response) => {
+                if response.success {
+                    (StatusCode::OK, Json(response))
+                } else {
+                    (StatusCode::BAD_REQUEST, Json(response))
+                }
+            }
+            // The closure panicked. Report it rather than propagating, so one
+            // bad request cannot take down the listener.
+            Err(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(AgentResponse {
+                    success: false,
+                    result: None,
+                    error: Some(format!("request handler failed: {e}")),
+                    result_type: None,
+                    metadata: None,
+                }),
+            ),
         }
+    }
+
+    async fn handle_execute(Json(request): Json<AgentRequest>) -> impl IntoResponse {
+        run_blocking(request).await
     }
 
     async fn handle_call(
         axum::extract::Path(builtin): axum::extract::Path<String>,
         Json(args): Json<JsonValue>,
     ) -> impl IntoResponse {
-        let request = AgentRequest::Call { builtin, args };
-        let response = process_request(&request);
-        if response.success {
-            (StatusCode::OK, Json(response))
-        } else {
-            (StatusCode::BAD_REQUEST, Json(response))
-        }
+        run_blocking(AgentRequest::Call { builtin, args }).await
     }
 
     async fn handle_pipeline(Json(body): Json<JsonValue>) -> impl IntoResponse {
@@ -3861,13 +3926,7 @@ pub mod server {
 
         let input = body.get("input").cloned();
 
-        let request = AgentRequest::Pipeline { steps, input };
-        let response = process_request(&request);
-        if response.success {
-            (StatusCode::OK, Json(response))
-        } else {
-            (StatusCode::BAD_REQUEST, Json(response))
-        }
+        run_blocking(AgentRequest::Pipeline { steps, input }).await
     }
 
     async fn handle_eval(Json(body): Json<JsonValue>) -> impl IntoResponse {
@@ -3877,13 +3936,7 @@ pub mod server {
             .unwrap_or("")
             .to_string();
 
-        let request = AgentRequest::Eval { code };
-        let response = process_request(&request);
-        if response.success {
-            (StatusCode::OK, Json(response))
-        } else {
-            (StatusCode::BAD_REQUEST, Json(response))
-        }
+        run_blocking(AgentRequest::Eval { code }).await
     }
 
     // ========================================================================

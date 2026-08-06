@@ -38,6 +38,32 @@ a bearer token over plain HTTP is readable by anything on the path.
 
 ---
 
+## Request deadline
+
+Request/response routes are cancelled with **408 Request Timeout** after
+`--request-timeout` seconds (default `300`):
+
+```sh
+aethershell agent-api serve --request-timeout 60
+```
+
+`0` disables the deadline. Prefer raising it: without one, a single
+authenticated caller can hold a worker indefinitely, and `POST /api/v1/eval`
+evaluates arbitrary code, so a wedged request is a one-line POST.
+
+The SSE `/api/v1/stream/*` routes and `GET /api/v1/ws` are **exempt** — they are
+long-lived by design, and a per-request deadline would sever them rather than
+protect anything.
+
+Know what the deadline does and does not bound. It frees the connection and the
+async worker, and the caller gets its 408. It does **not** stop the evaluation:
+the work continues on a blocking-pool thread until it finishes on its own. So a
+deliberately wedged request still costs one thread from a bounded pool. The
+server stays responsive; it is not immune. If you are running this anywhere
+adversarial, bound the *code* you accept, not just the time you wait for it.
+
+---
+
 ## Common Response Format
 
 All endpoints return `AgentResponse`:
