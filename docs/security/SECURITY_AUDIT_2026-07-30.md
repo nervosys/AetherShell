@@ -163,10 +163,18 @@ Three details carry the design:
   or as large data, both of which pass through `eval_expr`, so one check covers
   it. This was worth confirming rather than assuming — a check placed in a loop
   evaluator would have covered nothing, because there is no loop evaluator.
-- **The clock is sampled, not read every node.** `Instant::now()` on every AST
-  node is a measurable cost on an interpreter hot path, so a counter samples it
-  every 1024 steps. With no deadline set — the REPL, scripts, every test — the
-  check is one thread-local read.
+- **The clock is sampled, not read every node.** A counter reads
+  `Instant::now()` every 1024 steps. With no deadline set — the REPL, scripts,
+  every test — the check is one thread-local read.
+
+  Stated precisely, because this document is otherwise strict about it: the
+  sampling is a **precaution, not a measured optimisation**. No before/after
+  benchmark was run. A debug-build attempt was abandoned as useless — the
+  workload took 327 s per run and debug timings distort relative costs — and a
+  release build was not available (it exhausted the disk). The reasoning is that
+  a clock read costs tens of nanoseconds on the interpreter's hot path and the
+  deadline needs no per-node resolution; that is a judgement, not a measurement,
+  and it should be measured before anyone tunes the interval.
 - **The guard restores rather than clears.** These threads are pooled and
   reused. A deadline left set would make the *next* request on that thread fail
   instantly, which is a worse bug than the one being fixed. There is a test for

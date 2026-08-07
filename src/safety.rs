@@ -1668,9 +1668,15 @@ thread_local! {
     /// When evaluation must stop, if a limit is in force.
     static DEADLINE: std::cell::Cell<Option<std::time::Instant>> =
         const { std::cell::Cell::new(None) };
-    /// Steps since the clock was last read. Reading `Instant::now()` on every
-    /// AST node is a measurable cost on an interpreter hot path, and the
-    /// deadline does not need that resolution.
+    /// Steps since the clock was last read.
+    ///
+    /// Sampling rather than reading `Instant::now()` per AST node is a
+    /// precaution, not a measured optimisation — no before/after benchmark was
+    /// run, and this comment previously implied one had been. A clock read is
+    /// on the order of tens of nanoseconds and `eval_expr` is the interpreter's
+    /// hot path, so the cost seemed worth avoiding for a deadline that does not
+    /// need per-node resolution. If it ever matters, measure before tuning
+    /// `DEADLINE_CHECK_INTERVAL`.
     static STEPS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
 }
 
