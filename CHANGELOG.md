@@ -41,9 +41,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   All install instructions now point at the repository and carry a warning. The
   suppressed publish steps are annotated with what they actually do.
 
-  **Not fixed here, and needs the maintainer's registry accounts: register
-  `aethershell` on PyPI and npm.** This is the only open item in the audit with
-  a window a third party can close for you. See finding 12 in
+  Each publish job now has a verification step that queries the registry
+  afterwards and reports the answer in the run summary, because a publish step
+  that cannot tell you whether it published is not a publish step. The checks
+  read the package name and version out of the artifact actually published
+  rather than assuming them — necessary, since the npm artifact is named
+  `aether_wasm`, not `aethershell`.
+
+  **Scope, stated precisely.** PyPI is the live exposure: `pyproject.toml`
+  declares `aethershell`, the docs pointed users at it, and the name is
+  unregistered. npm is a broken job rather than an exposure — no documentation
+  directs anyone to `npm install` this project, so nobody is being sent to an
+  unclaimed name there.
+
+  **Not fixed here, and needs the maintainer's registry account: register
+  `aethershell` on PyPI.** This is the only open item in the audit with a
+  window a third party can close for you. See finding 12 in
   `docs/security/SECURITY_AUDIT_2026-07-30.md`.
 
 ## [4.0.0] - 2026-08-06
