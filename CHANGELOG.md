@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.1.0] - 2026-08-07
+
 ### Security
 - **The Agent API's deadline now reaches the interpreter, so evaluation stops
   itself.** 4.0.0's request deadline freed the connection and the async worker
