@@ -285,6 +285,11 @@ pub fn eval_stmt(stmt: &Stmt, env: &mut Env) -> Result<Value> {
 }
 
 pub fn eval_expr(expr: &Expr, env: &mut Env) -> Result<Value> {
+    // Cooperative cancellation for callers that set a deadline (the Agent API).
+    // A no-op with none set — one thread-local read — which is every REPL
+    // session, script and test. See `safety::check_deadline`.
+    crate::safety::check_deadline()?;
+
     match expr {
         // ---------- literals ----------
         Expr::LitInt(n) => Ok(Value::Int(*n)),

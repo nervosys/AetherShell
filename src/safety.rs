@@ -1645,6 +1645,148 @@ pub fn redact_json(v: &mut Json) {
     }
 }
 
+// ============================================================================
+// Evaluation deadline
+// ============================================================================
+//
+// Closes the residual left by finding 6a. The Agent API's request deadline
+// frees the connection and the async worker, but it cannot stop the
+// evaluation: dropping a `spawn_blocking` handle does not cancel the closure,
+// so a wedged evaluation keeps a blocking-pool thread until it returns on its
+// own. Stopping it needs cooperation from the interpreter, which is here.
+//
+// The language has no loop constructs — unbounded work arrives as recursion or
+// as very large data — so a check at the top of `eval_expr` covers it.
+//
+// **What this bounds and what it does not.** It interrupts *evaluation*:
+// runaway recursion and large computations. It cannot interrupt a builtin that
+// is already blocking inside a syscall — `sleep 3600`, a subprocess wait, a
+// network read — because those never return to the interpreter to be asked.
+// That is a real remaining gap and it is the honest statement of it.
+
+thread_local! {
+    /// When evaluation must stop, if a limit is in force.
+    static DEADLINE: std::cell::Cell<Option<std::time::Instant>> =
+        const { std::cell::Cell::new(None) };
+    /// Steps since the clock was last read. Reading `Instant::now()` on every
+    /// AST node is a measurable cost on an interpreter hot path, and the
+    /// deadline does not need that resolution.
+    static STEPS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+/// How many `eval_expr` entries pass between clock reads.
+const DEADLINE_CHECK_INTERVAL: u32 = 1024;
+
+/// Clears the deadline when it goes out of scope.
+///
+/// A bare setter would leave the deadline set on a pooled thread, so the *next*
+/// piece of work on that thread would inherit an already-expired limit and fail
+/// immediately. Tying it to a scope is what makes it safe to use from a thread
+/// pool at all.
+pub struct DeadlineGuard {
+    previous: Option<std::time::Instant>,
+}
+
+impl Drop for DeadlineGuard {
+    fn drop(&mut self) {
+        DEADLINE.with(|d| d.set(self.previous));
+        STEPS.with(|s| s.set(0));
+    }
+}
+
+/// Bound evaluation on this thread to `limit`, until the returned guard drops.
+///
+/// Nested calls restore the outer deadline rather than clearing it.
+pub fn enter_deadline(limit: std::time::Duration) -> DeadlineGuard {
+    let previous = DEADLINE.with(|d| d.get());
+    DEADLINE.with(|d| d.set(Some(std::time::Instant::now() + limit)));
+    STEPS.with(|s| s.set(0));
+    DeadlineGuard { previous }
+}
+
+/// Fail if this thread's evaluation deadline has passed.
+///
+/// Called from `eval_expr`. Cheap by design: with no deadline set — the REPL,
+/// scripts, every test — this is one thread-local read and a `None` check.
+#[inline]
+pub fn check_deadline() -> anyhow::Result<()> {
+    let n = STEPS.with(|s| {
+        let n = s.get().wrapping_add(1);
+        s.set(n);
+        n
+    });
+    if !n.is_multiple_of(DEADLINE_CHECK_INTERVAL) {
+        return Ok(());
+    }
+    DEADLINE.with(|d| match d.get() {
+        Some(at) if std::time::Instant::now() >= at => Err(anyhow::anyhow!(
+            "evaluation exceeded its time limit and was cancelled"
+        )),
+        _ => Ok(()),
+    })
+}
+
+#[cfg(test)]
+mod deadline_tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn no_deadline_means_no_interruption() {
+        for _ in 0..(DEADLINE_CHECK_INTERVAL * 4) {
+            check_deadline().expect("must not fail when no deadline is set");
+        }
+    }
+
+    #[test]
+    fn an_expired_deadline_is_reported() {
+        let _g = enter_deadline(Duration::from_millis(1));
+        std::thread::sleep(Duration::from_millis(20));
+        // Only sampled every DEADLINE_CHECK_INTERVAL steps, so drive it there.
+        let mut hit = false;
+        for _ in 0..(DEADLINE_CHECK_INTERVAL * 2) {
+            if check_deadline().is_err() {
+                hit = true;
+                break;
+            }
+        }
+        assert!(hit, "an expired deadline must eventually stop evaluation");
+    }
+
+    #[test]
+    fn a_live_deadline_does_not_fire() {
+        let _g = enter_deadline(Duration::from_secs(60));
+        for _ in 0..(DEADLINE_CHECK_INTERVAL * 4) {
+            check_deadline().expect("a deadline far in the future must not fire");
+        }
+    }
+
+    /// The guard must restore, not clear — otherwise the next task on a pooled
+    /// thread inherits an expired deadline and fails for no reason.
+    #[test]
+    fn the_guard_restores_state_so_pooled_threads_are_not_poisoned() {
+        {
+            let _g = enter_deadline(Duration::from_millis(1));
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        for _ in 0..(DEADLINE_CHECK_INTERVAL * 4) {
+            check_deadline().expect("deadline must not outlive its guard");
+        }
+    }
+
+    #[test]
+    fn nesting_restores_the_outer_deadline() {
+        let _outer = enter_deadline(Duration::from_secs(60));
+        {
+            let _inner = enter_deadline(Duration::from_millis(1));
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        for _ in 0..(DEADLINE_CHECK_INTERVAL * 4) {
+            check_deadline().expect("the outer deadline is still live and must not fire");
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

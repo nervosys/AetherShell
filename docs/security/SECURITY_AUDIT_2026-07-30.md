@@ -146,12 +146,54 @@ caller gets 408.
 
 **Bounded honestly.** Dropping a `spawn_blocking` handle does not cancel the
 closure. A wedged evaluation keeps a blocking-pool thread until it finishes on
-its own. So this converts *one request wedges the server* into *the server keeps
-answering while leaked threads accumulate* against a bounded pool (512 threads
-by default). It is a real improvement and it is not a bound on evaluation.
-Actually interrupting evaluation requires a deadline checked inside the
-interpreter loop — that remains open, and is now the honest statement of the
-residual rather than "timeouts added".
+its own. So the HTTP deadline alone converts *one request wedges the server*
+into *the server keeps answering while leaked threads accumulate* against a
+bounded pool (512 threads by default). It is a real improvement and it is not a
+bound on evaluation.
+
+### 6b. The interpreter-level deadline
+
+The residual above is now largely closed. `safety::enter_deadline` sets a
+per-thread limit that `eval_expr` checks, so evaluation stops itself rather than
+running until it happens to finish.
+
+Three details carry the design:
+
+- **The language has no loop constructs.** Unbounded work arrives as recursion
+  or as large data, both of which pass through `eval_expr`, so one check covers
+  it. This was worth confirming rather than assuming — a check placed in a loop
+  evaluator would have covered nothing, because there is no loop evaluator.
+- **The clock is sampled, not read every node.** `Instant::now()` on every AST
+  node is a measurable cost on an interpreter hot path, so a counter samples it
+  every 1024 steps. With no deadline set — the REPL, scripts, every test — the
+  check is one thread-local read.
+- **The guard restores rather than clears.** These threads are pooled and
+  reused. A deadline left set would make the *next* request on that thread fail
+  instantly, which is a worse bug than the one being fixed. There is a test for
+  precisely that, and another for nesting.
+
+The Agent API gives the interpreter 90% of the HTTP timeout, so evaluation stops
+itself before the connection is torn away and the caller gets an error that says
+what happened instead of a bare 408.
+
+**Still not bounded: builtins already blocked in a syscall.** `sleep 3600`, a
+subprocess wait, a large network read — none of these return to the interpreter
+to be asked, so none can be interrupted. The gap is narrower than before, not
+gone. A `sleep`-based denial is still available to an authenticated caller.
+
+**Verified by disabling the fix.** `tests/eval_deadline.rs` asserts that a long
+evaluation stops near its deadline. To confirm the test discriminates rather
+than passing for free, the `check_deadline()` call was commented out and the
+test re-run: it hung until killed at 400 seconds, versus passing in 26 with the
+check in place. Given that this audit has now recorded three separate changes
+that reviewed as correct and did nothing, a passing test is not evidence until
+its failing form has been seen.
+
+**A related gap, found while testing this and not fixed.** There is no recursion
+depth limit. `let f = fn(x) => f(x)` grows the Rust stack until the process
+aborts on stack overflow — which the deadline cannot catch, because the abort is
+not a `Result`. That is a crash rather than a hang, and it deserves its own
+treatment (a depth counter in `call_lambda`).
 
 The SSE `/api/v1/stream/*` routes and the WebSocket are exempt by construction:
 the deadline is applied to the timed router before the long-lived routes are
@@ -957,11 +999,16 @@ Not audit fixes; each needs an explicit call.
    explicit configuration, rather than adoption by port convention.
 5. **Delete the published `nervosys/aethershell` container images** on Docker
    Hub and ghcr.io, now that Docker is no longer a distribution channel.
-6. ~~**Add a `TimeoutLayer` to the Agent API**~~ — done in 4.0.0, though not by
-   adding a `TimeoutLayer`, which on its own does nothing here. See §6a. What
-   remains open is the narrower and harder problem: **a deadline checked inside
-   the interpreter loop**, so a wedged evaluation is actually interrupted rather
-   than merely disowned.
+6. ~~**Add a `TimeoutLayer` to the Agent API**~~ — done in 4.0.0 (§6a), though
+   not by adding a `TimeoutLayer`, which on its own does nothing here.
+   ~~**A deadline checked inside the interpreter**~~ — done (§6b): `eval_expr`
+   now stops runaway recursion and large computations. What remains is narrower:
+   a builtin already blocked in a syscall (`sleep`, subprocess wait, network
+   read) never returns to be asked, so it cannot be interrupted.
+7. **Add a recursion depth limit** (§6b) — `let f = fn(x) => f(x)` aborts the
+   process on stack overflow. Not a hang but a crash, and the deadline cannot
+   catch it because an abort is not a `Result`. Needs a depth counter in
+   `call_lambda`.
 
 ## Decisions taken, 2026-08-06
 

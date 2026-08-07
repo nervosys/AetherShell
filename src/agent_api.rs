@@ -3743,6 +3743,19 @@ pub mod server {
             // Health check
             .route("/health", get(handle_health));
 
+        // Give the interpreter a slightly tighter budget than the HTTP layer,
+        // so evaluation stops itself first and the caller gets an explanation
+        // rather than a bare 408 over a thread that is still running. The
+        // `max(1)` keeps a 1-second configured timeout from rounding down to
+        // zero, which reads as "no deadline" and would silently disable this.
+        EVAL_DEADLINE_SECS.store(
+            match config.request_timeout_secs {
+                0 => 0,
+                secs => (secs * 9 / 10).max(1),
+            },
+            std::sync::atomic::Ordering::Relaxed,
+        );
+
         // The deadline goes on before the merge, so it wraps only the routes
         // added above — `Router::layer` applies to what is already registered.
         if config.request_timeout_secs > 0 {
@@ -3861,6 +3874,26 @@ pub mod server {
         Ok(())
     }
 
+    /// Evaluation deadline for request handlers, in seconds; 0 means none.
+    ///
+    /// A process-level value rather than router state because these routes are
+    /// registered as bare functions and there is one server per process. Set
+    /// once in `start_agent_api_server`, read per request.
+    static EVAL_DEADLINE_SECS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+    /// The evaluation deadline for the running server, if any.
+    ///
+    /// Deliberately shorter than the HTTP timeout: the interpreter should stop
+    /// on its own *before* the connection is torn out from under it, so the
+    /// caller gets a real error explaining what happened rather than a bare
+    /// 408 and a thread that keeps working.
+    fn eval_deadline() -> Option<std::time::Duration> {
+        match EVAL_DEADLINE_SECS.load(std::sync::atomic::Ordering::Relaxed) {
+            0 => None,
+            secs => Some(std::time::Duration::from_secs(secs)),
+        }
+    }
+
     /// Run a request on the blocking pool and shape the response.
     ///
     /// `process_request` is synchronous and can run arbitrary evaluated code,
@@ -3874,15 +3907,31 @@ pub mod server {
     ///
     /// What this bounds and what it does not. Moving the work here lets the
     /// deadline fire, frees the async worker, and returns 408 to the caller.
-    /// It does **not** stop the evaluation: dropping a `spawn_blocking` handle
-    /// does not cancel the closure, so a wedged evaluation keeps a
-    /// blocking-pool thread until it finishes on its own. The pool is bounded
-    /// (512 threads by default), so this converts "one request wedges the
-    /// server" into "the server keeps answering while leaked threads
-    /// accumulate". Actually interrupting evaluation needs a deadline checked
-    /// inside the interpreter loop, which is tracked separately.
-    async fn run_blocking(request: AgentRequest) -> (StatusCode, Json<AgentResponse>) {
-        match tokio::task::spawn_blocking(move || process_request(&request)).await {
+    /// Dropping a `spawn_blocking` handle does not cancel the closure, so the
+    /// HTTP-level timeout alone would leave the evaluation running on a
+    /// blocking-pool thread until it returned by itself.
+    ///
+    /// `safety::enter_deadline` closes most of that: the interpreter checks it
+    /// in `eval_expr`, so runaway recursion and large computations stop rather
+    /// than leak a thread. The guard restores the previous value on drop, which
+    /// matters here specifically — these threads are pooled and reused, so a
+    /// deadline left set would make the *next* request on that thread fail
+    /// immediately.
+    ///
+    /// It still cannot interrupt a builtin already blocked in a syscall
+    /// (`sleep`, a subprocess wait, a network read), because those never return
+    /// to the interpreter to be asked. That is the remaining gap, and it is
+    /// narrower than before rather than closed.
+    async fn run_blocking(
+        request: AgentRequest,
+        deadline: Option<std::time::Duration>,
+    ) -> (StatusCode, Json<AgentResponse>) {
+        match tokio::task::spawn_blocking(move || {
+            let _guard = deadline.map(crate::safety::enter_deadline);
+            process_request(&request)
+        })
+        .await
+        {
             Ok(response) => {
                 if response.success {
                     (StatusCode::OK, Json(response))
@@ -3906,14 +3955,14 @@ pub mod server {
     }
 
     async fn handle_execute(Json(request): Json<AgentRequest>) -> impl IntoResponse {
-        run_blocking(request).await
+        run_blocking(request, eval_deadline()).await
     }
 
     async fn handle_call(
         axum::extract::Path(builtin): axum::extract::Path<String>,
         Json(args): Json<JsonValue>,
     ) -> impl IntoResponse {
-        run_blocking(AgentRequest::Call { builtin, args }).await
+        run_blocking(AgentRequest::Call { builtin, args }, eval_deadline()).await
     }
 
     async fn handle_pipeline(Json(body): Json<JsonValue>) -> impl IntoResponse {
@@ -3926,7 +3975,7 @@ pub mod server {
 
         let input = body.get("input").cloned();
 
-        run_blocking(AgentRequest::Pipeline { steps, input }).await
+        run_blocking(AgentRequest::Pipeline { steps, input }, eval_deadline()).await
     }
 
     async fn handle_eval(Json(body): Json<JsonValue>) -> impl IntoResponse {
@@ -3936,7 +3985,7 @@ pub mod server {
             .unwrap_or("")
             .to_string();
 
-        run_blocking(AgentRequest::Eval { code }).await
+        run_blocking(AgentRequest::Eval { code }, eval_deadline()).await
     }
 
     // ========================================================================

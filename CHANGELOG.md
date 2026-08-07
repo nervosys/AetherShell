@@ -8,6 +8,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
+- **The Agent API's deadline now reaches the interpreter, so evaluation stops
+  itself.** 4.0.0's request deadline freed the connection and the async worker
+  but could not stop the work: dropping a `spawn_blocking` handle does not
+  cancel the closure, so a wedged evaluation kept a blocking-pool thread until
+  it returned on its own. `safety::enter_deadline` sets a per-thread limit that
+  `eval_expr` checks.
+
+  Three details carry it. The language has **no loop constructs** — unbounded
+  work is recursion or large data, both of which pass through `eval_expr`, so
+  one check covers it (worth confirming: a check placed in a loop evaluator
+  would have covered nothing). The clock is **sampled every 1024 steps** rather
+  than read per AST node, so with no deadline set — the REPL, scripts, every
+  test — the check is one thread-local read. And the guard **restores rather
+  than clears**, because these threads are pooled: a deadline left set would
+  make the next request on that thread fail instantly, a worse bug than the one
+  being fixed. Both properties are tested.
+
+  **Still not bounded:** a builtin already blocked in a syscall — `sleep 3600`,
+  a subprocess wait, a network read — never returns to the interpreter to be
+  asked. The gap is narrower, not gone.
+
+  **Verified by disabling it.** The test asserts a long evaluation stops near
+  its deadline; with `check_deadline()` commented out it hung until killed at
+  400 s, against 26 s passing. Three changes in this cycle reviewed as correct
+  and did nothing, so a passing test is not evidence until its failing form has
+  been seen.
+
+- Noted while testing the above, **not fixed**: there is no recursion depth
+  limit, so `let f = fn(x) => f(x)` aborts the process on stack overflow. The
+  deadline cannot catch it, because an abort is not a `Result`. Recorded as open
+  item 7.
+
 - **Docs no longer direct users to an unclaimed package name (CWE-494).**
   `docs/api/PYTHON_SDK.md`, the book, and the SDK README all told readers to run
   `pip install aethershell`. That package **is not on PyPI, and the name is
