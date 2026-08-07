@@ -27,6 +27,7 @@ CMMC 2.0.
 | 7 | Exec gate covered the name `sh`, not the capability | CWE-184 / CWE-693 | **High** | Fixed |
 | 10 | Argument injection into PowerShell, AppleScript and archivers | CWE-78 / CWE-88 | **High** | Fixed |
 | 11 | sqlite3 dot-commands and tmux exec paths ungated | CWE-77 | **High** | Fixed |
+| 12 | Docs direct users to an unclaimed PyPI/npm package name | CWE-494 | **High** | **Open — needs registry accounts** |
 | 1 | `quinn-proto` remote memory exhaustion | RUSTSEC-2026-0185 | High (7.5) | Fixed |
 | 2 | Unimplemented crypto builtins reported success | CWE-347 / CWE-311 | High | Fixed |
 | 4 | `rbac.*`, `perm.acl_*`, `sso.*` advertised but unimplemented | CWE-1104 | Medium | Documented, not implemented |
@@ -37,6 +38,13 @@ CMMC 2.0.
 
 Nothing in this audit indicates a compromise or data exposure to a third party.
 Finding 3 concerns one developer's username, published in a public repository.
+
+**Finding 12 is the only open item with a window a third party can close for
+you**, and it is not a code defect: the documentation directs users to a PyPI
+package name that nobody has registered. Until someone does, every reader who
+follows the install instructions is one attacker-registration away from running
+arbitrary code. Registering the name is minutes of work and does not depend on
+any other decision in this document.
 
 The table is ordered by severity; the sections below are numbered in discovery
 order, so the later passes (6–11) are written up first.
@@ -514,6 +522,60 @@ never reach that position); `find` (all five sites use fixed `-name`/`-type`/
 `ps`, `ip` and `netstat`, where caller values land in value positions after a
 fixed flag.
 
+## 12. Documentation directs users to an unclaimed package name (CWE-494, supply chain)
+
+Found 2026-08-06 while checking why the release workflow's publish steps never
+appear to do anything.
+
+`docs/api/PYTHON_SDK.md`, `docs/book/src/api/python-sdk.md` and
+`integrations/python/README.md` all instruct users to run:
+
+```sh
+pip install aethershell
+```
+
+**`aethershell` is not registered on PyPI.** Nor is `aether-shell`, nor either
+name on npm — all four checked and returning 404 at the time of writing. The
+package has never been published: the `publish-pypi` and `publish-npm` jobs in
+`release.yml` both carry `continue-on-error: true`, so they have failed silently
+on every release since they were added, and nothing surfaced it.
+
+The risk is not that the command fails. It is that **anyone may register the
+name**, and `pip install` executes code from the package at install time
+(`setup.py`, or a build backend hook). An attacker who claims `aethershell`
+gains arbitrary code execution on the machine of every user who follows this
+project's own documentation — with the project's docs serving as the delivery
+mechanism and the user having no reason to suspect anything.
+
+This is the same shape as finding 4: a capability advertised but not
+implemented. It is more urgent, because the gap between "advertised" and
+"implemented" is a namespace that a third party can occupy at will.
+
+**Severity: High.** Trivial to exploit, needs no access to this project or its
+infrastructure, and the documentation actively drives victims to it.
+
+**Remediation requires the maintainer's registry accounts** and is therefore
+recorded rather than fixed here. In order of urgency:
+
+1. **Register `aethershell` on PyPI and npm now**, even as a placeholder. This
+   closes the window regardless of what is decided about the SDKs. Consider
+   `aether-shell` too, as the obvious typo target.
+2. **Then** decide whether to publish the SDKs for real or remove the install
+   instructions. Both are defensible; leaving the docs as they are is not.
+3. **Remove `continue-on-error: true` from the publish jobs**, or at minimum
+   have them fail loudly. Error suppression is what let this run undetected
+   across every release — the workflow *looked* like it distributed to three
+   registries while reaching one.
+
+Note the version drift that made this visible: the Rust crate is at 4.0.0 while
+`integrations/python/pyproject.toml` says `1.5.0` and `web/package.json` says
+`0.2.0`. Had the publish ever succeeded, the version would have moved.
+
+**Detection method, for the record:** this is the seventh distinct method in
+this audit — checking whether a *thing the build claims to do* actually
+happened, by querying the outside world rather than reading the workflow.
+Reading `release.yml` shows a publish step and looks correct.
+
 ## 9. MCP servers are adopted by port convention, unauthenticated (CWE-306)
 
 `detect_mcp_servers_uncached` probes seven hardcoded `http://localhost` ports
@@ -797,6 +859,13 @@ organisations, so this maps practice families to implemented controls only.
 ## Open decisions for the maintainer
 
 Not audit fixes; each needs an explicit call.
+
+0. **Register `aethershell` on PyPI and npm** (finding 12) — the most urgent
+   item here, and the only one with a window a third party can close for you.
+   The project's own documentation tells users to `pip install aethershell`,
+   the name is unregistered, and `pip install` executes code from the package.
+   A placeholder release costs nothing and shuts the door; decide about the
+   SDKs afterwards.
 
 1. **Scrub the leaked WASM from git history** (finding 3) — requires a history
    rewrite and force-push. Currently the artifact is still fetchable from prior

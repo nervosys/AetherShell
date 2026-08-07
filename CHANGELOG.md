@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- **Docs no longer direct users to an unclaimed package name (CWE-494).**
+  `docs/api/PYTHON_SDK.md`, the book, and the SDK README all told readers to run
+  `pip install aethershell`. That package **is not on PyPI, and the name is
+  unregistered** — so the command installs whatever a third party has uploaded
+  under it, and `pip install` executes package code at install time. The
+  project's own documentation was the delivery mechanism.
+
+  Found by checking whether a thing the build *claims* to do actually happened,
+  rather than by reading the workflow: `release.yml`'s `publish-pypi` and
+  `publish-npm` jobs both carry `continue-on-error: true` and have failed
+  silently on every release since they were added. Reading the workflow shows a
+  publish step and looks correct. The giveaway was version drift — the crate is
+  at 4.0.0 while `integrations/python/pyproject.toml` says 1.5.0 and
+  `web/package.json` says 0.2.0. Had a publish ever landed, those would have
+  moved.
+
+  All install instructions now point at the repository and carry a warning. The
+  suppressed publish steps are annotated with what they actually do.
+
+  **Not fixed here, and needs the maintainer's registry accounts: register
+  `aethershell` on PyPI and npm.** This is the only open item in the audit with
+  a window a third party can close for you. See finding 12 in
+  `docs/security/SECURITY_AUDIT_2026-07-30.md`.
+
 ## [4.0.0] - 2026-08-06
 
 ### Security

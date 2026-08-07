@@ -4,8 +4,15 @@ The AetherShell Python SDK (`aethershell` package v0.3.0) provides a Pythonic in
 
 ## Installation
 
+> **⚠ Not published yet — do not run `pip install aethershell`.**
+>
+> As of 2026-08-06 this package is **not on PyPI** and the name is
+> **unregistered**, so installing it would fetch whatever a third party has
+> uploaded under that name — and `pip install` runs package code at install
+> time. Install from the repository until this notice is removed.
+
 ```bash
-pip install aethershell
+pip install ./integrations/python
 ```
 
 ## Quick Start

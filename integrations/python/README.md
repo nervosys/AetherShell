@@ -4,18 +4,26 @@ Python bindings for AetherShell - AI-powered typed shell with workflow orchestra
 
 ## Installation
 
+> **⚠ Not published yet — do not run `pip install aethershell`.**
+>
+> As of 2026-08-06 this package is **not on PyPI** and the name is
+> **unregistered**. `pip install aethershell` would not install this SDK; it
+> would install whatever a third party has uploaded under that name, and pip
+> executes package code at install time. Install from source until this notice
+> is removed.
+
 ```bash
-# Core SDK
-pip install aethershell
+# Core SDK, from a checkout of this repository
+pip install ./integrations/python
 
 # With LangChain integration
-pip install aethershell[langchain]
+pip install "./integrations/python[langchain]"
 
 # With cloud deployment support
-pip install aethershell[cloud]
+pip install "./integrations/python[cloud]"
 
 # Everything
-pip install aethershell[all]
+pip install "./integrations/python[all]"
 ```
 
 ## Quick Start

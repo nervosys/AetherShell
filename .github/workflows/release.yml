@@ -165,6 +165,10 @@ jobs:
                   CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
               run: |
                   cargo publish --features native
+              # Legitimate here: re-running a release for an already-published
+              # version fails harmlessly, and that must not fail the release.
+              # Unlike the npm and PyPI steps below, this one demonstrably
+              # works — crates.io has the published versions.
               continue-on-error: true
 
     publish-npm:
@@ -197,6 +201,14 @@ jobs:
               run: |
                   cd web/pkg
                   npm publish --access public
+              # WARNING (2026-08-06): this has never succeeded. `aethershell` is
+              # unregistered on npm, and this suppression is why nobody noticed
+              # across every release to date. `web/package.json` still says
+              # 0.2.0 while the crate is at 4.0.0 — had a publish ever landed,
+              # the version would have moved. See finding 12 in
+              # docs/security/SECURITY_AUDIT_2026-07-30.md. Either make this
+              # work or delete the job; leaving it suppressed means the workflow
+              # reads as publishing to three registries while reaching one.
               continue-on-error: true
 
     update-homebrew:
@@ -237,6 +249,14 @@ jobs:
               uses: pypa/gh-action-pypi-publish@release/v1
               with:
                   packages-dir: integrations/python/dist/
+              # WARNING (2026-08-06): this has never succeeded, and unlike npm
+              # it is user-facing — docs/api/PYTHON_SDK.md tells readers to run
+              # `pip install aethershell`, and that name is unregistered on
+              # PyPI. Anyone may claim it, and pip executes package code at
+              # install time. That makes this a live supply-chain exposure, not
+              # just a broken job. Finding 12 in
+              # docs/security/SECURITY_AUDIT_2026-07-30.md; register the name
+              # before deciding anything else about this job.
               continue-on-error: true
 
     build-linux-packages:
