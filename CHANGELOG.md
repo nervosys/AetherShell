@@ -35,10 +35,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and did nothing, so a passing test is not evidence until its failing form has
   been seen.
 
-- Noted while testing the above, **not fixed**: there is no recursion depth
-  limit, so `let f = fn(x) => f(x)` aborts the process on stack overflow. The
-  deadline cannot catch it, because an abort is not a `Result`. Recorded as open
-  item 7.
+- **Recursion aborts the process, and the usable depth is ~30 (CWE-674) —
+  found, measured, and deliberately not fixed.** `let f = fn(x) => f(x)`
+  overflows the stack and kills the process; the new deadline cannot catch it,
+  because an abort is not a `Result`.
+
+  Bisected on Windows debug builds: depth 30 works, depth 40 overflows — roughly
+  30 KB of stack per recursive call.
+
+  A depth counter in `call_lambda` was the obvious fix and does not work. Low
+  enough to fire before the stack does (~25) makes ordinary recursive programs
+  fail; high enough to be usable (~1000) never fires and the process still
+  aborts — a change that would look like a fix and prevent nothing, which is the
+  exact failure mode recorded four times already in this cycle. So nothing was
+  shipped.
+
+  The real fix is to run evaluation on a thread with an explicit large
+  `stack_size` *first*, which makes a depth limit meaningful — a design change
+  touching the REPL, the Agent API and the test harness. Recorded as finding 13
+  and open item 7.
 
 - **Docs no longer direct users to an unclaimed package name (CWE-494).**
   `docs/api/PYTHON_SDK.md`, the book, and the SDK README all told readers to run

@@ -28,6 +28,7 @@ CMMC 2.0.
 | 10 | Argument injection into PowerShell, AppleScript and archivers | CWE-78 / CWE-88 | **High** | Fixed |
 | 11 | sqlite3 dot-commands and tmux exec paths ungated | CWE-77 | **High** | Fixed |
 | 12 | Docs direct users to an unclaimed PyPI/npm package name | CWE-494 | **High** | **Open — needs registry accounts** |
+| 13 | Recursion aborts the process; usable depth is ~30 | CWE-674 | Medium | **Open — needs a design decision** |
 | 1 | `quinn-proto` remote memory exhaustion | RUSTSEC-2026-0185 | High (7.5) | Fixed |
 | 2 | Unimplemented crypto builtins reported success | CWE-347 / CWE-311 | High | Fixed |
 | 4 | `rbac.*`, `perm.acl_*`, `sso.*` advertised but unimplemented | CWE-1104 | Medium | Documented, not implemented |
@@ -572,6 +573,71 @@ never reach that position); `find` (all five sites use fixed `-name`/`-type`/
 `ps`, `ip` and `netstat`, where caller values land in value positions after a
 fixed flag.
 
+## 13. Recursion aborts the process, and the usable depth is ~30 (CWE-674)
+
+Found 2026-08-07 while testing finding 6b's deadline, and it is worse than the
+"add a depth limit" note that finding originally carried.
+
+```
+let f = fn(x) => f(x)
+f(1)
+```
+
+```
+thread 'main' (39616) has overflowed its stack
+```
+
+The process **aborts**. The 6b deadline cannot catch this: a stack overflow is
+not a `Result`, so nothing unwinds and no error is returned. For the Agent API
+this is a denial of service that costs one request — worse than the hang 6b
+addressed, because the whole server dies rather than one thread being tied up.
+
+**The depth is the surprising part.** Bisected on Windows, debug build:
+
+| Depth | Result |
+| --- | --- |
+| 30 | ok |
+| 40 | **stack overflow** |
+
+That is roughly 30 KB of stack per recursive call — `eval_expr` is a large match
+and, unoptimised, its frame appears to carry locals for every arm. On Windows
+the main thread gets a 1 MB stack by default, which is consistent with ~30
+frames.
+
+**Why a depth limit alone is not the fix, and was not shipped.** The obvious
+remedy is a counter in `call_lambda`, and it does not work here:
+
+- A limit low enough to fire before overflow on this platform (~25) makes
+  ordinary recursive programs fail. That is not a safety feature, it is a
+  broken interpreter.
+- A limit high enough to be usable (say 1000) never fires before the stack
+  does, so the process still aborts. It would look like a fix and prevent
+  nothing — the exact failure mode this audit has recorded four times already.
+
+Shipping either would have been worse than shipping nothing, so nothing was
+shipped.
+
+**What the fix actually requires**, in order:
+
+1. **Give evaluation a large, explicit stack** — run the interpreter on a thread
+   spawned with `std::thread::Builder::stack_size` (tens of MB). This is what
+   makes any depth limit meaningful, and it is the piece that needs design: it
+   touches the REPL, the Agent API and the test harness.
+2. **Then** add a depth counter in `call_lambda`, tuned below the new ceiling,
+   so runaway recursion returns an error instead of aborting.
+3. Optionally reduce `eval_expr`'s frame size by boxing large match arms, which
+   raises the ceiling for free.
+
+**Measured and not measured.** The depths above are Windows, debug, this
+machine. Release builds have smaller frames and Linux/macOS main threads
+conventionally get 8 MB rather than 1 MB, so the real ceiling elsewhere is
+higher — but *how much* higher was not measured, and the abort happens on every
+platform regardless. Do not read "~30" as the number to tune against.
+
+**Severity: Medium.** Trivially triggered and it kills the process, but it needs
+an authenticated caller on the Agent API, and locally it is a crash of the
+user's own shell rather than a privilege boundary being crossed.
+
 ## 12. Documentation directs users to an unclaimed package name (CWE-494, supply chain)
 
 Found 2026-08-06 while checking why the release workflow's publish steps never
@@ -1013,10 +1079,13 @@ Not audit fixes; each needs an explicit call.
    now stops runaway recursion and large computations. What remains is narrower:
    a builtin already blocked in a syscall (`sleep`, subprocess wait, network
    read) never returns to be asked, so it cannot be interrupted.
-7. **Add a recursion depth limit** (§6b) — `let f = fn(x) => f(x)` aborts the
-   process on stack overflow. Not a hang but a crash, and the deadline cannot
-   catch it because an abort is not a `Result`. Needs a depth counter in
-   `call_lambda`.
+7. **Give evaluation an explicit large stack, then limit recursion depth**
+   (finding 13) — `let f = fn(x) => f(x)` aborts the process, and the usable
+   depth is only ~30 on Windows debug builds. A depth counter alone cannot fix
+   this: low enough to fire is unusably restrictive, high enough to be usable
+   never fires. Run the interpreter on a thread with an explicit `stack_size`
+   first; that is a design change touching the REPL, the Agent API and the test
+   harness, which is why it was recorded rather than rushed.
 
 ## Decisions taken, 2026-08-06
 
