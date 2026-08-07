@@ -16,13 +16,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   project's own documentation was the delivery mechanism.
 
   Found by checking whether a thing the build *claims* to do actually happened,
-  rather than by reading the workflow: `release.yml`'s `publish-pypi` and
-  `publish-npm` jobs both carry `continue-on-error: true` and have failed
-  silently on every release since they were added. Reading the workflow shows a
-  publish step and looks correct. The giveaway was version drift — the crate is
-  at 4.0.0 while `integrations/python/pyproject.toml` says 1.5.0 and
+  rather than by reading the workflow. The giveaway was version drift — the
+  crate is at 4.0.0 while `integrations/python/pyproject.toml` says 1.5.0 and
   `web/package.json` says 0.2.0. Had a publish ever landed, those would have
   moved.
+
+  The v4.0.0 release then confirmed the mechanism by executing it. The
+  `Publish Python SDK to PyPI` job reported **`completed/success`** — every step
+  green — and PyPI still had no package. The log shows
+  `outcome=failure;conclusion=failure` with `environment: MISSING`: trusted
+  publishing was never configured, and `continue-on-error: true` rewrites the
+  failed step to `success`, which the job and run inherit.
+
+  Three layers of the same illusion: the workflow *contains* a publish step so
+  reading it looks right; the suppression makes the step green; the job and run
+  inherit that. Every signal available from inside the repository says this
+  works. Only asking PyPI shows it never has.
 
   All install instructions now point at the repository and carry a warning. The
   suppressed publish steps are annotated with what they actually do.

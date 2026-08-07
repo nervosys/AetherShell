@@ -249,14 +249,23 @@ jobs:
               uses: pypa/gh-action-pypi-publish@release/v1
               with:
                   packages-dir: integrations/python/dist/
-              # WARNING (2026-08-06): this has never succeeded, and unlike npm
-              # it is user-facing — docs/api/PYTHON_SDK.md tells readers to run
-              # `pip install aethershell`, and that name is unregistered on
-              # PyPI. Anyone may claim it, and pip executes package code at
-              # install time. That makes this a live supply-chain exposure, not
-              # just a broken job. Finding 12 in
-              # docs/security/SECURITY_AUDIT_2026-07-30.md; register the name
-              # before deciding anything else about this job.
+              # WARNING (2026-08-07): this has never succeeded, and unlike npm
+              # it is user-facing — docs told readers to `pip install
+              # aethershell`, and that name is unregistered on PyPI. Anyone may
+              # claim it, and pip executes package code at install time. A live
+              # supply-chain exposure, not just a broken job.
+              #
+              # Observed on the v4.0.0 release: the action logs
+              # `outcome=failure;conclusion=failure` with `environment:
+              # MISSING` — trusted publishing is not configured for this repo —
+              # and `continue-on-error` then rewrites the step to `success`, so
+              # the job and the whole run report green. Every signal visible
+              # from inside this repository says it worked. Only querying PyPI
+              # shows it never has.
+              #
+              # Fix trusted publishing before removing this line, or the
+              # release fails. Finding 12 in
+              # docs/security/SECURITY_AUDIT_2026-07-30.md.
               continue-on-error: true
 
     build-linux-packages:

@@ -540,6 +540,32 @@ package has never been published: the `publish-pypi` and `publish-npm` jobs in
 `release.yml` both carry `continue-on-error: true`, so they have failed silently
 on every release since they were added, and nothing surfaced it.
 
+**Confirmed by execution, 2026-08-07.** The v4.0.0 release ran while this
+finding was being written, which allowed the mechanism to be observed directly
+rather than inferred. The `Publish Python SDK to PyPI` job reported
+**`completed/success`** through the API — every step green, including
+`Publish to PyPI` — and PyPI still had no package afterwards. The job log shows
+what actually happened:
+
+```
+##[end-action id=__pypa_gh-action-pypi-publish.__self;outcome=failure;conclusion=failure]
+* environment: `MISSING`
+See https://docs.pypi.org/trusted-publishers/troubleshooting/ for more help.
+```
+
+Trusted publishing was never configured on PyPI for this repository, so the
+upload is rejected. `continue-on-error: true` then rewrites the failed step's
+`conclusion` to `success`, and the job and the whole run inherit it.
+
+That is three layers of the same illusion stacked:
+
+1. `release.yml` contains a publish step, so **reading it looks correct**.
+2. `continue-on-error` rewrites the failure, so **the step reports green**.
+3. The job and run inherit that, so **"did the release succeed?" answers yes**.
+
+Every check available from inside the repository says this works. Only asking
+PyPI shows that nothing has ever been published.
+
 The risk is not that the command fails. It is that **anyone may register the
 name**, and `pip install` executes code from the package at install time
 (`setup.py`, or a build backend hook). An attacker who claims `aethershell`
@@ -562,10 +588,16 @@ recorded rather than fixed here. In order of urgency:
    `aether-shell` too, as the obvious typo target.
 2. **Then** decide whether to publish the SDKs for real or remove the install
    instructions. Both are defensible; leaving the docs as they are is not.
-3. **Remove `continue-on-error: true` from the publish jobs**, or at minimum
+3. **Configure PyPI trusted publishing** for `nervosys/AetherShell` — the
+   observed failure is `environment: MISSING`, so the OIDC claim does not match
+   any configured publisher. Same check for the npm token.
+4. **Remove `continue-on-error: true` from the publish jobs**, or at minimum
    have them fail loudly. Error suppression is what let this run undetected
-   across every release — the workflow *looked* like it distributed to three
-   registries while reaching one.
+   across every release — and, worse, what made the failure report as success
+   at every level the repository can see. If the suppression must stay (the
+   crates.io step has a legitimate reason for it), add a verification step that
+   queries the registry afterwards and fails on a missing version. A publish
+   step that cannot tell you whether it published is not a publish step.
 
 Note the version drift that made this visible: the Rust crate is at 4.0.0 while
 `integrations/python/pyproject.toml` says `1.5.0` and `web/package.json` says
