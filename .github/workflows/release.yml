@@ -205,7 +205,7 @@ jobs:
                   VERSION="$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)"
                   if curl -sfA "aethershell-release-verify" \
                        "https://crates.io/api/v1/crates/aethershell/${VERSION}" >/dev/null; then
-                    echo "✅ crates.io: \`aethershell\` **${VERSION}** is published." >>"$GITHUB_STEP_SUMMARY"
+                    echo "✅ crates.io: \`aethershell\` **${VERSION}** is published." | tee -a "$GITHUB_STEP_SUMMARY"
                   else
                     {
                       echo "### ⚠️ crates.io publish did NOT land"
@@ -213,7 +213,7 @@ jobs:
                       echo "\`aethershell\` **${VERSION}** is not on crates.io, even though the"
                       echo "publish step reported success (\`continue-on-error\` masks failures)."
                       echo "Check the step log above for the real error."
-                    } >>"$GITHUB_STEP_SUMMARY"
+                    } | tee -a "$GITHUB_STEP_SUMMARY"
                   fi
 
     publish-npm:
@@ -282,11 +282,11 @@ jobs:
                   NAME="$(jq -r .name "$PKG" 2>/dev/null || echo '')"
                   VERSION="$(jq -r .version "$PKG" 2>/dev/null || echo '')"
                   if [ -z "$NAME" ] || [ "$NAME" = "null" ] || [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
-                    echo "### ⚠️ npm: could not read name/version from ${PKG}" >>"$GITHUB_STEP_SUMMARY"
+                    echo "### ⚠️ npm: could not read name/version from ${PKG}" | tee -a "$GITHUB_STEP_SUMMARY"
                     exit 0
                   fi
                   if curl -sf "https://registry.npmjs.org/${NAME}/${VERSION}" >/dev/null; then
-                    echo "✅ npm: \`${NAME}\` **${VERSION}** is published." >>"$GITHUB_STEP_SUMMARY"
+                    echo "✅ npm: \`${NAME}\` **${VERSION}** is published." | tee -a "$GITHUB_STEP_SUMMARY"
                   else
                     {
                       echo "### ⚠️ npm publish did NOT land"
@@ -297,7 +297,7 @@ jobs:
                       echo "As of 2026-08-07 the cause was an unset \`NPM_TOKEN\` secret"
                       echo "(\`npm error code ENEEDAUTH\`). See finding 12 in"
                       echo "\`docs/security/SECURITY_AUDIT_2026-07-30.md\`."
-                    } >>"$GITHUB_STEP_SUMMARY"
+                    } | tee -a "$GITHUB_STEP_SUMMARY"
                   fi
 
     update-homebrew:
@@ -367,7 +367,7 @@ jobs:
                   set -uo pipefail
                   VERSION="$(grep -m1 '^version' integrations/python/pyproject.toml | cut -d'"' -f2)"
                   if curl -sf "https://pypi.org/pypi/aethershell/${VERSION}/json" >/dev/null; then
-                    echo "✅ PyPI: \`aethershell\` **${VERSION}** is published." >>"$GITHUB_STEP_SUMMARY"
+                    echo "✅ PyPI: \`aethershell\` **${VERSION}** is published." | tee -a "$GITHUB_STEP_SUMMARY"
                   else
                     {
                       echo "### ⚠️ PyPI publish did NOT land"
@@ -381,7 +381,7 @@ jobs:
                       echo "previously told users to \`pip install aethershell\` — anyone may"
                       echo "claim the name, and pip executes package code at install time."
                       echo "See finding 12 in \`docs/security/SECURITY_AUDIT_2026-07-30.md\`."
-                    } >>"$GITHUB_STEP_SUMMARY"
+                    } | tee -a "$GITHUB_STEP_SUMMARY"
                   fi
 
     build-linux-packages:
