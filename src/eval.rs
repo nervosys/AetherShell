@@ -762,6 +762,7 @@ fn is_truthy(v: &Value) -> bool {
 
 /// Call a zero-parameter lambda
 fn call_lambda0(l: &Lambda, env: &mut Env) -> Result<Value> {
+    let _depth = crate::safety::enter_call()?;
     // Save and clear pipe input to prevent leakage
     let saved_pipe = env.input().cloned();
     env.set_input(None);
@@ -778,6 +779,7 @@ fn call_lambda0(l: &Lambda, env: &mut Env) -> Result<Value> {
 }
 
 fn call_lambda1(l: &Lambda, x: Value, i: usize, env: &mut Env) -> Result<Value> {
+    let _depth = crate::safety::enter_call()?;
     let p = l
         .params
         .first()
@@ -829,6 +831,7 @@ fn call_lambda1(l: &Lambda, x: Value, i: usize, env: &mut Env) -> Result<Value> 
 
 /// Call a lambda with N arguments (generic version for 3+ args)
 fn call_lambda_n(l: &Lambda, args: Vec<Value>, env: &mut Env) -> Result<Value> {
+    let _depth = crate::safety::enter_call()?;
     if args.len() != l.params.len() {
         return Err(anyhow!(
             "lambda expects {} arguments, got {}",
@@ -869,6 +872,7 @@ fn call_lambda_n(l: &Lambda, args: Vec<Value>, env: &mut Env) -> Result<Value> {
 }
 
 fn call_lambda2(l: &Lambda, a: Value, b: Value, i: usize, env: &mut Env) -> Result<Value> {
+    let _depth = crate::safety::enter_call()?;
     let p1 = l
         .params
         .first()

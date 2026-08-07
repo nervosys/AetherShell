@@ -28,7 +28,7 @@ CMMC 2.0.
 | 10 | Argument injection into PowerShell, AppleScript and archivers | CWE-78 / CWE-88 | **High** | Fixed |
 | 11 | sqlite3 dot-commands and tmux exec paths ungated | CWE-77 | **High** | Fixed |
 | 12 | Docs direct users to an unclaimed PyPI/npm package name | CWE-494 | **High** | **Open — needs registry accounts** |
-| 13 | Recursion aborts the process; usable depth is ~30 | CWE-674 | Medium | **Open — needs a design decision** |
+| 13 | Recursion aborted the process; usable depth was ~30 | CWE-674 | Medium | Fixed (large stack + depth limit) |
 | 1 | `quinn-proto` remote memory exhaustion | RUSTSEC-2026-0185 | High (7.5) | Fixed |
 | 2 | Unimplemented crypto builtins reported success | CWE-347 / CWE-311 | High | Fixed |
 | 4 | `rbac.*`, `perm.acl_*`, `sso.*` advertised but unimplemented | CWE-1104 | Medium | Documented, not implemented |
@@ -604,8 +604,8 @@ and, unoptimised, its frame appears to carry locals for every arm. On Windows
 the main thread gets a 1 MB stack by default, which is consistent with ~30
 frames.
 
-**Why a depth limit alone is not the fix, and was not shipped.** The obvious
-remedy is a counter in `call_lambda`, and it does not work here:
+**Why a depth limit alone is not the fix.** The obvious remedy is a counter in
+`call_lambda`, and on its own it does not work:
 
 - A limit low enough to fire before overflow on this platform (~25) makes
   ordinary recursive programs fail. That is not a safety feature, it is a
@@ -614,19 +614,53 @@ remedy is a counter in `call_lambda`, and it does not work here:
   does, so the process still aborts. It would look like a fix and prevent
   nothing — the exact failure mode this audit has recorded four times already.
 
-Shipping either would have been worse than shipping nothing, so nothing was
-shipped.
+### 13a. Fixed: a large stack first, then the limit
 
-**What the fix actually requires**, in order:
+This was initially recorded as needing design work and left open. That was
+over-cautious — the two halves together are a contained change, and both are now
+in place.
 
-1. **Give evaluation a large, explicit stack** — run the interpreter on a thread
-   spawned with `std::thread::Builder::stack_size` (tens of MB). This is what
-   makes any depth limit meaningful, and it is the piece that needs design: it
-   touches the REPL, the Agent API and the test harness.
-2. **Then** add a depth counter in `call_lambda`, tuned below the new ceiling,
-   so runaway recursion returns an error instead of aborting.
-3. Optionally reduce `eval_expr`'s frame size by boxing large match arms, which
-   raises the ceiling for free.
+**The stack.** `safety::with_eval_stack` runs evaluation on a thread with a
+256 MB stack, and `main` is a thin wrapper around it, so the REPL, scripts and
+`-c` all get it. The Agent API's tokio runtime sets `thread_stack_size` to the
+same value — necessary and easy to miss, because evaluation there happens on
+tokio's own `spawn_blocking` workers, which would otherwise keep the default
+stack and overflow at a few dozen frames no matter what `main` does. The stack
+is *reserved* address space, not committed memory, so the size costs nothing
+until used.
+
+**The limit.** `safety::MAX_CALL_DEPTH` is 2000, enforced through an RAII guard
+so the depth unwinds even when an inner call returns `Err`.
+
+**Measured after the change**, same machine and debug profile:
+
+| Depth | Before | After |
+| --- | --- | --- |
+| 40 | **stack overflow** | ok |
+| 500 | stack overflow | ok |
+| 1900 | stack overflow | ok |
+| 2100 | stack overflow | **refused cleanly** |
+| unbounded | **process abort** | **refused cleanly** |
+
+Usable depth went from ~35 to 1900+, and the abort became a catchable error.
+
+**Two things this got wrong on the way, both worth recording.** The guard was
+first placed in `builtins::call_lambda` — which is not on this path. `eval.rs`
+has four more entry points (`call_lambda0/1/2/_n`), and with only the first
+guarded, `f(2500)` still returned a result: the limit was never consulted. It
+looked correct and did nothing, again. All five are now guarded.
+
+Then the test asserting deep recursion overflowed anyway, because a default test
+thread has ~2 MB and the limit needs ~60 MB to be reachable — the stack beat the
+limit, which is exactly the failure the large stack exists to prevent.
+
+**Remaining constraint, and it is a real one.** The depth limit is only safe
+when paired with the large stack. A library consumer calling
+`eval::eval_program` on an ordinary thread gets the limit but not the stack, so
+deep recursion still aborts before the limit can refuse it. Embedders must use
+`safety::with_eval_stack` or set an equivalent `stack_size` themselves. Reducing
+`eval_expr`'s frame size (boxing large match arms) would raise the ceiling for
+everyone and remains worth doing.
 
 **Measured and not measured.** The depths above are Windows, debug, this
 machine. Release builds have smaller frames and Linux/macOS main threads
@@ -1079,13 +1113,11 @@ Not audit fixes; each needs an explicit call.
    now stops runaway recursion and large computations. What remains is narrower:
    a builtin already blocked in a syscall (`sleep`, subprocess wait, network
    read) never returns to be asked, so it cannot be interrupted.
-7. **Give evaluation an explicit large stack, then limit recursion depth**
-   (finding 13) — `let f = fn(x) => f(x)` aborts the process, and the usable
-   depth is only ~30 on Windows debug builds. A depth counter alone cannot fix
-   this: low enough to fire is unusably restrictive, high enough to be usable
-   never fires. Run the interpreter on a thread with an explicit `stack_size`
-   first; that is a design change touching the REPL, the Agent API and the test
-   harness, which is why it was recorded rather than rushed.
+7. ~~**Give evaluation an explicit large stack, then limit recursion depth**~~ —
+   done (finding 13a). What remains is smaller: **reduce `eval_expr`'s frame
+   size** by boxing large match arms, which raises the ceiling for everyone
+   including embedders who evaluate on an ordinary thread and therefore get the
+   depth limit without the stack.
 
 ## Decisions taken, 2026-08-06
 

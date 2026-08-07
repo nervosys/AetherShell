@@ -1732,6 +1732,162 @@ pub fn check_deadline() -> anyhow::Result<()> {
     })
 }
 
+// ============================================================================
+// Recursion depth
+// ============================================================================
+//
+// Finding 13: `let f = fn(x) => f(x)` overflowed the stack and *aborted the
+// process*. The evaluation deadline above cannot catch that — a stack overflow
+// is not a `Result`, so nothing unwinds.
+//
+// Two halves, and the order matters. A depth limit on its own is not a fix:
+// measured on Windows debug builds the stack died at ~35 frames, so a limit low
+// enough to fire (~25) would reject ordinary recursive programs, while a usable
+// limit (~1000) would never fire before the stack did. So the stack is enlarged
+// first (`EVAL_STACK_SIZE`, applied at the process entry point and to the
+// runtime's worker threads), which is what makes `MAX_CALL_DEPTH` meaningful.
+
+/// Stack for threads that evaluate AetherShell code.
+///
+/// This is *reserved* address space, not committed memory — pages are backed
+/// only as they are touched — so a large value costs essentially nothing on a
+/// 64-bit host. Sized so that `MAX_CALL_DEPTH` is reached with a wide margin
+/// even in a debug build, where frames were measured at roughly 30 KB.
+pub const EVAL_STACK_SIZE: usize = 256 * 1024 * 1024;
+
+/// Maximum nested lambda calls before evaluation is refused.
+///
+/// Chosen against the measured worst case rather than a round number:
+/// 256 MB / ~30 KB per debug frame ≈ 8,500 frames available, so firing at 2,000
+/// leaves roughly a 4× margin. Release frames are smaller, so the margin there
+/// is larger still. Deep enough that realistic recursive programs are
+/// unaffected; shallow enough to fire long before the stack does.
+pub const MAX_CALL_DEPTH: u32 = 2_000;
+
+thread_local! {
+    static CALL_DEPTH: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+/// Decrements the call depth however the call exits, including on `?`.
+pub struct CallDepthGuard;
+
+impl Drop for CallDepthGuard {
+    fn drop(&mut self) {
+        CALL_DEPTH.with(|d| d.set(d.get().saturating_sub(1)));
+    }
+}
+
+/// Enter one level of lambda nesting, or fail if that would go too deep.
+///
+/// Hold the returned guard for the duration of the call — the depth is released
+/// when it drops, so an error propagating out of a nested call still unwinds
+/// the count correctly.
+pub fn enter_call() -> anyhow::Result<CallDepthGuard> {
+    let depth = CALL_DEPTH.with(|d| {
+        let n = d.get() + 1;
+        d.set(n);
+        n
+    });
+    if depth > MAX_CALL_DEPTH {
+        // Release immediately; the caller gets an error, not a guard.
+        CALL_DEPTH.with(|d| d.set(d.get().saturating_sub(1)));
+        return Err(anyhow::anyhow!(
+            "recursion too deep (limit {MAX_CALL_DEPTH}) — a function is most \
+             likely calling itself without a base case"
+        ));
+    }
+    Ok(CallDepthGuard)
+}
+
+/// Current nesting depth. Test/diagnostic use.
+pub fn current_call_depth() -> u32 {
+    CALL_DEPTH.with(|d| d.get())
+}
+
+/// Run `f` on a thread with a stack large enough for deep evaluation.
+///
+/// Used at the process entry point so the REPL, scripts and `-c` all evaluate
+/// with room for `MAX_CALL_DEPTH`. Panics are propagated so behaviour matches
+/// running `f` directly — swallowing them here would turn a crash into a silent
+/// wrong answer.
+pub fn with_eval_stack<T, F>(f: F) -> T
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    // No inline fallback: the closure is moved into `spawn`, so it cannot be
+    // reused if that fails. Spawning the first thread failing means the process
+    // is out of memory or handles, where a clear abort beats limping on with a
+    // small stack and overflowing later somewhere less obvious.
+    let handle = std::thread::Builder::new()
+        .name("aether-eval".into())
+        .stack_size(EVAL_STACK_SIZE)
+        .spawn(f)
+        .expect("failed to spawn the evaluation thread");
+
+    match handle.join() {
+        Ok(v) => v,
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
+}
+
+#[cfg(test)]
+mod depth_tests {
+    use super::*;
+
+    #[test]
+    fn depth_is_released_when_the_guard_drops() {
+        let before = current_call_depth();
+        {
+            let _g = enter_call().expect("first level must be allowed");
+            assert_eq!(current_call_depth(), before + 1);
+        }
+        assert_eq!(
+            current_call_depth(),
+            before,
+            "depth must unwind, or a long-lived thread would drift to the limit"
+        );
+    }
+
+    #[test]
+    fn exceeding_the_limit_is_an_error_not_a_crash() {
+        let mut guards = Vec::new();
+        let mut refused = false;
+        for _ in 0..(MAX_CALL_DEPTH + 10) {
+            match enter_call() {
+                Ok(g) => guards.push(g),
+                Err(e) => {
+                    assert!(e.to_string().contains("recursion too deep"), "got {e}");
+                    refused = true;
+                    break;
+                }
+            }
+        }
+        assert!(refused, "the limit must be enforced");
+        drop(guards);
+        assert_eq!(current_call_depth(), 0, "depth must return to zero");
+    }
+
+    /// A refused call must not consume a level, or repeated failures would
+    /// ratchet the counter down and reject progressively shallower calls.
+    #[test]
+    fn a_refused_call_does_not_leak_depth() {
+        let mut guards = Vec::new();
+        while let Ok(g) = enter_call() {
+            guards.push(g);
+        }
+        let at_limit = current_call_depth();
+        for _ in 0..5 {
+            assert!(enter_call().is_err());
+        }
+        assert_eq!(
+            current_call_depth(),
+            at_limit,
+            "a rejected call must leave the depth unchanged"
+        );
+    }
+}
+
 #[cfg(test)]
 mod deadline_tests {
     use super::*;

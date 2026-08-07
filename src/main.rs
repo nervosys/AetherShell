@@ -271,8 +271,21 @@ enum AgentApiCommands {
 }
 
 fn main() -> Result<()> {
+    // Everything runs on a thread with a large stack (finding 13). The
+    // interpreter recurses through `eval_expr` for nested calls, and on the
+    // default main-thread stack — 1 MB on Windows — that overflowed and aborted
+    // the process at roughly 35 frames. The stack is reserved address space,
+    // not committed memory, so this costs nothing until it is used, and it is
+    // what makes `safety::MAX_CALL_DEPTH` able to fire first.
+    //
+    // Parsing argv here rather than inside the closure keeps `--help` and
+    // argument errors on the real main thread, so their exit codes and output
+    // are unchanged.
     let cli = Cli::parse();
+    aethershell::safety::with_eval_stack(move || run(cli))
+}
 
+fn run(cli: Cli) -> Result<()> {
     // An output token budget applies to all eval/print paths via the REPL.
     if let Some(n) = cli.budget {
         std::env::set_var("AE_TOKEN_BUDGET", n.to_string());
@@ -608,7 +621,17 @@ fn handle_agent_api_command(command: AgentApiCommands) -> Result<()> {
                     request_timeout_secs: request_timeout,
                 };
 
-                tokio::runtime::Runtime::new()?
+                // `with_eval_stack` in `main` covers this thread, but tokio
+                // spawns its own workers — and evaluation happens on those, via
+                // `spawn_blocking`. Without this they would get the default
+                // stack and overflow at a few dozen frames, long before
+                // `safety::MAX_CALL_DEPTH` could refuse the call. This is the
+                // path that matters for finding 13: it is the one an
+                // unauthenticated-adjacent caller can reach.
+                tokio::runtime::Builder::new_multi_thread()
+                    .enable_all()
+                    .thread_stack_size(aethershell::safety::EVAL_STACK_SIZE)
+                    .build()?
                     .block_on(agent_api::server::start_agent_api_server(config))
             }
 

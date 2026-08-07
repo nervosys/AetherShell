@@ -4002,6 +4002,11 @@ mod egress_tests {
 /// Evaluate a lambda with N positional arguments by temporarily binding its `params`
 /// in the environment, then `eval_expr` on its body. Restores env afterwards.
 fn call_lambda(lam: &Lambda, args: &[Value], env: &mut Env) -> Result<Value> {
+    // Finding 13: unbounded self-recursion used to overflow the stack and abort
+    // the process, which no error handling could catch. The guard is held for
+    // the whole call, so the depth unwinds even when an inner call returns Err.
+    let _depth = crate::safety::enter_call()?;
+
     let params = &lam.params;
     if params.len() != args.len() {
         return Err(anyhow!(

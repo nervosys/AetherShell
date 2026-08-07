@@ -35,25 +35,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and did nothing, so a passing test is not evidence until its failing form has
   been seen.
 
-- **Recursion aborts the process, and the usable depth is ~30 (CWE-674) —
-  found, measured, and deliberately not fixed.** `let f = fn(x) => f(x)`
-  overflows the stack and kills the process; the new deadline cannot catch it,
-  because an abort is not a `Result`.
+- **Recursion no longer aborts the process, and usable depth went from ~35 to
+  1900+ (CWE-674).** `let f = fn(x) => f(x)` overflowed the stack and killed the
+  process. The new evaluation deadline could not catch it, because a stack
+  overflow does not unwind.
 
-  Bisected on Windows debug builds: depth 30 works, depth 40 overflows — roughly
-  30 KB of stack per recursive call.
+  A depth counter alone would not have fixed it: low enough to fire before the
+  stack does (~25) rejects ordinary recursive programs, high enough to be usable
+  never fires. So the stack came first. `safety::with_eval_stack` runs
+  evaluation on a 256 MB stack (reserved address space, not committed memory, so
+  it costs nothing until used) and `main` is a thin wrapper around it. The Agent
+  API's tokio runtime sets `thread_stack_size` to match — easy to miss and
+  necessary, because evaluation there happens on tokio's own `spawn_blocking`
+  workers, which would otherwise keep the default stack regardless of what
+  `main` does. `safety::MAX_CALL_DEPTH` (2000) is then enforced through an RAII
+  guard, so depth unwinds even when an inner call returns `Err`.
 
-  A depth counter in `call_lambda` was the obvious fix and does not work. Low
-  enough to fire before the stack does (~25) makes ordinary recursive programs
-  fail; high enough to be usable (~1000) never fires and the process still
-  aborts — a change that would look like a fix and prevent nothing, which is the
-  exact failure mode recorded four times already in this cycle. So nothing was
-  shipped.
+  Measured, debug profile, same machine:
 
-  The real fix is to run evaluation on a thread with an explicit large
-  `stack_size` *first*, which makes a depth limit meaningful — a design change
-  touching the REPL, the Agent API and the test harness. Recorded as finding 13
-  and open item 7.
+  | Depth | Before | After |
+  | --- | --- | --- |
+  | 40 | **stack overflow** | ok |
+  | 1900 | stack overflow | ok |
+  | 2100 | stack overflow | **refused cleanly** |
+  | unbounded | **process abort** | **refused cleanly** |
+
+  Two wrong turns worth recording. The guard went first into
+  `builtins::call_lambda`, which is not on this path — `eval.rs` has four more
+  entry points, and with only the first guarded `f(2500)` still returned a
+  result. It looked correct and did nothing. Then the test asserting deep
+  recursion overflowed anyway, because a default test thread has ~2 MB while the
+  limit needs ~60 MB to be reachable: the stack beat the limit, which is the
+  exact failure the large stack exists to prevent.
+
+  **Constraint on the fix:** the depth limit is only safe with the large stack.
+  An embedder calling `eval::eval_program` on an ordinary thread gets the limit
+  but not the stack, so deep recursion still aborts first. Use
+  `safety::with_eval_stack` or set an equivalent `stack_size`.
 
 - **Docs no longer direct users to an unclaimed package name (CWE-494).**
   `docs/api/PYTHON_SDK.md`, the book, and the SDK README all told readers to run

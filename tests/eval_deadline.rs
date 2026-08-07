@@ -101,3 +101,46 @@ fn a_deadline_does_not_leak_to_later_work_on_the_same_thread() {
     eval("[1, 2, 3] | map(fn(x) => x * 2)")
         .expect("a dropped deadline must not poison later work on this thread");
 }
+
+// ---------------------------------------------------------------------------
+// Finding 13: recursion depth
+// ---------------------------------------------------------------------------
+//
+// These go through `safety::with_eval_stack`, which is not ceremony — it is the
+// supported way to evaluate, and running them without it demonstrated why.
+//
+// `MAX_CALL_DEPTH` is 2000, and a debug frame measured at roughly 30 KB, so the
+// limit needs ~60 MB of stack to be reachable. A default test thread has about
+// 2 MB, and the first version of `legitimately_deep_recursion_still_works` duly
+// overflowed at depth 1500 — the stack lost the race to the limit, which is the
+// precise failure the large stack exists to prevent.
+//
+// **This is a real constraint on the fix, not a test detail.** A library
+// consumer calling `eval::eval_program` on an ordinary thread gets the depth
+// limit but not the stack, so deep recursion still aborts before the limit can
+// refuse it. `with_eval_stack` (or an equivalently large `stack_size`) is
+// required, which is why `main` and the Agent API's tokio runtime both use it.
+
+/// Unbounded recursion used to abort the process, which no error handling could
+/// catch because a stack overflow does not unwind.
+#[test]
+fn unbounded_recursion_is_refused_rather_than_fatal() {
+    let err = safety::with_eval_stack(|| eval("let f = fn(x) => f(x)\nf(1)"))
+        .expect_err("unbounded recursion must not be allowed to run");
+    assert!(
+        err.to_string().contains("recursion too deep"),
+        "it must fail for depth, not incidentally; got {err}"
+    );
+}
+
+/// The half that keeps this from being a regression dressed as a fix. Before
+/// the large stack, depth 40 aborted the process — so a depth limit alone would
+/// have had to sit below 40 to fire at all, rejecting ordinary programs.
+#[test]
+fn legitimately_deep_recursion_still_works() {
+    let out = safety::with_eval_stack(|| {
+        eval("let f = fn(n) => match n { 0 => 0, _ => f(n - 1) }\nf(1500)")
+    })
+    .expect("1500 levels is a reasonable program and must not be refused");
+    assert!(format!("{out:?}").contains('0'), "got {out:?}");
+}
