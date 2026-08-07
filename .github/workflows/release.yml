@@ -39,7 +39,25 @@ jobs:
               with:
                   tag_name: v${{ steps.get_version.outputs.version }}
                   name: AetherShell v${{ steps.get_version.outputs.version }}
-                  draft: true
+                  # Was `draft: true` until 2026-08-07, which silently produced
+                  # *two* releases per tag and threw away the notes.
+                  #
+                  # A draft release is not bound to its tag until published. So
+                  # this step created an unattached draft holding the generated
+                  # notes, and then each `Upload Release Asset` step below asked
+                  # softprops for the release on tag `vX.Y.Z`, found none, and
+                  # created a second one — published, with the assets, and with
+                  # an empty body. The draft was orphaned.
+                  #
+                  # The result: 18 empty drafts accumulated from v0.3.0 to
+                  # v4.0.0, and every published release had no release notes.
+                  # Both symptoms had been visible on the releases page for
+                  # months.
+                  #
+                  # Publishing directly means the upload steps find this release
+                  # by tag and attach to it, so there is one release per tag and
+                  # the notes survive.
+                  draft: false
                   prerelease: false
                   generate_release_notes: true
 
