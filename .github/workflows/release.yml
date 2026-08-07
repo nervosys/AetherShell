@@ -201,11 +201,19 @@ jobs:
               run: |
                   cd web/pkg
                   npm publish --access public
-              # WARNING (2026-08-06): this has never succeeded. `aethershell` is
+              # WARNING (2026-08-07): this has never succeeded. `aethershell` is
               # unregistered on npm, and this suppression is why nobody noticed
               # across every release to date. `web/package.json` still says
               # 0.2.0 while the crate is at 4.0.0 — had a publish ever landed,
-              # the version would have moved. See finding 12 in
+              # the version would have moved.
+              #
+              # Observed on the v4.0.0 release: NODE_AUTH_TOKEN was empty (a
+              # populated secret renders as ***), so npm failed with
+              # `ENEEDAUTH` — the NPM_TOKEN secret has never been set. The job
+              # still reported `completed/success`, because continue-on-error
+              # rewrites the step conclusion.
+              #
+              # Set NPM_TOKEN before removing this line. Finding 12 in
               # docs/security/SECURITY_AUDIT_2026-07-30.md. Either make this
               # work or delete the job; leaving it suppressed means the workflow
               # reads as publishing to three registries while reaching one.

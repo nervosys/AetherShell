@@ -28,10 +28,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   publishing was never configured, and `continue-on-error: true` rewrites the
   failed step to `success`, which the job and run inherit.
 
+  The npm job on the same release behaved identically — `completed/success`,
+  registry still 404 — for an entirely unrelated reason: `NODE_AUTH_TOKEN` was
+  empty (`ENEEDAUTH`), because the `NPM_TOKEN` secret has never been set. Two
+  publish jobs, two unrelated causes, both indistinguishable from success.
+
   Three layers of the same illusion: the workflow *contains* a publish step so
   reading it looks right; the suppression makes the step green; the job and run
   inherit that. Every signal available from inside the repository says this
-  works. Only asking PyPI shows it never has.
+  works. Only asking the registries shows it never has.
 
   All install instructions now point at the repository and carry a warning. The
   suppressed publish steps are annotated with what they actually do.

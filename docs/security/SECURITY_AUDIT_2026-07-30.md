@@ -557,6 +557,22 @@ Trusted publishing was never configured on PyPI for this repository, so the
 upload is rejected. `continue-on-error: true` then rewrites the failed step's
 `conclusion` to `success`, and the job and the whole run inherit it.
 
+The npm job on the same release behaved identically — `completed/success`, and
+`registry.npmjs.org/aethershell` still 404 afterwards. Its cause is different
+and simpler:
+
+```
+NODE_AUTH_TOKEN:                     <- empty; a populated secret renders as ***
+npm error code ENEEDAUTH
+npm error need auth This command requires you to be logged in to https://registry.npmjs.org/
+```
+
+The `NPM_TOKEN` secret has never been set. So the two publish jobs fail for two
+unrelated reasons — one missing OIDC configuration, one missing secret — and
+both surface identically as green. That is the point worth carrying: the
+suppression does not just hide *a* failure, it makes every distinct failure
+indistinguishable from success.
+
 That is three layers of the same illusion stacked:
 
 1. `release.yml` contains a publish step, so **reading it looks correct**.
@@ -588,9 +604,11 @@ recorded rather than fixed here. In order of urgency:
    `aether-shell` too, as the obvious typo target.
 2. **Then** decide whether to publish the SDKs for real or remove the install
    instructions. Both are defensible; leaving the docs as they are is not.
-3. **Configure PyPI trusted publishing** for `nervosys/AetherShell` — the
-   observed failure is `environment: MISSING`, so the OIDC claim does not match
-   any configured publisher. Same check for the npm token.
+3. **Fix the two credentials, which are broken in two different ways.** PyPI
+   needs *trusted publishing* configured for `nervosys/AetherShell` — the
+   observed failure is `environment: MISSING`, so the OIDC claim matches no
+   configured publisher. npm needs the **`NPM_TOKEN` secret set at all** — it is
+   currently empty, and npm fails with `ENEEDAUTH`.
 4. **Remove `continue-on-error: true` from the publish jobs**, or at minimum
    have them fail loudly. Error suppression is what let this run undetected
    across every release — and, worse, what made the failure report as success
