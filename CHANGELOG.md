@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.0] - 2026-08-10
+
+Major version because agent-mode behaviour changes in ways that will break
+existing callers. See **Breaking changes** below before upgrading.
+
+### Breaking changes
+
+1. **Nine builtins now require approval in agent mode.** `ssh_exec`,
+   `docker_exec`, `podman_exec`, `k8s_exec`, `tool_exec`, `rlm_spawn`,
+   `terraform_destroy`, `cloud_instance_destroy` and `db_sqlite_drop_table` were
+   ungated; they now refuse with `E_NEEDS_APPROVAL` unless approved. An agent-mode
+   script calling any of them will fail where it previously ran. Grant a
+   session-scoped RBAC permission, approve per-call with `approve(token)`, or run
+   outside agent mode. **Human mode is unchanged.**
+
+2. **`remote_exec` and `cloud_deploy` no longer claim success they never had.**
+   `remote_exec` returned `status: "executed"` and `cloud_deploy` returned
+   `status: "deployed"`; both are stubs that perform no action. They now return
+   `status: "simulated"` with `simulated: true`. Code branching on the old strings
+   was branching on a fiction, but it will still need updating.
+
+3. **Every builtin failure is now a structured error.** Failures that previously
+   surfaced as bare prose now carry a stable code (`E_UNKNOWN` at minimum). In
+   agent mode an uncaught error renders as JSON rather than a sentence. Callers
+   matching on error *text* should match on `error.code` instead.
+
+4. **`effect_of` reclassified 61 builtins** away from `Pure`, including the whole
+   `web_*` family and every package installer. Anything consuming `x-effect` from
+   the ontology, or the effect class via the MCP tool specs, will see different
+   values — accurate ones, but different.
+
 ### Added — self-healing (agentic-first §9, §11)
 
 The design claimed a self-correcting loop *"falls out of"* structured errors.
@@ -1345,7 +1376,8 @@ N/A - Initial release
 
 See [ROADMAP.md](ROADMAP.md) for upcoming features.
 
-[Unreleased]: https://github.com/nervosys/AetherShell/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/nervosys/AetherShell/compare/v5.0.0...HEAD
+[5.0.0]: https://github.com/nervosys/AetherShell/compare/v4.1.0...v5.0.0
 [1.2.0]: https://github.com/nervosys/AetherShell/compare/v0.3.1...v1.2.0
 [0.3.1]: https://github.com/nervosys/AetherShell/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/nervosys/AetherShell/compare/v0.2.0...v0.3.0

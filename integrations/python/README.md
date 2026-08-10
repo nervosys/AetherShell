@@ -29,7 +29,7 @@ Requires the `ae` binary on `PATH`. Install it with
 [releases page](https://github.com/nervosys/AetherShell/releases).
 
 > **Versioning:** this SDK versions independently of the `ae` shell — SDK 1.5.0
-> is current against shell 4.1.0.
+> is current against shell 5.0.0.
 
 ## Quick Start
 

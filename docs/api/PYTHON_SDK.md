@@ -22,7 +22,7 @@ pip install ./integrations/python
 Requires the `ae` binary on `PATH` or passed explicitly.
 
 The SDK versions independently of the shell: SDK 1.5.0 is current against
-shell 4.1.0.
+shell 5.0.0.
 
 ---
 
