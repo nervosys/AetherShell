@@ -485,3 +485,105 @@ fn path_jail_applies_only_in_agent_mode() {
 
     clear();
 }
+
+// ── Newly gated high-blast-radius builtins (found by tests/effect_coverage.rs) ──
+
+/// These ran ungated and unaudited until the effect-coverage lint found them
+/// classified `Effect::Pure`. Correcting the *classification* alone changes only
+/// what is advertised — `guard()` has to be called at the site for anything to
+/// actually be gated. This asserts the call sites exist, which is the difference
+/// between a tag and a control.
+#[test]
+fn remote_and_container_executors_require_approval_in_agent_mode() {
+    let _g = lock();
+    clear();
+    let _dir = fresh_workspace("exec_gate");
+    std::env::set_var("AETHER_MODE", "agent");
+
+    let mut env = aethershell::env::Env::new();
+    for (name, args) in [
+        (
+            "ssh_exec",
+            vec![Value::Str("user@host".into()), Value::Str("whoami".into())],
+        ),
+        (
+            "docker_exec",
+            vec![Value::Str("c1".into()), Value::Str("sh -c id".into())],
+        ),
+        (
+            "podman_exec",
+            vec![Value::Str("c1".into()), Value::Str("sh -c id".into())],
+        ),
+        (
+            "k8s_exec",
+            vec![Value::Str("pod-1".into()), Value::Str("id".into())],
+        ),
+        ("tool_exec", vec![Value::Str("curl".into())]),
+    ] {
+        let err = aethershell::builtins::call(name, args, &mut env)
+            .expect_err(&format!("{name} must be gated in agent mode"));
+        let rendered = format!("{err}");
+        assert!(
+            rendered.contains("E_NEEDS_APPROVAL"),
+            "{name}: expected an approval gate, got {rendered}"
+        );
+    }
+    clear();
+}
+
+/// The infrastructure destroyers. `terraform destroy -auto-approve` in
+/// particular will not prompt on its own — if approval does not happen here it
+/// does not happen anywhere.
+#[test]
+fn infrastructure_destroyers_require_approval_in_agent_mode() {
+    let _g = lock();
+    clear();
+    let _dir = fresh_workspace("destroy_gate");
+    std::env::set_var("AETHER_MODE", "agent");
+
+    let mut env = aethershell::env::Env::new();
+    for (name, args) in [
+        ("terraform_destroy", vec![Value::Str(".".into())]),
+        ("cloud_instance_destroy", vec![Value::Str("i-123".into())]),
+        (
+            "db_sqlite_drop_table",
+            vec![Value::Str("x.db".into()), Value::Str("t".into())],
+        ),
+    ] {
+        let err = aethershell::builtins::call(name, args, &mut env)
+            .expect_err(&format!("{name} must be gated in agent mode"));
+        let rendered = format!("{err}");
+        assert!(
+            rendered.contains("E_NEEDS_APPROVAL"),
+            "{name}: expected an approval gate, got {rendered}"
+        );
+    }
+    clear();
+}
+
+/// Human mode is unchanged: the gate is an agent-mode control, not a new
+/// interactive prompt for a person at the REPL.
+#[test]
+fn the_new_gates_do_not_fire_in_human_mode() {
+    let _g = lock();
+    clear();
+    let mut env = aethershell::env::Env::new();
+    // Not asserting success — ssh/docker may be absent — only that whatever
+    // comes back is not an approval refusal.
+    let res = aethershell::builtins::call(
+        "ssh_exec",
+        vec![
+            Value::Str("user@nonexistent.invalid".into()),
+            Value::Str("true".into()),
+        ],
+        &mut env,
+    );
+    if let Err(e) = res {
+        let rendered = format!("{e}");
+        assert!(
+            !rendered.contains("E_NEEDS_APPROVAL"),
+            "human mode must not be gated: {rendered}"
+        );
+    }
+    clear();
+}

@@ -86,14 +86,35 @@ Full workspace suite green: 90 suites, 1770 tests, 0 failures.
   false positives (`platform_has_sudo` is a `which` lookup, `platform_shell_type`
   an env read) and are allow-listed with that reason recorded.
 
-  **What this does not fix**, stated plainly: classification is not gating.
-  `guard()` is called at 42 sites, and a correctly-tagged builtin that never calls
-  it remains ungated — `db_sqlite_exec` only snapshots, for instance — so no
-  builtin is *newly* gated by this change. And **1,178 of 1,301 builtins (91%)
-  still fall through to `Pure`**; the lint only catches names that advertise a
-  side effect, so a dangerous builtin with an innocuous name stays invisible to
-  it. Flipping the default to a restrictive class would gate roughly a thousand
-  builtins at once and is a product decision, not a bug fix.
+- **Those builtins are now actually gated, not just re-labelled.** A tag only
+  changes what is advertised; `guard()` must be called at the site for anything to
+  be enforced. Guards were wired into the eight that genuinely act — `ssh_exec`,
+  `docker_exec`, `podman_exec`, `k8s_exec`, `tool_exec`, `rlm_spawn`,
+  `terraform_destroy`, `cloud_instance_destroy`, `db_sqlite_drop_table` — so in
+  agent mode they now refuse with `E_NEEDS_APPROVAL` and are written to the audit
+  log. `terraform destroy -auto-approve` is the sharpest case: it does not prompt
+  on its own, so approval either happens at the guard or nowhere. **Human mode is
+  unchanged.** `kubectl_delete`/`kubectl_exec` needed nothing — they are aliases of
+  the already-guarded `k8s_*`.
+
+  **Reading each body before wiring a guard corrected four of the lint's own
+  results.** `sudo_exec` returns "use sudo directly in terminal"; `watchexec_run`
+  returns a suggested invocation; `env_shell` reads `$SHELL`; `remote_exec` is a
+  stub whose own comment says *"Simulate remote execution"*. All execute nothing,
+  and all had been tagged `Exec` **from the name alone** — the exact error the lint
+  exists to catch, committed while fixing it. A name-based lint nominates suspects;
+  it does not convict. Each acquittal is allow-listed with its verified reason.
+
+  **What this still does not fix:** **1,183 of 1,301 builtins (91%) fall through to
+  `Pure`**, and the lint only sees names that advertise a side effect — a dangerous
+  builtin with an innocuous name remains invisible to it. `db_sqlite_exec` is
+  classified `Exec` but deliberately left unguarded, since gating it would put
+  every sqlite *read* (including `db_kv_get`) behind approval. Flipping the default
+  to a restrictive class would gate ~1,000 builtins at once: a product decision.
+
+- **Noted, not changed:** `remote_exec` returns `status: "executed"` to its caller
+  while running nothing. That is an honesty problem in the return value rather than
+  the effect tag; changing it would break callers, so it is flagged here instead.
 - **`aethershell` is now registered on PyPI, closing finding 12.** The SDK is
   published as `aethershell` 1.5.0 and `pip install aethershell` works —
   verified in a clean virtualenv, not from the upload's own success message.

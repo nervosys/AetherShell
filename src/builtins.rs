@@ -14419,6 +14419,10 @@ fn bi_tool_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         false
     };
 
+    crate::safety::guard_exec(
+        "tool_exec",
+        format!("{} {}", tool_name, tool_args.join(" ")),
+    )?;
     let db = OSToolsDatabase::new();
 
     let result = execute_tool_safe(&db, &tool_name, &tool_args, allow_dangerous)
@@ -14699,6 +14703,10 @@ fn bi_rlm_spawn(args: Vec<Value>, _input: Option<Value>, env: &mut Env) -> Resul
         ..Default::default()
     };
 
+    // Spawning an autonomous sub-agent is an execution decision in its own right:
+    // the individual tool calls it makes are guarded at their own chokepoints,
+    // but *whether to start it at all* is the one point a policy can weigh.
+    crate::safety::guard_exec("rlm_spawn", format!("spawn agent '{name}': {goal}"))?;
     let tool_refs: Vec<&str> = tool_names.iter().map(|s| s.as_str()).collect();
     let (result, stats) = run_recursive(&goal, &tool_refs, config, false, env)?;
 
@@ -28531,6 +28539,17 @@ fn bi_db_sqlite_drop_table(args: Vec<Value>, _input: Option<Value>) -> Result<Va
         _ => return Ok(Value::Bool(false)),
     };
 
+    crate::safety::guard(crate::safety::GuardCtx {
+        builtin: "db_sqlite_drop_table",
+        effect: crate::safety::Effect::Destructive,
+        what: "db_sqlite_drop_table",
+        targets: vec![format!("{}:{}", db_path, table)],
+        blast_radius: serde_json::json!({ "db": db_path, "table": table }),
+        // Reversible only inside a transaction — db_sqlite_exec snapshots the
+        // file, so a rollback restores it byte-for-byte.
+        reversible: crate::tx::is_active(),
+        fs_paths: false,
+    })?;
     let sql = format!("DROP TABLE IF EXISTS {}", table);
     bi_db_sqlite_exec(vec![Value::Str(db_path), Value::Str(sql)], None)
 }
@@ -34735,6 +34754,10 @@ fn bi_docker_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             ))
         }
     };
+    crate::safety::guard_exec(
+        "docker_exec",
+        format!("docker exec {container_id} {command}"),
+    )?;
     let mut cmd = std::process::Command::new("docker");
     cmd.args(["exec", container_id]);
     for part in command.split_whitespace() {
@@ -35218,6 +35241,10 @@ fn bi_podman_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             ))
         }
     };
+    crate::safety::guard_exec(
+        "podman_exec",
+        format!("podman exec {container_id} {command}"),
+    )?;
     let mut cmd = std::process::Command::new("podman");
     cmd.args(["exec", container_id]);
     for part in command.split_whitespace() {
@@ -35748,6 +35775,7 @@ fn bi_k8s_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             ))
         }
     };
+    crate::safety::guard_exec("k8s_exec", format!("kubectl exec {pod} -- {command}"))?;
     let mut cmd_args = vec!["exec".to_string(), pod];
     if let Some(Value::Str(ns)) = args.get(2) {
         cmd_args.push("-n".to_string());
@@ -37247,6 +37275,17 @@ pub fn bi_terraform_destroy(args: Vec<Value>, _input: Option<Value>) -> Result<V
         Value::Str(s) => Some(s.as_str()),
         _ => None,
     });
+    // `-auto-approve` means Terraform will not ask; the approval has to happen
+    // here or it happens nowhere.
+    crate::safety::guard(crate::safety::GuardCtx {
+        builtin: "terraform_destroy",
+        effect: crate::safety::Effect::Destructive,
+        what: "terraform_destroy",
+        targets: vec![dir.unwrap_or(".").to_string()],
+        blast_radius: serde_json::json!({ "dir": dir.unwrap_or("."), "auto_approve": true }),
+        reversible: false,
+        fs_paths: false,
+    })?;
     let out = cloud_run_cmd("terraform", &["destroy", "-auto-approve"], dir.map(|s| s))?;
     Ok(Value::Str(out))
 }
@@ -39061,6 +39100,9 @@ pub fn bi_ssh_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Int(p)) => Some(*p),
         _ => None,
     };
+    // Runs an arbitrary command on another host: the widest blast radius in the
+    // builtin table, and until now ungated and unaudited.
+    crate::safety::guard_exec("ssh_exec", format!("ssh {} {}", host, command))?;
     let mut cmd = Command::new("ssh");
     if let Some(p) = port {
         cmd.arg("-p").arg(p.to_string());
@@ -43304,6 +43346,15 @@ fn bi_cloud_instance_destroy(args: Vec<Value>, _input: Option<Value>) -> Result<
             ))
         }
     };
+    crate::safety::guard(crate::safety::GuardCtx {
+        builtin: "cloud_instance_destroy",
+        effect: crate::safety::Effect::Destructive,
+        what: "cloud_instance_destroy",
+        targets: vec![id.clone()],
+        blast_radius: serde_json::json!({ "instance": id }),
+        reversible: false,
+        fs_paths: false,
+    })?;
     let mut instances = CLOUD_INSTANCES
         .write()
         .map_err(|e| anyhow!("lock error: {}", e))?;

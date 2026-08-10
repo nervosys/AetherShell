@@ -175,8 +175,8 @@ pub fn effect_of(name: &str) -> Effect {
         // input; `ssh_exec`/`sudo_exec`/`remote_exec` classifying as `Pure` was
         // the same defect as `timeout("rm -rf /")` classifying as `Pure`.
         | "docker_exec" | "podman_exec" | "k8s_exec" | "kubectl_exec"
-        | "ssh_exec" | "remote_exec" | "exec_remote" | "sudo_exec"
-        | "env_shell" | "watchexec_run" | "rlm_spawn" | "spawn_agent"
+        | "ssh_exec"
+        | "rlm_spawn" | "spawn_agent"
         | "tool_exec" | "tool_execute"
         // These run the sqlite binary against a caller-supplied statement, which
         // includes DDL. Note this changes what is *advertised* and what `guard()`

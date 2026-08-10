@@ -31,6 +31,23 @@ fn is_known_pure(name: &str) -> bool {
         // without invoking one.
         "platform_has_sudo",
         "platform_shell_type",
+        // Three names that assert execution and perform none. All three were
+        // tagged `Exec` on the first pass of this lint — from the name alone,
+        // which is precisely the mistake the lint exists to catch, made while
+        // fixing it. Caught by reading each body before wiring a guard to it,
+        // which is the only step that would have caught them.
+        //   sudo_exec:     returns "use sudo directly in terminal", runs nothing
+        //   watchexec_run: returns a suggested `watchexec --` invocation
+        //   env_shell:     reads $SHELL / %COMSPEC%
+        //   remote_exec:   a stub — "Simulate remote execution (in real impl
+        //                  would use SSH/RPC)". Note it still reports
+        //                  `status: "executed"` to its caller, which is a
+        //                  separate honesty problem from the effect tag.
+        "sudo_exec",
+        "watchexec_run",
+        "env_shell",
+        "remote_exec",
+        "exec_remote",
         // Predicates and formatters that only *describe* an effect.
         "can_delete",
         "is_executable",

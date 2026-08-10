@@ -959,15 +959,39 @@ of structured errors rather than building or measuring it.
   positives — `platform_has_sudo` is a `which` lookup, `platform_shell_type` an
   env read — and are allow-listed with that reason recorded).
 
-  Two things this does **not** fix, stated plainly. Classification is not gating:
-  `guard()` is called at 42 sites, and a correctly-tagged builtin that never calls
-  it is still ungated — `db_sqlite_exec`, for instance, only snapshots. And
-  coverage is still thin by design of the default: **1,178 of 1,301 builtins
-  (91%) fall through to `Pure`**. The lint only catches names that *advertise* a
-  side effect, so a dangerous builtin with an innocuous name remains invisible to
-  it. Flipping the default to a restrictive class — §12's other proposed
-  mitigation — would gate roughly a thousand builtins at once and is a product
-  decision, not a bug fix.
+  ✅ **The classification is now backed by guards.** A tag only changes what is
+  *advertised*; `guard()` has to be called at the site for anything to be gated.
+  Guards were wired into the eight that genuinely act — `ssh_exec`, `docker_exec`,
+  `podman_exec`, `k8s_exec`, `tool_exec`, `rlm_spawn` (Exec) and
+  `terraform_destroy`, `cloud_instance_destroy`, `db_sqlite_drop_table`
+  (Destructive) — so in agent mode they refuse with `E_NEEDS_APPROVAL` and land in
+  the audit log. `terraform destroy -auto-approve` is the sharpest case: it will
+  not prompt on its own, so if approval does not happen at the guard it does not
+  happen at all. Human mode is unchanged. Asserted by three tests in
+  `tests/safety.rs`; `kubectl_delete`/`kubectl_exec` needed nothing, being aliases
+  of the already-guarded `k8s_*`.
+
+  ⚠️ **Reading each body before wiring a guard corrected four of the lint's own
+  results.** `sudo_exec` returns the advice "use sudo directly in terminal";
+  `watchexec_run` returns a suggested invocation; `env_shell` reads `$SHELL`;
+  `remote_exec`/`exec_remote` is a stub whose comment says *"Simulate remote
+  execution (in real impl would use SSH/RPC)"*. All five execute nothing, and all
+  had been tagged `Exec` **from the name alone** — the exact error the lint exists
+  to catch, committed while fixing it. A name-based lint can only ever nominate
+  suspects; the allow-list in `tests/effect_coverage.rs` records the verified
+  reason for each. Separately, `remote_exec` returns `status: "executed"` to its
+  caller while running nothing — an honesty problem in the *return value* rather
+  than the effect tag, and left alone here because changing it would break callers.
+
+  Two things this still does **not** fix. Coverage remains thin by design of the
+  default: **1,183 of 1,301 builtins (91%) fall through to `Pure`**, and the lint
+  only catches names that *advertise* a side effect, so a dangerous builtin with an
+  innocuous name is invisible to it. And `db_sqlite_exec` is classified `Exec` but
+  deliberately left unguarded — gating it would put every sqlite *read*, including
+  `db_kv_get`, behind approval; its mutating paths are separately classified and
+  its snapshot chokepoint makes them reversible. Flipping the default to a
+  restrictive class — §12's other proposed mitigation — would gate roughly a
+  thousand builtins at once and is a product decision, not a bug fix.
 - **Approval UX latency** for interactive humans — mitigate with policy presets
   ("trust this workspace") and session-scoped grants.
 - **Backward compatibility:** existing `.aeg` scripts must keep working; the
