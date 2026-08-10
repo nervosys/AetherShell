@@ -152,7 +152,7 @@ greeting = "Hello, ${name}!"
 
 ## Modules
 
-All 1,280+ builtins are organized into **108 namespaced modules**:
+All 1,300+ builtins are organized into **108 namespaced modules**:
 
 ```ae
 # File operations
@@ -335,11 +335,12 @@ swarm({
 
 ---
 
-## Agentic-First: token economy, safety, transactions
+## Agentic-First: token economy, safety, transactions, self-healing
 
-AetherShell is optimized end-to-end for AI agents. Three things matter to an agent
+AetherShell is optimized end-to-end for AI agents. Four things matter to an agent
 that a human shell ignores: how many **tokens** the output costs, whether an action
-is **safe**, and whether a mistake can be **undone**.
+is **safe**, whether a mistake can be **undone**, and whether a failed call tells the
+agent enough to **fix it**.
 
 ### Compact, lossless output (AECON)
 
@@ -379,10 +380,21 @@ pipeline. Agent mode (`--agent`) default-denies dangerous effect classes behind
 content-bound approval tokens; a **workspace jail** (`--workspace`) confines writes
 and deletes; a **hash-chained audit log** records every effecting action tamper-evidently;
 **RBAC** grants bypass approval but never the jail (and can be loaded from a config
-file at startup via `AETHER_RBAC_CONFIG`); failures surface as structured, branchable
-`E_*` errors — every wrong-typed or missing argument is an `E_BAD_ARG` an agent can
-self-correct from, rendered as legible prose for humans. `safety_status()` reports the
-live envelope.
+file at startup via `AETHER_RBAC_CONFIG`); **every** failure surfaces as a structured,
+branchable `E_*` error — not just argument errors, but anything that fails, down to a
+catch-all `E_UNKNOWN` — rendered as legible prose for humans. `safety_status()` reports
+the live envelope.
+
+Effect tags are enforced at a single `guard()` chokepoint, and the tagging itself is
+checked in CI (`tests/effect_coverage.rs`) rather than trusted: a builtin whose name
+advertises a side effect may not classify as `Pure`. That lint found 61 builtins
+mis-tagged — among them `ssh_exec`, `terraform_destroy`, `kubectl_delete` and every
+package installer (`npm_install` and friends, which fetch remote code and run its
+install scripts). Nine high-blast-radius executors are now approval-gated in agent
+mode. Coverage is reported, not asserted: **179 of 1,301 builtins carry an explicit
+effect**; the rest default to `Pure`, and the lint only catches names that *advertise*
+an effect — so this is a floor, not a finished job.
+
 **Secret hygiene** is on by default in agent mode: known secret shapes (API-key
 prefixes, AWS keys, JWTs, PEM blocks, URL credentials, `key=secret` forms) are
 redacted from agent output *and* the audit log, and reading a secret-named env var
@@ -412,6 +424,45 @@ and the key-value store. **`plan`/`apply`** give Terraform-style declarative
 destructive batches (ops: `write`/`append`/`rm`/`mkdir`/`copy`/`move`) — a reviewable
 typed plan plus a content-bound approval token, applied atomically with automatic
 rollback on any failure.
+
+### Self-healing: a failed call that tells you how to fix it
+
+Structured errors only help if failures actually carry codes, suggestions are real,
+and a failed attempt leaves nothing behind for the next one.
+
+```sh
+try { file.raed("notes.md") } catch e { diagnose(e) }
+# { code: "E_UNKNOWN_FIELD", retryable: true, did_you_mean: ["read"], … }
+
+try { http_get() } catch e { diagnose(e) }
+# { code: "E_BAD_ARG", retryable: true, builtin: "http_get", effect: "network",
+#   signature: "http_get(url: String, options?: Record) -> Value",
+#   example: "http_get(\"https://api.example.com/data\")", … }
+
+try_repair("file_write(\"a.txt\", \"x\")\nno_such_builtin()")
+# { ok: false, restored: 1, retryable: true,
+#   error: { code: "E_UNKNOWN_BUILTIN", builtin: "no_such_builtin", … } }
+# ↑ the partial write was rolled back — the next attempt starts from clean state
+```
+
+- **`did_you_mean`** searches the *live* builtin table and, for dotted module paths
+  like `file.raed`, the record's own fields. When nothing is close it returns
+  **nothing** — a confident wrong guess costs a retrying agent a whole round trip.
+- **`diagnose(error)`** returns only what fixing *this* call needs: code, `retryable`,
+  the builtin's signature and effect class. It never costs more than a full
+  `ontology_describe` and is about half on richly-documented builtins
+  (`map`: 82 vs 206 tokens).
+- **`try_repair(code)`** does not invent a fix — nothing in a shell can. It makes
+  retrying *safe*, bracketing the attempt in a savepoint so a failure is rolled back
+  before the error is returned.
+
+**Measured, not asserted** (`tests/repair_rate.rs`): a deliberately model-free
+strategy — substitute the first `did_you_mean` candidate, nothing else — repairs
+**8/8** plausible misspellings, with **0 uncoded failures** across a mixed corpus that
+includes real runtime errors. That is a floor, not a ceiling: it is what the error
+surface alone is worth before any intelligence is applied. Wrong-*argument* failures
+are diagnosable but not mechanically repairable — deciding what the value should have
+been is a model's job — and a test pins that down so the number cannot be over-read.
 
 ---
 
@@ -491,7 +542,9 @@ the pattern (and real `ls -l` is even more verbose than the representative outpu
 | Typed structured output (not text to re-parse) | ✗ | ✗ | ✗ | ✓ | ~ | ✓ |
 | Deterministic output (no locale/width/ANSI variance) | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ |
 | Byte-stable output for diffs / caching | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (`--deterministic`) |
-| Structured, branchable errors | ✗ | ✗ | ✗ | ~ | ~ | ✓ (`E_*` codes; every arg error → `E_BAD_ARG` + `hint`) |
+| Structured, branchable errors | ✗ | ✗ | ✗ | ~ | ~ | ✓ (`E_*` codes on **every** failure + `hint` + `retryable`) |
+| Suggests the real name on a typo | ✗ | ~ | ~ | ~ | ~ | ✓ (`did_you_mean`, builtins *and* module paths) |
+| Machine-readable repair context for a failure | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (`diagnose`) |
 | Lossless, reversible compact format | ✗ | ✗ | ✗ | ✗ | ~ | ✓ (`aecon_decode`) |
 | Multi-line edits without quoting/escaping hazards | ✗ | ✗ | ✗ | ~ | ~ | ✓ |
 
@@ -512,6 +565,8 @@ across OS/locale; `canonical` gives byte-stable JSON for snapshot tests and cach
 | RBAC over effect classes | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ |
 | Filesystem transactions / rollback | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (`tx_*`, savepoints, nesting) |
 | Plan → approve → atomic apply | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (`plan`/`apply`) |
+| Failed attempt rolled back before the retry | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (`try_repair`) |
+| Effect tagging enforced by a CI lint | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (`tests/effect_coverage.rs`) |
 
 No traditional shell offers transactional rollback or effect-gated approval — a
 mistaken `rm -rf` is irreversible. In AetherShell a file-effecting batch can be
@@ -892,7 +947,7 @@ src/
   main.rs          # Entry point
   eval.rs          # Expression evaluator
   parser.rs        # AetherShell syntax parser
-  builtins.rs      # 1,280+ builtin functions
+  builtins.rs      # 1,300+ builtin functions
   modules.rs       # Module system (file, sys, net, ...)
   ai.rs            # AI provider integration
   agent.rs         # Autonomous agent framework
