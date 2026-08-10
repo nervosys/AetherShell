@@ -439,6 +439,40 @@ Stable `code` values let the agent branch without parsing prose; `hint` tells it
 *how* to fix the call. This is the single highest-leverage reliability +
 token-efficiency change after output budgeting.
 
+✅ **Structured by default, not opt-in.** The two structured-error helpers
+(`safety::bad_arg`, `safety::arg_err`) cover ~520 call sites in `builtins.rs`, but
+~879 `anyhow!`/`bail!` sites remained, and *those* failures reached the agent as
+prose with nothing to branch on. Adoption per-call-site had stalled, so the
+guarantee is now enforced at the boundary instead: `builtins::call_with_input`
+passes every error through `safety::ensure_structured`, which
+
+- leaves an error that already carries a specific code **untouched** (a real code
+  is strictly better information than a generic one), and
+- wraps anything else as `E_UNKNOWN` with the original message preserved verbatim
+  and `retryable: false` — an agent that cannot identify the fault should stop, not
+  re-run the same call and spend its envelope discovering the same thing.
+
+The same boundary fills in the `builtin` field when a helper left it empty.
+`arg_err` — the most-used helper by an order of magnitude — takes only a message,
+so its `builtin` was blank at ~490 sites; the call site is the one place that knows
+the name. Without this, `diagnose` could not look up a signature for the *majority*
+of `E_BAD_ARG` failures, which is exactly the population it exists to serve. Found
+by writing the test first and watching it fail.
+
+Codes: `E_POLICY_DENY`, `E_NEEDS_APPROVAL`, `E_OUTSIDE_WORKSPACE`, `E_BAD_ARG`,
+`E_BUDGET_EXCEEDED`, `E_UNKNOWN_BUILTIN`, `E_UNKNOWN`. `ErrorCode::retryable()`
+is the single definition of which of those a repair loop should act on.
+
+✅ **`did_you_mean` on an unknown name.** `E_UNKNOWN_BUILTIN` carries up to three
+nearest real names (bounded Levenshtein over the live `BUILTIN_LOOKUP` table, edit
+budget scaled by name length, ties broken by name so the ordering is stable across
+runs). Two properties matter more than the matching itself: the candidates are
+drawn from the live table, so they cannot drift as builtins are added; and when
+nothing is within budget the field is **omitted entirely**. The previous
+suggester (`shell_features::suggest_similar_commands`) searched a hardcoded list of
+16 names out of 1,100+ and fell back to `"ls, cat, grep"` — a confident wrong answer,
+which costs a retrying agent a whole round trip to learn nothing.
+
 ### 5.3 Effect taxonomy on every builtin
 
 Tag each of the 1,100+ builtins (via a `#[builtin(effect = …)]` attribute macro or
@@ -818,8 +852,30 @@ The `.ae` surface keeps readable, unambiguous syntax and gains:
   echoing JSON-RPC ids; notifications get no reply. The per-request dispatch
   (`McpServer::handle_rpc`) is unit-tested for all methods + the error/notification
   cases (`tests/mcp_tools.rs::test_mcp_stdio_jsonrpc_dispatch`).
-- **Self-correcting loop** falls out of §5.2 + §7.3: structured `code`+`hint`
-  errors let an agent repair calls without a human.
+- ✅ **Self-correcting loop.** This used to read *"falls out of §5.2 + §7.3"* — an
+  inference, never measured. It does not simply fall out: the inference holds only
+  if failures actually carry codes (they mostly did not — see §5.2), if suggestions
+  are real, and if a failed attempt leaves no debris for the next one. Three pieces
+  close it, and `tests/self_healing.rs` (12 tests) asserts each:
+    - **`diagnose(error)`** (dispatch 1139) — progressive disclosure applied to
+      failure. Given the record `catch` bound, it returns *only* what repairing
+      **this** call needs: code, `retryable`, hint, `did_you_mean`, and the offending
+      builtin's signature and effect class — no prose description, no category
+      listing, at most one example, and no expansion of parameters/return type that
+      the signature already spells out. It never costs more than the full
+      `ontology_describe`, and on a richly-documented builtin it is roughly half:
+      **map 82 vs 206 tokens (2.5×), http_get 91 vs 170 (1.9×)**. On a builtin whose
+      definition is already thin the saving is small (**grep 54 vs 67, sort 64 vs 68**)
+      — the win tracks how much prose is being avoided, which is the honest shape of
+      a disclosure optimisation. Note `explain` was already taken by the AI helper.
+    - **`try_repair(code)`** (dispatch 1140) — makes retrying *safe*. It does not
+      invent a fix; nothing in the shell can. It brackets the evaluation in a unique
+      named savepoint and, on failure, rolls back to it, so attempt N+1 starts from
+      exactly the state attempt N did instead of from the debris of a half-applied
+      batch. Returns `{ok, value}` or `{ok:false, restored, retryable, error}`, the
+      `error` being the same structured record `catch` binds, so it feeds straight
+      into `diagnose`. An enclosing transaction keeps its own earlier work.
+    - **A measured repair rate** — see §11.
 
 ---
 
@@ -834,8 +890,12 @@ The `.ae` surface keeps readable, unambiguous syntax and gains:
 | **5** | **Grammar unification** | 🟡 Started: `|.field` projection (with `.a.b` chains) now parsed by the real grammar (`parser::parse_pipe`) + SI suffixes in the lexer + `~x: body` lambda + `?match` prefix + `if`-expression — all additive (`tests/grammar.rs`). **Transpiler retirement in progress** (2 passes retired): `expand_si_suffixes` and `expand_match` (`?`) are removed from the pipeline (grammar covers both); their golden tests migrated to behavior assertions (`eval_aeg` harness) and ONTOLOGY examples updated to pass-through. Recipe: remove the call → `#[allow(dead_code)]` the fn → behavior-migrate the affected text tests → update ONTOLOGY examples. (Lesson: text-coupled golden tests make each retirement cost real migration — SI touched 4 test sites + 2 ontology examples.) *Remaining:* `expand_lambdas`/`expand_pipelines` can only be *partially* retired (they also handle cipher forms the grammar lacks: `\x:`/`~.field`/`>`-pipe); `!try`/`^cond` ciphers overload `Bang`/`Caret`, so they stay transpiler-only; retire the 10-pass transpiler to a shim (§4.3); boundary type-checking (§8) | `src/parser.rs`, `src/typecheck.rs`, `src/transpile/agentic.rs` |
 | **6** | **Agentic features** | ✅ Transactions/checkpoints (`tx_*` + savepoints) + Plan/Apply (`plan`/`apply`, ops `write`/`append`/`rm`/`mkdir`/`copy`/`move`) + builtins-as-MCP-tools (`McpServer::list_builtin_tools`/`call_builtin`) + **stateful sessions** (`sess_*`) + chunked **streaming execute** landed. *Remaining:* true stage-by-stage streaming *evaluation*; a strict stdio JSON-RPC MCP transport; full transaction nesting | `src/tx.rs`, `src/builtins.rs`, `src/agent_api.rs`, `src/mcp.rs`, `src/ai_api/server.rs` |
 
+| **7** | **Self-healing** | ✅ Structured-by-default at the builtin boundary (`safety::ensure_structured`, new codes `E_UNKNOWN_BUILTIN`/`E_UNKNOWN`, `ErrorCode::retryable()`); `did_you_mean` over the live builtin table; `diagnose(error)` minimal repair context (1139); `try_repair(code)` rollback-bracketed attempts (1140); `agentic_eval::repair` harness + a **measured** repair rate filling §11's placeholder. *Remaining:* a model-driven repair strategy scored against the same corpus (the mechanical 100% is a floor, not a ceiling); extend `did_you_mean` to module paths (`file.raed`), which resolve outside `BUILTIN_LOOKUP` | `src/safety.rs`, `src/builtins.rs`, `crates/agentic-eval/src/repair.rs`, `tests/self_healing.rs`, `tests/repair_rate.rs` |
+
 Phases 2–3 are independent of the §4 benchmark and deliver the safety + reliability
-headline immediately; Phase 5 depends on the §4 outcome.
+headline immediately; Phase 5 depends on the §4 outcome. Phase 7 depends on nothing
+but §5.2, and exists because §9 originally asserted self-correction as a corollary
+of structured errors rather than building or measuring it.
 
 ---
 
@@ -849,8 +909,34 @@ headline immediately; Phase 5 depends on the §4 outcome.
 - **Safety:** 100% of `Destructive`/`Exec`/`Privileged` calls gated by
   policy+approval; 100% effecting-call audit coverage; tamper-evident chain
   verified by a `ae audit verify` check.
-- **Self-correction:** ≥X% of failed agent calls repaired without human input,
-  attributable to structured `code`+`hint`.
+- **Self-correction:** ✅ **measured, not assumed** (`tests/repair_rate.rs`, built on
+  the reusable `agentic_eval::repair` harness). The placeholder here read `≥X%` for
+  as long as this document existed, because the pillar was inferred from the presence
+  of structured errors rather than measured. The harness replays each failed call
+  using **nothing but the error record** and re-runs it:
+
+  | corpus | failures | repaired mechanically | uncoded |
+  | --- | --- | --- | --- |
+  | plausible misspellings (8) | 8 | **8 (100%)** | 0 |
+  | wrong-argument calls (4) | 4 | 0 *(strategy declines)* | 0 |
+  | mixed, incl. real runtime failures (13) | 13 | 8 | **0** |
+
+  Three things about that 100% keep it honest. The strategy is **model-free** — it
+  substitutes the first `did_you_mean` candidate and nothing else — so the figure is a
+  *floor*: what the error surface alone is worth before any intelligence is applied.
+  The corpus **isolates the name as the only defect**; an early version supplied
+  arguments that were invalid for the target too, so a correct suggestion still failed
+  and scored 88%, measuring the corpus rather than the product. And it covers exactly
+  the population that *is* mechanically repairable: a wrong-typed argument is
+  diagnosable but not fixable without deciding what the value should have been, which
+  is a model's job — `wrong_argument_failures_are_actionable_but_not_mechanically_repairable`
+  pins that down so the headline can never be read as "all failures are repairable".
+
+  The harness scores a **`MisleadingError`** distinctly from a dead end: an error that
+  carries a stable code, a confident hint, and a suggestion that does not work looks
+  actionable at every structural layer and still sends the agent the wrong way. Only
+  replaying the repair separates the two — which is the whole reason this is measured
+  by re-running calls rather than by classifying errors.
 
 ---
 

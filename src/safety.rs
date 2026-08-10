@@ -259,6 +259,15 @@ pub enum ErrorCode {
     BadArg,
     /// A resource governor (op count, files, processes, or wall-clock) was hit.
     BudgetExceeded,
+    /// A builtin was called by a name that does not exist. Carries
+    /// `did_you_mean` candidates, so this is the one *retryable* lookup failure.
+    UnknownBuiltin,
+    /// A failure that reached the boundary without a specific code. The message
+    /// is whatever the builtin produced; treat it as opaque and **not**
+    /// retryable — an agent that cannot identify the fault should stop rather
+    /// than re-run the same call. Every uncoded failure lands here rather than
+    /// escaping as bare prose, so *every* failure is branchable on `.code`.
+    Unknown,
 }
 
 impl ErrorCode {
@@ -269,6 +278,22 @@ impl ErrorCode {
             ErrorCode::OutsideWorkspace => "E_OUTSIDE_WORKSPACE",
             ErrorCode::BadArg => "E_BAD_ARG",
             ErrorCode::BudgetExceeded => "E_BUDGET_EXCEEDED",
+            ErrorCode::UnknownBuiltin => "E_UNKNOWN_BUILTIN",
+            ErrorCode::Unknown => "E_UNKNOWN",
+        }
+    }
+
+    /// Whether re-running the call *with a correction* can plausibly succeed.
+    ///
+    /// This is the field a self-healing loop branches on, so it is deliberately
+    /// conservative: a refusal (`PolicyDeny`), an exhausted envelope
+    /// (`BudgetExceeded`), and an unidentified fault (`Unknown`) all report
+    /// `false`, because retrying them burns budget without changing the outcome.
+    pub fn retryable(&self) -> bool {
+        match self {
+            ErrorCode::BadArg | ErrorCode::UnknownBuiltin => true,
+            ErrorCode::NeedsApproval | ErrorCode::OutsideWorkspace => true,
+            ErrorCode::PolicyDeny | ErrorCode::BudgetExceeded | ErrorCode::Unknown => false,
         }
     }
 }
@@ -286,6 +311,63 @@ pub fn bad_arg(builtin: &str, expected: &str, got: &str) -> anyhow::Error {
         builtin: builtin.to_string(),
         hint: format!("pass an argument matching: {}", expected),
         approval: None,
+        did_you_mean: Vec::new(),
+    })
+}
+
+/// Build a structured unknown-builtin error (`E_UNKNOWN_BUILTIN`) carrying the
+/// nearest real names. `candidates` must already have been filtered against the
+/// live builtin table — this constructor does not invent names.
+pub fn unknown_builtin(name: &str, candidates: Vec<String>) -> anyhow::Error {
+    let hint = if candidates.is_empty() {
+        "no builtin has a similar name; call ontology_manifest() to list the \
+         available categories"
+            .to_string()
+    } else {
+        format!("did you mean: {}", candidates.join(", "))
+    };
+    anyhow::Error::new(SafetyError {
+        code: ErrorCode::UnknownBuiltin,
+        message: format!("unknown builtin: {}", name),
+        builtin: name.to_string(),
+        hint,
+        approval: None,
+        did_you_mean: candidates,
+    })
+}
+
+/// Give an otherwise-uncoded failure a stable code (`E_UNKNOWN`).
+///
+/// This is the boundary net that makes "every failure is branchable" true
+/// rather than aspirational: an error that is *already* a [`SafetyError`] is
+/// returned untouched (its specific code is strictly better information), and
+/// anything else is wrapped with its original message preserved verbatim.
+pub fn ensure_structured(builtin: &str, e: anyhow::Error) -> anyhow::Error {
+    if let Some(se) = e.downcast_ref::<SafetyError>() {
+        // `arg_err` — by far the most-used structured helper — takes only a
+        // message, so its `builtin` field is empty. The boundary is the one
+        // place that knows the name being called, so fill it in here rather
+        // than editing hundreds of call sites. Without this, `diagnose` cannot
+        // look up the signature for the majority of E_BAD_ARG failures.
+        if se.builtin.is_empty() && !builtin.is_empty() {
+            let mut filled = se.clone();
+            filled.builtin = builtin.to_string();
+            return anyhow::Error::new(filled);
+        }
+        return e;
+    }
+    let message = e.to_string();
+    anyhow::Error::new(SafetyError {
+        code: ErrorCode::Unknown,
+        message,
+        builtin: builtin.to_string(),
+        hint: format!(
+            "{} failed without a specific error code; inspect the message rather \
+             than retrying the same call",
+            builtin
+        ),
+        approval: None,
+        did_you_mean: Vec::new(),
     })
 }
 
@@ -303,6 +385,7 @@ pub fn arg_err(message: impl Into<String>) -> anyhow::Error {
         builtin: String::new(),
         hint: "check this builtin's required argument count and types".to_string(),
         approval: None,
+        did_you_mean: Vec::new(),
     })
 }
 
@@ -359,6 +442,11 @@ pub struct SafetyError {
     pub builtin: String,
     pub hint: String,
     pub approval: Option<ApprovalDescriptor>,
+    /// Nearest existing builtin names for a misspelled call. Emitted **only**
+    /// when non-empty, and only ever containing names that really exist — an
+    /// empty list is the honest answer when nothing is close, which costs an
+    /// agent fewer tokens than a confident wrong guess costs it retries.
+    pub did_you_mean: Vec<String>,
 }
 
 impl SafetyError {
@@ -369,10 +457,13 @@ impl SafetyError {
             "message": self.message,
             "builtin": self.builtin,
             "hint": self.hint,
-            "retryable": !matches!(self.code, ErrorCode::PolicyDeny | ErrorCode::BudgetExceeded),
+            "retryable": self.code.retryable(),
         });
         if let Some(a) = &self.approval {
             err["approval"] = serde_json::to_value(a).unwrap_or(Json::Null);
+        }
+        if !self.did_you_mean.is_empty() {
+            err["did_you_mean"] = serde_json::to_value(&self.did_you_mean).unwrap_or(Json::Null);
         }
         json!({ "error": err })
     }
@@ -905,6 +996,7 @@ fn budget_error(builtin: &str, message: String, hint: &str) -> SafetyError {
         builtin: builtin.to_string(),
         hint: hint.to_string(),
         approval: None,
+        did_you_mean: Vec::new(),
     }
 }
 
@@ -1118,6 +1210,7 @@ pub fn reject_option_like(builtin: &str, values: &[String]) -> anyhow::Result<()
                        that"
                     .to_string(),
                 approval: None,
+                did_you_mean: Vec::new(),
             }));
         }
     }
@@ -1268,6 +1361,7 @@ pub fn ps_bare_number(builtin: &str, value: &str) -> anyhow::Result<PsLiteral> {
                restricted to digits with an optional KB/MB/GB/TB/PB suffix"
             .to_string(),
         approval: None,
+        did_you_mean: Vec::new(),
     }))
 }
 
@@ -1355,6 +1449,7 @@ pub fn reject_sqlite_dot_command(builtin: &str, sql: &str) -> anyhow::Result<()>
                    accepted here; pass a SQL statement"
                 .to_string(),
             approval: None,
+            did_you_mean: Vec::new(),
         }));
     }
     Ok(())
@@ -1400,6 +1495,7 @@ pub fn guard(ctx: GuardCtx) -> Result<(), SafetyError> {
                         workspace_root().display()
                     ),
                     approval: None,
+                    did_you_mean: Vec::new(),
                 });
             }
         }
@@ -1438,6 +1534,7 @@ pub fn guard(ctx: GuardCtx) -> Result<(), SafetyError> {
                 hint: "this effect class has no approval path; perform it outside agent mode"
                     .to_string(),
                 approval: None,
+                did_you_mean: Vec::new(),
             })
         }
         Decision::Approve => {
@@ -1475,6 +1572,7 @@ pub fn guard(ctx: GuardCtx) -> Result<(), SafetyError> {
                         token, token
                     ),
                     approval: Some(descriptor),
+                    did_you_mean: Vec::new(),
                 })
             }
         }

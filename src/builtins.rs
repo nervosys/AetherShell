@@ -1571,6 +1571,9 @@ lazy_static::lazy_static! {
     // resource governors (§7.6)
     map.insert("governor_status", 1137);
     map.insert("governor_reset", 1138);
+    // self-healing: minimal repair context + rollback-bracketed attempts
+    map.insert("diagnose", 1139);
+    map.insert("try_repair", 1140);
         map
     };
 
@@ -3735,6 +3738,9 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     // resource governors (§7.6)
     |args, input, _| bi_governor_status(args, input), // 1137
     |args, input, _| bi_governor_reset(args, input),  // 1138
+    // self-healing: minimal repair context + rollback-bracketed attempts
+    |args, input, _| bi_diagnose(args, input), // 1139
+    bi_try_repair,                             // 1140
 ];
 
 fn fast_builtin_lookup(
@@ -3756,11 +3762,87 @@ fn fast_builtin_lookup(
 
 // --------------- Public entry points ---------------
 
+/// Levenshtein edit distance, bounded by `max`: returns `None` as soon as the
+/// best remaining possibility exceeds it. The bound is what makes scanning the
+/// whole builtin table on a *failed* call cheap.
+fn edit_distance_within(a: &str, b: &str, max: usize) -> Option<usize> {
+    let (la, lb) = (a.chars().count(), b.chars().count());
+    if la.abs_diff(lb) > max {
+        return None;
+    }
+    let mut prev: Vec<usize> = (0..=lb).collect();
+    let mut cur = vec![0usize; lb + 1];
+    for (i, ca) in a.chars().enumerate() {
+        cur[0] = i + 1;
+        let mut row_best = cur[0];
+        for (j, cb) in b.chars().enumerate() {
+            let cost = usize::from(ca != cb);
+            cur[j + 1] = (prev[j] + cost).min(prev[j + 1] + 1).min(cur[j] + 1);
+            row_best = row_best.min(cur[j + 1]);
+        }
+        if row_best > max {
+            return None;
+        }
+        std::mem::swap(&mut prev, &mut cur);
+    }
+    let d = prev[lb];
+    if d <= max {
+        Some(d)
+    } else {
+        None
+    }
+}
+
+/// The nearest **real** builtin names to `name`, closest first (at most 3).
+///
+/// Searched against the live `BUILTIN_LOOKUP` table rather than a hand-written
+/// list, so it cannot drift out of date as builtins are added, and it never
+/// falls back to a default guess: when nothing is within the edit budget the
+/// result is empty. The budget scales with name length (1 for very short names,
+/// where every neighbour is a different command; up to 3 for long dotted ones).
+pub fn did_you_mean(name: &str) -> Vec<String> {
+    let budget = match name.chars().count() {
+        0..=3 => 1,
+        4..=7 => 2,
+        _ => 3,
+    };
+    let lower = name.to_lowercase();
+    let mut scored: Vec<(usize, &'static str)> = BUILTIN_LOOKUP
+        .keys()
+        .filter_map(|cand| {
+            edit_distance_within(&lower, &cand.to_lowercase(), budget).map(|d| (d, *cand))
+        })
+        .collect();
+    // Deterministic: distance first, then name, so the same typo always yields
+    // the same suggestions (an agent replaying a repair must see stable output).
+    scored.sort_unstable_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(b.1)));
+    scored.truncate(3);
+    scored.into_iter().map(|(_, n)| n.to_string()).collect()
+}
+
 pub fn call(name: &str, args: Vec<Value>, env: &mut Env) -> Result<Value> {
     call_with_input(name, args, None, env)
 }
-/// Call a builtin with optional piped input
+
+/// Call a builtin with optional piped input.
+///
+/// This is the single boundary where a builtin failure becomes an agent-visible
+/// error, so it is also where every failure is guaranteed a stable code
+/// (`safety::ensure_structured`): a builtin that returned bare `anyhow` prose
+/// surfaces as `E_UNKNOWN` with `retryable: false` rather than as an
+/// unbranchable string. Errors that already carry a specific code pass through
+/// untouched.
 pub fn call_with_input(
+    name: &str,
+    args: Vec<Value>,
+    input: Option<Value>,
+    env: &mut Env,
+) -> Result<Value> {
+    call_with_input_inner(name, args, input, env)
+        .map_err(|e| crate::safety::ensure_structured(name, e))
+}
+
+fn call_with_input_inner(
     name: &str,
     args: Vec<Value>,
     input: Option<Value>,
@@ -3851,7 +3933,7 @@ pub fn call_with_input(
         "ontology_owl" => bi_ontology_owl(),
         "ontology_shacl" => bi_ontology_shacl(),
 
-        _ => Err(anyhow!("unknown builtin: {}", name)),
+        _ => Err(crate::safety::unknown_builtin(name, did_you_mean(name))),
     }
 }
 
@@ -16482,6 +16564,218 @@ fn bi_ontology_describe(args: Vec<Value>, _input: Option<Value>) -> Result<Value
         &q,
     )))
 }
+
+/// Pull a string field out of a caught-error record, accepting either the
+/// wrapper form `{error: {...}}` that try/catch binds or the bare inner record.
+fn diag_field<'a>(err: &'a BTreeMap<String, Value>, key: &str) -> Option<&'a Value> {
+    if let Some(Value::Record(inner)) = err.get("error") {
+        if let Some(v) = inner.get(key) {
+            return Some(v);
+        }
+    }
+    err.get(key)
+}
+
+/// diagnose(error) - The **minimal** repair context for a failed call.
+///
+/// Progressive disclosure applied to failure (§5.4): given the structured error
+/// a `catch` block bound, return only what is needed to fix *this* call — the
+/// code, whether retrying can help, the offending builtin's signature and effect
+/// class, its required parameters, and one example — instead of making the agent
+/// pay for a full `ontology_describe` dump or, worse, the whole ontology.
+///
+/// Deliberately returns *less* than `ontology_describe`: no prose description,
+/// no category listing, at most one example. Unknown/absent builtin names yield
+/// the code and hint alone rather than an invented suggestion.
+fn bi_diagnose(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let subject = args.first().cloned().or(input);
+    let err = match subject {
+        Some(Value::Record(r)) => r,
+        // A bare string is what a non-safety failure used to look like. Report
+        // it honestly as uncoded rather than guessing a code from its prose.
+        Some(Value::Str(s)) => {
+            let mut out = BTreeMap::new();
+            out.insert("code".to_string(), Value::Str("E_UNKNOWN".to_string()));
+            out.insert("retryable".to_string(), Value::Bool(false));
+            out.insert("message".to_string(), Value::Str(s));
+            out.insert(
+                "hint".to_string(),
+                Value::Str(
+                    "this failure carries no structured code; it cannot be \
+                     repaired programmatically"
+                        .to_string(),
+                ),
+            );
+            return Ok(Value::Record(out));
+        }
+        other => {
+            return Err(crate::safety::bad_arg(
+                "diagnose",
+                "error: Record (the value bound by catch)",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
+    };
+
+    let mut out = BTreeMap::new();
+    let code = match diag_field(&err, "code") {
+        Some(Value::Str(c)) => c.clone(),
+        _ => "E_UNKNOWN".to_string(),
+    };
+    out.insert("code".to_string(), Value::Str(code.clone()));
+    if let Some(v) = diag_field(&err, "retryable") {
+        out.insert("retryable".to_string(), v.clone());
+    }
+    if let Some(v) = diag_field(&err, "hint") {
+        out.insert("hint".to_string(), v.clone());
+    }
+    if let Some(v) = diag_field(&err, "did_you_mean") {
+        out.insert("did_you_mean".to_string(), v.clone());
+    }
+    if let Some(v) = diag_field(&err, "approval") {
+        out.insert("approval".to_string(), v.clone());
+    }
+
+    // The expensive part — the builtin's own contract — is fetched only when the
+    // error actually names a builtin that exists.
+    let name = match diag_field(&err, "builtin") {
+        Some(Value::Str(b)) if !b.is_empty() => b.clone(),
+        _ => return Ok(Value::Record(out)),
+    };
+    let def = crate::agent_api::ontology_describe_json(&name);
+    if def.get("builtin").and_then(|v| v.as_str()).is_none() {
+        // Named a builtin the ontology does not document: say so, don't invent.
+        return Ok(Value::Record(out));
+    }
+    for key in ["builtin", "signature", "effect"] {
+        if let Some(v) = def.get(key) {
+            out.insert(key.to_string(), Value::from_json(v));
+        }
+    }
+    // A signature already spells out the parameters and the return type. Emitting
+    // them again is pure duplication in the exact place we are trying to be cheap,
+    // so the expanded forms appear only when there is no signature to read.
+    let has_signature = matches!(out.get("signature"), Some(Value::Str(s)) if !s.is_empty());
+    if !has_signature {
+        if let Some(v) = def.get("return_type") {
+            out.insert("return_type".to_string(), Value::from_json(v));
+        }
+    }
+    if let Some(params) = def
+        .get("parameters")
+        .and_then(|v| v.as_array())
+        .filter(|_| !has_signature)
+    {
+        // Compact: name:type, required-ness only — descriptions are prose the
+        // repair does not need.
+        let compact: Vec<Value> = params
+            .iter()
+            .map(|p| {
+                let nm = p.get("name").and_then(|v| v.as_str()).unwrap_or("_");
+                let ty = p.get("type").and_then(|v| v.as_str()).unwrap_or("Any");
+                let req = p.get("required").and_then(|v| v.as_bool()).unwrap_or(false);
+                Value::Str(format!("{}:{}{}", nm, ty, if req { "" } else { "?" }))
+            })
+            .collect();
+        out.insert("parameters".to_string(), Value::Array(compact));
+    }
+    if let Some(ex) = def
+        .get("examples")
+        .and_then(|v| v.as_array())
+        .and_then(|a| a.first())
+        .and_then(|e| e.get("code"))
+        .and_then(|c| c.as_str())
+    {
+        out.insert("example".to_string(), Value::Str(ex.to_string()));
+    }
+    Ok(Value::Record(out))
+}
+
+/// try_repair(code) - Run `code` so that a *failed* attempt leaves no trace.
+///
+/// The honest description: this does not invent a fix. It makes retrying safe.
+/// A self-healing loop that re-runs a mutating batch is only sound if a failed
+/// attempt is undone first — otherwise attempt N+1 starts from the debris of
+/// attempt N and the failures compound. `try_repair` brackets the evaluation in
+/// a named savepoint (§9) and, on failure, rolls back to it, so every attempt
+/// starts from identical state.
+///
+/// Returns `{ok, value}` on success, or `{ok: false, restored, error, retryable}`
+/// on failure — `error` being the same structured record `catch` would bind, so
+/// it feeds straight into `diagnose()`. Rolls back only the ops *this* call
+/// recorded: an enclosing transaction stays open and keeps its earlier work.
+fn bi_try_repair(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Value> {
+    let code = match args.first().cloned().or(input) {
+        Some(Value::Str(s)) => s,
+        other => {
+            return Err(crate::safety::bad_arg(
+                "try_repair",
+                "code: String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
+    };
+
+    // Reuse an enclosing transaction when there is one (its earlier work must
+    // survive); otherwise open one for the duration of the attempt.
+    let owned = !crate::tx::is_active();
+    if owned {
+        crate::tx::begin().map_err(|e| anyhow!("try_repair: {}", e))?;
+    }
+    let mark = format!("__repair_{}", REPAIR_SEQ.fetch_add(1, Ordering::Relaxed));
+    crate::tx::savepoint(&mark).map_err(|e| anyhow!("try_repair: {}", e))?;
+
+    let result = (|| -> Result<Value> {
+        let stmts = crate::parser::parse_program(&code)?;
+        crate::eval::eval_program(&stmts, env)
+    })();
+
+    let mut out = BTreeMap::new();
+    match result {
+        Ok(v) => {
+            if owned {
+                crate::tx::commit().map_err(|e| anyhow!("try_repair: {}", e))?;
+            }
+            out.insert("ok".to_string(), Value::Bool(true));
+            out.insert("value".to_string(), v);
+        }
+        Err(e) => {
+            // Undo this attempt's mutations before reporting, so the caller's
+            // next attempt starts from the same state this one did.
+            let restored = crate::tx::rollback_to(&mark).unwrap_or(0);
+            if owned {
+                let _ = crate::tx::rollback();
+            }
+            // Every failure reaching here is structured (the builtin boundary
+            // guarantees it), but a parse error raised before dispatch is not —
+            // so pass it through the same net.
+            let coded = crate::safety::ensure_structured("try_repair", e);
+            let json = coded
+                .downcast_ref::<crate::safety::SafetyError>()
+                .map(|se| se.to_json())
+                .unwrap_or(serde_json::Value::Null);
+            // `to_json` wraps in `{error: {...}}`; unwrap it so the caller reads
+            // `result.error.code`, not `result.error.error.code`.
+            let structured = Value::from_json(json.get("error").unwrap_or(&json));
+            let retryable = match &structured {
+                Value::Record(r) => match r.get("retryable") {
+                    Some(Value::Bool(b)) => *b,
+                    _ => false,
+                },
+                _ => false,
+            };
+            out.insert("ok".to_string(), Value::Bool(false));
+            out.insert("restored".to_string(), Value::Int(restored as i64));
+            out.insert("retryable".to_string(), Value::Bool(retryable));
+            out.insert("error".to_string(), structured);
+        }
+    }
+    Ok(Value::Record(out))
+}
+
+/// Monotonic counter making each `try_repair` savepoint name unique, so nested
+/// or sequential attempts cannot roll back to each other's mark.
+static REPAIR_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 lazy_static::lazy_static! {
     /// The process-global RBAC manager backing the in-shell `rbac_*` builtins

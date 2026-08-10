@@ -7,6 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — self-healing (agentic-first §9, §11)
+
+The design claimed a self-correcting loop *"falls out of"* structured errors.
+It does not fall out; the inference holds only if failures actually carry codes,
+suggestions are real, repair context is cheap, and a failed attempt leaves no
+debris. Each of those is now built and asserted rather than assumed.
+
+- **Every builtin failure now carries a stable code.** `builtins::call_with_input`
+  routes all errors through `safety::ensure_structured`: an error with a specific
+  code passes through untouched, anything else becomes `E_UNKNOWN` with its
+  original message preserved verbatim and `retryable: false`. Previously ~879
+  `anyhow!`/`bail!` sites in `builtins.rs` reached the agent as prose with nothing
+  to branch on, against ~520 sites using the structured helpers. New codes:
+  `E_UNKNOWN_BUILTIN`, `E_UNKNOWN`; `ErrorCode::retryable()` is now the single
+  definition of which failures a repair loop should act on.
+
+- **The same boundary fills in a missing `builtin` name.** `safety::arg_err` takes
+  only a message, so its `builtin` field was empty at ~490 call sites — meaning
+  `diagnose` could not look up a signature for the majority of `E_BAD_ARG`
+  failures, the exact population it serves. The call site is the one place that
+  knows the name, so it is filled there rather than at hundreds of sites.
+
+- **`did_you_mean` on `E_UNKNOWN_BUILTIN`** — up to three nearest real names from
+  a bounded Levenshtein scan of the live `BUILTIN_LOOKUP` table, ordered
+  deterministically, **omitted entirely when nothing is close**. Replaces a
+  suggester that searched a hardcoded list of 16 names out of 1,100+ and fell back
+  to `"ls, cat, grep"` — a confident wrong answer, which costs a retrying agent a
+  full round trip to learn nothing.
+
+- **`diagnose(error)`** (dispatch 1139) — the minimal repair context for a failed
+  call: code, `retryable`, hint, suggestions, and the offending builtin's signature
+  and effect class. Never costs more than a full `ontology_describe`, and about
+  half on richly-documented builtins (map 82 vs 206 tokens, http_get 91 vs 170;
+  thin definitions like grep 54 vs 67 save little, which is the honest shape of a
+  disclosure win). Named `diagnose` because `explain` was already taken.
+
+- **`try_repair(code)`** (dispatch 1140) — does not invent a fix; makes retrying
+  *safe*. Brackets evaluation in a unique named savepoint and rolls back to it on
+  failure, so attempt N+1 starts from the state attempt N did rather than from a
+  half-applied batch. Returns the structured error alongside `restored`, and leaves
+  an enclosing transaction's earlier work intact.
+
+- **`agentic_eval::repair`** — a reusable harness that measures repair rate by
+  *replaying* the corrected call, and scores a `MisleadingError` (stable code,
+  confident hint, suggestion that does not work) distinctly from an honest dead
+  end. An error can look actionable at every structural layer and still send the
+  agent the wrong way; only re-running separates the two.
+
+- **§11's self-correction metric is filled in.** It read `≥X%` for as long as the
+  document existed. Measured (`tests/repair_rate.rs`): **8/8 (100%)** of plausible
+  misspellings repaired by a model-free strategy, **0 uncoded failures** across a
+  13-case mixed corpus including real runtime failures. The figure is a floor (no
+  model involved) and deliberately scoped — wrong-argument failures are
+  diagnosable but not mechanically repairable, and a test pins that down so the
+  headline cannot be read as "all failures are repairable".
+
+Full workspace suite green: 80 suites, 1626 tests, 0 failures.
+
 ### Security
 - **`aethershell` is now registered on PyPI, closing finding 12.** The SDK is
   published as `aethershell` 1.5.0 and `pip install aethershell` works —

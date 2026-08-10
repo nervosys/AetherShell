@@ -64,6 +64,7 @@ pub mod frameworks;
 pub mod languages;
 pub mod ontology;
 pub mod reliability;
+pub mod repair;
 pub mod safety;
 pub mod tokens;
 pub mod vms;
@@ -84,6 +85,7 @@ pub use reliability::{
     assess_error_quality, assess_reliability, ErrorQuality, ErrorQualityReport, Outcome,
     ReliabilityReport,
 };
+pub use repair::{assess_repair, Attempt, ErrorFacts, RepairOutcome, RepairReport};
 pub use safety::{
     assess_exfiltration, assess_reversibility, assess_safety, assess_safety_named, Decision,
     Effect, ExfiltrationReport, Mode, ReversibilityReport, SafetyReport,
