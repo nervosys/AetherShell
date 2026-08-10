@@ -1002,8 +1002,16 @@ of structured errors rather than building or measuring it.
     was wrong — the ontology advertised `web_post` as pure. The label now agrees
     with the control.
 
-  Coverage after both passes: **1,129 of 1,301 (87%) fall through to `Pure`**, down
-  from 1,183; classified builtins went 118 → 172.
+  A third pass added privilege/service-control names and surfaced eight more —
+  `svc_restart`/`k8s_rollout_restart` (`Process`), `chmod`/`fs_chmod`/`fs_chown`
+  (`WriteLocal`), `k8s_deployments`/`k8s_services` (`Network`: reads, but remote
+  ones that ship credentials to a cluster endpoint) — plus **a second fabricating
+  stub**: `cloud_deploy` minted a UUID and returned `status: "deployed"` while
+  containing no HTTP client and spawning no process. Corrected to `simulated`,
+  like `remote_exec`.
+
+  Coverage after three passes: **1,122 of 1,301 (86%) fall through to `Pure`**, down
+  from 1,183; classified builtins went 118 → 179.
 
   One thing this still does **not** fix: the lint only catches names that
   *advertise* a side effect, so a dangerous builtin with an innocuous name is

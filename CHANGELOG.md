@@ -130,8 +130,15 @@ Full workspace suite green: 90 suites, 1770 tests, 0 failures.
   `marketplace_publish` as `Network`, and `write_file`/`write_json`/`text_write`/
   `save_json`/`gui_dialog_file_save`/`fs_mount` as `WriteLocal`.
 
-  Effect coverage after both passes: **1,129 of 1,301 (87%) fall through to
-  `Pure`**, down from 1,183; classified builtins 118 → 172.
+- **A third lint pass** added privilege/service-control names
+  (`chmod`/`chown`/`restart`/`deploy`/`service`) and classified the eight it
+  surfaced: `svc_restart` and `k8s_rollout_restart` as `Process` (restarting a
+  service interrupts whatever it was doing), `chmod`/`fs_chmod`/`fs_chown` as
+  `WriteLocal`, and `k8s_deployments`/`k8s_services` as `Network` — they are reads,
+  but *remote* ones that ship credentials to a cluster endpoint.
+
+  Effect coverage after three passes: **1,122 of 1,301 (86%) fall through to
+  `Pure`**, down from 1,183; classified builtins 118 → 179.
 
 ### Fixed
 
@@ -141,6 +148,12 @@ Full workspace suite green: 90 suites, 1770 tests, 0 failures.
   believe a service was restarted or a deploy done. It now reports
   `status: "simulated"` with an explicit `simulated: true` and an output string
   saying the command was not run.
+
+- **`cloud_deploy` fabricated deployments the same way.** It minted a UUID and
+  returned `status: "deployed"` with a timestamp, while containing no HTTP client
+  and spawning no process — it contacts no cloud provider at all. Found by the
+  third lint pass. Now `status: "simulated"` with `simulated: true` and a `note`
+  saying no deployment was created.
 
   **The documentation was worse than the code.** `docs/book/src/advanced/distributed.md`
   showed `remote_exec` returning a real result (`# 15`), and the rolling-deploy

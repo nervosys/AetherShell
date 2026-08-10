@@ -26,6 +26,12 @@ const KILLING: &[&str] = &["kill", "terminate", "sigkill"];
 const NETWORKING: &[&str] = &["upload", "download", "publish", "_post", "post_", "webhook"];
 /// Writes that persist outside the current value space.
 const WRITING: &[&str] = &["_write", "write_", "_save", "save_", "install", "_mount"];
+/// Changing permissions, ownership, or the run-state of a service. These act on
+/// the machine rather than on data, so an untagged one is a privilege operation
+/// nobody is metering.
+const CONTROLLING: &[&str] = &[
+    "chmod", "chown", "restart", "deploy", "_service", "service_",
+];
 
 /// Names that match a fragment but are genuinely pure, with the reason. Every
 /// entry here is a claim someone can check — which is the point of listing them
@@ -46,9 +52,9 @@ fn is_known_pure(name: &str) -> bool {
         //   watchexec_run: returns a suggested `watchexec --` invocation
         //   env_shell:     reads $SHELL / %COMSPEC%
         //   remote_exec:   a stub — "Simulate remote execution (in real impl
-        //                  would use SSH/RPC)". Note it still reports
-        //                  `status: "executed"` to its caller, which is a
-        //                  separate honesty problem from the effect tag.
+        //                  would use SSH/RPC)". It used to report
+        //                  `status: "executed"`, a separate honesty problem
+        //                  from the effect tag; now reports `simulated`.
         "sudo_exec",
         "watchexec_run",
         "env_shell",
@@ -57,6 +63,10 @@ fn is_known_pure(name: &str) -> bool {
         // Transaction bookkeeping: `tx_savepoint` matches "_save" but only names
         // a point in the journal. It writes no user data.
         "tx_savepoint",
+        // A stub with no cloud client and no subprocess: it records a deployment
+        // intent locally. It used to report `status: "deployed"` — corrected to
+        // `simulated` at the same time this entry was added.
+        "cloud_deploy",
         // Predicates and formatters that only *describe* an effect.
         "can_delete",
         "is_executable",
@@ -116,6 +126,8 @@ fn no_builtin_that_names_a_side_effect_is_classified_pure() {
             "networking"
         } else if matches_any(name, WRITING) {
             "writing"
+        } else if matches_any(name, CONTROLLING) {
+            "controlling"
         } else {
             continue;
         };

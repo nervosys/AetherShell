@@ -163,7 +163,10 @@ pub fn effect_of(name: &str) -> Effect {
         | "marketplace_uninstall" => Effect::Destructive,
         // `sudo_check` shells out to determine admin status — it spawns a process,
         // so it is not pure even though it only reports.
-        "proc_kill" | "kill" | "signal" | "pkill" | "sudo_check" => Effect::Process,
+        // Restarting a service is process-lifecycle control, not a data write:
+        // it interrupts whatever that service was doing.
+        "proc_kill" | "kill" | "signal" | "pkill" | "sudo_check"
+        | "svc_restart" | "k8s_rollout_restart" => Effect::Process,
         // Every builtin whose argument *is* a command to run. These are the
         // same capability as `sh` under different names; classifying them as
         // `Pure` told `agent_api`'s discovery — and any other consumer of this
@@ -206,11 +209,16 @@ pub fn effect_of(name: &str) -> Effect {
         {
             Effect::Network
         }
+        // `kubectl get` against a cluster endpoint: a read, but a *remote* one
+        // that ships credentials off the machine, so it is metered as egress.
+        "k8s_deployments" | "k8s_services" => Effect::Network,
         // Listing mounts is a read; mounting one is not. Order matters here.
         "fs_mounts" => Effect::ReadLocal,
+        // Permission and ownership changes modify filesystem metadata.
         "file_write" | "file_append" | "file_copy" | "mkdir" | "touch"
         | "write_file" | "write_json" | "text_write" | "save_json"
-        | "gui_dialog_file_save" | "fs_mount" => Effect::WriteLocal,
+        | "gui_dialog_file_save" | "fs_mount"
+        | "chmod" | "fs_chmod" | "fs_chown" => Effect::WriteLocal,
         n if n.starts_with("file_") || n.starts_with("proc_") || n.starts_with("sys_") => {
             Effect::ReadLocal
         }

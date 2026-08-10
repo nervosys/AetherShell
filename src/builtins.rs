@@ -43162,7 +43162,9 @@ fn get_current_username() -> String {
         .unwrap_or_else(|_| "unknown".to_string())
 }
 
-/// Deploy an AetherShell script or agent to a cloud instance.
+/// **Stub.** Records a deployment *intent* locally and returns it with
+/// `status: "simulated"` and `simulated: true`. It contacts no cloud provider —
+/// there is no client or subprocess behind it.
 /// Usage: cloud.deploy(name, {script?, instance_id?, region?})
 fn bi_cloud_deploy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = match args.first() {
@@ -43213,11 +43215,25 @@ fn bi_cloud_deploy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
     }
 
+    // Nothing above contacts a cloud provider — this function has no HTTP client
+    // and spawns no process. It previously reported `status: "deployed"` with a
+    // freshly minted UUID, which reads to an agent (and to a human skimming a
+    // log) as a completed deployment. Same defect as `remote_exec` claiming
+    // `status: "executed"`. Report what actually happened.
     let mut rec = BTreeMap::new();
     rec.insert("deploy_id".to_string(), Value::Str(deploy_id));
     rec.insert("name".to_string(), Value::Str(name));
     rec.insert("region".to_string(), Value::Str(region));
-    rec.insert("status".to_string(), Value::Str("deployed".to_string()));
+    rec.insert("status".to_string(), Value::Str("simulated".to_string()));
+    rec.insert("simulated".to_string(), Value::Bool(true));
+    rec.insert(
+        "note".to_string(),
+        Value::Str(
+            "cloud_deploy is a stub: no deployment was created. It records intent \
+             locally only."
+                .to_string(),
+        ),
+    );
     if let Some(iid) = instance_id {
         rec.insert("instance_id".to_string(), Value::Str(iid));
     }
