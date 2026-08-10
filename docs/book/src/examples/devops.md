@@ -102,8 +102,10 @@ nodes | each(fn(node) => {
   echo "  Draining connections..."
   sleep 5000
 
-  # Deploy
-  remote_exec "${node}:3000" 'sh "systemctl restart aethershell"'
+  # Deploy. Use ssh_exec: it really runs the command. `remote_exec` is a stub
+  # that reports `simulated` and executes nothing — in a rolling deploy that
+  # would mean every node "succeeds" without ever being restarted.
+  ssh_exec "${node}" "sudo systemctl restart aethershell"
 
   # Health check
   let health = web_check_url "http://${node}:3000/health"

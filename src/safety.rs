@@ -158,7 +158,9 @@ pub fn effect_of(name: &str) -> Effect {
         | "kubectl_delete"
         | "role_delete"
         | "svc_delete"
-        | "terraform_destroy" => Effect::Destructive,
+        | "terraform_destroy"
+        | "helm_uninstall"
+        | "marketplace_uninstall" => Effect::Destructive,
         // `sudo_check` shells out to determine admin status — it spawns a process,
         // so it is not pure even though it only reports.
         "proc_kill" | "kill" | "signal" | "pkill" | "sudo_check" => Effect::Process,
@@ -181,11 +183,34 @@ pub fn effect_of(name: &str) -> Effect {
         // These run the sqlite binary against a caller-supplied statement, which
         // includes DDL. Note this changes what is *advertised* and what `guard()`
         // would decide — neither is currently guarded, so nothing is newly gated.
-        | "db_sqlite_exec" | "sqlite_exec" => Effect::Exec,
-        n if n.starts_with("http") || n.starts_with("net_") || n.starts_with("nc_") => {
+        | "db_sqlite_exec" | "sqlite_exec"
+        // Package installers. Each shells out to a package manager, which fetches
+        // remote code and runs its install scripts — the supply-chain surface
+        // (CWE-494). Classifying these `Pure` told every consumer of `effect_of`
+        // that `npm_install("anything")` was side-effect-free.
+        | "npm_install" | "yarn_install" | "pnpm_install" | "bun_install"
+        | "pipx_install" | "poetry_install" | "pkg_install" | "asdf_install"
+        | "helm_install" | "marketplace_install" | "pre_commit_install" => Effect::Exec,
+        // Egress by name. `scp_*` moves bytes to/from another host; the
+        // `marketplace_publish` case sends a package somewhere it cannot be
+        // recalled from.
+        "scp_upload" | "scp_download" | "wget_download" | "marketplace_publish" => Effect::Network,
+        // The `web_*` fetch family already routes through `guard_network` at each
+        // call site, so it was *gated* as Network at runtime while `effect_of`
+        // reported `Pure` — meaning the agent-facing ontology advertised
+        // `web_post` as side-effect-free. Make the label agree with the control.
+        n if n.starts_with("http")
+            || n.starts_with("web_")
+            || n.starts_with("net_")
+            || n.starts_with("nc_") =>
+        {
             Effect::Network
         }
-        "file_write" | "file_append" | "file_copy" | "mkdir" | "touch" => Effect::WriteLocal,
+        // Listing mounts is a read; mounting one is not. Order matters here.
+        "fs_mounts" => Effect::ReadLocal,
+        "file_write" | "file_append" | "file_copy" | "mkdir" | "touch"
+        | "write_file" | "write_json" | "text_write" | "save_json"
+        | "gui_dialog_file_save" | "fs_mount" => Effect::WriteLocal,
         n if n.starts_with("file_") || n.starts_with("proc_") || n.starts_with("sys_") => {
             Effect::ReadLocal
         }

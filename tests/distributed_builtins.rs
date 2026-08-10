@@ -431,7 +431,12 @@ fn test_remote_exec() {
     .unwrap();
 
     if let Value::Record(rec) = result {
-        assert_eq!(rec.get("status"), Some(&Value::Str("executed".to_string())));
+        // A stub must not claim it executed anything — see bi_remote_exec.
+        assert_eq!(
+            rec.get("status"),
+            Some(&Value::Str("simulated".to_string()))
+        );
+        assert_eq!(rec.get("simulated"), Some(&Value::Bool(true)));
         assert!(rec.contains_key("output"));
     } else {
         panic!("Expected Record, got {:?}", result);
@@ -464,7 +469,10 @@ fn test_exec_remote_alias() {
     .unwrap();
 
     if let Value::Record(rec) = result {
-        assert_eq!(rec.get("status"), Some(&Value::Str("executed".to_string())));
+        assert_eq!(
+            rec.get("status"),
+            Some(&Value::Str("simulated".to_string()))
+        );
     } else {
         panic!("Expected Record");
     }

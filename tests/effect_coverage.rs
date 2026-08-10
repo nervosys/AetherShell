@@ -20,6 +20,12 @@ use aethershell::safety::{effect_of, Effect};
 const DESTRUCTIVE: &[&str] = &["delete", "destroy", "purge", "wipe", "truncate", "drop_"];
 const EXECUTING: &[&str] = &["_exec", "exec_", "spawn", "_shell", "shell_", "sudo"];
 const KILLING: &[&str] = &["kill", "terminate", "sigkill"];
+/// Egress: sends data somewhere it cannot be recalled from. Under-tagging these
+/// is the exfiltration blind spot — a `Pure` tag means no `Network` governor
+/// accounting and no audit entry.
+const NETWORKING: &[&str] = &["upload", "download", "publish", "_post", "post_", "webhook"];
+/// Writes that persist outside the current value space.
+const WRITING: &[&str] = &["_write", "write_", "_save", "save_", "install", "_mount"];
 
 /// Names that match a fragment but are genuinely pure, with the reason. Every
 /// entry here is a claim someone can check — which is the point of listing them
@@ -48,6 +54,9 @@ fn is_known_pure(name: &str) -> bool {
         "env_shell",
         "remote_exec",
         "exec_remote",
+        // Transaction bookkeeping: `tx_savepoint` matches "_save" but only names
+        // a point in the journal. It writes no user data.
+        "tx_savepoint",
         // Predicates and formatters that only *describe* an effect.
         "can_delete",
         "is_executable",
@@ -103,6 +112,10 @@ fn no_builtin_that_names_a_side_effect_is_classified_pure() {
             "executing"
         } else if matches_any(name, KILLING) {
             "killing"
+        } else if matches_any(name, NETWORKING) {
+            "networking"
+        } else if matches_any(name, WRITING) {
+            "writing"
         } else {
             continue;
         };

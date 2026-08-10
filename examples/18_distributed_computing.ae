@@ -51,11 +51,13 @@ print("Job statuses:")
 job_list() | each(fn(j) => print("  " + j.name + ": " + j.status))
 print("")
 
-# Remote execution
-print("Remote execution:")
+# Remote execution (stub: remote_exec does NOT run the command -- use ssh_exec
+# for real remote execution; it is approval-gated in agent mode)
+print("Remote execution (simulated):")
 let exec_result = remote_exec("node-1", "ls -la /data")
 print("  Node: " + exec_result.node_id)
 print("  Status: " + exec_result.status)
+print("  Simulated: " + str(exec_result.simulated))
 print("")
 
 # Result aggregation

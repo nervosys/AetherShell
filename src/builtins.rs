@@ -6218,7 +6218,11 @@ fn bi_job_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Array(job_list))
 }
 
-/// remote_exec(node_id, command) - Execute a command on a remote node
+/// remote_exec(node_id, command) - **Stub.** Validates that `node_id` is a
+/// registered cluster node and echoes the request back with
+/// `status: "simulated"` and `simulated: true`. It does **not** run anything:
+/// there is no SSH/RPC transport behind it. Use `ssh_exec` for real remote
+/// execution (which is effect-tagged `Exec` and approval-gated in agent mode).
 fn bi_remote_exec(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let (node_id, command) = if let Some(Value::Record(rec)) = input {
         let node_id = rec
@@ -6246,14 +6250,24 @@ fn bi_remote_exec(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         return Err(anyhow!("remote_exec: node '{}' not found", node_id));
     }
 
-    // Simulate remote execution (in real impl would use SSH/RPC)
+    // This does NOT execute anything — there is no SSH/RPC transport behind it.
+    // It previously reported `status: "executed"`, which told an agent its command
+    // had run on the remote node. An agent acting on that would believe a service
+    // was restarted, a file written, a deploy done. Report the truth instead:
+    // `simulated`, with an explicit boolean so the answer is branchable rather
+    // than something the caller has to infer from prose.
     let mut record = BTreeMap::new();
     record.insert("node_id".to_string(), Value::Str(node_id));
     record.insert("command".to_string(), Value::Str(command));
-    record.insert("status".to_string(), Value::Str("executed".to_string()));
+    record.insert("status".to_string(), Value::Str("simulated".to_string()));
+    record.insert("simulated".to_string(), Value::Bool(true));
     record.insert(
         "output".to_string(),
-        Value::Str("Remote execution simulated".to_string()),
+        Value::Str(
+            "remote_exec is a stub: the command was NOT run. Use ssh_exec for real \
+             remote execution."
+                .to_string(),
+        ),
     );
 
     Ok(Value::Record(record))

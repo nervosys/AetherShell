@@ -79,11 +79,22 @@ job_cancel "job-abc123"
 
 ## Remote Execution
 
-Execute commands directly on remote nodes:
+> **`remote_exec` is a stub — it does not run anything.** There is no SSH/RPC
+> transport behind it. It validates that the node is registered and echoes the
+> request back with `status: "simulated"` and `simulated: true`. This page
+> previously showed it returning a real result (`# 15`), which it never did.
+>
+> For **real** remote execution use `ssh_exec`, which is effect-tagged `Exec` and
+> approval-gated in agent mode.
 
 ```aethershell
 remote_exec "192.168.1.10:3000" 'ls "src" | len'
-# 15
+# { node_id: "192.168.1.10:3000", command: "ls \"src\" | len",
+#   status: "simulated", simulated: true,
+#   output: "remote_exec is a stub: the command was NOT run. …" }
+
+# Actually run it:
+ssh_exec "user@192.168.1.10" "ls src | wc -l"
 ```
 
 ## Result Aggregation

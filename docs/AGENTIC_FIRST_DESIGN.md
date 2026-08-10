@@ -983,10 +983,31 @@ of structured errors rather than building or measuring it.
   caller while running nothing — an honesty problem in the *return value* rather
   than the effect tag, and left alone here because changing it would break callers.
 
-  Two things this still does **not** fix. Coverage remains thin by design of the
-  default: **1,183 of 1,301 builtins (91%) fall through to `Pure`**, and the lint
-  only catches names that *advertise* a side effect, so a dangerous builtin with an
-  innocuous name is invisible to it. And `db_sqlite_exec` is classified `Exec` but
+  ✅ **The lint was then broadened past exec/delete names** to egress
+  (`upload`/`download`/`publish`/`post`/`webhook`) and persistence
+  (`write`/`save`/`install`/`mount`), which surfaced 29 more and two findings worth
+  naming separately:
+
+  - **Package installers were `Pure`.** `npm_install`, `yarn_install`,
+    `pnpm_install`, `bun_install`, `pipx_install`, `poetry_install`, `pkg_install`,
+    `asdf_install`, `helm_install`, `marketplace_install`, `pre_commit_install` each
+    shell out to a package manager that fetches remote code and runs its install
+    scripts. That is the supply-chain surface (CWE-494), and `effect_of` was telling
+    every consumer that `npm_install("anything")` was side-effect-free. Now `Exec`
+    (`helm_uninstall`/`marketplace_uninstall` are `Destructive`).
+  - **The `web_*` family was gated but mislabelled.** Every `web_*` fetch already
+    routes through `guard_network` with `Effect::Network` at the call site, yet
+    `effect_of("web_post")` returned `Pure` because the Network arm only matched
+    `http*`/`net_`/`nc_`. So the control was right and the *label* an agent reads
+    was wrong — the ontology advertised `web_post` as pure. The label now agrees
+    with the control.
+
+  Coverage after both passes: **1,129 of 1,301 (87%) fall through to `Pure`**, down
+  from 1,183; classified builtins went 118 → 172.
+
+  One thing this still does **not** fix: the lint only catches names that
+  *advertise* a side effect, so a dangerous builtin with an innocuous name is
+  invisible to it. And `db_sqlite_exec` is classified `Exec` but
   deliberately left unguarded — gating it would put every sqlite *read*, including
   `db_kv_get`, behind approval; its mutating paths are separately classified and
   its snapshot chokepoint makes them reversible. Flipping the default to a

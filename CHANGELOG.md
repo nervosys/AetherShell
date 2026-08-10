@@ -112,9 +112,42 @@ Full workspace suite green: 90 suites, 1770 tests, 0 failures.
   every sqlite *read* (including `db_kv_get`) behind approval. Flipping the default
   to a restrictive class would gate ~1,000 builtins at once: a product decision.
 
-- **Noted, not changed:** `remote_exec` returns `status: "executed"` to its caller
-  while running nothing. That is an honesty problem in the return value rather than
-  the effect tag; changing it would break callers, so it is flagged here instead.
+- **Package installers were classified `Pure`.** Broadening the lint past
+  exec/delete names to egress and persistence surfaced 29 more, including
+  `npm_install`, `yarn_install`, `pnpm_install`, `bun_install`, `pipx_install`,
+  `poetry_install`, `pkg_install`, `asdf_install`, `helm_install`,
+  `marketplace_install` and `pre_commit_install` — each shells out to a package
+  manager that fetches remote code and runs its install scripts. That is the
+  supply-chain surface (CWE-494), and `effect_of` was reporting
+  `npm_install("anything")` as side-effect-free. Now `Exec`;
+  `helm_uninstall`/`marketplace_uninstall` are `Destructive`.
+
+- **The `web_*` family was gated at runtime but advertised as `Pure`.** Every
+  `web_*` fetch already routes through `guard_network` with `Effect::Network`, but
+  `effect_of("web_post")` returned `Pure` because the Network arm only matched
+  `http*`/`net_`/`nc_`. The control was correct; the label an agent reads was not.
+  They now agree. Also classified: `scp_upload`/`scp_download`/`wget_download`/
+  `marketplace_publish` as `Network`, and `write_file`/`write_json`/`text_write`/
+  `save_json`/`gui_dialog_file_save`/`fs_mount` as `WriteLocal`.
+
+  Effect coverage after both passes: **1,129 of 1,301 (87%) fall through to
+  `Pure`**, down from 1,183; classified builtins 118 → 172.
+
+### Fixed
+
+- **`remote_exec` claimed to have executed commands it never ran.** It returned
+  `status: "executed"` from a stub whose own comment reads *"Simulate remote
+  execution (in real impl would use SSH/RPC)"*. An agent acting on that would
+  believe a service was restarted or a deploy done. It now reports
+  `status: "simulated"` with an explicit `simulated: true` and an output string
+  saying the command was not run.
+
+  **The documentation was worse than the code.** `docs/book/src/advanced/distributed.md`
+  showed `remote_exec` returning a real result (`# 15`), and the rolling-deploy
+  runbook in `docs/book/src/examples/devops.md` used it to
+  `systemctl restart aethershell` on every node — a deploy in which every node
+  reports success without ever being restarted. The runbook now uses `ssh_exec`,
+  which really executes and is approval-gated in agent mode.
 - **`aethershell` is now registered on PyPI, closing finding 12.** The SDK is
   published as `aethershell` 1.5.0 and `pip install aethershell` works —
   verified in a clean virtualenv, not from the upload's own success message.
