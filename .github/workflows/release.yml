@@ -181,6 +181,7 @@ jobs:
             - name: Publish to crates.io
               env:
                   CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+              id: cargo_publish
               run: |
                   cargo publish --features native
               # CORRECTION (2026-08-07): an earlier version of this comment said
@@ -211,26 +212,71 @@ jobs:
               # anything was published. This asks the registry instead of
               # trusting the step. See finding 12.
               #
-              # Deliberately non-fatal: a release should not be blocked by a
-              # registry hiccup. The point is that the answer becomes *visible*
-              # — before this, every signal inside the repository said the
-              # publish had worked.
+              # CORRECTION (2026-08-10): the first version of this step checked
+              # only whether the version was *on the registry*, and was
+              # deliberately non-fatal. The v5.0.0 run showed why that is not
+              # enough. Its log reads:
+              #
+              #     CARGO_REGISTRY_TOKEN:
+              #     error: crate aethershell@5.0.0 already exists on crates.io index
+              #     ##[error]Process completed with exit code 101
+              #
+              # …and this step then printed "✅ 5.0.0 is published" — true, but
+              # only because a maintainer had published it by hand minutes
+              # earlier. Checking the registry proves the *state*, not that this
+              # run did anything. So it reported green over a publish step that
+              # had exited 101, which is the exact failure mode it was added to
+              # catch, one level up.
+              #
+              # Now it reports both facts and fails the job when this run's
+              # publish did not succeed. `continue-on-error` above still keeps
+              # the rest of the release going; the difference is that the
+              # *outcome* is no longer silently rewritten to success.
               if: always()
               run: |
                   set -uo pipefail
                   VERSION="$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)"
+                  OUTCOME="${{ steps.cargo_publish.outcome }}"
+
                   if curl -sfA "aethershell-release-verify" \
                        "https://crates.io/api/v1/crates/aethershell/${VERSION}" >/dev/null; then
-                    echo "✅ crates.io: \`aethershell\` **${VERSION}** is published." | tee -a "$GITHUB_STEP_SUMMARY"
+                    ON_REGISTRY=yes
                   else
-                    {
-                      echo "### ⚠️ crates.io publish did NOT land"
-                      echo
-                      echo "\`aethershell\` **${VERSION}** is not on crates.io, even though the"
-                      echo "publish step reported success (\`continue-on-error\` masks failures)."
-                      echo "Check the step log above for the real error."
-                    } | tee -a "$GITHUB_STEP_SUMMARY"
+                    ON_REGISTRY=no
                   fi
+
+                  {
+                    echo "### crates.io — \`aethershell\` ${VERSION}"
+                    echo
+                    echo "| check | result |"
+                    echo "| --- | --- |"
+                    echo "| this run's \`cargo publish\` | ${OUTCOME} |"
+                    echo "| present on crates.io | ${ON_REGISTRY} |"
+                  } | tee -a "$GITHUB_STEP_SUMMARY"
+
+                  if [ "$OUTCOME" != "success" ]; then
+                    {
+                      echo
+                      echo "⛔ **This run did not publish.** The publish step exited non-zero"
+                      echo "(see its log above). If \`present on crates.io\` is \`yes\`, the"
+                      echo "version got there some other way — most likely a manual"
+                      echo "\`cargo publish\` — which is not a working release pipeline."
+                      echo
+                      echo "Most common cause: \`CARGO_REGISTRY_TOKEN\` is not set on this"
+                      echo "repository. An unset secret renders as empty in the step env;"
+                      echo "a set one renders as \`***\`."
+                    } | tee -a "$GITHUB_STEP_SUMMARY"
+                    exit 1
+                  fi
+
+                  if [ "$ON_REGISTRY" != "yes" ]; then
+                    echo "⛔ publish reported success but ${VERSION} is not on crates.io." \
+                      | tee -a "$GITHUB_STEP_SUMMARY"
+                    exit 1
+                  fi
+
+                  echo "✅ this run published ${VERSION} to crates.io." \
+                    | tee -a "$GITHUB_STEP_SUMMARY"
 
     publish-npm:
         name: Publish WASM to npm
@@ -257,6 +303,7 @@ jobs:
                   wasm-pack build --target web --release
 
             - name: Publish to npm
+              id: npm_publish
               env:
                   NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
               run: |
@@ -301,8 +348,25 @@ jobs:
                     echo "### ⚠️ npm: could not read name/version from ${PKG}" | tee -a "$GITHUB_STEP_SUMMARY"
                     exit 0
                   fi
+                  # Same correction as the crates.io job (2026-08-10): presence on
+                  # the registry proves the state, not that *this run* published.
+                  # Report both, and fail when this run's publish did not succeed.
+                  if [ "${{ steps.npm_publish.outcome }}" != "success" ]; then
+                    {
+                      echo "### ⛔ npm: this run did not publish"
+                      echo
+                      echo "\`${NAME}\` **${VERSION}** — publish step outcome:"
+                      echo "\`${{ steps.npm_publish.outcome }}\`. As of 2026-08-07 the cause"
+                      echo "was an unset \`NPM_TOKEN\` (\`npm error code ENEEDAUTH\`)."
+                      echo
+                      echo "Decide the package name before setting a token: this artifact"
+                      echo "is \`${NAME}\`, while \`web/package.json\` says"
+                      echo "\`@nervosys/aethershell\`. The first success claims a name publicly."
+                    } | tee -a "$GITHUB_STEP_SUMMARY"
+                    exit 1
+                  fi
                   if curl -sf "https://registry.npmjs.org/${NAME}/${VERSION}" >/dev/null; then
-                    echo "✅ npm: \`${NAME}\` **${VERSION}** is published." | tee -a "$GITHUB_STEP_SUMMARY"
+                    echo "✅ npm: this run published \`${NAME}\` **${VERSION}**." | tee -a "$GITHUB_STEP_SUMMARY"
                   else
                     {
                       echo "### ⚠️ npm publish did NOT land"
@@ -351,6 +415,7 @@ jobs:
               run: python -m build
 
             - name: Publish to PyPI
+              id: pypi_publish
               uses: pypa/gh-action-pypi-publish@release/v1
               with:
                   packages-dir: integrations/python/dist/
@@ -382,8 +447,25 @@ jobs:
               run: |
                   set -uo pipefail
                   VERSION="$(grep -m1 '^version' integrations/python/pyproject.toml | cut -d'"' -f2)"
+                  # Same correction as the crates.io job (2026-08-10). The name is
+                  # now registered (a maintainer published 1.5.0 by hand), so a
+                  # registry-presence check alone would report green forever while
+                  # CI published nothing.
+                  if [ "${{ steps.pypi_publish.outcome }}" != "success" ]; then
+                    {
+                      echo "### ⛔ PyPI: this run did not publish"
+                      echo
+                      echo "\`aethershell\` **${VERSION}** — publish step outcome:"
+                      echo "\`${{ steps.pypi_publish.outcome }}\`. As of 2026-08-07 the cause was"
+                      echo "that trusted publishing is not configured for this repository"
+                      echo "(\`environment: MISSING\` in the OIDC claim)."
+                      echo
+                      echo "If the version is on PyPI anyway, it was published manually."
+                    } | tee -a "$GITHUB_STEP_SUMMARY"
+                    exit 1
+                  fi
                   if curl -sf "https://pypi.org/pypi/aethershell/${VERSION}/json" >/dev/null; then
-                    echo "✅ PyPI: \`aethershell\` **${VERSION}** is published." | tee -a "$GITHUB_STEP_SUMMARY"
+                    echo "✅ PyPI: this run published \`aethershell\` **${VERSION}**." | tee -a "$GITHUB_STEP_SUMMARY"
                   else
                     {
                       echo "### ⚠️ PyPI publish did NOT land"

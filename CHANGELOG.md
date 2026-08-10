@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The release verifiers checked the wrong thing.** Added on 2026-08-07 to stop
+  `continue-on-error` from masking failed publishes, they asked the registry
+  whether the version was present — which proves the *state*, not that the run
+  did anything. The v5.0.0 release showed why that is not enough. The crates.io
+  job's log reads:
+
+  ```
+  CARGO_REGISTRY_TOKEN:
+  error: crate aethershell@5.0.0 already exists on crates.io index
+  ##[error]Process completed with exit code 101
+  ```
+
+  …and the verifier then printed `✅ 5.0.0 is published` — true, but only because
+  a maintainer had published it by hand minutes earlier. So the step reported
+  green over a publish that had exited 101: the exact failure mode it was written
+  to catch, reproduced one level up.
+
+  All three verifiers (crates.io, npm, PyPI) now capture the publish step's `id`
+  and report two facts separately — *did this run publish* and *is it on the
+  registry* — failing the job when the first is `false`. `continue-on-error` stays
+  so the rest of the release proceeds, but the outcome is no longer rewritten to
+  success.
+
+- **Confirmed fixed:** the `draft: false` change from 4.1.0 works. v5.0.0 produced
+  exactly one published release with 9 assets and release notes, and there are now
+  **0 orphan drafts** (18 had accumulated between v0.3.0 and v4.0.0).
+
 ## [5.0.0] - 2026-08-10
 
 Major version because agent-mode behaviour changes in ways that will break
