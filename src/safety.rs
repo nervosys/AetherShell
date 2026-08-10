@@ -147,8 +147,21 @@ pub fn effect_of(name: &str) -> Effect {
         | "docker_compose_down"
         | "truncate"
         | "k8s_delete"
-        | "platform_db_delete" => Effect::Destructive,
-        "proc_kill" | "kill" | "signal" => Effect::Process,
+        | "platform_db_delete"
+        // Found by `tests/effect_coverage.rs`: these name a destructive action
+        // and fell through to `Pure`, so `x-effect` advertised them to agents as
+        // side-effect-free and `guard()` would have allowed them outright.
+        | "cloud_instance_destroy"
+        | "db_sqlite_drop_table"
+        | "delete_lines"
+        | "delete_role"
+        | "kubectl_delete"
+        | "role_delete"
+        | "svc_delete"
+        | "terraform_destroy" => Effect::Destructive,
+        // `sudo_check` shells out to determine admin status — it spawns a process,
+        // so it is not pure even though it only reports.
+        "proc_kill" | "kill" | "signal" | "pkill" | "sudo_check" => Effect::Process,
         // Every builtin whose argument *is* a command to run. These are the
         // same capability as `sh` under different names; classifying them as
         // `Pure` told `agent_api`'s discovery — and any other consumer of this
@@ -156,7 +169,19 @@ pub fn effect_of(name: &str) -> Effect {
         // Keep in step with the `guard_exec` call sites in `builtins.rs`.
         "sh" | "exec" | "system" | "timeout" | "timeout_cmd" | "xargs" | "xargs_exec"
         | "proc_spawn" | "nohup_run" | "strace" | "strace_cmd" | "ltrace" | "ltrace_cmd"
-        | "perf_stat" | "perf_record" | "lxc_exec" | "tmux_new" | "tmux_send" => Effect::Exec,
+        | "perf_stat" | "perf_record" | "lxc_exec" | "tmux_new" | "tmux_send"
+        // Also found by `tests/effect_coverage.rs`. Each of these runs a program
+        // (locally, in a container, or on another host) with caller-supplied
+        // input; `ssh_exec`/`sudo_exec`/`remote_exec` classifying as `Pure` was
+        // the same defect as `timeout("rm -rf /")` classifying as `Pure`.
+        | "docker_exec" | "podman_exec" | "k8s_exec" | "kubectl_exec"
+        | "ssh_exec" | "remote_exec" | "exec_remote" | "sudo_exec"
+        | "env_shell" | "watchexec_run" | "rlm_spawn" | "spawn_agent"
+        | "tool_exec" | "tool_execute"
+        // These run the sqlite binary against a caller-supplied statement, which
+        // includes DDL. Note this changes what is *advertised* and what `guard()`
+        // would decide — neither is currently guarded, so nothing is newly gated.
+        | "db_sqlite_exec" | "sqlite_exec" => Effect::Exec,
         n if n.starts_with("http") || n.starts_with("net_") || n.starts_with("nc_") => {
             Effect::Network
         }
@@ -262,6 +287,9 @@ pub enum ErrorCode {
     /// A builtin was called by a name that does not exist. Carries
     /// `did_you_mean` candidates, so this is the one *retryable* lookup failure.
     UnknownBuiltin,
+    /// A record field (which is how module functions like `file.read` resolve)
+    /// does not exist. Like `UnknownBuiltin`, carries `did_you_mean`.
+    UnknownField,
     /// A failure that reached the boundary without a specific code. The message
     /// is whatever the builtin produced; treat it as opaque and **not**
     /// retryable — an agent that cannot identify the fault should stop rather
@@ -279,6 +307,7 @@ impl ErrorCode {
             ErrorCode::BadArg => "E_BAD_ARG",
             ErrorCode::BudgetExceeded => "E_BUDGET_EXCEEDED",
             ErrorCode::UnknownBuiltin => "E_UNKNOWN_BUILTIN",
+            ErrorCode::UnknownField => "E_UNKNOWN_FIELD",
             ErrorCode::Unknown => "E_UNKNOWN",
         }
     }
@@ -291,7 +320,7 @@ impl ErrorCode {
     /// `false`, because retrying them burns budget without changing the outcome.
     pub fn retryable(&self) -> bool {
         match self {
-            ErrorCode::BadArg | ErrorCode::UnknownBuiltin => true,
+            ErrorCode::BadArg | ErrorCode::UnknownBuiltin | ErrorCode::UnknownField => true,
             ErrorCode::NeedsApproval | ErrorCode::OutsideWorkspace => true,
             ErrorCode::PolicyDeny | ErrorCode::BudgetExceeded | ErrorCode::Unknown => false,
         }
@@ -330,6 +359,29 @@ pub fn unknown_builtin(name: &str, candidates: Vec<String>) -> anyhow::Error {
         code: ErrorCode::UnknownBuiltin,
         message: format!("unknown builtin: {}", name),
         builtin: name.to_string(),
+        hint,
+        approval: None,
+        did_you_mean: candidates,
+    })
+}
+
+/// Build a structured unknown-field error (`E_UNKNOWN_FIELD`) carrying the
+/// nearest real field names.
+///
+/// Module functions are record fields, so this is the code an agent sees for
+/// `file.raed(…)` — the shape most agent typos actually take, since a model
+/// writes dotted module paths far more often than bare builtin names.
+/// `candidates` must come from the record's own keys.
+pub fn unknown_field(field: &str, candidates: Vec<String>) -> anyhow::Error {
+    let hint = if candidates.is_empty() {
+        format!("no field named '{}'; check the record's keys", field)
+    } else {
+        format!("did you mean: {}", candidates.join(", "))
+    };
+    anyhow::Error::new(SafetyError {
+        code: ErrorCode::UnknownField,
+        message: format!("field '{}' not found in record", field),
+        builtin: String::new(),
         hint,
         approval: None,
         did_you_mean: candidates,

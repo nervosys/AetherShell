@@ -948,9 +948,26 @@ of structured errors rather than building or measuring it.
   one residual unknown is Anthropic's own tokenizer (no public offline crate), for
   which o200k_base is the closest available proxy; the design still accommodates
   per-provider syntax in schema export should a provider's tokenizer ever invert it.
-- **Effect-tagging 1,100+ builtins** is labor; mitigate with conservative
-  defaults (unknown → most-restrictive class that still runs) + a lint that fails
-  CI on untagged builtins.
+- **Effect-tagging 1,100+ builtins** is labor. 🟡 The proposed lint now exists
+  (`tests/effect_coverage.rs`) and it found the risk was not hypothetical: **28
+  builtins named a side effect and classified as `Pure`**, among them `ssh_exec`,
+  `sudo_exec`, `remote_exec`, `docker_exec`, `k8s_exec`/`kubectl_exec`,
+  `kubectl_delete`, `terraform_destroy`, `cloud_instance_destroy` and
+  `db_sqlite_drop_table`. Because `Pure` is the fall-through, each was advertised
+  to agents as side-effect-free via `x-effect` and would have been allowed
+  outright by `guard()`. All 28 are now classified (2 were genuine false
+  positives — `platform_has_sudo` is a `which` lookup, `platform_shell_type` an
+  env read — and are allow-listed with that reason recorded).
+
+  Two things this does **not** fix, stated plainly. Classification is not gating:
+  `guard()` is called at 42 sites, and a correctly-tagged builtin that never calls
+  it is still ungated — `db_sqlite_exec`, for instance, only snapshots. And
+  coverage is still thin by design of the default: **1,178 of 1,301 builtins
+  (91%) fall through to `Pure`**. The lint only catches names that *advertise* a
+  side effect, so a dangerous builtin with an innocuous name remains invisible to
+  it. Flipping the default to a restrictive class — §12's other proposed
+  mitigation — would gate roughly a thousand builtins at once and is a product
+  decision, not a bug fix.
 - **Approval UX latency** for interactive humans — mitigate with policy presets
   ("trust this workspace") and session-scoped grants.
 - **Backward compatibility:** existing `.aeg` scripts must keep working; the

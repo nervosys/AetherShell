@@ -63,9 +63,37 @@ debris. Each of those is now built and asserted rather than assumed.
   diagnosable but not mechanically repairable, and a test pins that down so the
   headline cannot be read as "all failures are repairable".
 
-Full workspace suite green: 80 suites, 1626 tests, 0 failures.
+- **`did_you_mean` now covers module functions too.** `file.read`/`str.upper`
+  resolve as *record fields*, not through `BUILTIN_LOOKUP` — and a dotted module
+  path is what a model actually writes. `file.raed(…)` previously dead-ended on
+  the prose "field 'raed' not found in record": no code, no candidates. It is now
+  `E_UNKNOWN_FIELD` with `did_you_mean: ["read"]`, suggested from the record's own
+  keys, which also covers ordinary record typos.
+
+Full workspace suite green: 90 suites, 1770 tests, 0 failures.
 
 ### Security
+
+- **28 builtins that name a side effect were classified `Effect::Pure`.** §12 of
+  the agentic-first design listed effect-tagging 1,100+ builtins as unfinished
+  labour and proposed a lint; the lint now exists (`tests/effect_coverage.rs`) and
+  found the risk was not hypothetical. Among the 28: `ssh_exec`, `sudo_exec`,
+  `remote_exec`, `docker_exec`, `k8s_exec`, `kubectl_exec`, `kubectl_delete`,
+  `terraform_destroy`, `cloud_instance_destroy`, `db_sqlite_drop_table`. Because
+  `Pure` is the fall-through class, each was advertised to agents as
+  side-effect-free through the ontology's `x-effect` annotation, and would have
+  been allowed outright by `guard()`. All 28 are now classified; 2 were genuine
+  false positives (`platform_has_sudo` is a `which` lookup, `platform_shell_type`
+  an env read) and are allow-listed with that reason recorded.
+
+  **What this does not fix**, stated plainly: classification is not gating.
+  `guard()` is called at 42 sites, and a correctly-tagged builtin that never calls
+  it remains ungated — `db_sqlite_exec` only snapshots, for instance — so no
+  builtin is *newly* gated by this change. And **1,178 of 1,301 builtins (91%)
+  still fall through to `Pure`**; the lint only catches names that advertise a
+  side effect, so a dangerous builtin with an innocuous name stays invisible to
+  it. Flipping the default to a restrictive class would gate roughly a thousand
+  builtins at once and is a product decision, not a bug fix.
 - **`aethershell` is now registered on PyPI, closing finding 12.** The SDK is
   published as `aethershell` 1.5.0 and `pip install aethershell` works —
   verified in a clean virtualenv, not from the upload's own success message.

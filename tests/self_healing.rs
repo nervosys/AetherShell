@@ -153,6 +153,34 @@ fn every_suggestion_names_a_builtin_that_exists() {
     }
 }
 
+/// Module functions (`file.read`, `str.upper`) resolve as **record fields**, not
+/// through `BUILTIN_LOOKUP` — and a dotted module path is what a model actually
+/// writes. Before this, `file.raed(…)` dead-ended on the prose "field 'raed' not
+/// found in record": no code, no candidates, nothing to branch on.
+#[test]
+fn a_misspelled_module_function_suggests_the_real_field() {
+    let _l = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    reset();
+    for (code, want) in [("file.raed(\"x\")", "read"), ("str.uppr(\"x\")", "upper")] {
+        let mut env = aethershell::env::Env::new();
+        for (name, module) in aethershell::modules::all_modules() {
+            let _ = env.set_var(name.to_string(), module);
+        }
+        let stmts = aethershell::parser::parse_program(code).expect("parses");
+        let e = aethershell::eval::eval_program(&stmts, &mut env).expect_err("expected failure");
+        let se = e
+            .downcast_ref::<aethershell::safety::SafetyError>()
+            .unwrap_or_else(|| panic!("{code}: no structured error: {e}"));
+        assert_eq!(se.code.as_str(), "E_UNKNOWN_FIELD", "{code}");
+        assert!(se.code.retryable(), "{code}: a typo is worth retrying");
+        assert!(
+            se.did_you_mean.iter().any(|c| c == want),
+            "{code}: expected '{want}' among {:?}",
+            se.did_you_mean
+        );
+    }
+}
+
 /// Same typo, same suggestions, every time — a repair loop that replays a fix
 /// must not see the ordering shift under it.
 #[test]

@@ -3801,16 +3801,27 @@ fn edit_distance_within(a: &str, b: &str, max: usize) -> Option<usize> {
 /// result is empty. The budget scales with name length (1 for very short names,
 /// where every neighbour is a different command; up to 3 for long dotted ones).
 pub fn did_you_mean(name: &str) -> Vec<String> {
+    nearest_names(name, BUILTIN_LOOKUP.keys().copied())
+}
+
+/// The nearest names to `name` from an arbitrary candidate set, closest first
+/// (at most 3), or empty when nothing is within the edit budget.
+///
+/// Generic over the candidates so the same matching serves both misspelled
+/// builtins and misspelled *record fields* — which is how module functions
+/// (`file.read`) resolve, and therefore how most agent typos actually present.
+pub fn nearest_names<'a>(name: &str, candidates: impl Iterator<Item = &'a str>) -> Vec<String> {
+    // Budget scales with length: for a very short name every neighbour is a
+    // different command, so only an exact-ish match is a real suggestion.
     let budget = match name.chars().count() {
         0..=3 => 1,
         4..=7 => 2,
         _ => 3,
     };
     let lower = name.to_lowercase();
-    let mut scored: Vec<(usize, &'static str)> = BUILTIN_LOOKUP
-        .keys()
+    let mut scored: Vec<(usize, &'a str)> = candidates
         .filter_map(|cand| {
-            edit_distance_within(&lower, &cand.to_lowercase(), budget).map(|d| (d, *cand))
+            edit_distance_within(&lower, &cand.to_lowercase(), budget).map(|d| (d, cand))
         })
         .collect();
     // Deterministic: distance first, then name, so the same typo always yields

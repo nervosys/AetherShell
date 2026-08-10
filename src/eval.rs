@@ -511,10 +511,15 @@ pub fn eval_expr(expr: &Expr, env: &mut Env) -> Result<Value> {
         Expr::MemberAccess { object, field } => {
             let obj = eval_expr(object, env)?;
             match obj {
-                Value::Record(map) => map
-                    .get(field)
-                    .cloned()
-                    .ok_or_else(|| anyhow!("field '{}' not found in record", field)),
+                // A missing field is how a misspelled *module function* presents
+                // (`file.raed` — modules are records in the env), so suggest from
+                // the record's own keys rather than dead-ending on prose.
+                Value::Record(map) => map.get(field).cloned().ok_or_else(|| {
+                    crate::safety::unknown_field(
+                        field,
+                        crate::builtins::nearest_names(field, map.keys().map(|k| k.as_str())),
+                    )
+                }),
                 other => Err(anyhow!(
                     "cannot access field '{}' on non-record value: {:?}",
                     field,

@@ -1,0 +1,107 @@
+//! Effect-tagging coverage (docs/AGENTIC_FIRST_DESIGN.md §5.3, §12).
+//!
+//! `safety::effect_of` decides whether a builtin is gated by policy, approval and
+//! the audit log. Its fall-through is `Effect::Pure` — the *least* restrictive
+//! class — so a builtin nobody tagged is silently treated as side-effect-free.
+//! §12 flagged tagging 1,100+ builtins as unfinished labour and proposed "a lint
+//! that fails CI on untagged builtins". This is that lint.
+//!
+//! It does not demand every builtin be tagged; most genuinely are pure. It demands
+//! that no builtin whose *name* advertises a side effect falls through to `Pure`,
+//! because that is the failure mode that matters: an ungated destructive call that
+//! looks safe to every consumer of `effect_of`, including the agent-facing
+//! ontology's `x-effect` annotation.
+
+use aethershell::builtins::BUILTIN_LOOKUP;
+use aethershell::safety::{effect_of, Effect};
+
+/// Name fragments that assert a side effect. Deliberately narrow: each one is a
+/// verb an implementation has to *act* on, not a noun that merely mentions state.
+const DESTRUCTIVE: &[&str] = &["delete", "destroy", "purge", "wipe", "truncate", "drop_"];
+const EXECUTING: &[&str] = &["_exec", "exec_", "spawn", "_shell", "shell_", "sudo"];
+const KILLING: &[&str] = &["kill", "terminate", "sigkill"];
+
+/// Names that match a fragment but are genuinely pure, with the reason. Every
+/// entry here is a claim someone can check — which is the point of listing them
+/// rather than loosening the patterns.
+fn is_known_pure(name: &str) -> bool {
+    const ALLOWED: &[&str] = &[
+        // Verified by reading the implementations: a `which("sudo")` lookup and
+        // an env-var read respectively. They report on the platform's shell
+        // without invoking one.
+        "platform_has_sudo",
+        "platform_shell_type",
+        // Predicates and formatters that only *describe* an effect.
+        "can_delete",
+        "is_executable",
+        "shell_quote",
+        "shell_escape",
+        "shell_split",
+        "exec_plan",
+        "explain_exec",
+    ];
+    ALLOWED.contains(&name)
+}
+
+fn matches_any(name: &str, fragments: &[&str]) -> bool {
+    let lower = name.to_lowercase();
+    fragments.iter().any(|f| lower.contains(f))
+}
+
+/// Report the shape of the tagging so the number is visible rather than assumed.
+#[test]
+fn effect_tagging_coverage_is_reported() {
+    let mut counts = std::collections::BTreeMap::new();
+    for name in BUILTIN_LOOKUP.keys() {
+        *counts
+            .entry(format!("{:?}", effect_of(name)))
+            .or_insert(0usize) += 1;
+    }
+    let total: usize = counts.values().sum();
+    let pure = *counts.get("Pure").unwrap_or(&0);
+    println!(
+        "effect coverage: {} builtins, {} classified, {} fall through to Pure ({:.0}%)",
+        total,
+        total - pure,
+        pure,
+        pure as f64 / total as f64 * 100.0
+    );
+    for (effect, n) in &counts {
+        println!("  {effect}: {n}");
+    }
+    assert!(total > 1000, "expected the full builtin table, saw {total}");
+}
+
+/// The lint. A name that advertises a side effect must not classify as `Pure`.
+#[test]
+fn no_builtin_that_names_a_side_effect_is_classified_pure() {
+    let mut offenders: Vec<(&str, &'static str)> = Vec::new();
+    for name in BUILTIN_LOOKUP.keys() {
+        if is_known_pure(name) || effect_of(name) != Effect::Pure {
+            continue;
+        }
+        let kind = if matches_any(name, DESTRUCTIVE) {
+            "destructive"
+        } else if matches_any(name, EXECUTING) {
+            "executing"
+        } else if matches_any(name, KILLING) {
+            "killing"
+        } else {
+            continue;
+        };
+        offenders.push((name, kind));
+    }
+    offenders.sort_unstable();
+
+    assert!(
+        offenders.is_empty(),
+        "{} builtin(s) name a side effect but classify as Pure, so policy, \
+         approval and the audit log do not apply to them:\n{}",
+        offenders.len(),
+        offenders
+            .iter()
+            .map(|(n, k)| format!("  {n} ({k})"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+}
