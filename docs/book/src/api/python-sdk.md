@@ -1,6 +1,6 @@
 # Python SDK
 
-The AetherShell Python SDK (`aethershell` package v0.3.0) provides a Pythonic interface for evaluating AetherShell code, running agents, building pipelines, and integrating with Python AI ecosystems.
+The AetherShell Python SDK (`aethershell` package v1.5.0) provides a Pythonic interface for evaluating AetherShell code, running agents, building pipelines, and integrating with Python AI ecosystems.
 
 ## Installation
 
