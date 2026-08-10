@@ -9,22 +9,20 @@ The AetherShell Python SDK (`aethershell`) provides a Pythonic interface to the 
 
 ## Installation
 
-> **⚠ Not published yet — do not run `pip install aethershell`.**
->
-> As of 2026-08-06 this package is **not on PyPI**, and the name is
-> **unregistered**. Installing it would not get you this SDK; it would get you
-> whatever a third party has uploaded under that name, and `pip install`
-> executes package code at install time. Do not run it until this notice is
-> removed. Tracked as finding 12 in
-> [`docs/security/SECURITY_AUDIT_2026-07-30.md`](../security/SECURITY_AUDIT_2026-07-30.md).
+```bash
+pip install aethershell
+```
 
-Install from the repository instead:
+Or from a checkout:
 
 ```bash
 pip install ./integrations/python
 ```
 
 Requires the `ae` binary on `PATH` or passed explicitly.
+
+The SDK versions independently of the shell: SDK 1.5.0 is current against
+shell 4.1.0.
 
 ---
 

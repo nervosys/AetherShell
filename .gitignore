@@ -50,3 +50,8 @@ x.db
 # These were committed until 2026-07-30 and embedded the building developer's
 # absolute paths — and so their username — in panic-location strings.
 integrations/browser-extension/wasm/
+
+# Python SDK build artifacts (integrations/python)
+integrations/python/dist/
+integrations/python/build/
+integrations/python/**/*.egg-info/

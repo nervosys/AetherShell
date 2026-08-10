@@ -27,7 +27,7 @@ CMMC 2.0.
 | 7 | Exec gate covered the name `sh`, not the capability | CWE-184 / CWE-693 | **High** | Fixed |
 | 10 | Argument injection into PowerShell, AppleScript and archivers | CWE-78 / CWE-88 | **High** | Fixed |
 | 11 | sqlite3 dot-commands and tmux exec paths ungated | CWE-77 | **High** | Fixed |
-| 12 | Docs direct users to an unclaimed PyPI/npm package name | CWE-494 | **High** | **Open — needs registry accounts** |
+| 12 | Docs directed users to an unclaimed PyPI package name | CWE-494 | **High** | Fixed (name registered 2026-08-07) |
 | 13 | Recursion aborted the process; usable depth was ~30 | CWE-674 | Medium | Fixed (large stack + depth limit) |
 | 1 | `quinn-proto` remote memory exhaustion | RUSTSEC-2026-0185 | High (7.5) | Fixed |
 | 2 | Unimplemented crypto builtins reported success | CWE-347 / CWE-311 | High | Fixed |
@@ -40,12 +40,14 @@ CMMC 2.0.
 Nothing in this audit indicates a compromise or data exposure to a third party.
 Finding 3 concerns one developer's username, published in a public repository.
 
-**Finding 12 is the only open item with a window a third party can close for
-you**, and it is not a code defect: the documentation directs users to a PyPI
-package name that nobody has registered. Until someone does, every reader who
-follows the install instructions is one attacker-registration away from running
-arbitrary code. Registering the name is minutes of work and does not depend on
-any other decision in this document.
+Finding 12 was the only item with a window a third party could close first — the
+documentation directed users to an unregistered PyPI name, so every reader
+following the install instructions was one attacker-registration away from
+running arbitrary code. **Closed 2026-08-07**: `aethershell` 1.5.0 is published
+and the name is claimed (§12a).
+
+No finding in this audit is now open. What remains (§"Open decisions") is
+policy and design work, not unpatched defects.
 
 The table is ordered by severity; the sections below are numbered in discovery
 order, so the later passes (6–11) are written up first.
@@ -771,8 +773,45 @@ implemented. It is more urgent, because the gap between "advertised" and
 **Severity: High.** Trivial to exploit, needs no access to this project or its
 infrastructure, and the documentation actively drives victims to it.
 
-**Remediation requires the maintainer's registry accounts** and is therefore
-recorded rather than fixed here. In order of urgency:
+### 12a. Resolved: the name is registered
+
+**`aethershell` 1.5.0 was published to PyPI on 2026-08-07**, closing the
+squatting window. Verified beyond the upload's own success message — the
+registry reports the package, and `pip install aethershell` in a clean
+virtualenv installs and imports it.
+
+The sdist was scanned before upload, on the same basis as the crate tarball
+(21 files, no username, no host paths, no credential-shaped strings), because
+PyPI does not allow a release to be deleted — only yanked.
+
+One thing this nearly shipped: the SDK's `README.md` is the package's PyPI
+long description, and it had been edited earlier the same day to warn *"do not
+run `pip install aethershell`."* Publishing then would have made that warning
+the package's front page. Caught by inspecting the built artifact rather than
+the source tree.
+
+**Also corrected here: `CARGO_REGISTRY_TOKEN` was never set on this repository
+either.** An earlier note in `release.yml` claimed the crates.io publish step
+"demonstrably works — crates.io has the published versions". That reasoning was
+wrong. `gh secret list` returns *no secrets at all* for `nervosys/AetherShell`,
+and the v4.1.0 run's environment shows `CARGO_REGISTRY_TOKEN:` empty. The
+published versions exist because they were pushed manually from a local token,
+not by CI. So all three publish jobs have never worked, for three unrelated
+reasons — missing OIDC config, missing `NPM_TOKEN`, missing
+`CARGO_REGISTRY_TOKEN` — and the suppression made all three look identical to
+success. This was a fourth instance of the same illusion, authored while
+documenting the first three.
+
+**Remaining work, none of it urgent now that the name is claimed:**
+
+1. Set `CARGO_REGISTRY_TOKEN` and `NPM_TOKEN` on the repository, or configure
+   PyPI trusted publishing, so releases stop depending on a maintainer's local
+   credentials.
+2. Decide the npm package name (`aether_wasm` vs `@nervosys/aethershell`) before
+   setting a token, or the first success claims the wrong one.
+3. Consider registering `aether-shell` on PyPI as typo protection.
+
+**Original remediation notes**, retained for the record:
 
 1. **Register `aethershell` on PyPI now**, even as a placeholder. This closes
    the window regardless of what is decided about the SDKs, and it is the only
@@ -1087,14 +1126,13 @@ organisations, so this maps practice families to implemented controls only.
 
 Not audit fixes; each needs an explicit call.
 
-0. **Register `aethershell` on PyPI** (finding 12) — the most urgent item here,
-   and the only one with a window a third party can close for you. The project's
-   documentation told users to `pip install aethershell`, the name is
-   unregistered, and `pip install` executes code from the package. A placeholder
-   release costs nothing and shuts the door; decide about the SDK afterwards.
-   npm is a broken job rather than an exposure — nothing directs users there —
-   so it can wait for the name question (`aether_wasm` vs
-   `@nervosys/aethershell`) to be settled.
+0. ~~**Register `aethershell` on PyPI**~~ — done 2026-08-07 (§12a); the SDK is
+   published and `pip install aethershell` works. What replaces it is
+   housekeeping: **set `CARGO_REGISTRY_TOKEN` and `NPM_TOKEN` on the
+   repository** (it currently has *no* Actions secrets at all, so every publish
+   job has always failed silently and releases depend on a maintainer's local
+   credentials), settle the npm package name before setting that token, and
+   consider claiming `aether-shell` as typo protection.
 
 1. **Scrub the leaked WASM from git history** (finding 3) — requires a history
    rewrite and force-push. Currently the artifact is still fetchable from prior

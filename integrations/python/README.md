@@ -4,27 +4,32 @@ Python bindings for AetherShell - AI-powered typed shell with workflow orchestra
 
 ## Installation
 
-> **⚠ Not published yet — do not run `pip install aethershell`.**
->
-> As of 2026-08-06 this package is **not on PyPI** and the name is
-> **unregistered**. `pip install aethershell` would not install this SDK; it
-> would install whatever a third party has uploaded under that name, and pip
-> executes package code at install time. Install from source until this notice
-> is removed.
-
 ```bash
-# Core SDK, from a checkout of this repository
-pip install ./integrations/python
+# Core SDK
+pip install aethershell
 
 # With LangChain integration
-pip install "./integrations/python[langchain]"
+pip install aethershell[langchain]
 
 # With cloud deployment support
-pip install "./integrations/python[cloud]"
+pip install aethershell[cloud]
 
 # Everything
-pip install "./integrations/python[all]"
+pip install aethershell[all]
 ```
+
+Or from a checkout of the repository:
+
+```bash
+pip install ./integrations/python
+```
+
+Requires the `ae` binary on `PATH`. Install it with
+`cargo install aethershell`, or take a prebuilt binary from the
+[releases page](https://github.com/nervosys/AetherShell/releases).
+
+> **Versioning:** this SDK versions independently of the `ae` shell — SDK 1.5.0
+> is current against shell 4.1.0.
 
 ## Quick Start
 

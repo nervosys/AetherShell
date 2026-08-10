@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- **`aethershell` is now registered on PyPI, closing finding 12.** The SDK is
+  published as `aethershell` 1.5.0 and `pip install aethershell` works —
+  verified in a clean virtualenv, not from the upload's own success message.
+  The name can no longer be claimed by a third party, which was the actual
+  vulnerability: the docs told users to install it, `pip install` executes
+  package code, and nobody owned the name.
+
+  The sdist was scanned before upload (21 files, no username, host paths or
+  credential-shaped strings) because PyPI releases can be yanked but never
+  deleted. That inspection also caught something the source tree did not show:
+  the SDK `README.md` is the package's PyPI long description, and it still
+  carried the "**do not run `pip install aethershell`**" warning added earlier
+  the same day. Publishing then would have made that warning the package's
+  front page.
+
+- **Correction: `CARGO_REGISTRY_TOKEN` was never set on this repository
+  either.** A comment in `release.yml` claimed the crates.io publish step
+  "demonstrably works — crates.io has the published versions". Wrong reasoning:
+  the repository has *no* Actions secrets at all, the v4.1.0 run shows
+  `CARGO_REGISTRY_TOKEN:` empty, and those versions exist because they were
+  published manually from a local token. All three publish jobs have always
+  failed, for three unrelated reasons, and the suppression made every one look
+  like success. Corrected in place.
+
+### Changed
+- Python SDK install instructions point at PyPI again, and note that the SDK
+  versions independently of the shell (SDK 1.5.0 against shell 4.1.0).
+
 ## [4.1.0] - 2026-08-07
 
 ### Security

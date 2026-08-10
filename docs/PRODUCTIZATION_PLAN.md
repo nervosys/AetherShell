@@ -69,13 +69,17 @@ AetherShell uniquely combines:
 - PyPI: `pip install aethershell` (Python SDK)
 ```
 
-> **Register these names before anything else.** As of 2026-08-06 `aethershell`
-> is unregistered on both PyPI and npm, while user-facing docs already told
-> readers to `pip install aethershell`. An unclaimed name that documentation
-> points at is a supply-chain hole, because `pip install` executes package code
-> at install time — squatting it is the whole attack. Claim the names (and the
-> obvious typo `aether-shell`) as placeholders now; ship the SDKs whenever.
-> Finding 12 in [`security/SECURITY_AUDIT_2026-07-30.md`](security/SECURITY_AUDIT_2026-07-30.md).
+> **PyPI is claimed; npm is not.** `aethershell` was published to PyPI on
+> 2026-08-07, closing the squatting hole — the docs had been telling readers to
+> `pip install aethershell` while the name was unregistered, and `pip install`
+> executes package code at install time.
+>
+> npm remains unclaimed, and the name is undecided: the artifact the release
+> workflow builds declares `aether_wasm`, while `web/package.json` declares
+> `@nervosys/aethershell`. Settle that before setting `NPM_TOKEN`, or the first
+> successful publish claims the wrong one. `aether-shell` on PyPI is still worth
+> taking as typo protection. Finding 12 in
+> [`security/SECURITY_AUDIT_2026-07-30.md`](security/SECURITY_AUDIT_2026-07-30.md).
 
 ### 2.2 Browser Extension Stores
 

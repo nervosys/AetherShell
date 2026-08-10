@@ -183,10 +183,26 @@ jobs:
                   CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
               run: |
                   cargo publish --features native
-              # Legitimate here: re-running a release for an already-published
-              # version fails harmlessly, and that must not fail the release.
-              # Unlike the npm and PyPI steps below, this one demonstrably
-              # works — crates.io has the published versions.
+              # CORRECTION (2026-08-07): an earlier version of this comment said
+              # this step "demonstrably works — crates.io has the published
+              # versions". That was wrong, and wrong in the same way as the
+              # findings it sat next to.
+              #
+              # `gh secret list` returns *no secrets at all* for this
+              # repository, and the v4.1.0 run's environment shows
+              # `CARGO_REGISTRY_TOKEN:` empty (a set secret renders as ***).
+              # crates.io has the versions because they were published manually
+              # from a maintainer's local token. CI has never published one.
+              #
+              # So all three publish jobs have always failed, for three
+              # unrelated reasons — no OIDC config (PyPI), no NPM_TOKEN, no
+              # CARGO_REGISTRY_TOKEN — and the suppression made all three
+              # indistinguishable from success.
+              #
+              # Keeping continue-on-error is still right *here*: re-running a
+              # release for an already-published version fails harmlessly and
+              # must not fail the release. Set the secret, and let the
+              # verification step below tell you whether it worked.
               continue-on-error: true
 
             - name: Verify the publish actually landed
