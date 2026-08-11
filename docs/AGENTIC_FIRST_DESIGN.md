@@ -1042,7 +1042,7 @@ of structured errors rather than building or measuring it.
   from 1,183; classified builtins went 118 → 179.
 
   **After the body-evidence ratchet and the classification of all 306 it found
-  (5.3.0): 816 of 1,301 (63%) fall through, and classified builtins reached 485.**
+  (6.0.0): 816 of 1,301 (63%) fall through, and classified builtins reached 485.**
   That closed the gap the name lint could not see — the 306 were found by reading
   argv, and 166 of them turned out to act (`Exec`, `WriteLocal`, `Network`,
   `Process`, `Destructive`) while the other 140 were genuinely read-only. Sizing the
