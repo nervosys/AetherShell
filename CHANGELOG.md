@@ -5,6 +5,49 @@ All notable changes to AetherShell will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.3.0] - 2026-08-11
+
+### Changed
+
+- **All 306 ratchet-listed builtins are now classified, and the baseline is empty.**
+  5.2.0 shipped `tests/effect_ratchet.rs`, which found 306 builtins that construct an
+  OS process while `safety::effect_of` returned `Pure` — meaning `guard()` and the
+  agent-facing ontology both described them as side-effect-free. Each has been given
+  an effect derived from the argv its body actually builds:
+
+  | Effect | n | Examples |
+  |---|---|---|
+  | `ReadLocal` | 140 | `git_status`, `pkg_list`, `platform_cpu`, `hw_gpu` |
+  | `Exec` | 73 | `pytest_run`, `cargo_run`, `db_sqlite_query`, `eslint_check` |
+  | `WriteLocal` | 52 | `tar_extract`, `black_format`, `ssh_keygen`, `diag_fix` |
+  | `Network` | 24 | `git_push`, `gh_pr`, `skopeo_copy`, `rustup_update` |
+  | `Process` | 13 | `svc_start`, `gui_close_window`, `tmux_attach` |
+  | `Destructive` | 4 | `git_clean`, `git_reset`, `session_rollback`, `dd_copy` |
+
+  The tiering rule is recorded in `effect_of` so it can be applied to the next builtin:
+  irrecoverable deletion → `Destructive`; contacts another host → `Network`; process or
+  window lifecycle → `Process`; writes a file or rewrites source → `WriteLocal`; only
+  reads *and* executes no caller- or project-supplied code → `ReadLocal`; anything else
+  → `Exec`. An unclear argv resolves to `Exec`, never `ReadLocal` — a false "dangerous"
+  costs one approval, a false "safe" cannot be taken back.
+
+  **This changes agent-mode behaviour.** 166 builtins that previously ran unguarded now
+  meet the policy table, and those classified `Destructive` require an approval token;
+  `AETHER_POLICY=permissive` restores the old behaviour wholesale. The remaining 140 are
+  the read-only wrappers an agent leans on while exploring, and keep zero friction.
+
+  Three of these were not merely unclassified but actively dangerous while advertised as
+  pure: `git_clean -d` deletes untracked files, `session_rollback` is `git reset --hard`,
+  and `dd_copy` can overwrite a block device. Two more are worth knowing about:
+  `db_sqlite_query` passes caller SQL to the `sqlite3` binary, so `query` is a name and
+  not a constraint; and `diag_fix`/`refactor_remove_unused` run `cargo fix --allow-dirty`,
+  rewriting sources with the safety net explicitly off.
+
+  A first pass at sizing this split by *name* suffix predicted 72 read-only rather than
+  the actual 140 — wrong by half, in the direction that would have produced needless
+  approval prompts. The tiers above come from the argv, which is the same discipline
+  the ratchet itself enforces.
+
 ## [5.2.0] - 2026-08-11
 
 ### Added

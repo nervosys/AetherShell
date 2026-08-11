@@ -1041,6 +1041,14 @@ of structured errors rather than building or measuring it.
   Coverage after three passes: **1,122 of 1,301 (86%) fall through to `Pure`**, down
   from 1,183; classified builtins went 118 → 179.
 
+  **After the body-evidence ratchet and the classification of all 306 it found
+  (5.3.0): 816 of 1,301 (63%) fall through, and classified builtins reached 485.**
+  That closed the gap the name lint could not see — the 306 were found by reading
+  argv, and 166 of them turned out to act (`Exec`, `WriteLocal`, `Network`,
+  `Process`, `Destructive`) while the other 140 were genuinely read-only. Sizing the
+  same split by name beforehand predicted 72 read-only rather than 140, which is
+  precisely the failure mode the ratchet exists to prevent.
+
   One thing this still does **not** fix: the lint only catches names that
   *advertise* a side effect, so a dangerous builtin with an innocuous name is
   invisible to it. And `db_sqlite_exec` is classified `Exec` but

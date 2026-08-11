@@ -38,26 +38,24 @@ const EVIDENCE: &[(&str, &str)] = &[
     ("reqwest::", "makes an HTTP request"),
 ];
 
-/// The violations that already existed when this lint was written (2026-08-11).
+/// The violations outstanding, and **now empty**.
 ///
-/// 306 builtins — overwhelmingly wrappers around external developer tooling
-/// (`pytest_run`, `eslint_check`, `go_build`, `skopeo_copy`) — construct an OS
-/// process while `effect_of` returns `Pure`. Reclassifying all of them is a
-/// behavioural change with real UX consequences in agent mode, and belongs to the
-/// maintainer, not to this lint. See the same open question about the permissive
-/// `Pure` fall-through in docs/AGENTIC_FIRST_DESIGN.md §12.
+/// This lint was written (2026-08-11) against 306 builtins — overwhelmingly wrappers
+/// around external developer tooling — that construct an OS process while `effect_of`
+/// returned `Pure`. All 306 were classified the same day from the argv their bodies
+/// actually build, so the baseline holds nothing.
 ///
-/// So this file is a *ratchet*, not a gate: the baseline may only shrink. A newly
-/// added builtin that acts while classified `Pure` fails the build, which is the
-/// mechanism that was missing when the 28 name-detected misclassifications
-/// accumulated. Entries are removed as they are classified; none may be added.
+/// The file stays because it is a *ratchet*, not a snapshot: it may only shrink, and
+/// a newly added builtin that acts while classified `Pure` fails the build. That is
+/// the mechanism that was missing when the original 28 name-detected
+/// misclassifications accumulated unnoticed.
 const BASELINE: &str = include_str!("effect_ratchet_baseline.txt");
 
 fn baseline() -> std::collections::HashSet<&'static str> {
     BASELINE
         .lines()
         .map(str::trim)
-        .filter(|l| !l.is_empty())
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
         .collect()
 }
 
@@ -203,6 +201,6 @@ fn report_the_outstanding_debt() {
     // Not a gate — a number that should be visible in the log, so the debt cannot
     // quietly become permanent.
     let n = current_violations().len();
-    println!("effect ratchet: {n} builtin(s) act while classified Pure (baseline 306)");
+    println!("effect ratchet: {n} builtin(s) act while classified Pure (baseline 0)");
     assert!(n <= baseline().len(), "the debt must never grow");
 }
