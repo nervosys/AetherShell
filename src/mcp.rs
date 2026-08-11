@@ -361,16 +361,23 @@ impl McpServer {
                     .get("effect")
                     .and_then(|v| v.as_str())
                     .unwrap_or("pure");
+                // The proven return shape, when there is one. Lets an agent
+                // compose against the result without a discovery call first.
+                let returns = spec.get("returns").and_then(|v| v.as_str());
+                let mut input_schema = serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "args": { "type": "array", "description": "positional arguments" }
+                    },
+                    "x-effect": effect,
+                });
+                if let (Some(r), Some(obj)) = (returns, input_schema.as_object_mut()) {
+                    obj.insert("x-returns".to_string(), serde_json::json!(r));
+                }
                 Some(McpTool {
                     name,
                     description: format!("{} | {}", sig, desc),
-                    input_schema: serde_json::json!({
-                        "type": "object",
-                        "properties": {
-                            "args": { "type": "array", "description": "positional arguments" }
-                        },
-                        "x-effect": effect,
-                    }),
+                    input_schema,
                 })
             })
             .collect()

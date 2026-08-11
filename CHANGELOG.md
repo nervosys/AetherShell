@@ -5,6 +5,83 @@ All notable changes to AetherShell will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.0.0] - 2026-08-11
+
+Three features aimed at the agent *loop* rather than the individual call: how
+many round-trips it takes to get a call right, how much of the world lands in
+the context window, and what happens when a step was wrong.
+
+### Added
+
+- **Return shapes (`x-returns`).** The agent surface described inputs
+  (`json_schema`) and danger (`x-effect`) but never the *result*, so an agent
+  meeting one of ~1,300 unfamiliar builtins had to run it to learn the shape and
+  only then write the pipeline it wanted. `crate::shapes` advertises the shape
+  ahead of the call — `ls` is `array<record{ext:str,is_dir:bool,…}>` — which is
+  enough to compose `ls(".") | where(fn(f) => f.is_dir) | select("name")`
+  correctly the first time.
+
+  **Only proven shapes are advertised.** Declaring a shape from a name is the
+  reasoning that produced 28 misclassified effects and then 306 more, so
+  `tests/return_shapes.rs` requires every entry to be reproduced by *calling*
+  the builtin, and to agree across probes with **different input types**. That
+  second rule immediately caught five builtins a single probe would have
+  mis-declared: `values`, `first`, `unique` and `reverse` return whatever they
+  were handed, and `sum` yields `int` or `float` depending on its operands. They
+  are polymorphic, this notation cannot yet say so, and silence is the honest
+  answer — so 11 shapes ship rather than 16 wrong ones.
+
+- **Result handles.** A result too large to be worth sending whole now stays
+  server-side and is rendered as a reference — id, shape, item count, a short
+  preview, and the call that narrows it down. The agent composes against it
+  (`handle("h1") | where(…) | take(5)`) and only the small answer crosses back.
+
+  | rows | whole | handle | |
+  |---|---|---|---|
+  | 400 | 2,975 tokens | 113 tokens | **26.3×** |
+  | 2,000 | 15,709 tokens | 115 tokens | **136.6×** |
+
+  Real cl100k. The ratio grows with the payload because the summary is
+  constant-size, so no single multiplier describes it — which is why both rows
+  are given. This is the lever AECON's ~2× could not reach: the cheapest tokens
+  are the ones never sent.
+
+  The value is kept **whole**, not summarised: `handle(id)` returns exactly what
+  was computed. The preview states how many items it omits, because a preview
+  that reads like a complete result is how silent truncation misleads. An opaque
+  blob (a single huge string) is deliberately *not* handled — a reference the
+  agent cannot narrow down trades a cost for a dead end. `AETHER_HANDLE_BYTES=0`
+  restores whole results.
+
+- **Reversible sessions.** Before any `WriteLocal` or `Destructive` call, the
+  prior contents of the files it might touch are captured; `undo(n)` puts them
+  back, `journal()` shows what was recorded. This is hooked at
+  `call_with_input_inner` — the one boundary every builtin passes through, and
+  already the single boundary for error structuring — so it covers every builtin
+  instead of ~300 call sites.
+
+  The motivation is that 6.0.0 bought safety with friction: 166 builtins now
+  stop and ask, and every approval is a round-trip. Reversibility buys the same
+  safety more cheaply, because a write that can be undone need not be prevented.
+
+  **`undo` reports what it could not reverse.** A network call cannot be
+  unsent, a directory tree is not captured, an oversized file is not held — each
+  is journalled as an explicit irreversible entry, and `complete: false` comes
+  back whenever any remain. A partial undo that claims success is worse than no
+  undo, since it converts a recoverable situation into one where the user
+  believes they have already recovered; `tests/reversible_sessions.rs` asserts
+  exactly that case.
+
+  Agent-mode only, so the human REPL is unchanged and pays no I/O.
+  `AETHER_JOURNAL=on|off` forces it either way.
+
+### Changed
+
+- **BREAKING (agent surface):** a result over `AETHER_HANDLE_BYTES` (default
+  2,048 rendered bytes) is delivered as a handle rather than as data. Consumers
+  that expected whole results for large payloads must either follow the handle
+  or set `AETHER_HANDLE_BYTES=0`. Human output is untouched.
+
 ## [6.0.0] - 2026-08-11
 
 ### Changed

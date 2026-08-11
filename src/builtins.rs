@@ -3859,6 +3859,15 @@ fn call_with_input_inner(
     input: Option<Value>,
     env: &mut Env,
 ) -> Result<Value> {
+    // Capture what a mutating call is about to overwrite, so the session can be
+    // rewound. This is the one place every builtin passes through, which is why
+    // it is here rather than at ~300 call sites — the same reason this function
+    // is already the single boundary for error structuring.
+    //
+    // Agent surface only, and a no-op for every non-mutating effect, so the
+    // common path costs one `matches!`.
+    crate::journal::record_before(name, crate::safety::effect_of(name), &args);
+
     // Try fast lookup first
     if let Some(result) = fast_builtin_lookup(name, args.clone(), input.clone(), env) {
         return result;
@@ -3943,6 +3952,19 @@ fn call_with_input_inner(
         "ontology_jsonld" => bi_ontology_jsonld(),
         "ontology_owl" => bi_ontology_owl(),
         "ontology_shacl" => bi_ontology_shacl(),
+
+        // Result handles (§ see crate::handles). Registered here rather than in
+        // BUILTIN_LOOKUP because that table is index-coupled to BUILTIN_DISPATCH;
+        // reachability is identical and the handle summary carries its own usage
+        // hint, so discovery does not depend on the ontology listing.
+        "handle" => bi_handle(args),
+        "handles" => bi_handles(),
+        "handle_drop" => bi_handle_drop(args),
+
+        // Reversible sessions (see crate::journal).
+        "undo" | "rewind" => bi_undo(args),
+        "journal" => bi_journal(),
+        "journal_clear" => bi_journal_clear(),
 
         _ => Err(crate::safety::unknown_builtin(name, did_you_mean(name))),
     }
@@ -16257,11 +16279,217 @@ pub fn render_agent(v: &Value, budget: Option<usize>) -> Option<String> {
     match v {
         Value::Null => None,
         Value::Str(s) => Some(s.clone()),
-        _ => Some(match budget {
-            Some(max) if max > 0 => render_budget_envelope(&budget_value(v, max, 0)),
-            _ => aecon_render(v),
-        }),
+        _ => {
+            let full = match budget {
+                Some(max) if max > 0 => render_budget_envelope(&budget_value(v, max, 0)),
+                _ => aecon_render(v),
+            };
+            // A result too large to be worth sending whole is kept server-side
+            // and referenced instead. The agent narrows it down with a pipeline
+            // and only the small answer crosses back — the saving no encoder can
+            // reach, because it is the bytes never sent.
+            if crate::handles::worth_handling(v, full.len()) {
+                Some(render_handle(v, full.len()))
+            } else {
+                Some(full)
+            }
+        }
     }
+}
+
+/// `undo(n = 1)` — put back what the last `n` mutating steps overwrote.
+///
+/// Returns one record per step, **including the ones it could not reverse**.
+/// The counts are reported separately because "3 restored" and "3 restored, 1
+/// irreversible" call for different decisions, and collapsing them is how a
+/// partial recovery gets mistaken for a complete one.
+fn bi_undo(args: Vec<Value>) -> Result<Value> {
+    let n = match args.first() {
+        None => 1,
+        Some(v) => v
+            .as_int()
+            .map_err(|_| crate::safety::bad_arg("undo", "a step count", "a non-integer"))?
+            .max(0) as usize,
+    };
+    let outcomes = crate::journal::undo(n);
+    let (mut restored, mut removed, mut skipped, mut failed) = (0, 0, 0, 0);
+    let rows: Vec<Value> = outcomes
+        .iter()
+        .map(|o| {
+            let mut m = std::collections::BTreeMap::new();
+            let (action, what, why) = match o {
+                crate::journal::Outcome::Restored(w) => {
+                    restored += 1;
+                    ("restored", w.clone(), String::new())
+                }
+                crate::journal::Outcome::Removed(w) => {
+                    removed += 1;
+                    ("removed", w.clone(), String::new())
+                }
+                crate::journal::Outcome::Skipped { what, why } => {
+                    skipped += 1;
+                    ("skipped", what.clone(), why.clone())
+                }
+                crate::journal::Outcome::Failed { what, why } => {
+                    failed += 1;
+                    ("failed", what.clone(), why.clone())
+                }
+            };
+            m.insert("action".to_string(), Value::Str(action.to_string()));
+            m.insert("what".to_string(), Value::Str(what));
+            if !why.is_empty() {
+                m.insert("why".to_string(), Value::Str(why));
+            }
+            Value::Record(m)
+        })
+        .collect();
+
+    let mut out = std::collections::BTreeMap::new();
+    out.insert("restored".to_string(), Value::Int(restored));
+    out.insert("removed".to_string(), Value::Int(removed));
+    out.insert("skipped".to_string(), Value::Int(skipped));
+    out.insert("failed".to_string(), Value::Int(failed));
+    out.insert("steps".to_string(), Value::Array(rows));
+    // Say it in words as well as counts: a caller that reads only the summary
+    // still learns the world was not fully restored.
+    out.insert(
+        "complete".to_string(),
+        Value::Bool(skipped == 0 && failed == 0),
+    );
+    Ok(Value::Record(out))
+}
+
+/// `journal()` — the recorded steps, and how many of them can be reversed.
+fn bi_journal() -> Result<Value> {
+    let entries = crate::journal::entries();
+    let reversible = crate::journal::reversible_count();
+    let rows: Vec<Value> = entries
+        .iter()
+        .map(|e| {
+            let mut m = std::collections::BTreeMap::new();
+            m.insert("seq".to_string(), Value::Int(e.seq as i64));
+            m.insert("builtin".to_string(), Value::Str(e.builtin.clone()));
+            m.insert("effect".to_string(), Value::Str(e.effect.clone()));
+            if !e.path.is_empty() {
+                m.insert("path".to_string(), Value::Str(e.path.clone()));
+            }
+            m.insert("reversible".to_string(), Value::Bool(e.reversible()));
+            if let crate::journal::Before::Irreversible(why) = &e.before {
+                m.insert("why".to_string(), Value::Str(why.clone()));
+            }
+            Value::Record(m)
+        })
+        .collect();
+    let mut out = std::collections::BTreeMap::new();
+    out.insert("steps".to_string(), Value::Int(entries.len() as i64));
+    out.insert("reversible".to_string(), Value::Int(reversible as i64));
+    out.insert(
+        "irreversible".to_string(),
+        Value::Int((entries.len() - reversible) as i64),
+    );
+    out.insert("enabled".to_string(), Value::Bool(crate::journal::enabled()));
+    out.insert("entries".to_string(), Value::Array(rows));
+    Ok(Value::Record(out))
+}
+
+/// `journal_clear()` — forget the recorded steps. Touches no files; the
+/// captured contents are dropped, so anything before this point can no longer
+/// be rewound.
+fn bi_journal_clear() -> Result<Value> {
+    let n = crate::journal::entries().len();
+    crate::journal::clear();
+    let mut m = std::collections::BTreeMap::new();
+    m.insert("forgotten".to_string(), Value::Int(n as i64));
+    m.insert(
+        "note".to_string(),
+        Value::Str("no files changed; these steps can no longer be undone".to_string()),
+    );
+    Ok(Value::Record(m))
+}
+
+/// `handle(id)` — the full value behind a handle, exactly as computed.
+///
+/// A missing id is a structured error rather than a null, and it names the live
+/// handles: a handle from a previous process is gone, and an agent that gets
+/// `null` back cannot tell that apart from an empty result.
+fn bi_handle(args: Vec<Value>) -> Result<Value> {
+    let id = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .map(|s| s.to_string())
+        .ok_or_else(|| crate::safety::arg_err("handle(id): a handle id is required"))?;
+    match crate::handles::get(&id) {
+        Some(v) => Ok(v),
+        None => {
+            let live: Vec<String> = crate::handles::list().into_iter().map(|h| h.id).collect();
+            let got = if live.is_empty() {
+                format!("'{id}' (no handles live — they do not survive the process)")
+            } else {
+                format!("'{id}' (live: {})", live.join(", "))
+            };
+            Err(crate::safety::bad_arg(
+                "handle",
+                "a live handle id, as listed by handles()",
+                &got,
+            ))
+        }
+    }
+}
+
+/// `handles()` — every live handle with its shape and size, without the data.
+fn bi_handles() -> Result<Value> {
+    Ok(Value::Array(
+        crate::handles::list()
+            .into_iter()
+            .map(|h| {
+                let mut m = std::collections::BTreeMap::new();
+                m.insert("id".to_string(), Value::Str(h.id));
+                m.insert("shape".to_string(), Value::Str(h.shape));
+                m.insert("items".to_string(), Value::Int(h.items as i64));
+                m.insert("bytes".to_string(), Value::Int(h.bytes as i64));
+                Value::Record(m)
+            })
+            .collect(),
+    ))
+}
+
+/// `handle_drop(id)` — release a handle, reporting whether it existed.
+fn bi_handle_drop(args: Vec<Value>) -> Result<Value> {
+    let id = args
+        .first()
+        .and_then(|v| v.as_str().ok())
+        .map(|s| s.to_string())
+        .ok_or_else(|| crate::safety::arg_err("handle_drop(id): a handle id is required"))?;
+    Ok(Value::Bool(crate::handles::drop_handle(&id)))
+}
+
+/// Render a large result as a handle: what it is, how big, a short preview, and
+/// the exact call that narrows it down.
+///
+/// The hint is not decoration — it is how the agent discovers `handle` at all.
+/// These builtins are reachable but not in the ontology listing, so the call
+/// site teaches itself at the moment it is needed, which beats requiring a
+/// discovery round-trip to learn how to avoid a discovery round-trip.
+fn render_handle(v: &Value, full_bytes: usize) -> String {
+    let h = crate::handles::put(v.clone(), full_bytes);
+    let preview = crate::handles::preview_of(v);
+    let omitted = crate::handles::omitted(v);
+    let mut out = String::new();
+    out.push_str(&format!("@handle {}\n", h.id));
+    out.push_str(&format!("@shape {}\n", h.shape));
+    out.push_str(&format!("@items {}\n", h.items));
+    out.push_str(&format!("@bytes {}\n", h.bytes));
+    out.push_str(&aecon_render(&preview));
+    if omitted > 0 {
+        // Stated explicitly: a preview that looks like a result is how silent
+        // truncation misleads.
+        out.push_str(&format!("\n@omitted {omitted}"));
+    }
+    out.push_str(&format!(
+        "\n@hint handle(\"{}\") | where(...) | take(5)  — full value kept, nothing lost",
+        h.id
+    ));
+    out
 }
 
 /// Recursively redact known secret shapes from a value before it is rendered to

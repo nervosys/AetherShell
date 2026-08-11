@@ -204,6 +204,16 @@ pub mod secure_config;
 /// Security — RBAC, audit logging, SSO integration.
 #[cfg(feature = "native")]
 pub mod security;
+/// Return shapes — what a builtin gives back, advertised before it is called.
+#[cfg(feature = "native")]
+pub mod shapes;
+/// Result handles — keep a large result server-side and send a reference.
+#[cfg(feature = "native")]
+pub mod handles;
+/// Reversible sessions — capture what a mutating call overwrites, so it can be
+/// rewound.
+#[cfg(feature = "native")]
+pub mod journal;
 /// Syntax knowledge base — command documentation and help system.
 #[cfg(feature = "native")]
 pub mod syntax_kb;

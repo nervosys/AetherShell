@@ -941,11 +941,23 @@ fn get_type_definitions() -> Vec<TypeDefinition> {
 /// `privileged`) under the `x-effect` key of its `json_schema`, so an agent can
 /// see an operation's danger level from the ontology *before* calling it.
 /// See `crate::safety::effect_of`.
+///
+/// Also attaches `x-returns` — the builtin's proven return shape — where one
+/// exists. Together these say what a call *costs* and what it *yields* before
+/// it is made, which is what lets an agent compose a pipeline instead of
+/// running a call to discover the shape and then writing the real one.
+///
+/// `x-returns` is absent far more often than present, and deliberately so:
+/// `crate::shapes::DECLARED` carries only shapes reproduced by calling the
+/// builtin, so an absent key means "not established", never "returns nothing".
 fn annotate_effects(mut defs: Vec<BuiltinDefinition>) -> Vec<BuiltinDefinition> {
     for d in &mut defs {
         let eff = crate::safety::effect_of(&d.name).as_str();
         if let JsonValue::Object(ref mut m) = d.json_schema {
             m.insert("x-effect".to_string(), json!(eff));
+            if let Some(shape) = crate::shapes::shape_of(&d.name) {
+                m.insert("x-returns".to_string(), json!(shape));
+            }
         }
     }
     defs
@@ -2230,6 +2242,8 @@ pub fn builtin_tool_specs() -> Vec<JsonValue> {
                 "description": d.description,
                 "signature": d.signature,
                 "effect": def_effect(d),
+                // Absent unless proven — see `crate::shapes`.
+                "returns": crate::shapes::shape_of(&d.name),
             })
         })
         .collect()
