@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.1.0] - 2026-08-10
+
 ### Added
 
 - **Two more AECON factoring passes.** `@suffix` factors a shared *trailing* run
