@@ -614,6 +614,152 @@ pub fn effect_of(name: &str) -> Effect {
         | "yamllint_check"
         | "zip_list"
         | "zoxide_query" => Effect::ReadLocal,
+
+        // ════════════════════════════════════════════════════════════
+        // Builtins that act through a *helper* (§12).
+        //
+        // The 306 above were found by reading each builtin's own body. That
+        // missed everything that hands its side effect to a helper: a builtin
+        // calling `cloud_run_cmd`, or `kubectl_text`, or another builtin, is
+        // exactly as dangerous as one spawning the process itself — only the
+        // lint could not tell, which made the difference a blind spot rather
+        // than a fact. Following calls two levels deep found 116 more.
+        //
+        // Each is classified from what its helper actually runs, and a builtin
+        // that delegates to another builtin inherits that builtin's effect.
+        // Two groups are deliberately *not* inherited: the `db_sqlite_*`
+        // wrappers build their own statements, and the only reason
+        // `db_sqlite_exec`/`_query` are `Exec` is that a caller can supply
+        // arbitrary SQL — which these do not permit. They are the write/read
+        // they appear to be.
+        //
+        // `syntax_*` are `WriteLocal` for an honest but unobvious reason: their
+        // store is created lazily, so a lookup really does create a directory
+        // the first time. `WriteLocal` is `Allow` in agent mode, so saying so
+        // costs no friction and beats pretending the write does not happen.
+        // ---- delegated: ReadLocal (41) ----
+        | "clipboard_has_text"
+        | "crypto_checksum"
+        | "crypto_password_verify"
+        | "db_kv_get"
+        | "db_kv_keys"
+        | "db_sqlite_count"
+        | "db_sqlite_schema"
+        | "db_sqlite_tables"
+        | "db_sqlite_to_json"
+        | "docker_images"
+        | "docker_networks"
+        | "docker_ps"
+        | "docker_stats"
+        | "docker_volumes"
+        | "gpg_list_keys"
+        | "group_list"
+        | "hw_cpu"
+        | "hw_disk"
+        | "hw_memory"
+        | "hw_network"
+        | "openssl_cert_info"
+        | "platform_build_systems"
+        | "platform_cloud_clis"
+        | "platform_compilers"
+        | "platform_containers"
+        | "platform_databases"
+        | "platform_fingerprint"
+        | "platform_hardware_summary"
+        | "platform_iac_tools"
+        | "platform_linters"
+        | "platform_pkg_lang"
+        | "platform_runtimes"
+        | "platform_tool_version"
+        | "platform_tool_versions"
+        | "platform_vcs"
+        | "search_grep"
+        | "search_regex"
+        | "session_changes"
+        | "session_checkpoints"
+        | "svc_info"
+        | "user_list" => Effect::ReadLocal,
+
+        // ---- delegated: WriteLocal (21) ----
+        | "clipboard_clear"
+        | "crypto_generate_key"
+        | "db_csv_to_sqlite"
+        | "db_json_to_sqlite"
+        | "db_kv_set"
+        | "db_kv_store"
+        | "db_sqlite_create_table"
+        | "db_sqlite_import"
+        | "db_sqlite_insert"
+        | "db_sqlite_open"
+        | "db_sqlite_to_csv"
+        | "db_sqlite_update"
+        | "db_sqlite_vacuum"
+        | "gpg_decrypt"
+        | "gpg_encrypt"
+        | "openssl_genrsa"
+        | "syntax_add"
+        | "syntax_categories"
+        | "syntax_get"
+        | "syntax_list"
+        | "syntax_search" => Effect::WriteLocal,
+
+        // ---- delegated: Network (23) ----
+        | "helm_list"
+        | "helm_repos"
+        | "helm_search"
+        | "helm_status"
+        | "helm_upgrade"
+        | "k8s_apply"
+        | "k8s_cluster_info"
+        | "k8s_configmaps"
+        | "k8s_context"
+        | "k8s_contexts"
+        | "k8s_describe"
+        | "k8s_events"
+        | "k8s_get"
+        | "k8s_ingresses"
+        | "k8s_logs"
+        | "k8s_namespaces"
+        | "k8s_nodes"
+        | "k8s_pods"
+        | "k8s_rollout_status"
+        | "k8s_scale"
+        | "k8s_secrets"
+        | "k8s_top_nodes"
+        | "k8s_top_pods" => Effect::Network,
+
+        // ---- delegated: Exec (31) ----
+        | "ansible_galaxy"
+        | "ansible_inventory"
+        | "ansible_playbook"
+        | "ansible_vault"
+        | "diag_all"
+        | "docker_build"
+        | "docker_compose_ps"
+        | "docker_compose_up"
+        | "docker_cp"
+        | "docker_inspect"
+        | "docker_logs"
+        | "docker_pull"
+        | "docker_push"
+        | "docker_stop"
+        | "docker_tag"
+        | "docker_top"
+        | "gui_mouse_double_click"
+        | "podman_build"
+        | "podman_images"
+        | "podman_logs"
+        | "podman_ps"
+        | "podman_pull"
+        | "podman_rm"
+        | "podman_stop"
+        | "terraform_apply"
+        | "terraform_init"
+        | "terraform_output"
+        | "terraform_plan"
+        | "terraform_state"
+        | "terraform_validate"
+        | "terraform_workspace" => Effect::Exec,
         // The `web_*` fetch family already routes through `guard_network` at each
         // call site, so it was *gated* as Network at runtime while `effect_of`
         // reported `Pure` — meaning the agent-facing ontology advertised
@@ -2217,29 +2363,75 @@ fn centrally_enforced(effect: Effect) -> bool {
 /// dispatcher immediately before a builtin runs.
 ///
 /// The targets are the call's string arguments, which is the best a central
-/// point can do: it cannot know which of them are paths. `fs_paths` is
-/// therefore **false** — the workspace jail stays with the hand-written call
-/// sites that know their targets, because jailing an argument that merely looks
-/// like a path would reject legitimate calls. What this adds is the policy
-/// decision, the approval path, and the audit entry, for ~90 builtins that
-/// previously had none of the three.
+/// point can do: it cannot know which of them are paths.
+///
+/// The jail is applied to the subset it *can* be sure about — arguments that
+/// name a path which already exists on disk. A string that resolves to a real
+/// file or directory is a path by observation rather than by guesswork, and a
+/// mutating call naming one outside the workspace is exactly what the jail is
+/// for. Anything else (a subcommand, a container name, a SQL fragment, a path
+/// that does not yet exist) is left to the hand-written call sites, which know
+/// their arguments' meaning. That asymmetry is deliberate: a missed jail check
+/// is a gap the call sites still cover, while a false one rejects a legitimate
+/// call and has no workaround.
+pub fn existing_paths(args: &[String]) -> Vec<String> {
+    args.iter()
+        .filter(|s| {
+            !s.is_empty()
+                && s.len() <= 4096
+                && !s.contains('\n')
+                && std::path::Path::new(s).exists()
+        })
+        .cloned()
+        .collect()
+}
 pub fn guard_dispatch(builtin: &str, args_as_strings: Vec<String>) -> Result<(), SafetyError> {
     let effect = effect_of(builtin);
-    if !centrally_enforced(effect) || SELF_GUARDED.contains(&builtin) {
+    if SELF_GUARDED.contains(&builtin) {
         return Ok(());
     }
+    if !centrally_enforced(effect) {
+        // `WriteLocal` and `Network` decide `Allow`, so there is no decision to
+        // make — but "allowed" and "unobserved" are different things, and until
+        // now these left no trace at all. Record them so an agent session can be
+        // reconstructed afterwards, which is most of what an audit log is for.
+        //
+        // Agent surface only: a human REPL should not pay a log write per file
+        // write, and its actions were never gated to begin with.
+        if matches!(effect, Effect::WriteLocal | Effect::Network) && current_mode() == Mode::Agent {
+            let _ = audit(
+                builtin,
+                effect,
+                "allow_unguarded",
+                &args_as_strings.join(", "),
+                json!({ "central": true }),
+            );
+        }
+        return Ok(());
+    }
+    // Jail only what is demonstrably a path. `guard` applies the workspace
+    // check when `fs_paths` is set, so the targets handed to it in that case
+    // must all be real paths — otherwise a container name or a subcommand would
+    // be judged "outside the workspace" and the call refused for no reason.
+    let real_paths = existing_paths(&args_as_strings);
+    let jailable = effect.is_filesystem() && !real_paths.is_empty();
+    let targets = if jailable {
+        real_paths
+    } else {
+        args_as_strings
+    };
     guard(GuardCtx {
         builtin,
         effect,
         what: effect.as_str(),
-        targets: args_as_strings,
+        targets,
         blast_radius: json!({}),
         // Honest rather than optimistic: a journalled file write can be rewound,
         // but this path covers process/exec/destructive classes whose effects
         // reach outside the filesystem, and claiming reversibility would make an
         // approval prompt read as safer than it is.
         reversible: false,
-        fs_paths: false,
+        fs_paths: jailable,
     })
 }
 

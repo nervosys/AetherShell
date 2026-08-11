@@ -957,6 +957,16 @@ fn annotate_effects(mut defs: Vec<BuiltinDefinition>) -> Vec<BuiltinDefinition> 
             m.insert("x-effect".to_string(), json!(eff));
             if let Some(shape) = crate::shapes::shape_of(&d.name) {
                 m.insert("x-returns".to_string(), json!(shape));
+            } else if let Some(shape) = crate::shapes::polymorphic_shape_of(&d.name) {
+                // `T` is the element type of the first argument. Stated as a
+                // relation rather than a concrete type because that is what is
+                // true of `first`/`take`/`values`, and a concrete answer would
+                // only describe whichever call happened to be measured.
+                m.insert("x-returns".to_string(), json!(shape));
+                m.insert(
+                    "x-returns-var".to_string(),
+                    json!("T = element type of the first argument"),
+                );
             }
         }
     }
@@ -2242,8 +2252,11 @@ pub fn builtin_tool_specs() -> Vec<JsonValue> {
                 "description": d.description,
                 "signature": d.signature,
                 "effect": def_effect(d),
-                // Absent unless proven — see `crate::shapes`.
-                "returns": crate::shapes::shape_of(&d.name),
+                // Absent unless proven — see `crate::shapes`. A polymorphic
+                // shape is given in terms of `T`, the first argument's element
+                // type.
+                "returns": crate::shapes::shape_of(&d.name)
+                    .or_else(|| crate::shapes::polymorphic_shape_of(&d.name)),
             })
         })
         .collect()

@@ -232,3 +232,49 @@ fn journalling_is_off_for_humans_by_default() {
     assert!(journal::enabled(), "agents get recoverability");
     std::env::remove_var("AETHER_MODE");
 }
+
+#[test]
+fn undo_works_across_separate_processes() {
+    // The SDK runs `ae -c <code>` per call, so the process that writes a file is
+    // never the process that undoes it. An in-memory journal would make `undo`
+    // report "0 restored, complete: true" — succeeding at nothing, which is the
+    // precise failure this module exists to prevent.
+    //
+    // Real processes, not a cleared static.
+    let _g = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = std::env::temp_dir().join(format!("ae_undo_xproc_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("session dir");
+    let target = dir.join("notes.txt");
+    std::fs::write(&target, "original").expect("seed");
+
+    let ae = env!("CARGO_BIN_EXE_ae");
+    let run = |code: String| -> String {
+        let out = std::process::Command::new(ae)
+            .args(["--agent", "-c", &code])
+            .env("AETHER_SESSION_DIR", &dir)
+            .env("AETHER_JOURNAL", "on")
+            .env("AETHER_POLICY", "permissive")
+            .env("AETHER_WORKSPACE", &dir)
+            .output()
+            .expect("run ae");
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    };
+
+    let p = target.to_string_lossy().replace('\\', "/");
+    run(format!("file_write(\"{p}\", \"clobbered\")"));
+    assert_eq!(
+        std::fs::read_to_string(&target).unwrap(),
+        "clobbered",
+        "process 1 should have written"
+    );
+
+    let undone = run("undo()".to_string());
+    let restored = std::fs::read_to_string(&target).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert_eq!(
+        restored, "original",
+        "a later process must be able to rewind an earlier one; undo said: {undone}"
+    );
+}

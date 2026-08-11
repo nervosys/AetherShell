@@ -22,7 +22,7 @@ pip install ./integrations/python
 Requires the `ae` binary on `PATH` or passed explicitly.
 
 The SDK versions independently of the shell: SDK 1.5.0 is current against
-shell 7.1.0.
+shell 7.2.0.
 
 ---
 
@@ -47,7 +47,14 @@ result = rt.eval('[1, 2, 3] | map(fn(x) => x * 2)')
 # [2, 4, 6]
 ```
 
-Runs `ae -e <code> --json` with a 60-second timeout. Raises `RuntimeError` on failure.
+Runs `ae -c <code> --deterministic` with a 60-second timeout. Raises
+`RuntimeError` on failure.
+
+> Before 7.2.0 this documented — and the SDK passed — `ae -e <code> --json`.
+> Neither flag exists: the binary takes `-c/--command`, and canonical JSON comes
+> from `--deterministic`. `clap` rejected the call, so every `eval()` raised
+> `RuntimeError`. `tests/sdk_contract.rs` now runs the binary with the flags read
+> out of the SDK source, so the two cannot drift apart again.
 
 #### `rt.eval_file(path: str) -> Any`
 

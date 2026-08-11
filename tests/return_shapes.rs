@@ -273,3 +273,131 @@ fn declared_is_sorted_and_unique() {
     sorted.dedup();
     assert_eq!(names, sorted, "shapes::DECLARED must be sorted and unique");
 }
+
+// ── Polymorphic shapes ──────────────────────────────────────────────────────
+//
+// A fixed shape is proven by two probes agreeing. A *relative* shape needs the
+// opposite: the two probes must disagree in exactly the way `T` predicts. If
+// `first` returned `int` for both an int array and a str array, `T` would be
+// the wrong description.
+
+/// Probes for the polymorphic set: a builtin and argument sets whose first
+/// argument has deliberately different element types.
+fn poly_probes() -> Vec<(&'static str, Vec<Vec<Value>>)> {
+    let ints = Value::Array(vec![Value::Int(1), Value::Int(2), Value::Int(3)]);
+    let strs = Value::Array(vec![
+        Value::Str("a".into()),
+        Value::Str("b".into()),
+        Value::Str("c".into()),
+    ]);
+    let bools = Value::Array(vec![Value::Bool(true), Value::Bool(false)]);
+    vec![
+        (
+            "first",
+            vec![vec![ints.clone()], vec![strs.clone()], vec![bools.clone()]],
+        ),
+        ("last", vec![vec![ints.clone()], vec![strs.clone()]]),
+        ("reverse", vec![vec![ints.clone()], vec![strs.clone()]]),
+        (
+            "take",
+            vec![
+                vec![ints.clone(), Value::Int(2)],
+                vec![strs.clone(), Value::Int(2)],
+            ],
+        ),
+        ("unique", vec![vec![ints.clone()], vec![strs.clone()]]),
+        (
+            "values",
+            vec![
+                vec![rec(&[("a", Value::Int(1)), ("b", Value::Int(2))])],
+                vec![rec(&[("a", Value::Str("x".into()))])],
+            ],
+        ),
+    ]
+}
+
+#[test]
+fn every_polymorphic_shape_predicts_the_actual_result() {
+    use aethershell::shapes::{element_of, instantiate, polymorphic_shape_of};
+
+    let probes = poly_probes();
+    let mut wrong = Vec::new();
+    for (name, declared) in aethershell::shapes::POLYMORPHIC {
+        let Some((_, arg_sets)) = probes.iter().find(|(n, _)| n == name) else {
+            wrong.push(format!("  {name}: declared `{declared}` but has no probe"));
+            continue;
+        };
+        for args in arg_sets {
+            let Some(element) = element_of(&args[0]) else {
+                wrong.push(format!(
+                    "  {name}: probe argument has no single element type"
+                ));
+                continue;
+            };
+            let expected = instantiate(declared, &element);
+            match call(name, args.clone()) {
+                None => wrong.push(format!("  {name}: probe errored")),
+                Some(v) => {
+                    let actual = observe(&v);
+                    if actual != expected {
+                        wrong.push(format!(
+                            "  {name}: with T={element} expected `{expected}`, observed `{actual}`"
+                        ));
+                    }
+                }
+            }
+        }
+        assert_eq!(
+            polymorphic_shape_of(name),
+            Some(*declared),
+            "lookup must agree with the table"
+        );
+    }
+    assert!(
+        wrong.is_empty(),
+        "{} polymorphic shape(s) do not predict the result:\n{}",
+        wrong.len(),
+        wrong.join("\n")
+    );
+}
+
+#[test]
+fn a_polymorphic_shape_actually_varies_with_its_input() {
+    // The claim `T` makes is that the result *tracks* the argument. If a probe
+    // set produced one shape regardless of input, `T` would be an unnecessary
+    // and misleading way to say something fixed.
+    let probes = poly_probes();
+    let (_, arg_sets) = probes.iter().find(|(n, _)| *n == "first").expect("probed");
+    let observed: Vec<String> = arg_sets
+        .iter()
+        .filter_map(|a| call("first", a.clone()))
+        .map(|v| observe(&v))
+        .collect();
+    let distinct: std::collections::BTreeSet<&String> = observed.iter().collect();
+    assert!(
+        distinct.len() > 1,
+        "expected `first` to vary with its input, always got {observed:?}"
+    );
+}
+
+#[test]
+fn a_builtin_is_never_both_fixed_and_polymorphic() {
+    // The two tables answer the same question; overlapping would let them
+    // disagree, and a consumer would have no way to know which is meant.
+    let overlap: Vec<&str> = DECLARED
+        .iter()
+        .map(|(n, _)| *n)
+        .filter(|n| aethershell::shapes::POLYMORPHIC.iter().any(|(p, _)| p == n))
+        .collect();
+    assert!(overlap.is_empty(), "declared in both tables: {overlap:?}");
+}
+
+#[test]
+fn sum_stays_undeclared_because_its_rule_is_promotion_not_substitution() {
+    // Guards the honesty of the notation itself. `sum` over ints yields `int`,
+    // over floats `float` — that tracks a promotion rule, not the element type,
+    // so `T` would be a plausible-looking lie.
+    use aethershell::shapes::{polymorphic_shape_of, shape_of};
+    assert_eq!(shape_of("sum"), None);
+    assert_eq!(polymorphic_shape_of("sum"), None);
+}

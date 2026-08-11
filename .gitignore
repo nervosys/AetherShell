@@ -55,3 +55,7 @@ integrations/browser-extension/wasm/
 integrations/python/dist/
 integrations/python/build/
 integrations/python/**/*.egg-info/
+
+# Python bytecode (the SDK is a source package; these are build artifacts)
+__pycache__/
+*.pyc

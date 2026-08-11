@@ -231,8 +231,13 @@ class AetherRuntime:
         Returns:
             Parsed result (Python object)
         """
+        # `-c/--command`, not `-e`, and `--deterministic` for canonical JSON.
+        # The previous flags (`-e ... --json`) are not accepted by the binary:
+        # clap rejected `-e` outright, so every call raised RuntimeError. The
+        # SDK's core entry point could never have worked against a released
+        # build.
         result = subprocess.run(
-            [self._ae_path, "-e", code, "--json"],
+            [self._ae_path, "-c", code, "--deterministic"],
             capture_output=True,
             text=True,
             timeout=60,
@@ -257,7 +262,7 @@ class AetherRuntime:
             Result of evaluation
         """
         result = subprocess.run(
-            [self._ae_path, path, "--json"],
+            [self._ae_path, path, "--deterministic"],
             capture_output=True,
             text=True,
             timeout=300,

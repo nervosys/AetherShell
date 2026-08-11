@@ -66,6 +66,128 @@ lazy_static::lazy_static! {
     static ref JOURNAL: Mutex<Vec<Entry>> = Mutex::new(Vec::new());
 }
 
+/// Where this session's journal lives.
+///
+/// Persistence is not a nicety here. The Python SDK runs `ae -c <code>` per
+/// call, so an in-memory journal would be empty in the process that runs
+/// `undo` — the feature would appear to work and reverse nothing, which is the
+/// exact failure this module is written to avoid.
+fn session_dir() -> Option<std::path::PathBuf> {
+    if let Ok(d) = std::env::var("AETHER_SESSION_DIR") {
+        return Some(std::path::PathBuf::from(d).join("journal"));
+    }
+    let key = std::env::var("AETHER_SESSION").ok().unwrap_or_else(|| {
+        let cwd = std::env::current_dir()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        format!("{:x}", md5::compute(cwd.as_bytes()))
+    });
+    dirs::cache_dir().map(|c| c.join("aethershell").join("journal").join(key))
+}
+
+/// Serialisable form of an entry. The captured bytes travel with it: a journal
+/// that persisted only the metadata could list what it would restore and then
+/// restore nothing.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct StoredEntry {
+    seq: usize,
+    builtin: String,
+    effect: String,
+    path: String,
+    /// `None` = the path was absent; `Some(bytes)` = it held these.
+    contents: Option<Vec<u8>>,
+    /// Set when the step could not be captured, with the reason.
+    irreversible: Option<String>,
+}
+
+impl From<&Entry> for StoredEntry {
+    fn from(e: &Entry) -> Self {
+        let (contents, irreversible) = match &e.before {
+            Before::Contents(b) => (Some(b.clone()), None),
+            Before::Absent => (None, None),
+            Before::Irreversible(why) => (None, Some(why.clone())),
+        };
+        StoredEntry {
+            seq: e.seq,
+            builtin: e.builtin.clone(),
+            effect: e.effect.clone(),
+            path: e.path.clone(),
+            contents,
+            irreversible,
+        }
+    }
+}
+
+impl From<StoredEntry> for Entry {
+    fn from(s: StoredEntry) -> Self {
+        let before = match (s.contents, s.irreversible) {
+            (_, Some(why)) => Before::Irreversible(why),
+            (Some(b), None) => Before::Contents(b),
+            (None, None) => Before::Absent,
+        };
+        Entry {
+            seq: s.seq,
+            builtin: s.builtin,
+            effect: s.effect,
+            path: s.path,
+            before,
+        }
+    }
+}
+
+/// Read the persisted journal, oldest first.
+fn load_persisted() -> Vec<Entry> {
+    let Some(dir) = session_dir() else {
+        return Vec::new();
+    };
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return Vec::new();
+    };
+    let mut files: Vec<(usize, std::path::PathBuf)> = entries
+        .filter_map(|e| e.ok())
+        .filter_map(|e| {
+            let p = e.path();
+            let stem = p.file_stem()?.to_string_lossy().into_owned();
+            stem.parse::<usize>().ok().map(|n| (n, p))
+        })
+        .collect();
+    files.sort_by_key(|(n, _)| *n);
+    files
+        .into_iter()
+        .filter_map(|(_, p)| {
+            let raw = std::fs::read(&p).ok()?;
+            serde_json::from_slice::<StoredEntry>(&raw)
+                .ok()
+                .map(Entry::from)
+        })
+        .collect()
+}
+
+fn persist(e: &Entry) {
+    let Some(dir) = session_dir() else { return };
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    if let Ok(json) = serde_json::to_vec(&StoredEntry::from(e)) {
+        let _ = std::fs::write(dir.join(format!("{:08}.json", e.seq)), json);
+    }
+}
+
+fn forget_persisted(seq: usize) {
+    if let Some(dir) = session_dir() {
+        let _ = std::fs::remove_file(dir.join(format!("{seq:08}.json")));
+    }
+}
+
+/// Merge the persisted journal into memory so this process sees steps recorded
+/// by earlier ones.
+fn hydrate(j: &mut Vec<Entry>) {
+    if !j.is_empty() {
+        return;
+    }
+    *j = load_persisted();
+}
+
 /// Journalling is on in agent mode and off for humans, matching the rest of the
 /// dual-surface split: the agent surface pays a little I/O for recoverability,
 /// the human REPL behaves exactly as before. `AETHER_JOURNAL=on`/`off` forces it.
@@ -133,6 +255,7 @@ pub fn record_before(builtin: &str, effect: Effect, args: &[Value]) {
         return;
     }
     let mut j = JOURNAL.lock().unwrap_or_else(|e| e.into_inner());
+    hydrate(&mut j);
     let used = total_bytes(&j);
     for path in paths {
         let p = Path::new(&path);
@@ -158,13 +281,15 @@ pub fn record_before(builtin: &str, effect: Effect, args: &[Value]) {
             Before::Absent
         };
         let seq = j.len() + 1;
-        j.push(Entry {
+        let entry = Entry {
             seq,
             builtin: builtin.to_string(),
             effect: effect.as_str().to_string(),
             path,
             before,
-        });
+        };
+        persist(&entry);
+        j.push(entry);
     }
 }
 
@@ -175,14 +300,17 @@ pub fn record_irreversible(builtin: &str, effect: Effect, why: &str) {
         return;
     }
     let mut j = JOURNAL.lock().unwrap_or_else(|e| e.into_inner());
+    hydrate(&mut j);
     let seq = j.len() + 1;
-    j.push(Entry {
+    let entry = Entry {
         seq,
         builtin: builtin.to_string(),
         effect: effect.as_str().to_string(),
         path: String::new(),
         before: Before::Irreversible(why.to_string()),
-    });
+    };
+    persist(&entry);
+    j.push(entry);
 }
 
 /// The outcome of rewinding one entry.
@@ -201,9 +329,11 @@ pub enum Outcome {
 /// a partial restore gets mistaken for a complete one.
 pub fn undo(n: usize) -> Vec<Outcome> {
     let mut j = JOURNAL.lock().unwrap_or_else(|e| e.into_inner());
+    hydrate(&mut j);
     let mut out = Vec::new();
     for _ in 0..n {
         let Some(entry) = j.pop() else { break };
+        forget_persisted(entry.seq);
         let what = if entry.path.is_empty() {
             entry.builtin.clone()
         } else {
@@ -243,10 +373,9 @@ pub fn undo(n: usize) -> Vec<Outcome> {
 
 /// Every recorded step, oldest first.
 pub fn entries() -> Vec<Entry> {
-    JOURNAL
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .iter()
+    let mut j = JOURNAL.lock().unwrap_or_else(|e| e.into_inner());
+    hydrate(&mut j);
+    j.iter()
         .map(|e| Entry {
             // The captured bytes are never handed out; they would be a second
             // copy of the data in the agent's context for no benefit.
@@ -261,17 +390,17 @@ pub fn entries() -> Vec<Entry> {
 
 /// How many recorded steps can actually be reversed.
 pub fn reversible_count() -> usize {
-    JOURNAL
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .iter()
-        .filter(|e| e.reversible())
-        .count()
+    let mut j = JOURNAL.lock().unwrap_or_else(|e| e.into_inner());
+    hydrate(&mut j);
+    j.iter().filter(|e| e.reversible()).count()
 }
 
 /// Forget everything recorded. Does not touch the filesystem.
 pub fn clear() {
     JOURNAL.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    if let Some(dir) = session_dir() {
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }
 
 #[cfg(test)]

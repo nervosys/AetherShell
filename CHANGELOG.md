@@ -5,6 +5,88 @@ All notable changes to AetherShell will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.2.0] - 2026-08-11
+
+Debt paydown, measured at each step. Three of the items below were found by
+checking a result rather than believing it, and two were live bugs rather than
+debt.
+
+### Fixed
+
+- **The Python SDK could never have worked.** `AetherRuntime.eval` ran
+  `ae -e <code> --json`. The binary takes `-c/--command` and has no `--json`, so
+  clap rejected the call and *every* `eval()` raised `RuntimeError`. Fixed to
+  `ae -c <code> --deterministic`, verified by calling it, and
+  `tests/sdk_contract.rs` now runs the binary with the flags read out of the SDK
+  source so they cannot drift apart again.
+
+- **Handles and the journal were useless to SDK users.** Both were
+  process-lifetime, but the SDK spawns a fresh process per call — so every
+  handle id was unresolvable and every journal empty. `undo` would have reported
+  `0 restored, complete: true`: succeeding at nothing, the exact failure the
+  journal exists to prevent. Both are now persisted to a session directory keyed
+  by workspace (`AETHER_SESSION`/`AETHER_SESSION_DIR` override), and proven by
+  **spawning the real `ae` binary twice** — clearing a static would only show
+  that the loader runs.
+
+  Persistence uses serde's representation, not `Value::to_json`: the latter
+  renders `Uri` as a bare string, so a round-trip returns `Str` and the
+  losslessness guarantee would have been quietly broken. Checked before being
+  relied on.
+
+### Changed
+
+- **The effect ratchet now follows delegation.** It read only `bi_*` bodies, so
+  a builtin handing its side effect to `cloud_run_cmd`, `kubectl_text` or
+  another builtin was invisible — 209 of them. Following calls two levels deep
+  and reading helper bodies found **116 registered builtins acting while
+  classified `Pure`**; all are now classified from what their helper actually
+  runs, with a builtin that delegates to another inheriting its effect.
+
+  | | before | after |
+  |---|---|---|
+  | classified | 485 | **601** |
+  | fall through to `Pure` | 63% | **54%** |
+
+  Getting a trustworthy number took three fixes to the lint itself. It indexed a
+  `&str` by byte offset (the source contains `…`, so it panicked); it read
+  `BTreeMap::new()` as a call to a free function named `new`; and — the one that
+  mattered — it matched `fn` inside a **comment**, binding `// fn json_to_value(…)`
+  to the next real function's body, `bi_rm`, which deletes files. That phantom
+  replaced the genuine entry and the lint reported `json_parse` as a builtin
+  that deletes files. Trusting the first count would have "fixed" it by
+  misclassifying a pure function. `the_lint_does_not_read_comments_as_code`
+  pins that case.
+
+- **`WriteLocal` and `Network` are now audited centrally** in agent mode. They
+  still decide `Allow` — but "allowed" and "unobserved" are different things,
+  and these previously left no trace at all.
+
+- **The workspace jail applies at the dispatcher**, for arguments that
+  demonstrably *are* paths: a string that resolves to an existing file or
+  directory is a path by observation, not by guesswork. Everything else
+  (subcommands, container names, SQL) is left to the hand-written call sites.
+  The asymmetry is deliberate — a missed jail check is a gap those call sites
+  still cover, while a false one refuses a legitimate call with no workaround.
+
+### Added
+
+- **Polymorphic return shapes.** Refusing to describe `first`, `last`, `take`,
+  `unique`, `reverse` and `values` left the most-used combinators undocumented,
+  yet their shapes are not unknown — only *relative*. The notation gained one
+  variable, `T`, bound to the first argument's element type, taking proven
+  shapes from **11 to 17**.
+
+  The proof inverts for these: a fixed shape is proven by probes **agreeing**, a
+  relative one by probes **disagreeing exactly as `T` predicts**, with a test
+  that `first` really does vary with its input — otherwise `T` would be a
+  misleading way to say something fixed.
+
+  `sum` stays undeclared. It yields `int` for integers and `float` for floats,
+  which is a promotion rule rather than the element type, and `T` would be a
+  plausible-looking lie. A test pins that decision so the table is not
+  "completed" later.
+
 ## [7.1.0] - 2026-08-11
 
 ### Changed

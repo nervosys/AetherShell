@@ -259,3 +259,81 @@ fn enforcement_reaches_the_dispatcher_not_just_the_helper() {
         "expected an approval error from the dispatcher, got: {text}"
     );
 }
+
+#[test]
+fn the_central_jail_catches_a_path_that_really_is_outside_the_workspace() {
+    // A destructive call naming an existing path outside the jail is the case
+    // the workspace root exists to stop.
+    let _g = lock();
+    let outside = std::env::temp_dir().join(format!("ae_jail_out_{}", std::process::id()));
+    std::fs::write(&outside, "x").expect("seed");
+    let workspace = std::env::temp_dir().join(format!("ae_jail_ws_{}", std::process::id()));
+    std::fs::create_dir_all(&workspace).expect("ws");
+
+    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("AETHER_WORKSPACE", &workspace);
+    let result = safety::guard_dispatch("git_clean", vec![outside.to_string_lossy().into_owned()]);
+    std::env::remove_var("AETHER_WORKSPACE");
+    std::env::remove_var("AETHER_MODE");
+    let _ = std::fs::remove_file(&outside);
+    let _ = std::fs::remove_dir_all(&workspace);
+
+    let err = result.expect_err("an existing path outside the workspace must be refused");
+    assert_eq!(err.code, safety::ErrorCode::OutsideWorkspace, "got {err:?}");
+}
+
+#[test]
+fn a_non_path_argument_is_never_mistaken_for_one() {
+    // The failure mode that kept the jail out of the dispatcher in the first
+    // place. `docker_rm`-style arguments — container names, subcommands, SQL —
+    // are not paths, and judging them against a workspace root would refuse
+    // legitimate calls with no workaround.
+    let _g = lock();
+    let workspace = std::env::temp_dir().join(format!("ae_jail_ws2_{}", std::process::id()));
+    std::fs::create_dir_all(&workspace).expect("ws");
+
+    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("AETHER_WORKSPACE", &workspace);
+    // Approve so the only thing that can fail is the jail.
+    let probe = safety::guard_dispatch("podman_stop", vec!["my-container".into()]);
+    let token = probe
+        .as_ref()
+        .err()
+        .and_then(|e| e.approval.as_ref())
+        .map(|a| a.token.clone());
+    let after = match token {
+        Some(t) => {
+            safety::grant_approval(&t);
+            let r = safety::guard_dispatch("podman_stop", vec!["my-container".into()]);
+            safety::revoke_approval(&t);
+            r
+        }
+        None => probe,
+    };
+    std::env::remove_var("AETHER_WORKSPACE");
+    std::env::remove_var("AETHER_MODE");
+    let _ = std::fs::remove_dir_all(&workspace);
+
+    match after {
+        Ok(()) => {}
+        Err(e) => assert_ne!(
+            e.code,
+            safety::ErrorCode::OutsideWorkspace,
+            "a container name must not be judged as a path: {e:?}"
+        ),
+    }
+}
+
+#[test]
+fn only_paths_that_exist_are_treated_as_paths() {
+    // The rule is observation, not pattern-matching: a string is a path because
+    // it resolves to one, not because it contains a slash.
+    let real = std::env::temp_dir();
+    let found = safety::existing_paths(&[
+        real.to_string_lossy().into_owned(),
+        "/definitely/not/here/xyzzy".into(),
+        "select * from t".into(),
+        "my-container".into(),
+    ]);
+    assert_eq!(found.len(), 1, "expected only the real path, got {found:?}");
+}

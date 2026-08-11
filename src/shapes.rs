@@ -98,12 +98,75 @@ pub fn declared_count() -> usize {
 ///
 /// Sorted by name. To add one, add a probe to that test; a claim without a
 /// probe fails the build.
-/// Note what is *absent*. `first`, `values`, `unique`, `reverse` and `sum` are
-/// all probed and all refused: each returns whatever type it was handed
-/// (`sum` yields `int` or `float` depending on its operands), so no fixed shape
-/// is true of them. A single probe would have "proven" whichever type the test
-/// happened to use. They are polymorphic, and this notation cannot yet say so —
-/// silence is the honest answer until it can.
+/// The shape notation understands one variable, `T`, bound to the element type
+/// of the first argument.
+///
+/// This exists because refusing to describe `first`, `values`, `unique` and
+/// `reverse` left the most-used combinators in the language undocumented — and
+/// their shapes are not unknown, only *relative*. `first` is not "some type";
+/// it is exactly the element type of what you passed it. Saying `T` says that,
+/// and it stays honest: a claim that can be checked against two probes with
+/// different element types, which is how the fixed-shape entries are checked.
+///
+/// `sum` is still absent, and deliberately. It yields `int` for integers and
+/// `float` for floats — that is not the argument's element type, it is a
+/// promotion rule this notation cannot express. Better silent than approximate.
+pub const ELEMENT_VAR: &str = "T";
+
+/// Builtins whose result shape is relative to their first argument.
+///
+/// Proven the same way as [`DECLARED`]: `tests/return_shapes.rs` calls each with
+/// two different element types and checks the *relationship* holds, rather than
+/// checking a single concrete answer that would only reflect the test's data.
+pub const POLYMORPHIC: &[(&str, &str)] = &[
+    ("first", "T"),
+    ("last", "T"),
+    ("reverse", "array<T>"),
+    ("take", "array<T>"),
+    ("unique", "array<T>"),
+    ("values", "array<T>"),
+];
+
+/// The advertised shape of a polymorphic builtin, in terms of `T`.
+pub fn polymorphic_shape_of(name: &str) -> Option<&'static str> {
+    POLYMORPHIC
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map(|(_, s)| *s)
+}
+
+/// Substitute the element type into a polymorphic shape:
+/// `array<T>` with `T = int` becomes `array<int>`.
+pub fn instantiate(shape: &str, element: &str) -> String {
+    shape.replace(ELEMENT_VAR, element)
+}
+
+/// The element type of a value, i.e. what `T` binds to.
+pub fn element_of(v: &Value) -> Option<String> {
+    match v {
+        Value::Array(items) => {
+            let mut it = items.iter().map(observe);
+            let first = it.next()?;
+            if it.all(|s| s == first) {
+                Some(first)
+            } else {
+                None
+            }
+        }
+        Value::Record(m) => {
+            let mut it = m.values().map(observe);
+            let first = it.next()?;
+            if it.all(|s| s == first) {
+                Some(first)
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Note what remains *absent*. `sum` is probed and refused; see [`ELEMENT_VAR`].
 pub const DECLARED: &[(&str, &str)] = &[
     ("aecon", "str"),
     ("keys", "array<str>"),

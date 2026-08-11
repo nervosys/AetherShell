@@ -235,3 +235,53 @@ fn dropping_a_handle_reports_whether_it_existed() {
         Value::Bool(false)
     );
 }
+
+#[test]
+fn a_handle_survives_into_a_separate_process() {
+    // The case that matters most, and the easiest to fake: the Python SDK runs
+    // `ae -e <code>` per call, so a handle minted by one call is resolved by a
+    // *different process*. An in-memory store makes the feature useless for its
+    // main consumer.
+    //
+    // This runs the real `ae` binary twice. Clearing a static and calling back
+    // in would prove only that the loader runs — it says nothing about a
+    // process boundary, which is the thing in question.
+    let _g = lock();
+    let dir = std::env::temp_dir().join(format!("ae_xproc_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("session dir");
+
+    let ae = env!("CARGO_BIN_EXE_ae");
+    let run = |code: &str| -> String {
+        let out = std::process::Command::new(ae)
+            .args(["--agent", "-c", code])
+            .env("AETHER_SESSION_DIR", &dir)
+            .output()
+            .expect("run ae");
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    };
+
+    // Process 1: produce a result large enough to be handled.
+    let produced = run("range(1, 600) | map(fn(i) => { n: i, m: i * 7919 })");
+    assert!(
+        produced.contains("@handle "),
+        "process 1 should return a handle, got:
+{produced}"
+    );
+    let id = produced
+        .lines()
+        .find_map(|l| l.strip_prefix("@handle "))
+        .expect("a handle id")
+        .trim()
+        .to_string();
+
+    // Process 2: a brand new process resolves it.
+    let resolved = run(&format!("handle(\"{id}\") | len()"));
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert!(
+        resolved.trim() == "599",
+        "a second process must resolve the handle, got:
+{resolved}"
+    );
+}
