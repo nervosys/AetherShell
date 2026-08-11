@@ -72,6 +72,23 @@ pub enum Effect {
 }
 
 impl Effect {
+    /// Whether re-running an operation of this class is safe after an ambiguous
+    /// failure — a timeout, a dropped connection, a killed process — where the agent
+    /// cannot tell whether the first attempt took effect.
+    ///
+    /// This is a different question from [`ErrorCode::retryable`], which describes
+    /// the *error*: a network timeout is a retryable error, but re-issuing the POST
+    /// behind it may charge a card twice. An agent needs both, and conflating them
+    /// is how duplicate side effects happen.
+    ///
+    /// Deliberately conservative — only `Pure` and `ReadLocal` are safe by class,
+    /// and everything else must opt in per builtin via [`idempotent`]. The asymmetry
+    /// is intentional: a false "unsafe" costs one stalled retry, a false "safe"
+    /// costs a duplicated effect that cannot be taken back.
+    pub fn retry_safe_by_class(&self) -> bool {
+        matches!(self, Effect::Pure | Effect::ReadLocal)
+    }
+
     pub fn as_str(&self) -> &'static str {
         match self {
             Effect::Pure => "pure",
@@ -135,6 +152,61 @@ pub fn is_weak_hash(algo: &str) -> bool {
 /// when an explicit [`Effect`] was not supplied at the call site. Conservative:
 /// known-dangerous names are classified precisely; unknown names default to
 /// [`Effect::Pure`] (callers that need gating pass the effect explicitly).
+/// Whether re-running `name` after an ambiguous failure is safe — i.e. whether the
+/// operation is idempotent, not whether the error was transient.
+///
+/// Most builtins inherit the answer from their effect class (see
+/// [`Effect::retry_safe_by_class`]). The list below is the opt-in for
+/// side-effecting builtins that are nonetheless idempotent because they express a
+/// *desired end state* rather than an increment: writing a whole file, creating a
+/// directory that may exist, deleting something already gone. Each is safe because
+/// running it twice leaves the same state as running it once.
+///
+/// Anything absent is reported unsafe. That is the honest default for a table this
+/// large — an unlisted builtin means "nobody has established that this is
+/// idempotent", which is exactly what an agent should assume.
+pub fn idempotent(name: &str) -> bool {
+    // End-state writes: the content is fully specified, so a repeat is a no-op.
+    const END_STATE: &[&str] = &[
+        "write_file",
+        "write_json",
+        "text_write",
+        "save_json",
+        "fs_write",
+        "mkdir",
+        "fs_mkdir",
+        "create_dir",
+        "chmod",
+        "fs_chmod",
+        "chown",
+        "fs_chown",
+        "symlink",
+        "fs_symlink",
+    ];
+    // Removals: the second attempt finds nothing to remove and converges.
+    const REMOVALS: &[&str] = &[
+        "rm",
+        "remove_file",
+        "fs_remove",
+        "delete_file",
+        "rmdir",
+        "remove_dir",
+        "kubectl_delete",
+        "svc_delete",
+        "role_delete",
+        "delete_role",
+    ];
+    if END_STATE.contains(&name) || REMOVALS.contains(&name) {
+        return true;
+    }
+    // Reads over the network are safe to repeat; writes over it are the canonical
+    // non-idempotent case, so `Network` as a class does not qualify.
+    if name.starts_with("http_get") || name.starts_with("web_get") {
+        return true;
+    }
+    effect_of(name).retry_safe_by_class()
+}
+
 pub fn effect_of(name: &str) -> Effect {
     match name {
         "rm"
@@ -374,6 +446,8 @@ pub fn bad_arg(builtin: &str, expected: &str, got: &str) -> anyhow::Error {
         hint: format!("pass an argument matching: {}", expected),
         approval: None,
         did_you_mean: Vec::new(),
+        expected: expected.to_string(),
+        got: got.to_string(),
     })
 }
 
@@ -395,6 +469,8 @@ pub fn unknown_builtin(name: &str, candidates: Vec<String>) -> anyhow::Error {
         hint,
         approval: None,
         did_you_mean: candidates,
+        expected: String::new(),
+        got: String::new(),
     })
 }
 
@@ -418,6 +494,8 @@ pub fn unknown_field(field: &str, candidates: Vec<String>) -> anyhow::Error {
         hint,
         approval: None,
         did_you_mean: candidates,
+        expected: String::new(),
+        got: String::new(),
     })
 }
 
@@ -453,6 +531,8 @@ pub fn ensure_structured(builtin: &str, e: anyhow::Error) -> anyhow::Error {
         ),
         approval: None,
         did_you_mean: Vec::new(),
+        expected: String::new(),
+        got: String::new(),
     })
 }
 
@@ -471,6 +551,8 @@ pub fn arg_err(message: impl Into<String>) -> anyhow::Error {
         hint: "check this builtin's required argument count and types".to_string(),
         approval: None,
         did_you_mean: Vec::new(),
+        expected: String::new(),
+        got: String::new(),
     })
 }
 
@@ -532,6 +614,12 @@ pub struct SafetyError {
     /// empty list is the honest answer when nothing is close, which costs an
     /// agent fewer tokens than a confident wrong guess costs it retries.
     pub did_you_mean: Vec<String>,
+    /// What the call wanted, as a bare type/shape name, and what it received.
+    /// The same facts `message` states in prose, but machine-readable: an agent
+    /// repairing a `E_BAD_ARG` should not have to parse English to learn that an
+    /// `Int` was wanted where a `Str` arrived. Both empty when not applicable.
+    pub expected: String,
+    pub got: String,
 }
 
 impl SafetyError {
@@ -549,6 +637,12 @@ impl SafetyError {
         }
         if !self.did_you_mean.is_empty() {
             err["did_you_mean"] = serde_json::to_value(&self.did_you_mean).unwrap_or(Json::Null);
+        }
+        // Emitted only as a pair, and only when populated — a lone `expected` tells
+        // an agent nothing it cannot already read in `hint`, and costs tokens.
+        if !self.expected.is_empty() && !self.got.is_empty() {
+            err["expected"] = Json::String(self.expected.clone());
+            err["got"] = Json::String(self.got.clone());
         }
         json!({ "error": err })
     }
@@ -1082,6 +1176,8 @@ fn budget_error(builtin: &str, message: String, hint: &str) -> SafetyError {
         hint: hint.to_string(),
         approval: None,
         did_you_mean: Vec::new(),
+        expected: String::new(),
+        got: String::new(),
     }
 }
 
@@ -1296,6 +1392,8 @@ pub fn reject_option_like(builtin: &str, values: &[String]) -> anyhow::Result<()
                     .to_string(),
                 approval: None,
                 did_you_mean: Vec::new(),
+                expected: String::new(),
+                got: String::new(),
             }));
         }
     }
@@ -1447,6 +1545,8 @@ pub fn ps_bare_number(builtin: &str, value: &str) -> anyhow::Result<PsLiteral> {
             .to_string(),
         approval: None,
         did_you_mean: Vec::new(),
+        expected: String::new(),
+        got: String::new(),
     }))
 }
 
@@ -1535,6 +1635,8 @@ pub fn reject_sqlite_dot_command(builtin: &str, sql: &str) -> anyhow::Result<()>
                 .to_string(),
             approval: None,
             did_you_mean: Vec::new(),
+            expected: String::new(),
+            got: String::new(),
         }));
     }
     Ok(())
@@ -1581,6 +1683,8 @@ pub fn guard(ctx: GuardCtx) -> Result<(), SafetyError> {
                     ),
                     approval: None,
                     did_you_mean: Vec::new(),
+                    expected: String::new(),
+                    got: String::new(),
                 });
             }
         }
@@ -1620,6 +1724,8 @@ pub fn guard(ctx: GuardCtx) -> Result<(), SafetyError> {
                     .to_string(),
                 approval: None,
                 did_you_mean: Vec::new(),
+                expected: String::new(),
+                got: String::new(),
             })
         }
         Decision::Approve => {
@@ -1658,6 +1764,8 @@ pub fn guard(ctx: GuardCtx) -> Result<(), SafetyError> {
                     ),
                     approval: Some(descriptor),
                     did_you_mean: Vec::new(),
+                    expected: String::new(),
+                    got: String::new(),
                 })
             }
         }

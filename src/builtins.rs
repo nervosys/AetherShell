@@ -14887,7 +14887,16 @@ fn bi_sh(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn aecon_atom(v: &Value) -> String {
     match v {
         Value::Str(s) => {
-            if s.is_empty() || s.contains('\t') || s.contains('\n') {
+            // A bare cell opening with `{` or `[` is reserved for a composite value
+            // (record/array), which renders as JSON below. A *string* that happens to
+            // start that way is JSON-quoted so the two can never be confused — the
+            // same reservation `""` already provides for the empty string.
+            if s.is_empty()
+                || s.contains('\t')
+                || s.contains('\n')
+                || s.starts_with('{')
+                || s.starts_with('[')
+            {
                 serde_json::to_string(s).unwrap_or_else(|_| format!("{:?}", s))
             } else {
                 s.clone()
@@ -14953,6 +14962,41 @@ fn longest_common_str_suffix(vals: &[&str]) -> String {
     suffix.into_iter().rev().collect()
 }
 
+/// Depth limit for `@nest` flattening. Deep enough for real API payloads, shallow
+/// enough that a pathological or cyclic-looking shape cannot blow the stack.
+const AECON_NEST_DEPTH: usize = 4;
+
+/// Flatten a record's nested-record fields into dotted columns, in place.
+/// `user: {id, name}` becomes `user.id` / `user.name`, recursively to
+/// `AECON_NEST_DEPTH`. Records are the only thing expanded — arrays and scalars stay
+/// whole, so a cell is always an atom. Returns the *top-level* keys that were
+/// expanded, which the `@nest` line names so decode knows which dotted columns to
+/// rebuild (and which merely contain a literal dot).
+fn aecon_flatten_into(
+    src: &BTreeMap<String, Value>,
+    out: &mut BTreeMap<String, Value>,
+    prefix: &str,
+    depth: usize,
+) {
+    for (k, v) in src {
+        let name = if prefix.is_empty() {
+            k.clone()
+        } else {
+            format!("{prefix}.{k}")
+        };
+        match v {
+            // An empty record carries no columns, so flattening it would erase the
+            // field entirely; keep it as an atom so the round-trip holds.
+            Value::Record(inner) if depth < AECON_NEST_DEPTH && !inner.is_empty() => {
+                aecon_flatten_into(inner, out, &name, depth + 1)
+            }
+            other => {
+                out.insert(name, other.clone());
+            }
+        }
+    }
+}
+
 /// Render a Value as AECON (Aether Compact Object Notation). Tabular values
 /// (Table, or a homogeneous Array<Record>) become a `@aecon` header + TSV rows;
 /// single records become `{k=v ...}`; scalar arrays become `[a,b,c]`; scalars
@@ -14980,6 +15024,65 @@ fn aecon_render(v: &Value) -> String {
             (rs, None)
         }
         _ => (Vec::new(), None),
+    };
+
+    // `@nest`: a record-valued cell would otherwise serialize as whole JSON on every
+    // row — keys and all — which is precisely what this format exists to avoid, and
+    // none of the column passes below can reach inside it. Expanding it into dotted
+    // columns subjects each leaf to `@const`/`@dict`/`@prefix`/`@suffix`/`@same` like
+    // any other column. A top-level key is expanded only when no existing column
+    // already starts with `<key>.`, so a literal dotted key is never shadowed; the
+    // `@nest` line names exactly what was expanded, so decode rebuilds only those.
+    let mut nest_keys: Vec<String> = Vec::new();
+    let flattened: Option<Vec<BTreeMap<String, Value>>> = if rows.len() >= 2 {
+        let top: Vec<&String> = rows[0].keys().collect();
+        let expandable: Vec<String> = rows[0]
+            .iter()
+            .filter(|(k, v)| match v {
+                Value::Record(inner) => {
+                    !inner.is_empty()
+                        && !top.iter().any(|other| other.starts_with(&format!("{k}.")))
+                }
+                _ => false,
+            })
+            .map(|(k, _)| k.clone())
+            .collect();
+        // Every row must agree that the field is a record, or the flattened table is
+        // ragged and the homogeneity check below would reject it anyway.
+        let consistent = expandable.iter().all(|k| {
+            rows.iter()
+                .all(|r| matches!(r.get(k), Some(Value::Record(m)) if !m.is_empty()))
+        });
+        if expandable.is_empty() || !consistent {
+            None
+        } else {
+            nest_keys = expandable;
+            Some(
+                rows.iter()
+                    .map(|r| {
+                        let mut out = BTreeMap::new();
+                        for (k, v) in r.iter() {
+                            if nest_keys.contains(k) {
+                                if let Value::Record(inner) = v {
+                                    aecon_flatten_into(inner, &mut out, k, 1);
+                                    continue;
+                                }
+                            }
+                            out.insert(k.clone(), v.clone());
+                        }
+                        out
+                    })
+                    .collect(),
+            )
+        }
+    } else {
+        None
+    };
+    let (rows, header) = match &flattened {
+        // Flattening rewrites the column set, so a caller-supplied schema no longer
+        // describes it; the expanded keys are the schema.
+        Some(f) => (f.iter().collect::<Vec<_>>(), None),
+        None => (rows, header),
     };
 
     if !rows.is_empty() {
@@ -15332,6 +15435,10 @@ fn aecon_render(v: &Value) -> String {
             // tab-separated rows. No `@aecon rows=N cols=` prefix — the header is
             // self-describing and ~7 tokens cheaper per result than the verbose form.
             let mut out = var_keys.join("\t");
+            if !nest_keys.is_empty() {
+                out.push_str("\n@nest ");
+                out.push_str(&nest_keys.join("\t"));
+            }
             if !const_keys.is_empty() {
                 let consts: Vec<String> = const_keys
                     .iter()
@@ -15470,6 +15577,13 @@ fn aecon_decode_atom(cell: &str) -> Value {
             return Value::Str(s);
         }
     }
+    // Composite values render as bare JSON, and `aecon_atom` quotes any *string*
+    // that would open the same way, so a leading `{`/`[` unambiguously means one.
+    if cell.starts_with('{') || cell.starts_with('[') {
+        if let Ok(j) = serde_json::from_str::<serde_json::Value>(cell) {
+            return Value::from_json(&j);
+        }
+    }
     match cell {
         "null" => return Value::Null,
         "true" => return Value::Bool(true),
@@ -15483,6 +15597,40 @@ fn aecon_decode_atom(cell: &str) -> Value {
         return Value::Float(f);
     }
     Value::Str(cell.to_string())
+}
+
+/// Rebuild the nested records that `@nest` flattened away. Only columns whose first
+/// dotted segment is named in `nest` are rebuilt — every other key is kept verbatim,
+/// so a column that merely *contains* a dot is never mistaken for a nested field.
+fn aecon_unflatten(
+    flat: BTreeMap<String, Value>,
+    nest: &std::collections::HashSet<String>,
+) -> BTreeMap<String, Value> {
+    let mut out: BTreeMap<String, Value> = BTreeMap::new();
+    for (k, v) in flat {
+        let head = k.split('.').next().unwrap_or("");
+        if !nest.contains(head) || !k.contains('.') {
+            out.insert(k, v);
+            continue;
+        }
+        let segments: Vec<&str> = k.split('.').collect();
+        // Walk down, creating records as needed, and place the leaf at the bottom.
+        let mut cursor = &mut out;
+        for seg in &segments[..segments.len() - 1] {
+            let entry = cursor
+                .entry((*seg).to_string())
+                .or_insert_with(|| Value::Record(BTreeMap::new()));
+            if !matches!(entry, Value::Record(_)) {
+                *entry = Value::Record(BTreeMap::new());
+            }
+            cursor = match entry {
+                Value::Record(m) => m,
+                _ => unreachable!("just forced to a record"),
+            };
+        }
+        cursor.insert(segments[segments.len() - 1].to_string(), v);
+    }
+    out
 }
 
 /// Decode the tabular AECON form (header + optional `@const`/`@dict`/`@delta`/
@@ -15518,6 +15666,7 @@ fn aecon_decode(s: &str) -> Value {
     let mut prefixes: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     let mut suffixes: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     let mut same_set: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut nest_set: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut delta_set: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut type_tags: std::collections::HashMap<String, char> = std::collections::HashMap::new();
     let mut row_start = 1;
@@ -15546,6 +15695,10 @@ fn aecon_decode(s: &str) -> Value {
         } else if let Some(rest) = line.strip_prefix("@same ") {
             for c in rest.split('\t') {
                 same_set.insert(c.to_string());
+            }
+        } else if let Some(rest) = line.strip_prefix("@nest ") {
+            for c in rest.split('\t') {
+                nest_set.insert(c.to_string());
             }
         } else if let Some(rest) = line.strip_prefix("@delta: ") {
             for c in rest.split('\t') {
@@ -15619,7 +15772,11 @@ fn aecon_decode(s: &str) -> Value {
         for (k, v) in &consts {
             m.insert(k.clone(), v.clone());
         }
-        out_rows.push(Value::Record(m));
+        out_rows.push(Value::Record(if nest_set.is_empty() {
+            m
+        } else {
+            aecon_unflatten(m, &nest_set)
+        }));
     }
     Value::Array(out_rows)
 }
@@ -16863,6 +17020,12 @@ fn bi_diagnose(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     if let Some(v) = diag_field(&err, "approval") {
         out.insert("approval".to_string(), v.clone());
     }
+    // The typed argument pair, when the failure carries one: an agent repairing a
+    // `E_BAD_ARG` should not have to parse English to learn what shape was wanted.
+    if let (Some(e), Some(g)) = (diag_field(&err, "expected"), diag_field(&err, "got")) {
+        out.insert("expected".to_string(), e.clone());
+        out.insert("got".to_string(), g.clone());
+    }
 
     // The expensive part — the builtin's own contract — is fetched only when the
     // error actually names a builtin that exists.
@@ -16879,6 +17042,16 @@ fn bi_diagnose(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         if let Some(v) = def.get(key) {
             out.insert(key.to_string(), Value::from_json(v));
         }
+    }
+    // Whether re-running the *operation* is safe, which is a different question from
+    // whether the *error* was transient (`retryable`). After a timeout an agent knows
+    // the error may be worth retrying; only this says whether retrying can duplicate
+    // the effect. Emitted only when it adds something `retryable` does not already
+    // imply — a retryable error on an idempotent call is the uninteresting case.
+    let idem = crate::safety::idempotent(&name);
+    let err_retryable = matches!(out.get("retryable"), Some(Value::Bool(true)));
+    if !idem || err_retryable {
+        out.insert("idempotent".to_string(), Value::Bool(idem));
     }
     // A signature already spells out the parameters and the return type. Emitting
     // them again is pure duplication in the exact place we are trying to be cheap,

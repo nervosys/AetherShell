@@ -572,6 +572,14 @@ paged/truncated to fit (✅ implemented). ✅ Per-session aggregation lands via
       constant across *every* row; this covers the runs `@const` cannot see.
       Excluded: `@delta` columns (whose running sum owns the previous-row state)
       and `@prefix`/`@suffix` columns (whose residue may legitimately be empty).
+    - **`@nest col …`** — record-valued columns expanded into dotted columns
+      (`meta.region`, `artifact.path`), so every pass above reaches the leaves instead
+      of stopping at an opaque JSON blob repeated on each row. Only *records* are
+      expanded — an array cell stays a single atom, keeping the cell grammar flat — and
+      a key is expanded only when nothing already occupies its dotted namespace, so a
+      literal `user.id` column is never shadowed. Empty records and fields that are not
+      records in every row are left whole. **583 → 258 tokens** on a 30-row API-shaped
+      payload; the single largest factoring win in the format.
     - **`@type col:s|f …`** — type tags for *lossless* decode, emitted **only**
       where the compact form is ambiguous: a string that looks like a
       number/bool/null (`s`), or a float with an integral value that renders

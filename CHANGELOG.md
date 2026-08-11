@@ -7,6 +7,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`@nest`: record-valued columns are expanded into dotted columns.** A nested cell
+  previously serialized as whole JSON on *every row*, keys included — the exact cost
+  this format exists to remove, and unreachable by any column pass. Expanding it into
+  `meta.region` / `artifact.path` subjects each leaf to `@const`, `@dict`,
+  `@prefix`/`@suffix` and `@same` like any other column. On a 30-row API-shaped
+  payload: **583 → 258 tokens, a 2.26× reduction** (real cl100k, identical rows).
+
+  Only records are expanded, so an array cell stays a single atom and the cell grammar
+  stays flat. A top-level key is expanded only when nothing already occupies its dotted
+  namespace, so a literal `user.id` column is never shadowed by a nested `user` record;
+  an empty record is left whole rather than flattened to nothing; and a field that is
+  not a record in every row is left alone.
+
+- **Typed argument failures.** `bad_arg` already computed *expected* and *got* and then
+  buried them in an English message. They are now structured fields on `SafetyError`,
+  emitted as a pair in the error JSON and surfaced by `diagnose`, so an agent repairing
+  an `E_BAD_ARG` does not have to parse prose to learn what shape was wanted.
+
+- **An idempotency signal, distinct from error retryability.** `ErrorCode::retryable`
+  describes the *error*; `Effect::retry_safe_by_class` and `safety::idempotent` describe
+  the *operation*. A network timeout is a retryable error, but re-issuing the request
+  behind it may duplicate the effect — an agent needs both facts, and conflating them is
+  how duplicate side effects happen. Conservative by construction: only `Pure` and
+  `ReadLocal` are safe by class and everything else opts in explicitly, because a false
+  "unsafe" costs one stalled retry while a false "safe" cannot be taken back.
+
+- **An effect ratchet that reads bodies, not names** (`tests/effect_ratchet.rs`).
+  `effect_coverage.rs` audits names that advertise a side effect; this one flags any
+  builtin whose body constructs a process, writes a file or opens a socket while
+  `effect_of` returns `Pure`. Name-based reasoning is what produced the original
+  misclassifications, so this checks the evidence instead.
+
+  It found **306** such builtins — overwhelmingly wrappers around external developer
+  tooling (`pytest_run`, `eslint_check`, `go_build`, `skopeo_copy`), an order of
+  magnitude beyond the 28 the name lint caught. Reclassifying them is a behavioural
+  change in agent mode and belongs to the maintainer, so this lands as a ratchet rather
+  than a gate: `tests/effect_ratchet_baseline.txt` records the debt and **may only
+  shrink**. A newly added builtin that acts while `Pure` fails the build — the mechanism
+  that was missing while those 306 accumulated — and a baseline entry that no longer
+  violates must be deleted rather than left to rot.
+
+- **Cross-turn prefix stability is now measured** (`tests/prefix_stability.rs`), along
+  with a test that a reordered result forfeits most of its prefix — which is what the
+  determinism guarantee actually buys.
+
+### Fixed
+
+- **Non-scalar cells never round-tripped.** A `Record` or `Array` cell rendered as bare
+  JSON via `aecon_atom`'s catch-all, and the decoder could not distinguish that from a
+  string that merely looks like JSON — so every composite cell decoded back as `Str`.
+  The format documented itself as "lossless and reversible"; for nested data it was not.
+  A string opening with `{` or `[` is now JSON-quoted, reserving a bare `{`/`[` cell for
+  a genuine composite, exactly as `""` already reserves the empty string. Found by
+  round-trip tests written for `@nest`.
+
+- **The prompt-cache figure was modelled, not measured.** The README gave *a 90%-stable
+  prefix is ~4.1× cheaper over 20 turns*. Measured on a realistic 20-turn poll — 20 rows,
+  one field changing per turn — it is **61.8% mean stability and 2.12× cheaper** at a 0.1
+  cached-token rate. The gap is structural rather than a rounding error: a row that
+  changes early truncates every byte after it, so stability depends on *where* the change
+  lands, not only how much changed. Corrected to the measured figure with its method.
+
 ## [5.1.0] - 2026-08-10
 
 ### Added

@@ -349,8 +349,10 @@ header-once format that emits each column name once, factors constant columns in
 a single `@const` line, dictionary-encodes string columns with repeats
 (`@dict`), delta-encodes large slowly-varying integers (`@delta`), factors a
 shared leading prefix out of path/URI/id columns into one `@prefix` line, factors a
-shared trailing run (extensions, domain tails) into `@suffix`, and elides a cell
-identical to the one above it in run-structured columns (`@same`). On
+shared trailing run (extensions, domain tails) into `@suffix`, elides a cell
+identical to the one above it in run-structured columns (`@same`), and expands
+record-valued columns into dotted columns (`@nest`) so every pass above reaches the
+leaves instead of stopping at a JSON blob. On
 realistic tabular results that's **~2.8× fewer output tokens than POSIX shells**. Versus
 PowerShell the ratio depends on which output an agent parses: ~1.4× vs its display
 `Format-Table` (not reliably parseable), ~1.6× vs compact `ConvertTo-Json -Compress`,
@@ -371,9 +373,18 @@ a value entirely. Which encoding a column gets is decided by **exact character c
 not by heuristics: raw, `@dict` and `@prefix`/`@suffix` are each costed as they will
 actually be emitted (including the `@same` elision that follows), and the cheapest
 wins. A table with nothing to factor emits no metadata lines at all. On a 30-row
-grouped listing with paths, the three additions take the result from **265 to 153
+grouped listing with paths, those additions take the result from **265 to 153
 tokens — 42% fewer** (real cl100k, same rows, encoder before vs. after:
 `cargo test --test aecon_factoring --features real-tokens -- --nocapture`).
+
+`@nest` is the larger win, because a record-valued cell previously serialized as whole
+JSON on *every row*, keys included — exactly the cost this format exists to remove, and
+unreachable by any of the column passes. Expanding it into `meta.region` / `artifact.path`
+subjects each leaf to `@const`, `@prefix` and the rest. On a 30-row API-shaped payload
+that is **583 → 258 tokens, a 2.26× reduction**
+(`cargo test --test aecon_nesting --features real-tokens -- --nocapture`). Only records
+are expanded, so an array cell stays a single atom; a top-level key is expanded only when
+nothing already occupies its dotted namespace.
 
 It's **lossless and reversible**: `aecon_decode` reconstructs the original rows
 (with on-demand `@type` tags so numeric-looking strings and integral floats
@@ -635,8 +646,15 @@ rather than rounded up.
 Two further v0.6 metrics are reported as context (not folded into the composite):
 **exfiltration risk** (0.60 for a read+network task — *shell-invariant*; only AetherShell
 can bound it via gating + the `AETHER_NET_ALLOW` egress allowlist) and **prompt-cache**
-headroom (a 90%-stable prefix is ~4.1× cheaper over 20 turns — and deterministic output
-is the precondition).
+headroom. That second figure used to be given as *a 90%-stable prefix is ~4.1× cheaper
+over 20 turns*, which was modelled rather than measured. Measured
+(`cargo test --test prefix_stability --features real-tokens -- --nocapture`), a realistic
+20-turn poll — 20 rows, one field changing per turn — holds **61.8%** mean prefix
+stability and comes out **2.12× cheaper** at a 0.1 cached-token rate. The gap is
+structural, not a rounding error: a row that changes *early* in the table truncates
+everything after it, so stability depends on where the change lands, not just how much
+changed. Deterministic output remains the precondition — the same test shows a reordered
+result forfeits most of the prefix.
 
 ---
 
