@@ -59,8 +59,11 @@ fn an_overwritten_file_is_restored_byte_for_byte() {
     let p = s.path("notes.txt");
     std::fs::write(&p, "original contents").expect("seed");
 
-    call("file_write", vec![Value::Str(p.clone()), Value::Str("clobbered".into())])
-        .expect("write should succeed");
+    call(
+        "file_write",
+        vec![Value::Str(p.clone()), Value::Str("clobbered".into())],
+    )
+    .expect("write should succeed");
     assert_eq!(std::fs::read_to_string(&p).unwrap(), "clobbered");
 
     let result = call("undo", vec![]).expect("undo");
@@ -82,7 +85,11 @@ fn a_file_created_by_the_agent_is_removed_again() {
     let p = s.path("new.txt");
     assert!(!PathBuf::from(&p).exists());
 
-    call("file_write", vec![Value::Str(p.clone()), Value::Str("fresh".into())]).expect("write");
+    call(
+        "file_write",
+        vec![Value::Str(p.clone()), Value::Str("fresh".into())],
+    )
+    .expect("write");
     assert!(PathBuf::from(&p).exists());
 
     let result = call("undo", vec![]).expect("undo");
@@ -101,7 +108,11 @@ fn several_steps_rewind_in_reverse_order() {
     std::fs::write(&p, "v0").expect("seed");
 
     for v in ["v1", "v2", "v3"] {
-        call("file_write", vec![Value::Str(p.clone()), Value::Str(v.into())]).expect("write");
+        call(
+            "file_write",
+            vec![Value::Str(p.clone()), Value::Str(v.into())],
+        )
+        .expect("write");
     }
     assert_eq!(std::fs::read_to_string(&p).unwrap(), "v3");
 
@@ -189,7 +200,11 @@ fn undo_does_not_journal_itself() {
     let s = Session::new("selfjournal");
     let p = s.path("s.txt");
     std::fs::write(&p, "before").expect("seed");
-    call("file_write", vec![Value::Str(p.clone()), Value::Str("after".into())]).expect("write");
+    call(
+        "file_write",
+        vec![Value::Str(p.clone()), Value::Str("after".into())],
+    )
+    .expect("write");
 
     call("undo", vec![]).expect("undo");
     assert_eq!(std::fs::read_to_string(&p).unwrap(), "before");

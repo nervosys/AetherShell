@@ -5,6 +5,56 @@ All notable changes to AetherShell will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.1.0] - 2026-08-11
+
+### Changed
+
+- **Effect classification is now enforced, not merely advertised.**
+  `effect_of` describes an operation's danger; `guard` is what acts on it. Only
+  **51 of ~1,300** builtins ever reached `guard`, so 6.0.0's classification of
+  306 process-spawning builtins improved what the ontology *told* an agent
+  without changing what the shell would *let* one do. An agent that read
+  `x-effect` and respected it was protected; an agent that simply called the
+  tool was not — `git_clean` was labelled `Destructive` and still deleted
+  untracked files unguarded.
+
+  `safety::guard_dispatch` closes that at `call_with_input_inner`, the one place
+  every builtin already passes through. Roughly 90 builtins in the `Process`,
+  `Destructive` and `Exec` classes now meet the policy table, with an approval
+  path and an audit entry where they previously had neither.
+
+  Scoped deliberately:
+
+  - `WriteLocal` and `Network` are **excluded**. Both already decide `Allow` in
+    agent mode, so central guarding would double their audit and governor
+    accounting without changing one decision.
+  - The workspace **jail stays at hand-written call sites**, which know their
+    real targets. A central point cannot tell which string arguments are paths,
+    and jailing anything path-shaped would reject legitimate calls.
+  - Read-only builtins stay ungated, so exploration is untaxed.
+
+- **`safety::SELF_GUARDED`** lists the 52 builtins that enforce policy
+  themselves, skipped centrally so one action is not admitted twice.
+  `tests/guard_enforcement.rs` derives the same set from the source and fails on
+  any disagreement, so the list cannot drift as call sites change.
+
+### Fixed
+
+- **`apply` was double-gated by the first cut of central enforcement.** It gates
+  a whole plan on one plan-derived token, jails each operation and snapshots
+  into a transaction — but it never calls `guard`, so a detector looking only
+  for `guard(` omitted it. Guarding it generically as `Exec` demanded a second,
+  unrelated token and returned before the code that hands back the plan token,
+  turning a working approval flow into a dead end. Caught by
+  `tests/transactions.rs`; the detector now reads for approval checks as well as
+  guards, and a regression test names the case.
+
+- **CI formatting.** 7.0.0's new modules and tests were never run through
+  `cargo fmt`, so `cargo fmt --check` failed on master while the suite and
+  clippy were green. The published crate was unaffected — the failure was
+  cosmetic — but `fmt` is now part of the local gate rather than something only
+  CI checked.
+
 ## [7.0.0] - 2026-08-11
 
 Three features aimed at the agent *loop* rather than the individual call: how

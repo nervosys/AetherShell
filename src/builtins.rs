@@ -3859,6 +3859,20 @@ fn call_with_input_inner(
     input: Option<Value>,
     env: &mut Env,
 ) -> Result<Value> {
+    // Enforce policy before the builtin runs. `effect_of` only ever *described*
+    // an operation's danger; this is where the description starts to constrain.
+    // Builtins that guard themselves are skipped so one action is not admitted
+    // twice.
+    crate::safety::guard_dispatch(
+        name,
+        args.iter()
+            .filter_map(|a| match a {
+                Value::Str(s) => Some(s.clone()),
+                _ => None,
+            })
+            .collect(),
+    )?;
+
     // Capture what a mutating call is about to overwrite, so the session can be
     // rewound. This is the one place every builtin passes through, which is why
     // it is here rather than at ~300 call sites — the same reason this function
@@ -16387,7 +16401,10 @@ fn bi_journal() -> Result<Value> {
         "irreversible".to_string(),
         Value::Int((entries.len() - reversible) as i64),
     );
-    out.insert("enabled".to_string(), Value::Bool(crate::journal::enabled()));
+    out.insert(
+        "enabled".to_string(),
+        Value::Bool(crate::journal::enabled()),
+    );
     out.insert("entries".to_string(), Value::Array(rows));
     Ok(Value::Record(out))
 }

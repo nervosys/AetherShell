@@ -147,6 +147,13 @@ pub mod evolution;
 /// External tools — integration with system-installed CLI tools.
 #[cfg(feature = "native")]
 pub mod external_tools;
+/// Result handles — keep a large result server-side and send a reference.
+#[cfg(feature = "native")]
+pub mod handles;
+/// Reversible sessions — capture what a mutating call overwrites, so it can be
+/// rewound.
+#[cfg(feature = "native")]
+pub mod journal;
 /// Line editing — fish-style autosuggestions, abbreviations, history recall.
 #[cfg(feature = "native")]
 pub mod line_editor;
@@ -207,13 +214,6 @@ pub mod security;
 /// Return shapes — what a builtin gives back, advertised before it is called.
 #[cfg(feature = "native")]
 pub mod shapes;
-/// Result handles — keep a large result server-side and send a reference.
-#[cfg(feature = "native")]
-pub mod handles;
-/// Reversible sessions — capture what a mutating call overwrites, so it can be
-/// rewound.
-#[cfg(feature = "native")]
-pub mod journal;
 /// Syntax knowledge base — command documentation and help system.
 #[cfg(feature = "native")]
 pub mod syntax_kb;

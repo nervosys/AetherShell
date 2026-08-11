@@ -205,9 +205,9 @@ fn every_declared_shape_is_proven() {
         };
         match agreed_shape(name, arg_sets) {
             Err(why) => wrong.push(format!("  declared `{declared}` but {why}")),
-            Ok(actual) if actual != *declared => {
-                wrong.push(format!("  {name}: declared `{declared}`, observed `{actual}`"))
-            }
+            Ok(actual) if actual != *declared => wrong.push(format!(
+                "  {name}: declared `{declared}`, observed `{actual}`"
+            )),
             Ok(_) => {}
         }
     }

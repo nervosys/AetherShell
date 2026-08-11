@@ -2117,6 +2117,133 @@ pub fn guard(ctx: GuardCtx) -> Result<(), SafetyError> {
 }
 
 // ════════════════════════════════════════════════════════════════════════
+// Central enforcement
+// ════════════════════════════════════════════════════════════════════════
+//
+// `effect_of` is an *advertisement*; `guard` is the *control*. Until 7.1.0 only
+// 51 of ~1,300 builtins reached the control, so 6.0.0's classification of 306
+// process-spawning builtins improved what the ontology told an agent without
+// changing what the shell would let one do. An agent that reads `x-effect` and
+// respects it was protected; an agent that simply called the tool was not.
+//
+// `guard_dispatch` closes that at the dispatcher, which is the one place every
+// builtin already passes through.
+
+/// Builtins that enforce policy themselves. They are skipped centrally so a
+/// single action is not admitted twice — double-guarding would charge the
+/// resource governor twice and write two audit entries for one call.
+///
+/// "Enforces itself" means calling a `guard_*` helper **or** consulting the
+/// approval system directly. That second form is not a technicality: `apply`
+/// gates a whole plan on one plan-derived token, checks the jail per operation,
+/// and snapshots into a transaction. Guarding it centrally as a generic `Exec`
+/// demanded a *second*, unrelated token and pre-empted the `needs_approval`
+/// response that carries the plan token — turning a working approval flow into
+/// a dead end. Found by `tests/transactions.rs`, which is why the detector reads
+/// for approval checks and not merely for the word `guard`.
+///
+/// Hand-written, and verified against the source by
+/// `tests/guard_enforcement.rs`, so it cannot drift as call sites are added or
+/// removed.
+pub const SELF_GUARDED: &[&str] = &[
+    "apply",
+    "cloud_instance_destroy",
+    "curl_exec",
+    "db_kv_delete",
+    "db_sqlite_delete",
+    "db_sqlite_drop_table",
+    "docker_compose_down",
+    "docker_exec",
+    "docker_rm",
+    "file_append",
+    "file_delete_lines",
+    "file_write",
+    "http_get",
+    "k8s_delete",
+    "k8s_exec",
+    "ltrace_cmd",
+    "lxc_exec",
+    "nohup_run",
+    "perf_record",
+    "perf_stat",
+    "platform_db_delete",
+    "platform_os_version",
+    "podman_exec",
+    "proc_kill",
+    "proc_spawn",
+    "rlm_spawn",
+    "rm",
+    "rmdir",
+    "sh",
+    "ssh_exec",
+    "strace_cmd",
+    "sys_info",
+    "terraform_destroy",
+    "timeout_cmd",
+    "tmux_new",
+    "tmux_send",
+    "tool_exec",
+    "web_check_url",
+    "web_cookies",
+    "web_download",
+    "web_fetch",
+    "web_form_submit",
+    "web_graphql",
+    "web_headers",
+    "web_json_get",
+    "web_json_post",
+    "web_post",
+    "web_rest_api",
+    "web_scrape",
+    "web_upload_file",
+    "wget_download",
+    "xargs_exec",
+];
+
+/// Whether an effect is one the policy table can refuse.
+///
+/// Only these are enforced centrally. In agent mode `WriteLocal` and `Network`
+/// already decide to `Allow`, so guarding them here would change no decision
+/// while doubling their audit and governor accounting — cost without safety.
+/// They stay with the hand-written call sites, which know their real targets.
+fn centrally_enforced(effect: Effect) -> bool {
+    matches!(
+        effect,
+        Effect::Process | Effect::Destructive | Effect::Exec | Effect::Privileged
+    )
+}
+
+/// Enforce policy for a builtin that does not guard itself. Called from the
+/// dispatcher immediately before a builtin runs.
+///
+/// The targets are the call's string arguments, which is the best a central
+/// point can do: it cannot know which of them are paths. `fs_paths` is
+/// therefore **false** — the workspace jail stays with the hand-written call
+/// sites that know their targets, because jailing an argument that merely looks
+/// like a path would reject legitimate calls. What this adds is the policy
+/// decision, the approval path, and the audit entry, for ~90 builtins that
+/// previously had none of the three.
+pub fn guard_dispatch(builtin: &str, args_as_strings: Vec<String>) -> Result<(), SafetyError> {
+    let effect = effect_of(builtin);
+    if !centrally_enforced(effect) || SELF_GUARDED.contains(&builtin) {
+        return Ok(());
+    }
+    guard(GuardCtx {
+        builtin,
+        effect,
+        what: effect.as_str(),
+        targets: args_as_strings,
+        blast_radius: json!({}),
+        // Honest rather than optimistic: a journalled file write can be rewound,
+        // but this path covers process/exec/destructive classes whose effects
+        // reach outside the filesystem, and claiming reversibility would make an
+        // approval prompt read as safer than it is.
+        reversible: false,
+        fs_paths: false,
+    })
+}
+
+// ════════════════════════════════════════════════════════════════════════
 // Secret hygiene (§7.6)
 // ════════════════════════════════════════════════════════════════════════
 //

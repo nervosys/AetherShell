@@ -47,8 +47,14 @@ fn big_table(n: i64) -> Value {
             .map(|i| {
                 rec(&[
                     ("id", Value::Int(1000 + i)),
-                    ("path", Value::Str(format!("/srv/app/module_{i:03}/main.rs"))),
-                    ("status", Value::Str(if i % 3 == 0 { "ok" } else { "stale" }.into())),
+                    (
+                        "path",
+                        Value::Str(format!("/srv/app/module_{i:03}/main.rs")),
+                    ),
+                    (
+                        "status",
+                        Value::Str(if i % 3 == 0 { "ok" } else { "stale" }.into()),
+                    ),
                     ("bytes", Value::Int(4096 + i * 7)),
                 ])
             })
@@ -81,7 +87,10 @@ fn the_handle_is_lossless() {
     render(&original);
     let id = aethershell::handles::list()[0].id.clone();
     let recovered = call("handle", vec![Value::Str(id)]);
-    assert_eq!(recovered, original, "a handle must return exactly what was computed");
+    assert_eq!(
+        recovered, original,
+        "a handle must return exactly what was computed"
+    );
 }
 
 fn tokens(s: &str) -> usize {
@@ -120,7 +129,10 @@ fn the_handle_costs_far_less_than_the_data_and_the_gap_widens_with_size() {
             "{n} rows — whole: {wt} tokens; handle: {ht} tokens ({:.1}x)",
             wt as f64 / ht as f64
         );
-        assert!(ht * 8 < wt, "{n} rows: expected a large saving, {ht} vs {wt}");
+        assert!(
+            ht * 8 < wt,
+            "{n} rows: expected a large saving, {ht} vs {wt}"
+        );
         ratios.push(wt as f64 / ht as f64);
     }
     assert!(
@@ -146,7 +158,10 @@ fn a_small_result_is_returned_whole() {
     aethershell::handles::clear();
     let small = big_table(3);
     let out = render(&small);
-    assert!(!out.starts_with("@handle"), "small results stay whole:\n{out}");
+    assert!(
+        !out.starts_with("@handle"),
+        "small results stay whole:\n{out}"
+    );
     assert!(
         aethershell::handles::list().is_empty(),
         "a small result must not consume a handle"
@@ -163,7 +178,10 @@ fn a_giant_string_is_not_handled_because_it_could_not_be_narrowed() {
     let _ = out;
     let huge = Value::Str("x".repeat(50_000));
     let rendered = aethershell::builtins::render_agent(&huge, None).expect("render");
-    assert!(!rendered.starts_with("@handle"), "an opaque blob is sent as-is");
+    assert!(
+        !rendered.starts_with("@handle"),
+        "an opaque blob is sent as-is"
+    );
 }
 
 #[test]
@@ -212,5 +230,8 @@ fn dropping_a_handle_reports_whether_it_existed() {
         call("handle_drop", vec![Value::Str(id.clone())]),
         Value::Bool(true)
     );
-    assert_eq!(call("handle_drop", vec![Value::Str(id)]), Value::Bool(false));
+    assert_eq!(
+        call("handle_drop", vec![Value::Str(id)]),
+        Value::Bool(false)
+    );
 }
