@@ -7,7 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Two more AECON factoring passes.** `@suffix` factors a shared *trailing* run
+  out of a string column — file extensions, domain tails, id suffixes — the
+  mirror of the existing `@prefix`, and composes with it on the same column. The
+  suffix is searched in the residue the prefix leaves, so the two runs can never
+  overlap, even on a value they consume entirely. `@same` elides a cell identical
+  to the one above it in run-structured columns: an empty cell is an unambiguous
+  sentinel because a genuinely empty string renders JSON-quoted (`""`).
+  `@const` already covered columns constant across *every* row; `@same` covers the
+  runs `@const` cannot see, which is the shape of any sorted or grouped result.
+
+  Both are reversed by `aecon_decode` — the load-bearing test for each is the
+  exact round-trip.
+
+- **Per-column encoding is now chosen by exact character cost.** Raw, `@dict` and
+  `@prefix`/`@suffix` are each costed as they will actually be emitted — including
+  the `@same` elision that runs afterwards — and the cheapest wins. This replaces
+  two hand-tuned dictionary heuristics (`d <= rows/2`, `avg_len >= 3`) that
+  mis-fired in both directions: they declined dictionaries that would have paid on
+  long values, and, because `@dict` was tried first and won by default, they took
+  columns that prefix/suffix factoring would have compressed much harder. A table
+  with nothing to factor now emits no metadata lines at all.
+
+  Together the three changes take a 30-row grouped listing with paths from **265
+  to 153 tokens — 42% fewer** (real cl100k, identical rows, encoder before vs.
+  after).
+
 ### Fixed
+
+- **A tab inside a value silently corrupted its own dictionary.** `@dict` emits its
+  distinct values tab-separated but accepted any `Value::Str`, so a value containing
+  a tab split into two dictionary entries and every row referencing it decoded to
+  the wrong string — `"a\tbcd"` came back as `"a"`. Lossy, silent, and reachable
+  from ordinary data. Dictionary eligibility is now bare-safe strings only, matching
+  what `@prefix`/`@suffix` already required.
+
+- **A row factored away to nothing was silently dropped.** A single-column table
+  whose value was entirely consumed by `@prefix` rendered as a bare empty line,
+  and the decoder skipped every empty line — losing the row with no error. This
+  predates `@suffix` (`@prefix` alone reproduces it) and was found by a
+  round-trip test written for the new pass. Trailing blank lines are still
+  treated as formatting; interior ones are now read as rows.
 
 - **The release verifiers checked the wrong thing.** Added on 2026-08-07 to stop
   `continue-on-error` from masking failed publishes, they asked the registry

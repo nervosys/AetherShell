@@ -346,9 +346,11 @@ agent enough to **fix it**.
 
 Set `AETHER_MODE=agent` and every tabular result renders as **AECON** — a
 header-once format that emits each column name once, factors constant columns into
-a single `@const` line, dictionary-encodes low-cardinality string columns
-(`@dict`), delta-encodes large slowly-varying integers (`@delta`), and factors a
-shared leading prefix out of path/URI/id columns into one `@prefix` line. On
+a single `@const` line, dictionary-encodes string columns with repeats
+(`@dict`), delta-encodes large slowly-varying integers (`@delta`), factors a
+shared leading prefix out of path/URI/id columns into one `@prefix` line, factors a
+shared trailing run (extensions, domain tails) into `@suffix`, and elides a cell
+identical to the one above it in run-structured columns (`@same`). On
 realistic tabular results that's **~2.8× fewer output tokens than POSIX shells**. Versus
 PowerShell the ratio depends on which output an agent parses: ~1.4× vs its display
 `Format-Table` (not reliably parseable), ~1.6× vs compact `ConvertTo-Json -Compress`,
@@ -362,6 +364,16 @@ AETHER_MODE=agent ae -c '[{name:"a",size:1,kind:"x"},{name:"b",size:2,kind:"x"}]
 # a	1
 # b	2
 ```
+
+`@prefix` and `@suffix` compose on the same column — the suffix is searched in the
+residue the prefix leaves, so the two runs can never overlap even where they consume
+a value entirely. Which encoding a column gets is decided by **exact character cost**,
+not by heuristics: raw, `@dict` and `@prefix`/`@suffix` are each costed as they will
+actually be emitted (including the `@same` elision that follows), and the cheapest
+wins. A table with nothing to factor emits no metadata lines at all. On a 30-row
+grouped listing with paths, the three additions take the result from **265 to 153
+tokens — 42% fewer** (real cl100k, same rows, encoder before vs. after:
+`cargo test --test aecon_factoring --features real-tokens -- --nocapture`).
 
 It's **lossless and reversible**: `aecon_decode` reconstructs the original rows
 (with on-demand `@type` tags so numeric-looking strings and integral floats

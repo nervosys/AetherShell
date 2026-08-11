@@ -549,8 +549,10 @@ paged/truncated to fit (✅ implemented). ✅ Per-session aggregation lands via
   it's a measured token win:
     - **`@const k=v …`** — columns identical across all rows, emitted once and
       omitted from each row (status/type/owner fields).
-    - **`@dict col: v0\tv1\t…`** — low-cardinality, multi-token *string* columns;
-      rows reference the distinct values by a 1-token integer index.
+    - **`@dict col: v0\tv1\t…`** — *string* columns with repeats; rows reference the
+      distinct values by a 1-token integer index. Eligibility is bare-safe strings
+      only: the distinct values are emitted tab-separated, so a value containing a
+      tab would corrupt its own dictionary.
     - **`@delta: col …`** — large-valued, slowly-varying *integer* columns
       (timestamps, sequential ids); row 0 holds the absolute value, each later row
       holds the difference from the previous (reconstruct by running sum).
@@ -558,17 +560,35 @@ paged/truncated to fit (✅ implemented). ✅ Per-session aggregation lands via
       run (paths, URIs, prefixed ids); the common prefix is emitted once and
       stripped from every row (reconstruct by re-prepending). 44–69% fewer tokens
       on path-heavy listings; gated to a real char win, never on `@dict` columns.
+    - **`@suffix col: <suffix>`** — the mirror of `@prefix`: *string* columns whose
+      values share a trailing run (file extensions, domain tails, id suffixes).
+      A column may carry both; the suffix is searched in the residue the prefix
+      leaves, so the two runs can never overlap, even on a value they consume
+      entirely (whose cell then renders empty and reconstructs exactly).
+    - **`@same col …`** — columns that run in blocks, the shape of any sorted or
+      grouped result: a cell identical to the one above it is emitted as nothing
+      and reconstructed from the row above. An empty cell is unambiguous because a
+      genuinely empty string renders JSON-quoted (`""`). `@const` covers columns
+      constant across *every* row; this covers the runs `@const` cannot see.
+      Excluded: `@delta` columns (whose running sum owns the previous-row state)
+      and `@prefix`/`@suffix` columns (whose residue may legitimately be empty).
     - **`@type col:s|f …`** — type tags for *lossless* decode, emitted **only**
       where the compact form is ambiguous: a string that looks like a
       number/bool/null (`s`), or a float with an integral value that renders
       without a `.` (`f`). Dict columns (always strings) and delta columns (always
       integers) never need one, so this costs tokens only on genuine ambiguity.
+  Which encoding a *string* column receives is decided by **exact character cost**
+  rather than by heuristic: raw, `@dict` and `@prefix`/`@suffix` are each costed as
+  they will actually be emitted — including the `@same` elision that runs afterwards
+  — and the cheapest wins. Costs are byte counts, so the choice is deterministic and
+  format-stable across builds (no tokenizer, no float).
   All backward-compatible (no eligible columns → the prior bare-header form), and
   none ever inflate a result — a cheaper encoding can only *replace* a costlier one.
   ✅ **Reversible — losslessly.** `aecon_decode(text)` (dispatch 1129) is the exact
   inverse for tabular AECON: it restores `@const` columns to every row, resolves
-  `@dict` indices, reconstructs `@delta` columns by running sum, re-prepends
-  `@prefix` columns, and honors `@type` tags so numeric-looking strings and integral
+  `@dict` indices, reconstructs `@delta` columns by running sum, re-attaches
+  `@prefix`/`@suffix` runs, resolves an elided `@same` cell from the row above, and
+  honors `@type` tags so numeric-looking strings and integral
   floats decode to their exact type. Round-trip property tests assert
   `decode(aecon(v)) == v` — one with the `@const`/`@dict`/`@delta` levers active, one
   with the ambiguous string/float values the `@type` line resolves, and one with

@@ -14927,6 +14927,32 @@ fn longest_common_str_prefix(vals: &[&str]) -> String {
     prefix.into_iter().collect()
 }
 
+/// Longest common character *suffix* shared by every string in `vals` (empty if
+/// they share none). Char-aligned, so subtracting the returned `String`'s byte
+/// length from each input's length lands on a valid UTF-8 boundary — used by
+/// `@suffix` factoring (shared extensions, domain tails, id suffixes).
+fn longest_common_str_suffix(vals: &[&str]) -> String {
+    let mut suffix: Vec<char> = match vals.first() {
+        Some(s) => s.chars().rev().collect(),
+        None => return String::new(),
+    };
+    for s in vals.iter().skip(1) {
+        let mut n = 0usize;
+        for (a, b) in suffix.iter().zip(s.chars().rev()) {
+            if *a == b {
+                n += 1;
+            } else {
+                break;
+            }
+        }
+        suffix.truncate(n);
+        if suffix.is_empty() {
+            break;
+        }
+    }
+    suffix.into_iter().rev().collect()
+}
+
 /// Render a Value as AECON (Aether Compact Object Notation). Tabular values
 /// (Table, or a homogeneous Array<Record>) become a `@aecon` header + TSV rows;
 /// single records become `{k=v ...}`; scalar arrays become `[a,b,c]`; scalars
@@ -14986,90 +15012,147 @@ fn aecon_render(v: &Value) -> String {
                 var_keys = keys.clone();
                 const_keys.clear();
             }
-            // Dictionary encoding for low-cardinality, multi-character STRING
-            // columns (status/type/category fields): emit the distinct values
-            // once in a `@dict col: …` line and reference them by integer index
-            // per row. Deterministic heuristic (format-stable across builds);
-            // only fires where a repeated multi-token value beats a 1-token index
-            // — never on high-cardinality or numeric columns.
+            // Per-column encoding choice, decided by exact character cost.
+            //
+            // Every eligible STRING column has three candidate encodings — raw,
+            // `@dict` (each distinct value once, referenced per row by integer
+            // index), and `@prefix`/`@suffix` (shared leading and trailing runs
+            // emitted once and stripped from every row) — and the cheapest wins.
+            //
+            // Costing them for real replaces two hand-tuned dictionary heuristics
+            // (`d <= rows/2`, `avg_len >= 3`) that mis-fired in both directions:
+            // they declined dictionaries that would have paid on long values, and
+            // — because `@dict` was tried first and won by default — they took
+            // columns that prefix/suffix factoring would have compressed further.
+            // Costs are byte counts, so the choice is deterministic and
+            // format-stable across builds (no tokenizer, no float).
+            //
+            // Eligibility is bare-safe strings only (non-empty, no tab/newline).
+            // For `@prefix`/`@suffix` that keeps the stripped residue splittable;
+            // for `@dict` it is a *correctness* requirement, because the distinct
+            // values are emitted tab-separated on the `@dict` line — a value
+            // containing a tab would silently corrupt its own dictionary.
             let mut dict_cols: std::collections::BTreeMap<String, Vec<String>> =
                 std::collections::BTreeMap::new();
             let mut dict_index: std::collections::HashMap<
                 String,
                 std::collections::HashMap<String, usize>,
             > = std::collections::HashMap::new();
-            if rows.len() >= 4 {
-                for k in &var_keys {
-                    let mut distinct: Vec<String> = Vec::new();
-                    let mut seen = std::collections::HashSet::new();
-                    let mut all_str = true;
-                    for r in &rows {
-                        match r.get(k) {
-                            Some(Value::Str(s)) => {
-                                if seen.insert(s.clone()) {
-                                    distinct.push(s.clone());
-                                }
-                            }
-                            _ => {
-                                all_str = false;
-                                break;
-                            }
-                        }
-                    }
-                    if !all_str || distinct.len() < 2 {
-                        continue;
-                    }
-                    let d = distinct.len();
-                    let avg_len = distinct.iter().map(|s| s.chars().count()).sum::<usize>() / d;
-                    if d <= rows.len() / 2 && avg_len >= 3 {
-                        let idx: std::collections::HashMap<String, usize> = distinct
-                            .iter()
-                            .enumerate()
-                            .map(|(i, v)| (v.clone(), i))
-                            .collect();
-                        dict_index.insert(k.clone(), idx);
-                        dict_cols.insert(k.clone(), distinct);
-                    }
-                }
-            }
-            // Common-prefix factoring for STRING columns whose values share a
-            // leading run (paths like `/home/user/…`, URIs, prefixed ids): the
-            // shared prefix is emitted once in a `@prefix col: …` line and stripped
-            // from every row. Deterministic (char-based, no tokenizer/float), gated
-            // to a real *char* win — the prefix must be ≥2 chars and removing it
-            // from N rows must beat the one-line overhead. Only bare-safe (no
-            // tab/newline, non-empty) string columns qualify, and never `@dict`
-            // columns (those already factor the whole value).
             let mut prefix_cols: std::collections::BTreeMap<String, String> =
                 std::collections::BTreeMap::new();
-            if rows.len() >= 4 {
-                for k in &var_keys {
-                    if dict_index.contains_key(k) {
-                        continue;
-                    }
-                    let mut vals: Vec<&str> = Vec::with_capacity(rows.len());
-                    let mut all_bare = true;
-                    for r in &rows {
-                        match r.get(k) {
-                            Some(Value::Str(s))
-                                if !s.is_empty() && !s.contains('\t') && !s.contains('\n') =>
-                            {
-                                vals.push(s.as_str())
-                            }
-                            _ => {
-                                all_bare = false;
-                                break;
-                            }
+            let mut suffix_cols: std::collections::BTreeMap<String, String> =
+                std::collections::BTreeMap::new();
+            for k in &var_keys {
+                let mut vals: Vec<&str> = Vec::with_capacity(rows.len());
+                let mut all_bare = true;
+                for r in &rows {
+                    match r.get(k) {
+                        Some(Value::Str(s))
+                            if !s.is_empty() && !s.contains('\t') && !s.contains('\n') =>
+                        {
+                            vals.push(s.as_str())
+                        }
+                        _ => {
+                            all_bare = false;
+                            break;
                         }
                     }
-                    if !all_bare {
-                        continue;
+                }
+                if !all_bare {
+                    continue;
+                }
+                // `@same` runs after this choice and elides any cell equal to the
+                // one above it, so a candidate must be costed as the later pass will
+                // actually leave it — otherwise a dictionary can win on paper and
+                // lose in the emitted output. Mirrors that pass's gate exactly,
+                // including the shapes it declines.
+                let same_eligible = rows.len() >= 4 && var_keys.len() >= 2;
+                let after_same = |cells: &[&str]| -> usize {
+                    let total: usize = cells.iter().map(|c| c.len()).sum();
+                    if !same_eligible {
+                        return total;
                     }
-                    let lcp = longest_common_str_prefix(&vals);
-                    let l = lcp.chars().count();
-                    // Net char win: l*(rows-1) saved vs a `@prefix <k>: <lcp>` line.
-                    if l >= 2 && l * (rows.len() - 1) > k.len() + 10 {
+                    let elidable: usize = (1..cells.len())
+                        .filter(|&i| cells[i] == cells[i - 1])
+                        .map(|i| cells[i].len())
+                        .sum();
+                    if elidable > k.len() + 1 {
+                        total - elidable + k.len() + 1
+                    } else {
+                        total
+                    }
+                };
+                let raw_cost = after_same(&vals);
+
+                // `@dict`: the distinct values once (tab-joined), plus one index
+                // per row. Only meaningful when something actually repeats.
+                let mut distinct: Vec<&str> = Vec::new();
+                let mut first_seen: std::collections::HashMap<&str, usize> =
+                    std::collections::HashMap::new();
+                for v in &vals {
+                    if !first_seen.contains_key(v) {
+                        first_seen.insert(v, distinct.len());
+                        distinct.push(v);
+                    }
+                }
+                let dict_cost = if distinct.len() < vals.len() {
+                    let indices: Vec<String> =
+                        vals.iter().map(|v| first_seen[v].to_string()).collect();
+                    let idx_refs: Vec<&str> = indices.iter().map(|s| s.as_str()).collect();
+                    "\n@dict : ".len()
+                        + k.len()
+                        + distinct.iter().map(|d| d.len()).sum::<usize>()
+                        + distinct.len().saturating_sub(1)
+                        + after_same(&idx_refs)
+                } else {
+                    usize::MAX
+                };
+
+                // `@prefix`/`@suffix`: each run is included only if emitting it once
+                // beats leaving it on every row. The suffix is searched in the
+                // residue the prefix leaves, so the two can never overlap — even on
+                // a value they consume entirely. `longest_common_str_prefix` is
+                // char-aligned, so slicing at its byte length is a valid boundary.
+                let n = vals.len();
+                let lcp = longest_common_str_prefix(&vals);
+                let p_line = "\n@prefix : ".len() + k.len() + lcp.len();
+                let lcp = if !lcp.is_empty() && lcp.len() * n > p_line {
+                    lcp
+                } else {
+                    String::new()
+                };
+                let residue: Vec<&str> = vals.iter().map(|s| &s[lcp.len()..]).collect();
+                let lcs = longest_common_str_suffix(&residue);
+                let s_line = "\n@suffix : ".len() + k.len() + lcs.len();
+                let lcs = if !lcs.is_empty() && lcs.len() * n > s_line {
+                    lcs
+                } else {
+                    String::new()
+                };
+                let ps_cost = if lcp.is_empty() && lcs.is_empty() {
+                    usize::MAX
+                } else {
+                    residue.iter().map(|s| s.len() - lcs.len()).sum::<usize>()
+                        + if lcp.is_empty() { 0 } else { p_line }
+                        + if lcs.is_empty() { 0 } else { s_line }
+                };
+
+                // Cheapest wins; comparisons are strict and ordered, so ties fall to
+                // the simpler encoding (raw, then prefix/suffix).
+                if dict_cost < raw_cost && dict_cost <= ps_cost {
+                    let idx: std::collections::HashMap<String, usize> = distinct
+                        .iter()
+                        .enumerate()
+                        .map(|(i, v)| ((*v).to_string(), i))
+                        .collect();
+                    dict_index.insert(k.clone(), idx);
+                    dict_cols.insert(k.clone(), distinct.iter().map(|s| s.to_string()).collect());
+                } else if ps_cost < raw_cost {
+                    if !lcp.is_empty() {
                         prefix_cols.insert(k.clone(), lcp);
+                    }
+                    if !lcs.is_empty() {
+                        suffix_cols.insert(k.clone(), lcs);
                     }
                 }
             }
@@ -15131,6 +15214,7 @@ fn aecon_render(v: &Value) -> String {
                 if dict_index.contains_key(k)
                     || delta_cols.contains_key(k)
                     || prefix_cols.contains_key(k)
+                    || suffix_cols.contains_key(k)
                 {
                     continue;
                 }
@@ -15145,11 +15229,107 @@ fn aecon_render(v: &Value) -> String {
                     type_tags.insert(k.clone(), tag);
                 }
             }
+            // Render every cell once, so repeat-elision below can be gated on the
+            // characters it actually saves rather than on a guess.
+            let mut matrix: Vec<Vec<String>> = rows
+                .iter()
+                .enumerate()
+                .map(|(ri, r)| {
+                    var_keys
+                        .iter()
+                        .map(|k| {
+                            if let Some(col) = delta_cols.get(k) {
+                                return col[ri].clone();
+                            }
+                            let v = r.get(k).unwrap_or(&Value::Null);
+                            if let Value::Str(s) = v {
+                                let p = prefix_cols.get(k).map_or(0, |p| p.len());
+                                let sfx = suffix_cols.get(k).map_or(0, |x| x.len());
+                                if p > 0 || sfx > 0 {
+                                    // bare-safe and non-overlapping by construction.
+                                    return s[p..s.len() - sfx].to_string();
+                                }
+                            }
+                            match (dict_index.get(k), v) {
+                                (Some(idx), Value::Str(s)) => idx
+                                    .get(s)
+                                    .map(|i| i.to_string())
+                                    .unwrap_or_else(|| aecon_atom(v)),
+                                _ => aecon_atom(v),
+                            }
+                        })
+                        .collect()
+                })
+                .collect();
+
+            // Repeat elision (`@same`): in a column that runs in blocks — the shape
+            // of any sorted or grouped result — a cell identical to the one above it
+            // is emitted as *nothing*. An empty cell is an unambiguous sentinel
+            // because a genuinely empty string renders JSON-quoted (`""`). `@const`
+            // already covers columns constant across every row; this covers the runs
+            // `@const` cannot see. Excluded: `@delta` columns (whose running sum owns
+            // the previous-row state), `@prefix`/`@suffix` columns (whose stripped
+            // residue may legitimately be empty), and single-column tables — where
+            // an all-elided row renders as a bare empty line. The decoder now reads
+            // interior blank lines as rows, so that last exclusion is defence in
+            // depth rather than the sole guard; it costs nothing, because a
+            // single-column run is already `@dict`'s case.
+            let mut same_cols: Vec<String> = Vec::new();
+            if rows.len() >= 4 && var_keys.len() >= 2 {
+                for (ci, k) in var_keys.iter().enumerate() {
+                    if delta_cols.contains_key(k)
+                        || prefix_cols.contains_key(k)
+                        || suffix_cols.contains_key(k)
+                    {
+                        continue;
+                    }
+                    let saved: usize = (1..matrix.len())
+                        .filter(|&ri| matrix[ri][ci] == matrix[ri - 1][ci])
+                        .map(|ri| matrix[ri][ci].len())
+                        .sum();
+                    // Naming a column costs a tab plus its name; the `\n@same `
+                    // marker is charged once, to the set, below.
+                    if saved > k.len() + 1 {
+                        same_cols.push(k.clone());
+                    }
+                }
+                // The line only pays if the set as a whole beats its own overhead.
+                let set_saved: usize = same_cols
+                    .iter()
+                    .filter_map(|k| var_keys.iter().position(|v| v == k))
+                    .map(|ci| {
+                        (1..matrix.len())
+                            .filter(|&ri| matrix[ri][ci] == matrix[ri - 1][ci])
+                            .map(|ri| matrix[ri][ci].len())
+                            .sum::<usize>()
+                    })
+                    .sum();
+                let set_cost: usize =
+                    "\n@same ".len() + same_cols.iter().map(|k| k.len() + 1).sum::<usize>();
+                if set_saved <= set_cost {
+                    same_cols.clear();
+                }
+                // Reverse order: each comparison must see the previous row's
+                // *un-elided* cell.
+                for ci in same_cols
+                    .iter()
+                    .filter_map(|k| var_keys.iter().position(|v| v == k))
+                    .collect::<Vec<_>>()
+                {
+                    for ri in (1..matrix.len()).rev() {
+                        if matrix[ri][ci] == matrix[ri - 1][ci] {
+                            matrix[ri][ci].clear();
+                        }
+                    }
+                }
+            }
+
             // Tight format: a bare tab-separated header line (the column schema),
             // optional `@const` (factored constants), `@dict` (low-cardinality
-            // columns), `@delta:` (delta-encoded numeric columns) and `@type`
-            // (lossless type tags) metadata lines, then positional tab-separated
-            // rows. No `@aecon rows=N cols=` prefix — the header is
+            // columns), `@prefix`/`@suffix` (shared leading/trailing runs), `@same`
+            // (repeat-elided columns), `@delta:` (delta-encoded numeric columns) and
+            // `@type` (lossless type tags) metadata lines, then positional
+            // tab-separated rows. No `@aecon rows=N cols=` prefix — the header is
             // self-describing and ~7 tokens cheaper per result than the verbose form.
             let mut out = var_keys.join("\t");
             if !const_keys.is_empty() {
@@ -15173,6 +15353,13 @@ fn aecon_render(v: &Value) -> String {
             for (col, prefix) in &prefix_cols {
                 out.push_str(&format!("\n@prefix {}: {}", col, prefix));
             }
+            for (col, suffix) in &suffix_cols {
+                out.push_str(&format!("\n@suffix {}: {}", col, suffix));
+            }
+            if !same_cols.is_empty() {
+                out.push_str("\n@same ");
+                out.push_str(&same_cols.join("\t"));
+            }
             if !delta_cols.is_empty() {
                 out.push_str("\n@delta: ");
                 let names: Vec<&str> = delta_cols.keys().map(|s| s.as_str()).collect();
@@ -15186,27 +15373,7 @@ fn aecon_render(v: &Value) -> String {
                     .collect();
                 out.push_str(&tags.join("\t"));
             }
-            for (ri, r) in rows.iter().enumerate() {
-                let cells: Vec<String> = var_keys
-                    .iter()
-                    .map(|k| {
-                        if let Some(col) = delta_cols.get(k) {
-                            return col[ri].clone();
-                        }
-                        let v = r.get(k).unwrap_or(&Value::Null);
-                        if let (Some(prefix), Value::Str(s)) = (prefix_cols.get(k), v) {
-                            // bare-safe by construction; emit only the suffix.
-                            return s[prefix.len()..].to_string();
-                        }
-                        match (dict_index.get(k), v) {
-                            (Some(idx), Value::Str(s)) => idx
-                                .get(s)
-                                .map(|i| i.to_string())
-                                .unwrap_or_else(|| aecon_atom(v)),
-                            _ => aecon_atom(v),
-                        }
-                    })
-                    .collect();
+            for cells in &matrix {
                 out.push('\n');
                 out.push_str(&cells.join("\t"));
             }
@@ -15319,11 +15486,13 @@ fn aecon_decode_atom(cell: &str) -> Value {
 }
 
 /// Decode the tabular AECON form (header + optional `@const`/`@dict`/`@delta`/
-/// `@prefix`/`@type` metadata lines + positional rows) back to an `Array<Record>`.
+/// `@prefix`/`@suffix`/`@same`/`@type` metadata lines + positional rows) back to an
+/// `Array<Record>`.
 /// Inverse of the tabular branch of `aecon_render`: `@const` columns are restored to
 /// every row, `@dict` indices are resolved to their string values, `@delta` columns
-/// are reconstructed by running sum, `@prefix` columns get their shared prefix
-/// re-prepended, and `@type` tags force the exact type of columns
+/// are reconstructed by running sum, `@prefix`/`@suffix` columns get their shared
+/// runs re-attached, `@same` columns resolve an empty cell to the row above, and
+/// `@type` tags force the exact type of columns
 /// the compact form would otherwise infer wrongly (numeric-looking strings,
 /// integral floats) — making the round-trip lossless. Returns the parsed array;
 /// non-tabular input (a single `{k=v}` record, a scalar array, or a bare scalar)
@@ -15347,6 +15516,8 @@ fn aecon_decode(s: &str) -> Value {
     let mut dicts: std::collections::HashMap<String, Vec<String>> =
         std::collections::HashMap::new();
     let mut prefixes: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut suffixes: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut same_set: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut delta_set: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut type_tags: std::collections::HashMap<String, char> = std::collections::HashMap::new();
     let mut row_start = 1;
@@ -15367,6 +15538,14 @@ fn aecon_decode(s: &str) -> Value {
         } else if let Some(rest) = line.strip_prefix("@prefix ") {
             if let Some((col, p)) = rest.split_once(": ") {
                 prefixes.insert(col.to_string(), p.to_string());
+            }
+        } else if let Some(rest) = line.strip_prefix("@suffix ") {
+            if let Some((col, p)) = rest.split_once(": ") {
+                suffixes.insert(col.to_string(), p.to_string());
+            }
+        } else if let Some(rest) = line.strip_prefix("@same ") {
+            for c in rest.split('\t') {
+                same_set.insert(c.to_string());
             }
         } else if let Some(rest) = line.strip_prefix("@delta: ") {
             for c in rest.split('\t') {
@@ -15393,16 +15572,26 @@ fn aecon_decode(s: &str) -> Value {
 
     // Running absolute value per delta column, advanced as rows are read in order.
     let mut delta_run: std::collections::HashMap<String, i128> = std::collections::HashMap::new();
+    // Last emitted value per `@same` column, so an elided (empty) cell resolves to
+    // the row above it.
+    let mut prev_same: std::collections::HashMap<String, Value> = std::collections::HashMap::new();
     let mut out_rows: Vec<Value> = Vec::new();
-    for line in &lines[row_start..] {
-        if line.is_empty() {
-            continue;
-        }
+    // Trailing blank lines are formatting; an *interior* blank line is a real row
+    // whose every cell was factored away — a single-column table whose value equals
+    // its `@prefix`+`@suffix` renders exactly that way. Trim the former so the
+    // latter is not silently dropped.
+    let mut row_end = lines.len();
+    while row_end > row_start && lines[row_end - 1].is_empty() {
+        row_end -= 1;
+    }
+    for line in &lines[row_start..row_end] {
         let cells: Vec<&str> = line.split('\t').collect();
         let mut m = BTreeMap::new();
         for (ci, k) in var_keys.iter().enumerate() {
             let cell = cells.get(ci).copied().unwrap_or("");
-            let val = if delta_set.contains(k) {
+            let val = if same_set.contains(k) && cell.is_empty() && prev_same.contains_key(k) {
+                prev_same[k].clone()
+            } else if delta_set.contains(k) {
                 let n: i128 = cell.parse().unwrap_or(0);
                 let abs = match delta_run.get(k) {
                     Some(prev) => prev + n, // later rows carry the difference
@@ -15415,11 +15604,16 @@ fn aecon_decode(s: &str) -> Value {
                     Some(s) => Value::Str(s.clone()),
                     None => aecon_decode_atom(cell),
                 }
-            } else if let Some(prefix) = prefixes.get(k) {
-                Value::Str(format!("{prefix}{cell}"))
+            } else if prefixes.contains_key(k) || suffixes.contains_key(k) {
+                let prefix = prefixes.get(k).map(String::as_str).unwrap_or("");
+                let suffix = suffixes.get(k).map(String::as_str).unwrap_or("");
+                Value::Str(format!("{prefix}{cell}{suffix}"))
             } else {
                 aecon_decode_atom_typed(cell, type_tags.get(k))
             };
+            if same_set.contains(k) {
+                prev_same.insert(k.clone(), val.clone());
+            }
             m.insert(k.clone(), val);
         }
         for (k, v) in &consts {
@@ -15478,7 +15672,8 @@ fn bi_aecon(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 }
 
 /// aecon_decode(text?) - Parse tabular AECON text (argument or piped input) back
-/// into an `Array<Record>`, reversing `@const`/`@dict`/`@delta`/`@prefix` factoring.
+/// into an `Array<Record>`, reversing `@const`/`@dict`/`@delta`/`@prefix`/`@suffix`/
+/// `@same` factoring.
 /// The inverse of `aecon` for homogeneous tables; the string↔number boundary is
 /// inferred (use `canonical` for lossless typing).
 fn bi_aecon_decode(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
