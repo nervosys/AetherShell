@@ -16575,7 +16575,7 @@ fn redact_field_map(
 /// Found by driving the shell as an agent.
 fn redactable_by_name(v: &Value) -> bool {
     match v {
-        Value::Str(s) | Value::Uri(s) => !(s.starts_with("apv_") || s.starts_with("apl_")),
+        Value::Str(s) | Value::Uri(s) => !crate::safety::is_capability_token(s),
         // Containers are walked normally so genuine secrets inside are still
         // caught by shape and by their own field names.
         Value::Array(_) | Value::Record(_) | Value::Table(_) => false,

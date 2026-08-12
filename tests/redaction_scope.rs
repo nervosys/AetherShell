@@ -96,3 +96,51 @@ fn a_secret_nested_inside_a_container_is_still_found() {
         "nested secret leaked: {out}"
     );
 }
+
+// ── The JSON layer (audit entries) ──────────────────────────────────────────
+//
+// `redact_json` had the same two flaws as the value layer. It matters more here:
+// an audit entry reading `needs_approval` with the token blanked cannot be
+// correlated with the grant that followed it, which is most of what an audit
+// log is for.
+
+#[test]
+fn an_audit_entry_keeps_the_approval_token_it_is_about() {
+    let mut detail = serde_json::json!({ "token": "apv_1f67575ecb24b5fe" });
+    aethershell::safety::redact_json(&mut detail);
+    assert_eq!(
+        detail["token"], "apv_1f67575ecb24b5fe",
+        "the audit trail must stay correlatable: {detail}"
+    );
+}
+
+#[test]
+fn an_audit_entry_still_hides_a_real_credential() {
+    let mut detail = serde_json::json!({
+        "auth_token": "ghp_realcredentialvalue",
+        "password": "hunter2",
+    });
+    aethershell::safety::redact_json(&mut detail);
+    let text = detail.to_string();
+    assert!(!text.contains("ghp_real"), "credential leaked: {text}");
+    assert!(!text.contains("hunter2"), "password leaked: {text}");
+}
+
+#[test]
+fn an_audit_entry_keeps_numeric_counts() {
+    let mut detail = serde_json::json!({ "page_tokens": 81, "tokens_in": 12 });
+    aethershell::safety::redact_json(&mut detail);
+    assert_eq!(detail["page_tokens"], 81);
+    assert_eq!(detail["tokens_in"], 12);
+}
+
+#[test]
+fn both_redaction_layers_agree_on_what_a_capability_is() {
+    // The rule lives in one place precisely so the value layer and the JSON
+    // layer cannot drift into disagreeing about the same string.
+    use aethershell::safety::is_capability_token;
+    assert!(is_capability_token("apv_deadbeef"));
+    assert!(is_capability_token("apl_deadbeef"));
+    assert!(!is_capability_token("ghp_realcredentialvalue"));
+    assert!(!is_capability_token("sk-live-abc"));
+}

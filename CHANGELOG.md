@@ -5,6 +5,29 @@ All notable changes to AetherShell will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.3.3] - 2026-08-12
+
+### Fixed
+
+- **The audit trail redacted the token each entry was about.** 7.3.2 fixed the
+  value layer but `redact_json`, which scrubs audit entries at write time, had
+  the identical two flaws — so every record of a guarded call read
+  `needs_approval` with `detail.token = "[REDACTED]"`. An audit entry that
+  cannot say *which* approval was requested cannot be correlated with the grant
+  that followed it, which is most of what an audit log is for.
+
+  The rule now lives in one place, `safety::is_capability_token`, used by both
+  redaction layers, with a test asserting they agree. Fixing one layer and not
+  its sibling is how they came to disagree in the first place — the same mistake
+  as classifying by name instead of by evidence.
+
+  Audit entries now record `{"token":"apv_…"}`; a genuine `ghp_…` under
+  `auth_token`, a `password`, and secrets nested in containers are still blanked,
+  and numeric counts pass through.
+
+  Fourth defect found by driving the shell as an agent, and a direct consequence
+  of the previous fix being incomplete.
+
 ## [7.3.2] - 2026-08-11
 
 ### Fixed

@@ -2601,6 +2601,21 @@ pub fn redact_str(s: &str) -> (String, bool) {
 /// leaf is shape-scrubbed, and any object member whose *key* denotes a secret
 /// is replaced with the marker even if its value isn't shape-matched. Used to
 /// keep secrets out of the persistent audit log.
+/// Whether a string is an approval or plan **capability handle** rather than a
+/// credential.
+///
+/// `apv_…`/`apl_…` are content hashes the caller is required to echo back. They
+/// are not secret — anyone who knows the action can recompute one — and hiding
+/// them breaks the flows that depend on them: `plan()` returned an unusable
+/// `token` field, and an audit entry saying `needs_approval` with the token
+/// blanked cannot be correlated with the grant that followed it.
+///
+/// Shared by both redaction layers (`redact_json` here, `redact_field_map` in
+/// `builtins`) so the two cannot drift apart.
+pub fn is_capability_token(s: &str) -> bool {
+    s.starts_with("apv_") || s.starts_with("apl_")
+}
+
 pub fn redact_json(v: &mut Json) {
     match v {
         Json::String(s) => {
@@ -2616,7 +2631,12 @@ pub fn redact_json(v: &mut Json) {
         }
         Json::Object(map) => {
             for (k, val) in map.iter_mut() {
-                if is_secret_name(k) {
+                // Only a *string* under a secret-sounding name can be a secret.
+                // `TOKEN` matches `full_tokens`/`page_tokens`, which are counts,
+                // and blanking a number destroys information for no gain.
+                let hide =
+                    is_secret_name(k) && matches!(val, Json::String(s) if !is_capability_token(s));
+                if hide {
                     *val = Json::String(REDACTION_MARKER.to_string());
                 } else {
                     redact_json(val);
