@@ -499,6 +499,82 @@ idiomatic command + output). Reliability and safety are capability comparisons �
 traditional shells return unstructured text and have no effect/approval model, so
 there is no single-number benchmark to run there.
 
+### Result handles: the tokens you never send
+
+Encoding a result more cheaply has a floor. Not sending it does not. On the
+agent path a result over `AETHER_HANDLE_BYTES` (default 2048 rendered bytes)
+stays server-side and comes back as a reference:
+
+```
+@handle h1
+@shape array<record{bytes:int,id:int,path:str,status:str}>
+@items 2000
+@omitted 1997
+@hint handle("h1") | where(...) | take(5)  — full value kept, nothing lost
+```
+
+The agent then composes against it — `handle("h1") | where(…) | take(5)` — and
+only the answer crosses back. Measured with the real cl100k tokenizer:
+
+| rows | whole | handle | |
+|---|--:|--:|--:|
+| 400 | 2,975 | 113 | **26×** |
+| 2,000 | 15,709 | 115 | **137×** |
+
+The ratio grows with the payload because the summary is constant-size, so no
+single multiplier describes it — which is why both rows are shown. The saving is
+determined entirely by how much of a result you discard; across a mixed task
+corpus it ranges from **2× to 7000×** (`cargo test --test agent_task_cost --
+--nocapture`). Nothing is lost: `handle(id)` returns exactly what was computed,
+and the preview states how many items it omits. `AETHER_HANDLE_BYTES=0` restores
+whole results. Human output is untouched.
+
+### Reversible sessions: undo instead of ask
+
+Approval is expensive — every prompt is a round-trip. A write that can be undone
+does not need to be prevented. Before any `WriteLocal` or `Destructive` call the
+prior contents of the files it may touch are captured; `undo(n)` puts them back
+and `journal()` shows what was recorded.
+
+```
+$ ae --agent -c 'file_write("notes.txt", "clobbered")'
+$ ae --agent -c 'undo()'
+{complete=true failed=0 removed=0 restored=1 skipped=0 …}
+```
+
+**`undo` reports what it could not reverse.** A network call cannot be unsent, a
+directory tree is not captured, an oversized file is not held — each is recorded
+as an explicit irreversible entry and `complete: false` comes back while any
+remain. A partial undo that claimed success would be worse than no undo, because
+it turns a recoverable situation into one you believe you have already recovered
+from. Agent-mode only (`AETHER_JOURNAL=on|off` forces it); handles and the
+journal both survive across processes, which matters because the SDK runs
+`ae -c …` per call.
+
+### Return shapes: compose instead of discover
+
+The agent surface describes inputs (`json_schema`) and danger (`x-effect`). It
+now also describes the **result**, so an agent meeting one of ~1,300 unfamiliar
+builtins does not have to run it to learn the shape and then write the pipeline
+it wanted:
+
+```
+ls        x-returns  array<record{ext:str,is_dir:bool,modified:int,name:str,path:str,size:int}>
+          x-returns-examples  {"ext": ".rs"}
+first     x-returns  T          (T = element type of the first argument)
+```
+
+Only **proven** shapes are advertised: each is reproduced by calling the builtin,
+and must agree across probes with different input types. Combinators whose result
+tracks their argument are described with `T` rather than a concrete type, and
+`sum` is deliberately absent — `int` for integers, `float` for floats is a
+promotion rule this notation cannot honestly express.
+
+The examples exist because a type is not a format: `ext:str` is true, and
+`where(fn(f) => f.ext == "rs")` still matches nothing, because the value is
+`".rs"`. That filter does not error — it returns an empty set, which is the worst
+failure available to an agent, since an empty result is a plausible answer.
+
 ### Token efficiency (measured, real cl100k BPE)
 
 Per-task **output** tokens — what the agent must read back, each shell's *idiomatic
