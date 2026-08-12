@@ -166,6 +166,34 @@ pub fn element_of(v: &Value) -> Option<String> {
     }
 }
 
+/// A concrete example of a field's value, where the *type* is not enough to
+/// write a correct predicate.
+///
+/// Found by using the shell as an agent. `ls` declares `ext:str`, which is
+/// true, and reading it I wrote `where(fn(f) => f.ext == "rs")` — which matched
+/// nothing, because the value is `".rs"` with a leading dot. The filter did not
+/// error; it returned an empty set, which is the worst possible failure for an
+/// agent because it is a plausible answer. A type tells you how to *hold* a
+/// value; an example tells you how to *compare* it.
+///
+/// Only fields whose format is genuinely surprising belong here. A field that
+/// looks like what it is does not need an example, and padding this table would
+/// spend the tokens the shapes exist to save.
+pub const FIELD_EXAMPLES: &[(&str, &str, &str)] = &[
+    ("ls", "ext", ".rs"),
+    ("ls", "path", "\\\\?\\C:\\...\\src\\agent.rs"),
+    ("ls", "modified", "1770766991"),
+];
+
+/// Example values for a builtin's fields, for inclusion beside its shape.
+pub fn field_examples(name: &str) -> Vec<(&'static str, &'static str)> {
+    FIELD_EXAMPLES
+        .iter()
+        .filter(|(b, _, _)| *b == name)
+        .map(|(_, field, example)| (*field, *example))
+        .collect()
+}
+
 /// Note what remains *absent*. `sum` is probed and refused; see [`ELEMENT_VAR`].
 pub const DECLARED: &[(&str, &str)] = &[
     ("aecon", "str"),

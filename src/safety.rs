@@ -760,6 +760,20 @@ pub fn effect_of(name: &str) -> Effect {
         | "terraform_state"
         | "terraform_validate"
         | "terraform_workspace" => Effect::Exec,
+        // ════════════════════════════════════════════════════════════
+        // Found only after the lint stopped reading a single file (§12).
+        //
+        // The ratchet read `builtins.rs` alone, so an effect reached through
+        // `security`, `os_tools` or any other module was invisible —
+        // `Command::new` appears in six other modules, `fs::write` in ten.
+        // Reading the whole crate, with precise markers, surfaced these six.
+        //
+        // `platform_has_network` binds a loopback socket and immediately drops
+        // it to test whether networking works; nothing leaves the machine, so
+        // it is a read rather than egress. `platform_machine_id` shells out to
+        // `ioreg`/equivalent purely to read an identifier.
+        "fs_link" | "fs_symlink" | "git_ignore" | "perm_set" => Effect::WriteLocal,
+        "platform_has_network" | "platform_machine_id" => Effect::ReadLocal,
         // The `web_*` fetch family already routes through `guard_network` at each
         // call site, so it was *gated* as Network at runtime while `effect_of`
         // reported `Pure` — meaning the agent-facing ontology advertised

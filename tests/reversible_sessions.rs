@@ -278,3 +278,49 @@ fn undo_works_across_separate_processes() {
         "a later process must be able to rewind an earlier one; undo said: {undone}"
     );
 }
+
+#[test]
+fn a_call_that_failed_leaves_nothing_to_undo() {
+    // Found by driving the shell as an agent rather than by reading the code:
+    // a `file_write` refused by the workspace jail still produced a journal
+    // entry, so `undo()` answered `complete: false, skipped: 1` about an
+    // operation that never ran. The report was honest and the entry was
+    // fiction; an agent reading `complete: false` would reasonably believe
+    // something had been left unreversed.
+    let _g = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let s = Session::new("failed_call");
+    let outside = std::env::temp_dir().join("ae_definitely_outside_ws.txt");
+    let _ = std::fs::remove_file(&outside);
+
+    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("AETHER_WORKSPACE", s.dir.to_string_lossy().into_owned());
+    let result = call(
+        "file_write",
+        vec![
+            Value::Str(outside.to_string_lossy().into_owned()),
+            Value::Str("nope".into()),
+        ],
+    );
+    std::env::remove_var("AETHER_WORKSPACE");
+    std::env::remove_var("AETHER_MODE");
+
+    assert!(result.is_err(), "the jail should refuse this write");
+    assert!(
+        !outside.exists(),
+        "nothing should have been written outside the workspace"
+    );
+    assert_eq!(
+        journal::entries().len(),
+        0,
+        "a refused call must not leave an entry: {:?}",
+        journal::entries()
+    );
+
+    let undone = call("undo", vec![]).expect("undo");
+    assert_eq!(field(&undone, "skipped"), Value::Int(0));
+    assert_eq!(
+        field(&undone, "complete"),
+        Value::Bool(true),
+        "with nothing recorded, undo is trivially complete"
+    );
+}

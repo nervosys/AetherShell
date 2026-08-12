@@ -5,6 +5,70 @@ All notable changes to AetherShell will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.3.0] - 2026-08-11
+
+Three limits that had been *stated* rather than fixed. Two were closed by
+measurement; the third was closed by using the shell as an agent, which found
+two defects nothing else had.
+
+### Changed
+
+- **The ratchet reads the whole crate, not one file.** It scanned
+  `builtins.rs` alone, so any effect reached through `security`, `os_tools` or
+  another module was invisible — `Command::new` appears in six other modules,
+  `fs::write` in ten. "No evidence" meant "no evidence in one file". It now
+  reads every `.rs` under `src/` at test time, so a module added later is
+  covered without anyone remembering. Six genuinely-acting builtins were found
+  and classified: `fs_link`, `fs_symlink`, `git_ignore`, `perm_set`
+  (`WriteLocal`), `platform_has_network`, `platform_machine_id` (`ReadLocal`).
+  Coverage: **607 classified, 53% falling through** (was 601 / 54%).
+
+- **Follow depth was measured rather than argued.** Depths 2, 3, 4 and 5 all
+  report zero outstanding violations, so nothing hides deeper here. Raised to 4
+  regardless, since it costs a fraction of a second and removes the question.
+
+- **`x-returns` can now carry an example value** where a field's *format* is
+  surprising (`shapes::FIELD_EXAMPLES`), and every example is verified against
+  what the builtin really returns.
+
+### Fixed
+
+- **A refused call no longer enters the journal.** A `file_write` blocked by the
+  workspace jail still recorded an entry, so `undo()` answered
+  `complete: false, skipped: 1` about an operation that never ran — an honest
+  report of a fictional entry, which would lead an agent to believe something
+  was left unreversed.
+
+- **Four defects in the lint itself**, each caught by disbelieving a result
+  rather than by review:
+
+  - a bare `symlink` marker matched the *field* `allow_symlinks`, reporting
+    `ls`, `cat`, `head`, `tail` and `read_text` as creating symbolic links;
+  - reading the whole tree multiplied name collisions, so delegation through a
+    name defined in several modules resolved arbitrarily — ambiguous names are
+    now refused rather than guessed, and the count (265) is reported;
+  - string literals were scanned as code, so `bi_help`'s help text containing
+    `| join("-")` made `help` "open a datagram socket";
+  - **and the dangerous one:** blanking strings without handling character
+    literals meant `'"'` — 20 occurrences in `builtins.rs` — opened a phantom
+    string and blanked the code after it. The violation count fell from 6 to 3
+    and *looked like progress*; `platform_machine_id` had simply become
+    invisible. Four canary tests now assert that known-acting code is still
+    seen, because a blind lint reports zero and zero is indistinguishable from
+    success.
+
+### Notes
+
+Two findings came from driving the real binary as an agent, and neither was
+reachable by reading code:
+
+- **A type is not a format.** `ls` declares `ext:str`, which is true, and
+  `where(fn(f) => f.ext == "rs")` still matched nothing — the value is `".rs"`.
+  The filter did not error; it returned an empty set, the worst failure mode
+  available, because an empty result is a plausible answer.
+- Argument shapes are still discovered by failing: `sort_by("size")` returns an
+  actionable error, but only after the call is made.
+
 ## [7.2.0] - 2026-08-11
 
 Debt paydown, measured at each step. Three of the items below were found by

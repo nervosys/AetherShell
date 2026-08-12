@@ -401,3 +401,75 @@ fn sum_stays_undeclared_because_its_rule_is_promotion_not_substitution() {
     assert_eq!(shape_of("sum"), None);
     assert_eq!(polymorphic_shape_of("sum"), None);
 }
+
+// ── Field examples ──────────────────────────────────────────────────────────
+
+#[test]
+fn every_field_example_is_what_the_builtin_actually_returns() {
+    // An unverified example is worse than none: it would be a confident,
+    // checkable-looking claim that a filter could be written against and fail
+    // silently — precisely the failure the examples exist to prevent.
+    use aethershell::shapes::FIELD_EXAMPLES;
+
+    let probes = probes();
+    let mut wrong = Vec::new();
+    for (builtin, field, example) in FIELD_EXAMPLES {
+        let Some((_, arg_sets)) = probes.iter().find(|(n, _)| n == builtin) else {
+            wrong.push(format!("  {builtin}.{field}: no probe"));
+            continue;
+        };
+        // Check every probe argument, not just the first. `ls(".")` is the
+        // repo root and contains no `.rs` files, so looking only there
+        // "disproved" a correct example — the check was too narrow, not the
+        // example wrong.
+        let mut rows: Vec<Value> = Vec::new();
+        for args in arg_sets {
+            if let Some(Value::Array(mut r)) = call(builtin, args.clone()) {
+                rows.append(&mut r);
+            }
+        }
+        if rows.is_empty() {
+            wrong.push(format!("  {builtin}.{field}: no probe returned any rows"));
+            continue;
+        }
+        // The example must be *shaped* like a real value of that field. Exact
+        // equality is wrong — a path or timestamp differs per machine — so this
+        // checks the property that misled the agent: the leading characters.
+        let matched = rows.iter().any(|r| match r {
+            Value::Record(m) => match m.get(*field) {
+                Some(Value::Str(s)) => {
+                    s == example || s.starts_with(&example[..example.len().min(2)])
+                }
+                Some(Value::Int(_)) => example.chars().all(|c| c.is_ascii_digit()),
+                _ => false,
+            },
+            _ => false,
+        });
+        if !matched {
+            wrong.push(format!(
+                "  {builtin}.{field}: no returned row resembles the example `{example}`"
+            ));
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "{} field example(s) do not match reality:\n{}",
+        wrong.len(),
+        wrong.join("\n")
+    );
+}
+
+#[test]
+fn the_example_that_caught_a_real_mistake_is_present() {
+    // `ls().ext` is `".rs"`, not `"rs"`. Writing the filter from the type alone
+    // returned an empty set with no error. Pinned so the example is not tidied
+    // away as redundant.
+    let ext = aethershell::shapes::field_examples("ls")
+        .into_iter()
+        .find(|(f, _)| *f == "ext");
+    assert_eq!(
+        ext,
+        Some(("ext", ".rs")),
+        "the leading dot is the whole point of this example"
+    );
+}

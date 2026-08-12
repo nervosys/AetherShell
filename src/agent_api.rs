@@ -955,6 +955,20 @@ fn annotate_effects(mut defs: Vec<BuiltinDefinition>) -> Vec<BuiltinDefinition> 
         let eff = crate::safety::effect_of(&d.name).as_str();
         if let JsonValue::Object(ref mut m) = d.json_schema {
             m.insert("x-effect".to_string(), json!(eff));
+            // Where a field's *format* is surprising, an example goes with the
+            // type. `ext:str` is true and still let a filter be written as
+            // `f.ext == "rs"` when the value is `".rs"` — which returned an
+            // empty set rather than an error.
+            let examples = crate::shapes::field_examples(&d.name);
+            if !examples.is_empty() {
+                m.insert(
+                    "x-returns-examples".to_string(),
+                    json!(examples
+                        .into_iter()
+                        .map(|(f, e)| (f.to_string(), e.to_string()))
+                        .collect::<std::collections::BTreeMap<_, _>>()),
+                );
+            }
             if let Some(shape) = crate::shapes::shape_of(&d.name) {
                 m.insert("x-returns".to_string(), json!(shape));
             } else if let Some(shape) = crate::shapes::polymorphic_shape_of(&d.name) {

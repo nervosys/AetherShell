@@ -395,6 +395,30 @@ pub fn reversible_count() -> usize {
     j.iter().filter(|e| e.reversible()).count()
 }
 
+/// The current end of the journal, for [`rollback_to`].
+pub fn mark() -> usize {
+    let mut j = JOURNAL.lock().unwrap_or_else(|e| e.into_inner());
+    hydrate(&mut j);
+    j.len()
+}
+
+/// Discard entries recorded after `mark`, because the call they were recorded
+/// for did not happen.
+///
+/// Found by using the shell as an agent: a `file_write` refused by the
+/// workspace jail still left a journal entry, so `undo()` answered
+/// `complete: false, skipped: 1` about an operation that never ran. The report
+/// was honest but the entry was fiction, and an agent reading `complete: false`
+/// would reasonably conclude something was left unreversed.
+pub fn rollback_to(mark: usize) {
+    let mut j = JOURNAL.lock().unwrap_or_else(|e| e.into_inner());
+    while j.len() > mark {
+        if let Some(e) = j.pop() {
+            forget_persisted(e.seq);
+        }
+    }
+}
+
 /// Forget everything recorded. Does not touch the filesystem.
 pub fn clear() {
     JOURNAL.lock().unwrap_or_else(|e| e.into_inner()).clear();

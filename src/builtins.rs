@@ -3880,10 +3880,18 @@ fn call_with_input_inner(
     //
     // Agent surface only, and a no-op for every non-mutating effect, so the
     // common path costs one `matches!`.
+    let journal_mark = crate::journal::mark();
     crate::journal::record_before(name, crate::safety::effect_of(name), &args);
 
     // Try fast lookup first
     if let Some(result) = fast_builtin_lookup(name, args.clone(), input.clone(), env) {
+        // A call that failed changed nothing, so it must leave nothing behind to
+        // undo. Without this a write refused by the workspace jail still left an
+        // entry, and `undo()` answered `complete: false` about an operation that
+        // never ran.
+        if result.is_err() {
+            crate::journal::rollback_to(journal_mark);
+        }
         return result;
     }
 

@@ -21,7 +21,44 @@ use aethershell::builtins::BUILTIN_LOOKUP;
 use aethershell::safety::{effect_of, Effect};
 use std::collections::{HashMap, HashSet};
 
-const SOURCE: &str = include_str!("../src/builtins.rs");
+/// Every Rust source file in the crate, read at test time.
+///
+/// This used to be `include_str!("../src/builtins.rs")` alone, which made a
+/// whole class of effect invisible: a builtin delegating into `os_tools`,
+/// `external_tools` or any other module was reading as pure because the lint
+/// had never opened the file. `Command::new` appears in 6 other modules,
+/// `fs::write` in 10. "No evidence" meant "no evidence in one file".
+///
+/// Read from disk rather than `include_str!` so a module added tomorrow is
+/// covered without anyone remembering to add it here.
+fn source_files() -> Vec<String> {
+    fn walk(dir: &std::path::Path, out: &mut Vec<String>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for e in entries.filter_map(|e| e.ok()) {
+            let p = e.path();
+            if p.is_dir() {
+                walk(&p, out);
+            } else if p.extension().and_then(|s| s.to_str()) == Some("rs") {
+                if let Ok(text) = std::fs::read_to_string(&p) {
+                    out.push(text);
+                }
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(
+        &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+        &mut out,
+    );
+    assert!(
+        out.len() > 20,
+        "expected to read the crate's modules, got {}",
+        out.len()
+    );
+    out
+}
 
 /// Syntax that *performs* an effect rather than describing one. Each marker is
 /// something an implementation must actually call — no nouns, no type names that
@@ -37,6 +74,27 @@ const EVIDENCE: &[(&str, &str)] = &[
     ("File::create", "creates a file"),
     ("TcpStream::connect", "opens a socket"),
     ("reqwest::", "makes an HTTP request"),
+    // Added after asking what the marker list could still be missing rather
+    // than assuming it complete. Each is written precisely, because the first
+    // attempt was not and the imprecision produced confident nonsense:
+    //
+    // * a bare `symlink` matched the *field* `allow_symlinks` in
+    //   `security::validate_safe_path`, so `ls`, `cat`, `head`, `tail` and
+    //   `read_text` were all reported as creating symbolic links;
+    // * a bare `OpenOptions` cannot tell a read from a write;
+    // * a bare `TcpListener` matches a type name in a signature.
+    //
+    // A marker must name something that *performs* the effect.
+    (".append(true)", "opens a file to append"),
+    (".create(true)", "opens a file to create"),
+    (".write(true)", "opens a file to write"),
+    ("fs::set_permissions", "changes file permissions"),
+    ("fs::hard_link", "creates a hard link"),
+    ("symlink_file(", "creates a file symlink"),
+    ("symlink_dir(", "creates a directory symlink"),
+    ("fs::symlink(", "creates a symbolic link"),
+    ("TcpListener::bind", "binds a listening socket"),
+    ("UdpSocket::bind", "binds a datagram socket"),
 ];
 
 /// The violations outstanding, and **now empty**.
@@ -64,10 +122,14 @@ fn baseline() -> std::collections::HashSet<&'static str> {
 ///
 /// One level was not enough: a builtin that calls `cloud_run_cmd_json`, which
 /// calls `cloud_run_cmd`, which constructs the process, is two hops from its own
-/// effect. Depth 2 covers the helper-of-a-helper pattern this file actually
-/// uses; deeper costs analysis time for diminishing returns, and the limit is
-/// stated here rather than left implicit so the remaining blind spot is known.
-const FOLLOW_DEPTH: usize = 2;
+/// effect.
+///
+/// Depth was then **measured** rather than argued: 2, 3, 4 and 5 all report the
+/// same zero outstanding violations, so nothing is hiding three or more hops
+/// down in this codebase. It is set to 4 because that costs a fraction of a
+/// second and removes the question; if a future refactor introduces deeper
+/// indirection this will find it without anyone having to remember to look.
+const FOLLOW_DEPTH: usize = 4;
 
 /// Extract every `fn <name>` body from the source by brace matching — not just
 /// `bi_*`.
@@ -84,58 +146,126 @@ const FOLLOW_DEPTH: usize = 2;
 /// keyed by name, so that phantom silently replaced the genuine
 /// `json_to_value`, and the lint reported `json_parse` as a builtin that
 /// deletes files. Comments are not code and must not be read as code.
-fn source_without_comments() -> String {
-    let mut out = String::with_capacity(SOURCE.len());
-    let mut chars = SOURCE.char_indices().peekable();
-    let (mut in_line, mut in_block, mut in_str, mut esc) = (false, false, false, false);
-    while let Some((_, c)) = chars.next() {
-        let next = chars.peek().map(|(_, c)| *c);
-        if in_line {
-            if c == '\n' {
-                in_line = false;
-                out.push(c);
-            } else {
+fn strip_comments(src: &str) -> String {
+    let chars: Vec<char> = src.chars().collect();
+    let mut out = String::with_capacity(src.len());
+    let mut i = 0usize;
+    while i < chars.len() {
+        let c = chars[i];
+        let next = chars.get(i + 1).copied();
+
+        // Line comment.
+        if c == '/' && next == Some('/') {
+            while i < chars.len() && chars[i] != '\n' {
                 out.push(' ');
+                i += 1;
             }
-        } else if in_block {
-            if c == '*' && next == Some('/') {
-                in_block = false;
-                out.push(' ');
-                out.push(' ');
-                chars.next();
-            } else {
-                out.push(if c == '\n' { '\n' } else { ' ' });
+            continue;
+        }
+
+        // Block comment (nesting allowed, as in Rust).
+        if c == '/' && next == Some('*') {
+            let mut depth = 1usize;
+            out.push(' ');
+            out.push(' ');
+            i += 2;
+            while i < chars.len() && depth > 0 {
+                if chars[i] == '/' && chars.get(i + 1) == Some(&'*') {
+                    depth += 1;
+                    out.push(' ');
+                    out.push(' ');
+                    i += 2;
+                } else if chars[i] == '*' && chars.get(i + 1) == Some(&'/') {
+                    depth -= 1;
+                    out.push(' ');
+                    out.push(' ');
+                    i += 2;
+                } else {
+                    out.push(if chars[i] == '\n' { '\n' } else { ' ' });
+                    i += 1;
+                }
             }
-        } else if in_str {
+            continue;
+        }
+
+        // Character literal: 'x' or '\n'.
+        //
+        // Handled explicitly because a literal quote — `'"'`, of which
+        // builtins.rs contains 20 — otherwise reads as the *start of a string*
+        // and blanks all the real code that follows it. That silently hid
+        // genuine effects: the violation count fell from 6 to 3 and the drop
+        // looked like progress. The canary tests below exist so that a scanner
+        // change which blinds this lint fails instead of flattering it.
+        if c == '\'' {
+            let close = if next == Some('\\') {
+                chars
+                    .iter()
+                    .skip(i + 2)
+                    .position(|&x| x == '\'')
+                    .map(|p| i + 2 + p)
+            } else if chars.get(i + 2) == Some(&'\'') {
+                Some(i + 2)
+            } else {
+                None
+            };
+            if let Some(close) = close {
+                for _ in i..=close {
+                    out.push(' ');
+                }
+                i = close + 1;
+                continue;
+            }
+            // Otherwise a lifetime (`'a`), which is ordinary code.
             out.push(c);
-            if c == '\\' && !esc {
-                esc = true;
-            } else {
-                if c == '"' && !esc {
-                    in_str = false;
+            i += 1;
+            continue;
+        }
+
+        // String literal: keep the quotes, blank the contents. A literal is
+        // data, not code — `bi_help`'s help text contains `| join("-")`, which
+        // the call scanner read as a call to a function named `join`, and since
+        // `tui::distributed::join` binds a UDP socket, `help` was reported as
+        // opening a datagram socket.
+        if c == '"' {
+            out.push('"');
+            i += 1;
+            let mut esc = false;
+            while i < chars.len() {
+                let ch = chars[i];
+                if ch == '\\' && !esc {
+                    esc = true;
+                    out.push(' ');
+                    i += 1;
+                    continue;
+                }
+                if ch == '"' && !esc {
+                    out.push('"');
+                    i += 1;
+                    break;
                 }
                 esc = false;
+                out.push(if ch == '\n' { '\n' } else { ' ' });
+                i += 1;
             }
-        } else if c == '/' && next == Some('/') {
-            in_line = true;
-            out.push(' ');
-        } else if c == '/' && next == Some('*') {
-            in_block = true;
-            out.push(' ');
-        } else {
-            if c == '"' {
-                in_str = true;
-            }
-            out.push(c);
+            continue;
         }
+
+        out.push(c);
+        i += 1;
     }
     out
 }
 
 fn all_fn_bodies() -> Vec<(String, String)> {
-    let source = source_without_comments();
-    let source: &str = &source;
     let mut out = Vec::new();
+    for file in source_files() {
+        collect_fn_bodies(&strip_comments(&file), &mut out);
+    }
+    out
+}
+
+/// Extract every `fn <name>` body from one comment-stripped file.
+fn collect_fn_bodies(source: &str, out: &mut Vec<(String, String)>) {
     let bytes = source.as_bytes();
     let mut search = 0usize;
     while let Some(rel) = source[search..].find("fn ") {
@@ -186,11 +316,38 @@ fn all_fn_bodies() -> Vec<(String, String)> {
             out.push((fn_name, source[brace..=i.min(bytes.len() - 1)].to_string()));
         }
     }
-    out
 }
 
+/// Function name → body, **excluding any name defined more than once**.
+///
+/// Reading the whole crate instead of one file multiplied the name collisions:
+/// `join`, `new`, `run` and friends are defined in many modules. Resolving a
+/// call by bare name then picks an arbitrary one, and the lint reported `help`
+/// as opening a datagram socket because some unrelated `join` does. An
+/// ambiguous resolution is not evidence, so ambiguous names are dropped rather
+/// than guessed — a false negative the direct-evidence pass can still catch,
+/// instead of a false positive that would get "fixed" by misclassifying a pure
+/// builtin.
 fn bodies_by_name() -> HashMap<String, String> {
-    all_fn_bodies().into_iter().collect()
+    let mut counts: HashMap<String, usize> = HashMap::new();
+    let bodies = all_fn_bodies();
+    for (name, _) in &bodies {
+        *counts.entry(name.clone()).or_insert(0) += 1;
+    }
+    bodies
+        .into_iter()
+        .filter(|(name, _)| counts.get(name) == Some(&1))
+        .collect()
+}
+
+/// How many function names are too ambiguous to resolve. Reported so the size
+/// of that blind spot is visible rather than implied.
+fn ambiguous_name_count() -> usize {
+    let mut counts: HashMap<String, usize> = HashMap::new();
+    for (name, _) in all_fn_bodies() {
+        *counts.entry(name).or_insert(0) += 1;
+    }
+    counts.values().filter(|c| **c > 1).count()
 }
 
 #[test]
@@ -226,16 +383,26 @@ fn the_lint_does_not_read_comments_as_code() {
     // and the map silently replaced the genuine `json_to_value` with it. The
     // lint then reported `json_parse` as a builtin that deletes files, which
     // would have been "fixed" by misclassifying a pure function.
-    let all = bodies_by_name();
-    let body = all
-        .get("json_to_value")
-        .expect("json_to_value should be parsed");
+    // Assert the property directly. Looking `json_to_value` up by name no
+    // longer works — it is defined in five modules, so the ambiguity filter
+    // (correctly) drops it — and a test that depends on a lookup succeeding
+    // would fail for a reason unrelated to what it is checking.
+    let src = "\
+        // fn json_to_value(json: serde_json::Value) -> Value;\n\
+        fn deletes_things() { std::fs::remove_file(p); }\n";
+    let stripped = strip_comments(src);
     assert!(
-        direct_evidence(body).is_none(),
-        "json_to_value is pure data conversion; evidence here means a comment \
-         was parsed as code: {}",
-        &body[..body.len().min(120)]
+        !stripped.contains("fn json_to_value"),
+        "a commented-out signature must not survive stripping: {stripped}"
     );
+    let mut bodies = Vec::new();
+    collect_fn_bodies(&stripped, &mut bodies);
+    assert_eq!(
+        bodies.len(),
+        1,
+        "only the real function should be parsed, got {bodies:?}"
+    );
+    assert_eq!(bodies[0].0, "deletes_things");
 
     let flagged: Vec<String> = current_violations()
         .into_iter()
@@ -322,8 +489,19 @@ fn called_names(body: &str) -> Vec<String> {
             }
             _ => {}
         }
-        prev_prev = prev;
-        prev = Some(c);
+        // Track the last two *non-whitespace* characters. Using the immediately
+        // preceding character is not enough: a multi-line method chain puts a
+        // newline between the dot and the name —
+        //
+        //     some_vec
+        //         .join(", ")
+        //
+        // — so `join` read as a free call, and the lint reported `help` as
+        // binding a datagram socket because an unrelated `join` elsewhere does.
+        if !c.is_whitespace() {
+            prev_prev = prev;
+            prev = Some(c);
+        }
     }
     out
 }
@@ -406,5 +584,80 @@ fn report_the_outstanding_debt() {
     // quietly become permanent.
     let n = current_violations().len();
     println!("effect ratchet: {n} builtin(s) act while classified Pure (baseline 0)");
+    // The remaining blind spot, stated as a number rather than as a caveat: a
+    // call whose name is defined in more than one module cannot be resolved
+    // from a text scan, so delegation through it is not followed.
+    println!(
+        "unresolvable call names (defined more than once, so not followed): {}",
+        ambiguous_name_count()
+    );
     assert!(n <= baseline().len(), "the debt must never grow");
+}
+
+// ── Canaries ────────────────────────────────────────────────────────────────
+//
+// A lint that goes blind reports zero violations, which is indistinguishable
+// from success. It happened here: adding string-literal blanking without
+// handling character literals meant a literal `'"'` opened a phantom string and
+// blanked the code after it. The count fell from 6 to 3 and looked like
+// progress; `platform_machine_id` had simply become invisible.
+//
+// These assert that known-acting code is still *seen*. They fail when the
+// scanner loses sight, rather than quietly agreeing with it.
+
+#[test]
+fn the_scanner_still_sees_a_process_being_constructed() {
+    let all = bodies_by_name();
+    let body = all
+        .get("bi_platform_machine_id")
+        .expect("bi_platform_machine_id should be parsed");
+    assert!(
+        direct_evidence(body).is_some(),
+        "this builtin constructs a process; failing to see it means the scanner \
+         is blind, not that the code changed"
+    );
+}
+
+#[test]
+fn the_scanner_still_sees_a_file_being_appended_to() {
+    let all = bodies_by_name();
+    let body = all
+        .get("bi_git_ignore")
+        .expect("bi_git_ignore should be parsed");
+    assert!(
+        direct_evidence(body).is_some(),
+        "git_ignore opens a file with .append(true)"
+    );
+}
+
+#[test]
+fn a_char_literal_containing_a_quote_does_not_blind_the_scanner() {
+    // The specific defect, pinned. Everything after `'"'` must still be read.
+    let src = r#"
+        fn probe() {
+            let quote = '"';
+            let _ = quote;
+            std::process::Command::new("ls");
+        }
+    "#;
+    let stripped = strip_comments(src);
+    assert!(
+        stripped.contains("Command::new"),
+        "code after a quote character literal was blanked: {stripped}"
+    );
+}
+
+#[test]
+fn a_string_literal_is_not_read_as_code() {
+    // The opposite direction, equally pinned.
+    let src = r#"
+        fn helptext() -> &'static str {
+            "usage: xs | join(\"-\")"
+        }
+    "#;
+    let stripped = strip_comments(src);
+    assert!(
+        !stripped.contains("join("),
+        "documentation inside a string was read as a call: {stripped}"
+    );
 }
