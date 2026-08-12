@@ -59,3 +59,8 @@ integrations/python/**/*.egg-info/
 # Python bytecode (the SDK is a source package; these are build artifacts)
 __pycache__/
 *.pyc
+
+# Python build artifacts (the SDK is built by CI / twine, never committed)
+integrations/python/dist/
+integrations/python/build/
+*.egg-info/

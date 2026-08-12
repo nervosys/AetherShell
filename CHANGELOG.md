@@ -5,6 +5,32 @@ All notable changes to AetherShell will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Python SDK 1.5.1** — the version on PyPI does not work. `aethershell 1.5.0`
+  was uploaded on 2026-08-10, two days before the flag fix, so the published
+  wheel still calls `ae -e <code> --json`; `clap` rejects `-e`, and every
+  `eval()` raises `RuntimeError`. Verified by downloading the wheel and reading
+  `__init__.py` rather than reasoning from dates.
+
+  PyPI does not permit replacing a release, so this bumps the SDK to **1.5.1**
+  (`pyproject.toml`, `__version__`, docs). The rebuilt wheel was checked the
+  same way before committing: `-c`/`--deterministic` present, `-e`/`--json`
+  absent.
+
+  Publishing it still requires either a **trusted publisher** on PyPI (the
+  workflow already uses `pypa/gh-action-pypi-publish` with `id-token: write`, so
+  no API token is needed — configure the publisher and the job stops failing) or
+  a manual `twine upload`.
+
+  Related: the package name is at least safely owned — `aethershell` on PyPI is
+  registered to `contact@nervosys.ai` and points at this repository. The
+  supply-chain exposure noted in `release.yml` (docs advertising an unclaimed
+  name that anyone could take, with `pip` executing package code at install
+  time) is therefore closed.
+
 ## [7.4.0] - 2026-08-12
 
 ### Added
