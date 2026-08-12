@@ -5,6 +5,33 @@ All notable changes to AetherShell will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.3.2] - 2026-08-11
+
+### Fixed
+
+- **Redaction was destroying the agent's own data.** `safety::is_secret_name`
+  matches substrings, so `TOKEN` also matched `full_tokens`, `compact_tokens`,
+  `page_tokens` and `tokens_in`/`tokens_out`. Those hold **counts**, and blanking
+  them made the token-economy surface — the thing this project measures itself
+  by — report `[REDACTED]` to agents instead of numbers. `digest()` was the
+  clearest casualty: its whole purpose is comparing full against compact size.
+
+- **`plan()` returned an unusable token.** The same rule blanked its `token`
+  field while `hint` printed the real `apl_…` alongside it. A caller reading the
+  machine-readable field could not complete the documented plan/apply flow at
+  all; it would have had to scrape the hint string.
+
+  The fix is narrow and in two parts: a secret is a **string**, so a number under
+  a secret-sounding name is left alone; and `apv_`/`apl_` values are
+  **capabilities the agent is required to echo back**, not credentials to hide.
+  Everything else is unchanged — `tests/redaction_scope.rs` pins both
+  directions, including a genuine `ghp_…` credential under a field literally
+  named `auth_token`, and a secret nested inside a container.
+
+  Found by driving the shell as an agent. Three defects have now come from using
+  it (this, the approval-token collision in 7.3.1, and a journal entry recorded
+  for a call the jail refused) against none from reading it.
+
 ## [7.3.1] - 2026-08-11
 
 ### Security

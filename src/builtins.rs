@@ -16542,7 +16542,7 @@ fn redact_field_map(
 ) -> std::collections::BTreeMap<String, Value> {
     let mut out = std::collections::BTreeMap::new();
     for (k, val) in m {
-        if crate::safety::is_secret_name(k) {
+        if crate::safety::is_secret_name(k) && redactable_by_name(val) {
             out.insert(
                 k.clone(),
                 Value::Str(crate::safety::REDACTION_MARKER.to_string()),
@@ -16552,6 +16552,35 @@ fn redact_field_map(
         }
     }
     out
+}
+
+/// Whether a value under a secret-*sounding* field name should actually be
+/// replaced by the marker.
+///
+/// `is_secret_name` matches substrings, so `TOKEN` also matches `full_tokens`,
+/// `compact_tokens`, `page_tokens` and `tokens_in`. Those hold **counts**, and
+/// redacting them made the token-economy surface — the thing this project
+/// measures itself by — report `[REDACTED]` to agents instead of numbers.
+///
+/// Two rules, both narrow:
+///
+/// * A secret is a string. A number, bool or null under a secret-sounding name
+///   cannot be one, and blanking it destroys information for no gain.
+/// * An **approval or plan token** (`apv_…`, `apl_…`) is a capability the agent
+///   is required to echo back, not a credential to hide. `plan()` returned
+///   `token="[REDACTED]"` in its machine-readable field while printing the real
+///   token in `hint` — incoherent, and it broke the documented plan/apply flow
+///   for any caller reading the structured field.
+///
+/// Found by driving the shell as an agent.
+fn redactable_by_name(v: &Value) -> bool {
+    match v {
+        Value::Str(s) | Value::Uri(s) => !(s.starts_with("apv_") || s.starts_with("apl_")),
+        // Containers are walked normally so genuine secrets inside are still
+        // caught by shape and by their own field names.
+        Value::Array(_) | Value::Record(_) | Value::Table(_) => false,
+        _ => false,
+    }
 }
 
 /// Render a result for **deterministic mode** (`--deterministic` / `AE_DETERMINISTIC`):
