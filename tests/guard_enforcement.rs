@@ -168,7 +168,7 @@ fn a_destructive_builtin_is_now_stopped_in_agent_mode() {
     assert_eq!(safety::effect_of("git_clean"), Effect::Destructive);
 
     std::env::set_var("AETHER_MODE", "agent");
-    let denied = safety::guard_dispatch("git_clean", vec![]);
+    let denied = safety::guard_dispatch("git_clean", &[]);
     std::env::remove_var("AETHER_MODE");
 
     let err = denied.expect_err("a destructive builtin must not run unguarded in agent mode");
@@ -186,7 +186,7 @@ fn the_human_surface_is_unchanged() {
     std::env::remove_var("AETHER_MODE");
     std::env::remove_var("AETHER_AGENT");
     assert!(
-        safety::guard_dispatch("git_clean", vec![]).is_ok(),
+        safety::guard_dispatch("git_clean", &[]).is_ok(),
         "human mode stays default-allow"
     );
 }
@@ -199,7 +199,7 @@ fn read_only_builtins_are_not_gated_even_in_agent_mode() {
     std::env::set_var("AETHER_MODE", "agent");
     let results: Vec<_> = ["git_status", "pkg_list", "platform_cpu", "hw_gpu"]
         .iter()
-        .map(|n| (*n, safety::guard_dispatch(n, vec![]).is_ok()))
+        .map(|n| (*n, safety::guard_dispatch(n, &[]).is_ok()))
         .collect();
     std::env::remove_var("AETHER_MODE");
     for (name, ok) in results {
@@ -213,7 +213,7 @@ fn a_self_guarding_builtin_is_not_guarded_twice() {
     // dispatcher must defer to that rather than admit the same action again.
     let _g = lock();
     std::env::set_var("AETHER_MODE", "agent");
-    let skipped = safety::guard_dispatch("rm", vec!["/tmp/x".into()]).is_ok();
+    let skipped = safety::guard_dispatch("rm", &[Value::Str("/tmp/x".into())]).is_ok();
     std::env::remove_var("AETHER_MODE");
     assert!(
         skipped,
@@ -228,11 +228,11 @@ fn an_approval_token_lets_the_call_through() {
     let _g = lock();
     std::env::set_var("AETHER_MODE", "agent");
     let err =
-        safety::guard_dispatch("git_clean", vec![]).expect_err("expected an approval requirement");
+        safety::guard_dispatch("git_clean", &[]).expect_err("expected an approval requirement");
     let token = err.approval.as_ref().expect("descriptor").token.clone();
 
     safety::grant_approval(&token);
-    let allowed = safety::guard_dispatch("git_clean", vec![]);
+    let allowed = safety::guard_dispatch("git_clean", &[]);
     safety::revoke_approval(&token);
     std::env::remove_var("AETHER_MODE");
 
@@ -272,7 +272,10 @@ fn the_central_jail_catches_a_path_that_really_is_outside_the_workspace() {
 
     std::env::set_var("AETHER_MODE", "agent");
     std::env::set_var("AETHER_WORKSPACE", &workspace);
-    let result = safety::guard_dispatch("git_clean", vec![outside.to_string_lossy().into_owned()]);
+    let result = safety::guard_dispatch(
+        "git_clean",
+        &[Value::Str(outside.to_string_lossy().into_owned())],
+    );
     std::env::remove_var("AETHER_WORKSPACE");
     std::env::remove_var("AETHER_MODE");
     let _ = std::fs::remove_file(&outside);
@@ -295,7 +298,7 @@ fn a_non_path_argument_is_never_mistaken_for_one() {
     std::env::set_var("AETHER_MODE", "agent");
     std::env::set_var("AETHER_WORKSPACE", &workspace);
     // Approve so the only thing that can fail is the jail.
-    let probe = safety::guard_dispatch("podman_stop", vec!["my-container".into()]);
+    let probe = safety::guard_dispatch("podman_stop", &[Value::Str("my-container".into())]);
     let token = probe
         .as_ref()
         .err()
@@ -304,7 +307,7 @@ fn a_non_path_argument_is_never_mistaken_for_one() {
     let after = match token {
         Some(t) => {
             safety::grant_approval(&t);
-            let r = safety::guard_dispatch("podman_stop", vec!["my-container".into()]);
+            let r = safety::guard_dispatch("podman_stop", &[Value::Str("my-container".into())]);
             safety::revoke_approval(&t);
             r
         }
@@ -336,4 +339,62 @@ fn only_paths_that_exist_are_treated_as_paths() {
         "my-container".into(),
     ]);
     assert_eq!(found.len(), 1, "expected only the real path, got {found:?}");
+}
+
+#[test]
+fn approving_one_call_does_not_authorise_a_different_one() {
+    // A security defect found by driving the shell as an agent, not by review.
+    //
+    // The approval token is a hash of the descriptor, so anything that
+    // distinguishes two calls must be inside it. The dispatcher passed only the
+    // *string* arguments, and `git_clean`'s only argument is a bool — so
+    // `git_clean(true)` (a dry run that prints what it would delete) and
+    // `git_clean(false)` (which deletes untracked files) hashed identically.
+    // Approving the harmless preview silently authorised the destructive call,
+    // the exact inverse of what content-binding exists to guarantee.
+    let _g = lock();
+    std::env::set_var("AETHER_MODE", "agent");
+    let dry = safety::guard_dispatch("git_clean", &[Value::Bool(true)]);
+    let destructive = safety::guard_dispatch("git_clean", &[Value::Bool(false)]);
+    std::env::remove_var("AETHER_MODE");
+
+    let dry_token = dry
+        .expect_err("dry run is still Destructive and needs approval")
+        .approval
+        .expect("descriptor")
+        .token;
+    let destructive_token = destructive
+        .expect_err("the deleting form needs approval")
+        .approval
+        .expect("descriptor")
+        .token;
+
+    assert_ne!(
+        dry_token, destructive_token,
+        "calls that differ only in a non-string argument must not share a token"
+    );
+}
+
+#[test]
+fn a_granted_token_authorises_only_the_call_it_was_issued_for() {
+    // The other half: holding a token must not become a general permit.
+    let _g = lock();
+    std::env::set_var("AETHER_MODE", "agent");
+    let token = safety::guard_dispatch("git_clean", &[Value::Bool(true)])
+        .expect_err("needs approval")
+        .approval
+        .expect("descriptor")
+        .token;
+
+    safety::grant_approval(&token);
+    let same = safety::guard_dispatch("git_clean", &[Value::Bool(true)]);
+    let other = safety::guard_dispatch("git_clean", &[Value::Bool(false)]);
+    safety::revoke_approval(&token);
+    std::env::remove_var("AETHER_MODE");
+
+    assert!(same.is_ok(), "the approved call must proceed: {same:?}");
+    assert!(
+        other.is_err(),
+        "a different call must still require its own approval"
+    );
 }

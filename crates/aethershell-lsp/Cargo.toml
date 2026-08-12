@@ -1,6 +1,6 @@
 [package]
 name = "aethershell-lsp"
-version = "7.3.0"
+version = "7.3.1"
 edition = "2021"
 description = "Language Server Protocol implementation for AetherShell — diagnostics, completion, hover, and symbols for .ae scripts."
 license = "AGPL-3.0-or-later"
@@ -39,7 +39,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # AetherShell core - use native feature explicitly
-aethershell = { version = "7.3.0", path = "../..", default-features = false, features = [
+aethershell = { version = "7.3.1", path = "../..", default-features = false, features = [
     "native",
 ] }
 

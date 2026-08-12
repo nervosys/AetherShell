@@ -5,6 +5,41 @@ All notable changes to AetherShell will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.3.1] - 2026-08-11
+
+### Security
+
+- **An approval token authorised calls it was never issued for.** The token is a
+  hash of the approval descriptor, so anything distinguishing two calls must be
+  inside it — but `guard_dispatch` (added in 7.1.0) passed only the **string**
+  arguments. `git_clean`'s only argument is a bool, so `git_clean(true)` — a dry
+  run that prints what it *would* remove — and `git_clean(false)`, which deletes
+  untracked files, hashed to the same `apv_…`. Approving the harmless preview
+  silently granted the destructive call, the exact inverse of what
+  content-binding exists to guarantee.
+
+  Every argument is now bound into the descriptor, typed
+  (`blast_radius.args = [{"Bool": true}]`). Two regression tests cover it: that
+  the two tokens differ, and that a granted token admits only the call it was
+  issued for.
+
+  Affects 7.1.0–7.3.0 in agent mode. Any builtin whose behaviour is selected by
+  a non-string argument was exposed; `git_clean` is the clearest case. Human
+  mode was never gated and is unaffected.
+
+  Found by driving the shell as an agent rather than by review — the tokens were
+  visibly identical in two consecutive error responses.
+
+### Notes
+
+- The fix initially appeared **not to work**: the rebuilt binary reported the
+  same colliding tokens. The binary was 27 minutes older than the sources —
+  cargo's fingerprint cache had been corrupted by earlier disk-exhaustion
+  failures and was silently skipping the rebuild, so every check was testing
+  stale code. Clearing `target/debug/.fingerprint/aethershell-*` restored
+  correct builds. Worth knowing on this machine: a test result is only evidence
+  about the binary that actually ran.
+
 ## [7.3.0] - 2026-08-11
 
 Three limits that had been *stated* rather than fixed. Two were closed by

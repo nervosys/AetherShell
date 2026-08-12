@@ -2399,8 +2399,15 @@ pub fn existing_paths(args: &[String]) -> Vec<String> {
         .cloned()
         .collect()
 }
-pub fn guard_dispatch(builtin: &str, args_as_strings: Vec<String>) -> Result<(), SafetyError> {
+pub fn guard_dispatch(builtin: &str, args: &[crate::value::Value]) -> Result<(), SafetyError> {
     let effect = effect_of(builtin);
+    let args_as_strings: Vec<String> = args
+        .iter()
+        .filter_map(|a| match a {
+            crate::value::Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .collect();
     if SELF_GUARDED.contains(&builtin) {
         return Ok(());
     }
@@ -2434,12 +2441,19 @@ pub fn guard_dispatch(builtin: &str, args_as_strings: Vec<String>) -> Result<(),
     } else {
         args_as_strings
     };
+    // The approval token is a hash of the descriptor, so whatever distinguishes
+    // two calls must appear in it. Passing only the *string* arguments meant
+    // `git_clean(true)` (dry run) and `git_clean(false)` (deletes untracked
+    // files) produced an identical token: approving the harmless preview
+    // silently authorised the destructive call, which is the exact opposite of
+    // what content-binding is for. Every argument goes in, typed.
+    let argv = serde_json::to_value(args).unwrap_or(Json::Null);
     guard(GuardCtx {
         builtin,
         effect,
         what: effect.as_str(),
         targets,
-        blast_radius: json!({}),
+        blast_radius: json!({ "args": argv }),
         // Honest rather than optimistic: a journalled file write can be rewound,
         // but this path covers process/exec/destructive classes whose effects
         // reach outside the filesystem, and claiming reversibility would make an

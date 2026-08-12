@@ -3863,15 +3863,7 @@ fn call_with_input_inner(
     // an operation's danger; this is where the description starts to constrain.
     // Builtins that guard themselves are skipped so one action is not admitted
     // twice.
-    crate::safety::guard_dispatch(
-        name,
-        args.iter()
-            .filter_map(|a| match a {
-                Value::Str(s) => Some(s.clone()),
-                _ => None,
-            })
-            .collect(),
-    )?;
+    crate::safety::guard_dispatch(name, &args)?;
 
     // Capture what a mutating call is about to overwrite, so the session can be
     // rewound. This is the one place every builtin passes through, which is why
