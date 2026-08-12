@@ -17622,24 +17622,52 @@ fn bi_sort_by(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<V
         })
         .ok_or_else(|| crate::safety::arg_err("sort_by requires array input"))?;
 
-    let lambda = args
-        .iter()
-        .find_map(|v| match v {
-            Value::Lambda(l) => Some(l),
-            _ => None,
-        })
-        .ok_or_else(|| crate::safety::arg_err("sort_by requires a lambda function"))?;
+    let lambda = args.iter().find_map(|v| match v {
+        Value::Lambda(l) => Some(l),
+        _ => None,
+    });
 
     let descending = args.iter().any(|v| match v {
         Value::Str(s) => s == "desc" || s == "descending",
         _ => false,
     });
 
+    // A bare field name is accepted as the sort key: `sort_by("size")` rather
+    // than `sort_by(fn(f) => f.size)`.
+    //
+    // Added after hitting this while using the shell as an agent. The string
+    // form is what most callers reach for first, and it previously failed
+    // twice over: the argument was silently ignored (only "desc"/"descending"
+    // were recognised), and the call then errored for want of a lambda — one
+    // wasted round-trip on a call that read as obviously correct.
+    //
+    // "desc"/"descending" stay reserved as the direction, so a field actually
+    // named that must use the lambda form. Stated rather than papered over.
+    let field = args.iter().find_map(|v| match v {
+        Value::Str(s) if s != "desc" && s != "descending" => Some(s.clone()),
+        _ => None,
+    });
+
+    if lambda.is_none() && field.is_none() {
+        return Err(crate::safety::bad_arg(
+            "sort_by",
+            "a key: either a field name (\"size\") or a lambda (fn(x) => x.size)",
+            "neither",
+        ));
+    }
+
     // Extract keys for each element
     let mut keyed: Vec<(Value, Value)> = arr
         .iter()
         .map(|item| {
-            let key = call_lambda(lambda, &[item.clone()], env).unwrap_or(Value::Null);
+            let key = match (&lambda, &field) {
+                (Some(l), _) => call_lambda(l, &[item.clone()], env).unwrap_or(Value::Null),
+                (None, Some(f)) => match item {
+                    Value::Record(m) => m.get(f).cloned().unwrap_or(Value::Null),
+                    _ => Value::Null,
+                },
+                (None, None) => Value::Null,
+            };
             (key, item.clone())
         })
         .collect();

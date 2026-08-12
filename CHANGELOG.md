@@ -5,6 +5,28 @@ All notable changes to AetherShell will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.4.0] - 2026-08-12
+
+### Added
+
+- **`sort_by` accepts a field name**, not only a lambda:
+  `sort_by("size")` alongside `sort_by(fn(r) => r.size)`, and it composes with
+  the existing direction argument — `sort_by("size", "desc")`.
+
+  Added after hitting it while using the shell as an agent. The string form is
+  what most callers reach for first, and it previously failed *twice over*: the
+  argument was silently ignored (only `"desc"`/`"descending"` were recognised)
+  and the call then errored for want of a lambda. One wasted round-trip on a
+  call that reads as obviously correct.
+
+  The no-key error now names both accepted forms, so an agent that guesses wrong
+  learns the call from the failure rather than from a second attempt.
+
+  Limitation, asserted in a test rather than left implicit: `"desc"` and
+  `"descending"` stay reserved as the direction, so a field genuinely named
+  `desc` must use the lambda form. A missing field yields a `Null` key and sorts
+  rather than failing the call, so a partial dataset still works.
+
 ## [7.3.3] - 2026-08-12
 
 ### Fixed
