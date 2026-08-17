@@ -1,0 +1,96 @@
+{
+  "ironstack": "1",
+  "id": "aethershell",
+  "product": "AetherShell",
+  "layer": "languages",
+  "role": "Agentic-first shell and shell language.",
+  "surfaces": ["cli", "rest", "mcp", "tui", "wasm"],
+  "depends_on": ["irongate", "ironvault"],
+  "capabilities": [
+    {
+      "name": "shell.introspect",
+      "description": "Enumerate builtins, their argument and return types, and their declared effect. The ontology is machine-discoverable without documentation scraping.",
+      "requires_grant": false,
+      "budgeted": false,
+      "surfaces": ["cli", "rest", "mcp"]
+    },
+    {
+      "name": "shell.eval",
+      "description": "Evaluate AetherShell source. Reaches every other capability here, so it is governed at the effect of whatever it evaluates, not at the effect of evaluation.",
+      "requires_grant": true,
+      "budgeted": true,
+      "surfaces": ["cli", "rest", "mcp"]
+    },
+    {
+      "name": "fs.read",
+      "description": "Read local state: file contents, directory listings, process listings, environment. Effect::ReadLocal.",
+      "requires_grant": false,
+      "budgeted": true,
+      "surfaces": ["cli", "rest", "mcp"]
+    },
+    {
+      "name": "fs.write",
+      "description": "Create or modify local state non-destructively. Effect::WriteLocal, drawing against the file-operation budget.",
+      "requires_grant": false,
+      "budgeted": true,
+      "surfaces": ["cli", "rest", "mcp"]
+    },
+    {
+      "name": "fs.destructive",
+      "description": "Irreversibly remove or overwrite local state. Effect::Destructive, which decide() resolves to Approve in agent mode.",
+      "requires_grant": true,
+      "budgeted": true,
+      "surfaces": ["cli", "rest", "mcp"]
+    },
+    {
+      "name": "process.exec",
+      "description": "Execute an arbitrary external command. Effect::Exec, which decide() resolves to Approve in agent mode.",
+      "requires_grant": true,
+      "budgeted": true,
+      "surfaces": ["cli", "rest", "mcp"]
+    },
+    {
+      "name": "process.control",
+      "description": "Affect other processes — signal, kill. Effect::Process, which decide() resolves to Approve in agent mode and draws against the process budget.",
+      "requires_grant": true,
+      "budgeted": true,
+      "surfaces": ["cli", "rest", "mcp"]
+    },
+    {
+      "name": "net.request",
+      "description": "Perform network I/O. Effect::Network.",
+      "requires_grant": false,
+      "budgeted": true,
+      "surfaces": ["cli", "rest", "mcp"]
+    },
+    {
+      "name": "ai.complete",
+      "description": "Complete a prompt. Routed to IronGate, which owns model selection, escalation, budget ceilings, and circuit breaking; AetherShell never addresses an inference engine directly.",
+      "requires_grant": false,
+      "budgeted": true,
+      "surfaces": ["cli", "rest", "mcp"]
+    },
+    {
+      "name": "ai.model_store",
+      "description": "List, inspect, and convert local model artifacts. Delegated to the IronVault `iv` CLI, so it carries Effect::Exec and is governed as an external command.",
+      "requires_grant": true,
+      "budgeted": true,
+      "surfaces": ["cli", "rest", "mcp"]
+    },
+    {
+      "name": "agent.run",
+      "description": "Run an autonomous agent or swarm. Reaches shell.eval, so it inherits its authority and is bounded by the wall-clock and operation budgets.",
+      "requires_grant": true,
+      "budgeted": true,
+      "surfaces": ["cli", "rest", "mcp"]
+    },
+    {
+      "name": "session.rewind",
+      "description": "Capture what a mutating call overwrites and rewind it. Reversible sessions are how a destructive step becomes recoverable rather than merely approved.",
+      "requires_grant": false,
+      "budgeted": true,
+      "surfaces": ["cli", "rest", "mcp"]
+    }
+  ],
+  "note": "requires_grant is not hand-assigned: it mirrors safety.rs's decide(), where Effect::{Process, Destructive, Exec} resolve to Decision::Approve in agent mode. Effect::Privileged resolves to Decision::Deny and therefore appears as no capability at all — AetherShell refuses that class rather than gating it. Every capability is budgeted except the two that cannot run away: shell.introspect is Effect::Pure, and its catalog is a compile-time table."
+}
