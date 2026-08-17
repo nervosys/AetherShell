@@ -322,10 +322,19 @@ pub fn vault_convert(
     vault_run(&refs)
 }
 
+/// The pure half of [`gate_root`], split out so it is testable without the
+/// environment.
+fn root_of(url: &str) -> String {
+    let trimmed = url.trim_end_matches('/');
+    trimmed
+        .strip_suffix("/v1")
+        .unwrap_or(trimmed)
+        .trim_end_matches('/')
+        .to_string()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     // These assert the *derivation*, which is pure. Anything requiring a
     // running gateway or an installed vault lives in tests/model_plane.rs, where
     // it can be skipped when the stack is absent.
@@ -367,15 +376,4 @@ mod tests {
             "http://host/v1/gateway"
         );
     }
-}
-
-/// The pure half of [`gate_root`], split out so it is testable without the
-/// environment.
-fn root_of(url: &str) -> String {
-    let trimmed = url.trim_end_matches('/');
-    trimmed
-        .strip_suffix("/v1")
-        .unwrap_or(trimmed)
-        .trim_end_matches('/')
-        .to_string()
 }
