@@ -404,6 +404,47 @@ fn sum_stays_undeclared_because_its_rule_is_promotion_not_substitution() {
 
 // ── Field examples ──────────────────────────────────────────────────────────
 
+/// Whether an example reads as a filesystem path rather than a plain string.
+fn path_shaped(s: &str) -> bool {
+    s.contains('/') || s.contains('\\')
+}
+
+/// The part after the last separator, treating both kinds as separators so a
+/// Windows example and a POSIX listing are comparable.
+fn final_component(s: &str) -> &str {
+    s.rsplit(['/', '\\']).next().unwrap_or(s)
+}
+
+#[test]
+fn the_path_example_resolves_on_every_runner_layout() {
+    // The bug this replaces was invisible on Windows and broke all three CI
+    // platforms, so the fix is checked against the layouts it has to survive
+    // rather than only against the one this test happens to run on.
+    let example = aethershell::shapes::LS_PATH_EXAMPLE;
+    assert!(
+        path_shaped(example),
+        "the ls.path example must read as a path: {example}"
+    );
+    assert_eq!(
+        final_component(example),
+        "agent.rs",
+        "the example must name a file that is actually in src/"
+    );
+
+    for row in [
+        "/home/runner/work/AetherShell/AetherShell/src/agent.rs", // ubuntu
+        "/Users/runner/work/AetherShell/AetherShell/src/agent.rs", // macos
+        "\\\\?\\D:\\a\\AetherShell\\AetherShell\\src\\agent.rs",  // windows
+        "src/agent.rs",                                           // relative
+    ] {
+        assert_eq!(
+            final_component(row),
+            final_component(example),
+            "example `{example}` does not resolve against `{row}`"
+        );
+    }
+}
+
 #[test]
 fn every_field_example_is_what_the_builtin_actually_returns() {
     // An unverified example is worse than none: it would be a confident,
@@ -433,10 +474,20 @@ fn every_field_example_is_what_the_builtin_actually_returns() {
             continue;
         }
         // The example must be *shaped* like a real value of that field. Exact
-        // equality is wrong — a path or timestamp differs per machine — so this
-        // checks the property that misled the agent: the leading characters.
+        // equality is wrong — a path or timestamp differs per machine.
+        //
+        // Leading characters were the old rule, and they were themselves
+        // machine-specific: they passed only on the box the example was
+        // captured on. `\\?\C:\...` cannot prefix a POSIX path, and even among
+        // POSIX runners `/home/runner` and `/Users/runner` agree on exactly one
+        // character. For a path-shaped example, compare the final component
+        // instead — stable on every platform, and stronger, since it names a
+        // file that must actually be in the listing.
         let matched = rows.iter().any(|r| match r {
             Value::Record(m) => match m.get(*field) {
+                Some(Value::Str(s)) if path_shaped(example) => {
+                    s == example || final_component(s) == final_component(example)
+                }
                 Some(Value::Str(s)) => {
                     s == example || s.starts_with(&example[..example.len().min(2)])
                 }

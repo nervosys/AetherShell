@@ -179,9 +179,19 @@ pub fn element_of(v: &Value) -> Option<String> {
 /// Only fields whose format is genuinely surprising belong here. A field that
 /// looks like what it is does not need an example, and padding this table would
 /// spend the tokens the shapes exist to save.
+/// `ls().path` is platform-shaped, so a single literal would be a lie on every
+/// platform but the one it was captured on. Windows returns a verbatim path;
+/// POSIX returns a POSIX one. An agent filtering on this field needs the form
+/// its *own* host produces, not the form the example's author happened to have.
+#[cfg(windows)]
+pub const LS_PATH_EXAMPLE: &str = "\\\\?\\C:\\...\\src\\agent.rs";
+/// See [`LS_PATH_EXAMPLE`] (windows).
+#[cfg(not(windows))]
+pub const LS_PATH_EXAMPLE: &str = "/.../src/agent.rs";
+
 pub const FIELD_EXAMPLES: &[(&str, &str, &str)] = &[
     ("ls", "ext", ".rs"),
-    ("ls", "path", "\\\\?\\C:\\...\\src\\agent.rs"),
+    ("ls", "path", LS_PATH_EXAMPLE),
     ("ls", "modified", "1770766991"),
 ];
 
