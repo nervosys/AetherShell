@@ -7,6 +7,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **The NERVOSYS stack: AI traffic routes through IronGate.** AetherShell is a
+  frontend; deciding which model serves a request is a routing problem, and
+  routing belongs to [IronGate](https://github.com/nervosys/IronGate), which
+  reaches [IronWorks](https://github.com/nervosys/IronWorks) for local inference
+  and IronWorks in turn reaches [IronVault](https://crates.io/crates/ironvault)
+  for weights.
+
+  - `ProviderType::IronGate` / `Provider::IronGate` — scheme `irongate:` with
+    aliases `gate:` and `iron:`. OpenAI-compatible on the wire, so it needs no
+    adapter of its own; what differs is where the request goes next. Tools,
+    streaming and vision are all declared, because the gateway's IR carries them
+    and it negotiates capability per target.
+  - `AETHER_AI=irongate` routes every AI call through it. With `AETHER_AI`
+    **unset**, a reachable gateway is now used rather than erroring — the probe
+    carries a 2s timeout, so the existing "no provider configured" message still
+    arrives promptly when nothing is running.
+  - Backend detection probes the gateway **first**, so `AETHER_AI=auto` prefers
+    routing over a direct connection that would bypass every budget ceiling and
+    circuit breaker the operator configured.
+  - `ai_gateway()` reports the gateway's state and the per-target circuit
+    detail behind it. An unreachable gateway returns `reachable: false` rather
+    than an error, so `ai_gateway().reachable` is writable.
+  - `IRONGATE_URL`, `IRONGATE_MODEL` (default `auto`), `IRONGATE_API_KEY`.
+    The default endpoint matches IronGate's own `[server] port = 7700`.
+
+- **IronVault is the model store and conversion module.** `vault_models()`,
+  `vault_conversions()`, `vault_convert({name, to_format, quantization?,
+  output?, validate?})`, reached through the `iv` CLI and `IRONVAULT_BIN`.
+
+  The CLI rather than the crate on purpose: `ironvault` declares
+  `rust-version = "1.89"` against AetherShell's 1.88, so taking it as a
+  dependency would raise this project's MSRV for every user, including those who
+  never touch a model file — and pull a second AES/Argon2/tokio stack into a
+  shell binary.
+
+- `ai_local_generate` falls back to the gateway when no in-process backend can
+  serve the handle. In this stack "local inference" *means* IronWorks behind
+  IronGate, and the default build compiles neither `candle` nor `onnx`, so that
+  call previously could only fail. Both paths now report a `backend` field
+  naming the engine that actually answered.
+
+### Changed
+
+- **BREAKING: `ai_convert_model` no longer accepts the source/target path form,
+  and no longer reports success for a file copy.** Every branch of the in-tree
+  converter was `fs::copy` — its own source said *"Simulate conversion by
+  copying file"* — after which it returned `success: true` with a checksum of
+  the unchanged bytes. A conversion that silently does nothing is worse than one
+  that fails.
+
+  Conversion is IronVault's job in this stack, and IronVault addresses models by
+  vault name rather than file path, so there is no correct automatic
+  translation. The path form now returns an error naming the replacement:
+  `iv add <path> --name <name>` then `ai_convert_model({name, to_format})`.
+  `ai_supported_conversions()` likewise answers from the vault instead of an
+  in-tree table that advertised capability the shell did not have.
+
+- `ai_gateway`, `vault_models`, `vault_conversions`, `vault_convert` and
+  `ai_convert_model` are classified in `effect_of` — `Network` for the gateway
+  probe, `Exec` for everything that spawns `iv`. The effect ratchet reads
+  `Command::new` in `model_plane::vault_run` and would refuse anything weaker;
+  `tests/model_plane.rs` asserts the classifications directly rather than trusting
+  the lint's silence.
+
 ### Fixed
 
 - **Python SDK 1.5.1** — the version on PyPI does not work. `aethershell 1.5.0`

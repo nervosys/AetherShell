@@ -7,6 +7,7 @@
 //!
 //! | Provider | URI Scheme | Example |
 //! |----------|------------|---------|
+//! | IronGate | `irongate:` | `irongate:auto` |
 //! | OpenAI | `openai:` | `openai:gpt-4o` |
 //! | Anthropic | `anthropic:` | `anthropic:claude-3-5-sonnet` |
 //! | Google | `google:` | `google:gemini-pro` |
@@ -98,6 +99,10 @@ impl ModelUri {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]
 pub enum ProviderType {
+    /// The NERVOSYS gateway. Not a model vendor — it routes to one, including
+    /// to IronWorks for local inference. Listed first because it is the
+    /// preferred edge when it is running.
+    IronGate,
     OpenAI,
     Anthropic,
     Google,
@@ -122,6 +127,7 @@ pub enum ProviderType {
 impl ProviderType {
     pub fn scheme(&self) -> &'static str {
         match self {
+            Self::IronGate => "irongate",
             Self::OpenAI => "openai",
             Self::Anthropic => "anthropic",
             Self::Google => "google",
@@ -146,6 +152,7 @@ impl ProviderType {
 
     pub fn from_scheme(scheme: &str) -> Result<Self> {
         match scheme.to_lowercase().as_str() {
+            "irongate" | "gate" | "iron" => Ok(Self::IronGate),
             "openai" => Ok(Self::OpenAI),
             "anthropic" | "claude" => Ok(Self::Anthropic),
             "google" | "gemini" => Ok(Self::Google),
@@ -171,6 +178,9 @@ impl ProviderType {
 
     pub fn default_base_url(&self) -> &'static str {
         match self {
+            // Kept in step with `model_plane::gate_url`'s default; `IRONGATE_URL`
+            // overrides it through `ProviderConfig::from_env`.
+            Self::IronGate => "http://localhost:7700/v1",
             Self::OpenAI => "https://api.openai.com/v1",
             Self::Anthropic => "https://api.anthropic.com/v1",
             Self::Google => "https://generativelanguage.googleapis.com/v1beta",
@@ -195,6 +205,9 @@ impl ProviderType {
 
     pub fn api_key_env_var(&self) -> Option<&'static str> {
         match self {
+            // Only when the gateway runs with `require_auth = true`; it ships
+            // with auth off and bound to loopback.
+            Self::IronGate => Some("IRONGATE_API_KEY"),
             Self::OpenAI => Some("OPENAI_API_KEY"),
             Self::Anthropic => Some("ANTHROPIC_API_KEY"),
             Self::Google => Some("GOOGLE_API_KEY"),
@@ -217,8 +230,22 @@ impl ProviderType {
         }
     }
 
+    /// Environment variable that overrides [`Self::default_base_url`].
+    ///
+    /// Only the gateway has one today. The cloud vendors' endpoints are fixed,
+    /// and the other self-hosted backends were already addressable by pointing
+    /// `local:` at them — the gateway needs its own because it is the default
+    /// route, not one the user opts into by URI.
+    pub fn base_url_env_var(&self) -> Option<&'static str> {
+        match self {
+            Self::IronGate => Some("IRONGATE_URL"),
+            _ => None,
+        }
+    }
+
     pub fn all() -> Vec<Self> {
         vec![
+            Self::IronGate,
             Self::OpenAI,
             Self::Anthropic,
             Self::Google,
@@ -244,7 +271,8 @@ impl ProviderType {
     pub fn is_openai_compatible(&self) -> bool {
         matches!(
             self,
-            Self::OpenAI
+            Self::IronGate
+                | Self::OpenAI
                 | Self::Azure
                 | Self::Together
                 | Self::Groq
@@ -261,7 +289,8 @@ impl ProviderType {
     pub fn supports_tools(&self) -> bool {
         matches!(
             self,
-            Self::OpenAI
+            Self::IronGate
+                | Self::OpenAI
                 | Self::Anthropic
                 | Self::Google
                 | Self::Azure
@@ -280,7 +309,11 @@ impl ProviderType {
     pub fn supports_vision(&self) -> bool {
         matches!(
             self,
-            Self::OpenAI
+            // The gateway's IR carries image blocks and it negotiates image
+            // support per target, so it can serve vision when something behind
+            // it can.
+            Self::IronGate
+                | Self::OpenAI
                 | Self::Anthropic
                 | Self::Google
                 | Self::Azure
@@ -347,10 +380,14 @@ impl ProviderConfig {
         let api_key = provider
             .api_key_env_var()
             .and_then(|var| std::env::var(var).ok());
+        let base_url = provider
+            .base_url_env_var()
+            .and_then(|var| std::env::var(var).ok())
+            .filter(|s| !s.is_empty());
         Self {
             provider,
             api_key,
-            base_url: None,
+            base_url,
             organization: None,
             project: None,
             default_model: None,
@@ -435,6 +472,6 @@ mod tests {
     #[test]
     fn test_provider_all() {
         let all = ProviderType::all();
-        assert_eq!(all.len(), 19);
+        assert_eq!(all.len(), 20);
     }
 }

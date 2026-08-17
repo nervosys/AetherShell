@@ -15,6 +15,7 @@ use tokio::runtime::Runtime;
 /// Convert legacy Provider to new ProviderType
 pub fn legacy_to_provider_type(legacy: &LegacyProvider) -> ProviderType {
     match legacy {
+        LegacyProvider::IronGate => ProviderType::IronGate,
         LegacyProvider::OpenAI => ProviderType::OpenAI,
         LegacyProvider::Ollama => ProviderType::Ollama,
         LegacyProvider::OpenAICompat => ProviderType::Local,
@@ -29,6 +30,7 @@ pub fn legacy_to_provider_type(legacy: &LegacyProvider) -> ProviderType {
 /// Convert new ProviderType to legacy Provider
 pub fn provider_type_to_legacy(pt: ProviderType) -> LegacyProvider {
     match pt {
+        ProviderType::IronGate => LegacyProvider::IronGate,
         ProviderType::OpenAI => LegacyProvider::OpenAI,
         ProviderType::Ollama => LegacyProvider::Ollama,
         ProviderType::TGI => LegacyProvider::Tgi,

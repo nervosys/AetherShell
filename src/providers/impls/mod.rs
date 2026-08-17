@@ -23,6 +23,10 @@ pub fn create_provider(config: ProviderConfig) -> Arc<dyn LLMProvider> {
         ProviderType::Anthropic => Arc::new(AnthropicProvider::new(config)),
         ProviderType::Google => Arc::new(GoogleProvider::new(config)),
         ProviderType::Ollama => Arc::new(OllamaProvider::new(config)),
+        // IronGate speaks the OpenAI wire format, so it needs no adapter of its
+        // own — what makes it different is *where* it sends the request next,
+        // which is the gateway's business rather than the client's.
+        ProviderType::IronGate => Arc::new(OpenAIProvider::new(config)),
         // OpenAI-compatible providers
         ProviderType::Azure
         | ProviderType::Together

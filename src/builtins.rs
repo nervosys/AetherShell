@@ -3947,6 +3947,12 @@ fn call_with_input_inner(
         "ai_supported_conversions" | "ai-supported-conversions" => bi_ai_supported_conversions(),
         "ai_detect_format" | "ai-detect-format" => bi_ai_detect_format(args),
 
+        // The NERVOSYS stack: routing, inference, model store
+        "ai_gateway" | "ai-gateway" | "irongate" => bi_ai_gateway(),
+        "vault_models" | "vault-models" => bi_vault_models(),
+        "vault_conversions" | "vault-conversions" => bi_vault_conversions(),
+        "vault_convert" | "vault-convert" => bi_vault_convert(args),
+
         // Local Inference
         "ai_local_backends" | "ai-local-backends" => bi_ai_local_backends(),
         "ai_local_load" | "ai-local-load" => bi_ai_local_load(args),
@@ -9443,151 +9449,59 @@ fn bi_ai_load_balancing() -> Result<Value> {
     Ok(Value::Str(format!("{:?}", strategy)))
 }
 
-/// ai_convert_model(config) - Convert a model between formats
-/// Args: config record with source, target, source_format, target_format, quantization (optional)
-/// Returns: Record with conversion result
+/// ai_convert_model(config) - Convert a model between formats.
+///
+/// **Delegates to IronVault.** This used to call an in-tree converter whose
+/// every path was `fs::copy` — its own source said "simulate conversion by
+/// copying file" — and which then reported `success: true` with a checksum of
+/// the unchanged bytes. A conversion that silently does nothing is worse than
+/// one that fails, so that path is gone. Format conversion is IronVault's job
+/// in this stack, and IronVault addresses models by vault name rather than by
+/// file path, so callers holding a loose file must add it to the vault first.
+///
+/// Args: config record with name and to_format (see `vault_convert`), or the
+/// legacy source/target/source_format/target_format form, which is refused.
 ///
 /// Example:
-///   ai_convert_model({source: "model.pt", target: "model.safetensors", source_format: "pytorch", target_format: "safetensors"})
+///   ai_convert_model({name: "my-llm", to_format: "gguf", quantization: "q4_k_m"})
 fn bi_ai_convert_model(args: Vec<Value>) -> Result<Value> {
-    use crate::ai_api::converters::{ConversionRequest, ModelConverter};
-    use crate::ai_api::models::ModelFormat;
-
     let config = match args.first() {
         Some(Value::Record(r)) => r,
-        _ => return Err(crate::safety::arg_err("ai_convert_model: requires a config record with source, target, source_format, target_format")),
-    };
-
-    let source = config
-        .get("source")
-        .and_then(|v| {
-            if let Value::Str(s) = v {
-                Some(s.clone())
-            } else {
-                None
-            }
-        })
-        .ok_or_else(|| crate::safety::arg_err("ai_convert_model: missing 'source' path"))?;
-    let target = config
-        .get("target")
-        .and_then(|v| {
-            if let Value::Str(s) = v {
-                Some(s.clone())
-            } else {
-                None
-            }
-        })
-        .ok_or_else(|| crate::safety::arg_err("ai_convert_model: missing 'target' path"))?;
-
-    let parse_format = |s: &str| -> ModelFormat {
-        match s.to_lowercase().as_str() {
-            "gguf" => ModelFormat::GGUF,
-            "safetensors" => ModelFormat::SafeTensors,
-            "pytorch" | "pt" | "pth" => ModelFormat::PyTorch,
-            "onnx" => ModelFormat::ONNX,
-            "tensorflow" | "tf" => ModelFormat::TensorFlow,
-            "tensorrt" | "trt" => ModelFormat::TensorRT,
-            "huggingface" | "hf" => ModelFormat::Huggingface,
-            other => ModelFormat::Other(other.to_string()),
+        _ => {
+            return Err(crate::safety::bad_arg(
+                "ai_convert_model",
+                "a config record: {name, to_format, quantization?, output?, validate?}",
+                "no record",
+            ))
         }
     };
 
-    let source_format = config
-        .get("source_format")
-        .and_then(|v| {
-            if let Value::Str(s) = v {
-                Some(parse_format(s))
-            } else {
-                None
-            }
-        })
-        .ok_or_else(|| crate::safety::arg_err("ai_convert_model: missing 'source_format'"))?;
-    let target_format = config
-        .get("target_format")
-        .and_then(|v| {
-            if let Value::Str(s) = v {
-                Some(parse_format(s))
-            } else {
-                None
-            }
-        })
-        .ok_or_else(|| crate::safety::arg_err("ai_convert_model: missing 'target_format'"))?;
+    // The legacy path-based form cannot be honoured: IronVault converts models
+    // it stores, and there is no correct way to guess which stored model a
+    // loose path corresponds to. Say so precisely rather than half-working.
+    if config.contains_key("source") || config.contains_key("target") {
+        return Err(anyhow!(
+            "ai_convert_model: the source/target path form is no longer supported.\n\
+             It was backed by an in-tree converter that copied the file and reported \
+             success, so it never converted anything.\n\
+             Conversion now goes through IronVault, which addresses models by vault name:\n  \
+               iv add <path> --name <name>\n  \
+               ai_convert_model({{name: \"<name>\", to_format: \"gguf\"}})"
+        ));
+    }
 
-    let quantization = config.get("quantization").and_then(|v| {
-        if let Value::Str(s) = v {
-            use crate::ai_api::converters::QuantizationType;
-            match s.to_lowercase().as_str() {
-                "f16" | "fp16" => Some(QuantizationType::F16),
-                "q4_0" => Some(QuantizationType::Q4_0),
-                "q4_1" => Some(QuantizationType::Q4_1),
-                "q5_0" => Some(QuantizationType::Q5_0),
-                "q5_1" => Some(QuantizationType::Q5_1),
-                "q8_0" => Some(QuantizationType::Q8_0),
-                "q8_1" => Some(QuantizationType::Q8_1),
-                _ => None,
-            }
-        } else {
-            None
-        }
-    });
-
-    let converter = ModelConverter::new();
-    let request = ConversionRequest {
-        source_path: source,
-        source_format,
-        target_format,
-        target_path: target,
-        preserve_metadata: true,
-        compression_level: None,
-        quantization,
-    };
-
-    // Run async conversion in a blocking context
-    let rt = tokio::runtime::Handle::try_current()
-        .map(|h| h.block_on(converter.convert_model(request.clone())))
-        .unwrap_or_else(|_| {
-            let rt = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-            rt.block_on(converter.convert_model(request))
-        })?;
-
-    let mut result = std::collections::BTreeMap::new();
-    result.insert("success".to_string(), Value::Bool(rt.success));
-    result.insert("target_path".to_string(), Value::Str(rt.target_path));
-    result.insert("target_size".to_string(), Value::Int(rt.target_size as i64));
-    result.insert("checksum".to_string(), Value::Str(rt.checksum));
-    result.insert(
-        "conversion_time_ms".to_string(),
-        Value::Int(rt.conversion_time_ms as i64),
-    );
-    result.insert(
-        "warnings".to_string(),
-        Value::Array(rt.warnings.into_iter().map(Value::Str).collect()),
-    );
-    Ok(Value::Record(result))
+    bi_vault_convert(args)
 }
 
-/// ai_supported_conversions() - List all supported model format conversions
-/// Returns: Array of records with source_format and target_format
+/// ai_supported_conversions() - List the format conversions available.
+///
+/// Answered by IronVault, which is what actually performs them. The in-tree
+/// table this used to read listed conversions that were implemented as file
+/// copies, so it described capability the shell did not have.
+///
+/// Returns: the vault's supported conversion paths
 fn bi_ai_supported_conversions() -> Result<Value> {
-    let converter = crate::ai_api::converters::ModelConverter::new();
-    let conversions = converter.list_supported_conversions();
-    let records: Vec<Value> = conversions
-        .into_iter()
-        .map(|(src, tgt)| {
-            let mut r = std::collections::BTreeMap::new();
-            r.insert(
-                "source_format".to_string(),
-                Value::Str(format!("{:?}", src)),
-            );
-            r.insert(
-                "target_format".to_string(),
-                Value::Str(format!("{:?}", tgt)),
-            );
-            r.insert("supported".to_string(), Value::Bool(true));
-            Value::Record(r)
-        })
-        .collect();
-    Ok(Value::Array(records))
+    bi_vault_conversions()
 }
 
 /// ai_detect_format(path) - Detect the format of a model file
@@ -9622,6 +9536,170 @@ fn bi_ai_detect_format(args: Vec<Value>) -> Result<Value> {
 }
 
 // ========== Local Inference Builtins ==========
+
+// ============================================================================
+// THE NERVOSYS STACK — IronGate (routing), IronWorks (inference),
+// IronVault (model store and conversion)
+// ============================================================================
+
+/// ai_gateway() - Report IronGate: whether it is up, what it will route, and
+/// the state of each backend behind it.
+///
+/// This is the one place a caller can see the shape of the stack it is talking
+/// to, including whether the local leg (IronWorks) is actually serving.
+///
+/// Returns: Record with url, reachable, providers, models, targets
+///
+/// Example:
+///   ai_gateway()
+///   ai_gateway().targets | where(fn(t) => t.circuit != "closed")
+fn bi_ai_gateway() -> Result<Value> {
+    let mut rec = std::collections::BTreeMap::new();
+    rec.insert(
+        "url".to_string(),
+        Value::Str(crate::model_plane::gate_url()),
+    );
+    rec.insert(
+        "default_model".to_string(),
+        Value::Str(crate::model_plane::gate_model()),
+    );
+
+    let health = match crate::model_plane::gate_health() {
+        Ok(h) => h,
+        Err(e) => {
+            // An unreachable gateway is an answer, not an error: the caller
+            // asked about the gateway's state and "down" is a state. Returning
+            // Err here would make the common check `ai_gateway().reachable`
+            // impossible to write.
+            rec.insert("reachable".to_string(), Value::Bool(false));
+            rec.insert("error".to_string(), Value::Str(e.to_string()));
+            rec.insert("providers".to_string(), Value::Int(0));
+            rec.insert("models".to_string(), Value::Array(vec![]));
+            rec.insert("targets".to_string(), Value::Array(vec![]));
+            return Ok(Value::Record(rec));
+        }
+    };
+
+    rec.insert("reachable".to_string(), Value::Bool(true));
+    rec.insert("providers".to_string(), Value::Int(health.providers as i64));
+    rec.insert(
+        "models".to_string(),
+        Value::Array(health.models.into_iter().map(Value::Str).collect()),
+    );
+
+    // Per-target circuit state. Best-effort: /status is a richer endpoint than
+    // /health and a gateway can be serving with it unavailable.
+    let targets = match crate::model_plane::gate_status() {
+        Ok(status) => status
+            .get("targets")
+            .or_else(|| status.get("breakers"))
+            .and_then(|t| t.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .cloned()
+                    .map(json_to_value)
+                    .collect::<Vec<Value>>()
+            })
+            .unwrap_or_default(),
+        Err(_) => vec![],
+    };
+    rec.insert("targets".to_string(), Value::Array(targets));
+
+    Ok(Value::Record(rec))
+}
+
+/// vault_models() - List the models IronVault is storing.
+///
+/// Reads the encrypted inventory, so IRONVAULT_PASSPHRASE must be set; the
+/// vault reports that failure itself rather than this builtin guessing at it.
+///
+/// Returns: Array of records, as the vault reports them
+///
+/// Example:
+///   vault_models()
+///   vault_models() | where(fn(m) => m.format == "gguf")
+fn bi_vault_models() -> Result<Value> {
+    let json = crate::model_plane::vault_list()?;
+    Ok(json_to_value(json))
+}
+
+/// vault_conversions() - List the format conversions IronVault supports.
+///
+/// Returns: Array of supported conversion paths
+fn bi_vault_conversions() -> Result<Value> {
+    let json = crate::model_plane::vault_conversions()?;
+    Ok(json_to_value(json))
+}
+
+/// vault_convert(config) - Convert a stored model between formats.
+///
+/// Args: config record with name, to_format, and optionally quantization,
+/// output, validate.
+///
+/// Returns: Record with the vault's own report
+///
+/// Example:
+///   vault_convert({name: "my-llm", to_format: "gguf", quantization: "q4_k_m", validate: true})
+fn bi_vault_convert(args: Vec<Value>) -> Result<Value> {
+    let config = match args.first() {
+        Some(Value::Record(r)) => r,
+        _ => {
+            return Err(crate::safety::bad_arg(
+                "vault_convert",
+                "a config record: {name, to_format, quantization?, output?, validate?}",
+                "no record",
+            ))
+        }
+    };
+
+    let string_field = |k: &str| -> Option<String> {
+        match config.get(k) {
+            Some(Value::Str(s)) => Some(s.clone()),
+            _ => None,
+        }
+    };
+
+    let name = string_field("name").ok_or_else(|| {
+        crate::safety::bad_arg(
+            "vault_convert",
+            "a 'name' naming a model in the vault",
+            "missing",
+        )
+    })?;
+    let to_format = string_field("to_format")
+        .or_else(|| string_field("target_format"))
+        .ok_or_else(|| {
+            crate::safety::bad_arg(
+                "vault_convert",
+                "a 'to_format' such as \"gguf\" or \"safetensors\"",
+                "missing",
+            )
+        })?;
+    let quantization = string_field("quantization");
+    let output = string_field("output");
+    let validate = matches!(config.get("validate"), Some(Value::Bool(true)));
+
+    let stdout = crate::model_plane::vault_convert(
+        &name,
+        &to_format,
+        quantization.as_deref(),
+        output.as_deref(),
+        validate,
+    )?;
+
+    let mut rec = std::collections::BTreeMap::new();
+    rec.insert("name".to_string(), Value::Str(name));
+    rec.insert("to_format".to_string(), Value::Str(to_format));
+    if let Some(q) = quantization {
+        rec.insert("quantization".to_string(), Value::Str(q));
+    }
+    if let Some(o) = output {
+        rec.insert("output".to_string(), Value::Str(o));
+    }
+    rec.insert("validated".to_string(), Value::Bool(validate));
+    rec.insert("report".to_string(), Value::Str(stdout.trim().to_string()));
+    Ok(Value::Record(rec))
+}
 
 /// ai_local_backends() - List available local inference backends
 /// Returns: Array of Records with backend name and supported formats
@@ -9794,12 +9872,56 @@ fn bi_ai_local_generate(args: Vec<Value>) -> Result<Value> {
                 "tokens_per_second".to_string(),
                 Value::Float(result.tokens_per_second),
             );
+            rec.insert(
+                "backend".to_string(),
+                Value::Str(backend.name().to_string()),
+            );
             return Ok(Value::Record(rec));
         }
     }
 
+    // Nothing in-process can serve this handle. Before failing, try the
+    // gateway: in this stack "local inference" means IronWorks behind IronGate,
+    // and a build with neither `candle` nor `onnx` compiled in — which is the
+    // default build — has no in-process backend at all. Treat the handle as the
+    // model name and let the gateway route it.
+    if crate::model_plane::gate_available() {
+        let max_tokens = Some(params.max_tokens);
+        let done = crate::model_plane::gate_complete(&handle, &prompt, max_tokens)?;
+        let mut rec = std::collections::BTreeMap::new();
+        rec.insert("text".to_string(), Value::Str(done.text));
+        rec.insert(
+            "prompt_tokens".to_string(),
+            Value::Int(done.prompt_tokens as i64),
+        );
+        rec.insert(
+            "completion_tokens".to_string(),
+            Value::Int(done.completion_tokens as i64),
+        );
+        rec.insert("generation_ms".to_string(), Value::Float(done.elapsed_ms));
+        rec.insert(
+            "tokens_per_second".to_string(),
+            Value::Float(if done.elapsed_ms > 0.0 {
+                done.completion_tokens as f64 / (done.elapsed_ms / 1000.0)
+            } else {
+                0.0
+            }),
+        );
+        // Which engine answered is part of the answer here: the same call can
+        // be served in-process or by a machine across the network, and a caller
+        // comparing timings needs to know which.
+        rec.insert(
+            "backend".to_string(),
+            Value::Str(done.target.unwrap_or_else(|| "irongate".to_string())),
+        );
+        return Ok(Value::Record(rec));
+    }
+
     Err(anyhow!(
-        "ai_local_generate: no backend found for handle '{}'. Load a model first with ai_local_load()",
+        "ai_local_generate: no backend found for handle '{}'.\n\
+         Either load a model in-process with ai_local_load() (needs a build with \
+         --features candle), or start IronGate so local inference can route to \
+         IronWorks (default http://localhost:7700/v1, override with IRONGATE_URL).",
         handle
     ))
 }

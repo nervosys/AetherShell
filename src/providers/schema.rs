@@ -204,7 +204,11 @@ impl ToolSchema {
     /// Convert to provider-specific format
     pub fn to_provider_format(&self, provider: ProviderType) -> JsonValue {
         match provider {
-            ProviderType::OpenAI
+            // The gateway accepts OpenAI-shaped tools and re-encodes them for
+            // whichever backend it routes to, so emitting the target's native
+            // dialect here would be wrong even when we could guess it.
+            ProviderType::IronGate
+            | ProviderType::OpenAI
             | ProviderType::Azure
             | ProviderType::Groq
             | ProviderType::Together

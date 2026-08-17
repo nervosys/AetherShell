@@ -271,6 +271,17 @@ pub fn effect_of(name: &str) -> Effect {
         // recalled from.
         "scp_upload" | "scp_download" | "wget_download" | "marketplace_publish" => Effect::Network,
 
+        // The NERVOSYS stack. `ai_gateway` probes IronGate over HTTP; it reads
+        // and reports, so Network rather than Exec.
+        "ai_gateway" => Effect::Network,
+        // The vault builtins spawn the `iv` binary. `vault_models` and
+        // `vault_conversions` only read, but they still hand arguments to a
+        // process, which is what Exec is about — the ratchet reads
+        // `Command::new` in `model_plane::vault_run` and would refuse anything
+        // weaker. `vault_convert` additionally writes a converted model.
+        "vault_models" | "vault_conversions" => Effect::Exec,
+        "vault_convert" | "ai_convert_model" => Effect::Exec,
+
         // ════════════════════════════════════════════════════════════
         // Process-spawning builtins, classified from their argv (§12).
         //

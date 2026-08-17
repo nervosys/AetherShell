@@ -169,6 +169,10 @@ pub mod mcp;
 /// Metrics — Prometheus-compatible metrics, alerting, and dashboards.
 #[cfg(feature = "native")]
 pub mod metrics;
+/// The NERVOSYS model plane — IronGate (routing), IronWorks (inference),
+/// IronVault (model store and conversion).
+#[cfg(feature = "native")]
+pub mod model_plane;
 /// Module system — maps module.function() syntax to builtin dispatch.
 #[cfg(feature = "native")]
 pub mod modules;

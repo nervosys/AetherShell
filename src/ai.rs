@@ -613,6 +613,17 @@ pub fn complete_sync_router(prompt: &str) -> Result<String> {
     let provider = std::env::var("AETHER_AI").unwrap_or_default();
 
     match provider.as_str() {
+        // The gateway first: it is the edge that can answer for any of the
+        // others, including local inference by way of IronWorks.
+        "irongate" | "gate" | "iron" => {
+            backend_from_model("irongate:".to_string() + &crate::model_plane::gate_model()).chat(&[
+                ChatMessage {
+                    role: "user".to_string(),
+                    content: prompt.to_string(),
+                },
+            ])
+        }
+
         // Fast path: direct backends
         "openai" => openai::complete_sync(prompt),
         "ollama" => ollama::complete_sync(prompt),
@@ -715,9 +726,26 @@ pub fn complete_sync_router(prompt: &str) -> Result<String> {
             }
         }
 
+        // Nothing configured. Before refusing, look for the gateway: when it is
+        // running it is the intended edge for this stack, and making the user
+        // name it in an environment variable to get the default routing is
+        // friction with no decision behind it. The probe carries a 2s timeout,
+        // so the error below still arrives promptly when it is absent.
+        "" if crate::model_plane::gate_available() => {
+            backend_from_model(format!("irongate:{}", crate::model_plane::gate_model())).chat(&[
+                ChatMessage {
+                    role: "user".to_string(),
+                    content: prompt.to_string(),
+                },
+            ])
+        }
+
         "" => Err(anyhow!(
             "No AI provider configured.\n\n\
             To use AI features, set the AETHER_AI environment variable:\n\n\
+            For IronGate (routes to IronWorks locally, or to a cloud model):\n  \
+              $env:AETHER_AI = \"irongate\"\n  \
+              # Ensure irongate is running (default http://localhost:7700/v1)\n\n\
             For OpenAI:\n  \
               $env:AETHER_AI = \"openai\"\n  \
               $env:OPENAI_API_KEY = \"sk-your-key\"\n\n\
@@ -730,14 +758,14 @@ pub fn complete_sync_router(prompt: &str) -> Result<String> {
             For any provider via model URI:\n  \
               $env:AETHER_AI = \"openai:gpt-4o\"\n  \
               $env:AETHER_AI = \"anthropic:claude-sonnet-4-20250514\"\n\n\
-            Supported: openai, anthropic, google, ollama, deepseek, groq,\n\
+            Supported: irongate, openai, anthropic, google, ollama, deepseek, groq,\n\
             together, fireworks, perplexity, xai, azure, openrouter,\n\
             mistral, cohere, local, vllm, lmstudio, compat, tgi\n\n\
             Then restart ae."
         )),
         other => Err(anyhow!(
             "Unknown AI provider: '{}'\n\n\
-            Supported providers: openai, anthropic, google, ollama, deepseek,\n\
+            Supported providers: irongate, openai, anthropic, google, ollama, deepseek,\n\
             groq, together, fireworks, perplexity, xai, azure, openrouter,\n\
             mistral, cohere, local, vllm, lmstudio, compat, tgi\n\n\
             You can also use model URIs: AETHER_AI=\"provider:model\"\n\
@@ -889,6 +917,10 @@ fn complete_via_compat(
 /// Map provider scheme to (base_url, api_key_env_var)
 fn provider_base_url(scheme: &str) -> Option<(String, String)> {
     match scheme {
+        "irongate" | "gate" | "iron" => Some((
+            crate::model_plane::gate_url(),
+            "IRONGATE_API_KEY".to_string(),
+        )),
         "openai" => Some(("https://api.openai.com/v1".into(), "OPENAI_API_KEY".into())),
         "anthropic" | "claude" => Some((
             "https://api.anthropic.com/v1".into(),
@@ -1141,6 +1173,10 @@ pub mod tgi {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Provider {
     Stub,
+    /// The NERVOSYS gateway. Routing, not a model vendor: it decides whether a
+    /// prompt goes to IronWorks locally or to a frontier API, and AetherShell
+    /// deliberately does not know which.
+    IronGate,
     OpenAI,
     Ollama,
     LMStudio,
@@ -1164,6 +1200,7 @@ pub fn parse_model_ref(s: &str) -> ModelRef {
     if let Some((pfx, rest)) = s.split_once(':') {
         let model = rest.trim().to_string();
         let provider = match pfx.trim().to_lowercase().as_str() {
+            "irongate" | "gate" | "iron" => Provider::IronGate,
             "openai" => Provider::OpenAI,
             "ollama" => Provider::Ollama,
             "lmstudio" | "lm_studio" | "lm-studio" => Provider::LMStudio,
@@ -1177,6 +1214,13 @@ pub fn parse_model_ref(s: &str) -> ModelRef {
     } else {
         // fallback: env or stub
         match s.to_lowercase().as_str() {
+            "irongate" | "gate" | "iron" => ModelRef {
+                provider: Provider::IronGate,
+                // `auto` is the gateway's virtual model: state the task, let it
+                // choose the backend. Naming a concrete model here would skip
+                // the routing this exists to use.
+                model: crate::model_plane::gate_model(),
+            },
             "openai" => ModelRef {
                 provider: Provider::OpenAI,
                 model: std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-4o-mini".into()),
@@ -1229,7 +1273,7 @@ impl LlmBackend for StubBackend {
     fn chat(&self, _messages: &[ChatMessage]) -> Result<String> {
         Err(anyhow!(
             "No AI provider configured.\n\
-            Set AETHER_AI environment variable to: openai, ollama, or compat"
+            Set AETHER_AI environment variable to: irongate, openai, ollama, or compat"
         ))
     }
 }
@@ -1351,6 +1395,72 @@ impl LlmBackend for TgiBackend {
     }
 }
 
+/// Chat through IronGate.
+///
+/// The wire format is OpenAI's, so this looks like every other compat backend.
+/// What differs is the response: the gateway annotates it with the decision it
+/// made — which target served the request, how hard it judged the prompt, what
+/// it cost. Those headers are the only reason a frontend can explain a routing
+/// decision at all, so they are surfaced rather than dropped.
+struct IronGateBackend {
+    model: String,
+}
+
+impl LlmBackend for IronGateBackend {
+    fn chat(&self, messages: &[ChatMessage]) -> Result<String> {
+        let base = crate::model_plane::gate_url();
+        let url = format!("{}/chat/completions", base.trim_end_matches('/'));
+        let body = json!({ "model": self.model, "messages": messages, "temperature": 0.2 });
+
+        let client = crate::security::create_secure_http_client()
+            .context("Failed to create secure HTTP client")?;
+
+        let mut req = client
+            .post(&url)
+            .header(CONTENT_TYPE, "application/json")
+            .json(&body);
+        if let Some(token) = crate::model_plane::gate_token() {
+            req = req.header(AUTHORIZATION, format!("Bearer {}", token));
+        }
+
+        let resp = req.send().with_context(|| {
+            format!(
+                "IronGate not reachable at {}. Start it, or set IRONGATE_URL.",
+                base
+            )
+        })?;
+
+        // Read the routing evidence before consuming the body.
+        let target = resp
+            .headers()
+            .get("x-irongate-target")
+            .and_then(|h| h.to_str().ok())
+            .map(String::from);
+
+        let resp = resp.error_for_status()?;
+        let v: J = resp.json()?;
+        let content = v["choices"][0]["message"]["content"]
+            .as_str()
+            .ok_or_else(|| {
+                anyhow!(
+                    "IronGate response missing content field{}",
+                    match &target {
+                        Some(t) => format!(" (routed to {})", t),
+                        None => String::new(),
+                    }
+                )
+            })?
+            .to_string();
+
+        if let Some(t) = target {
+            // Which backend answered is not part of the answer, so it goes to
+            // the log rather than into the string a caller will parse.
+            tracing::debug!(target = %t, "IronGate routed completion");
+        }
+        Ok(content)
+    }
+}
+
 struct VLlmBackend;
 impl LlmBackend for VLlmBackend {
     fn chat(&self, messages: &[ChatMessage]) -> Result<String> {
@@ -1424,6 +1534,14 @@ pub struct BackendInfo {
 pub fn detect_available_backends() -> Vec<BackendInfo> {
     let mut backends = Vec::new();
 
+    // The gateway leads: when it is up it is the preferred edge, and the
+    // backends probed below may well be the same processes it already routes
+    // to. Reporting it first is what makes `auto` pick routing over a direct
+    // connection that bypasses every budget and breaker the operator set.
+    if let Ok(info) = detect_irongate() {
+        backends.push(info);
+    }
+
     // Check Ollama (localhost:11434)
     if let Ok(info) = detect_ollama() {
         backends.push(info);
@@ -1455,6 +1573,30 @@ pub fn detect_available_backends() -> Vec<BackendInfo> {
     }
 
     backends
+}
+
+/// Probe IronGate's `/health`, which reports how many providers it has
+/// registered and which virtual models it answers to.
+///
+/// Those virtual names (`auto`, `fast`, `deep`) are what a caller should ask
+/// for — the concrete model behind them is the gateway's decision, and listing
+/// concrete models here would invite callers to pin one and lose the routing.
+fn detect_irongate() -> Result<BackendInfo> {
+    let health = crate::model_plane::gate_health()?;
+    Ok(BackendInfo {
+        name: "IronGate".to_string(),
+        provider: Provider::IronGate,
+        endpoint: crate::model_plane::gate_url(),
+        available: true,
+        models: if health.models.is_empty() {
+            // A gateway with no routes configured still answers /health. Offer
+            // the default virtual name rather than an empty list, which
+            // `auto_select_backend` would silently turn into "model".
+            vec![crate::model_plane::gate_model()]
+        } else {
+            health.models
+        },
+    })
 }
 
 fn detect_ollama() -> Result<BackendInfo> {
@@ -1824,6 +1966,7 @@ pub fn auto_select_backend() -> Option<String> {
             .unwrap_or("model");
 
         return Some(match backend.provider {
+            Provider::IronGate => format!("irongate:{}", model),
             Provider::Ollama => format!("ollama:{}", model),
             Provider::VLlm => format!("vllm:{}", model),
             Provider::LlamaCpp => format!("llamacpp:{}", model),
@@ -1842,6 +1985,9 @@ pub fn backend_from_env() -> Box<dyn LlmBackend> {
     let model_uri = std::env::var("AETHER_MODEL_URI").ok().or_else(|| {
         std::env::var("AETHER_AI").ok().map(|ai| {
             match ai.as_str() {
+                "irongate" | "gate" | "iron" => {
+                    return format!("irongate:{}", crate::model_plane::gate_model())
+                }
                 "openai" => "openai:gpt-4o-mini",
                 "ollama" => "ollama:llama3",
                 "openai_compat" | "compat" => "compat:mixtral",
@@ -1865,6 +2011,7 @@ pub fn backend_from_env() -> Box<dyn LlmBackend> {
 pub fn backend_from_model(uri: String) -> Box<dyn LlmBackend> {
     let m = parse_model_ref(&uri);
     match m.provider {
+        Provider::IronGate => Box::new(IronGateBackend { model: m.model }),
         Provider::OpenAI => Box::new(OpenAiBackend),
         Provider::Ollama => Box::new(OllamaBackend),
         Provider::OpenAICompat => Box::new(OpenAiCompatBackend),
