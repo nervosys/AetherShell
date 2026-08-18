@@ -1,8 +1,39 @@
 # Security Remediation Tracker
 
-**Generated**: October 18, 2025  
-**From**: DOD Cybersecurity Audit  
-**Status**: 🔴 IN PROGRESS
+**Generated**: October 18, 2025
+**From**: DOD Cybersecurity Audit
+**Status**: 🟡 PARTIALLY RE-VERIFIED — see the re-assessment below
+
+> ### Re-assessment, 2026-08-18
+>
+> The table below says **0 of 23 complete** and calls the CRITICALs release
+> blockers. 8.0.0 is published, so that reading is either alarming or stale.
+> Spot-checking against the code found it is **both**, which is why the counts
+> are left alone rather than quietly flipped — an unverified "complete" is
+> worse than an honest "unknown".
+>
+> **Stale (control shipped since, verified by running its tests):**
+>
+> | ID | Control | Evidence |
+> | --- | --- | --- |
+> | CRIT-1 | Agent command allowlist | `AGENT_ALLOW_CMDS` enforced in `src/security.rs`; `tests/safety.rs` 16 pass |
+> | CRIT-2 | API key / secret hygiene | redaction in `src/safety.rs`; `tests/secret_hygiene.rs` 4 pass |
+> | CRIT-3 | Path traversal | `validate_safe_path` + workspace jail; `tests/guard_enforcement.rs` 14 pass |
+>
+> This verifies the **controls exist and hold**. It does not satisfy the
+> process criteria those entries also list — external security review, and a
+> penetration test — which remain undone and are not something a test run can
+> establish.
+>
+> **Accurate, and now fixed:**
+>
+> | ID | Finding | Outcome |
+> | --- | --- | --- |
+> | HIGH-2 | SQL Injection Prevention | **Was live.** `db_kv_get(db, "x' OR '1'='1")` returned another key's value; `db_kv_delete(db, "z'; DELETE FROM kv; --")` emptied the table. Fixed via `safety::sql_literal` / `sql_identifier`; `tests/sql_injection.rs` |
+>
+> **Not re-verified:** the remaining 19 findings. Nothing here should be read
+> as a claim about them. HIGH-2 is the reason: on the same page, and correct
+> the whole time.
 
 ---
 
