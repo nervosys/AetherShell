@@ -1049,6 +1049,29 @@ of structured errors rather than building or measuring it.
   same split by name beforehand predicted 72 read-only rather than 140, which is
   precisely the failure mode the ratchet exists to prevent.
 
+  **8.0.0 — the ratchet was asked the opposite question.** It only ever asked
+  "does this body act?". Asking "does this body *read*?" (a second marker table,
+  `READ_EVIDENCE`, through the same scanner) found **55 builtins observing local
+  state while classified `Pure`** — `ls`, `cat`, `head`, `tail`, `grep`, `wc`,
+  `fs_stat`, the `env_*` family, the `project_*`/`code_*` readers. Not a safety
+  hole: `decide()` returns Allow for `Pure` and `ReadLocal` alike. A
+  *reliability* one — `Pure` claims referential transparency, which invites an
+  agent to cache, reorder, or skip the call, and `ls` changes the moment
+  anything touches the directory. That is why a lint built to find safety bugs
+  never saw it. Now **639 of 1,301 (49%) fall through; declared reached 662.**
+
+  **The fall-through is also now visible as a fall-through.** `effect_of`
+  delegates to `classified_effect(name) -> Option<Effect>`, and
+  `effect_is_declared` reports which. Measured while adding it: **no builtin is
+  explicitly classified `Pure`** — the match has no `Pure` arm at all — so
+  `x-effect: pure` means "unclassified", uniformly, for every one of the 639.
+  Surfaced as `effect_declared: false` in `ontology_describe`, emitted *only*
+  when false: carrying it on all 1,087 cost 10,312 tokens (+9.2%) on the
+  full-detail dump, and the compact default surface stays at 454 tokens either
+  way. `tests/effect_snapshot.rs` pins all 1,301 name→effect pairs so a
+  shadowed match arm cannot change what a thousand builtins advertise while
+  each individual answer still looks plausible.
+
   One thing this still does **not** fix: the lint only catches names that
   *advertise* a side effect, so a dangerous builtin with an innocuous name is
   invisible to it. And `db_sqlite_exec` is classified `Exec` but
