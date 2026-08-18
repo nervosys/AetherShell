@@ -775,3 +775,122 @@ fn the_read_scanner_does_not_fire_on_a_genuinely_pure_builtin() {
         "`upper` uppercases a string and must not read as observing local state"
     );
 }
+
+// ── Sizing the ambiguity blind spot ─────────────────────────────────────────
+
+/// Every definition of every name, including the ones `bodies_by_name` drops.
+///
+/// `bodies_by_name` keeps only names defined exactly once, because a text scan
+/// cannot tell which `fn run` a call site meant. That is the right choice for
+/// the gate — resolving to the wrong body would produce confident nonsense —
+/// but it means a helper name with two definitions is a hole, and "266 names"
+/// says nothing about how much risk sits behind it.
+fn all_definitions_by_name() -> HashMap<String, Vec<String>> {
+    let mut m: HashMap<String, Vec<String>> = HashMap::new();
+    for (name, body) in all_fn_bodies() {
+        m.entry(name).or_default().push(body);
+    }
+    m
+}
+
+/// Evidence found when an ambiguous name is read as *any* of its definitions.
+///
+/// Deliberately over-approximate: it answers "could this reach an effect?",
+/// not "does it". A hit is a lead to read by hand, never a verdict.
+fn optimistic_evidence(
+    body: &str,
+    all: &HashMap<String, Vec<String>>,
+    depth: usize,
+    seen: &mut HashSet<String>,
+) -> Option<(&'static str, String)> {
+    if depth == 0 {
+        return None;
+    }
+    for callee in called_names(body) {
+        if !seen.insert(callee.clone()) {
+            continue;
+        }
+        let Some(defs) = all.get(&callee) else {
+            continue;
+        };
+        for cb in defs {
+            if let Some((marker, why)) = direct_evidence(cb) {
+                return Some((marker, format!("{callee}() {why}")));
+            }
+        }
+        for cb in defs {
+            if let Some((marker, chain)) = optimistic_evidence(cb, all, depth - 1, seen) {
+                return Some((marker, format!("{callee}() → {chain}")));
+            }
+        }
+    }
+    None
+}
+
+#[test]
+fn report_what_the_ambiguity_blind_spot_could_be_hiding() {
+    // `report_the_outstanding_debt` prints "266 unresolvable call names", which
+    // is a count of *names* and says nothing about exposure. This converts it
+    // into the number that matters: builtins classified `Pure` that can reach
+    // an effect once ambiguous names are resolved optimistically.
+    //
+    // A report, not a gate. Every hit is over-approximate by construction, so
+    // failing the build on it would be failing on a maybe.
+    let strict = bodies_by_name();
+    let loose = all_definitions_by_name();
+    let mut leads: Vec<(String, String)> = Vec::new();
+
+    for name in BUILTIN_LOOKUP.keys() {
+        if effect_of(name) != Effect::Pure {
+            continue;
+        }
+        let Some(body) = strict.get(&format!("bi_{name}")) else {
+            continue;
+        };
+        // Already clean under the strict resolver -- otherwise it would be a
+        // baseline violation, and the baseline is empty.
+        let mut seen = HashSet::new();
+        if let Some((_, chain)) = optimistic_evidence(body, &loose, FOLLOW_DEPTH, &mut seen) {
+            leads.push((name.to_string(), chain));
+        }
+    }
+    leads.sort();
+
+    println!(
+        "ambiguity exposure: {} builtin(s) classified Pure could reach an effect \
+         if an ambiguous name resolves to an acting definition",
+        leads.len()
+    );
+    for (name, chain) in leads.iter().take(25) {
+        println!("  {name}: {chain}");
+    }
+    if leads.len() > 25 {
+        println!("  ... and {} more", leads.len() - 25);
+    }
+}
+
+#[test]
+fn the_optimistic_resolver_is_not_simply_blind() {
+    // `report_what_the_ambiguity_blind_spot_could_be_hiding` prints 0, and so
+    // would a resolver that never matches anything. This asserts it finds
+    // effects in quantity across the catalog -- so the 0 above means "nothing
+    // is hiding there", not "nothing was looked at".
+    let strict = bodies_by_name();
+    let loose = all_definitions_by_name();
+    let mut found = 0usize;
+    for name in BUILTIN_LOOKUP.keys() {
+        let Some(body) = strict.get(&format!("bi_{name}")) else {
+            continue;
+        };
+        let mut seen = HashSet::new();
+        if optimistic_evidence(body, &loose, FOLLOW_DEPTH, &mut seen).is_some() {
+            found += 1;
+        }
+    }
+    println!("optimistic resolver reaches an effect from {found} builtin(s)");
+    assert!(
+        found > 100,
+        "the optimistic resolver found effects from only {found} builtins; it \
+         has gone blind, and the 0-exposure report above is meaningless"
+    );
+}
