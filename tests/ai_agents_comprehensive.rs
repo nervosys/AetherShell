@@ -10,6 +10,21 @@ use aethershell::{
     value::Value,
 };
 
+use std::sync::{Mutex, MutexGuard};
+
+/// Serialises the tests that mutate process-global environment variables.
+///
+/// This crate is edition 2021, where `set_var` is a safe fn -- the `unsafe`
+/// blocks that used to wrap these calls bought nothing and were the first task
+/// listed under HIGH-4 in the remediation tracker. The actual hazard is not
+/// memory safety but interleaving: `AETHER_AGENT_MODEL_URI` is process-global
+/// and 31 tests run in parallel in this binary.
+static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+fn env_lock() -> MutexGuard<'static, ()> {
+    ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 /// Helper to check if AI is available (either AETHER_AI env var or stub mode)
 fn ai_available() -> bool {
     // If AETHER_AI is set, we have a provider
@@ -184,14 +199,11 @@ fn test_agent_with_model_uri_ollama_format() {
 #[test]
 fn test_agent_model_env_variable() {
     // Test that AETHER_AGENT_MODEL_URI is respected
-    unsafe {
-        std::env::set_var("AETHER_AGENT_MODEL_URI", "stub");
-    }
+    let _env = env_lock();
+    std::env::set_var("AETHER_AGENT_MODEL_URI", "stub");
     let mut env = setup_stub_env();
     let result = run_sync("Test", &["print"], 2, true, &mut env);
-    unsafe {
-        std::env::remove_var("AETHER_AGENT_MODEL_URI");
-    }
+    std::env::remove_var("AETHER_AGENT_MODEL_URI");
     if result.is_err() && !ai_available() {
         return;
     }

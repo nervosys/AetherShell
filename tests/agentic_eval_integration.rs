@@ -15,6 +15,19 @@ use agentic_eval::reliability::{assess_reliability, Outcome};
 use agentic_eval::safety::{assess_safety_named, Effect, Mode};
 use agentic_eval::tokens::{evaluate_with, Program};
 
+use std::sync::{Mutex, MutexGuard};
+
+/// Serialises the two tests that touch `AETHER_POLICY`.
+///
+/// It is process-global and selects the policy table, so a test that clears it
+/// while another is asserting against the permissive table gets an answer for a
+/// configuration neither of them chose.
+static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+fn env_lock() -> MutexGuard<'static, ()> {
+    ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 fn eval_to_value(code: &str) -> anyhow::Result<Value> {
     let stmts = parse_program(code)?;
     let mut env = Env::new();
@@ -49,6 +62,7 @@ fn aethershell_token_surface_is_competitive_over_a_session() {
 
 #[test]
 fn aethershell_canonical_render_is_deterministic() {
+    let _env = env_lock();
     let det = assess_determinism(6, || {
         let v = eval_to_value(r#"{ b: 2.0, a: 1, items: [3, 1, 2] }"#).expect("eval");
         render_canonical(&v).unwrap_or_default()
@@ -125,6 +139,7 @@ fn aethershell_bounds_dangerous_builtin_blast_radius_in_agent_mode() {
 
 #[test]
 fn agentic_eval_policy_stays_in_sync_with_aethershell() {
+    let _env = env_lock();
     // agentic-eval carries its OWN copy of the effect→decision policy (it must not
     // depend on aethershell). The applied safety score is only faithful if that copy
     // matches AetherShell's real policy — so assert they agree for every
