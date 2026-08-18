@@ -207,7 +207,32 @@ pub fn idempotent(name: &str) -> bool {
     effect_of(name).retry_safe_by_class()
 }
 
+/// The effect a builtin declares, falling back to [`Effect::Pure`].
+///
+/// **A `Pure` from this function is not a finding.** It is either a
+/// classification or the fall-through, and the two are indistinguishable here
+/// by design — every caller that only needs to gate an action wants the
+/// conservative answer without caring which. Callers that report the effect to
+/// an *agent* should ask [`effect_is_declared`] as well, so a builtin nobody
+/// has classified is not advertised with the same confidence as one that was
+/// read and found pure.
 pub fn effect_of(name: &str) -> Effect {
+    classified_effect(name).unwrap_or(Effect::Pure)
+}
+
+/// Whether [`effect_of`]'s answer came from a rule rather than the fall-through.
+///
+/// 694 of 1,301 builtins currently fall through. That is not a claim that they
+/// act — the body-evidence ratchet (`tests/effect_ratchet.rs`) reports zero
+/// builtins that act while classified `Pure`, so nothing *known* to act is
+/// hiding there. It is a claim about what has been *looked at*, which is a
+/// different and weaker thing, and agents deciding whether to trust a label
+/// deserve to know which one they are reading.
+pub fn effect_is_declared(name: &str) -> bool {
+    classified_effect(name).is_some()
+}
+
+fn classified_effect(name: &str) -> Option<Effect> {
     match name {
         "rm"
         | "rmdir"
@@ -232,13 +257,13 @@ pub fn effect_of(name: &str) -> Effect {
         | "svc_delete"
         | "terraform_destroy"
         | "helm_uninstall"
-        | "marketplace_uninstall" => Effect::Destructive,
+        | "marketplace_uninstall" => Some(Effect::Destructive),
         // `sudo_check` shells out to determine admin status — it spawns a process,
         // so it is not pure even though it only reports.
         // Restarting a service is process-lifecycle control, not a data write:
         // it interrupts whatever that service was doing.
         "proc_kill" | "kill" | "signal" | "pkill" | "sudo_check"
-        | "svc_restart" | "k8s_rollout_restart" => Effect::Process,
+        | "svc_restart" | "k8s_rollout_restart" => Some(Effect::Process),
         // Every builtin whose argument *is* a command to run. These are the
         // same capability as `sh` under different names; classifying them as
         // `Pure` told `agent_api`'s discovery — and any other consumer of this
@@ -265,22 +290,22 @@ pub fn effect_of(name: &str) -> Effect {
         // that `npm_install("anything")` was side-effect-free.
         | "npm_install" | "yarn_install" | "pnpm_install" | "bun_install"
         | "pipx_install" | "poetry_install" | "pkg_install" | "asdf_install"
-        | "helm_install" | "marketplace_install" | "pre_commit_install" => Effect::Exec,
+        | "helm_install" | "marketplace_install" | "pre_commit_install" => Some(Effect::Exec),
         // Egress by name. `scp_*` moves bytes to/from another host; the
         // `marketplace_publish` case sends a package somewhere it cannot be
         // recalled from.
-        "scp_upload" | "scp_download" | "wget_download" | "marketplace_publish" => Effect::Network,
+        "scp_upload" | "scp_download" | "wget_download" | "marketplace_publish" => Some(Effect::Network),
 
         // The NERVOSYS stack. `ai_gateway` probes IronGate over HTTP; it reads
         // and reports, so Network rather than Exec.
-        "ai_gateway" => Effect::Network,
+        "ai_gateway" => Some(Effect::Network),
         // The vault builtins spawn the `iv` binary. `vault_models` and
         // `vault_conversions` only read, but they still hand arguments to a
         // process, which is what Exec is about — the ratchet reads
         // `Command::new` in `model_plane::vault_run` and would refuse anything
         // weaker. `vault_convert` additionally writes a converted model.
-        "vault_models" | "vault_conversions" => Effect::Exec,
-        "vault_convert" | "ai_convert_model" => Effect::Exec,
+        "vault_models" | "vault_conversions" => Some(Effect::Exec),
+        "vault_convert" | "ai_convert_model" => Some(Effect::Exec),
 
         // ════════════════════════════════════════════════════════════
         // Process-spawning builtins, classified from their argv (§12).
@@ -312,7 +337,7 @@ pub fn effect_of(name: &str) -> Effect {
         | "dd_copy"
         | "git_clean"
         | "git_reset"
-        | "session_rollback" => Effect::Destructive,
+        | "session_rollback" => Some(Effect::Destructive),
 
         // ---- Network (24) ----
         | "gh_issue"
@@ -338,7 +363,7 @@ pub fn effect_of(name: &str) -> Effect {
         | "ssh_tunnel"
         | "trivy_image"
         | "trivy_scan"
-        | "uv_pip" => Effect::Network,
+        | "uv_pip" => Some(Effect::Network),
 
         // ---- Process (13) ----
         | "gui_close_window"
@@ -353,7 +378,7 @@ pub fn effect_of(name: &str) -> Effect {
         | "svc_enable"
         | "svc_start"
         | "svc_stop"
-        | "tmux_attach" => Effect::Process,
+        | "tmux_attach" => Some(Effect::Process),
 
         // ---- WriteLocal (52) ----
         | "age_decrypt"
@@ -407,7 +432,7 @@ pub fn effect_of(name: &str) -> Effect {
         | "zip_extract"
         | "zoxide_add"
         | "zstd_compress"
-        | "zstd_decompress" => Effect::WriteLocal,
+        | "zstd_decompress" => Some(Effect::WriteLocal),
 
         // ---- Exec (73) ----
         | "act_run"
@@ -482,7 +507,7 @@ pub fn effect_of(name: &str) -> Effect {
         | "valgrind_memcheck"
         | "valgrind_run"
         | "yarn_run"
-        | "yq_query" => Effect::Exec,
+        | "yq_query" => Some(Effect::Exec),
 
         // ---- ReadLocal (140) ----
         | "archive_test"
@@ -624,7 +649,7 @@ pub fn effect_of(name: &str) -> Effect {
         | "tokei_count"
         | "yamllint_check"
         | "zip_list"
-        | "zoxide_query" => Effect::ReadLocal,
+        | "zoxide_query" => Some(Effect::ReadLocal),
 
         // ════════════════════════════════════════════════════════════
         // Builtins that act through a *helper* (§12).
@@ -689,7 +714,7 @@ pub fn effect_of(name: &str) -> Effect {
         | "session_changes"
         | "session_checkpoints"
         | "svc_info"
-        | "user_list" => Effect::ReadLocal,
+        | "user_list" => Some(Effect::ReadLocal),
 
         // ---- delegated: WriteLocal (21) ----
         | "clipboard_clear"
@@ -712,7 +737,7 @@ pub fn effect_of(name: &str) -> Effect {
         | "syntax_categories"
         | "syntax_get"
         | "syntax_list"
-        | "syntax_search" => Effect::WriteLocal,
+        | "syntax_search" => Some(Effect::WriteLocal),
 
         // ---- delegated: Network (23) ----
         | "helm_list"
@@ -737,7 +762,7 @@ pub fn effect_of(name: &str) -> Effect {
         | "k8s_scale"
         | "k8s_secrets"
         | "k8s_top_nodes"
-        | "k8s_top_pods" => Effect::Network,
+        | "k8s_top_pods" => Some(Effect::Network),
 
         // ---- delegated: Exec (31) ----
         | "ansible_galaxy"
@@ -770,7 +795,7 @@ pub fn effect_of(name: &str) -> Effect {
         | "terraform_plan"
         | "terraform_state"
         | "terraform_validate"
-        | "terraform_workspace" => Effect::Exec,
+        | "terraform_workspace" => Some(Effect::Exec),
         // ════════════════════════════════════════════════════════════
         // Found only after the lint stopped reading a single file (§12).
         //
@@ -783,8 +808,8 @@ pub fn effect_of(name: &str) -> Effect {
         // it to test whether networking works; nothing leaves the machine, so
         // it is a read rather than egress. `platform_machine_id` shells out to
         // `ioreg`/equivalent purely to read an identifier.
-        "fs_link" | "fs_symlink" | "git_ignore" | "perm_set" => Effect::WriteLocal,
-        "platform_has_network" | "platform_machine_id" => Effect::ReadLocal,
+        "fs_link" | "fs_symlink" | "git_ignore" | "perm_set" => Some(Effect::WriteLocal),
+        "platform_has_network" | "platform_machine_id" => Some(Effect::ReadLocal),
         // The `web_*` fetch family already routes through `guard_network` at each
         // call site, so it was *gated* as Network at runtime while `effect_of`
         // reported `Pure` — meaning the agent-facing ontology advertised
@@ -794,22 +819,22 @@ pub fn effect_of(name: &str) -> Effect {
             || n.starts_with("net_")
             || n.starts_with("nc_") =>
         {
-            Effect::Network
+            Some(Effect::Network)
         }
         // `kubectl get` against a cluster endpoint: a read, but a *remote* one
         // that ships credentials off the machine, so it is metered as egress.
-        "k8s_deployments" | "k8s_services" => Effect::Network,
+        "k8s_deployments" | "k8s_services" => Some(Effect::Network),
         // Listing mounts is a read; mounting one is not. Order matters here.
-        "fs_mounts" => Effect::ReadLocal,
+        "fs_mounts" => Some(Effect::ReadLocal),
         // Permission and ownership changes modify filesystem metadata.
         "file_write" | "file_append" | "file_copy" | "mkdir" | "touch"
         | "write_file" | "write_json" | "text_write" | "save_json"
         | "gui_dialog_file_save" | "fs_mount"
-        | "chmod" | "fs_chmod" | "fs_chown" => Effect::WriteLocal,
+        | "chmod" | "fs_chmod" | "fs_chown" => Some(Effect::WriteLocal),
         n if n.starts_with("file_") || n.starts_with("proc_") || n.starts_with("sys_") => {
-            Effect::ReadLocal
+            Some(Effect::ReadLocal)
         }
-        _ => Effect::Pure,
+        _ => None,
     }
 }
 

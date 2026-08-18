@@ -955,6 +955,19 @@ fn annotate_effects(mut defs: Vec<BuiltinDefinition>) -> Vec<BuiltinDefinition> 
         let eff = crate::safety::effect_of(&d.name).as_str();
         if let JsonValue::Object(ref mut m) = d.json_schema {
             m.insert("x-effect".to_string(), json!(eff));
+            // Whether `x-effect` was *decided* or merely *defaulted*.
+            //
+            // `effect_of` falls through to `pure`, so "pure" alone conflates a
+            // builtin somebody read and found harmless with one nobody has
+            // looked at — 694 of 1,301 are currently the latter. Policy is
+            // right to treat them alike; an agent reading the ontology to
+            // decide how much to trust the label is not, and had no way to
+            // tell. Same convention as `x-returns`: this reports what is
+            // established, never what is assumed.
+            m.insert(
+                "x-effect-declared".to_string(),
+                json!(crate::safety::effect_is_declared(&d.name)),
+            );
             // Where a field's *format* is surprising, an example goes with the
             // type. `ext:str` is true and still let a filter be written as
             // `f.ext == "rs"` when the value is `".rs"` — which returned an
@@ -2214,6 +2227,20 @@ fn def_effect(d: &BuiltinDefinition) -> &str {
         .unwrap_or("pure")
 }
 
+/// Whether [`def_effect`]'s answer was decided or defaulted.
+///
+/// `pure` is both a classification and the fall-through, so on its own it
+/// cannot tell an agent whether anyone has looked. Today no builtin is
+/// explicitly classified `Pure`, which makes every `pure` a default -- see
+/// `tests/effect_provenance.rs`, which pins that and will fail the moment it
+/// stops being true.
+fn def_effect_declared(d: &BuiltinDefinition) -> bool {
+    d.json_schema
+        .get("x-effect-declared")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+}
+
 /// Progressive ontology disclosure (§5.4): a compact root manifest — one entry
 /// per category with builtin count, the effect classes present, and a few
 /// sample names — plus the effect legend and a usage hint. Agents load this
@@ -2306,6 +2333,7 @@ pub fn ontology_describe_json(query: &str) -> JsonValue {
             "category": d.category,
             "signature": d.signature,
             "effect": def_effect(d),
+            "effect_declared": def_effect_declared(d),
             "return_type": d.return_type,
             "description": d.description,
             "parameters": params,

@@ -95,6 +95,18 @@ const EVIDENCE: &[(&str, &str)] = &[
     ("fs::symlink(", "creates a symbolic link"),
     ("TcpListener::bind", "binds a listening socket"),
     ("UdpSocket::bind", "binds a datagram socket"),
+    // `Command::new` catches *starting* a process; nothing caught *stopping*
+    // one. `Effect::Process` resolves to Approve in agent mode, so a builtin
+    // that signals a process while classified `Pure` is allowed outright --
+    // the same shape of hole the original 28 sat in, one verb over.
+    //
+    // Written as `.kill(` and `libc::kill(` rather than a bare `kill`, which
+    // would match `bi_proc_kill`, `pkill`, and the word in any identifier.
+    (".kill(", "signals or terminates a process"),
+    ("libc::kill(", "signals a process by pid"),
+    // `.create(true)`/`.write(true)` are listed; truncation was not, and it
+    // destroys content rather than adding to it.
+    (".truncate(true)", "truncates a file to zero length"),
 ];
 
 /// The violations outstanding, and **now empty**.
