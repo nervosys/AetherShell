@@ -942,6 +942,27 @@ server — `ae --agent mcp stdio` — with every `tools/call` routed through the
 policy / jail / approval / audit, so any MCP client gets the full typed surface and
 the safety model with zero bespoke integration.
 
+**The HTTP servers require a bearer token.** Both `ae mcp serve` and the agent API
+mint one at startup and print it; every route except `/health` needs it:
+
+```console
+$ ae mcp serve
+MCP bearer token: _4hQtKJGyPyP8bl6tp2iHzoottkROCbqpPAxFIIMa3w
+$ curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:3001/mcp/v1/tools
+```
+
+Set `AETHER_API_TOKEN` to supply your own. This is not ceremony: the server
+executes builtins, so an unauthenticated one lets any web page the user visits
+drive it from their browser — loopback is no defence, since the browser is on
+the same machine. For the same reason `--cors` is off by default, and binding a
+non-loopback address is **refused** unless `AETHER_ALLOW_REMOTE_BIND=true`:
+
+```console
+$ ae mcp serve --host 0.0.0.0
+Error: refusing to bind 0.0.0.0 - this server executes builtins over plaintext
+HTTP ... prefer an SSH tunnel or a reverse proxy terminating TLS.
+```
+
 ### A2A (Agent-to-Agent)
 ```ae
 a2a.send("analyzer", {task: "review", files: ls("./src")})
