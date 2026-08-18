@@ -429,11 +429,41 @@ fn the_lint_does_not_read_comments_as_code() {
 
 /// Evidence that this body acts, directly.
 fn direct_evidence(body: &str) -> Option<(&'static str, &'static str)> {
-    EVIDENCE
+    direct_evidence_in(body, EVIDENCE)
+}
+
+/// [`direct_evidence`] against an arbitrary marker table, so the same scanner
+/// can answer a second question: not "does this act?" but "does this read?".
+fn direct_evidence_in(
+    body: &str,
+    table: &'static [(&'static str, &'static str)],
+) -> Option<(&'static str, &'static str)> {
+    table
         .iter()
         .find(|(m, _)| body.contains(m))
         .map(|(m, why)| (*m, *why))
 }
+
+/// Syntax that *observes* local state without changing it.
+///
+/// Separate from [`EVIDENCE`] because the consequence is different. An
+/// unclassified builtin that acts is a safety hole; an unclassified builtin
+/// that merely reads is a *reliability* one -- `Pure` tells an agent the call
+/// is referentially transparent, so it may cache the result, reorder it, or
+/// skip a repeat. `ls` is the worked example: it reports `pure`, and its answer
+/// changes the moment anything touches the directory.
+const READ_EVIDENCE: &[(&str, &str)] = &[
+    ("fs::read", "reads a file or directory"),
+    ("File::open", "opens a file for reading"),
+    ("read_dir(", "lists a directory"),
+    ("fs::metadata", "stats a path"),
+    (
+        "fs::symlink_metadata",
+        "stats a path without following links",
+    ),
+    ("env::var", "reads the environment"),
+    ("fs::canonicalize", "resolves a path against the filesystem"),
+];
 
 /// Evidence that this body acts *through a helper*, following calls up to
 /// `depth` levels.
@@ -671,5 +701,77 @@ fn a_string_literal_is_not_read_as_code() {
     assert!(
         !stripped.contains("join("),
         "documentation inside a string was read as a call: {stripped}"
+    );
+}
+
+// ── A second dimension: reads, not just actions ─────────────────────────────
+
+/// Builtins classified `Pure` whose bodies observe local state.
+fn readers_classified_pure() -> Vec<(String, String)> {
+    let all = bodies_by_name();
+    let mut out = Vec::new();
+    for name in BUILTIN_LOOKUP.keys() {
+        if effect_of(name) != Effect::Pure {
+            continue;
+        }
+        let Some(body) = all.get(&format!("bi_{name}")) else {
+            continue;
+        };
+        if let Some((_, why)) = direct_evidence_in(body, READ_EVIDENCE) {
+            out.push((name.to_string(), why.to_string()));
+        }
+    }
+    out.sort();
+    out
+}
+
+#[test]
+fn report_builtins_that_read_while_classified_pure() {
+    // Deliberately a report and not a gate. `ReadLocal` is allowed in agent
+    // mode exactly as `Pure` is, so nothing here is a safety hole and turning
+    // it into a failing test would create pressure to classify in bulk --
+    // which is how the original 28 name-based misclassifications happened.
+    //
+    // It is still worth a number in the log, because `Pure` is a claim about
+    // *determinism* as well as safety, and these are the calls where that
+    // claim is false.
+    let readers = readers_classified_pure();
+    println!(
+        "read-evidence: {} builtin(s) observe local state while classified Pure",
+        readers.len()
+    );
+    for (name, why) in &readers {
+        println!("  {name}: {why}");
+    }
+}
+
+#[test]
+fn the_read_scanner_still_sees_a_file_being_opened() {
+    // `report_builtins_that_read_while_classified_pure` now prints 0, which is
+    // the same output a blinded scanner produces. This asserts the scanner can
+    // still see -- `bi_cat` reads a file, and if this stops matching then the
+    // zero above means nothing.
+    let all = bodies_by_name();
+    let body = all
+        .get("bi_cat")
+        .expect("bi_cat should be found by the body parser");
+    assert!(
+        direct_evidence_in(body, READ_EVIDENCE).is_some(),
+        "the read scanner no longer sees bi_cat reading a file; the 0 in the \
+         report is blindness, not coverage"
+    );
+}
+
+#[test]
+fn the_read_scanner_does_not_fire_on_a_genuinely_pure_builtin() {
+    // The other half: a marker loose enough to match everything would also
+    // report a clean sweep after bulk-classifying, for the wrong reason.
+    let all = bodies_by_name();
+    let body = all
+        .get("bi_upper")
+        .expect("bi_upper should be found by the body parser");
+    assert!(
+        direct_evidence_in(body, READ_EVIDENCE).is_none(),
+        "`upper` uppercases a string and must not read as observing local state"
     );
 }

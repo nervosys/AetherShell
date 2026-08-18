@@ -831,6 +831,29 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "write_file" | "write_json" | "text_write" | "save_json"
         | "gui_dialog_file_save" | "fs_mount"
         | "chmod" | "fs_chmod" | "fs_chown" => Some(Effect::WriteLocal),
+        // Found by body evidence, not by name: each of these opens a file,
+        // lists a directory, stats a path or reads the environment, and every
+        // one of them was falling through to `Pure`.
+        //
+        // This changes no policy -- `decide()` returns Allow for `Pure` and
+        // `ReadLocal` alike -- it changes a *claim*. `Pure` says the call is
+        // referentially transparent, so an agent may cache it, reorder it, or
+        // skip a repeat. `ls` and `cat` are the plain counterexamples: their
+        // answers change the moment anything touches the directory.
+        "archive_info" | "audit_log" | "cat" | "code_comments" |
+        "code_exports" | "code_imports" | "code_parse" | "code_symbols" |
+        "code_todos" | "diag_config" | "docs_changelog" | "docs_examples" |
+        "env" | "env_container" | "env_path" | "env_shell" |
+        "env_var" | "env_vars" | "env_venv" | "fs_du" |
+        "fs_glob" | "fs_lstat" | "fs_readlink" | "fs_realpath" |
+        "fs_stat" | "fs_tree" | "fs_walk" | "grep" |
+        "head" | "ls" | "make_targets" | "pager" |
+        "perm_check" | "perm_get" | "pkg_history" | "pkg_sources" |
+        "platform_db_list" | "platform_db_load" | "platform_has_gui" | "platform_shell_type" |
+        "project_dependencies" | "project_dev_dependencies" | "project_gitignore" | "project_languages" |
+        "project_license" | "project_name" | "project_readme" | "project_size" |
+        "project_structure" | "project_test_files" | "read_text" | "refactor_organize_imports" |
+        "ssh_config" | "tail" | "wc" => Some(Effect::ReadLocal),
         n if n.starts_with("file_") || n.starts_with("proc_") || n.starts_with("sys_") => {
             Some(Effect::ReadLocal)
         }
