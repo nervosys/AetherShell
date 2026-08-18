@@ -263,6 +263,27 @@ pub fn omitted(v: &Value) -> usize {
 mod tests {
     use super::*;
 
+    /// Serialises every test that touches the process-global `STORE` or the
+    /// `AETHER_HANDLE_BYTES` env var.
+    ///
+    /// `put` derives the next id from `store.len()`, so two tests that each
+    /// `clear()` then `put()` both mint `h1`. That is not theoretical: CI's
+    /// Windows runner failed on `dropping_a_handle_frees_it_and_reports_whether_it_existed`
+    /// asserting `get(&h.id) == None` while another test had just re-created
+    /// the same id. It passed on ubuntu and macos in the same run, and passes
+    /// in isolation everywhere -- the signature of a scheduling race, not a
+    /// platform bug.
+    ///
+    /// Poison-tolerant: a panicking test has already been reported, and
+    /// failing every subsequent one on top of that hides more than it reveals.
+    /// A lock in the file rather than `--test-threads=1`, which has to be
+    /// remembered at every call site and fails silently when it is not.
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    fn store_lock() -> std::sync::MutexGuard<'static, ()> {
+        TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     fn big_array(n: usize) -> Value {
         Value::Array((0..n).map(|i| Value::Int(i as i64)).collect())
     }
@@ -303,6 +324,7 @@ mod tests {
 
     #[test]
     fn a_stored_value_comes_back_exactly() {
+        let _guard = store_lock();
         clear();
         let v = big_array(100);
         let h = put(v.clone(), 9999);
@@ -311,6 +333,7 @@ mod tests {
 
     #[test]
     fn small_results_are_never_handled() {
+        let _guard = store_lock();
         // The whole point is to spend tokens on data worth having; a short
         // result costs less to send than its own handle summary.
         assert!(!worth_handling(&big_array(2), 10));
@@ -335,6 +358,7 @@ mod tests {
 
     #[test]
     fn dropping_a_handle_frees_it_and_reports_whether_it_existed() {
+        let _guard = store_lock();
         clear();
         let h = put(big_array(10), 9999);
         assert!(drop_handle(&h.id));
@@ -344,6 +368,7 @@ mod tests {
 
     #[test]
     fn a_zero_threshold_disables_handling() {
+        let _guard = store_lock();
         // The escape hatch must actually work, or a user who dislikes handles
         // has no way back to whole results.
         std::env::set_var("AETHER_HANDLE_BYTES", "0");
