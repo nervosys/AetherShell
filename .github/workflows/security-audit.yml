@@ -23,10 +23,19 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       
       - name: Install and run cargo-audit
+        # `|| true` used to swallow the result, so this job reported green
+        # regardless. It was hiding two live findings: RUSTSEC-2026-0258 (h2,
+        # unbounded empty DATA frames) reached the tree twice, and this repo
+        # serves HTTP. Measured clean on 2026-08-18 after dropping the
+        # vulnerable chain, so the gate can be real from here.
+        #
+        # Warnings (unsound / unmaintained) stay non-fatal: `cargo audit`
+        # exits non-zero only for vulnerabilities, and there are 12 warnings
+        # that are not ours to fix today.
         run: |
           cargo install cargo-audit --locked
           cargo audit --json > audit-report.json || true
-          cargo audit || true
+          cargo audit
       
       - uses: actions/upload-artifact@v4
         if: always()
@@ -51,7 +60,10 @@ jobs:
         run: |
           cargo install cargo-deny --locked
           test -f deny.toml || cargo deny init
-          cargo deny check || true
+          # Measured 2026-08-18: advisories ok, bans ok, licenses ok, sources ok.
+          # Gated for the same reason as cargo-audit -- a check that cannot fail
+          # is not a check.
+          cargo deny check
 
   sbom-generation:
     name: Generate SBOM
@@ -68,7 +80,10 @@ jobs:
       - name: Generate SBOM
         run: |
           cargo install cargo-cyclonedx --locked
-          cargo cyclonedx --format json > sbom.json || echo '{}' > sbom.json
+          # Emitting `{}` on failure published an empty SBOM as though it were
+          # the real inventory -- an artifact that looks authoritative and lists
+          # nothing. Fail instead; a missing SBOM is honest, a blank one is not.
+          cargo cyclonedx --format json > sbom.json
       
       - uses: actions/upload-artifact@v4
         with:
@@ -89,7 +104,21 @@ jobs:
       - name: Run Gitleaks
         run: |
           curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.18.4/gitleaks_8.18.4_linux_x64.tar.gz | tar xz
-          ./gitleaks detect --source . --verbose || true
+          # Deliberately still non-blocking, and this is the one that is not
+          # a cop-out: gitleaks scans *git history*, which has never been
+          # triaged here (there is a known pending history scrub). Gating it
+          # before that triage would red the pipeline on historical findings
+          # that cannot be fixed without a force-push. Findings go to the run
+          # summary so they are visible rather than swallowed.
+          ./gitleaks detect --source . --verbose --report-path gitleaks.json || true
+          if [ -s gitleaks.json ] && [ "$(jq 'length' gitleaks.json 2>/dev/null || echo 0)" != "0" ]; then
+            {
+              echo "### ⚠️ gitleaks findings: $(jq 'length' gitleaks.json)"
+              echo
+              echo "Not gating the build -- git history has not been triaged."
+              echo "Triage, scrub, then remove this exemption."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   outdated-dependencies:
     name: Check Outdated Dependencies

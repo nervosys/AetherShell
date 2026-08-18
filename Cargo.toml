@@ -182,7 +182,13 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 utoipa = { version = "4.0", features = ["axum_extras"], optional = true }
 utoipa-swagger-ui = { version = "6.0", features = ["axum"], optional = true }
 tokio-stream = "0.1"
-jsonschema = { version = "0.17", optional = true }
+# `default-features = false` drops `resolve-http` and `cli`. resolve-http pulls
+# reqwest 0.11 -> hyper 0.14 -> h2 0.3.27, which carries RUSTSEC-2026-0258
+# (unbounded empty DATA frames) and cannot reach the patched >=0.4.16 within
+# semver. We compile local schemas only -- the single call site is
+# `JSONSchema::compile` in src/ai.rs -- so fetching a remote `$ref` over HTTP
+# was capability we never used and would not want a shell to have.
+jsonschema = { version = "0.17", optional = true, default-features = false }
 
 # Local inference backends (optional)
 candle-core = { version = "0.8", optional = true }
