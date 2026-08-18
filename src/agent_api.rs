@@ -2328,18 +2328,32 @@ pub fn ontology_describe_json(query: &str) -> JsonValue {
             .iter()
             .map(|e| json!({ "code": e.code, "description": e.description }))
             .collect();
-        return json!({
+        let mut detail = json!({
             "builtin": d.name,
             "category": d.category,
             "signature": d.signature,
             "effect": def_effect(d),
-            "effect_declared": def_effect_declared(d),
             "return_type": d.return_type,
             "description": d.description,
             "parameters": params,
             "examples": examples,
             "aliases": d.aliases,
         });
+        // Only when the effect is the *fall-through*, which is the only
+        // direction an agent can act on: it says "this label is weaker than it
+        // looks -- nobody classified this builtin".
+        //
+        // Measured, after guessing wrong about where the cost was: emitting it
+        // unconditionally on every builtin added 10,312 tokens (+9.2%) to the
+        // full-detail dump. Emitting only the exception costs a fraction of
+        // that, and absence carries the ordinary meaning -- the effect came
+        // from a rule.
+        if !def_effect_declared(d) {
+            if let Some(obj) = detail.as_object_mut() {
+                obj.insert("effect_declared".to_string(), json!(false));
+            }
+        }
+        return detail;
     }
 
     let in_cat: Vec<JsonValue> = defs

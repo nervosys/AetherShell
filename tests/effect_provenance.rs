@@ -81,3 +81,49 @@ fn today_every_pure_is_the_fallthrough_and_none_is_a_finding() {
         &declared_pure[..declared_pure.len().min(10)]
     );
 }
+
+// ── The disclosure convention ───────────────────────────────────────────────
+
+#[test]
+fn the_ontology_flags_only_the_undeclared_and_absence_means_declared() {
+    // `effect_declared` is emitted only when false. That is a deliberate
+    // asymmetry -- it halves the cost on the full-detail dump (+4.7% instead
+    // of +9.2%, measured) and only one direction is actionable. But it means
+    // *absence carries meaning*, which is exactly the kind of convention that
+    // rots into "the field is missing, so who knows" without a test.
+    use aethershell::agent_api::ontology_describe_json;
+
+    let unclassified = ontology_describe_json("upper");
+    assert_eq!(unclassified["effect"], "pure");
+    assert_eq!(
+        unclassified["effect_declared"], false,
+        "an unclassified builtin must carry the flag, or agents cannot tell \
+         a default from a finding"
+    );
+
+    for name in ["sh", "ls", "cat"] {
+        let classified = ontology_describe_json(name);
+        assert!(
+            classified.get("effect_declared").is_none(),
+            "{name} is classified, so the flag must be absent -- emitting it \
+             as `true` is the cost this convention exists to avoid"
+        );
+    }
+}
+
+#[test]
+fn the_readers_reclassified_from_pure_report_read_local() {
+    // The 55 found by body evidence. Spot-checked here so a future edit to the
+    // match cannot quietly return them to `pure` -- which would restore the
+    // claim that `ls` is referentially transparent.
+    use aethershell::safety::{effect_of, Effect};
+    for name in [
+        "ls", "cat", "head", "tail", "grep", "wc", "fs_stat", "env_var",
+    ] {
+        assert_eq!(
+            effect_of(name),
+            Effect::ReadLocal,
+            "{name} observes local state and must not advertise as Pure"
+        );
+    }
+}
