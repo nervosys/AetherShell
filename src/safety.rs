@@ -2184,6 +2184,67 @@ pub fn applescript_quote(value: &str) -> AppleScriptLiteral {
 /// Dot-commands are a feature of the `sqlite3` shell, not of SQL, so refusing
 /// them costs a caller nothing that SQL can express. The check is on the first
 /// non-whitespace character: SQL statements never begin with `.`.
+/// Render a value as a SQL string literal, safe to interpolate.
+///
+/// The sqlite builtins shell out to the `sqlite3` CLI, so there is no bound
+/// parameter to use -- the SQL is a string by the time it leaves this process.
+/// That made every `format!("... WHERE key = '{}'", key)` an injection point,
+/// and not theoretically:
+///
+/// ```text
+/// db_kv_get(db, "x' OR '1'='1")            -> returned another key's value
+/// db_kv_delete(db, "z'; DELETE FROM kv; --") -> emptied the table (2 rows -> 0)
+/// ```
+///
+/// SQLite escapes a quote inside a literal by doubling it, so `'` becomes `''`
+/// and the value can no longer terminate its own literal. An interior NUL is
+/// refused rather than escaped: the CLI takes its SQL as a C string, so a NUL
+/// truncates the statement, and silently storing a shortened key would be its
+/// own bug.
+pub fn sql_literal(builtin: &str, value: &str) -> anyhow::Result<String> {
+    if value.contains('\0') {
+        return Err(anyhow::Error::new(SafetyError {
+            code: ErrorCode::BadArg,
+            message: format!("{builtin}: NUL byte in a SQL value"),
+            builtin: builtin.to_string(),
+            hint: "sqlite3 reads its SQL as a C string, so a NUL would silently                    truncate the statement; remove it"
+                .to_string(),
+            approval: None,
+            did_you_mean: Vec::new(),
+            expected: String::new(),
+            got: String::new(),
+        }));
+    }
+    Ok(format!("'{}'", value.replace('\'', "''")))
+}
+
+/// Validate a table or column name for interpolation.
+///
+/// An identifier cannot be passed as a string literal -- `SELECT * FROM 'kv'`
+/// is not the same statement -- so the only safe move is to refuse anything
+/// that is not plainly an identifier. Deliberately strict: letters, digits and
+/// underscore, not starting with a digit. A caller that needs more can quote it
+/// themselves and own the consequences.
+pub fn sql_identifier(builtin: &str, name: &str) -> anyhow::Result<String> {
+    let ok = !name.is_empty()
+        && !name.starts_with(|c: char| c.is_ascii_digit())
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    if !ok {
+        return Err(anyhow::Error::new(SafetyError {
+            code: ErrorCode::BadArg,
+            message: format!("{builtin}: {name:?} is not a valid table or column name"),
+            builtin: builtin.to_string(),
+            hint: "identifiers are interpolated into SQL and cannot be quoted as                    values; use letters, digits and underscore only"
+                .to_string(),
+            approval: None,
+            did_you_mean: Vec::new(),
+            expected: "an identifier".to_string(),
+            got: name.to_string(),
+        }));
+    }
+    Ok(name.to_string())
+}
+
 pub fn reject_sqlite_dot_command(builtin: &str, sql: &str) -> anyhow::Result<()> {
     if sql.trim_start().starts_with('.') {
         return Err(anyhow::Error::new(SafetyError {

@@ -28715,7 +28715,10 @@ fn bi_db_kv_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     bi_db_sqlite_query(
         vec![
             Value::Str(store_path),
-            Value::Str(format!("SELECT value FROM kv WHERE key = '{}'", key)),
+            Value::Str(format!(
+                "SELECT value FROM kv WHERE key = {}",
+                crate::safety::sql_literal("db_kv_get", &key)?
+            )),
         ],
         None,
     )
@@ -28761,9 +28764,9 @@ fn bi_db_kv_set(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         vec![
             Value::Str(store_path),
             Value::Str(format!(
-                "INSERT OR REPLACE INTO kv (key, value) VALUES ('{}', '{}')",
-                key,
-                value.replace("'", "''")
+                "INSERT OR REPLACE INTO kv (key, value) VALUES ({}, {})",
+                crate::safety::sql_literal("db_kv_set", &key)?,
+                crate::safety::sql_literal("db_kv_set", &value)?
             )),
         ],
         None,
@@ -28793,7 +28796,10 @@ fn bi_db_kv_delete(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     bi_db_sqlite_exec(
         vec![
             Value::Str(store_path),
-            Value::Str(format!("DELETE FROM kv WHERE key = '{}'", key)),
+            Value::Str(format!(
+                "DELETE FROM kv WHERE key = {}",
+                crate::safety::sql_literal("db_kv_delete", &key)?
+            )),
         ],
         None,
     )
@@ -29260,7 +29266,13 @@ fn bi_db_sqlite_delete(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         fs_paths: false,
     })?;
 
-    let sql = format!("DELETE FROM {} WHERE {}", table, where_clause);
+    // The table is an identifier and is validated; the WHERE clause is SQL by
+    // contract -- this builtin exists to take one -- so it is the caller's.
+    let sql = format!(
+        "DELETE FROM {} WHERE {}",
+        crate::safety::sql_identifier("db_sqlite_delete", &table)?,
+        where_clause
+    );
     bi_db_sqlite_exec(vec![Value::Str(db_path), Value::Str(sql)], None)
 }
 
@@ -29279,9 +29291,16 @@ fn bi_db_sqlite_count(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
     });
 
     let sql = if let Some(w) = where_clause {
-        format!("SELECT COUNT(*) as count FROM {} WHERE {}", table, w)
+        format!(
+            "SELECT COUNT(*) as count FROM {} WHERE {}",
+            crate::safety::sql_identifier("db_sqlite_count", &table)?,
+            w
+        )
     } else {
-        format!("SELECT COUNT(*) as count FROM {}", table)
+        format!(
+            "SELECT COUNT(*) as count FROM {}",
+            crate::safety::sql_identifier("db_sqlite_count", &table)?
+        )
     };
 
     match bi_db_sqlite_query(vec![Value::Str(db_path), Value::Str(sql)], None)? {
@@ -29310,7 +29329,11 @@ fn bi_db_sqlite_create_table(args: Vec<Value>, _input: Option<Value>) -> Result<
         Some(Value::Record(r)) => r.clone(),
         Some(Value::Str(s)) => {
             // Allow raw column definition
-            let sql = format!("CREATE TABLE IF NOT EXISTS {} ({})", table, s);
+            let sql = format!(
+                "CREATE TABLE IF NOT EXISTS {} ({})",
+                crate::safety::sql_identifier("db_sqlite_create_table", &table)?,
+                s
+            );
             return bi_db_sqlite_exec(vec![Value::Str(db_path), Value::Str(sql)], None);
         }
         _ => return Ok(Value::Bool(false)),
@@ -29498,7 +29521,10 @@ fn bi_db_sqlite_to_json(args: Vec<Value>, _input: Option<Value>) -> Result<Value
     bi_db_sqlite_query(
         vec![
             Value::Str(db_path),
-            Value::Str(format!("SELECT * FROM {}", table)),
+            Value::Str(format!(
+                "SELECT * FROM {}",
+                crate::safety::sql_identifier("db_sqlite_to_json", &table)?
+            )),
         ],
         None,
     )
