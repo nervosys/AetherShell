@@ -552,6 +552,11 @@ async fn handle_mcp_command(command: McpCommands) -> Result<()> {
                 host,
                 port,
                 enable_cors: cors,
+                // Same source as the agent API's token, so one env var covers
+                // both servers; `None` mints one and prints it at startup.
+                auth_token: std::env::var("AETHER_API_TOKEN")
+                    .ok()
+                    .filter(|t| !t.trim().is_empty()),
                 safety_level,
                 allow_admin: admin,
             };

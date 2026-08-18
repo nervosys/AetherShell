@@ -1064,7 +1064,7 @@ pub mod server {
     use super::*;
     use axum::{
         extract::State,
-        http::StatusCode,
+        http::{header, StatusCode},
         response::IntoResponse,
         routing::{get, post},
         Json, Router,
@@ -1080,6 +1080,11 @@ pub mod server {
         pub host: String,
         pub port: u16,
         pub enable_cors: bool,
+        /// Bearer token required on every route except `/health`.
+        ///
+        /// `None` mints one at startup and prints it -- the server is never
+        /// reachable without a credential, matching `agent_api`.
+        pub auth_token: Option<String>,
         pub safety_level: SafetyLevel,
         pub allow_admin: bool,
     }
@@ -1089,7 +1094,12 @@ pub mod server {
             Self {
                 host: "127.0.0.1".to_string(),
                 port: 3001,
-                enable_cors: true,
+                // Off by default. `allow_origin(Any)` on a server that executes
+                // builtins means any page the user visits can drive it; a
+                // library caller taking Default should not opt into that
+                // silently.
+                enable_cors: false,
+                auth_token: None,
                 safety_level: SafetyLevel::Caution,
                 allow_admin: false,
             }
@@ -1102,6 +1112,27 @@ pub mod server {
     }
 
     /// Start the MCP HTTP server
+    /// Mint a bearer token, matching `agent_api`'s construction.
+    fn generate_mcp_token() -> String {
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+        let bytes: [u8; 32] = rand::random();
+        URL_SAFE_NO_PAD.encode(bytes)
+    }
+
+    /// Constant-time comparison, so a token cannot be recovered a byte at a
+    /// time by timing the response.
+    fn mcp_tokens_match(presented: &str, expected: &str) -> bool {
+        let (a, b) = (presented.as_bytes(), expected.as_bytes());
+        if a.len() != b.len() {
+            return false;
+        }
+        let mut diff = 0u8;
+        for (x, y) in a.iter().zip(b.iter()) {
+            diff |= x ^ y;
+        }
+        diff == 0
+    }
+
     pub async fn start_mcp_server(config: McpServerConfig) -> Result<()> {
         let mcp_config = McpConfig {
             max_safety_level: config.safety_level.clone(),
@@ -1131,6 +1162,61 @@ pub mod server {
             // Info endpoint
             .route("/", get(handle_info))
             .with_state(state);
+
+        // Authentication, applied before CORS so it wraps every route.
+        //
+        // This server had none, and `POST /mcp/v1/tools/:name/execute` runs
+        // builtins. With `--cors` that was demonstrably exploitable: a page on
+        // https://evil.example POSTed here and read `C:/Windows/win.ini` off
+        // the disk, cross-origin, unauthenticated. `agent_api` carries a
+        // comment explaining that its own `allow_origin(Any)` is only tolerable
+        // *because* a bearer token is required -- the reasoning was right there
+        // and this server did not have the token.
+        //
+        // Loopback binding is not a defence: the browser making the request is
+        // on the same machine, which is the entire point of the CORS control.
+        let token = Arc::new(match config.auth_token.clone() {
+            Some(t) if !t.trim().is_empty() => t,
+            _ => {
+                let t = generate_mcp_token();
+                println!("MCP bearer token: {t}");
+                println!(
+                    "Send it as `Authorization: Bearer <token>` on every route except /health."
+                );
+                t
+            }
+        });
+        let auth_token = Arc::clone(&token);
+        app = app.layer(axum::middleware::from_fn(
+            move |req: axum::extract::Request, next: axum::middleware::Next| {
+                let expected = Arc::clone(&auth_token);
+                async move {
+                    if req.uri().path() == "/health" {
+                        return next.run(req).await;
+                    }
+                    let presented = req
+                        .headers()
+                        .get(header::AUTHORIZATION)
+                        .and_then(|v| v.to_str().ok())
+                        .and_then(|v| v.strip_prefix("Bearer "))
+                        .map(str::trim)
+                        .unwrap_or("");
+                    if mcp_tokens_match(presented, &expected) {
+                        next.run(req).await
+                    } else {
+                        (
+                            StatusCode::UNAUTHORIZED,
+                            [(header::WWW_AUTHENTICATE, "Bearer")],
+                            Json(serde_json::json!({
+                                "error": "unauthorized",
+                                "detail": "Send `Authorization: Bearer <token>`.                                     The token is printed when the server starts.",
+                            })),
+                        )
+                            .into_response()
+                    }
+                }
+            },
+        ));
 
         if config.enable_cors {
             app = app.layer(
