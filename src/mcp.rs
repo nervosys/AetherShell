@@ -1134,6 +1134,39 @@ pub mod server {
     }
 
     pub async fn start_mcp_server(config: McpServerConfig) -> Result<()> {
+        // Resolved first so the bind is refused before anything else happens --
+        // in particular before a bearer token is minted and printed for a server
+        // that is not going to start.
+        let addr: SocketAddr = format!("{}:{}", config.host, config.port)
+            .parse()
+            .map_err(|e| anyhow!("Invalid address: {}", e))?;
+
+        // A non-loopback bind is now opt-in rather than merely warned about.
+        // Warning is the right response to a risk the operator chose; this one
+        // is more often an accident (`--host 0.0.0.0` copied from a tutorial),
+        // and the consequence is builtin execution plus a plaintext bearer
+        // token exposed to the network. TLS would protect the token in transit
+        // but not the decision to expose the endpoint at all, which is the part
+        // actually worth a deliberate act.
+        if !addr.ip().is_loopback()
+            && !matches!(
+                std::env::var("AETHER_ALLOW_REMOTE_BIND").as_deref(),
+                Ok("1") | Ok("true")
+            )
+        {
+            return Err(anyhow!(
+                concat!(
+                    "refusing to bind {} - this server executes builtins over ",
+                    "plaintext HTTP, so binding beyond loopback exposes both the ",
+                    "operations and the bearer token to anything that can route ",
+                    "here. If that is genuinely intended, set ",
+                    "AETHER_ALLOW_REMOTE_BIND=true; prefer an SSH tunnel or a ",
+                    "reverse proxy terminating TLS."
+                ),
+                addr.ip()
+            ));
+        }
+
         let mcp_config = McpConfig {
             max_safety_level: config.safety_level.clone(),
             allow_admin_tools: config.allow_admin,
@@ -1162,6 +1195,36 @@ pub mod server {
             // Info endpoint
             .route("/", get(handle_info))
             .with_state(state);
+
+        // Security headers. These servers return JSON, never a page, so the
+        // policy is simply "this is not a document": no sniffing, no framing,
+        // no subresources, no referrer. `no-store` because responses routinely
+        // carry file contents and command output that should not sit in an
+        // intermediary cache.
+        app = app.layer(axum::middleware::from_fn(
+            |req: axum::extract::Request, next: axum::middleware::Next| async move {
+                let mut res = next.run(req).await;
+                let h = res.headers_mut();
+                h.insert(
+                    "x-content-type-options",
+                    header::HeaderValue::from_static("nosniff"),
+                );
+                h.insert("x-frame-options", header::HeaderValue::from_static("DENY"));
+                h.insert(
+                    "content-security-policy",
+                    header::HeaderValue::from_static("default-src 'none'; frame-ancestors 'none'"),
+                );
+                h.insert(
+                    "referrer-policy",
+                    header::HeaderValue::from_static("no-referrer"),
+                );
+                h.insert(
+                    "cache-control",
+                    header::HeaderValue::from_static("no-store"),
+                );
+                res
+            },
+        ));
 
         // Authentication, applied before CORS so it wraps every route.
         //
@@ -1226,10 +1289,6 @@ pub mod server {
                     .allow_headers(Any),
             );
         }
-
-        let addr: SocketAddr = format!("{}:{}", config.host, config.port)
-            .parse()
-            .map_err(|e| anyhow!("Invalid address: {}", e))?;
 
         if !addr.ip().is_loopback() {
             println!(

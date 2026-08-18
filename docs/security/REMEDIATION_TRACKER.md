@@ -47,9 +47,9 @@
 > | HIGH-5 | mitigated, not implemented | no rate limiter, but every route needs a 256-bit bearer token, so there is nothing to brute-force cheaply |
 > | MED-1 | done | hash-chained tamper-evident audit log + `verify_audit` |
 > | MED-2 | mitigated by the framework | axum 0.7 default 2 MB body cap — **measured**: an 8 MB body returns 413 |
-> | MED-3 | partial | both servers warn on a non-loopback bind (mcp's added today); no TLS — plaintext bearer token off-host is called out in the warning |
+> | MED-3 | **addressed, not by TLS** | a non-loopback bind is now *refused* unless `AETHER_ALLOW_REMOTE_BIND=true`. TLS would protect the token in transit but not the decision to expose a builtin-executing endpoint, which is the part worth a deliberate act; the refusal points at an SSH tunnel or a TLS-terminating proxy |
 > | MED-4 | **was live — fixed** | MCP HTTP server executed builtins unauthenticated; cross-origin file read demonstrated |
-> | MED-5 | not done | no CSP/X-Frame-Options; low value on a token-gated JSON API, listed rather than claimed |
+> | MED-5 | **done** | `nosniff`, `X-Frame-Options: DENY`, `default-src 'none'; frame-ancestors 'none'`, `no-referrer`, `no-store` on both servers — verified on a live response |
 > | MED-6 | done | gitleaks runs; non-blocking pending a git-history triage, stated in the workflow |
 > | MED-7 | done | `cargo audit` + `cargo deny` now gate for real; found and fixed RUSTSEC-2026-0258 |
 >

@@ -3848,6 +3848,36 @@ pub mod server {
         }
         let mut app = app.merge(long_lived);
 
+        // Security headers. These servers return JSON, never a page, so the
+        // policy is simply "this is not a document": no sniffing, no framing,
+        // no subresources, no referrer. `no-store` because responses routinely
+        // carry file contents and command output that should not sit in an
+        // intermediary cache.
+        app = app.layer(axum::middleware::from_fn(
+            |req: axum::extract::Request, next: axum::middleware::Next| async move {
+                let mut res = next.run(req).await;
+                let h = res.headers_mut();
+                h.insert(
+                    "x-content-type-options",
+                    header::HeaderValue::from_static("nosniff"),
+                );
+                h.insert("x-frame-options", header::HeaderValue::from_static("DENY"));
+                h.insert(
+                    "content-security-policy",
+                    header::HeaderValue::from_static("default-src 'none'; frame-ancestors 'none'"),
+                );
+                h.insert(
+                    "referrer-policy",
+                    header::HeaderValue::from_static("no-referrer"),
+                );
+                h.insert(
+                    "cache-control",
+                    header::HeaderValue::from_static("no-store"),
+                );
+                res
+            },
+        ));
+
         // Authentication. Applied before CORS below so that it wraps every
         // route; `/health` is exempted inside the middleware so liveness probes
         // keep working without a credential.
