@@ -169,9 +169,70 @@ jobs:
                   tag_name: v${{ needs.create-release.outputs.version }}
                   files: aethershell-wasm-${{ needs.create-release.outputs.version }}.tar.gz
 
+    publish-preflight:
+        # Which registries are actually configured on this repository.
+        #
+        # Every publish job has failed on every release since the pipeline
+        # existed, always for the same reason: the credential is not set. A run
+        # that is red unconditionally cannot report a regression -- the signal
+        # was spent long ago, and the honest primitive GitHub offers for "not
+        # applicable" is *skipped*, not green. `continue-on-error` was the other
+        # option and this repository has already been burned by it: it rewrote a
+        # failed publish to success and every signal inside the repo said the
+        # release worked.
+        #
+        # So: unconfigured -> the job is skipped and says why. Configured and
+        # broken -> red, and red now means something.
+        name: Which registries are configured
+        needs: [create-release]
+        runs-on: ubuntu-latest
+        outputs:
+            crates: ${{ steps.probe.outputs.crates }}
+            npm: ${{ steps.probe.outputs.npm }}
+            pypi: ${{ steps.probe.outputs.pypi }}
+        steps:
+            - id: probe
+              # Secrets cannot be referenced in a job-level `if`, so presence is
+              # resolved here and passed on as an output. The values are only
+              # ever tested for emptiness; nothing is echoed.
+              env:
+                  CRATES: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+                  NPM: ${{ secrets.NPM_TOKEN }}
+                  # PyPI uses trusted publishing (OIDC), so there is no secret to
+                  # detect. It is an explicit opt-in: set the repository variable
+                  # PYPI_TRUSTED_PUBLISHING=true once configured at pypi.org.
+                  PYPI: ${{ vars.PYPI_TRUSTED_PUBLISHING }}
+              run: |
+                  set -uo pipefail
+                  for reg in crates npm pypi; do
+                    case "$reg" in
+                      crates) v="${CRATES:-}" ;;
+                      npm)    v="${NPM:-}" ;;
+                      pypi)   v="${PYPI:-}" ;;
+                    esac
+                    if [ -n "$v" ] && [ "$v" != "false" ]; then
+                      echo "${reg}=true" >> "$GITHUB_OUTPUT"
+                    else
+                      echo "${reg}=false" >> "$GITHUB_OUTPUT"
+                    fi
+                  done
+                  {
+                    echo "### Registry configuration"
+                    echo
+                    echo "| registry | configured |"
+                    echo "| --- | --- |"
+                    echo "| crates.io | $([ -n "${CRATES:-}" ] && echo yes || echo '**no — publish skipped**') |"
+                    echo "| npm | $([ -n "${NPM:-}" ] && echo yes || echo '**no — publish skipped**') |"
+                    echo "| PyPI | $([ -n "${PYPI:-}" ] && [ "${PYPI:-}" != false ] && echo yes || echo '**no — publish skipped**') |"
+                    echo
+                    echo "A skipped publish is not a failure. Set the secret or repository"
+                    echo "variable to enable one; a red publish job then means it genuinely broke."
+                  } >> "$GITHUB_STEP_SUMMARY"
+
     publish-crates:
         name: Publish to crates.io
-        needs: [create-release, build-binaries]
+        needs: [create-release, build-binaries, publish-preflight]
+        if: needs.publish-preflight.outputs.crates == 'true'
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@v4
@@ -280,7 +341,8 @@ jobs:
 
     publish-npm:
         name: Publish WASM to npm
-        needs: [create-release, build-wasm]
+        needs: [create-release, build-wasm, publish-preflight]
+        if: needs.publish-preflight.outputs.npm == 'true'
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@v4
@@ -415,7 +477,8 @@ jobs:
 
     publish-pypi:
         name: Publish Python SDK to PyPI
-        needs: [create-release]
+        needs: [create-release, publish-preflight]
+        if: needs.publish-preflight.outputs.pypi == 'true'
         runs-on: ubuntu-latest
         permissions:
             id-token: write
