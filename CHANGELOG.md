@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Security work found by auditing `docs/security/REMEDIATION_TRACKER.md` against
+the code. Two of its fifteen itemised findings were live vulnerabilities; both
+were marked NOT STARTED and both were accurate.
+
+### Security
+
+- **SQL injection in the kv store (CWE-89).** `db_kv_*` built SQL with
+  `format!`, so a key could rewrite the query. Demonstrated, not theorised:
+  `db_kv_get(db, "x' OR '1'='1")` returned another key's value, and
+  `db_kv_delete(db, "z'; DELETE FROM kv; --")` emptied the table. `db_kv_set`
+  already escaped the *value* and not the key — the technique was known and
+  applied to one of two interpolations on the same line. Fixed with
+  `safety::sql_literal` / `sql_identifier`.
+- **The MCP HTTP server executed builtins unauthenticated.** `POST
+  /mcp/v1/tools/:name/execute` runs any builtin, there was no authentication,
+  and CORS defaulted on. A page on another origin read `C:/Windows/win.ini` off
+  the disk. Now requires a bearer token on every route except `/health`,
+  minted and printed at startup; CORS defaults off.
+- **RUSTSEC-2026-0258** (`h2`, unbounded empty DATA frames) was present twice
+  and `cargo audit || true` had never reported it. Removed by updating one
+  instance and dropping `jsonschema`'s default `resolve-http` feature, which
+  pulled the other through reqwest 0.11 → hyper 0.14.
+- **A non-loopback bind is now refused** unless `AETHER_ALLOW_REMOTE_BIND=true`.
+- **Security headers** on both HTTP servers: `nosniff`, `X-Frame-Options`, CSP,
+  `no-referrer`, `no-store`.
+
+### Changed
+
+- `cargo audit`, `cargo deny` and the SBOM job can now fail the build. Every
+  scanner previously ended in `|| true`, so Security Audit reported green
+  regardless of findings. gitleaks stays non-blocking pending a git-history
+  triage, which the workflow now states.
+- `effect_of` distinguishes a classification from its fall-through, surfaced as
+  `effect_declared`. No builtin was explicitly classified `Pure`, so
+  `x-effect: pure` meant "unclassified" for all of them.
+- 55 builtins that read local state (`ls`, `cat`, `grep`, `env_*`, …) are now
+  `ReadLocal` rather than `Pure`. No policy change — `Pure` and `ReadLocal` are
+  both Allow — but `Pure` also claims referential transparency, which invited
+  an agent to cache or reorder them.
+
+### Fixed
+
+- A test race in the global handle store that had CI red on Windows.
+- `ls.path`'s field example was only true on the machine that captured it.
+- Test isolation: 3 unguarded env-mutating tests and 2 needless `unsafe` blocks.
+
+### Breaking
+
+- The MCP HTTP server requires `Authorization: Bearer <token>`.
+- Binding a non-loopback address requires `AETHER_ALLOW_REMOTE_BIND`.
+- `db_sqlite_delete` / `_count` / `_create_table` / `_to_json` reject table
+  names that are not plain identifiers.
+- The `jsonschema` feature no longer resolves remote `$ref` URLs.
+
 ## [8.0.0] - 2026-08-17
 
 A major version because `ai_convert_model` changes shape. See **Changed**.

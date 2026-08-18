@@ -34,7 +34,19 @@ jobs:
               if: matrix.os == 'ubuntu-latest'
               run: |
                   sudo apt-get update
-                  sudo apt-get install -y libasound2-dev libssl-dev pkg-config
+                  sudo apt-get install -y libasound2-dev libssl-dev pkg-config sqlite3
+
+            # The db builtins shell out to the `sqlite3` CLI. Without it those
+            # tests skip -- loudly, but they skip -- and the SQL-injection
+            # regression tests are exactly the ones worth actually running.
+            # They were silently not running on Windows until they were made to
+            # skip rather than fail.
+            - name: Install sqlite3 (Windows)
+              if: matrix.os == 'windows-latest'
+              run: choco install sqlite -y --no-progress
+
+            - name: Verify sqlite3 is on PATH
+              run: sqlite3 --version
 
             - name: Run tests
               run: cargo test --workspace --features native

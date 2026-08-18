@@ -21,6 +21,34 @@ fn call(name: &str, args: Vec<Value>) -> Value {
     aethershell::builtins::call(name, args, &mut env).unwrap_or(Value::Null)
 }
 
+/// Whether the `sqlite3` CLI is on PATH.
+///
+/// The db builtins shell out to it, so without it every call returns Null and
+/// the end-to-end assertions below compare against a database that was never
+/// written. That is exactly how these tests failed on CI's Windows runner
+/// while passing locally: two of them "found no injection" because nothing had
+/// happened at all -- the same shape of green-but-meaningless result this
+/// repository keeps getting bitten by.
+///
+/// So: skip, and say so out loud. `the_quoting_helper_doubles_quotes_and_refuses_nul`
+/// is pure and still runs everywhere, which keeps the fix pinned on every
+/// platform even where the end-to-end tests cannot run.
+fn sqlite_available() -> bool {
+    std::process::Command::new("sqlite3")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+fn require_sqlite(test: &str) -> bool {
+    if sqlite_available() {
+        return true;
+    }
+    eprintln!("SKIP: {test} — the `sqlite3` CLI is not on PATH, so the db builtins cannot run");
+    false
+}
+
 fn db(tag: &str) -> String {
     let p = std::env::temp_dir().join(format!("ae_sqli_{tag}.db"));
     let _ = std::fs::remove_file(&p);
@@ -68,6 +96,9 @@ fn seed(path: &str) {
 
 #[test]
 fn a_crafted_key_cannot_read_another_keys_value() {
+    if !require_sqlite("a_crafted_key_cannot_read_another_keys_value") {
+        return;
+    }
     let path = db("read");
     seed(&path);
     let got = call(
@@ -83,6 +114,9 @@ fn a_crafted_key_cannot_read_another_keys_value() {
 
 #[test]
 fn a_crafted_key_cannot_append_a_second_statement() {
+    if !require_sqlite("a_crafted_key_cannot_append_a_second_statement") {
+        return;
+    }
     let path = db("chain");
     seed(&path);
     assert_eq!(count(&path), 2, "seed failed");
@@ -102,6 +136,9 @@ fn a_crafted_key_cannot_append_a_second_statement() {
 
 #[test]
 fn an_apostrophe_in_a_real_key_still_round_trips() {
+    if !require_sqlite("an_apostrophe_in_a_real_key_still_round_trips") {
+        return;
+    }
     // The fix must escape, not reject. Refusing every quote would be a smaller
     // hole and a broken key/value store.
     let path = db("apos");
