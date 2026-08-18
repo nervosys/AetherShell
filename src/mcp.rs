@@ -1231,6 +1231,23 @@ pub mod server {
             .parse()
             .map_err(|e| anyhow!("Invalid address: {}", e))?;
 
+        if !addr.ip().is_loopback() {
+            println!(
+                "⚠  Binding {} — this server executes builtins, so it is now
+                 ⚠  reachable by anything that can route to this host. The bearer
+                 ⚠  token is the only thing standing in front of it, and it travels
+                 ⚠  in plaintext over HTTP: anything on the path can read it.",
+                addr.ip()
+            );
+        }
+        if config.enable_cors {
+            println!(
+                "⚠  CORS is enabled: any web page the user visits may call this
+                 ⚠  server from their browser. It is safe only because the bearer
+                 ⚠  token is required and a cross-origin page cannot read it."
+            );
+        }
+
         println!("🚀 AetherShell MCP Server starting on http://{}", addr);
         println!("   Protocol: MCP 2024-11-05");
         println!("   Safety level: {:?}", config.safety_level);

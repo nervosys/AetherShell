@@ -31,9 +31,32 @@
 > | --- | --- | --- |
 > | HIGH-2 | SQL Injection Prevention | **Was live.** `db_kv_get(db, "x' OR '1'='1")` returned another key's value; `db_kv_delete(db, "z'; DELETE FROM kv; --")` emptied the table. Fixed via `safety::sql_literal` / `sql_identifier`; `tests/sql_injection.rs` |
 >
-> **Not re-verified:** the remaining 19 findings. Nothing here should be read
-> as a claim about them. HIGH-2 is the reason: on the same page, and correct
-> the whole time.
+> **Full audit, 2026-08-18.** All 15 itemised findings checked against the
+> code. (The header counts 8 LOW; no `LOW-n` sections were ever written, so
+> there is nothing to audit there.)
+>
+> | ID | Verdict | Evidence |
+> | --- | --- | --- |
+> | CRIT-1 | stale — control shipped | `AGENT_ALLOW_CMDS` in `src/security.rs`; `tests/safety.rs` 16 pass |
+> | CRIT-2 | stale — control shipped | redaction in `src/safety.rs`; `tests/secret_hygiene.rs` 4 pass |
+> | CRIT-3 | stale — control shipped | `validate_safe_path` + jail; `tests/guard_enforcement.rs` 14 pass |
+> | HIGH-1 | not exploitable via the HTTP surface | malformed bodies (empty/null/NaN/lone surrogate) all return 400/422, server stays up |
+> | HIGH-2 | **was live — fixed** | SQL injection; `safety::sql_literal`; `tests/sql_injection.rs` |
+> | HIGH-3 | control present | prompt-injection handling in `agent`, `safety`, `os_tools` |
+> | HIGH-4 | **fixed** | 3 unguarded env tests + 2 needless `unsafe` blocks removed; 65/65 now guarded |
+> | HIGH-5 | mitigated, not implemented | no rate limiter, but every route needs a 256-bit bearer token, so there is nothing to brute-force cheaply |
+> | MED-1 | done | hash-chained tamper-evident audit log + `verify_audit` |
+> | MED-2 | mitigated by the framework | axum 0.7 default 2 MB body cap — **measured**: an 8 MB body returns 413 |
+> | MED-3 | partial | both servers warn on a non-loopback bind (mcp's added today); no TLS — plaintext bearer token off-host is called out in the warning |
+> | MED-4 | **was live — fixed** | MCP HTTP server executed builtins unauthenticated; cross-origin file read demonstrated |
+> | MED-5 | not done | no CSP/X-Frame-Options; low value on a token-gated JSON API, listed rather than claimed |
+> | MED-6 | done | gitleaks runs; non-blocking pending a git-history triage, stated in the workflow |
+> | MED-7 | done | `cargo audit` + `cargo deny` now gate for real; found and fixed RUSTSEC-2026-0258 |
+>
+> Two of the fifteen were live vulnerabilities, both marked NOT STARTED and
+> both accurate. The counts in the table above are still not flipped: process
+> criteria (external review, penetration test) remain undone, and this audit
+> establishes that controls exist and hold, which is a different claim.
 
 ---
 
