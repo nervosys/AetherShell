@@ -92,5 +92,9 @@
       "surfaces": ["cli", "rest", "mcp"]
     }
   ],
+  "ontology": {
+    "document": ".well-known/openapi.yaml",
+    "api": "GET /api/v1/schema returns the full builtin schema; /api/v1/builtins lists them, /api/v1/builtins/{name} describes one, and /api/v1/types returns the type surface. Start the server with `ae agent serve` (default port 3002)."
+  },
   "note": "requires_grant is not hand-assigned: it mirrors safety.rs's decide(), where Effect::{Process, Destructive, Exec} resolve to Decision::Approve in agent mode. Effect::Privileged resolves to Decision::Deny and therefore appears as no capability at all — AetherShell refuses that class rather than gating it. Every capability is budgeted except the two that cannot run away: shell.introspect is Effect::Pure, and its catalog is a compile-time table."
 }
