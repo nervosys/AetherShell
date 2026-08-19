@@ -1543,6 +1543,7 @@ lazy_static::lazy_static! {
     map.insert("budget", 1118);
     // plan / apply: atomic, approved, reviewable destructive batches (1119-1120)
     map.insert("plan", 1119);
+    map.insert("plan_diff", 1141);
     map.insert("apply", 1120);
     // safety introspection (1121)
     map.insert("safety_status", 1121);
@@ -3739,8 +3740,9 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_governor_status(args, input), // 1137
     |args, input, _| bi_governor_reset(args, input),  // 1138
     // self-healing: minimal repair context + rollback-bracketed attempts
-    |args, input, _| bi_diagnose(args, input), // 1139
-    bi_try_repair,                             // 1140
+    |args, input, _| bi_diagnose(args, input),  // 1139
+    bi_try_repair,                              // 1140
+    |args, input, _| bi_plan_diff(args, input), // 1141
 ];
 
 fn fast_builtin_lookup(
@@ -16884,6 +16886,161 @@ fn bi_plan(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     );
     r.insert("plan".to_string(), ops);
     Ok(Value::Record(r))
+}
+
+/// plan_diff(ops) - What a plan would change, as text a reviewer can read.
+///
+/// `plan()` answers "how many operations, of what kinds". That is enough to
+/// decide whether a plan is the right *shape* and not enough to decide whether
+/// it is correct: two plans with identical summaries can write entirely
+/// different bytes. This renders the actual before/after.
+///
+/// A separate builtin rather than a field on `plan()` on purpose. A diff is
+/// unbounded in a way a summary is not, and this project's convention is
+/// progressive disclosure -- an agent that wants the detail asks for it, and
+/// one that only wants the shape does not pay for it.
+///
+/// Output is capped per file, with the elided count reported rather than
+/// silently dropped -- the same contract `budget()` uses.
+fn bi_plan_diff(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    const MAX_LINES_PER_OP: usize = 40;
+
+    let ops = args.first().cloned().ok_or_else(|| {
+        crate::safety::bad_arg("plan_diff", "ops: Array<Record{op, path}>", "nothing")
+    })?;
+    let parsed = parse_plan_ops(&ops)?;
+
+    let mut entries = Vec::with_capacity(parsed.len());
+    let mut total_added = 0i64;
+    let mut total_removed = 0i64;
+
+    for (op, path, content, dest) in &parsed {
+        let mut rec = BTreeMap::new();
+        rec.insert("op".to_string(), Value::Str(op.clone()));
+        rec.insert("path".to_string(), Value::Str(path.clone()));
+
+        // What is there now. `None` means the path does not exist or cannot be
+        // read as text -- reported, never guessed at.
+        let existing = std::fs::read_to_string(path).ok();
+        let exists = std::path::Path::new(path).exists();
+
+        let (before, after): (Vec<String>, Vec<String>) = match op.as_str() {
+            "write" => (
+                existing
+                    .as_deref()
+                    .unwrap_or("")
+                    .lines()
+                    .map(str::to_string)
+                    .collect(),
+                content
+                    .as_deref()
+                    .unwrap_or("")
+                    .lines()
+                    .map(str::to_string)
+                    .collect(),
+            ),
+            "append" => {
+                let base: Vec<String> = existing
+                    .as_deref()
+                    .unwrap_or("")
+                    .lines()
+                    .map(str::to_string)
+                    .collect();
+                let mut end = base.clone();
+                end.extend(content.as_deref().unwrap_or("").lines().map(str::to_string));
+                (base, end)
+            }
+            "rm" => (
+                existing
+                    .as_deref()
+                    .unwrap_or("")
+                    .lines()
+                    .map(str::to_string)
+                    .collect(),
+                Vec::new(),
+            ),
+            _ => (Vec::new(), Vec::new()),
+        };
+
+        let mut lines: Vec<Value> = Vec::new();
+        let mut added = 0i64;
+        let mut removed = 0i64;
+
+        match op.as_str() {
+            "write" | "append" | "rm" => {
+                // A line-set difference, not a longest-common-subsequence diff:
+                // it answers "what appears and what disappears" without claiming
+                // to reconstruct how an editor would have moved things.
+                for l in &before {
+                    if !after.contains(l) {
+                        removed += 1;
+                        if lines.len() < MAX_LINES_PER_OP {
+                            lines.push(Value::Str(format!("-{l}")));
+                        }
+                    }
+                }
+                for l in &after {
+                    if !before.contains(l) {
+                        added += 1;
+                        if lines.len() < MAX_LINES_PER_OP {
+                            lines.push(Value::Str(format!("+{l}")));
+                        }
+                    }
+                }
+                if existing.is_none() && exists {
+                    rec.insert(
+                        "note".to_string(),
+                        Value::Str("path exists but is not readable as text".to_string()),
+                    );
+                }
+            }
+            "mkdir" => {
+                rec.insert(
+                    "note".to_string(),
+                    Value::Str(if exists {
+                        "directory already exists".to_string()
+                    } else {
+                        "creates directory".to_string()
+                    }),
+                );
+            }
+            "copy" | "move" => {
+                let d = dest.clone().unwrap_or_default();
+                rec.insert("dest".to_string(), Value::Str(d.clone()));
+                rec.insert(
+                    "note".to_string(),
+                    Value::Str(if std::path::Path::new(&d).exists() {
+                        format!("{op} over an existing {d}")
+                    } else {
+                        format!("{op} to a new {d}")
+                    }),
+                );
+            }
+            _ => {}
+        }
+
+        rec.insert("exists".to_string(), Value::Bool(exists));
+        rec.insert("added".to_string(), Value::Int(added));
+        rec.insert("removed".to_string(), Value::Int(removed));
+        let shown = lines.len() as i64;
+        let elided = (added + removed) - shown;
+        rec.insert("lines".to_string(), Value::Array(lines));
+        if elided > 0 {
+            rec.insert("elided".to_string(), Value::Int(elided));
+        }
+
+        total_added += added;
+        total_removed += removed;
+        entries.push(Value::Record(rec));
+    }
+
+    let mut out = BTreeMap::new();
+    out.insert("operations".to_string(), Value::Int(parsed.len() as i64));
+    out.insert("added".to_string(), Value::Int(total_added));
+    out.insert("removed".to_string(), Value::Int(total_removed));
+    out.insert("diff".to_string(), Value::Array(entries));
+    out.insert("token".to_string(), Value::Str(plan_token(&ops)));
+    Ok(Value::Record(out))
 }
 
 /// apply(ops) - Execute a plan atomically inside a transaction. In agent mode it

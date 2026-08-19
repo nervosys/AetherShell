@@ -768,6 +768,7 @@ pkg_upgrade	Pure
 pkg_verify	ReadLocal
 pkill	Process
 plan	Pure
+plan_diff	ReadLocal
 platform	Pure
 platform_arch	Pure
 platform_build	ReadLocal

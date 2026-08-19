@@ -852,7 +852,8 @@ fn classified_effect(name: &str) -> Option<Effect> {
         "platform_db_list" | "platform_db_load" | "platform_has_gui" | "platform_shell_type" |
         "project_dependencies" | "project_dev_dependencies" | "project_gitignore" | "project_languages" |
         "project_license" | "project_name" | "project_readme" | "project_size" |
-        "project_structure" | "project_test_files" | "read_text" | "refactor_organize_imports" |
+        "plan_diff" | "project_structure" | "project_test_files" | "read_text"
+        | "refactor_organize_imports" |
         "ssh_config" | "tail" | "wc" => Some(Effect::ReadLocal),
         n if n.starts_with("file_") || n.starts_with("proc_") || n.starts_with("sys_") => {
             Some(Effect::ReadLocal)
