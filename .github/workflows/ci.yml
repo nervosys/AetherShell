@@ -18,6 +18,7 @@ env:
 jobs:
     test:
         name: Test (${{ matrix.os }})
+        timeout-minutes: 30
         runs-on: ${{ matrix.os }}
         strategy:
             fail-fast: false
@@ -56,6 +57,7 @@ jobs:
 
     lint:
         name: Lint
+        timeout-minutes: 25
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@v4
@@ -79,6 +81,7 @@ jobs:
 
     wasm:
         name: WASM Build
+        timeout-minutes: 25
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@v4
@@ -123,6 +126,7 @@ jobs:
                   PERSONAL_ACCESS_TOKEN: ${{ secrets.CLA_TOKEN }}
     build:
         name: Build (${{ matrix.target }})
+        timeout-minutes: 40
         runs-on: ${{ matrix.os }}
         strategy:
             fail-fast: false
