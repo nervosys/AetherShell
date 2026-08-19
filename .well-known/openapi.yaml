@@ -1,11 +1,19 @@
 openapi: 3.1.0
 info:
   title: AetherShell Agent API
-  version: 1.4.0
+  version: 8.0.0
   description: >
     Structured JSON API for AI agents to interact with AetherShell, a typed
-    functional shell with 215+ builtins across 38 modules. Start the server
-    with `ae agent serve` (default port 3002).
+    functional shell with 1,300+ builtins. Start the server with
+    `ae agent serve` (default port 3002).
+
+
+    Every route except `/health` requires a bearer token. The server mints one
+    at startup and prints it, or set `AETHER_API_TOKEN` to supply your own.
+    This is not optional: the API evaluates arbitrary code, so an
+    unauthenticated server lets any web page the user visits drive it from
+    their browser. Binding a non-loopback address additionally requires
+    `AETHER_ALLOW_REMOTE_BIND=true`.
   license:
     name: AGPL-3.0-or-later
     url: https://www.gnu.org/licenses/agpl-3.0.html
@@ -17,6 +25,9 @@ info:
 servers:
   - url: http://localhost:3002
     description: Local development server
+
+security:
+  - bearerAuth: []
 
 paths:
   /api/v1/execute:
@@ -341,6 +352,10 @@ paths:
     get:
       operationId: healthCheck
       summary: Health check endpoint
+      # Exempt from the global bearer requirement so liveness probes work
+      # without a credential -- matches the server, which lets /health through
+      # the auth middleware unchecked.
+      security: []
       responses:
         '200':
           description: Server is healthy
@@ -481,6 +496,13 @@ paths:
           description: Agent uninstalled
 
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: >
+        Printed by the server at startup, or supplied via `AETHER_API_TOKEN`.
+        Compared in constant time.
   schemas:
     AgentRequest:
       type: object
