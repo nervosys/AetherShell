@@ -3,9 +3,10 @@
   "name_for_human": "AetherShell",
   "name_for_model": "aethershell",
   "description_for_human": "The shell built for AI agents. One language, every platform, deterministic typed output. Execute shell commands, manage files, run AI agents, and build data pipelines — all with structured, typed results that never vary by OS or locale.",
-  "description_for_model": "AetherShell is a shell built for AI agents that eliminates non-deterministic text output. Unlike Bash/PowerShell/Zsh, every command returns typed, structured data (Int, Float, String, Array, Record) — same command, same result, every OS, every locale. An ontology built into the shell makes commands, arguments, and return types machine-discoverable. Use it for cross-platform system operations, file editing, AI agent orchestration, and data pipelines. Start the Agent API with 'ae agent serve' on port 3002. Send JSON requests to /api/v1/execute with actions: call (invoke a builtin), pipeline (chain operations), eval (run AetherShell code), schema (get function calling definitions), list_builtins (discover available operations). 430+ builtins across 50 modules including file, sys, net, http, crypto, db, ai, agent, mcp.",
+  "description_for_model": "AetherShell is a shell built for AI agents that eliminates non-deterministic text output. Unlike Bash/PowerShell/Zsh, every command returns typed, structured data (Int, Float, String, Array, Record) — same command, same result, every OS, every locale. An ontology built into the shell makes commands, arguments, and return types machine-discoverable. Use it for cross-platform system operations, file editing, AI agent orchestration, and data pipelines. Start the Agent API with 'ae agent serve' on port 3002. Send JSON requests to /api/v1/execute with actions: call (invoke a builtin), pipeline (chain operations), eval (run AetherShell code), schema (get function calling definitions), list_builtins (discover available operations). 1,300+ builtins including file, sys, net, http, crypto, db, ai, agent, mcp. Every route except /health requires 'Authorization: Bearer <token>'; the server prints the token at startup, or set AETHER_API_TOKEN. Binding a non-loopback address additionally requires AETHER_ALLOW_REMOTE_BIND=true.",
   "auth": {
-    "type": "none"
+    "type": "user_http",
+    "authorization_type": "bearer"
   },
   "api": {
     "type": "openapi",

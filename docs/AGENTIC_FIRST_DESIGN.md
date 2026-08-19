@@ -60,8 +60,11 @@ These are genuine assets and the design builds on them, not over them:
   `LanguageOntology` (`:189`), `BuiltinDefinition` (`:242`) with signature /
   params / return-type / examples / json_schema, and 26 provider formats incl. a
   compact `Ontology` format. This is the discovery substrate agents need.
-- **1,100+ builtins, O(1) dispatch** — `BUILTIN_LOOKUP` (`src/builtins.rs:41`) →
-  `BUILTIN_DISPATCH` function-pointer table.
+- **1,301 builtins, O(1) dispatch** — `BUILTIN_LOOKUP` (`src/builtins.rs:41`) →
+  `BUILTIN_DISPATCH` function-pointer table. (Two counts circulate and both are
+  right: 1,301 entries are *dispatchable*, while `ontology_manifest()` reports
+  1,087 as *documented* — the gap is builtins reachable without a definition
+  carrying params, examples and a return type.)
 - **HM type inference** (`src/typecheck.rs`, `src/types.rs:10`) — static analysis
   ready to be promoted to a boundary validator.
 - **Security primitives that work** — prompt-injection defense, path-traversal
@@ -475,7 +478,7 @@ which costs a retrying agent a whole round trip to learn nothing.
 
 ### 5.3 Effect taxonomy on every builtin
 
-Tag each of the 1,100+ builtins (via a `#[builtin(effect = …)]` attribute macro or
+Tag each of the 1,301 builtins (via a `#[builtin(effect = …)]` attribute macro or
 a side table keyed by `BUILTIN_LOOKUP` index) with one effect class:
 
 `Pure` · `ReadLocal` · `WriteLocal` · `Destructive` · `Process` · `Network` ·
@@ -792,7 +795,7 @@ The `.ae` surface keeps readable, unambiguous syntax and gains:
   surface uses, so the two can never semantically diverge.
 - ✅ **Boundary type-checking.** `safety::bad_arg(builtin, expected, got)` produces
   a catchable `{error:{code:"E_BAD_ARG", message, hint, retryable}}`. Rather than a
-  per-builtin signature table (the 1,100+ builtins have no structured HM signatures —
+  per-builtin signature table (the 1,301 builtins have no structured HM signatures —
   `type_builtin_call` covers only a handful and infers `Any` otherwise), the structured
   error is driven from the **shared argument-extraction helpers** that are the de-facto
   boundary for most builtins: `expect_string` / `expect_int` / `expect_array` /
@@ -976,7 +979,7 @@ of structured errors rather than building or measuring it.
   one residual unknown is Anthropic's own tokenizer (no public offline crate), for
   which o200k_base is the closest available proxy; the design still accommodates
   per-provider syntax in schema export should a provider's tokenizer ever invert it.
-- **Effect-tagging 1,100+ builtins** is labor. 🟡 The proposed lint now exists
+- **Effect-tagging 1,301 builtins** is labor. 🟡 The proposed lint now exists
   (`tests/effect_coverage.rs`) and it found the risk was not hypothetical: **28
   builtins named a side effect and classified as `Pure`**, among them `ssh_exec`,
   `sudo_exec`, `remote_exec`, `docker_exec`, `k8s_exec`/`kubectl_exec`,
