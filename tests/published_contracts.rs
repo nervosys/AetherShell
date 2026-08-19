@@ -25,8 +25,14 @@ fn repo(rel: &str) -> PathBuf {
 
 fn read(rel: &str) -> String {
     // `ai-plugin.json` carries a UTF-8 BOM; strip it rather than trip over it.
+    //
+    // Line endings are normalised too: these files land as CRLF on a Windows
+    // checkout, so an assertion written against a bare newline fails for every
+    // Windows contributor while passing for whoever wrote it. Same shape as the
+    // `ls.path` example that was only true on one machine -- and it caught this
+    // very test out within an hour of it being written.
     let s = fs::read_to_string(repo(rel)).unwrap_or_else(|e| panic!("read {rel}: {e}"));
-    s.trim_start_matches('\u{feff}').to_string()
+    s.trim_start_matches('\u{feff}').replace("\r\n", "\n")
 }
 
 fn crate_version() -> String {
@@ -159,29 +165,46 @@ fn documented_paths() -> Vec<String> {
 
 /// Routes the agent API actually registers, normalised to OpenAPI's `{param}`
 /// form from axum's `:param`.
+///
+/// Scans for `.route(` and then the next string literal, because the path is
+/// not always on the same line. An earlier version matched only
+/// `.route("path"` and therefore missed the entire `long_lived` router --
+/// `/api/v1/ws` and the SSE streams -- along with every multi-line
+/// registration. It reported nine real endpoints as phantom and I deleted
+/// their documentation on the strength of it. A source scan that is wrong
+/// about what it cannot see is worse than no scan: it is confident.
 fn served_routes() -> Vec<String> {
     let src = fs::read_to_string(repo("src/agent_api.rs")).expect("read agent_api.rs");
     let mut out = Vec::new();
-    for (i, _) in src.match_indices(".route(\"") {
-        let rest = &src[i + ".route(\"".len()..];
-        if let Some(end) = rest.find('"') {
-            let raw = &rest[..end];
-            let mut path = String::new();
-            for seg in raw.split('/') {
-                if seg.is_empty() {
-                    continue;
-                }
-                path.push('/');
-                if let Some(param) = seg.strip_prefix(':') {
-                    path.push('{');
-                    path.push_str(param);
-                    path.push('}');
-                } else {
-                    path.push_str(seg);
-                }
-            }
-            out.push(path);
+    let mut rest = src.as_str();
+    while let Some(i) = rest.find(".route(") {
+        rest = &rest[i + ".route(".len()..];
+        let Some(q) = rest.find('"') else { break };
+        // Only accept a quote that opens before any `)` closes the call.
+        if rest[..q].contains(')') {
+            continue;
         }
+        let after = &rest[q + 1..];
+        let Some(end) = after.find('"') else { break };
+        let raw = &after[..end];
+        if !raw.starts_with('/') {
+            continue;
+        }
+        let mut path = String::new();
+        for seg in raw.split('/') {
+            if seg.is_empty() {
+                continue;
+            }
+            path.push('/');
+            if let Some(param) = seg.strip_prefix(':') {
+                path.push('{');
+                path.push_str(param);
+                path.push('}');
+            } else {
+                path.push_str(seg);
+            }
+        }
+        out.push(path);
     }
     out.sort();
     out.dedup();
