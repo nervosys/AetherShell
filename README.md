@@ -488,14 +488,38 @@ catch-all `E_UNKNOWN` — rendered as legible prose for humans. `safety_status()
 the live envelope.
 
 Effect tags are enforced at a single `guard()` chokepoint, and the tagging itself is
-checked in CI (`tests/effect_coverage.rs`) rather than trusted: a builtin whose name
-advertises a side effect may not classify as `Pure`. That lint found 61 builtins
-mis-tagged — among them `ssh_exec`, `terraform_destroy`, `kubectl_delete` and every
-package installer (`npm_install` and friends, which fetch remote code and run its
-install scripts). Nine high-blast-radius executors are now approval-gated in agent
-mode. Coverage is reported, not asserted: **179 of 1,301 builtins carry an explicit
-effect**; the rest default to `Pure`, and the lint only catches names that *advertise*
-an effect — so this is a floor, not a finished job.
+checked in CI rather than trusted — by two lints that disagree on purpose. The first
+(`tests/effect_coverage.rs`) reads *names*: a builtin whose name advertises a side
+effect may not classify as `Pure`. It found 61 mis-tagged, among them `ssh_exec`,
+`terraform_destroy`, `kubectl_delete` and every package installer (`npm_install` and
+friends, which fetch remote code and run its install scripts). Nine high-blast-radius
+executors are now approval-gated in agent mode.
+
+But a name-based lint is the same reasoning that produced the mistakes — four builtins
+were tagged as executing purely because they were called `*_exec`, when their bodies
+execute nothing. So the second lint (`tests/effect_ratchet.rs`) reads *bodies*,
+following calls four levels deep: if a function constructs a process, writes a file,
+opens a socket or kills a process, it cannot be `Pure` whatever it is called. It found
+306 more.
+
+Coverage is reported, not asserted: **662 of 1,301 builtins carry an explicit effect**.
+Three independent checks say nothing dangerous hides in the remaining 639 — zero act
+while classified `Pure`, zero read local state while classified `Pure`, and zero could
+reach an effect even when every ambiguous helper name is resolved to its worst
+definition. Each check has a canary proving it can still see, because a lint that has
+gone blind reports the same zero as a clean one.
+
+What is left is **unclassified, not unsafe** — and agents can now tell the difference.
+`effect_of` falls through to `Pure`, so `x-effect: pure` conflated "read and found
+harmless" with "nobody looked". `ontology_describe` now carries `effect_declared:
+false` on exactly the builtins where the label is a default:
+
+```console
+$ ae -c 'ontology_describe("sh")'      # classified
+effect: "exec"
+$ ae -c 'ontology_describe("upper")'   # defaulted
+effect: "pure", effect_declared: false
+```
 
 **Secret hygiene** is on by default in agent mode: known secret shapes (API-key
 prefixes, AWS keys, JWTs, PEM blocks, URL credentials, `key=secret` forms) are
@@ -744,7 +768,7 @@ across OS/locale; `canonical` gives byte-stable JSON for snapshot tests and cach
 | Filesystem transactions / rollback | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (`tx_*`, savepoints, nesting) |
 | Plan → approve → atomic apply | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (`plan`/`apply`) |
 | Failed attempt rolled back before the retry | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (`try_repair`) |
-| Effect tagging enforced by a CI lint | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (`tests/effect_coverage.rs`) |
+| Effect tagging enforced by a CI lint | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (by name *and* by body evidence) |
 
 No traditional shell offers transactional rollback or effect-gated approval — a
 mistaken `rm -rf` is irreversible. In AetherShell a file-effecting batch can be
