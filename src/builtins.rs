@@ -1553,6 +1553,7 @@ lazy_static::lazy_static! {
     map.insert("rm", 1142);
     map.insert("rmdir", 1143);
     map.insert("touch", 1144);
+    map.insert("cd", 1145);
     map.insert("apply", 1120);
     // safety introspection (1121)
     map.insert("safety_status", 1121);
@@ -3755,6 +3756,7 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_rm(args, input),        // 1142
     |args, input, _| bi_rmdir(args, input),     // 1143
     |args, input, _| bi_touch(args, input),     // 1144
+    |args, input, _| bi_cd(args, input),        // 1145
 ];
 
 fn fast_builtin_lookup(
@@ -38739,6 +38741,51 @@ pub fn bi_gcloud_projects(_args: Vec<Value>, _input: Option<Value>) -> Result<Va
 // fn json_to_value(json: serde_json::Value) -> Value;
 
 /// 950: bi_rm - Remove file(s). Args: path (string), optional force bool.
+/// cd(path) - Change the process working directory.
+///
+/// The catalog has advertised this with a full signature and an example --
+/// `cd(path: String) -> String`, category FileSystem -- and there was no
+/// implementation anywhere. `pwd()` worked, so the shell could report its
+/// directory and not change it, and `shell.cd(...)` dispatched to a builtin
+/// that did not exist.
+///
+/// Guarded with `fs_paths: true` deliberately. The working directory decides
+/// what every later relative path means, so an unguarded `cd` is a way out of
+/// the workspace jail: `cd("..")` then `write("secrets")` would otherwise land
+/// outside a root the agent was confined to.
+///
+/// `WriteLocal` rather than `Pure`: it modifies process state, and `pwd()`
+/// returns a different answer afterwards. Classifying it `Pure` would tell an
+/// agent the call is referentially transparent and safe to reorder, which is
+/// the one thing it certainly is not.
+fn bi_cd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let raw = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "cd",
+                "path: String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
+    };
+    let path = crate::safety::resolve_path_str(&raw);
+    crate::safety::guard(crate::safety::GuardCtx {
+        builtin: "cd",
+        effect: crate::safety::Effect::WriteLocal,
+        what: "change directory",
+        targets: vec![path.clone()],
+        blast_radius: serde_json::json!({ "cwd": true }),
+        reversible: true,
+        fs_paths: true,
+    })?;
+    std::env::set_current_dir(&path).map_err(|e| anyhow!("cd: {}: {}", path, e))?;
+    let now = std::env::current_dir()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or(path);
+    Ok(Value::Str(now))
+}
+
 pub fn bi_rm(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let path = match args.first() {
         Some(Value::Str(s)) => s.clone(),

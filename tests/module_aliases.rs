@@ -42,7 +42,6 @@ const KNOWN_UNIMPLEMENTED: &[&str] = &[
     "ai_detect",
     "audit_retention",
     "audit_stream",
-    "cd",
     "clipboard_has_image",
     "clipboard_watch",
     "crypto_jwt_encode",

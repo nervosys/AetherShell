@@ -830,7 +830,10 @@ fn classified_effect(name: &str) -> Option<Effect> {
         "file_write" | "file_append" | "file_copy" | "mkdir" | "touch"
         | "write_file" | "write_json" | "text_write" | "save_json"
         | "gui_dialog_file_save" | "fs_mount"
-        | "chmod" | "fs_chmod" | "fs_chown" => Some(Effect::WriteLocal),
+        | "chmod" | "fs_chmod" | "fs_chown"
+        // Changes what every later relative path means; `pwd()` answers
+        // differently afterwards, so it is emphatically not Pure.
+        | "cd" => Some(Effect::WriteLocal),
         // Found by body evidence, not by name: each of these opens a file,
         // lists a directory, stats a path or reads the environment, and every
         // one of them was falling through to `Pure`.
@@ -2428,6 +2431,7 @@ pub fn guard(ctx: GuardCtx) -> Result<(), SafetyError> {
 /// removed.
 pub const SELF_GUARDED: &[&str] = &[
     "apply",
+    "cd",
     "cloud_instance_destroy",
     "curl_exec",
     "db_kv_delete",

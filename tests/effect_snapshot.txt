@@ -104,6 +104,7 @@ cargo_build_cmd	Exec
 cargo_run	Exec
 cargo_test_cmd	Exec
 cat	ReadLocal
+cd	WriteLocal
 ceil	Pure
 check_compliance	Pure
 check_permission	Pure
