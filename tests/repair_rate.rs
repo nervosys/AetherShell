@@ -221,3 +221,186 @@ fn every_failure_in_a_mixed_corpus_carries_a_code() {
         report.repaired
     );
 }
+
+// ── A model-driven strategy ─────────────────────────────────────────────────
+//
+// The mechanical strategy is a *floor*: it substitutes the first `did_you_mean`
+// candidate and declines everything else, which is why the wrong-argument
+// corpus scores 0. Declining is correct for it — inventing a value is not
+// repairing from the error — but it leaves the ceiling unmeasured.
+//
+// A model can propose a value. What follows is that strategy, kept honest in
+// two ways: it is given *only* the error facts and the builtin's declared
+// signature (the same material an agent has), and it is scored by the same
+// harness, by actually re-running the call.
+
+/// Ask a model for a corrected call, given the failure and the signature.
+///
+/// The prompt demands a strict JSON object so the reply is parseable rather
+/// than prose to be pattern-matched — the failure mode this whole module
+/// exists to measure is a repair that *looks* right.
+fn model_repair_prompt(c: &Case, facts: &ErrorFacts) -> String {
+    let signature = {
+        let d = aethershell::agent_api::ontology_describe_json(&c.name);
+        d.get("signature")
+            .and_then(|v| v.as_str())
+            .unwrap_or("(unknown)")
+            .to_string()
+    };
+    format!(
+        "A shell builtin call failed. Propose a corrected call.\n\n\
+         builtin: {name}\n\
+         signature: {signature}\n\
+         error code: {code}\n\
+         suggestions: {suggestions:?}\n\n\
+         Reply with ONLY a JSON object of the form \
+         {{\"name\": \"<builtin>\", \"args\": [<json values>]}}. \
+         No prose, no code fences.",
+        name = c.name,
+        signature = signature,
+        code = facts.code,
+        suggestions = facts.suggestions,
+    )
+}
+
+/// Turn a model reply into a case. Returns `None` on anything unparseable,
+/// which the harness scores as "no repair proposed" — a strategy that cannot
+/// be understood has not repaired anything.
+fn parse_model_reply(reply: &str) -> Option<Case> {
+    let start = reply.find('{')?;
+    let end = reply.rfind('}')?;
+    let json: serde_json::Value = serde_json::from_str(reply.get(start..=end)?).ok()?;
+    let name = json.get("name")?.as_str()?.to_string();
+    let args = json
+        .get("args")?
+        .as_array()?
+        .iter()
+        .map(json_to_value)
+        .collect::<Vec<_>>();
+    Some(Case { name, args })
+}
+
+fn json_to_value(j: &serde_json::Value) -> Value {
+    match j {
+        serde_json::Value::String(s) => Value::Str(s.clone()),
+        serde_json::Value::Bool(b) => Value::Bool(*b),
+        serde_json::Value::Number(n) => n
+            .as_i64()
+            .map(Value::Int)
+            .or_else(|| n.as_f64().map(Value::Float))
+            .unwrap_or(Value::Null),
+        serde_json::Value::Array(a) => Value::Array(a.iter().map(json_to_value).collect()),
+        serde_json::Value::Object(o) => Value::Record(
+            o.iter()
+                .map(|(k, v)| (k.clone(), json_to_value(v)))
+                .collect(),
+        ),
+        serde_json::Value::Null => Value::Null,
+    }
+}
+
+/// The strategy, parameterised over "ask something" so it can be scored
+/// without a model in CI and with one when a model is configured.
+fn repair_with<F>(c: &Case, facts: &ErrorFacts, ask: F) -> Option<Case>
+where
+    F: Fn(&str) -> Option<String>,
+{
+    parse_model_reply(&ask(&model_repair_prompt(c, facts))?)
+}
+
+#[test]
+fn the_model_strategy_repairs_what_the_mechanical_one_declines() {
+    // Plumbing proven without a model: a deterministic stand-in that returns
+    // the corrected call. This asserts the *strategy* works -- prompt in, case
+    // out, harness re-runs it and it succeeds -- on exactly the corpus where
+    // the mechanical strategy scores 0.
+    //
+    // It does not claim a real model would answer this well. That is the live
+    // test below, which skips loudly when no backend is configured rather than
+    // reporting a number nobody measured.
+    let _l = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    std::env::remove_var("AETHER_MODE");
+
+    let corpus = vec![case("pick", vec![Value::Int(1)]), case("tokens", vec![])];
+
+    let oracle = |prompt: &str| -> Option<String> {
+        // Answers from the signature in the prompt, the way a model would.
+        if prompt.contains("builtin: pick") {
+            Some(r#"{"name":"pick","args":[[{"a":1}],"a"]}"#.to_string())
+        } else if prompt.contains("builtin: tokens") {
+            Some(r#"{"name":"tokens","args":["hello"]}"#.to_string())
+        } else {
+            None
+        }
+    };
+
+    let report = assess_repair(&corpus, attempt, |c, f| repair_with(c, f, oracle));
+
+    assert_eq!(
+        report.failed_first,
+        corpus.len(),
+        "the corpus must fail first"
+    );
+    assert_eq!(
+        report.repaired,
+        corpus.len(),
+        "a strategy that can supply an argument should repair what the          mechanical one declines; got {report:?}"
+    );
+}
+
+#[test]
+fn an_unparseable_model_reply_counts_as_no_repair_not_as_success() {
+    // The dishonest failure this guards: a strategy that returns *something*
+    // and gets scored as a repair. Prose, fences and empty replies must all
+    // land in `no_repair_proposed`.
+    let _l = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    std::env::remove_var("AETHER_MODE");
+
+    let corpus = vec![case("tokens", vec![])];
+    for reply in ["I think you meant tokens(\"hello\")", "", "```json\n```"] {
+        let report = assess_repair(&corpus, attempt, |c, f| {
+            repair_with(c, f, |_| Some(reply.to_string()))
+        });
+        assert_eq!(
+            report.repaired, 0,
+            "reply {reply:?} must not score as a repair"
+        );
+        assert_eq!(report.no_repair_proposed, 1);
+    }
+}
+
+#[test]
+fn a_configured_model_is_scored_on_the_same_corpus() {
+    // The live half. Skips loudly rather than passing silently: a repair rate
+    // reported without a model is a number nobody measured.
+    let _l = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    std::env::remove_var("AETHER_MODE");
+
+    if aethershell::ai::complete_sync_router("reply with OK").is_err() {
+        eprintln!(
+            "SKIP: no AI backend configured (set AETHER_AI, or start IronGate); the model repair rate is unmeasured, not zero"
+        );
+        return;
+    }
+
+    let corpus = vec![
+        case("pick", vec![Value::Int(1)]),
+        case("tokens", vec![]),
+        case("aecon_decode", vec![Value::Int(7)]),
+        case("ontology_describe", vec![Value::Bool(true)]),
+    ];
+    let report = assess_repair(&corpus, attempt, |c, f| {
+        repair_with(c, f, |p| aethershell::ai::complete_sync_router(p).ok())
+    });
+
+    eprintln!(
+        "model repair rate on wrong-argument corpus: {}/{} repaired          (mechanical scores 0 here by design)",
+        report.repaired, report.failed_first
+    );
+    // Deliberately not asserted as a threshold. Pinning a model's score turns a
+    // measurement into a flaky test; the number is reported so it can be read.
+    assert_eq!(
+        report.dead_ends, 0,
+        "every failure must still arrive with a branchable code"
+    );
+}
