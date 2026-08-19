@@ -1217,9 +1217,23 @@ Verified end-to-end (`ae --agent -c 'safety_status()'` reports `mode: "agent"`).
 > flag while `test_plugin_enable_disable` toggled it). Now serialized behind a
 > shared `REGISTRY_LOCK`; the parallel lib run is a clean 425/0.
 
-> **Finding (needs a product decision):** `bi_rm`/`bi_rmdir` are **not registered**
+> **Finding (RESOLVED 2026-08-19):** `bi_rm`/`bi_rmdir` were **not registered**
 > in `BUILTIN_LOOKUP`/`BUILTIN_DISPATCH` (the `// 950` comments are stale — 950 is
 > `helm_status`), so `rm(...)`/`rmdir(...)` by name currently return
 > "unknown builtin"; they're reachable only by direct Rust callers. The guards
 > protect every caller regardless, but if file removal should be a first-class
 > shell builtin it must be registered (and would then be gated automatically).
+>
+> Registered as 1142/1143/1144, with `touch` (same problem, also unreachable).
+> It was worse than recorded: `file_delete`, `file.delete` and `fs_remove` do
+> not exist either, so **the shell could not delete a file by any name**. The
+> guards needed no change -- `rm` in agent mode already answers
+> `E_NEEDS_APPROVAL` with a bound token, and the jail already refuses a path
+> outside the workspace. Only the registration was missing, which is why the
+> gap survived: every test of the safety model passed, because the safety model
+> was right.
+>
+> A wider sweep found ~200 further `bi_*` implementations unreachable by name
+> (`vm_*`, `wsl_*`, `virsh_*`, `firewall_*`, `input_*`, …), verified by probing
+> each through the binary rather than by grep. Registering those *is* a product
+> decision and is left open.

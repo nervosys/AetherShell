@@ -1544,6 +1544,15 @@ lazy_static::lazy_static! {
     // plan / apply: atomic, approved, reviewable destructive batches (1119-1120)
     map.insert("plan", 1119);
     map.insert("plan_diff", 1141);
+    // Filesystem removal and creation. These have had working, guarded
+    // implementations the whole time and were never registered, so
+    // `rm(...)` answered "unknown builtin" while `effect_of("rm")`
+    // reported Destructive -- the safety layer was guarding a name the
+    // dispatcher did not have. A shell that cannot delete a file is not
+    // a product decision.
+    map.insert("rm", 1142);
+    map.insert("rmdir", 1143);
+    map.insert("touch", 1144);
     map.insert("apply", 1120);
     // safety introspection (1121)
     map.insert("safety_status", 1121);
@@ -3743,6 +3752,9 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_diagnose(args, input),  // 1139
     bi_try_repair,                              // 1140
     |args, input, _| bi_plan_diff(args, input), // 1141
+    |args, input, _| bi_rm(args, input),        // 1142
+    |args, input, _| bi_rmdir(args, input),     // 1143
+    |args, input, _| bi_touch(args, input),     // 1144
 ];
 
 fn fast_builtin_lookup(

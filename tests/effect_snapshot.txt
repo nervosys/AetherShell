@@ -984,6 +984,8 @@ rlm_agent	Pure
 rlm_config	Pure
 rlm_spawn	Exec
 rlm_stats	Pure
+rm	Destructive
+rmdir	Destructive
 role_create	Pure
 role_delete	Destructive
 role_grant	Pure
@@ -1192,6 +1194,7 @@ tool_schemas	Pure
 tool_search	Pure
 tools	Pure
 top_snapshot	Pure
+touch	WriteLocal
 trace	Pure
 tree	Pure
 trim	Pure
