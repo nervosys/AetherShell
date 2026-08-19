@@ -138,3 +138,92 @@ fn the_contracts_are_wellformed_and_not_merely_present() {
     let iron = read(".well-known/ironstack.json");
     serde_json::from_str::<serde_json::Value>(&iron).expect("ironstack.json must be valid JSON");
 }
+
+// ── Documented endpoints vs endpoints that exist ────────────────────────────
+
+/// Paths declared in `openapi.yaml`, read line-wise rather than via a YAML
+/// parser so this test needs no dependency the crate does not already have.
+fn documented_paths() -> Vec<String> {
+    read(".well-known/openapi.yaml")
+        .lines()
+        .filter_map(|l| {
+            let t = l.strip_prefix("  ")?;
+            if t.starts_with('/') && t.ends_with(':') && !t.starts_with("  ") {
+                Some(t.trim_end_matches(':').to_string())
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+/// Routes the agent API actually registers, normalised to OpenAPI's `{param}`
+/// form from axum's `:param`.
+fn served_routes() -> Vec<String> {
+    let src = fs::read_to_string(repo("src/agent_api.rs")).expect("read agent_api.rs");
+    let mut out = Vec::new();
+    for (i, _) in src.match_indices(".route(\"") {
+        let rest = &src[i + ".route(\"".len()..];
+        if let Some(end) = rest.find('"') {
+            let raw = &rest[..end];
+            let mut path = String::new();
+            for seg in raw.split('/') {
+                if seg.is_empty() {
+                    continue;
+                }
+                path.push('/');
+                if let Some(param) = seg.strip_prefix(':') {
+                    path.push('{');
+                    path.push_str(param);
+                    path.push('}');
+                } else {
+                    path.push_str(seg);
+                }
+            }
+            out.push(path);
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+#[test]
+fn the_spec_documents_no_endpoint_that_does_not_exist() {
+    // It documented nine that did not: five `marketplace/*`, three
+    // `orchestration/*`, and `/api/v1/ws` — whose handler exists in the source
+    // and is never routed. An agent generating a client from that spec gets
+    // nine methods that 404, which is the same failure as `auth: none` pointed
+    // the other way: a contract claiming capability rather than hiding a
+    // requirement.
+    let served = served_routes();
+    let phantom: Vec<String> = documented_paths()
+        .into_iter()
+        .filter(|p| !served.contains(p))
+        .collect();
+    assert!(
+        phantom.is_empty(),
+        "openapi.yaml documents {} endpoint(s) the server does not serve: {:?}\n\
+         Either route them or remove them — a spec is a contract, not a roadmap.",
+        phantom.len(),
+        phantom
+    );
+}
+
+#[test]
+fn the_spec_documents_every_endpoint_that_does_exist() {
+    // The other direction. An undocumented route is a capability agents cannot
+    // discover, which for a project whose thesis is machine-discoverability is
+    // its own kind of bug.
+    let documented = documented_paths();
+    let missing: Vec<String> = served_routes()
+        .into_iter()
+        .filter(|p| !documented.contains(p))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "the server serves {} route(s) openapi.yaml does not document: {:?}",
+        missing.len(),
+        missing
+    );
+}
