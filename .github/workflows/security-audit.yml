@@ -162,8 +162,10 @@ jobs:
     steps:
       - name: Summary
         run: |
-          echo "# Security Audit Results" >> $GITHUB_STEP_SUMMARY
-          echo "- Security Audit: ${{ needs.security-audit.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Supply Chain: ${{ needs.supply-chain.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "- SBOM: ${{ needs.sbom-generation.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Secrets: ${{ needs.secret-scanning.result }}" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "# Security Audit Results"
+            echo "- Security Audit: ${{ needs.security-audit.result }}"
+            echo "- Supply Chain: ${{ needs.supply-chain.result }}"
+            echo "- SBOM: ${{ needs.sbom-generation.result }}"
+            echo "- Secrets: ${{ needs.secret-scanning.result }}"
+          } >> "$GITHUB_STEP_SUMMARY"

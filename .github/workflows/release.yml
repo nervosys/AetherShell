@@ -28,14 +28,14 @@ jobs:
               id: get_version
               run: |
                   if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-                    echo "version=${{ inputs.version }}" >> $GITHUB_OUTPUT
+                    echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
                   else
-                    echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+                    echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
                   fi
 
             - name: Create Release
               id: create_release
-              uses: softprops/action-gh-release@v1
+              uses: softprops/action-gh-release@v2
               with:
                   tag_name: v${{ steps.get_version.outputs.version }}
                   name: AetherShell v${{ steps.get_version.outputs.version }}
@@ -132,7 +132,7 @@ jobs:
                   7z a ../../../aethershell-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.zip ae.exe aimodel.exe
 
             - name: Upload Release Asset
-              uses: softprops/action-gh-release@v1
+              uses: softprops/action-gh-release@v2
               with:
                   tag_name: v${{ needs.create-release.outputs.version }}
                   files: aethershell-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.${{ matrix.archive }}
@@ -164,7 +164,7 @@ jobs:
                   tar czvf ../aethershell-wasm-${{ needs.create-release.outputs.version }}.tar.gz pkg/
 
             - name: Upload WASM Release Asset
-              uses: softprops/action-gh-release@v1
+              uses: softprops/action-gh-release@v2
               with:
                   tag_name: v${{ needs.create-release.outputs.version }}
                   files: aethershell-wasm-${{ needs.create-release.outputs.version }}.tar.gz
@@ -595,13 +595,13 @@ jobs:
               run: cargo generate-rpm
 
             - name: Upload .deb package
-              uses: softprops/action-gh-release@v1
+              uses: softprops/action-gh-release@v2
               with:
                   tag_name: v${{ needs.create-release.outputs.version }}
                   files: target/debian/*.deb
 
             - name: Upload .rpm package
-              uses: softprops/action-gh-release@v1
+              uses: softprops/action-gh-release@v2
               with:
                   tag_name: v${{ needs.create-release.outputs.version }}
                   files: target/generate-rpm/*.rpm
