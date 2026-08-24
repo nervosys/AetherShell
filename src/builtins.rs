@@ -1526,6 +1526,10 @@ lazy_static::lazy_static! {
     map.insert("rbac_principal", 1106);
     map.insert("rbac_grant", 1107);
     map.insert("rbac_can", 1108);
+    map.insert("rbac_register", 1146);
+    map.insert("rbac_login", 1147);
+    map.insert("rbac_logout", 1148);
+    map.insert("rbac_session", 1149);
     // output economy: compact rendering + token estimate (1109-1110)
     map.insert("aecon", 1109);
     map.insert("tokens", 1110);
@@ -3750,13 +3754,17 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_governor_status(args, input), // 1137
     |args, input, _| bi_governor_reset(args, input),  // 1138
     // self-healing: minimal repair context + rollback-bracketed attempts
-    |args, input, _| bi_diagnose(args, input),  // 1139
-    bi_try_repair,                              // 1140
-    |args, input, _| bi_plan_diff(args, input), // 1141
-    |args, input, _| bi_rm(args, input),        // 1142
-    |args, input, _| bi_rmdir(args, input),     // 1143
-    |args, input, _| bi_touch(args, input),     // 1144
-    |args, input, _| bi_cd(args, input),        // 1145
+    |args, input, _| bi_diagnose(args, input),      // 1139
+    bi_try_repair,                                  // 1140
+    |args, input, _| bi_plan_diff(args, input),     // 1141
+    |args, input, _| bi_rm(args, input),            // 1142
+    |args, input, _| bi_rmdir(args, input),         // 1143
+    |args, input, _| bi_touch(args, input),         // 1144
+    |args, input, _| bi_cd(args, input),            // 1145
+    |args, input, _| bi_rbac_register(args, input), // 1146
+    |args, input, _| bi_rbac_login(args, input),    // 1147
+    |args, input, _| bi_rbac_logout(args, input),   // 1148
+    |args, input, _| bi_rbac_session(args, input),  // 1149
 ];
 
 fn fast_builtin_lookup(
@@ -17767,6 +17775,18 @@ fn bi_rbac_principal(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mgr = global_rbac();
     match args.first() {
         Some(Value::Str(uid)) => {
+            // Only the *setting* form is privileged; reading back the current
+            // principal (the argless form below) is not, and an agent that
+            // cannot ask what it is acting as will guess.
+            crate::safety::guard(crate::safety::GuardCtx {
+                builtin: "rbac_principal",
+                effect: crate::safety::Effect::Privileged,
+                what: "act as a different principal",
+                targets: vec![uid.clone()],
+                blast_radius: serde_json::json!({ "principal": true }),
+                reversible: true,
+                fs_paths: false,
+            })?;
             if mgr.get_user(uid).is_none() {
                 let mut u = crate::auth::User::new(uid.clone());
                 u.id = uid.clone(); // use the id as the principal handle
@@ -17828,6 +17848,171 @@ fn bi_rbac_can(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         None => false,
     };
     Ok(Value::Bool(allowed))
+}
+
+// ------------------------------------------------------------------------
+// Interactive login (§7.1)
+//
+// `auth::AuthManager` -- registration, password verification, sessions, tokens,
+// API keys, its own audit trail -- existed in full and had no caller anywhere
+// in the crate. The only way to become a principal was `rbac_principal(id)`,
+// which asserts an identity rather than proving one: any caller could name any
+// user and be treated as them.
+//
+// These four builtins are that missing door. `rbac_login` proves the identity
+// against a stored Argon2id hash before it touches `set_principal`, so the
+// principal the guard trusts is one somebody authenticated as.
+//
+// They are `Privileged`, and therefore denied in agent mode: logging in is how
+// authority is acquired, and an agent that could acquire authority on its own
+// has none. An agent receives its principal from `AETHER_PRINCIPAL` or the RBAC
+// config file at startup, chosen by whoever launched it.
+// ------------------------------------------------------------------------
+
+lazy_static::lazy_static! {
+    /// The process-global authentication manager, sharing the RBAC store that
+    /// the safety layer consults -- one user directory, not two.
+    static ref GLOBAL_AUTH: std::sync::Arc<crate::auth::AuthManager> =
+        std::sync::Arc::new(crate::auth::AuthManager::new(GLOBAL_RBAC.clone()));
+
+    /// The session established by the last successful `rbac_login`.
+    static ref LOGIN_SESSION: std::sync::Mutex<Option<LoginSession>> =
+        std::sync::Mutex::new(None);
+}
+
+#[derive(Clone)]
+struct LoginSession {
+    session_id: String,
+    user_id: String,
+    username: String,
+    expires_at: String,
+}
+
+/// Read a password from the argument if given, and interactively otherwise.
+/// Refuses to prompt when stdin is not a terminal: a prompt nobody can answer
+/// is a hang, and silently reading a password off a pipe is worse.
+fn password_arg(args: &[Value], idx: usize, prompt: &str) -> Result<String> {
+    if let Some(Value::Str(p)) = args.get(idx) {
+        if p.is_empty() {
+            return Err(anyhow!("an empty password is not a password"));
+        }
+        return Ok(p.clone());
+    }
+    use std::io::IsTerminal;
+    if !std::io::stdin().is_terminal() {
+        return Err(anyhow!(
+            "no password given and stdin is not a terminal -- pass it as the second argument"
+        ));
+    }
+    let got = bi_input_read_password(vec![Value::Str(prompt.to_string())], None)?;
+    match got {
+        Value::Str(p) if !p.is_empty() => Ok(p),
+        _ => Err(anyhow!("no password entered")),
+    }
+}
+
+/// rbac_register(username, password?) - Create a credentialed user. With no
+/// password argument, prompts twice and requires the two to match. The password
+/// is stored as an Argon2id PHC string, never in the clear and never as a bare
+/// digest.
+fn bi_rbac_register(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let username = match args.first() {
+        Some(Value::Str(s)) if !s.is_empty() => s.clone(),
+        _ => return Err(anyhow!("rbac_register: expected a username string")),
+    };
+    let password = password_arg(&args, 1, &format!("Password for {username}: "))?;
+    if args.get(1).is_none() {
+        let again = password_arg(&[], 0, "Repeat password: ")?;
+        if again != password {
+            return Err(anyhow!("rbac_register: the two passwords do not match"));
+        }
+    }
+    let _ = global_rbac(); // install the shared store into the safety layer
+    let user = GLOBAL_AUTH.register_user(&username, &password)?;
+    let mut rec = BTreeMap::new();
+    rec.insert("user".to_string(), Value::Str(user.username));
+    rec.insert("user_id".to_string(), Value::Str(user.id));
+    Ok(Value::Record(rec))
+}
+
+/// rbac_login(username, password?) - Authenticate and become that principal.
+/// With no password argument, prompts (terminal only). On success the acting
+/// principal is set to the authenticated user id, so RBAC grants apply to a
+/// proven identity rather than an asserted one.
+fn bi_rbac_login(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let username = match args.first() {
+        Some(Value::Str(s)) if !s.is_empty() => s.clone(),
+        _ => return Err(anyhow!("rbac_login: expected a username string")),
+    };
+    let password = password_arg(&args, 1, &format!("Password for {username}: "))?;
+    let _ = global_rbac();
+    let result = GLOBAL_AUTH.authenticate(crate::auth::Credential::Password {
+        username: username.clone(),
+        password,
+    });
+    if !result.success {
+        // Deliberately unspecific: which half was wrong is the attacker's
+        // question, and `AuthManager` has already recorded the detail in its
+        // own audit log.
+        return Err(anyhow!("rbac_login: invalid credentials"));
+    }
+    let user = result
+        .user
+        .ok_or_else(|| anyhow!("rbac_login: no user returned"))?;
+    let session = result
+        .session
+        .ok_or_else(|| anyhow!("rbac_login: no session returned"))?;
+    let expires_at = session.expires_at.to_rfc3339();
+    crate::safety::set_principal(Some(user.id.clone()));
+    if let Ok(mut g) = LOGIN_SESSION.lock() {
+        *g = Some(LoginSession {
+            session_id: session.id.clone(),
+            user_id: user.id.clone(),
+            username: user.username.clone(),
+            expires_at: expires_at.clone(),
+        });
+    }
+    let mut rec = BTreeMap::new();
+    rec.insert("user".to_string(), Value::Str(user.username));
+    rec.insert("user_id".to_string(), Value::Str(user.id));
+    rec.insert("session".to_string(), Value::Str(session.id));
+    rec.insert("expires_at".to_string(), Value::Str(expires_at));
+    Ok(Value::Record(rec))
+}
+
+/// rbac_logout() - End the session and drop back to anonymous. Never gated:
+/// giving up authority is the one privilege operation that cannot be an
+/// escalation.
+fn bi_rbac_logout(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let was = LOGIN_SESSION.lock().ok().and_then(|mut g| g.take());
+    crate::safety::set_principal(None);
+    match was {
+        Some(s) => {
+            let _ = GLOBAL_AUTH.logout(&s.session_id);
+            Ok(Value::Bool(true))
+        }
+        None => Ok(Value::Bool(false)),
+    }
+}
+
+/// rbac_session() - The current login session as a record, or null when
+/// anonymous or expired. Read-only, so an agent can always ask who it is.
+fn bi_rbac_session(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let Some(s) = LOGIN_SESSION.lock().ok().and_then(|g| g.clone()) else {
+        return Ok(Value::Null);
+    };
+    // An expired session is not a session. Report it as gone and clear the
+    // principal, rather than leaving the guard trusting a dead identity.
+    if GLOBAL_AUTH.validate_session(&s.session_id).is_none() {
+        let _ = bi_rbac_logout(vec![], None);
+        return Ok(Value::Null);
+    }
+    let mut rec = BTreeMap::new();
+    rec.insert("user".to_string(), Value::Str(s.username));
+    rec.insert("user_id".to_string(), Value::Str(s.user_id));
+    rec.insert("session".to_string(), Value::Str(s.session_id));
+    rec.insert("expires_at".to_string(), Value::Str(s.expires_at));
+    Ok(Value::Record(rec))
 }
 
 /// audit_tail(n?) - Return the most recent n audit entries (default 20) from the

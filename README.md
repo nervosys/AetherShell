@@ -1118,10 +1118,27 @@ ai_registry_stats()                        # Provider latency, success rate, p95
 ## Enterprise
 
 ```ae
-# RBAC
-rbac.create("admin", ["read", "write", "delete"])
-rbac.grant("alice", "admin")
+# Login. Prompts for the password when it is omitted (terminal only -- it will
+# not read one off a pipe), stores it as Argon2id, and sets the acting
+# principal only after verifying it.
+rbac_register("alice")                     # prompts twice
+rbac_login("alice")                        # prompts once -> {user, session, expires_at}
+rbac_session()                             # who am I, until when
+rbac_logout()
+
+# RBAC. Note: the `rbac.*` module is a standalone policy registry for your own
+# resources -- it answers `rbac.check` and nothing more. What the safety guard
+# consults is a different store: the flat `rbac_principal` / `rbac_grant`
+# builtins, keyed by `effect:<class>` and `builtin:<name>`. The two do not
+# share entries.
+rbac.create("admin", [{resource: "*", actions: ["read", "write", "delete"]}])
+rbac.grant("alice", "admin")               # assign the role
 rbac.check("alice", "config.toml", "write")
+
+# Logging in and granting permissions are `Privileged`, so they are *denied* in
+# agent mode: an agent that can acquire authority on its own has none. Its
+# principal comes from AETHER_PRINCIPAL or .ae/rbac.toml, chosen by whoever
+# launched it.
 
 # Audit logging
 audit.log("file_modified", "config.toml", {user: "alice"})

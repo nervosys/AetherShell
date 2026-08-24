@@ -923,9 +923,13 @@ rag_index	Pure
 rag_query	Pure
 rag_search	Pure
 range	Pure
-rbac_can	Pure
-rbac_grant	Pure
-rbac_principal	Pure
+rbac_can	ReadLocal
+rbac_grant	Privileged
+rbac_login	Privileged
+rbac_logout	WriteLocal
+rbac_principal	Privileged
+rbac_register	Privileged
+rbac_session	ReadLocal
 read_line	Pure
 read_text	ReadLocal
 readelf	Pure

@@ -1209,8 +1209,63 @@ Verified end-to-end (`ae --agent -c 'safety_status()'` reports `mode: "agent"`).
     is configured from a file at boot, not just via in-shell `rbac_*` calls
     (`auth::tests::test_rbac_from_config_str`,
     `tests/safety.rs::rbac_config_loaded_at_startup_authorizes_principal`).
-    *Remaining:* an interactive login flow; optionally bridge the older `rbac_*`
-    `RBAC_ROLES` role registry into `RbacManager` (two stores still coexist).
+  - ✅ **Interactive login (dispatch 1146-1149).** `auth::AuthManager` —
+    registration, password verification, sessions, bearer tokens, API keys, its
+    own audit trail — existed in full with **no caller anywhere in the crate**,
+    so the only route to a principal was `rbac_principal(id)`, which *asserts*
+    an identity rather than proving one. `rbac_register(username, password?)`,
+    `rbac_login(username, password?)`, `rbac_logout()` and `rbac_session()`
+    close that: login verifies against the stored hash **before** touching
+    `set_principal`, so the identity the guard trusts is one somebody
+    authenticated as. With no password argument the pair prompt on the terminal
+    (`input_read_password`, echo suppressed) and **refuse to prompt when stdin
+    is not a terminal** — a prompt nobody can answer is a hang, and reading a
+    password off a pipe silently is worse. A wrong password and an unknown user
+    return the *same* refusal, **and take the same time**: the unknown-user path
+    returned before any hashing happened, measured at 836 microseconds against
+    695 ms for a wrong password — an 830x gap that enumerates valid usernames
+    from the outside no matter how carefully the message is kept identical.
+    `authenticate_password` now spends a decoy Argon2 verification on the miss
+    (`tests/interactive_login.rs`, whose timing assertion was confirmed by
+    deleting the decoy and watching it go red).
+  - ✅ **Passwords are salted.** `register_user` stored `hash_key(password)` —
+    bare SHA-256 — which is right for a 256-bit random API key and wrong for a
+    password: two accounts sharing a password produced byte-identical entries,
+    and the guessable space falls to a precomputed table. Now Argon2id with a
+    per-password random salt (`auth::hash_password` / `verify_password`, PHC
+    strings); a malformed stored hash verifies `false` rather than erroring into
+    a success path.
+  - ✅ **`Privileged` now governs something.** `decide(Privileged, Agent)` is
+    `Deny` — the strongest rule in the taxonomy — and a sweep found **no builtin
+    classified `Privileged` at all**: the class read as coverage while governing
+    nothing, the `rm` bug inverted. Most privilege-shaped names (`sudo_exec`,
+    `user_add`, `acl_set`, `fs_unmount`) are stubs that return "requires
+    elevated privileges" and perform no effect, so `Pure` is honest for them —
+    measured, not assumed. Two were not stubs: `rbac_grant` writes into the
+    permission store `guard` consults, and `rbac_principal` chooses which entry
+    of it applies — and an authorized principal **skips approval entirely**.
+    Classified `Pure`, they let an agent grant itself `effect:*`, become that
+    principal, and delete a file it had been refused one call earlier;
+    `tests/privilege_escalation.rs` runs that exact sequence and was red before
+    the fix. `rbac_grant`/`rbac_principal`/`rbac_login`/`rbac_register` are now
+    `Privileged`; `rbac_logout` is `WriteLocal` (giving up authority is the one
+    privilege operation that cannot escalate) and `rbac_can`/`rbac_session` are
+    `ReadLocal` (an agent that cannot ask what it may do will guess).
+    `rbac_principal` self-guards so only its *setting* form is gated.
+  - ✅ **The `rbac.*` module pointed at nothing.** All seven aliases named
+    `rbac_*` builtins that no dispatcher entry implements, so `rbac.create(...)`
+    and `rbac.check(...)` answered `unknown builtin` — while the README
+    documented them as working examples of the access-control surface. The
+    implementations existed under their own names the whole time (`role_create`,
+    `role_grant`, `check_permission`, `roles_list`); the aliases now point at
+    them, `rbac.permissions` was withdrawn because nothing implements it, and
+    `tests/module_aliases.rs`'s allowlist shrank by seven. The README example was
+    also wrong in shape (`role_create` takes `{resource, actions}` records, not
+    bare strings) and is corrected.
+    *Remaining:* optionally bridge the older `RBAC_ROLES` role registry into
+    `RbacManager` (two stores still coexist; the older one is inert as far as the
+    guard is concerned — it consults `RbacManager` only, and both the README and
+    the module doc now say so).
 
 > **Test-infra fix (done):** `plugins::tests::test_plugin_source` was flaky under
 > parallel execution (it read the global plugin registry's `builtin.json` enabled

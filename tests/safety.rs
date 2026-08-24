@@ -286,14 +286,18 @@ fn try_catch_binds_structured_safety_error() {
 fn in_shell_rbac_principal_and_grant_bypass_approval() {
     let _l = lock();
     clear();
-    std::env::set_var("AETHER_MODE", "agent");
     let dir = fresh_workspace("rbac_shell");
     let file = dir.join("v.txt");
     std::fs::write(&file, b"x").unwrap();
     let arg = Value::Str(file.to_string_lossy().to_string());
     let mut env = aethershell::env::Env::new();
 
-    // Configure RBAC entirely through builtins (dispatch indices 1106-1108).
+    // Configure RBAC entirely through builtins (dispatch indices 1106-1108) --
+    // from a *human* session. `rbac_principal`/`rbac_grant` are `Privileged`,
+    // so an agent configuring its own authorization is denied; that is
+    // `tests/privilege_escalation.rs`. Here the operator sets it up and the
+    // agent inherits it.
+    std::env::set_var("AETHER_MODE", "human");
     aethershell::builtins::call("rbac_principal", vec![Value::Str("alice".into())], &mut env)
         .expect("set principal");
     // Before any grant, alice cannot perform destructive ops.
@@ -321,6 +325,9 @@ fn in_shell_rbac_principal_and_grant_bypass_approval() {
     )
     .expect("rbac_can");
     assert_eq!(can_after, Value::Bool(true), "grant should take effect");
+
+    // Now act as the agent that operator configured.
+    std::env::set_var("AETHER_MODE", "agent");
 
     // The guarded destructive op now proceeds for alice without approval.
     assert!(

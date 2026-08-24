@@ -140,6 +140,10 @@ futures-util = "0.3"
 async-stream = "0.3"
 rand = "0.8"
 sha2 = "0.10"
+# Password hashing. Deliberately not sha2: `hash_key` (unsalted SHA-256) is
+# right for a 256-bit random API key and wrong for a password, where the whole
+# threat is a precomputed table over a small guessable space.
+argon2 = { version = "0.5", features = ["std"] }
 url = "2.5"
 urlencoding = "2.1"
 flate2 = "1.0"

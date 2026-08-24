@@ -234,6 +234,32 @@ pub fn effect_is_declared(name: &str) -> bool {
 
 fn classified_effect(name: &str) -> Option<Effect> {
     match name {
+        // The privilege boundary itself. `decide(Privileged, Agent)` is `Deny`,
+        // and until these names arrived the class governed nothing: every other
+        // privilege-shaped builtin in the catalog (`sudo_exec`, `user_add`,
+        // `acl_set`, `fs_unmount`) is a stub that performs no effect, so `Pure`
+        // is honest for them -- measured, not assumed.
+        //
+        // These are not stubs. `rbac_grant` writes into the permission store
+        // `guard` consults, and `rbac_principal` decides which entry of that
+        // store applies -- and an authorized principal *skips approval
+        // entirely*. Classified `Pure`, they let an agent grant itself
+        // `effect:*`, become that principal, and walk past the gate it had just
+        // been refused by. `tests/privilege_escalation.rs` runs exactly that
+        // sequence.
+        //
+        // Human mode still allows both: `Privileged` is `Allow` there, which is
+        // how an operator administers RBAC in the first place.
+        // `rbac_login`/`rbac_register` join them: authenticating is how
+        // authority is acquired, so an agent able to do it unassisted has
+        // none. `rbac_logout` is deliberately *not* here -- giving up
+        // authority is the one privilege operation that cannot escalate --
+        // and `rbac_session`/`rbac_can` only read.
+        "rbac_grant" | "rbac_principal" | "rbac_login" | "rbac_register" => {
+            Some(Effect::Privileged)
+        }
+        "rbac_logout" => Some(Effect::WriteLocal),
+        "rbac_session" | "rbac_can" => Some(Effect::ReadLocal),
         "rm"
         | "rmdir"
         | "file_delete"
@@ -2456,6 +2482,7 @@ pub const SELF_GUARDED: &[&str] = &[
     "podman_exec",
     "proc_kill",
     "proc_spawn",
+    "rbac_principal",
     "rlm_spawn",
     "rm",
     "rmdir",

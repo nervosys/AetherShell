@@ -252,6 +252,50 @@ impl ApiKey {
     }
 }
 
+/// Hash a *password* for storage: Argon2id with a fresh random salt, returning
+/// a PHC string that carries the salt and parameters with it.
+///
+/// [`hash_key`] below is not an alternative. It is bare SHA-256 over the input,
+/// which is fine for a 256-bit random API key -- nothing to guess -- and wrong
+/// for a password, where an attacker holding the store guesses a small space
+/// offline at billions of tries a second, and identical passwords collide into
+/// identical hashes so one crack breaks every account sharing it.
+pub fn hash_password(password: &str) -> Result<String> {
+    use argon2::password_hash::{rand_core::OsRng, PasswordHasher, SaltString};
+    let salt = SaltString::generate(&mut OsRng);
+    argon2::Argon2::default()
+        .hash_password(password.as_bytes(), &salt)
+        .map(|h| h.to_string())
+        .map_err(|e| anyhow!("password hashing failed: {e}"))
+}
+
+/// Verify a password against a PHC string produced by [`hash_password`].
+/// A malformed or unknown stored hash verifies as `false`, never as an error
+/// the caller might treat as success.
+pub fn verify_password(password: &str, stored: &str) -> bool {
+    use argon2::password_hash::{PasswordHash, PasswordVerifier};
+    match PasswordHash::new(stored) {
+        Ok(parsed) => argon2::Argon2::default()
+            .verify_password(password.as_bytes(), &parsed)
+            .is_ok(),
+        Err(_) => false,
+    }
+}
+
+/// A real Argon2id hash of a value nobody can supply, used to spend the same
+/// verification time on an unknown username as on a known one.
+static DECOY_HASH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Spend a verification's worth of time without learning anything, so "no such
+/// user" and "wrong password" take the same wall-clock. Without it the two are
+/// distinguishable by timing -- one returns before any hashing happens -- and
+/// an attacker enumerates valid usernames from the outside regardless of how
+/// carefully the *message* is kept identical.
+fn decoy_verify(password: &str) {
+    let decoy = DECOY_HASH.get_or_init(|| hash_password("::decoy::").unwrap_or_default());
+    let _ = verify_password(password, decoy);
+}
+
 fn hash_key(key: &str) -> String {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
@@ -785,7 +829,7 @@ impl AuthManager {
         }
 
         let user = User::new(username);
-        let password_hash = hash_key(password);
+        let password_hash = hash_password(password)?;
 
         // Store user
         self.rbac.add_user(user.clone())?;
@@ -821,6 +865,7 @@ impl AuthManager {
         let user = match self.rbac.get_user_by_username(username) {
             Some(u) => u,
             None => {
+                decoy_verify(password);
                 self.audit(
                     AuditEntry::new(AuditEventType::LoginFailed, "login")
                         .with_detail("username", username)
@@ -840,14 +885,13 @@ impl AuthManager {
         }
 
         // Verify password
-        let password_hash = hash_key(password);
         let stored_hash = self
             .password_hashes
             .read()
             .ok()
             .and_then(|h| h.get(&user.id).cloned());
 
-        if stored_hash != Some(password_hash) {
+        if !stored_hash.is_some_and(|h| verify_password(password, &h)) {
             self.audit(
                 AuditEntry::new(AuditEventType::LoginFailed, "login")
                     .with_user(&user.id)
