@@ -769,17 +769,31 @@ pub fn nanda_module() -> Value {
     ])
 }
 
-/// RBAC (Role-Based Access Control) module
+/// RBAC (Role-Based Access Control) module.
+///
+/// Every entry here pointed at an `rbac_*` name that no builtin implements, so
+/// the whole module answered `unknown builtin` -- an advertised access-control
+/// surface that could not be called, and the README documented it as working.
+/// The implementations existed the whole time under their own names
+/// (`role_create`, `role_grant`, `check_permission`, ...); these aliases now
+/// point at them. `permissions` is gone rather than allowlisted: nothing lists
+/// a role's permissions, and advertising a name is a promise.
+///
+/// Note the distinction from the flat `rbac_*` builtins: this module is a
+/// standalone policy registry for the caller's own resources, answering
+/// `rbac.check(user, resource, action)` and nothing more. What the *safety
+/// guard* consults is a different store entirely -- `rbac_principal`,
+/// `rbac_grant`, `rbac_login` over `auth::RbacManager`, keyed by
+/// `effect:<class>` and `builtin:<name>`. The two do not share entries.
 pub fn rbac_module() -> Value {
     module(&[
-        ("create", "rbac_create_role"),
-        ("delete", "rbac_delete_role"),
-        ("grant", "rbac_grant"),
-        ("revoke", "rbac_revoke"),
-        ("check", "rbac_check"),
-        ("roles", "rbac_roles"),
-        ("permissions", "rbac_permissions"),
-        ("user_roles", "rbac_user_roles"),
+        ("create", "role_create"),
+        ("delete", "role_delete"),
+        ("grant", "role_grant"),
+        ("revoke", "role_revoke"),
+        ("check", "check_permission"),
+        ("roles", "roles_list"),
+        ("user_roles", "user_roles"),
     ])
 }
 

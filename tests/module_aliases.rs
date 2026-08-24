@@ -8,14 +8,21 @@
 //!
 //! The failure is *closed* (an error, and `Value::Error` is falsy), so this is a
 //! correctness bug rather than a vulnerability. It still matters for the
-//! security-relevant modules: `rbac.check`, `rbac.permissions`, `perm.acl_get`
-//! and the `sso.*` calls are in the allowlist below, meaning AetherShell
-//! advertises an access-control surface it does not implement. Nothing should be
-//! written that depends on those returning a meaningful answer.
+//! security-relevant modules: `perm.acl_get` and the `sso.*` calls are in the
+//! allowlist below, meaning AetherShell advertises an access-control surface it
+//! does not implement. Nothing should be written that depends on those
+//! returning a meaningful answer.
 //!
-//! As of 2026-07-30: 919 aliases, 71 dangling. The allowlist is the debt; it
-//! should only ever shrink. Wiring up or withdrawing an entry means deleting its
-//! line here.
+//! The whole `rbac.*` module used to be in that list -- all seven entries, so
+//! `rbac.check(...)` answered `unknown builtin` while the README documented it
+//! as working. The implementations existed under their own names the whole
+//! time; the aliases now point at them, and `rbac.permissions` was withdrawn
+//! because nothing implements it.
+//!
+//! As of 2026-07-30: 919 aliases, 71 dangling; as of 2026-08-24 the allowlist
+//! is 64 (the `rbac.*` seven, wired up or withdrawn). The allowlist is the debt;
+//! it should only ever shrink. Wiring up or withdrawing an entry means deleting
+//! its line here.
 
 use aethershell::builtins::BUILTIN_LOOKUP;
 use aethershell::modules::all_modules;
@@ -83,13 +90,6 @@ const KNOWN_UNIMPLEMENTED: &[&str] = &[
     "pkg_repos",
     "pkg_uninstall",
     "pkg_unlock",
-    "rbac_check",
-    "rbac_create_role",
-    "rbac_delete_role",
-    "rbac_permissions",
-    "rbac_revoke",
-    "rbac_roles",
-    "rbac_user_roles",
     "sso_providers",
     "sso_refresh",
     "sso_user_info",
