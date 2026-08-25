@@ -217,19 +217,87 @@ pub fn idempotent(name: &str) -> bool {
 /// has classified is not advertised with the same confidence as one that was
 /// read and found pure.
 pub fn effect_of(name: &str) -> Effect {
-    classified_effect(name).unwrap_or(Effect::Pure)
+    classified_effect(name)
+        .or_else(|| inherited_effect(name))
+        .unwrap_or(Effect::Pure)
+}
+
+/// How strictly an effect is treated, for picking between siblings.
+///
+/// This orders *enforcement*, not danger: the four classes
+/// [`centrally_enforced`] gates rank above the three it lets through, so
+/// inheriting always picks the answer that keeps a gate rather than the one that
+/// removes it. Within each band the order is the enum's own.
+fn severity(effect: Effect) -> u8 {
+    match effect {
+        Effect::Pure => 0,
+        Effect::ReadLocal => 1,
+        Effect::WriteLocal => 2,
+        Effect::Network => 3,
+        Effect::Process => 4,
+        Effect::Destructive => 5,
+        Effect::Exec => 6,
+        Effect::Privileged => 7,
+    }
+}
+
+lazy_static! {
+    /// The effect a name inherits from the other spellings of its own
+    /// implementation.
+    ///
+    /// Dispatch is by implementation; classification is by name. `lldb_run` and
+    /// `lldb` are one dispatch index, `vault_convert` and `vault-convert` are one
+    /// match arm — and only one spelling of each was ever classified. The other
+    /// read as `Pure`, `centrally_enforced(Pure)` is false, so
+    /// [`guard_dispatch`] returned `Ok` before any policy ran and, because the
+    /// audit line covers only `WriteLocal`/`Network`, left no trace either.
+    ///
+    /// Measured, not argued: 104 alias groups disagreed with themselves, 26 of
+    /// them produced *different guard decisions* for the same implementation, and
+    /// `lldb` ran an external debugger to completion in agent mode one call after
+    /// `lldb_run` was refused for requiring approval.
+    ///
+    /// Built from `builtins::alias_groups`, so it cannot drift from the
+    /// dispatcher the way a hand-written alias list would. A name classified in
+    /// its own right is untouched — this only fills the fall-through, and it
+    /// fills it with the strictest classification any sibling carries, because
+    /// the failure that matters is a gate that quietly is not there.
+    static ref INHERITED_EFFECT: std::collections::HashMap<&'static str, Effect> = {
+        let mut map = std::collections::HashMap::new();
+        for group in crate::builtins::alias_groups() {
+            let strictest = group
+                .iter()
+                .filter_map(|n| classified_effect(n))
+                .max_by_key(|e| severity(*e));
+            let Some(strictest) = strictest else { continue };
+            for name in group {
+                if classified_effect(name).is_none() {
+                    map.insert(name, strictest);
+                }
+            }
+        }
+        map
+    };
+}
+
+fn inherited_effect(name: &str) -> Option<Effect> {
+    INHERITED_EFFECT.get(name).copied()
 }
 
 /// Whether [`effect_of`]'s answer came from a rule rather than the fall-through.
 ///
-/// 694 of 1,301 builtins currently fall through. That is not a claim that they
-/// act — the body-evidence ratchet (`tests/effect_ratchet.rs`) reports zero
-/// builtins that act while classified `Pure`, so nothing *known* to act is
-/// hiding there. It is a claim about what has been *looked at*, which is a
-/// different and weaker thing, and agents deciding whether to trust a label
-/// deserve to know which one they are reading.
+/// A rule the name inherited from another spelling of its own implementation
+/// counts: `lldb` is not classified in its own right, but `lldb_run` is, and
+/// they are one dispatch index — the label `lldb` now carries was reasoned
+/// about, just under the other name.
+///
+/// This is a claim about what has been *looked at*, which is weaker than a
+/// claim that the rest do not act: that one belongs to the body-evidence
+/// ratchet (`tests/effect_ratchet.rs`), which reports zero builtins acting while
+/// classified `Pure` across both halves of the dispatcher. Agents deciding
+/// whether to trust a label deserve to know which of the two they are reading.
 pub fn effect_is_declared(name: &str) -> bool {
-    classified_effect(name).is_some()
+    classified_effect(name).is_some() || inherited_effect(name).is_some()
 }
 
 fn classified_effect(name: &str) -> Option<Effect> {
@@ -853,7 +921,10 @@ fn classified_effect(name: &str) -> Option<Effect> {
         // Listing mounts is a read; mounting one is not. Order matters here.
         "fs_mounts" => Some(Effect::ReadLocal),
         // Permission and ownership changes modify filesystem metadata.
-        "file_write" | "file_append" | "file_copy" | "mkdir" | "touch"
+        // `file_mkdir` is the same dispatch index as `mkdir`; without it the
+        // `file_*` prefix rule below claimed the directory-creating spelling only
+        // read. `tests/effect_alias_agreement.rs` is what noticed.
+        "file_write" | "file_append" | "file_copy" | "mkdir" | "mkdirp" | "file_mkdir" | "touch"
         | "write_file" | "write_json" | "text_write" | "save_json"
         | "gui_dialog_file_save" | "fs_mount"
         | "chmod" | "fs_chmod" | "fs_chown"
