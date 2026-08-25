@@ -156,11 +156,12 @@ impl A2AMessageBus {
             .agent_mailboxes
             .lock()
             .map_err(|e| anyhow!("Failed to acquire mailboxes lock: {}", e))?;
-        Ok(mailboxes
-            .entry(agent_id.to_string())
-            .or_insert_with(Vec::new)
-            .drain(..)
-            .collect())
+        // `mem::take` rather than `drain(..).collect()`: same result -- the caller
+        // gets the messages and the mailbox is left empty -- without allocating a
+        // second vector to move them into.
+        Ok(std::mem::take(
+            mailboxes.entry(agent_id.to_string()).or_default(),
+        ))
     }
 
     /// Peek at messages without removing them
