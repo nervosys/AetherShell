@@ -255,8 +255,8 @@ File edits still work, so there is unverified work in the tree.
 | | |
 |---|---|
 | Branch | `master` |
-| CI verified by SHA | `2b91cf8` and `44ab51c` both **17/17** (14 success, 3 always-skipped: CLA Check, Check Outdated Dependencies, Dependency Review). `a16b3a2` was likewise re-verified 17/17 this session |
-| Since then | `142d60c` (lazy iterators) and `a006d40` (RBAC decision) + the commit carrying this table. Locally green — 1914/0 across 112 binaries, doctests 7/0, clippy and fmt exit 0 — **but confirm by SHA once CI has run them** |
+| CI verified by SHA | `9bfd1b8` **17/17** (14 success, 3 always-skipped: CLA Check, Check Outdated Dependencies, Dependency Review) — this carries all of session 5's work including `142d60c` and `a006d40`. `44ab51c`, `2b91cf8` and `a16b3a2` were each 17/17 too |
+| Unpushed | only the docs-only commit carrying this line. Every code change in session 5 is pushed and green by SHA |
 | Version | 8.0.0 (published to crates.io; verified against the registry, not a green run) |
 | Working tree | clean |
 
