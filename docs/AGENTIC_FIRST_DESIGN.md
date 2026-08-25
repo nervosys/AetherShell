@@ -664,13 +664,29 @@ paged/truncated to fit (✅ implemented). ✅ Per-session aggregation lands via
   driven through the *same* pipe mechanism (`env.set_input` + `eval_expr`) the eager
   evaluator uses, so element semantics are identical — there is no second
   `map`/`where` implementation to diverge, and `eval_expr`/`eval_program` are
-  untouched (additive). Whole-collection stages (`sort`/`take`/`reduce`/`uniq`) or a
+  untouched (additive). Whole-collection stages (`sort`/`reduce`/`uniq`) or a
   non-array source fall back to eager evaluation, still emitting elements after — so
   correctness is preserved for every input. The `/api/v1/stream/eval` SSE route uses
   it to emit `chunk` events as items are produced. Verified by
   `eval_stream_streams_array_pipeline_element_wise` (+ fallback and scalar cases) in
-  `tests/streaming.rs`. *Remaining:* fully lazy iterators end-to-end (the fallback
-  path and whole-collection stages still materialize).
+  `tests/streaming.rs`.
+
+  **A literal `take(n)` streams too, and is where laziness stops describing the
+  *output* and starts saving *work*.** `take` used to be a whole-collection stage,
+  so `xs | map(f) | take(3)` fell back to eager and called `f` once per element of
+  `xs`; it is now a `Prefix(n)` stage that counts through the chain, and once the
+  count is met the source is abandoned unread. The early exit is *withheld* when any
+  stage upstream of the `take` reaches a builtin that is not `Pure` — skipping work
+  the program asked for is not an optimisation — and such a pipeline still streams,
+  it just reads to the end. From outside, an implementation that materialises
+  everything and one that reads three elements are indistinguishable: same values,
+  same order. `StreamStats::pulled` is the number that tells them apart, and
+  `eval_stream_with_stats` reports it, so the claim is measured rather than asserted
+  — `take_stops_pulling_the_source` pins `pulled == 3` of 1000, with a no-`take`
+  control at `pulled == 50` so it cannot pass for the wrong reason, an effectful
+  stage held at `pulled == 20`, and an agreement test against the eager evaluator.
+  *Remaining:* whole-collection stages (`sort`/`reduce`/`uniq`) and non-array
+  sources still materialize.
 
 ---
 
@@ -919,7 +935,7 @@ The `.ae` surface keeps readable, unambiguous syntax and gains:
 | **3** | **Safety core (headline)** | Policy engine + workspace jail (§7.1/7.4); approval protocol (§7.2); hash-chained audit (§7.5); wire RBAC | `src/security.rs`, `src/auth.rs`, `src/builtins.rs` (rm/kill/sh/db/docker), `src/agent_api.rs` |
 | **4** | **Token economy** | 🟡 First slice: `aecon(value)` compact rendering + `tokens(value)` estimate builtins (§6.2, tests prove AECON < JSON on homogeneous records) + `budget()` paging/truncation (§6.2) + `ontology_manifest`/`ontology_describe` progressive disclosure (§5.4, >4× cheaper than full dump) + CLI `--budget N` flag (REPL applies `budget_value`) + per-call `token_accounting` in `AgentResponse.metadata`. **Core complete.** ✅ **Per-session aggregation landed**: `sess_usage(id)` returns `{evals, tokens_in, tokens_out, tokens_total}` | `src/builtins.rs`, `src/agent_api.rs`, `tests/output_economy.rs`, `src/value.rs`, `src/metrics.rs`, `src/main.rs` |
 | **5** | **Grammar unification** | 🟡 Started: `|.field` projection (with `.a.b` chains) now parsed by the real grammar (`parser::parse_pipe`) + SI suffixes in the lexer + `~x: body` lambda + `?match` prefix + `if`-expression — all additive (`tests/grammar.rs`). **Transpiler retirement in progress** (2 passes retired): `expand_si_suffixes` and `expand_match` (`?`) are removed from the pipeline (grammar covers both); their golden tests migrated to behavior assertions (`eval_aeg` harness) and ONTOLOGY examples updated to pass-through. Recipe: remove the call → `#[allow(dead_code)]` the fn → behavior-migrate the affected text tests → update ONTOLOGY examples. (Lesson: text-coupled golden tests make each retirement cost real migration — SI touched 4 test sites + 2 ontology examples.) *Remaining:* `expand_lambdas`/`expand_pipelines` can only be *partially* retired (they also handle cipher forms the grammar lacks: `\x:`/`~.field`/`>`-pipe); `!try`/`^cond` ciphers overload `Bang`/`Caret`, so they stay transpiler-only; retire the 10-pass transpiler to a shim (§4.3); boundary type-checking (§8) | `src/parser.rs`, `src/typecheck.rs`, `src/transpile/agentic.rs` |
-| **6** | **Agentic features** | ✅ Transactions/checkpoints (`tx_*` + savepoints) + Plan/Apply (`plan`/`apply`, ops `write`/`append`/`rm`/`mkdir`/`copy`/`move`) + builtins-as-MCP-tools (`McpServer::list_builtin_tools`/`call_builtin`) + **stateful sessions** (`sess_*`) + chunked **streaming execute** landed. ✅ **stdio JSON-RPC transport landed** (`ae mcp stdio`); ✅ **transaction nesting works** (`tx_begin` twice reports `depth: 2`). *Remaining:* true stage-by-stage streaming *evaluation* | `src/tx.rs`, `src/builtins.rs`, `src/agent_api.rs`, `src/mcp.rs`, `src/ai_api/server.rs` |
+| **6** | **Agentic features** | ✅ Transactions/checkpoints (`tx_*` + savepoints) + Plan/Apply (`plan`/`apply`, ops `write`/`append`/`rm`/`mkdir`/`copy`/`move`) + builtins-as-MCP-tools (`McpServer::list_builtin_tools`/`call_builtin`) + **stateful sessions** (`sess_*`) + chunked **streaming execute** landed. ✅ **stdio JSON-RPC transport landed** (`ae mcp stdio`); ✅ **transaction nesting works** (`tx_begin` twice reports `depth: 2`). ✅ **true stage-by-stage streaming *evaluation*** (`eval_stream`) and ✅ **short-circuiting `take(n)`** — a satisfied `take` abandons the source unread (withheld when an upstream stage is not `Pure`), measured by `StreamStats::pulled` rather than asserted. *Remaining:* whole-collection stages (`sort`/`reduce`/`uniq`) and non-array sources still materialize | `src/tx.rs`, `src/builtins.rs`, `src/agent_api.rs`, `src/mcp.rs`, `src/ai_api/server.rs` |
 
 | **7** | **Self-healing** | ✅ Structured-by-default at the builtin boundary (`safety::ensure_structured`, new codes `E_UNKNOWN_BUILTIN`/`E_UNKNOWN`, `ErrorCode::retryable()`); `did_you_mean` over the live builtin table; `diagnose(error)` minimal repair context (1139); `try_repair(code)` rollback-bracketed attempts (1140); `agentic_eval::repair` harness + a **measured** repair rate filling §11's placeholder. ✅ **Model-driven strategy landed** (`tests/repair_rate.rs`): the same harness, given only the error facts and the builtin's declared signature. Proven on the wrong-argument corpus where the mechanical strategy scores 0 by design, using a deterministic stand-in so the *plumbing* is verified without a model in CI; the live scoring skips loudly when no backend is configured, because a repair rate reported without a model is a number nobody measured. An unparseable reply counts as no-repair, never as success; ✅ **module paths already resolve**: `file.raed("x")` returns `E_UNKNOWN_FIELD` with `did you mean: read` | `src/safety.rs`, `src/builtins.rs`, `crates/agentic-eval/src/repair.rs`, `tests/self_healing.rs`, `tests/repair_rate.rs` |
 

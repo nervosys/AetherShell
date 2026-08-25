@@ -63,15 +63,52 @@ pub fn eval_program(stmts: &[Stmt], env: &mut Env) -> Result<Value> {
 /// back to eager evaluation, emitting array elements (or a single scalar) after.
 /// Returns the number of items emitted.
 ///
+/// A literal `take(n)` streams too, and is where laziness stops being a
+/// description of the *output* and starts saving *work*: once the count is met
+/// the source is abandoned unread, so `xs | map(f) | take(3)` calls `f` three
+/// times rather than once per element. The early exit is withheld when any
+/// upstream stage reaches a builtin that is not `Pure` — skipping work the
+/// program asked for is not an optimisation — and such a pipeline still streams,
+/// it just reads to the end. [`eval_stream_with_stats`] reports which happened.
+///
 /// This is an **additive** path: the eager [`eval_expr`]/[`eval_program`] are
 /// untouched, and each streamed stage is driven through the *same* pipe mechanism
 /// (`env.set_input` + `eval_expr`) the normal evaluator uses, so element semantics
 /// are identical — there is no second implementation of `map`/`where` to diverge.
 pub fn eval_stream(code: &str, env: &mut Env, on_item: &mut dyn FnMut(Value)) -> Result<usize> {
+    eval_stream_with_stats(code, env, on_item).map(|s| s.emitted)
+}
+
+/// What a streaming run actually did.
+///
+/// `emitted` is what the caller received. `pulled` is how many source elements
+/// were *touched* -- the number that says whether laziness bought anything. For
+/// `xs | map(f) | take(3)` over a thousand elements, an implementation that
+/// materializes reports `pulled == 1000` and a lazy one reports `pulled == 3`;
+/// without the number the two are indistinguishable from the outside, which is
+/// how "streaming" stays a claim rather than a measurement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct StreamStats {
+    /// Values handed to the callback.
+    pub emitted: usize,
+    /// Source elements pushed through the stage chain.
+    pub pulled: usize,
+    /// Whether the element-wise path ran at all (false = eager fallback).
+    pub streamed: bool,
+    /// Whether a `take` was satisfied and the remaining source abandoned.
+    pub short_circuited: bool,
+}
+
+/// [`eval_stream`], reporting what the run cost as well as what it produced.
+pub fn eval_stream_with_stats(
+    code: &str,
+    env: &mut Env,
+    on_item: &mut dyn FnMut(Value),
+) -> Result<StreamStats> {
     let stmts = crate::parser::parse_program(code)?;
     let (last, init) = match stmts.split_last() {
         Some(parts) => parts,
-        None => return Ok(0),
+        None => return Ok(StreamStats::default()),
     };
     // Evaluate the leading statements eagerly (bindings, imports, side effects).
     for s in init {
@@ -81,13 +118,19 @@ pub fn eval_stream(code: &str, env: &mut Env, on_item: &mut dyn FnMut(Value)) ->
     env.set_input(None);
     // Try to stream the final statement if it is a streamable pipeline.
     if let Stmt::Expr(expr) = last {
-        if let Some(count) = try_stream_pipeline(expr, env, on_item)? {
-            return Ok(count);
+        if let Some(stats) = try_stream_pipeline(expr, env, on_item)? {
+            return Ok(stats);
         }
     }
     // Fallback: eager-eval the final statement, then emit its elements.
     let v = eval_stmt(last, env)?;
-    Ok(emit_value(v, on_item))
+    let emitted = emit_value(v, on_item);
+    Ok(StreamStats {
+        emitted,
+        pulled: emitted,
+        streamed: false,
+        short_circuited: false,
+    })
 }
 
 fn emit_value(v: Value, on_item: &mut dyn FnMut(Value)) -> usize {
@@ -107,26 +150,103 @@ fn emit_value(v: Value, on_item: &mut dyn FnMut(Value)) -> usize {
     }
 }
 
-/// Whether a pipeline stage is element-independent (safe to apply per-element).
-/// Conservative whitelist: `map`/`where`/`filter` transform each element without
-/// reference to the others. Stages like `sort`/`take`/`reduce`/`uniq` need the
-/// whole collection, so their presence disqualifies streaming (caller falls back).
-fn is_streamable_stage(e: &Expr) -> bool {
-    if let Expr::Call { callee, .. } = e {
-        if let Expr::Ident(name) = &**callee {
-            return matches!(name.as_str(), "map" | "where" | "filter");
-        }
+/// What a pipeline stage needs in order to produce its output.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StageKind {
+    /// Transforms each element without reference to the others
+    /// (`map`/`where`/`filter`), so it can be applied one element at a time.
+    Elementwise,
+    /// Passes the first `n` elements through and nothing after (`take(n)`).
+    /// This is the stage that makes laziness worth having: once it is satisfied
+    /// nothing downstream can ever emit again, so the source need not be read.
+    Prefix(i64),
+    /// Needs the whole collection (`sort`/`reduce`/`uniq`/anything unknown).
+    Barrier,
+}
+
+/// Classify one stage of a pipeline.
+///
+/// `take` counts only with a literal count: evaluating an argument expression
+/// here would run it before the stages ahead of it, which is a different program
+/// from the one that was written.
+fn stage_kind(e: &Expr) -> StageKind {
+    let Expr::Call { callee, args, .. } = e else {
+        return StageKind::Barrier;
+    };
+    let Expr::Ident(name) = &**callee else {
+        return StageKind::Barrier;
+    };
+    match name.as_str() {
+        "map" | "where" | "filter" => StageKind::Elementwise,
+        "take" => match args.first() {
+            Some(Expr::LitInt(n)) => StageKind::Prefix(*n),
+            _ => StageKind::Barrier,
+        },
+        _ => StageKind::Barrier,
     }
-    false
+}
+
+/// Whether evaluating `e` can be skipped without changing what the program does.
+///
+/// Abandoning the tail of a source is only sound when the work being skipped was
+/// not the point. `xs | map(fn(x) => file_write(x, "…")) | take(3)` writes every
+/// file when evaluated eagerly, and short-circuiting after three would silently
+/// drop the rest -- so a stage that reaches anything but a `Pure` builtin
+/// disqualifies the early exit, and the pipeline still streams, just without
+/// abandoning the source.
+///
+/// The judgement is only as good as `safety::effect_of`, which is exactly the
+/// classifier `tests/effect_ratchet.rs` holds to "no builtin that acts is
+/// classified `Pure`". A name no builtin implements counts as unknown, not pure:
+/// it may be a user-defined function whose body this walk cannot see.
+fn is_effect_free(e: &Expr) -> bool {
+    use crate::safety::{effect_of, Effect};
+    match e {
+        Expr::LitInt(_)
+        | Expr::LitFloat(_)
+        | Expr::LitStr(_)
+        | Expr::LitBool(_)
+        | Expr::Null
+        | Expr::Ident(_) => true,
+        Expr::Array(items) => items.iter().all(is_effect_free),
+        Expr::Record(fields) => fields.iter().all(|(_, v)| is_effect_free(v)),
+        Expr::Lambda { body, .. } => is_effect_free(body),
+        Expr::Binary { left, right, .. } => is_effect_free(left) && is_effect_free(right),
+        Expr::Unary { expr, .. } => is_effect_free(expr),
+        Expr::MemberAccess { object, .. } => is_effect_free(object),
+        Expr::Pipe { left, right } => is_effect_free(left) && is_effect_free(right),
+        Expr::Call {
+            callee,
+            args,
+            named,
+        } => {
+            let callee_pure = match &**callee {
+                Expr::Ident(name) => {
+                    crate::builtins::BUILTIN_LOOKUP.contains_key(name.as_str())
+                        && effect_of(name) == Effect::Pure
+                }
+                // A computed callee, a member call, a user-defined function --
+                // this walk cannot see the body, so it cannot vouch for it.
+                _ => false,
+            };
+            callee_pure
+                && args.iter().all(is_effect_free)
+                && named.iter().all(|(_, v)| is_effect_free(v))
+        }
+        // Deliberately conservative: async work, thrown control flow and match
+        // arms are not worth the analysis for the payoff, and being wrong here
+        // means silently skipping work the program asked for.
+        _ => false,
+    }
 }
 
 /// If `expr` is a streamable pipeline, stream it element-by-element and return
-/// `Some(emitted_count)`; otherwise return `None` so the caller eager-evaluates.
+/// `Some(stats)`; otherwise return `None` so the caller eager-evaluates.
 fn try_stream_pipeline(
     expr: &Expr,
     env: &mut Env,
     on_item: &mut dyn FnMut(Value),
-) -> Result<Option<usize>> {
+) -> Result<Option<StreamStats>> {
     // Flatten the left-associative pipe chain into source + ordered stages.
     let mut stages: Vec<&Expr> = Vec::new();
     let mut cur = expr;
@@ -138,7 +258,8 @@ fn try_stream_pipeline(
         return Ok(None); // not a pipeline
     }
     stages.reverse();
-    if !stages.iter().all(|s| is_streamable_stage(s)) {
+    let kinds: Vec<StageKind> = stages.iter().map(|s| stage_kind(s)).collect();
+    if kinds.contains(&StageKind::Barrier) {
         return Ok(None); // a whole-collection stage is present
     }
     // The source must be an array to stream element-wise.
@@ -147,12 +268,64 @@ fn try_stream_pipeline(
         Value::Array(items) => items,
         _ => return Ok(None),
     };
-    let mut count = 0usize;
+
+    // A `take` may abandon the rest of the source only when everything upstream
+    // of it is effect-free -- otherwise the skipped elements were work the
+    // program asked for. Computed per `take`, since a later one may be preceded
+    // by a stage an earlier one was not.
+    let may_abandon: Vec<bool> = kinds
+        .iter()
+        .enumerate()
+        .map(|(i, k)| {
+            matches!(k, StageKind::Prefix(_)) && stages[..i].iter().all(|s| is_effect_free(s))
+        })
+        .collect();
+
+    let mut taken = vec![0i64; stages.len()];
+    let mut stats = StreamStats {
+        streamed: true,
+        ..Default::default()
+    };
+
     for x in items {
+        // A satisfied `take` ends the run before the next element is read --
+        // this, and not the emitting, is where laziness saves the work.
+        let satisfied = kinds
+            .iter()
+            .enumerate()
+            .any(|(i, k)| may_abandon[i] && matches!(k, StageKind::Prefix(n) if taken[i] >= *n));
+        if satisfied {
+            stats.short_circuited = true;
+            break;
+        }
+        stats.pulled += 1;
         // Push this single element through the stage chain using the SAME pipe
         // mechanism the evaluator uses, so semantics are identical.
         let mut batch = Value::Array(vec![x]);
-        for stage in &stages {
+        for (i, stage) in stages.iter().enumerate() {
+            if let StageKind::Prefix(n) = kinds[i] {
+                // `take` is applied here rather than by calling the builtin: the
+                // builtin sees one element at a time and would let every one of
+                // them through.
+                let width = match &batch {
+                    Value::Array(items) => items.len() as i64,
+                    Value::Null => 0,
+                    _ => 1,
+                };
+                let room = (n - taken[i]).max(0);
+                if room == 0 {
+                    // Nothing downstream of a satisfied `take` can emit again.
+                    batch = Value::Array(Vec::new());
+                    break;
+                }
+                taken[i] += width.min(room);
+                if width > room {
+                    if let Value::Array(items) = batch {
+                        batch = Value::Array(items.into_iter().take(room as usize).collect());
+                    }
+                }
+                continue;
+            }
             let saved = env.input().cloned();
             env.set_input(Some(batch));
             let res = eval_expr(stage, env);
@@ -166,17 +339,17 @@ fn try_stream_pipeline(
             Value::Array(out) => {
                 for it in out {
                     on_item(it);
-                    count += 1;
+                    stats.emitted += 1;
                 }
             }
             Value::Null => {}
             other => {
                 on_item(other);
-                count += 1;
+                stats.emitted += 1;
             }
         }
     }
-    Ok(Some(count))
+    Ok(Some(stats))
 }
 
 pub fn eval_stmt(stmt: &Stmt, env: &mut Env) -> Result<Value> {

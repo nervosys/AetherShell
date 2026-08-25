@@ -97,3 +97,116 @@ fn eval_stream_emits_scalar_once() {
     assert_eq!(n, 1);
     assert_eq!(out, vec![Value::Int(42)]);
 }
+
+// ── Laziness that pays: `take` stops the source ───────────────────────────────
+//
+// "Streaming" was true of the *output* and false of the *work*: a `take` made
+// the pipeline unstreamable, so `xs | map(f) | take(3)` fell back to eager and
+// called `f` once per element of `xs`. From outside, an implementation that
+// materialises everything and one that reads three elements are indistinguish-
+// able — same values, same order. `StreamStats::pulled` is the number that
+// tells them apart, and these tests assert on it.
+
+use aethershell::eval::StreamStats;
+
+fn stream_stats(code: &str) -> (StreamStats, Vec<Value>) {
+    let mut env = aethershell::env::Env::new();
+    let mut out: Vec<Value> = Vec::new();
+    let stats = {
+        let mut emit = |v: Value| out.push(v);
+        aethershell::eval::eval_stream_with_stats(code, &mut env, &mut emit).expect("eval_stream")
+    };
+    (stats, out)
+}
+
+#[test]
+fn take_stops_pulling_the_source() {
+    let (stats, out) = stream_stats(
+        "let xs = range(0, 1000); xs | map(fn(x) => x * 2) | where(fn(y) => y >= 0) | take(3)",
+    );
+    assert_eq!(out, vec![Value::Int(0), Value::Int(2), Value::Int(4)]);
+    assert_eq!(stats.emitted, 3);
+    assert!(stats.streamed, "the element-wise path should have run");
+    assert!(
+        stats.short_circuited,
+        "the source should have been abandoned"
+    );
+    assert_eq!(
+        stats.pulled, 3,
+        "a satisfied take must not keep reading: {} of 1000 elements were pushed \
+         through the stages",
+        stats.pulled
+    );
+}
+
+#[test]
+fn without_a_take_every_element_is_pulled() {
+    // The control. If `pulled` were always small the test above would pass for
+    // the wrong reason.
+    let (stats, _) = stream_stats("let xs = range(0, 50); xs | map(fn(x) => x * 2)");
+    assert_eq!(stats.pulled, 50);
+    assert_eq!(stats.emitted, 50);
+    assert!(!stats.short_circuited);
+}
+
+#[test]
+fn a_take_never_abandons_a_stage_that_does_something() {
+    // Short-circuiting is only sound when the skipped work was not the point.
+    // `file_exists` is `ReadLocal`, not `Pure`, so the early exit is withheld
+    // and every element still runs — the pipeline streams, it just does not
+    // abandon the source.
+    use aethershell::safety::{effect_of, Effect};
+    assert_ne!(
+        effect_of("file_exists"),
+        Effect::Pure,
+        "this test needs a non-Pure builtin to be meaningful"
+    );
+
+    let (stats, out) = stream_stats(
+        "let xs = range(0, 20); xs | map(fn(x) => file_exists(\"no_such_file_xyzzy\")) | take(2)",
+    );
+    assert_eq!(out.len(), 2, "take still limits what is emitted");
+    assert_eq!(stats.emitted, 2);
+    assert!(
+        !stats.short_circuited,
+        "an effectful stage must not have its work skipped"
+    );
+    assert_eq!(
+        stats.pulled, 20,
+        "every element's side effect must still happen"
+    );
+}
+
+#[test]
+fn take_zero_emits_nothing_and_reads_almost_nothing() {
+    let (stats, out) = stream_stats("let xs = range(0, 100); xs | map(fn(x) => x) | take(0)");
+    assert!(out.is_empty());
+    assert_eq!(stats.emitted, 0);
+    assert!(stats.short_circuited);
+    assert_eq!(stats.pulled, 0, "take(0) should read nothing at all");
+}
+
+#[test]
+fn a_take_in_the_middle_limits_what_reaches_the_rest() {
+    let (stats, out) = stream_stats("let xs = range(0, 100); xs | take(2) | map(fn(x) => x + 100)");
+    assert_eq!(out, vec![Value::Int(100), Value::Int(101)]);
+    assert_eq!(stats.emitted, 2);
+    assert_eq!(stats.pulled, 2, "the third element is never read");
+}
+
+#[test]
+fn a_taken_pipeline_agrees_with_the_eager_evaluator() {
+    // Laziness that changes the answer is not an optimisation. The streamed
+    // result must equal what the ordinary evaluator produces for the same code.
+    let code = "let xs = range(0, 40); xs | map(fn(x) => x * 3) | where(fn(y) => y > 10) | take(4)";
+    let (_, streamed) = stream_stats(code);
+
+    let mut env = aethershell::env::Env::new();
+    let stmts = aethershell::parser::parse_program(code).expect("parse");
+    let eager = aethershell::eval::eval_program(&stmts, &mut env).expect("eval");
+    let eager = match eager {
+        Value::Array(items) => items,
+        other => panic!("expected an array, got {other:?}"),
+    };
+    assert_eq!(streamed, eager);
+}
