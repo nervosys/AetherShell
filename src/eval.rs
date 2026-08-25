@@ -200,6 +200,16 @@ fn stage_kind(e: &Expr) -> StageKind {
 /// classifier `tests/effect_ratchet.rs` holds to "no builtin that acts is
 /// classified `Pure`". A name no builtin implements counts as unknown, not pure:
 /// it may be a user-defined function whose body this walk cannot see.
+///
+/// "Implements" means either half of the dispatcher. This used to ask
+/// `BUILTIN_LOOKUP` alone, so the ~113 names served by the fallback `match`
+/// (`from_json`, `select`, `group_by`, `to_csv`, ...) read as unknown and any
+/// `take` downstream of one withheld its short-circuit. That was fail-safe --
+/// more work, never wrong work -- but it was fail-safe by accident, and the
+/// reason it could not simply be widened was that nothing in `src/` knew what
+/// the fallback served. `builtins::is_dispatched` is that missing answer, and
+/// the ratchet now reads both halves too, so `Pure` means the same thing on
+/// either side of the dispatcher.
 fn is_effect_free(e: &Expr) -> bool {
     use crate::safety::{effect_of, Effect};
     match e {
@@ -223,8 +233,7 @@ fn is_effect_free(e: &Expr) -> bool {
         } => {
             let callee_pure = match &**callee {
                 Expr::Ident(name) => {
-                    crate::builtins::BUILTIN_LOOKUP.contains_key(name.as_str())
-                        && effect_of(name) == Effect::Pure
+                    crate::builtins::is_dispatched(name) && effect_of(name) == Effect::Pure
                 }
                 // A computed callee, a member call, a user-defined function --
                 // this walk cannot see the body, so it cannot vouch for it.
