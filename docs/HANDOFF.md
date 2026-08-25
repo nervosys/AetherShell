@@ -88,7 +88,8 @@
 > ignored / 0 failed**; `cargo clippy --workspace --all-targets --features native
 > -- -D warnings` exit 0; `cargo fmt --all -- --check` exit 0. Four commits:
 > `c7780c4` (the source of truth), `194a496` (the guard fix), `51f0532` (item 3),
-> and this document.
+> and this document. All four pushed; **17/17 green by SHA on `44ab51c`**,
+> `Lint` and `Test (windows-latest)` included.
 >
 > All four numbers are from the **committed** tree, and the test figure is one
 > uninterrupted `cargo test --features native --no-fail-fast` at exit 0 — not a
@@ -217,10 +218,10 @@ File edits still work, so there is unverified work in the tree.
 | | |
 |---|---|
 | Branch | `master` |
-| Last pushed commit | `a16b3a2` — **17/17 green by SHA** (verified session 5, `Test (windows-latest)` included) |
-| Unpushed on `master` | `c7780c4`, `194a496`, `51f0532` + this document. **CI has seen none of them.** Push and verify by SHA, the way §3 describes |
+| Last pushed commit | `44ab51c` — **17/17 green by SHA** (14 success, 3 always-skipped: CLA Check, Check Outdated Dependencies, Dependency Review). `a16b3a2` was likewise re-verified 17/17 this session |
+| Unpushed on `master` | nothing but the commit carrying this table line, which is docs-only |
 | Version | 8.0.0 (published to crates.io; verified against the registry, not a green run) |
-| Working tree | clean apart from this document |
+| Working tree | clean |
 
 ### Verified and pushed
 
