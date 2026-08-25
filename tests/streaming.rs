@@ -327,3 +327,117 @@ fn an_undispatched_name_still_blocks_the_short_circuit() {
     );
     assert_eq!(stats.pulled, 20);
 }
+
+// ── A barrier at the end no longer costs laziness at the start ────────────────
+//
+// `sort`/`reduce`/`uniq` cannot answer until they have seen everything, so they
+// end the streamable region. They used to end it *retroactively*: one barrier
+// anywhere made `try_stream_pipeline` return `None`, and the whole statement —
+// every stage ahead of the barrier included — was eager-evaluated. So
+// `xs | map(f) | take(3) | sort` called `f` a thousand times to sort three
+// elements. The prefix now streams and only the barrier's own input is
+// materialised.
+
+#[test]
+fn a_take_short_circuits_even_with_a_sort_behind_it() {
+    let (stats, out) =
+        stream_stats("let xs = range(0, 1000); xs | map(fn(x) => 0 - x) | take(3) | sort()");
+    // Sorted ascending: 0, -1, -2 arrive as 0,-1,-2 and sort to -2,-1,0.
+    assert_eq!(out, vec![Value::Int(-2), Value::Int(-1), Value::Int(0)]);
+    assert!(stats.streamed, "the prefix should have streamed");
+    assert!(stats.barrier_tail, "sort should have been left as a tail");
+    assert!(
+        stats.short_circuited,
+        "the take is upstream of the barrier, so it still gets to stop the source"
+    );
+    assert_eq!(
+        stats.pulled, 3,
+        "{} of 1000 elements were pushed through the stages to sort three",
+        stats.pulled
+    );
+}
+
+#[test]
+fn a_barrier_still_sees_every_element_when_nothing_limits_it() {
+    // The control. Without a `take`, a barrier must still be handed the whole
+    // collection — streaming the prefix must not quietly truncate its input.
+    let (stats, out) = stream_stats("let xs = range(0, 50); xs | map(fn(x) => x) | sort()");
+    assert_eq!(stats.pulled, 50);
+    assert_eq!(out.len(), 50);
+    assert!(stats.barrier_tail);
+    assert!(!stats.short_circuited);
+    assert_eq!(out.first(), Some(&Value::Int(0)));
+    assert_eq!(out.last(), Some(&Value::Int(49)));
+}
+
+#[test]
+fn a_reduce_behind_a_streamed_prefix_agrees_with_the_eager_evaluator() {
+    // `reduce` collapses to one value, so the emitted count is the tell.
+    let code = "let xs = range(0, 20); xs | map(fn(x) => x + 1) | reduce(fn(a, b) => a + b, 0)";
+    let (stats, out) = stream_stats(code);
+
+    let mut env = aethershell::env::Env::new();
+    let stmts = aethershell::parser::parse_program(code).expect("parse");
+    let eager = aethershell::eval::eval_program(&stmts, &mut env).expect("eager eval");
+
+    assert_eq!(out, vec![eager], "streaming and eager must agree");
+    assert_eq!(stats.emitted, 1, "a fold emits once");
+    assert!(stats.barrier_tail);
+    assert_eq!(stats.pulled, 20, "the fold still consumes every element");
+}
+
+#[test]
+fn a_uniq_behind_a_streamed_prefix_agrees_with_the_eager_evaluator() {
+    let code = "let xs = range(0, 30); xs | map(fn(x) => x % 4) | uniq()";
+    let (stats, out) = stream_stats(code);
+
+    let mut env = aethershell::env::Env::new();
+    let stmts = aethershell::parser::parse_program(code).expect("parse");
+    let eager = aethershell::eval::eval_program(&stmts, &mut env).expect("eager eval");
+    let expected = match eager {
+        Value::Array(v) => v,
+        other => vec![other],
+    };
+
+    assert_eq!(
+        out, expected,
+        "streaming and eager must agree, order included"
+    );
+    assert!(stats.barrier_tail);
+    assert_eq!(stats.pulled, 30);
+}
+
+#[test]
+fn a_bare_barrier_still_falls_back_rather_than_paying_for_a_copy() {
+    // With no streamable stage ahead of it there is nothing to gain and a
+    // needless buffer to pay, so the eager path is still the right answer.
+    let (stats, out) = stream_stats("[3,1,2] | sort()");
+    assert_eq!(out, vec![Value::Int(1), Value::Int(2), Value::Int(3)]);
+    assert!(
+        !stats.streamed,
+        "a pipeline whose first stage is a barrier should not pretend to stream"
+    );
+}
+
+#[test]
+fn an_effectful_prefix_is_not_abandoned_just_because_a_barrier_follows() {
+    // The soundness rule has to survive the split: a `take` may only stop the
+    // source when everything upstream of it is effect-free, and moving the
+    // barrier out of the streamed region must not smuggle that check away.
+    use aethershell::safety::{effect_of, Effect};
+    assert_ne!(effect_of("file_exists"), Effect::Pure);
+
+    let (stats, _out) = stream_stats(
+        "let xs = range(0, 20); \
+         xs | map(fn(x) => file_exists(\"no_such_file_xyzzy\")) | take(2) | sort()",
+    );
+    assert!(stats.barrier_tail);
+    assert!(
+        !stats.short_circuited,
+        "an effectful stage must still block the early exit"
+    );
+    assert_eq!(
+        stats.pulled, 20,
+        "every element's side effect must still happen"
+    );
+}

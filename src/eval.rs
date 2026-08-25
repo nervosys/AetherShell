@@ -71,6 +71,13 @@ pub fn eval_program(stmts: &[Stmt], env: &mut Env) -> Result<Value> {
 /// program asked for is not an optimisation — and such a pipeline still streams,
 /// it just reads to the end. [`eval_stream_with_stats`] reports which happened.
 ///
+/// A whole-collection stage (`sort`/`reduce`/`uniq`) ends the streamable region
+/// rather than disqualifying the pipeline. It used to do the latter, which cost
+/// laziness *retroactively*: `xs | map(f) | take(3) | sort` fell back entirely
+/// and called `f` once per element of `xs` to sort the three that `sort` was
+/// ever going to see. The prefix now streams and the barrier is handed exactly
+/// the collection it would have received eagerly.
+///
 /// This is an **additive** path: the eager [`eval_expr`]/[`eval_program`] are
 /// untouched, and each streamed stage is driven through the *same* pipe mechanism
 /// (`env.set_input` + `eval_expr`) the normal evaluator uses, so element semantics
@@ -98,6 +105,11 @@ pub struct StreamStats {
     pub streamed: bool,
     /// Whether a `take` was satisfied and the remaining source abandoned.
     pub short_circuited: bool,
+    /// Whether a whole-collection stage (`sort`/`reduce`/`uniq`) remained after
+    /// the streamed prefix, so that prefix's output was materialised for it.
+    /// The stages *ahead* of it still streamed — which is the whole point: a
+    /// barrier at the end no longer costs laziness at the start.
+    pub barrier_tail: bool,
 }
 
 /// [`eval_stream`], reporting what the run cost as well as what it produced.
@@ -131,6 +143,7 @@ pub fn eval_stream_with_stats(
         pulled: emitted,
         streamed: false,
         short_circuited: false,
+        barrier_tail: false,
     })
 }
 
@@ -162,6 +175,13 @@ enum StageKind {
     /// nothing downstream can ever emit again, so the source need not be read.
     Prefix(i64),
     /// Needs the whole collection (`sort`/`reduce`/`uniq`/anything unknown).
+    ///
+    /// A barrier ends the streamable region; it does **not** disqualify the
+    /// stages ahead of it. Those still stream, and a `take` among them still
+    /// stops the source — the barrier is simply handed the collection that
+    /// reaches it, which is the same collection it would have been handed
+    /// eagerly. Treating one barrier as poisoning the whole pipeline is what
+    /// made `xs | map(f) | take(3) | sort` call `f` a thousand times.
     Barrier,
 }
 
@@ -289,10 +309,28 @@ fn try_stream_pipeline(
         return Ok(None); // not a pipeline
     }
     stages.reverse();
-    let kinds: Vec<StageKind> = stages.iter().map(|s| stage_kind(s)).collect();
-    if kinds.contains(&StageKind::Barrier) {
-        return Ok(None); // a whole-collection stage is present
+    let all_kinds: Vec<StageKind> = stages.iter().map(|s| stage_kind(s)).collect();
+
+    // A whole-collection stage ends the streamable region -- it cannot answer
+    // until it has seen everything -- but it does not disqualify the stages
+    // *ahead* of it, which is what returning `None` here used to do. That cost
+    // more than tidiness: `xs | map(f) | take(3) | sort` fell back entirely and
+    // called `f` once per element of `xs`, when three was all `sort` was ever
+    // going to be given. The prefix streams; the barrier and everything after it
+    // run once, eagerly, on what the prefix produced -- exactly the collection
+    // they would have been handed anyway.
+    let tail_at = all_kinds
+        .iter()
+        .position(|k| *k == StageKind::Barrier)
+        .unwrap_or(stages.len());
+    if tail_at == 0 {
+        // Nothing streamable ahead of the barrier, so there is nothing to gain
+        // and a needless copy to pay. `[3,1,2] | sort()` still falls back.
+        return Ok(None);
     }
+    let tail: Vec<&Expr> = stages[tail_at..].to_vec();
+    let stages: Vec<&Expr> = stages[..tail_at].to_vec();
+    let kinds: Vec<StageKind> = all_kinds[..tail_at].to_vec();
     // The source must be an array to stream element-wise.
     let src = eval_expr(cur, env)?;
     let items = match src {
@@ -305,13 +343,18 @@ fn try_stream_pipeline(
         // instead of recomputing it -- which is exactly what the eager
         // evaluator's `Expr::Pipe` arm does with the same value.
         other => {
-            let out = apply_stages(other, &stages, env)?;
+            // Every stage, not just the streamed head: a scalar has nothing to
+            // stream, so the split above is irrelevant to it, and applying only
+            // the head would silently drop stages the program wrote.
+            let every: Vec<&Expr> = stages.iter().chain(tail.iter()).copied().collect();
+            let out = apply_stages(other, &every, env)?;
             let emitted = emit_value(out, on_item);
             return Ok(Some(StreamStats {
                 emitted,
                 pulled: 1,
                 streamed: false,
                 short_circuited: false,
+                barrier_tail: !tail.is_empty(),
             }));
         }
     };
@@ -331,8 +374,14 @@ fn try_stream_pipeline(
     let mut taken = vec![0i64; stages.len()];
     let mut stats = StreamStats {
         streamed: true,
+        barrier_tail: !tail.is_empty(),
         ..Default::default()
     };
+    // With a barrier following, the head's output is what the barrier consumes,
+    // so it is collected rather than emitted. With no barrier nothing is
+    // buffered and each value reaches the callback as it is produced — the SSE
+    // route depends on that, so the two cases stay genuinely different.
+    let mut buffered: Vec<Value> = Vec::new();
 
     for x in items {
         // A satisfied `take` ends the run before the next element is read --
@@ -382,19 +431,30 @@ fn try_stream_pipeline(
             }
             batch = res?;
         }
+        let mut deliver = |v: Value| {
+            if tail.is_empty() {
+                on_item(v);
+                stats.emitted += 1;
+            } else {
+                buffered.push(v);
+            }
+        };
         match batch {
             Value::Array(out) => {
                 for it in out {
-                    on_item(it);
-                    stats.emitted += 1;
+                    deliver(it);
                 }
             }
             Value::Null => {}
-            other => {
-                on_item(other);
-                stats.emitted += 1;
-            }
+            other => deliver(other),
         }
+    }
+
+    // The barrier, and everything after it, once — on exactly the collection it
+    // would have been handed by the eager evaluator.
+    if !tail.is_empty() {
+        let out = apply_stages(Value::Array(buffered), &tail, env)?;
+        stats.emitted += emit_value(out, on_item);
     }
     Ok(Some(stats))
 }
