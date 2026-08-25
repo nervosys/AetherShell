@@ -495,6 +495,24 @@ than bolted on per-builtin.
 > (dispatch 1111/1112). A test asserts the manifest is >4× cheaper in estimated
 > tokens than the full `ontology_json()` dump.
 
+> ⚠️ **The "keyed by `BUILTIN_LOOKUP` index" above was the load-bearing half of
+> that sentence, and the implementation dropped it.** `safety::classified_effect`
+> is a `match` on the *name*. Dispatch is by *implementation*: `BUILTIN_LOOKUP`
+> aliases share an index, and a fallback `match` arm serves every literal on its
+> left. So one spelling of a builtin could be classified and another not, and the
+> unclassified one read as `Pure` — which `centrally_enforced` does not gate and
+> the audit line does not record. Measured 2026-08-25: **104 alias groups
+> disagreed with themselves; 26 produced different guard decisions for the same
+> implementation.** In agent mode `lldb_run` was refused for requiring approval
+> and `lldb` ran the debugger to completion one call later.
+>
+> Fixed by restoring the index as the unit of classification rather than the
+> name: `builtins::alias_groups()` derives the equivalence classes from the
+> dispatcher itself, and `effect_of` fills any unclassified spelling with the
+> strictest classification a sibling carries. 118 builtins changed class, every
+> one of them in the strict direction. Held by
+> `tests/effect_alias_agreement.rs`, demonstrated by `tests/alias_guard_bypass.rs`.
+
 ### 5.4 Progressive ontology disclosure (standing-context win for both)
 
 The full ontology is large; agents need a slice. Serve it in layers:
@@ -685,6 +703,12 @@ paged/truncated to fit (✅ implemented). ✅ Per-session aggregation lands via
   — `take_stops_pulling_the_source` pins `pulled == 3` of 1000, with a no-`take`
   control at `pulled == 50` so it cannot pass for the wrong reason, an effectful
   stage held at `pulled == 20`, and an agreement test against the eager evaluator.
+  The purity walk reads **both halves of the dispatcher** via
+  `builtins::is_dispatched`; it used to ask `BUILTIN_LOOKUP` alone, so the ~113
+  names served by the fallback `match` (`from_json`, `select`, `group_by`, …) read
+  as *unknown* and any `take` downstream of one silently withheld its
+  short-circuit. An undispatched name still blocks it — `false` there means
+  unknown, never harmless — and both halves are asserted.
   *Remaining:* whole-collection stages (`sort`/`reduce`/`uniq`) and non-array
   sources still materialize.
 
@@ -935,7 +959,7 @@ The `.ae` surface keeps readable, unambiguous syntax and gains:
 | **3** | **Safety core (headline)** | Policy engine + workspace jail (§7.1/7.4); approval protocol (§7.2); hash-chained audit (§7.5); wire RBAC | `src/security.rs`, `src/auth.rs`, `src/builtins.rs` (rm/kill/sh/db/docker), `src/agent_api.rs` |
 | **4** | **Token economy** | 🟡 First slice: `aecon(value)` compact rendering + `tokens(value)` estimate builtins (§6.2, tests prove AECON < JSON on homogeneous records) + `budget()` paging/truncation (§6.2) + `ontology_manifest`/`ontology_describe` progressive disclosure (§5.4, >4× cheaper than full dump) + CLI `--budget N` flag (REPL applies `budget_value`) + per-call `token_accounting` in `AgentResponse.metadata`. **Core complete.** ✅ **Per-session aggregation landed**: `sess_usage(id)` returns `{evals, tokens_in, tokens_out, tokens_total}` | `src/builtins.rs`, `src/agent_api.rs`, `tests/output_economy.rs`, `src/value.rs`, `src/metrics.rs`, `src/main.rs` |
 | **5** | **Grammar unification** | 🟡 Started: `|.field` projection (with `.a.b` chains) now parsed by the real grammar (`parser::parse_pipe`) + SI suffixes in the lexer + `~x: body` lambda + `?match` prefix + `if`-expression — all additive (`tests/grammar.rs`). **Transpiler retirement in progress** (2 passes retired): `expand_si_suffixes` and `expand_match` (`?`) are removed from the pipeline (grammar covers both); their golden tests migrated to behavior assertions (`eval_aeg` harness) and ONTOLOGY examples updated to pass-through. Recipe: remove the call → `#[allow(dead_code)]` the fn → behavior-migrate the affected text tests → update ONTOLOGY examples. (Lesson: text-coupled golden tests make each retirement cost real migration — SI touched 4 test sites + 2 ontology examples.) *Remaining:* `expand_lambdas`/`expand_pipelines` can only be *partially* retired (they also handle cipher forms the grammar lacks: `\x:`/`~.field`/`>`-pipe); `!try`/`^cond` ciphers overload `Bang`/`Caret`, so they stay transpiler-only; retire the 10-pass transpiler to a shim (§4.3); boundary type-checking (§8) | `src/parser.rs`, `src/typecheck.rs`, `src/transpile/agentic.rs` |
-| **6** | **Agentic features** | ✅ Transactions/checkpoints (`tx_*` + savepoints) + Plan/Apply (`plan`/`apply`, ops `write`/`append`/`rm`/`mkdir`/`copy`/`move`) + builtins-as-MCP-tools (`McpServer::list_builtin_tools`/`call_builtin`) + **stateful sessions** (`sess_*`) + chunked **streaming execute** landed. ✅ **stdio JSON-RPC transport landed** (`ae mcp stdio`); ✅ **transaction nesting works** (`tx_begin` twice reports `depth: 2`). ✅ **true stage-by-stage streaming *evaluation*** (`eval_stream`) and ✅ **short-circuiting `take(n)`** — a satisfied `take` abandons the source unread (withheld when an upstream stage is not `Pure`), measured by `StreamStats::pulled` rather than asserted. *Remaining:* whole-collection stages (`sort`/`reduce`/`uniq`) and non-array sources still materialize | `src/tx.rs`, `src/builtins.rs`, `src/agent_api.rs`, `src/mcp.rs`, `src/ai_api/server.rs` |
+| **6** | **Agentic features** | ✅ Transactions/checkpoints (`tx_*` + savepoints) + Plan/Apply (`plan`/`apply`, ops `write`/`append`/`rm`/`mkdir`/`copy`/`move`) + builtins-as-MCP-tools (`McpServer::list_builtin_tools`/`call_builtin`) + **stateful sessions** (`sess_*`) + chunked **streaming execute** landed. ✅ **stdio JSON-RPC transport landed** (`ae mcp stdio`); ✅ **transaction nesting works** (`tx_begin` twice reports `depth: 2`). ✅ **true stage-by-stage streaming *evaluation*** (`eval_stream`) and ✅ **short-circuiting `take(n)`** — a satisfied `take` abandons the source unread (withheld when an upstream stage is not `Pure`), measured by `StreamStats::pulled` rather than asserted; the purity walk reads **both halves of the dispatcher** (`builtins::is_dispatched`), where it used to ask `BUILTIN_LOOKUP` alone and treat the ~113 fallback-`match` names as unknown. *Remaining:* whole-collection stages (`sort`/`reduce`/`uniq`) and non-array sources still materialize | `src/tx.rs`, `src/builtins.rs`, `src/agent_api.rs`, `src/mcp.rs`, `src/ai_api/server.rs` |
 
 | **7** | **Self-healing** | ✅ Structured-by-default at the builtin boundary (`safety::ensure_structured`, new codes `E_UNKNOWN_BUILTIN`/`E_UNKNOWN`, `ErrorCode::retryable()`); `did_you_mean` over the live builtin table; `diagnose(error)` minimal repair context (1139); `try_repair(code)` rollback-bracketed attempts (1140); `agentic_eval::repair` harness + a **measured** repair rate filling §11's placeholder. ✅ **Model-driven strategy landed** (`tests/repair_rate.rs`): the same harness, given only the error facts and the builtin's declared signature. Proven on the wrong-argument corpus where the mechanical strategy scores 0 by design, using a deterministic stand-in so the *plumbing* is verified without a model in CI; the live scoring skips loudly when no backend is configured, because a repair rate reported without a model is a number nobody measured. An unparseable reply counts as no-repair, never as success; ✅ **module paths already resolve**: `file.raed("x")` returns `E_UNKNOWN_FIELD` with `did you mean: read` | `src/safety.rs`, `src/builtins.rs`, `crates/agentic-eval/src/repair.rs`, `tests/self_healing.rs`, `tests/repair_rate.rs` |
 
@@ -1017,6 +1041,15 @@ of structured errors rather than building or measuring it.
   happen at all. Human mode is unchanged. Asserted by three tests in
   `tests/safety.rs`; `kubectl_delete`/`kubectl_exec` needed nothing, being aliases
   of the already-guarded `k8s_*`.
+
+  ⚠️ **"Being aliases" was not a reason, it was a coincidence** — and the general
+  form of it was a live bypass for months. A call-site guard runs whichever name
+  reached it, so `kubectl_exec` was genuinely covered. `effect_of` is not a call
+  site: it reads the literal name, so an alias inherited *nothing*, and a builtin
+  gated only by its classification had an ungated spelling. See the §5.3 note:
+  104 alias groups disagreed, 26 differed in what the guard decided, and `lldb`
+  ran while `lldb_run` was refused. Aliases now inherit their group's strictest
+  classification, derived from the dispatcher rather than asserted.
 
   ⚠️ **Reading each body before wiring a guard corrected four of the lint's own
   results.** `sudo_exec` returns the advice "use sudo directly in terminal";
