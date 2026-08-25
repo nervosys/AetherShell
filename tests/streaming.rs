@@ -210,3 +210,60 @@ fn a_taken_pipeline_agrees_with_the_eager_evaluator() {
     };
     assert_eq!(streamed, eager);
 }
+
+// ── The source runs once ──────────────────────────────────────────────────────
+//
+// A pipeline source that is not an array was evaluated *twice*: the streaming
+// path evaluated it, found it was not an array, and returned `None`, whereupon
+// the caller eager-evaluated the whole statement — source included. The values
+// agreed either way, which is why it survived. The second side effect did not.
+
+/// How many bytes a run of `code` appended to its log.
+fn appends_made(tag: &str, run: impl FnOnce(&str, &mut aethershell::env::Env)) -> String {
+    let dir = std::env::temp_dir().join(format!("ae_stream_once_{tag}_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let log = dir.join("appends.log");
+    let p = log
+        .to_string_lossy()
+        .replace(std::path::MAIN_SEPARATOR, "/");
+
+    // `file_append` returns a record, so this is a non-array source. `map` then
+    // rejects it — under the eager evaluator too, so the error is not what
+    // changed here. The number of appends is.
+    let code = format!("file_append(\"{p}\", \"x\") | map(fn(r) => r)");
+    let mut env = aethershell::env::Env::new();
+    run(&code, &mut env);
+
+    let appended = std::fs::read_to_string(&log).unwrap_or_default();
+    let _ = std::fs::remove_dir_all(&dir);
+    appended
+}
+
+#[test]
+fn a_non_array_pipeline_source_runs_only_once() {
+    let appended = appends_made("stream", |code, env| {
+        let mut sink = |_v: Value| {};
+        let _ = aethershell::eval::eval_stream_with_stats(code, env, &mut sink);
+    });
+    assert_eq!(
+        appended, "x",
+        "the source must run exactly once — \"xx\" means the streaming path \
+         evaluated it and then handed the statement back to be evaluated again"
+    );
+}
+
+#[test]
+fn the_streaming_path_appends_no_more_than_the_eager_one() {
+    // The claim is not "once" in the abstract, it is "the same as evaluating it
+    // normally". Measured against the eager evaluator rather than a constant.
+    let eager = appends_made("eager", |code, env| {
+        let stmts = aethershell::parser::parse_program(code).expect("parse");
+        let _ = aethershell::eval::eval_program(&stmts, env);
+    });
+    let streamed = appends_made("vs_eager", |code, env| {
+        let mut sink = |_v: Value| {};
+        let _ = aethershell::eval::eval_stream_with_stats(code, env, &mut sink);
+    });
+    assert_eq!(streamed, eager, "streaming must not double a side effect");
+}

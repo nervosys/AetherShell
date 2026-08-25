@@ -93,7 +93,8 @@ pub struct StreamStats {
     pub emitted: usize,
     /// Source elements pushed through the stage chain.
     pub pulled: usize,
-    /// Whether the element-wise path ran at all (false = eager fallback).
+    /// Whether the element-wise path ran at all. `false` means the value went
+    /// through the stages in a single batch, the way the eager evaluator does it.
     pub streamed: bool,
     /// Whether a `take` was satisfied and the remaining source abandoned.
     pub short_circuited: bool,
@@ -240,6 +241,27 @@ fn is_effect_free(e: &Expr) -> bool {
     }
 }
 
+/// Push one value through every stage of a pipe chain and return what comes out.
+///
+/// This is the eager evaluator's [`Expr::Pipe`] behaviour, reproduced for a
+/// source that has already been evaluated: set the value as the pipe input,
+/// evaluate the stage, repeat. `take` is deliberately *not* given the streaming
+/// path's hand-rolled accounting here -- there is a single batch, so calling the
+/// builtin is what eager evaluation would do, and matching it is the whole point.
+fn apply_stages(mut batch: Value, stages: &[&Expr], env: &mut Env) -> Result<Value> {
+    for stage in stages {
+        let saved = env.input().cloned();
+        env.set_input(Some(batch));
+        let res = eval_expr(stage, env);
+        match saved {
+            Some(v) => env.set_input(Some(v)),
+            None => env.set_input(None),
+        }
+        batch = res?;
+    }
+    Ok(batch)
+}
+
 /// If `expr` is a streamable pipeline, stream it element-by-element and return
 /// `Some(stats)`; otherwise return `None` so the caller eager-evaluates.
 fn try_stream_pipeline(
@@ -266,7 +288,23 @@ fn try_stream_pipeline(
     let src = eval_expr(cur, env)?;
     let items = match src {
         Value::Array(items) => items,
-        _ => return Ok(None),
+        // Not element-wise streamable -- but the source has *already run*, and
+        // returning `Ok(None)` here would send the caller back to eager-evaluate
+        // the whole statement, source included. `file_append(p, "x") | map(f)`
+        // appended twice. A second side effect is a wrong answer, not a slow
+        // one, so push the value that was already computed through the stages
+        // instead of recomputing it -- which is exactly what the eager
+        // evaluator's `Expr::Pipe` arm does with the same value.
+        other => {
+            let out = apply_stages(other, &stages, env)?;
+            let emitted = emit_value(out, on_item);
+            return Ok(Some(StreamStats {
+                emitted,
+                pulled: 1,
+                streamed: false,
+                short_circuited: false,
+            }));
+        }
     };
 
     // A `take` may abandon the rest of the source only when everything upstream
