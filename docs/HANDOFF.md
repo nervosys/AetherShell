@@ -86,12 +86,15 @@
 > **Measured this session, not inspected:** `aethershell` **1905 passed, 0 failed
 > across 111 suites**; `agentic-eval` **83 passed, 0 failed**; doctests **7 ok / 1
 > ignored / 0 failed**; `cargo clippy --workspace --all-targets --features native
-> -- -D warnings` exit 0; `cargo fmt --all -- --check` exit 0. Four commits:
-> `c7780c4` (the source of truth), `194a496` (the guard fix), `51f0532` (item 3),
-> and this document. All four pushed; **17/17 green by SHA on `44ab51c`**,
-> `Lint` and `Test (windows-latest)` included.
+> -- -D warnings` exit 0; `cargo fmt --all -- --check` exit 0. That was the state
+> at `44ab51c` — `c7780c4` (the source of truth), `194a496` (the guard fix),
+> `51f0532` (item 3) and the docs — **17/17 green by SHA**, `Lint` and
+> `Test (windows-latest)` included.
 >
-> All four numbers are from the **committed** tree, and the test figure is one
+> After the second half (`142d60c`, `a006d40`) the suite reads **1914 passed, 0
+> failed across 112 binaries**, doctests **7/0**, clippy and fmt both exit 0.
+>
+> Every number here is from the **committed** tree, and each test figure is one
 > uninterrupted `cargo test --features native --no-fail-fast` at exit 0 — not a
 > stitched-together set of partial runs.
 >
@@ -116,6 +119,40 @@
 > all from *other* repositories (cyb0rg, ami, chasm, irongate). §7.1's warning
 > held: builds were slow, but nothing corrupted, and killing another session's
 > work is not on the table. Check `tasklist` before believing a compiler error.
+
+> **Session 5, second half: the roadmap in §5 item 4 is closed out — two done,
+> one deliberately not, and the reasons are the useful part.**
+>
+> - **Lazy iterators (`142d60c`).** A whole-collection stage used to disqualify
+>   the *whole* pipeline, so `xs | map(f) | take(3) | sort` called `f` a thousand
+>   times to sort three elements. A barrier now ends the streamable region rather
+>   than poisoning it: the prefix streams, the barrier gets exactly the
+>   collection the eager evaluator would have handed it, `pulled` drops 1000 → 3.
+>   Two of the new tests assert agreement against `eval_program` itself rather
+>   than against a constant, and five of six are red without the change. The
+>   effect rule survives the split — a `take` still may not abandon the source
+>   when anything upstream acts — asserted with a barrier now sitting behind it,
+>   because moving the barrier out of the streamed region must not smuggle that
+>   check away.
+> - **RBAC bridge (`a006d40`) — decided against, not skipped.** It looked like
+>   plumbing and is a security decision: the older store holds
+>   `(resource, actions)` and the newer holds capability strings, and only the
+>   newer is read by `guard`. `rbac_grant` is `Privileged`; `role_grant` is
+>   unclassified and allowed **because it confers nothing**. Bridging without
+>   classifying `role_*` first would recreate `194a496`'s bug from the other
+>   direction. `tests/rbac_legacy_store.rs` measures the inertness behaviourally
+>   — `rm` refused, broadest legacy role granted, `rm` refused again — so anyone
+>   who does bridge it is told what has to happen first.
+> - **Transpiler retirement — untouched, and the blocker is why.** Finishing it
+>   means extending the grammar over five cipher forms and disambiguating two
+>   overloaded tokens. That is a language change needing its own session and a
+>   decision about whether those forms are kept at all; doing it in the margins
+>   of another task is how a grammar acquires accidents.
+>
+> **Not closable from this seat, and both still open:** the crates.io token
+> rotation (§5 item 1 — a human at <https://crates.io/settings/tokens>) and the
+> external security review and penetration test (§5 item 2). Registering the 168
+> unadvertised `bi_*` (§5 item 3) is a product call, not an engineering one.
 
 
 > **Session 4 (2026-08-25): the shell was healthy, everything was pushed, and CI
@@ -218,8 +255,8 @@ File edits still work, so there is unverified work in the tree.
 | | |
 |---|---|
 | Branch | `master` |
-| Last pushed commit | `44ab51c` — **17/17 green by SHA** (14 success, 3 always-skipped: CLA Check, Check Outdated Dependencies, Dependency Review). `a16b3a2` was likewise re-verified 17/17 this session |
-| Unpushed on `master` | nothing but the commit carrying this table line, which is docs-only |
+| CI verified by SHA | `2b91cf8` and `44ab51c` both **17/17** (14 success, 3 always-skipped: CLA Check, Check Outdated Dependencies, Dependency Review). `a16b3a2` was likewise re-verified 17/17 this session |
+| Since then | `142d60c` (lazy iterators) and `a006d40` (RBAC decision) + the commit carrying this table. Locally green — 1914/0 across 112 binaries, doctests 7/0, clippy and fmt exit 0 — **but confirm by SHA once CI has run them** |
 | Version | 8.0.0 (published to crates.io; verified against the registry, not a green run) |
 | Working tree | clean |
 
@@ -486,17 +523,33 @@ These predate this session's work and are **not** blocked on the shell.
    `tests/catalog_reachability.rs` keeps the advertised-but-unreachable count at
    zero. Registering them is a product decision, still open.
 4. **Roadmap, remaining.**
-   - Fully lazy iterators end-to-end — §4 above is the first real bite; the
-     eager fallback path and the whole-collection stages (`sort`/`reduce`/
-     `uniq`) still materialise.
+   - ~~Fully lazy iterators end-to-end~~ — **done as far as it goes** (session 5,
+     `142d60c`). A whole-collection stage now *ends* the streamable region
+     instead of disqualifying the pipeline, so `xs | map(f) | take(3) | sort`
+     pulls 3 rather than 1000. What is left is not "unfinished", it is where the
+     idea stops paying: a pipeline whose **first** stage is a barrier has nothing
+     to stream ahead of it and a buffer to pay, and a non-array source has
+     nothing to stream by definition. Both deliberately still take the eager
+     path, and tests pin that.
    - Transpiler retirement to a shim. Partially blocked and documented as such:
      `expand_lambdas`/`expand_pipelines` also handle cipher forms the grammar
      lacks (`\x:`, `~.field`, `>`-pipe), and `!try`/`^cond` overload
      `Bang`/`Caret`, so they stay transpiler-only until the grammar covers them.
-   - Optionally bridge the older `RBAC_ROLES` registry into `RbacManager`. Two
-     stores coexist; the older one is inert as far as the guard is concerned.
-     The README and `modules.rs` now say so, which was the honest half of the
-     fix.
+     **Untouched in session 5, and the reason is the blocker itself:** finishing
+     it means extending the grammar to cover five cipher forms and disambiguating
+     two overloaded tokens, which is a language change, not a refactor. It wants
+     its own session and a decision about whether those forms are kept at all.
+   - ~~Optionally bridge the older `RBAC_ROLES` registry into `RbacManager`~~ —
+     **decided against, deliberately** (session 5, `a006d40`), and the decision
+     is now pinned by `tests/rbac_legacy_store.rs`. The two stores are not two
+     copies of one model: the older one holds `(resource, actions)` pairs and
+     answers `rbac.check`, the newer holds capability strings and is the only one
+     `guard` reads. The separation is load-bearing — `rbac_grant` is `Privileged`
+     because it writes where the guard reads, while `role_grant` is unclassified
+     and allowed *because it confers nothing*. **Bridging without classifying
+     `role_*` first would give the agent surface an ungated spelling of a denied
+     operation**, the same shape as the alias bypass in `194a496`. If it is ever
+     done, classify `role_create`/`role_grant`/`role_revoke` in the same commit.
 
 ---
 
