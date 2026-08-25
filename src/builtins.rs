@@ -3877,6 +3877,198 @@ pub fn call_with_input(
         .map_err(|e| crate::safety::ensure_structured(name, e))
 }
 
+/// Every name served by the fallback `match` in [`call_with_input_inner`],
+/// paired with the function that arm calls, sorted by name.
+///
+/// The dispatcher has two halves. `BUILTIN_LOOKUP` is a table, so it can be
+/// asked what it serves and which names share an implementation; the fallback is
+/// a literal `match`, so it can do neither. That asymmetry made the second half
+/// invisible to everything reasoning about "the set of names an agent can call"
+/// — `tests/effect_ratchet.rs` skipped it, and `eval::is_effect_free` treated all
+/// 113 fallback-only names as unknown.
+///
+/// The function name is carried because *aliasing* is the part that matters for
+/// safety: `"vault-convert" | "vault_convert" => bi_vault_convert(..)` is one
+/// arm serving two names, and `safety::effect_of` classifies by name. Without
+/// this pairing there was no way for `src/` to know the two were the same call.
+///
+/// Hand-written *and* drift-proof: `tests/fallback_dispatch.rs` parses the arms
+/// out of this file's own source and asserts equality, so an arm added without a
+/// matching entry here fails the build. That mechanical check is the difference
+/// between a second source of truth and a second place to forget.
+///
+/// Three of these names (`ai_backends`, `type_of`, `typeof`) are also in
+/// `BUILTIN_LOOKUP`, which wins, so their arms are unreachable. They are listed
+/// anyway because this mirrors the *match*, not the reachable subset — keeping
+/// the equality exact is what makes the drift test simple enough to trust.
+pub const FALLBACK_BUILTINS: &[(&str, &str)] = &[
+    ("ForEach-Object", "bi_foreach_object"),
+    ("Get-Content", "bi_get_content"),
+    ("Get-Files", "bi_get_files"),
+    ("Group-Object", "bi_group_object"),
+    ("Measure-Object", "bi_measure_object"),
+    ("Select-Object", "bi_select_object"),
+    ("Sort-Object", "bi_sort_object"),
+    ("Where-Object", "bi_where_object"),
+    ("agent", "bi_agent"),
+    ("ai", "bi_ai"),
+    ("ai-add-route", "bi_ai_add_route"),
+    ("ai-backends", "bi_ai_backends"),
+    ("ai-complete", "bi_ai_complete"),
+    ("ai-convert-model", "bi_ai_convert_model"),
+    ("ai-cost", "bi_ai_cost"),
+    ("ai-detect", "bi_ai_detect"),
+    ("ai-detect-format", "bi_ai_detect_format"),
+    ("ai-explain", "bi_ai_explain"),
+    ("ai-fix", "bi_ai_fix"),
+    ("ai-gateway", "bi_ai_gateway"),
+    ("ai-gpu-memory", "bi_ai_gpu_memory"),
+    ("ai-load-balancing", "bi_ai_load_balancing"),
+    ("ai-local-backends", "bi_ai_local_backends"),
+    ("ai-local-embed", "bi_ai_local_embed"),
+    ("ai-local-generate", "bi_ai_local_generate"),
+    ("ai-local-load", "bi_ai_local_load"),
+    ("ai-local-unload", "bi_ai_local_unload"),
+    ("ai-model-fits", "bi_ai_model_fits"),
+    ("ai-providers", "bi_ai_providers"),
+    ("ai-registry-stats", "bi_ai_registry_stats"),
+    ("ai-reset-usage", "bi_ai_reset_usage"),
+    ("ai-routes", "bi_ai_routes"),
+    ("ai-set-default", "bi_ai_set_default"),
+    ("ai-set-load-balancing", "bi_ai_set_load_balancing"),
+    ("ai-suggest", "bi_ai_suggest"),
+    ("ai-supported-conversions", "bi_ai_supported_conversions"),
+    ("ai-usage", "bi_ai_usage"),
+    ("ai_add_route", "bi_ai_add_route"),
+    ("ai_backends", "bi_ai_backends"),
+    ("ai_convert_model", "bi_ai_convert_model"),
+    ("ai_cost", "bi_ai_cost"),
+    ("ai_detect", "bi_ai_detect"),
+    ("ai_detect_format", "bi_ai_detect_format"),
+    ("ai_gateway", "bi_ai_gateway"),
+    ("ai_gpu_memory", "bi_ai_gpu_memory"),
+    ("ai_load_balancing", "bi_ai_load_balancing"),
+    ("ai_local_backends", "bi_ai_local_backends"),
+    ("ai_local_embed", "bi_ai_local_embed"),
+    ("ai_local_generate", "bi_ai_local_generate"),
+    ("ai_local_load", "bi_ai_local_load"),
+    ("ai_local_unload", "bi_ai_local_unload"),
+    ("ai_model_fits", "bi_ai_model_fits"),
+    ("ai_providers", "bi_ai_providers"),
+    ("ai_registry_stats", "bi_ai_registry_stats"),
+    ("ai_reset_usage", "bi_ai_reset_usage"),
+    ("ai_routes", "bi_ai_routes"),
+    ("ai_set_default", "bi_ai_set_default"),
+    ("ai_set_load_balancing", "bi_ai_set_load_balancing"),
+    ("ai_supported_conversions", "bi_ai_supported_conversions"),
+    ("ai_usage", "bi_ai_usage"),
+    ("columns", "bi_columns"),
+    ("complete", "bi_ai_complete"),
+    ("describe", "bi_describe"),
+    ("explain", "bi_ai_explain"),
+    ("fix", "bi_ai_fix"),
+    ("foreach", "bi_foreach_object"),
+    ("foreach-object", "bi_foreach_object"),
+    ("from-csv", "bi_from_csv"),
+    ("from-json", "bi_from_json"),
+    ("from-yaml", "bi_from_yaml"),
+    ("from_csv", "bi_from_csv"),
+    ("from_json", "bi_from_json"),
+    ("from_yaml", "bi_from_yaml"),
+    ("get-content", "bi_get_content"),
+    ("get-files", "bi_get_files"),
+    ("group", "bi_group_object"),
+    ("group-object", "bi_group_object"),
+    ("group_by", "bi_group_object"),
+    ("handle", "bi_handle"),
+    ("handle_drop", "bi_handle_drop"),
+    ("handles", "bi_handles"),
+    ("irongate", "bi_ai_gateway"),
+    ("is_type", "bi_is_type"),
+    ("journal", "bi_journal"),
+    ("journal_clear", "bi_journal_clear"),
+    ("measure", "bi_measure_object"),
+    ("measure-object", "bi_measure_object"),
+    ("ontology_json", "bi_ontology_json"),
+    ("ontology_jsonld", "bi_ontology_jsonld"),
+    ("ontology_owl", "bi_ontology_owl"),
+    ("ontology_shacl", "bi_ontology_shacl"),
+    ("rewind", "bi_undo"),
+    ("select", "bi_select_object"),
+    ("select-object", "bi_select_object"),
+    ("sort-object", "bi_sort_object"),
+    ("suggest", "bi_ai_suggest"),
+    ("swarm", "bi_swarm"),
+    ("to-csv", "bi_to_csv"),
+    ("to-json", "bi_to_json"),
+    ("to-yaml", "bi_to_yaml"),
+    ("to_csv", "bi_to_csv"),
+    ("to_json", "bi_to_json"),
+    ("to_yaml", "bi_to_yaml"),
+    ("type_fields", "bi_type_fields"),
+    ("type_name", "bi_type_name"),
+    ("type_of", "bi_typeof"),
+    ("type_schema", "bi_type_schema"),
+    ("typeof", "bi_typeof"),
+    ("undo", "bi_undo"),
+    ("vault-conversions", "bi_vault_conversions"),
+    ("vault-convert", "bi_vault_convert"),
+    ("vault-models", "bi_vault_models"),
+    ("vault_conversions", "bi_vault_conversions"),
+    ("vault_convert", "bi_vault_convert"),
+    ("vault_models", "bi_vault_models"),
+    ("where-object", "bi_where_object"),
+];
+
+/// Whether the builtin dispatcher serves `name` — either half of it.
+///
+/// A name this answers `false` for is not a builtin: it may be a user-defined
+/// function, a module member, or nothing at all. Callers reasoning about safety
+/// must treat `false` as *unknown*, never as *harmless*.
+pub fn is_dispatched(name: &str) -> bool {
+    BUILTIN_LOOKUP.contains_key(name)
+        || FALLBACK_BUILTINS
+            .binary_search_by_key(&name, |(n, _)| n)
+            .is_ok()
+}
+
+/// Names that reach the same implementation, grouped — across both halves of
+/// the dispatcher.
+///
+/// `BUILTIN_LOOKUP` aliases share a dispatch index (`ls` and `list` are both 8);
+/// fallback aliases share an arm. Dispatch is by implementation while
+/// `safety::effect_of` classifies by *name*, so wherever a group's spellings are
+/// classified differently, the weakest one is the one an agent will reach for.
+/// This is what lets `safety` close that gap without a second hand-written list.
+///
+/// Groups of one are omitted: they cannot disagree with anything.
+pub fn alias_groups() -> Vec<Vec<&'static str>> {
+    let mut by_impl: HashMap<String, Vec<&'static str>> = HashMap::new();
+    for (name, idx) in BUILTIN_LOOKUP.iter() {
+        by_impl.entry(format!("#{idx}")).or_default().push(name);
+    }
+    for (name, callee) in FALLBACK_BUILTINS {
+        // A name the fast table also serves is dispatched there, so it belongs
+        // with that implementation, not with the arm it shadows.
+        if BUILTIN_LOOKUP.contains_key(name) {
+            continue;
+        }
+        by_impl.entry((*callee).to_string()).or_default().push(name);
+    }
+    let mut out: Vec<Vec<&'static str>> = by_impl
+        .into_values()
+        .filter(|names| names.len() > 1)
+        .map(|mut names| {
+            names.sort_unstable();
+            names.dedup();
+            names
+        })
+        .filter(|names| names.len() > 1)
+        .collect();
+    out.sort();
+    out
+}
+
 fn call_with_input_inner(
     name: &str,
     args: Vec<Value>,

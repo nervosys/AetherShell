@@ -9,14 +9,23 @@
 //! effect_snapshot`, and read the diff before committing it: a line moving from
 //! `Exec` to `Pure` is a builtin becoming invisible to policy.
 
-use aethershell::builtins::BUILTIN_LOOKUP;
+use aethershell::builtins::{BUILTIN_LOOKUP, FALLBACK_BUILTINS};
 use aethershell::safety::effect_of;
 
 const SNAPSHOT: &str = "tests/effect_snapshot.txt";
 
+/// Both halves of the dispatcher.
+///
+/// This pinned `BUILTIN_LOOKUP` alone until the fallback `match` acquired a
+/// mirror it could be read from. Those ~113 names are as callable as any other,
+/// and they are exactly the ones whose classification was silently missing, so
+/// leaving them out of the golden record left out the part that had already gone
+/// wrong.
 fn current() -> String {
     let mut names: Vec<&str> = BUILTIN_LOOKUP.keys().copied().collect();
+    names.extend(FALLBACK_BUILTINS.iter().map(|(n, _)| *n));
     names.sort_unstable();
+    names.dedup();
     let mut out = String::new();
     for n in names {
         out.push_str(&format!("{n}\t{:?}\n", effect_of(n)));

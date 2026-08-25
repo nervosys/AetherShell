@@ -17,7 +17,7 @@
 //! lint may still catch; a false positive would be a broken build, so the evidence
 //! markers stay narrow and the exemptions carry reasons.
 
-use aethershell::builtins::BUILTIN_LOOKUP;
+use aethershell::builtins::{BUILTIN_LOOKUP, FALLBACK_BUILTINS};
 use aethershell::safety::{effect_of, Effect};
 use std::collections::{HashMap, HashSet};
 
@@ -548,32 +548,62 @@ fn called_names(body: &str) -> Vec<String> {
     out
 }
 
-/// Every registered builtin that acts while classified `Pure`, with the
-/// evidence — whether it acts itself or delegates.
+/// Every name the dispatcher serves, paired with the function that implements
+/// it — **both** halves of `builtins::call_with_input_inner`.
+///
+/// The fast half follows the `bi_<name>` convention this file's scan is built
+/// on. The fallback half does not: `"select" => bi_select_object(..)` serves a
+/// name the function is not named after, and `"undo" | "rewind"` serves two, so
+/// the pairing is read from `builtins::FALLBACK_BUILTINS` — which
+/// `tests/fallback_dispatch.rs` holds to the match arms themselves.
+///
+/// Until this existed the ratchet gated on `BUILTIN_LOOKUP.contains_key`, which
+/// is only half the dispatcher: 113 names an agent can call were never looked
+/// at, while `safety::guard_dispatch` enforced policy from `effect_of` for all
+/// of them.
+fn dispatched_pairs() -> Vec<(String, String)> {
+    let mut pairs: Vec<(String, String)> = bodies_by_name()
+        .keys()
+        .filter_map(|fn_name| {
+            let name = fn_name.strip_prefix("bi_")?;
+            (!name.is_empty() && BUILTIN_LOOKUP.contains_key(name))
+                .then(|| (name.to_string(), fn_name.clone()))
+        })
+        .collect();
+    pairs.extend(
+        FALLBACK_BUILTINS
+            .iter()
+            .map(|(n, f)| ((*n).to_string(), (*f).to_string())),
+    );
+    pairs.sort();
+    // A name in both halves is served by the fast table; one report is enough.
+    pairs.dedup_by(|a, b| a.0 == b.0);
+    pairs
+}
+
+/// Every builtin the dispatcher serves that acts while classified `Pure`, with
+/// the evidence — whether it acts itself or delegates.
 fn current_violations() -> Vec<(String, &'static str, String)> {
     let all = bodies_by_name();
     let mut out = Vec::new();
-    for (fn_name, body) in all.iter() {
-        let Some(name) = fn_name.strip_prefix("bi_") else {
+    for (name, fn_name) in dispatched_pairs() {
+        if effect_of(&name) != Effect::Pure {
+            continue;
+        }
+        let Some(body) = all.get(&fn_name) else {
+            // The arm calls something this scan has no body for (a method, a
+            // path-qualified call). Not evidence of purity — just no evidence.
             continue;
         };
-        // Only names the dispatcher actually exposes; helpers named bi_* that are
-        // not registered cannot be reached by an agent.
-        if name.is_empty() || !BUILTIN_LOOKUP.contains_key(name) {
-            continue;
-        }
-        if effect_of(name) != Effect::Pure {
-            continue;
-        }
         if let Some((marker, why)) = direct_evidence(body) {
-            out.push((name.to_string(), marker, why.to_string()));
+            out.push((name, marker, why.to_string()));
             continue;
         }
         let mut seen = HashSet::new();
         // Do not follow into itself.
         seen.insert(fn_name.clone());
         if let Some((marker, chain)) = delegated_evidence(body, &all, FOLLOW_DEPTH, &mut seen) {
-            out.push((name.to_string(), marker, format!("delegates: {chain}")));
+            out.push((name, marker, format!("delegates: {chain}")));
         }
     }
     out.sort();
@@ -892,5 +922,55 @@ fn the_optimistic_resolver_is_not_simply_blind() {
         found > 100,
         "the optimistic resolver found effects from only {found} builtins; it \
          has gone blind, and the 0-exposure report above is meaningless"
+    );
+}
+
+/// A check on the widening, not on the code under test.
+///
+/// `no_new_builtin_acts_while_classified_pure` went green the moment the
+/// fallback half was added to it, which is exactly what a *blind* check looks
+/// like. This reports the arithmetic behind that zero: how many fallback names
+/// were examined, how many resolved to a body the scanner can read, and how the
+/// classifications fall. A widening that silently resolved nothing shows up here
+/// as `bodies resolved: 0`.
+#[test]
+fn report_fallback_dispatch_coverage() {
+    let all = bodies_by_name();
+    let arms: Vec<(String, String)> = FALLBACK_BUILTINS
+        .iter()
+        .map(|(n, f)| ((*n).to_string(), (*f).to_string()))
+        .collect();
+    let mut resolved = 0usize;
+    let mut unresolved: Vec<String> = Vec::new();
+    let mut declared = 0usize;
+    let mut pure_no_evidence: Vec<String> = Vec::new();
+    for (name, fn_name) in &arms {
+        match all.get(fn_name) {
+            Some(_) => resolved += 1,
+            None => unresolved.push(format!("{name} -> {fn_name}")),
+        }
+        if effect_of(name) != Effect::Pure {
+            declared += 1;
+        } else if all.contains_key(fn_name) {
+            pure_no_evidence.push(name.clone());
+        }
+    }
+    unresolved.sort();
+    unresolved.dedup();
+    pure_no_evidence.sort();
+    println!("fallback arms: {}", arms.len());
+    println!("bodies resolved: {resolved}");
+    println!("bodies unresolved ({}): {unresolved:#?}", unresolved.len());
+    println!("classified non-Pure: {declared}");
+    println!(
+        "Pure with a readable body and no evidence ({}): {pure_no_evidence:#?}",
+        pure_no_evidence.len()
+    );
+
+    assert!(
+        resolved * 2 > arms.len(),
+        "the fallback widening resolves only {resolved} of {} arms to a readable \
+         body — the ratchet's zero is mostly blindness, not coverage",
+        arms.len()
     );
 }
