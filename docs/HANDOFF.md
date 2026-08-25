@@ -91,8 +91,9 @@
 > `51f0532` (item 3) and the docs — **17/17 green by SHA**, `Lint` and
 > `Test (windows-latest)` included.
 >
-> After the second half (`142d60c`, `a006d40`) the suite reads **1914 passed, 0
-> failed across 112 binaries**, doctests **7/0**, clippy and fmt both exit 0.
+> After the rest of session 5 (`142d60c`, `a006d40`, `8e24118`) the suite reads
+> **1919 passed, 0 failed across 113 binaries**, doctests **7/0**, clippy and fmt
+> both exit 0.
 >
 > Every number here is from the **committed** tree, and each test figure is one
 > uninterrupted `cargo test --features native --no-fail-fast` at exit 0 — not a
@@ -531,14 +532,30 @@ These predate this session's work and are **not** blocked on the shell.
      to stream ahead of it and a buffer to pay, and a non-array source has
      nothing to stream by definition. Both deliberately still take the eager
      path, and tests pin that.
-   - Transpiler retirement to a shim. Partially blocked and documented as such:
-     `expand_lambdas`/`expand_pipelines` also handle cipher forms the grammar
-     lacks (`\x:`, `~.field`, `>`-pipe), and `!try`/`^cond` overload
-     `Bang`/`Caret`, so they stay transpiler-only until the grammar covers them.
-     **Untouched in session 5, and the reason is the blocker itself:** finishing
-     it means extending the grammar to cover five cipher forms and disambiguating
-     two overloaded tokens, which is a language change, not a refactor. It wants
-     its own session and a decision about whether those forms are kept at all.
+   - ~~Transpiler retirement to a shim~~ — **this bullet was stale, and session 5
+     repeated it before checking.** It named `expand_lambdas`/`expand_pipelines`
+     as the blocker. Those functions do not exist: Phase 5 deleted all 14
+     `expand_*`/`preprocess_ultra` functions when it replaced the 10-pass
+     pipeline with a single left-to-right `scan`, and §4.3 of the design doc has
+     recorded that as **COMPLETE** since. The phase-5 table row said "in
+     progress, 2 passes retired" the whole time, and its other listed remainder —
+     boundary type-checking (§8) — is marked ✅ done there too.
+
+     What is genuinely left is the *aspiration* in §4.3: that the transpiler
+     become a thin shim emitting canonical AST. §4.3 itself recommends deferring
+     it, measure-first — "high-risk, large-effort, low-value on a deprecated
+     surface" — and that verdict still holds. `tests/grammar_vs_transpiler.rs`
+     now pins the division mechanically so this cannot go stale again: which
+     forms the grammar has adopted, which are still transpiler-only, and that
+     none of the deleted passes has come back.
+
+     **The one thing worth knowing before anyone tries it:** the test asserts on
+     *meaning*, not parseability, because `>` is the awkward case.
+     `[1,2,3] > len()` parses fine — as a greater-than comparison. It is a valid
+     program that means something different on each surface, which is worse than
+     a syntax error and invisible to a parse check. Deleting the transpiler
+     without a grammar production for `>`-as-pipe would silently change what
+     existing `.aeg` means, rather than failing loudly.
    - ~~Optionally bridge the older `RBAC_ROLES` registry into `RbacManager`~~ —
      **decided against, deliberately** (session 5, `a006d40`), and the decision
      is now pinned by `tests/rbac_legacy_store.rs`. The two stores are not two
