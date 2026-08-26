@@ -176,6 +176,33 @@
 > **Suite after this: 1924 passed, 0 failed across 114 binaries**, clippy and fmt
 > exit 0.
 >
+> **Checked §5 item 2’s “two live vulnerabilities” rather than assuming (`c9ff0e7`).**
+> The wording is ambiguous between “genuine” and “still unfixed”, and this session
+> had already found three stale claims, so both were re-verified:
+>
+> - **Unauthenticated MCP builtin execution — fixed.** `McpServer::call_builtin`
+>   goes through `builtins::call`, so `guard_dispatch` applies; `agent_api`
+>   requires a bearer token on every route but `/health`.
+> - **But the AI API had a live fail-open next to it.** `aimodel` assigned the
+>   CLI `--require-api-key` flag straight over the config value. The flag is a
+>   bare bool, `false` whenever absent — so `require_api_key = true` in a config
+>   file was silently switched **off** by running `aimodel server`. Host, port and
+>   CORS were overridden the same way, but those land on *more* restrictive
+>   values; only this one failed open. Routes affected are not read-only: model
+>   download, convert (spawns a converter), delete, storage cleanup. Now folded
+>   one-way — a flag may add a requirement, never drop one.
+> - Default posture is unchanged and defensible: `127.0.0.1`, no key. What was
+>   missing is any coupling between “I made this reachable” and “I turned auth
+>   on”, so a non-loopback bind without a key now warns (warns, not refuses — it
+>   is legitimate behind a trusted boundary).
+> - **SQL injection — not re-audited this session.** `safety.rs` carries SQL
+>   validation and `db_sqlite_exec`/`sqlite_exec` are classified `Exec`, but that
+>   is not the same as having tested the injection surface. **Treat it as open**;
+>   it is a good first target for the external review.
+>
+> **Suite after this: 1931 passed, 0 failed across 115 binaries**, clippy and fmt
+> exit 0.
+>
 > **Not closable from this seat, and both still open:** the crates.io token
 > rotation (§5 item 1 — a human at <https://crates.io/settings/tokens>) and the
 > external security review and penetration test (§5 item 2). Registering the 168
