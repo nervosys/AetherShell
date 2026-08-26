@@ -29227,10 +29227,18 @@ fn bi_db_sqlite_export_csv(args: Vec<Value>, _input: Option<Value>) -> Result<Va
         _ => None,
     });
 
+    // A leading SELECT means the caller passed a query and owns it, the same
+    // contract as the WHERE clause in `db_sqlite_delete`. Anything else is a
+    // table *name*, so it is an identifier and is validated — without this it
+    // was interpolated raw, and the sqlite3 CLI runs every `;`-separated
+    // statement it is handed.
     let query = if table_or_query.to_uppercase().starts_with("SELECT") {
         table_or_query
     } else {
-        format!("SELECT * FROM {}", table_or_query)
+        format!(
+            "SELECT * FROM {}",
+            crate::safety::sql_identifier("db_sqlite_export_csv", &table_or_query)?
+        )
     };
 
     crate::safety::reject_sqlite_dot_command("db_sqlite_export_csv", &query)?;
@@ -29700,6 +29708,24 @@ fn bi_db_sqlite_open(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     bi_db_sqlite_create(args, None)
 }
 
+/// Render one `Value` as a SQL literal.
+///
+/// Strings go through [`crate::safety::sql_literal`] rather than a local
+/// `replace('\'', "''")`. The two agree on doubling quotes, but the helper also
+/// refuses an interior NUL — the sqlite3 CLI reads its SQL as a C string, so a
+/// NUL silently truncates the statement, and storing a shortened value is its own
+/// bug. Two call sites had hand-rolled the escaping and inherited neither that
+/// check nor any later fix to it.
+fn sql_value(builtin: &str, v: &Value) -> Result<String> {
+    Ok(match v {
+        Value::Str(s) => crate::safety::sql_literal(builtin, s)?,
+        Value::Int(n) => n.to_string(),
+        Value::Float(f) => f.to_string(),
+        Value::Bool(b) => if *b { "1" } else { "0" }.to_string(),
+        _ => "NULL".to_string(),
+    })
+}
+
 fn bi_db_sqlite_insert(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let db_path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
@@ -29714,27 +29740,23 @@ fn bi_db_sqlite_insert(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         _ => return Ok(Value::Bool(false)),
     };
 
-    let columns: Vec<String> = values.keys().cloned().collect();
+    // Column names are identifiers, and they come from a caller-supplied record,
+    // so they are exactly as controlled as the values are. Escaping the values
+    // and not the keys made the gap easier to miss, not smaller: a key of
+    // `id) VALUES (1); DROP TABLE victim; --` closed the statement and the
+    // sqlite3 CLI ran what followed.
+    let columns: Vec<String> = values
+        .keys()
+        .map(|k| crate::safety::sql_identifier("db_sqlite_insert", k))
+        .collect::<Result<_>>()?;
     let vals: Vec<String> = values
         .values()
-        .map(|v| match v {
-            Value::Str(s) => format!("'{}'", s.replace("'", "''")),
-            Value::Int(n) => n.to_string(),
-            Value::Float(f) => f.to_string(),
-            Value::Bool(b) => {
-                if *b {
-                    "1".to_string()
-                } else {
-                    "0".to_string()
-                }
-            }
-            _ => "NULL".to_string(),
-        })
-        .collect();
+        .map(|v| sql_value("db_sqlite_insert", v))
+        .collect::<Result<_>>()?;
 
     let sql = format!(
         "INSERT INTO {} ({}) VALUES ({})",
-        table,
+        crate::safety::sql_identifier("db_sqlite_insert", &table)?,
         columns.join(", "),
         vals.join(", ")
     );
@@ -29759,29 +29781,24 @@ fn bi_db_sqlite_update(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         _ => return Ok(Value::Bool(false)),
     };
 
+    // Same as `db_sqlite_insert`: the record's keys are identifiers and are
+    // caller-controlled. The WHERE clause is SQL by contract -- this builtin
+    // exists to take one -- so it stays the caller's, matching the note in
+    // `db_sqlite_delete`.
     let sets: Vec<String> = values
         .iter()
         .map(|(k, v)| {
-            let val = match v {
-                Value::Str(s) => format!("'{}'", s.replace("'", "''")),
-                Value::Int(n) => n.to_string(),
-                Value::Float(f) => f.to_string(),
-                Value::Bool(b) => {
-                    if *b {
-                        "1".to_string()
-                    } else {
-                        "0".to_string()
-                    }
-                }
-                _ => "NULL".to_string(),
-            };
-            format!("{} = {}", k, val)
+            Ok(format!(
+                "{} = {}",
+                crate::safety::sql_identifier("db_sqlite_update", k)?,
+                sql_value("db_sqlite_update", v)?
+            ))
         })
-        .collect();
+        .collect::<Result<_>>()?;
 
     let sql = format!(
         "UPDATE {} SET {} WHERE {}",
-        table,
+        crate::safety::sql_identifier("db_sqlite_update", &table)?,
         sets.join(", "),
         where_clause
     );
@@ -29887,20 +29904,29 @@ fn bi_db_sqlite_create_table(args: Vec<Value>, _input: Option<Value>) -> Result<
         _ => return Ok(Value::Bool(false)),
     };
 
+    // NOTE: the column *type* is still interpolated as written. Constraining it
+    // means inventing a grammar for SQL type expressions (`VARCHAR(255)`,
+    // `DECIMAL(10,2)`, `NOT NULL`), which is a deliberate decision rather than a
+    // drive-by one -- and this builtin is not currently reachable (it is in the
+    // unregistered set, §5 item 3 of docs/HANDOFF.md). **If it is ever
+    // registered, the type argument needs validating first.**
+    // `tests/sql_injection.rs` fails if it becomes reachable, which is the
+    // reminder.
     let col_defs: Vec<String> = columns
         .iter()
         .map(|(name, typ)| {
+            let name = crate::safety::sql_identifier("db_sqlite_create", name)?;
             let type_str = match typ {
                 Value::Str(s) => s.clone(),
                 _ => "TEXT".to_string(),
             };
-            format!("{} {}", name, type_str)
+            Ok(format!("{} {}", name, type_str))
         })
-        .collect();
+        .collect::<Result<_>>()?;
 
     let sql = format!(
         "CREATE TABLE IF NOT EXISTS {} ({})",
-        table,
+        crate::safety::sql_identifier("db_sqlite_create", &table)?,
         col_defs.join(", ")
     );
     bi_db_sqlite_exec(vec![Value::Str(db_path), Value::Str(sql)], None)
@@ -29927,7 +29953,12 @@ fn bi_db_sqlite_drop_table(args: Vec<Value>, _input: Option<Value>) -> Result<Va
         reversible: crate::tx::is_active(),
         fs_paths: false,
     })?;
-    let sql = format!("DROP TABLE IF EXISTS {}", table);
+    // Validated after the guard, so an approval prompt still describes the table
+    // the caller named rather than a sanitised version of it.
+    let sql = format!(
+        "DROP TABLE IF EXISTS {}",
+        crate::safety::sql_identifier("db_sqlite_drop_table", &table)?
+    );
     bi_db_sqlite_exec(vec![Value::Str(db_path), Value::Str(sql)], None)
 }
 
