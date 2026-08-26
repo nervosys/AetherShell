@@ -228,10 +228,14 @@
 >   them, or an allowlisted name **with a reason**. Verified to catch a
 >   reintroduced hole, not assumed to.
 >
->   **Still open here:** `db_sqlite_create` interpolates the column *type* as
->   written. It is unreachable today, and constraining a SQL type expression
->   (`VARCHAR(255)`, `DECIMAL(10,2)`, `NOT NULL`) is a decision, not a drive-by
->   fix. `tests/sql_injection.rs` fires if it is ever registered.
+>   **~~Still open here~~ — CLOSED in session 6.** `db_sqlite_create_table`
+>   interpolated the column *type* as written, deferred across three sessions
+>   on the grounds that constraining a SQL type expression (`VARCHAR(255)`,
+>   `DECIMAL(10,2)`, `NOT NULL`) is a decision rather than a drive-by fix.
+>   The decision is now made and lives in `safety::sql_column_type`: a token
+>   allowlist, not a grammar. Still unregistered, so nothing was exploitable —
+>   what is removed is the precondition that registering it required a
+>   security decision nobody had taken.
 >
 > **Suite after this: 1931 passed, 0 failed across 115 binaries**, clippy and fmt
 > exit 0.
@@ -387,6 +391,94 @@
 > added for on 2026-08-06 ("pushes landed but triggered no runs"), so it was
 > dispatched by hand rather than treated as a green-by-absence. **A commit with
 > no checks is not a passing commit**; verify by SHA.
+>
+> **Closing pass. Every engineering item in §5 that can be closed from this seat
+> now is, and each is pinned by a ratchet rather than by prose.**
+>
+> **1. The label understated the effect — six more, and the rule that finds them.**
+> `tests/effect_ratchet.rs` compares evidence against the label, but it only
+> fires when the label is `Pure`: "acts while claiming to do nothing". A builtin
+> that claims to do *something*, just not the thing it does, was invisible to it.
+> Six were:
+>
+> | builtin | was | is | what the body does |
+> |---|---|---|---|
+> | `file_edit` | ReadLocal | WriteLocal | `fs::write` + `fs::rename` over the caller's path |
+> | `file_insert` | ReadLocal | WriteLocal | same |
+> | `file_patch` | ReadLocal | WriteLocal | same |
+> | `file_backup` | ReadLocal | WriteLocal | `fs::copy` onto `<path><suffix>` |
+> | `session_export` | ReadLocal | WriteLocal | `fs::write` to a caller-named path |
+> | `file_move` | ReadLocal | **Destructive** | `fs::rename` — removes the source, can overwrite the destination |
+>
+> The jail keys on exactly this label: `safety::guard` applies the workspace check
+> only when `effect.is_filesystem()`, i.e. `WriteLocal | Destructive`. So in agent
+> mode `file.write` to a path outside the workspace was refused while
+> `file.patch` on the *same path* rewrote it. Alias inheritance carried the fix to
+> `edit_file`, `insert_lines`, `patch_file`, `text_edit`, `backup_file`,
+> `move_file`, `mv`, `file_rename` — thirteen snapshot lines, all reviewed.
+>
+> **`mv` and `move_file` are now `Destructive`, which means agent mode asks for
+> approval before a move.** That is a real change in what an agent may do without
+> asking. It is the honest classification — `file_delete_lines` is already
+> `Destructive` for altering a file in place, and moving one over another is not
+> the smaller act — but it is a behaviour change, not just a relabelling.
+>
+> `tests/write_evidence.rs` is the durable part: **a body that writes must carry a
+> label the jail keys on.** Stated against `is_filesystem()` rather than a
+> severity ordering, because the jail is the control and the control's own
+> predicate is the thing to assert.
+>
+> **2. Option injection, generalised and bounded.** `reject_option_like` went from
+> 11 uses to 43, and — more usefully — the check moved *into* `guard_network`, so
+> all fourteen `curl`/`wget` sites and any future one inherit it at the one door
+> they already pass through. `tests/option_injection_ratchet.rs` covers the tools
+> where a leading `-` buys **code execution** (`git --upload-pack`,
+> `ssh -oProxyCommand`, `tar --use-compress-program`, `zip -TT`, `curl -K`,
+> `openssl -engine`, `find -exec`) and deliberately not the other ~330 value-
+> carrying sites, where a leading `-` is a bad argument rather than a foothold. A
+> rule that flagged all 372 would be waived, not obeyed.
+>
+> Twelve allowlist entries, each a **decision**, not a waiver: a slot that is an
+> option by contract (`git reset --hard`, `find -size -1M`), or one where the
+> value is consumed as another option's argument and may legitimately start with
+> `-` (a commit message, a password, an HMAC key, a `find -name` pattern).
+>
+> **3. `db_sqlite_create_table`'s column type — §5's one named "still open".**
+> `safety::sql_column_type` is a token allowlist, not a parser: a type name with
+> an optional `(N)`/`(N,M)` size, a short constraint vocabulary, numeric literals,
+> and single-quoted literals with no interior quote. `CHECK(…)` and `REFERENCES`
+> are refused with an error that points at the raw column-definition branch. The
+> builtin is still unregistered, so nothing here was exploitable — which is why it
+> kept being deferred. What the fix removes is a **precondition**: registering it
+> used to require a security decision nobody had taken.
+>
+> **4. A latent bug in `tests/guard_enforcement.rs`, and the hole it was hiding.**
+> Its body extractor skipped string literals but not char literals, so `'"'` read
+> as opening a string and `'}'` as closing the function, and bodies ran on into
+> their neighbours. With that fixed, `SELF_GUARDED` turned out to list
+> **`platform_os_version` and `sys_info`, neither of which calls any guard** —
+> they had only ever looked self-guarding because the extractor swallowed a
+> neighbour's. `SELF_GUARDED` makes `guard_dispatch` return immediately, so a
+> stale entry is an exemption. Both are `ReadLocal`, which is not centrally
+> enforced, so **nothing was live** — it was a trap armed for whoever reclassified
+> them upward. Both removed.
+>
+> The same bug bit the new scanner first, and that is the part worth carrying:
+> `tests/write_evidence.rs` initially reported **nine** offenders, seven of them
+> builtins containing no write at all (`sys_info`, `agent`, `project_name`,
+> `project_version`, `platform_os_version`, `platform_machine_id`, `vm_info`) —
+> extracted "bodies" of 250KB, 490KB and 1.6MB. The tempting fix was to allowlist
+> all seven, which would have recorded a scanner bug as a set of deliberate
+> exceptions. **The two real findings were sitting in the same list.**
+>
+> **Suite: 1981 passed, 0 failed across 121 binaries**, clippy `-D warnings` and
+> fmt exit 0.
+>
+> **What is left, and it is not engineering.** §5 item 1 (crates.io token
+> rotation) and §5 item 2 (external security review and penetration test) both
+> need a human. §5 item 3 (registering the 168) is a product decision, and its one
+> engineering blocker is now removed. §5.4's remaining roadmap entries are each
+> closed or explicitly decided against with a test pinning the decision.
 
 
 > **Session 4 (2026-08-25): the shell was healthy, everything was pushed, and CI

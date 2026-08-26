@@ -4324,7 +4324,9 @@ fn guard_network(builtin: &str, url: &str) -> Result<()> {
     Ok(())
 }
 
-/// Gate the *local* half of a network builtin that also touches the filesystem.
+/// Jail a caller-supplied path that the builtin is about to write, exactly as
+/// `file_write` does — resolve it workspace-relative, then guard it as
+/// `WriteLocal` with `fs_paths: true`.
 ///
 /// A download has two effects and the effect taxonomy carries one. `web_download`,
 /// `wget_download` and `web_upload_file` are classified `Network` by the `web_*`
@@ -4340,7 +4342,7 @@ fn guard_network(builtin: &str, url: &str) -> Result<()> {
 /// rather than beside the process's working directory — the same treatment
 /// `file_write` gives it, and it also removes the option-injection question,
 /// since a resolved absolute path cannot begin with `-`.
-fn guard_network_local_write(builtin: &str, path: &str) -> Result<String> {
+fn guard_local_write(builtin: &str, path: &str) -> Result<String> {
     let path = crate::safety::resolve_path_str(path);
     crate::safety::guard(crate::safety::GuardCtx {
         builtin,
@@ -4349,6 +4351,28 @@ fn guard_network_local_write(builtin: &str, path: &str) -> Result<String> {
         targets: vec![path.clone()],
         blast_radius: serde_json::json!({ "path": path }),
         reversible: true,
+        fs_paths: true,
+    })?;
+    Ok(path)
+}
+
+/// The `Destructive` counterpart of [`guard_local_write`], for a move.
+///
+/// `fs::rename` removes the source and can overwrite the destination, so it is
+/// not the same promise as a write — `Destructive` is `approve` in agent mode
+/// rather than `allow`. That is a real change in what an agent may do without
+/// asking, and it is the honest one: `file_delete_lines` is already
+/// `Destructive` for altering a file in place, and moving one over another is
+/// not the smaller act.
+fn guard_local_move(builtin: &str, path: &str) -> Result<String> {
+    let path = crate::safety::resolve_path_str(path);
+    crate::safety::guard(crate::safety::GuardCtx {
+        builtin,
+        effect: crate::safety::Effect::Destructive,
+        what: "move",
+        targets: vec![path.clone()],
+        blast_radius: serde_json::json!({ "path": path }),
+        reversible: false,
         fs_paths: true,
     })?;
     Ok(path)
@@ -24112,6 +24136,8 @@ fn bi_zip_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(not(target_os = "windows"))]
     {
+        crate::safety::reject_option_like("zip_create", std::slice::from_ref(&archive))?;
+        crate::safety::reject_option_like("zip_create", &files)?;
         let output = std::process::Command::new("zip")
             .arg(&archive)
             .args(&files)
@@ -24147,6 +24173,8 @@ fn bi_zip_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(not(target_os = "windows"))]
     {
+        crate::safety::reject_option_like("zip_extract", std::slice::from_ref(&archive))?;
+        crate::safety::reject_option_like("zip_extract", std::slice::from_ref(&dest))?;
         let output = std::process::Command::new("unzip")
             .args([&archive, "-d", &dest])
             .output()?;
@@ -24193,6 +24221,7 @@ fn bi_zip_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(not(target_os = "windows"))]
     {
+        crate::safety::reject_option_like("zip_list", std::slice::from_ref(&archive))?;
         let output = std::process::Command::new("unzip")
             .args(["-l", &archive])
             .output()?;
@@ -24245,6 +24274,8 @@ fn bi_zip_add(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     #[cfg(not(target_os = "windows"))]
     {
+        crate::safety::reject_option_like("zip_add", std::slice::from_ref(&archive))?;
+        crate::safety::reject_option_like("zip_add", &files)?;
         let output = std::process::Command::new("zip")
             .arg("-u")
             .arg(&archive)
@@ -24302,9 +24333,11 @@ fn bi_tar_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         _ => None,
     });
 
+    crate::safety::reject_option_like("tar_extract", std::slice::from_ref(&archive))?;
     let mut cmd = std::process::Command::new("tar");
     cmd.args(["-xvf", &archive]);
     if let Some(d) = dest {
+        crate::safety::reject_option_like("tar_extract", std::slice::from_ref(&d))?;
         cmd.args(["-C", &d]);
     }
     let output = cmd.output()?;
@@ -24317,6 +24350,7 @@ fn bi_tar_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         _ => return Ok(Value::Array(vec![])),
     };
 
+    crate::safety::reject_option_like("tar_list", std::slice::from_ref(&archive))?;
     let output = std::process::Command::new("tar")
         .args(["-tvf", &archive])
         .output()?;
@@ -24460,12 +24494,14 @@ fn bi_archive_test(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if file.ends_with(".zip") {
         #[cfg(not(target_os = "windows"))]
         {
+            crate::safety::reject_option_like("archive_test", std::slice::from_ref(&file))?;
             let output = std::process::Command::new("unzip")
                 .args(["-t", &file])
                 .output()?;
             return Ok(Value::Bool(output.status.success()));
         }
     } else if file.ends_with(".tar") || file.ends_with(".tar.gz") || file.ends_with(".tgz") {
+        crate::safety::reject_option_like("archive_test", std::slice::from_ref(&file))?;
         let output = std::process::Command::new("tar")
             .args(["-tf", &file])
             .output()?;
@@ -27401,7 +27437,7 @@ fn bi_web_download(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // A download has two effects and the taxonomy carries one. `guard_network`
     // gates the egress; nothing gated the *file*, so this wrote wherever it was
     // pointed while `file_write` to the same path was refused by the jail.
-    let path = guard_network_local_write("web_download", &path)?;
+    let path = guard_local_write("web_download", &path)?;
 
     let output = std::process::Command::new("curl")
         .args(["-sS", "-L", "-o", &path, &url])
@@ -29094,6 +29130,7 @@ fn bi_crypto_cert_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 
     #[cfg(unix)]
     {
+        crate::safety::reject_option_like("crypto_cert_info", std::slice::from_ref(&path))?;
         let output = std::process::Command::new("openssl")
             .args(["x509", "-in", &path, "-text", "-noout"])
             .output()?;
@@ -29701,6 +29738,7 @@ fn bi_crypto_cert_verify(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
 
     #[cfg(unix)]
     {
+        crate::safety::reject_option_like("crypto_cert_verify", std::slice::from_ref(&cert_path))?;
         let output = std::process::Command::new("openssl")
             .args(["verify", &cert_path])
             .output()?;
@@ -29995,20 +30033,21 @@ fn bi_db_sqlite_create_table(args: Vec<Value>, _input: Option<Value>) -> Result<
         _ => return Ok(Value::Bool(false)),
     };
 
-    // NOTE: the column *type* is still interpolated as written. Constraining it
-    // means inventing a grammar for SQL type expressions (`VARCHAR(255)`,
-    // `DECIMAL(10,2)`, `NOT NULL`), which is a deliberate decision rather than a
-    // drive-by one -- and this builtin is not currently reachable (it is in the
-    // unregistered set, §5 item 3 of docs/HANDOFF.md). **If it is ever
-    // registered, the type argument needs validating first.**
-    // `tests/sql_injection.rs` fails if it becomes reachable, which is the
-    // reminder.
+    // Both halves of `"<name> <type>"` are validated. The type half used to be
+    // interpolated as written, carried forward across sessions on the grounds
+    // that constraining it "means inventing a grammar for SQL type expressions,
+    // which is a deliberate decision rather than a drive-by one". That decision
+    // is now made and lives in `safety::sql_column_type`: a token allowlist, not
+    // a parser, because the value being described is small and closed. The
+    // builtin is still unregistered, so this fixes nothing exploitable today —
+    // it removes the precondition that registering it required a security
+    // decision nobody had taken.
     let col_defs: Vec<String> = columns
         .iter()
         .map(|(name, typ)| {
             let name = crate::safety::sql_identifier("db_sqlite_create", name)?;
             let type_str = match typ {
-                Value::Str(s) => s.clone(),
+                Value::Str(s) => crate::safety::sql_column_type("db_sqlite_create", s)?,
                 _ => "TEXT".to_string(),
             };
             Ok(format!("{} {}", name, type_str))
@@ -30444,6 +30483,9 @@ fn bi_file_patch(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         Value::Str(s) => s.clone(),
         _ => return Err(anyhow!("file_patch: path must be a string")),
     };
+    // Classified `ReadLocal` while the body wrote the file back in place.
+    // `WriteLocal` is what the jail keys on, so this path went uncontained.
+    let path = guard_local_write("file_patch", &path)?;
 
     let patches = if args.len() > 1 {
         match &args[1] {
@@ -30589,6 +30631,9 @@ fn bi_file_insert(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         Value::Str(s) => s.clone(),
         _ => return Err(anyhow!("file_insert: path must be a string")),
     };
+    // Classified `ReadLocal` while the body wrote the file back in place.
+    // `WriteLocal` is what the jail keys on, so this path went uncontained.
+    let path = guard_local_write("file_insert", &path)?;
 
     let content = if args.len() > 2 {
         match &args[2] {
@@ -30820,6 +30865,9 @@ fn bi_file_edit(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         Value::Str(s) => s.clone(),
         _ => return Err(anyhow!("file_edit: path must be a string")),
     };
+    // Classified `ReadLocal` while the body wrote the file back in place.
+    // `WriteLocal` is what the jail keys on, so this path went uncontained.
+    let path = guard_local_write("file_edit", &path)?;
 
     let edits = if args.len() > 1 {
         match &args[1] {
@@ -31111,6 +31159,10 @@ fn bi_file_backup(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     let backup_path = format!("{}{}", path, suffix);
 
+    // `fs::copy` onto `backup_path` is a write, and the label said read.
+    let path = guard_local_write("file_backup", &path)?;
+    let backup_path = guard_local_write("file_backup", &backup_path)?;
+
     if !std::path::Path::new(&path).exists() {
         return Err(anyhow!(
             "file_backup: source file '{}' does not exist",
@@ -31222,6 +31274,12 @@ fn bi_file_move(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if !std::path::Path::new(&source).exists() {
         return Err(anyhow!("file_move: source '{}' does not exist", source));
     }
+
+    // Classified `ReadLocal` while the body renamed one path over another —
+    // which removes the source and can overwrite the destination. Both ends
+    // are caller-supplied, and neither was jailed.
+    let source = guard_local_move("file_move", &source)?;
+    let dest = guard_local_move("file_move", &dest)?;
 
     let metadata = fs::metadata(&source)?;
     let bytes = metadata.len();
@@ -31747,6 +31805,7 @@ fn bi_git_blame(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
         .ok_or_else(|| crate::safety::arg_err("file path required"))?;
+    crate::safety::reject_option_like("git_blame", std::slice::from_ref(&file))?;
     let output = std::process::Command::new("git")
         .args(["blame", &file])
         .output()?;
@@ -31781,6 +31840,7 @@ fn bi_git_checkout(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
         .ok_or_else(|| crate::safety::arg_err("branch name required"))?;
+    crate::safety::reject_option_like("git_checkout", std::slice::from_ref(&branch))?;
     let output = std::process::Command::new("git")
         .args(["checkout", &branch])
         .output()?;
@@ -31805,6 +31865,7 @@ fn bi_git_add(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .filter_map(|v| v.as_str().ok())
         .map(|s| s.to_string())
         .collect();
+    crate::safety::reject_option_like("git_add", &files)?;
     let mut cmd = std::process::Command::new("git");
     cmd.arg("add");
     for f in &files {
@@ -31879,6 +31940,7 @@ fn bi_git_merge(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
         .ok_or_else(|| crate::safety::arg_err("branch name required"))?;
+    crate::safety::reject_option_like("git_merge", std::slice::from_ref(&branch))?;
     let output = std::process::Command::new("git")
         .args(["merge", &branch])
         .output()?;
@@ -31891,6 +31953,7 @@ fn bi_git_rebase(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
         .ok_or_else(|| crate::safety::arg_err("branch name required"))?;
+    crate::safety::reject_option_like("git_rebase", std::slice::from_ref(&branch))?;
     let output = std::process::Command::new("git")
         .args(["rebase", &branch])
         .output()?;
@@ -31903,6 +31966,7 @@ fn bi_git_cherry_pick(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
         .ok_or_else(|| crate::safety::arg_err("commit hash required"))?;
+    crate::safety::reject_option_like("git_cherry_pick", std::slice::from_ref(&commit))?;
     let output = std::process::Command::new("git")
         .args(["cherry-pick", &commit])
         .output()?;
@@ -31926,6 +31990,7 @@ fn bi_git_show(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
         .unwrap_or("HEAD".to_string());
+    crate::safety::reject_option_like("git_show", std::slice::from_ref(&commit))?;
     let output = std::process::Command::new("git")
         .args(["show", &commit])
         .output()?;
@@ -31940,6 +32005,7 @@ fn bi_git_rev_parse(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
         .unwrap_or("HEAD".to_string());
+    crate::safety::reject_option_like("git_rev_parse", std::slice::from_ref(&rev))?;
     let output = std::process::Command::new("git")
         .args(["rev-parse", &rev])
         .output()?;
@@ -32970,6 +33036,7 @@ fn bi_session_diff_since(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
         .unwrap_or("HEAD~1".to_string());
+    crate::safety::reject_option_like("session_diff_since", std::slice::from_ref(&commit))?;
     let output = std::process::Command::new("git")
         .args(["diff", &commit])
         .output()?;
@@ -32988,6 +33055,7 @@ fn bi_session_rollback(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
         .unwrap_or("HEAD".to_string());
+    crate::safety::reject_option_like("session_rollback", std::slice::from_ref(&commit))?;
     let output = std::process::Command::new("git")
         .args(["reset", "--hard", &commit])
         .output()?;
@@ -33000,6 +33068,8 @@ fn bi_session_export(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
         .unwrap_or("session.patch".to_string());
+    // Same again: labelled `ReadLocal`, writes an arbitrary path.
+    let file = guard_local_write("session_export", &file)?;
     let output = std::process::Command::new("git").args(["diff"]).output()?;
     std::fs::write(&file, &output.stdout)?;
     Ok(Value::Str(file))
@@ -40665,6 +40735,7 @@ fn bi_ssh_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // Runs an arbitrary command on another host: the widest blast radius in the
     // builtin table, and until now ungated and unaudited.
     crate::safety::guard_exec("ssh_exec", format!("ssh {} {}", host, command))?;
+    crate::safety::reject_option_like("ssh_exec", std::slice::from_ref(&host))?;
     let mut cmd = Command::new("ssh");
     if let Some(p) = port {
         cmd.arg("-p").arg(p.to_string());
@@ -40721,6 +40792,7 @@ fn bi_ssh_tunnel(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
     };
     let tunnel_spec = format!("{}:{}:{}", local_port, remote_host, remote_port);
+    crate::safety::reject_option_like("ssh_tunnel", std::slice::from_ref(&ssh_host))?;
     let output = Command::new("ssh")
         .args(["-f", "-N", "-L", &tunnel_spec, &ssh_host])
         .output()
@@ -40802,6 +40874,7 @@ fn bi_ssh_copy_id(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             "mkdir -p ~/.ssh && echo '{}' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys",
             key_content.trim()
         );
+        crate::safety::reject_option_like("ssh_copy_id", std::slice::from_ref(&host))?;
         let output = Command::new("ssh")
             .arg(&host)
             .arg(&remote_cmd)
@@ -40915,6 +40988,8 @@ fn bi_scp_upload(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Int(p)) => Some(*p),
         _ => None,
     };
+    crate::safety::reject_option_like("scp_upload", std::slice::from_ref(&local_path))?;
+    crate::safety::reject_option_like("scp_upload", std::slice::from_ref(&remote))?;
     let mut cmd = Command::new("scp");
     if let Some(p) = port {
         cmd.arg("-P").arg(p.to_string());
@@ -40956,6 +41031,8 @@ fn bi_scp_download(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Int(p)) => Some(*p),
         _ => None,
     };
+    crate::safety::reject_option_like("scp_download", std::slice::from_ref(&remote))?;
+    crate::safety::reject_option_like("scp_download", std::slice::from_ref(&local_path))?;
     let mut cmd = Command::new("scp");
     if let Some(p) = port {
         cmd.arg("-P").arg(p.to_string());
@@ -41046,6 +41123,7 @@ fn bi_sftp_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         _ => ".".to_string(),
     };
     let sftp_cmd = format!("ls -la {}", remote_path);
+    crate::safety::reject_option_like("sftp_list", std::slice::from_ref(&host))?;
     let output = Command::new("sftp")
         .arg("-b")
         .arg("-")
@@ -41104,6 +41182,7 @@ fn bi_sftp_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
     };
     let sftp_cmd = format!("get {} {}", remote_path, local_path);
+    crate::safety::reject_option_like("sftp_get", std::slice::from_ref(&host))?;
     let output = Command::new("sftp")
         .arg("-b")
         .arg("-")
@@ -41160,6 +41239,7 @@ fn bi_sftp_put(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
     };
     let sftp_cmd = format!("put {} {}", local_path, remote_path);
+    crate::safety::reject_option_like("sftp_put", std::slice::from_ref(&host))?;
     let output = Command::new("sftp")
         .arg("-b")
         .arg("-")
@@ -46422,7 +46502,7 @@ fn bi_wget_download(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     };
     // Same two-effect problem as `web_download`: the URL was gated and the file
     // was not.
-    let output = guard_network_local_write("wget_download", &output)?;
+    let output = guard_local_write("wget_download", &output)?;
     // Try wget first, fall back to curl
     let result = std::process::Command::new("wget")
         .args(["-q", "-O", &output, &url])

@@ -431,6 +431,9 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "dd_copy"
         | "git_clean"
         | "git_reset"
+        // `fs::rename` removes the source and can overwrite the destination;
+        // it was classified `ReadLocal`.
+        | "file_move" | "file_rename"
         | "session_rollback" => Some(Effect::Destructive),
 
         // ---- Network (24) ----
@@ -730,7 +733,6 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "search_symbols"
         | "search_todos"
         | "session_diff_since"
-        | "session_export"
         | "shellcheck_check"
         | "startup_list"
         | "strings_extract"
@@ -925,6 +927,15 @@ fn classified_effect(name: &str) -> Option<Effect> {
         // `file_*` prefix rule below claimed the directory-creating spelling only
         // read. `tests/effect_alias_agreement.rs` is what noticed.
         "file_write" | "file_append" | "file_copy" | "mkdir" | "mkdirp" | "file_mkdir" | "touch"
+        // `file_edit`, `file_insert` and `file_patch` read a file, change it and
+        // write it back — the `file_*` prefix rule below saw only the read. The
+        // jail keys on `WriteLocal`, so all three modified files anywhere on disk
+        // in agent mode while `file_write` to the same path was refused.
+        // `session_export` is the same shape one family over: labelled a read,
+        // writes the diff to a caller-named path.
+        | "file_edit" | "file_insert" | "file_patch" | "session_export"
+        // `file_backup` copies onto `<path><suffix>`; the label said read.
+        | "file_backup"
         | "write_file" | "write_json" | "text_write" | "save_json"
         | "gui_dialog_file_save" | "fs_mount"
         | "chmod" | "fs_chmod" | "fs_chown"
@@ -2437,6 +2448,190 @@ pub fn sql_identifier(builtin: &str, name: &str) -> anyhow::Result<String> {
     Ok(name.to_string())
 }
 
+/// Validate a column *type* clause for `CREATE TABLE` — the last unvalidated
+/// interpolation in the SQL family.
+///
+/// [`sql_identifier`] covers the name half of `"<name> <type>"`. The type half
+/// was left as written, with a note saying that constraining it "means inventing
+/// a grammar for SQL type expressions, which is a deliberate decision rather
+/// than a drive-by one". This is that decision, taken rather than carried
+/// forward again.
+///
+/// The grammar is a token allowlist, not a parser, because the value being
+/// described is small and closed: a type name, an optional size, and a handful
+/// of column constraints. Each whitespace-separated token must be one of
+///
+/// * a type or constraint keyword from the lists below, optionally carrying a
+///   `(N)` or `(N,M)` size — `VARCHAR(255)`, `DECIMAL(10,2)`;
+/// * a numeric literal, for `DEFAULT 0`;
+/// * a single-quoted literal containing no quote of its own, for `DEFAULT ''`.
+///
+/// Anything else is refused. That is deliberately narrower than SQLite accepts —
+/// SQLite's type affinity rules will take almost any word — and it refuses
+/// `CHECK(…)` and `REFERENCES t(c)` along with the injections, because both
+/// carry a parenthesised expression this cannot judge. A caller who genuinely
+/// needs those has the raw column-definition branch, which is SQL by contract
+/// and says so.
+///
+/// **Why now, for a builtin nothing can reach.** `db_sqlite_create_table` is in
+/// the 168 unregistered implementations (§5 item 3), so this fixes nothing
+/// exploitable today. It removes a *precondition*: registering it was previously
+/// blocked on a security decision nobody had made, which is the kind of debt
+/// that gets paid by whoever is registering builtins in a hurry.
+pub fn sql_column_type(builtin: &str, spec: &str) -> anyhow::Result<String> {
+    /// Type names accepted before the optional size. Covers the SQLite affinity
+    /// families and the common spellings borrowed from other dialects.
+    const TYPES: &[&str] = &[
+        "INT",
+        "INTEGER",
+        "TINYINT",
+        "SMALLINT",
+        "MEDIUMINT",
+        "BIGINT",
+        "UNSIGNED",
+        "BIG",
+        "INT2",
+        "INT8",
+        "CHARACTER",
+        "VARCHAR",
+        "VARYING",
+        "NCHAR",
+        "NATIVE",
+        "NVARCHAR",
+        "TEXT",
+        "CLOB",
+        "BLOB",
+        "REAL",
+        "DOUBLE",
+        "PRECISION",
+        "FLOAT",
+        "NUMERIC",
+        "DECIMAL",
+        "BOOLEAN",
+        "DATE",
+        "DATETIME",
+        "TIMESTAMP",
+    ];
+    /// Column constraints, and the bare words that may follow `DEFAULT` or
+    /// `COLLATE`. This list may only shrink.
+    const KEYWORDS: &[&str] = &[
+        "NOT",
+        "NULL",
+        "PRIMARY",
+        "KEY",
+        "AUTOINCREMENT",
+        "UNIQUE",
+        "DEFAULT",
+        "COLLATE",
+        "NOCASE",
+        "BINARY",
+        "RTRIM",
+        "ASC",
+        "DESC",
+        "CURRENT_TIMESTAMP",
+        "CURRENT_DATE",
+        "CURRENT_TIME",
+        "TRUE",
+        "FALSE",
+    ];
+
+    let reject = |token: &str| {
+        anyhow::Error::new(SafetyError {
+            code: ErrorCode::BadArg,
+            message: format!("{builtin}: {token:?} is not a valid column type or constraint"),
+            builtin: builtin.to_string(),
+            hint: "this is interpolated into a CREATE TABLE statement, which sqlite3 \
+                   executes as written — use a type name with an optional size and \
+                   constraints such as 'NOT NULL' or 'PRIMARY KEY'; for a CHECK or \
+                   REFERENCES clause, pass the whole column definition as a string \
+                   instead of a record"
+                .to_string(),
+            approval: None,
+            did_you_mean: Vec::new(),
+            expected: "a column type such as 'TEXT', 'VARCHAR(255) NOT NULL'".to_string(),
+            got: spec.to_string(),
+        })
+    };
+
+    /// A token stripped of a trailing `(N)` or `(N,M)`, or `None` if the
+    /// parentheses are anything other than that.
+    fn without_size(token: &str) -> Option<&str> {
+        let Some(open) = token.find('(') else {
+            return Some(token);
+        };
+        let rest = &token[open + 1..];
+        let inner = rest.strip_suffix(')')?;
+        let digits_ok = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_digit());
+        let sized = match inner.split_once(',') {
+            Some((a, b)) => digits_ok(a.trim()) && digits_ok(b.trim()),
+            None => digits_ok(inner.trim()),
+        };
+        sized.then(|| &token[..open])
+    }
+
+    fn is_number(token: &str) -> bool {
+        let t = token.strip_prefix('-').unwrap_or(token);
+        match t.split_once('.') {
+            Some((a, b)) => {
+                !a.is_empty()
+                    && !b.is_empty()
+                    && a.chars().all(|c| c.is_ascii_digit())
+                    && b.chars().all(|c| c.is_ascii_digit())
+            }
+            None => !t.is_empty() && t.chars().all(|c| c.is_ascii_digit()),
+        }
+    }
+
+    /// `'literal'` with no embedded quote, so it cannot end early and start
+    /// something else.
+    fn is_plain_string_literal(token: &str) -> bool {
+        token.len() >= 2
+            && token.starts_with('\'')
+            && token.ends_with('\'')
+            && !token[1..token.len() - 1].contains('\'')
+    }
+
+    let spec = spec.trim();
+    if spec.is_empty() {
+        return Err(reject(""));
+    }
+
+    // Whitespace inside a size is not a token boundary. `DECIMAL(10, 2)` is
+    // ordinary SQL and the first version of this split it into `DECIMAL(10,` and
+    // `2)`, refusing both — the check has to accept what people actually write
+    // or it is a ban wearing a validator's coat. Collapsing spaces *inside*
+    // parentheses is safe because the parenthesised part is separately required
+    // to be digits and at most one comma.
+    let mut flattened = String::with_capacity(spec.len());
+    let mut depth = 0i32;
+    for c in spec.chars() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            _ => {}
+        }
+        if depth > 0 && c.is_whitespace() {
+            continue;
+        }
+        flattened.push(c);
+    }
+
+    for token in flattened.split_whitespace() {
+        if is_number(token) || is_plain_string_literal(token) {
+            continue;
+        }
+        let Some(word) = without_size(token) else {
+            return Err(reject(token));
+        };
+        let upper = word.to_ascii_uppercase();
+        if TYPES.contains(&upper.as_str()) || KEYWORDS.contains(&upper.as_str()) {
+            continue;
+        }
+        return Err(reject(token));
+    }
+    Ok(spec.to_string())
+}
+
 pub fn reject_sqlite_dot_command(builtin: &str, sql: &str) -> anyhow::Result<()> {
     if sql.trim_start().starts_with('.') {
         return Err(anyhow::Error::new(SafetyError {
@@ -2629,7 +2824,12 @@ pub const SELF_GUARDED: &[&str] = &[
     "docker_exec",
     "docker_rm",
     "file_append",
+    "file_backup",
     "file_delete_lines",
+    "file_edit",
+    "file_insert",
+    "file_move",
+    "file_patch",
     "file_write",
     "http_get",
     "k8s_delete",
@@ -2640,7 +2840,6 @@ pub const SELF_GUARDED: &[&str] = &[
     "perf_record",
     "perf_stat",
     "platform_db_delete",
-    "platform_os_version",
     "podman_exec",
     "proc_kill",
     "proc_spawn",
@@ -2648,10 +2847,10 @@ pub const SELF_GUARDED: &[&str] = &[
     "rlm_spawn",
     "rm",
     "rmdir",
+    "session_export",
     "sh",
     "ssh_exec",
     "strace_cmd",
-    "sys_info",
     "terraform_destroy",
     "timeout_cmd",
     "tmux_new",

@@ -386,3 +386,125 @@ fn a_legitimate_json_import_still_works() {
     );
     let _ = std::fs::remove_file(&json);
 }
+
+// ── The column type: the last unvalidated interpolation in the SQL family ────
+//
+// `db_sqlite_create_table` builds `"<name> <type>"` per column.
+// `safety::sql_identifier` covered the name; the type was interpolated as
+// written, behind a comment saying that constraining it "means inventing a
+// grammar for SQL type expressions, which is a deliberate decision rather than a
+// drive-by one". That note was carried across three sessions. It is now taken.
+//
+// The builtin is still unregistered, so nothing here was exploitable — which is
+// exactly why it kept being deferred. What the fix removes is a *precondition*:
+// registering it used to require a security decision nobody had made, and that
+// is the kind of debt that gets paid by whoever is registering builtins in a
+// hurry.
+
+#[test]
+fn a_column_type_cannot_close_the_statement() {
+    use aethershell::safety::sql_column_type;
+    for payload in [
+        "TEXT); DROP TABLE users; --",
+        "TEXT, x TEXT); ATTACH DATABASE '/tmp/e' AS e; --",
+        "TEXT DEFAULT (SELECT password FROM users)",
+        "TEXT/*comment*/",
+        "TEXT--",
+        "TEXT'",
+        "TEXT\nDROP TABLE users",
+    ] {
+        assert!(
+            sql_column_type("db_sqlite_create", payload).is_err(),
+            "{payload:?} must be refused; sqlite3 runs every `;`-separated \
+             statement it is handed"
+        );
+    }
+}
+
+#[test]
+fn the_ordinary_column_types_still_work() {
+    // The half that keeps the fix from being a ban. If these stop working the
+    // builtin is unusable and the "fix" is a removal in disguise.
+    use aethershell::safety::sql_column_type;
+    for spec in [
+        "TEXT",
+        "text",
+        "INTEGER PRIMARY KEY",
+        "INTEGER PRIMARY KEY AUTOINCREMENT",
+        "VARCHAR(255)",
+        "VARCHAR(255) NOT NULL",
+        "DECIMAL(10,2)",
+        "DECIMAL(10, 2)",
+        "REAL DEFAULT 0",
+        "REAL DEFAULT -1.5",
+        "TEXT DEFAULT ''",
+        "TEXT DEFAULT 'none'",
+        "TEXT COLLATE NOCASE",
+        "DATETIME DEFAULT CURRENT_TIMESTAMP",
+        "BLOB",
+        "DOUBLE PRECISION",
+        "BOOLEAN DEFAULT TRUE",
+        "TEXT NOT NULL UNIQUE",
+    ] {
+        assert!(
+            sql_column_type("db_sqlite_create", spec).is_ok(),
+            "{spec:?} is an ordinary column type and must be accepted"
+        );
+    }
+}
+
+#[test]
+fn a_parenthesised_expression_is_refused_and_the_error_says_where_to_go() {
+    // `CHECK(...)` and `REFERENCES t(c)` are legitimate SQL that this cannot
+    // judge, so they are refused rather than half-parsed. The refusal is only
+    // defensible because there is somewhere else to go, and the hint says so.
+    use aethershell::safety::sql_column_type;
+    for spec in ["TEXT CHECK(length(x) < 10)", "INTEGER REFERENCES users(id)"] {
+        let e = sql_column_type("db_sqlite_create", spec)
+            .expect_err("a parenthesised expression must be refused");
+        let text = format!("{e:#}");
+        assert!(
+            text.to_ascii_lowercase()
+                .contains("whole column definition"),
+            "the error must point at the raw column-definition branch, got: {text}"
+        );
+    }
+}
+
+#[test]
+fn the_size_suffix_is_digits_only() {
+    use aethershell::safety::sql_column_type;
+    assert!(sql_column_type("b", "VARCHAR(255)").is_ok());
+    assert!(sql_column_type("b", "VARCHAR(x)").is_err());
+    assert!(sql_column_type("b", "VARCHAR(255;DROP)").is_err());
+    assert!(sql_column_type("b", "VARCHAR(").is_err());
+    assert!(sql_column_type("b", "VARCHAR()").is_err());
+}
+
+#[test]
+fn an_empty_type_is_refused_rather_than_silently_dropped() {
+    use aethershell::safety::sql_column_type;
+    assert!(sql_column_type("b", "").is_err());
+    assert!(sql_column_type("b", "   ").is_err());
+}
+
+#[test]
+fn a_quoted_default_cannot_end_early() {
+    // `DEFAULT ''` is accepted, so the literal form has to be exact: a token
+    // carrying an interior quote could close and start something else.
+    use aethershell::safety::sql_column_type;
+    assert!(sql_column_type("b", "TEXT DEFAULT 'ok'").is_ok());
+    // SQL's own escape for a quote. Refused rather than parsed: the accepted
+    // form is a literal with no interior quote at all, which is a narrower rule
+    // than SQLite's and cannot be wrong in the dangerous direction.
+    assert!(sql_column_type("b", "TEXT DEFAULT 'a''b'").is_err());
+    // This one is *accepted*, and the first version of this test asserted the
+    // opposite out of pattern-matching on the `);` rather than reading it.
+    // `');DROP'` is a quoted string literal whose contents are `);DROP` — it
+    // does not close the CREATE TABLE, because the quotes are the token. The
+    // payload-shaped thing inside a literal is data, and refusing it would be
+    // superstition rather than a control.
+    assert!(sql_column_type("b", "TEXT DEFAULT ');DROP'").is_ok());
+    // What must not be accepted is the same text *unquoted*, where it is syntax.
+    assert!(sql_column_type("b", "TEXT DEFAULT );DROP").is_err());
+}

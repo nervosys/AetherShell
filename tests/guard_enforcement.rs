@@ -56,6 +56,21 @@ fn builtin_bodies() -> Vec<(String, String)> {
                 }
             } else if c == '"' {
                 in_str = true;
+            } else if c == '\''
+                && (1..=4).any(|k| bytes.get(i + k).map(|b| *b as char) == Some('\''))
+            {
+                // Skip a char literal whole. Without this, `'"'` reads as opening
+                // a string and `'}'` as closing the function, and the extracted
+                // body runs on into whatever follows. That was latent here until
+                // a guard added to `session_export` started showing up inside
+                // `project_version`'s "body" — a builtin that calls no guard at
+                // all. The reachable failure is the dangerous direction: a body
+                // that swallows a *guarded* neighbour looks self-guarding, and a
+                // self-guarding builtin is skipped by `guard_dispatch`.
+                let k = (1..=4)
+                    .find(|k| bytes.get(i + k).map(|b| *b as char) == Some('\''))
+                    .unwrap_or(1);
+                i += k;
             } else if c == '{' {
                 depth += 1;
             } else if c == '}' {
