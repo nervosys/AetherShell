@@ -195,10 +195,26 @@
 >   missing is any coupling between “I made this reachable” and “I turned auth
 >   on”, so a non-loopback bind without a key now warns (warns, not refuses — it
 >   is legitimate behind a trusted boundary).
-> - **SQL injection — not re-audited this session.** `safety.rs` carries SQL
->   validation and `db_sqlite_exec`/`sqlite_exec` are classified `Exec`, but that
->   is not the same as having tested the injection surface. **Treat it as open**;
->   it is a good first target for the external review.
+> - **SQL injection — audited, and half of it was live (`15fd176`).**
+>   `safety::sql_identifier` exists and `db_sqlite_delete`/`_count` call it, with
+>   a comment explaining that their WHERE clause is SQL by contract and the table
+>   is not. `db_sqlite_insert` and `db_sqlite_update` were missed: they escape a
+>   record’s *values* and interpolate its *keys* raw, and the sqlite3 CLI runs
+>   every `;`-separated statement, so
+>   `db_sqlite_insert(db, "victim", {"id) VALUES (1); DROP TABLE victim; --": 1})`
+>   dropped the table. Demonstrated against a real database, checking
+>   `sqlite_master` afterwards rather than the return value.
+>
+>   **The escaping that was present is what hid it** — a reader sees quote-doubling
+>   on the values and stops looking. It was hand-rolled rather than `sql_literal`,
+>   so it had also never inherited that helper’s NUL check. Both now share a
+>   `sql_value` helper. Identifiers validated in `drop_table`, `create` and
+>   `export_csv` too.
+>
+>   **Still open here:** `db_sqlite_create` interpolates the column *type* as
+>   written. It is unreachable today, and constraining a SQL type expression
+>   (`VARCHAR(255)`, `DECIMAL(10,2)`, `NOT NULL`) is a decision, not a drive-by
+>   fix. `tests/sql_injection.rs` fires if it is ever registered.
 >
 > **Suite after this: 1931 passed, 0 failed across 115 binaries**, clippy and fmt
 > exit 0.
