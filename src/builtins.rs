@@ -30961,7 +30961,7 @@ fn bi_file_diff(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 /// file_backup(path, [suffix]) - Create a backup copy of a file before editing
 /// Usage: file_backup("config.txt")  -> creates config.txt.bak
 /// Usage: file_backup("config.txt", ".backup")  -> creates config.txt.backup
-pub fn bi_file_backup(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+fn bi_file_backup(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let path = match args.first().or(input.as_ref()) {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(crate::safety::arg_err("file_backup requires a file path")),
@@ -30998,7 +30998,7 @@ pub fn bi_file_backup(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 }
 
 /// file_copy(source, dest) - Copy a file or directory
-pub fn bi_file_copy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_file_copy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.len() < 2 {
         return Err(crate::safety::arg_err(
             "file_copy requires source and destination paths",
@@ -31065,7 +31065,7 @@ fn copy_dir_recursive(src: &str, dst: &str) -> Result<u64> {
 }
 
 /// file_move(source, dest) - Move/rename a file or directory
-pub fn bi_file_move(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_file_move(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.len() < 2 {
         return Err(crate::safety::arg_err(
             "file_move requires source and destination paths",
@@ -31102,7 +31102,7 @@ pub fn bi_file_move(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 /// file_exists(path) - Check if a file or directory exists
-pub fn bi_file_exists(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+fn bi_file_exists(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let path = match args.first().or(input.as_ref()) {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(crate::safety::arg_err("file_exists requires a path")),
@@ -31122,7 +31122,7 @@ pub fn bi_file_exists(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 }
 
 /// file_mkdir(path) - Create a directory (and parents if needed)
-pub fn bi_file_mkdir(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+fn bi_file_mkdir(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let path = match args.first().or(input.as_ref()) {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(crate::safety::arg_err("file_mkdir requires a path")),
@@ -38618,7 +38618,7 @@ fn cloud_run_cmd_json(program: &str, args: &[&str], dir: Option<&str>) -> Result
 // ===========================================================================
 
 /// 920 – terraform init in optional directory
-pub fn bi_terraform_init(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_terraform_init(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let dir = args.first().and_then(|v| match v {
         Value::Str(s) => Some(s.as_str()),
         _ => None,
@@ -38628,7 +38628,7 @@ pub fn bi_terraform_init(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
 }
 
 /// 921 – terraform plan with optional -var-file
-pub fn bi_terraform_plan(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_terraform_plan(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut cmd_args: Vec<String> = vec!["plan".into()];
     if let Some(Value::Str(var_file)) = args.first() {
         cmd_args.push(format!("-var-file={}", var_file));
@@ -38639,7 +38639,7 @@ pub fn bi_terraform_plan(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
 }
 
 /// 922 – terraform apply -auto-approve with optional -var-file
-pub fn bi_terraform_apply(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_terraform_apply(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut cmd_args: Vec<String> = vec!["apply".into(), "-auto-approve".into()];
     if let Some(Value::Str(var_file)) = args.first() {
         cmd_args.push(format!("-var-file={}", var_file));
@@ -38650,7 +38650,7 @@ pub fn bi_terraform_apply(args: Vec<Value>, _input: Option<Value>) -> Result<Val
 }
 
 /// 923 – terraform destroy -auto-approve
-pub fn bi_terraform_destroy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_terraform_destroy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let dir = args.first().and_then(|v| match v {
         Value::Str(s) => Some(s.as_str()),
         _ => None,
@@ -38671,7 +38671,7 @@ pub fn bi_terraform_destroy(args: Vec<Value>, _input: Option<Value>) -> Result<V
 }
 
 /// 924 – terraform state list → array of strings
-pub fn bi_terraform_state(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_terraform_state(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let dir = args.first().and_then(|v| match v {
         Value::Str(s) => Some(s.as_str()),
         _ => None,
@@ -38686,7 +38686,7 @@ pub fn bi_terraform_state(args: Vec<Value>, _input: Option<Value>) -> Result<Val
 }
 
 /// 925 – terraform output -json → parsed Value
-pub fn bi_terraform_output(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_terraform_output(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let dir = args.first().and_then(|v| match v {
         Value::Str(s) => Some(s.as_str()),
         _ => None,
@@ -38695,7 +38695,7 @@ pub fn bi_terraform_output(args: Vec<Value>, _input: Option<Value>) -> Result<Va
 }
 
 /// 926 – terraform workspace: no args → show, with arg → select <name>
-pub fn bi_terraform_workspace(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_terraform_workspace(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     match args.first() {
         Some(Value::Str(name)) => {
             let out = cloud_run_cmd("terraform", &["workspace", "select", name.as_str()], None)?;
@@ -38709,7 +38709,7 @@ pub fn bi_terraform_workspace(args: Vec<Value>, _input: Option<Value>) -> Result
 }
 
 /// 927 – terraform validate -json
-pub fn bi_terraform_validate(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_terraform_validate(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let dir = args.first().and_then(|v| match v {
         Value::Str(s) => Some(s.as_str()),
         _ => None,
@@ -38722,7 +38722,7 @@ pub fn bi_terraform_validate(args: Vec<Value>, _input: Option<Value>) -> Result<
 // ===========================================================================
 
 /// 928 – ansible-playbook <playbook> with optional -i inventory, --extra-vars from Record
-pub fn bi_ansible_playbook(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_ansible_playbook(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let playbook = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => {
@@ -38764,7 +38764,7 @@ pub fn bi_ansible_playbook(args: Vec<Value>, _input: Option<Value>) -> Result<Va
 }
 
 /// 929 – ansible-inventory --list -i <inventory> → JSON
-pub fn bi_ansible_inventory(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_ansible_inventory(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let inventory = match args.first() {
         Some(Value::Str(s)) => s.as_str(),
         _ => {
@@ -38777,7 +38777,7 @@ pub fn bi_ansible_inventory(args: Vec<Value>, _input: Option<Value>) -> Result<V
 }
 
 /// 930 – ansible-galaxy install <role>
-pub fn bi_ansible_galaxy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_ansible_galaxy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let role = match args.first() {
         Some(Value::Str(s)) => s.as_str(),
         _ => {
@@ -38791,7 +38791,7 @@ pub fn bi_ansible_galaxy(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
 }
 
 /// 931 – ansible-vault view/encrypt/decrypt <file>
-pub fn bi_ansible_vault(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_ansible_vault(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let action = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => {
@@ -38822,7 +38822,7 @@ pub fn bi_ansible_vault(args: Vec<Value>, _input: Option<Value>) -> Result<Value
 // ===========================================================================
 
 /// 932 – pulumi up --yes --json
-pub fn bi_pulumi_up(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_pulumi_up(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let dir = args.first().and_then(|v| match v {
         Value::Str(s) => Some(s.as_str()),
         _ => None,
@@ -38831,7 +38831,7 @@ pub fn bi_pulumi_up(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 /// 933 – pulumi preview --json
-pub fn bi_pulumi_preview(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_pulumi_preview(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let dir = args.first().and_then(|v| match v {
         Value::Str(s) => Some(s.as_str()),
         _ => None,
@@ -38840,7 +38840,7 @@ pub fn bi_pulumi_preview(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
 }
 
 /// 934 – pulumi destroy --yes
-pub fn bi_pulumi_destroy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_pulumi_destroy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let dir = args.first().and_then(|v| match v {
         Value::Str(s) => Some(s.as_str()),
         _ => None,
@@ -38850,7 +38850,7 @@ pub fn bi_pulumi_destroy(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
 }
 
 /// 935 – pulumi stack: no args → stack --json, with arg → stack select <name>
-pub fn bi_pulumi_stack(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_pulumi_stack(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     match args.first() {
         Some(Value::Str(name)) => {
             let out = cloud_run_cmd("pulumi", &["stack", "select", name.as_str()], None)?;
@@ -38865,7 +38865,7 @@ pub fn bi_pulumi_stack(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 // ===========================================================================
 
 /// 936 – vagrant up in optional dir
-pub fn bi_vagrant_up(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_vagrant_up(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let dir = args.first().and_then(|v| match v {
         Value::Str(s) => Some(s.as_str()),
         _ => None,
@@ -38875,7 +38875,7 @@ pub fn bi_vagrant_up(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 /// 937 – vagrant halt
-pub fn bi_vagrant_halt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_vagrant_halt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let dir = args.first().and_then(|v| match v {
         Value::Str(s) => Some(s.as_str()),
         _ => None,
@@ -38885,7 +38885,7 @@ pub fn bi_vagrant_halt(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 }
 
 /// 938 – vagrant destroy -f
-pub fn bi_vagrant_destroy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_vagrant_destroy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let dir = args.first().and_then(|v| match v {
         Value::Str(s) => Some(s.as_str()),
         _ => None,
@@ -38895,7 +38895,7 @@ pub fn bi_vagrant_destroy(args: Vec<Value>, _input: Option<Value>) -> Result<Val
 }
 
 /// 939 – vagrant status --machine-readable → parsed to Records
-pub fn bi_vagrant_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_vagrant_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let dir = args.first().and_then(|v| match v {
         Value::Str(s) => Some(s.as_str()),
         _ => None,
@@ -38923,7 +38923,7 @@ pub fn bi_vagrant_status(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
 }
 
 /// 940 – vagrant ssh -c <command>
-pub fn bi_vagrant_ssh(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_vagrant_ssh(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let command = match args.first() {
         Some(Value::Str(s)) => s.as_str(),
         _ => {
@@ -38941,7 +38941,7 @@ pub fn bi_vagrant_ssh(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 }
 
 /// 941 – packer build <template>
-pub fn bi_packer_build(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_packer_build(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let template = match args.first() {
         Some(Value::Str(s)) => s.as_str(),
         _ => {
@@ -38959,7 +38959,7 @@ pub fn bi_packer_build(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 // ===========================================================================
 
 /// 942 – packer validate <template>
-pub fn bi_packer_validate(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_packer_validate(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let template = match args.first() {
         Some(Value::Str(s)) => s.as_str(),
         _ => {
@@ -38973,7 +38973,7 @@ pub fn bi_packer_validate(args: Vec<Value>, _input: Option<Value>) -> Result<Val
 }
 
 /// 943 – packer inspect <template>
-pub fn bi_packer_inspect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_packer_inspect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let template = match args.first() {
         Some(Value::Str(s)) => s.as_str(),
         _ => {
@@ -38991,7 +38991,7 @@ pub fn bi_packer_inspect(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
 // ===========================================================================
 
 /// 944 – aws s3 ls [bucket] → Records, or list-buckets → JSON
-pub fn bi_aws_s3_ls(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_aws_s3_ls(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     match args.first() {
         Some(Value::Str(bucket)) => {
             // List objects in a bucket
@@ -39041,7 +39041,7 @@ pub fn bi_aws_s3_ls(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 /// 945 – aws ec2 describe-instances --output json
-pub fn bi_aws_ec2_instances(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_aws_ec2_instances(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut cmd_args: Vec<String> = vec![
         "ec2".into(),
         "describe-instances".into(),
@@ -39062,7 +39062,7 @@ pub fn bi_aws_ec2_instances(args: Vec<Value>, _input: Option<Value>) -> Result<V
 // ===========================================================================
 
 /// 946 – az vm list --output json
-pub fn bi_az_vm_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_az_vm_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut cmd_args: Vec<String> =
         vec!["vm".into(), "list".into(), "--output".into(), "json".into()];
     // Optional --resource-group
@@ -39075,7 +39075,7 @@ pub fn bi_az_vm_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 /// 947 – az group list --output json
-pub fn bi_az_group_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_az_group_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     cloud_run_cmd_json("az", &["group", "list", "--output", "json"], None)
 }
 
@@ -39084,7 +39084,7 @@ pub fn bi_az_group_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Valu
 // ===========================================================================
 
 /// 948 – gcloud compute instances list --format=json
-pub fn bi_gcloud_instances(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_gcloud_instances(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut cmd_args: Vec<String> = vec![
         "compute".into(),
         "instances".into(),
@@ -39100,7 +39100,7 @@ pub fn bi_gcloud_instances(args: Vec<Value>, _input: Option<Value>) -> Result<Va
 }
 
 /// 949 – gcloud projects list --format=json
-pub fn bi_gcloud_projects(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_gcloud_projects(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     cloud_run_cmd_json("gcloud", &["projects", "list", "--format=json"], None)
 }
 
@@ -39223,7 +39223,7 @@ pub fn bi_rmdir(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 /// 952: bi_touch - Create empty file or update timestamp. Args: path.
-pub fn bi_touch(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_touch(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(anyhow!("touch: expected path string")),
@@ -39237,7 +39237,7 @@ pub fn bi_touch(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 /// 953: bi_file_type - Detect file MIME type (cross-platform, no shell-out).
-pub fn bi_file_type(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_file_type(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(anyhow!("file_type: expected path string")),
@@ -39295,7 +39295,7 @@ pub fn bi_file_type(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 /// 954: bi_id_info - User/group identity info (cross-platform, no shell-out).
-pub fn bi_id_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_id_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let _ = args;
     let mut rec = BTreeMap::new();
     let user = std::env::var("USER")
@@ -39322,7 +39322,7 @@ pub fn bi_id_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 /// 955: bi_date_now - Current date/time as Record (cross-platform via chrono).
-pub fn bi_date_now(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_date_now(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let _ = args;
     let now = Local::now();
     let mut rec = BTreeMap::new();
@@ -39338,7 +39338,7 @@ pub fn bi_date_now(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 /// 956: bi_cal - Calendar for current or specified month (pure Rust via chrono).
-pub fn bi_cal(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_cal(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let now = Local::now();
     let month = match args.first() {
         Some(Value::Int(m)) => *m as u32,
@@ -39392,7 +39392,7 @@ pub fn bi_cal(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 /// 957: bi_lsblk - List block devices (cross-platform via sysinfo::Disks).
-pub fn bi_lsblk(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_lsblk(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let _ = args;
     let disks = Disks::new_with_refreshed_list();
     let entries: Vec<Value> = disks
@@ -39427,7 +39427,7 @@ pub fn bi_lsblk(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 /// 958: bi_blkid - Block device attributes (Linux only).
-pub fn bi_blkid(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_blkid(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "linux")]
     {
         let device = match args.first() {
@@ -39454,7 +39454,7 @@ pub fn bi_blkid(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 /// 959: bi_dmesg - Kernel messages.
-pub fn bi_dmesg(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_dmesg(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "linux")]
     {
         let out = Command::new("dmesg").args(&["--json"]).output();
@@ -39553,7 +39553,7 @@ pub fn bi_dmesg(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 /// 960: bi_journalctl - Systemd journal (Linux only).
-pub fn bi_journalctl(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_journalctl(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "linux")]
     {
         let count = match args.first() {
@@ -39589,7 +39589,7 @@ pub fn bi_journalctl(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 /// 961: bi_lsof - List open files.
-pub fn bi_lsof(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_lsof(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
         let out = Command::new("lsof")
@@ -39635,7 +39635,7 @@ pub fn bi_lsof(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 /// 962: bi_strace_cmd - Trace system calls.
-pub fn bi_strace_cmd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_strace_cmd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let command = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(anyhow!("strace_cmd: expected command string")),
@@ -39739,7 +39739,7 @@ pub fn bi_strace_cmd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 /// 963: bi_vmstat - Virtual memory stats (cross-platform via sysinfo).
-pub fn bi_vmstat(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_vmstat(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let _ = args;
     let mut sys = System::new_all();
     sys.refresh_all();
@@ -39777,7 +39777,7 @@ pub fn bi_vmstat(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 /// 964: bi_iostat - I/O statistics (cross-platform via sysinfo::Disks).
-pub fn bi_iostat(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_iostat(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let _ = args;
     let disks = Disks::new_with_refreshed_list();
     let entries: Vec<Value> = disks
@@ -39811,7 +39811,7 @@ pub fn bi_iostat(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 /// 965: bi_sar - System activity report (Linux only).
-pub fn bi_sar(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_sar(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "linux")]
     {
         let out = Command::new("sar")
@@ -39875,7 +39875,7 @@ pub fn bi_sar(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 /// 966: bi_top_snapshot - Process snapshot (cross-platform via sysinfo).
-pub fn bi_top_snapshot(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_top_snapshot(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let count = match args.first() {
         Some(Value::Int(n)) => *n as usize,
         _ => 30,
@@ -39910,7 +39910,7 @@ pub fn bi_top_snapshot(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 }
 
 /// 967: bi_nohup_run - Run command immune to hangup (cross-platform).
-pub fn bi_nohup_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_nohup_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let command = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(anyhow!("nohup_run: expected command string")),
@@ -39935,7 +39935,7 @@ pub fn bi_nohup_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 /// 968: bi_which_cmd - Find command path (cross-platform via which crate).
-pub fn bi_which_cmd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_which_cmd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(anyhow!("which_cmd: expected command name")),
@@ -39947,7 +39947,7 @@ pub fn bi_which_cmd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 /// 969: bi_file_checksum - File checksum (cross-platform via sha2/md5 crates).
-pub fn bi_file_checksum(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_file_checksum(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let algo = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(anyhow!("file_checksum: expected algorithm (md5/sha256)")),
@@ -39980,7 +39980,7 @@ pub fn bi_file_checksum(args: Vec<Value>, _input: Option<Value>) -> Result<Value
 }
 
 /// 970: bi_dd_copy - Disk copy (Unix).
-pub fn bi_dd_copy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_dd_copy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(not(target_os = "windows"))]
     {
         let src = match args.first() {
@@ -40016,7 +40016,7 @@ pub fn bi_dd_copy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 /// 971: bi_mkfs - Create filesystem (Linux only).
-pub fn bi_mkfs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_mkfs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "linux")]
     {
         let fs_type = match args.first() {
@@ -40052,7 +40052,7 @@ pub fn bi_mkfs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 /// 972: bi_fdisk_list - Partition table listing.
-pub fn bi_fdisk_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_fdisk_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "linux")]
     {
         let device = match args.first() {
@@ -40228,7 +40228,7 @@ pub fn bi_fdisk_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 /// 973: bi_swap_on - Enable swap (Linux only).
-pub fn bi_swap_on(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_swap_on(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "linux")]
     {
         let device = match args.first() {
@@ -40252,7 +40252,7 @@ pub fn bi_swap_on(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 /// 974: bi_swap_off - Disable swap (Linux only).
-pub fn bi_swap_off(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_swap_off(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "linux")]
     {
         let device = match args.first() {
@@ -40279,7 +40279,7 @@ pub fn bi_swap_off(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 /// 975: bi_mount_info - Detailed mount info (cross-platform via sysinfo::Disks).
-pub fn bi_mount_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_mount_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let _ = args;
     let disks = Disks::new_with_refreshed_list();
     let entries: Vec<Value> = disks
@@ -40314,7 +40314,7 @@ pub fn bi_mount_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 /// 976: bi_chroot - Change root (Unix).
-pub fn bi_chroot(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_chroot(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(not(target_os = "windows"))]
     {
         let dir = match args.first() {
@@ -40349,7 +40349,7 @@ pub fn bi_chroot(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 /// 977: bi_ulimit_info - Resource limits (Unix only).
-pub fn bi_ulimit_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_ulimit_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(not(target_os = "windows"))]
     {
         let out = Command::new("sh")
@@ -40382,7 +40382,7 @@ pub fn bi_ulimit_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 }
 
 /// 978: bi_sysctl_get - Kernel parameters.
-pub fn bi_sysctl_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_sysctl_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
         let key = match args.first() {
@@ -40444,7 +40444,7 @@ pub fn bi_sysctl_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 /// 979: bi_modprobe - Kernel module management (Linux only).
-pub fn bi_modprobe(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_modprobe(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "linux")]
     {
         let module = match args.first() {
@@ -40508,7 +40508,7 @@ pub fn bi_modprobe(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // [removed duplicate] use crate::value::Value;
 
 // 980: bi_ssh_exec - Execute command on remote host via SSH
-pub fn bi_ssh_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_ssh_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let host = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => {
@@ -40550,7 +40550,7 @@ pub fn bi_ssh_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 // 981: bi_ssh_tunnel - Create SSH tunnel
-pub fn bi_ssh_tunnel(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_ssh_tunnel(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let local_port = match args.first() {
         Some(Value::Int(p)) => *p,
         _ => {
@@ -40602,7 +40602,7 @@ pub fn bi_ssh_tunnel(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 // 982: bi_ssh_keygen - Generate SSH key pair
-pub fn bi_ssh_keygen(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_ssh_keygen(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let key_type = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => "ed25519".to_string(),
@@ -40639,7 +40639,7 @@ pub fn bi_ssh_keygen(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 // 983: bi_ssh_copy_id - Copy SSH key to remote host
-pub fn bi_ssh_copy_id(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_ssh_copy_id(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let host = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => {
@@ -40697,7 +40697,7 @@ pub fn bi_ssh_copy_id(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 }
 
 // 984: bi_ssh_config - Read and parse SSH config file
-pub fn bi_ssh_config(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_ssh_config(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let config_path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => {
@@ -40757,7 +40757,7 @@ pub fn bi_ssh_config(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 // 985: bi_scp_upload - SCP upload file to remote
-pub fn bi_scp_upload(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_scp_upload(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let local_path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => {
@@ -40798,7 +40798,7 @@ pub fn bi_scp_upload(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 // 986: bi_scp_download - SCP download file from remote
-pub fn bi_scp_download(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_scp_download(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let remote = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => {
@@ -40839,7 +40839,7 @@ pub fn bi_scp_download(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 }
 
 // 987: bi_rsync_sync - Rsync synchronization
-pub fn bi_rsync_sync(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_rsync_sync(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let source = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(anyhow!("rsync_sync: first argument must be source string")),
@@ -40895,7 +40895,7 @@ pub fn bi_rsync_sync(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 // 988: bi_sftp_list - SFTP list remote directory
-pub fn bi_sftp_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_sftp_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let host = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => {
@@ -40941,7 +40941,7 @@ pub fn bi_sftp_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 // 989: bi_sftp_get - SFTP download file
-pub fn bi_sftp_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_sftp_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let host = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => {
@@ -40997,7 +40997,7 @@ pub fn bi_sftp_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 // 990: bi_sftp_put - SFTP upload file
-pub fn bi_sftp_put(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_sftp_put(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let host = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => {
@@ -41053,7 +41053,7 @@ pub fn bi_sftp_put(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 // 991: bi_rdp_connect - RDP connection info/launch
-pub fn bi_rdp_connect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_rdp_connect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let host = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(anyhow!("rdp_connect: first argument must be host string")),
@@ -41112,7 +41112,7 @@ pub fn bi_rdp_connect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 }
 
 // 992: bi_vnc_connect - VNC connection info
-pub fn bi_vnc_connect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_vnc_connect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let host = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(anyhow!("vnc_connect: first argument must be host string")),
@@ -41149,7 +41149,7 @@ pub fn bi_vnc_connect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 }
 
 // 993: bi_telnet_connect - Telnet connection info
-pub fn bi_telnet_connect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_telnet_connect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let host = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => {
@@ -41186,7 +41186,7 @@ pub fn bi_telnet_connect(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
 }
 
 // 994: bi_curl_exec - Execute curl command
-pub fn bi_curl_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_curl_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let url = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(anyhow!("curl_exec: first argument must be url string")),
@@ -41309,7 +41309,7 @@ fn s(v: &str) -> Value {
 // ============================================================================
 // 995: bi_firewall_status
 // ============================================================================
-pub fn bi_firewall_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_firewall_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let _ = &args;
 
     #[cfg(target_os = "windows")]
@@ -41376,7 +41376,7 @@ pub fn bi_firewall_status(args: Vec<Value>, _input: Option<Value>) -> Result<Val
 // ============================================================================
 // 996: bi_firewall_rules
 // ============================================================================
-pub fn bi_firewall_rules(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_firewall_rules(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let _ = &args;
 
     #[cfg(target_os = "windows")]
@@ -41435,7 +41435,7 @@ pub fn bi_firewall_rules(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
 // ============================================================================
 // 997: bi_firewall_allow
 // ============================================================================
-pub fn bi_firewall_allow(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_firewall_allow(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.is_empty() {
         return Err(anyhow!(
             "firewall_allow requires a port argument (e.g. 80 or \"80/tcp\")"
@@ -41508,7 +41508,7 @@ pub fn bi_firewall_allow(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
 // ============================================================================
 // 998: bi_firewall_deny
 // ============================================================================
-pub fn bi_firewall_deny(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_firewall_deny(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.is_empty() {
         return Err(anyhow!(
             "firewall_deny requires a port argument (e.g. 80 or \"80/tcp\")"
@@ -41580,7 +41580,7 @@ pub fn bi_firewall_deny(args: Vec<Value>, _input: Option<Value>) -> Result<Value
 // ============================================================================
 // 999: bi_firewall_delete
 // ============================================================================
-pub fn bi_firewall_delete(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_firewall_delete(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.is_empty() {
         return Err(anyhow!(
             "firewall_delete requires a rule id or name argument"
@@ -41659,7 +41659,7 @@ pub fn bi_firewall_delete(args: Vec<Value>, _input: Option<Value>) -> Result<Val
 // ============================================================================
 // 1000: bi_firewall_enable
 // ============================================================================
-pub fn bi_firewall_enable(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_firewall_enable(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let _ = &args;
 
     #[cfg(target_os = "windows")]
@@ -41700,7 +41700,7 @@ pub fn bi_firewall_enable(args: Vec<Value>, _input: Option<Value>) -> Result<Val
 // ============================================================================
 // 1001: bi_firewall_disable
 // ============================================================================
-pub fn bi_firewall_disable(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_firewall_disable(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let _ = &args;
 
     eprintln!("WARNING: Disabling the firewall reduces system security. Proceed with caution.");
@@ -41746,7 +41746,7 @@ pub fn bi_firewall_disable(args: Vec<Value>, _input: Option<Value>) -> Result<Va
 // ============================================================================
 // 1002: bi_selinux_status
 // ============================================================================
-pub fn bi_selinux_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_selinux_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let _ = &args;
 
     #[cfg(target_os = "linux")]
@@ -41786,7 +41786,7 @@ pub fn bi_selinux_status(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
 // ============================================================================
 // 1003: bi_selinux_mode
 // ============================================================================
-pub fn bi_selinux_mode(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_selinux_mode(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "linux")]
     {
         if args.is_empty() {
@@ -41828,7 +41828,7 @@ pub fn bi_selinux_mode(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 // ============================================================================
 // 1004: bi_apparmor_status
 // ============================================================================
-pub fn bi_apparmor_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_apparmor_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let _ = &args;
 
     #[cfg(target_os = "linux")]
@@ -41883,7 +41883,7 @@ pub fn bi_apparmor_status(args: Vec<Value>, _input: Option<Value>) -> Result<Val
 // ============================================================================
 // 1005: bi_apparmor_profiles
 // ============================================================================
-pub fn bi_apparmor_profiles(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_apparmor_profiles(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let _ = &args;
 
     #[cfg(target_os = "linux")]
@@ -41941,7 +41941,7 @@ pub fn bi_apparmor_profiles(args: Vec<Value>, _input: Option<Value>) -> Result<V
 // ============================================================================
 // 1006: bi_auditd_rules
 // ============================================================================
-pub fn bi_auditd_rules(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_auditd_rules(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let _ = &args;
 
     #[cfg(target_os = "linux")]
@@ -41996,7 +41996,7 @@ pub fn bi_auditd_rules(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 // ============================================================================
 // 1007: bi_auditd_search
 // ============================================================================
-pub fn bi_auditd_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_auditd_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.is_empty() {
         return Err(crate::safety::arg_err(
             "auditd_search requires a key or type argument",
@@ -42036,7 +42036,7 @@ pub fn bi_auditd_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value
 // ============================================================================
 // 1008: bi_fail2ban_status
 // ============================================================================
-pub fn bi_fail2ban_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_fail2ban_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let _ = &args;
 
     #[cfg(target_os = "linux")]
@@ -42086,7 +42086,7 @@ pub fn bi_fail2ban_status(args: Vec<Value>, _input: Option<Value>) -> Result<Val
 // ============================================================================
 // 1009: bi_fail2ban_jails
 // ============================================================================
-pub fn bi_fail2ban_jails(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_fail2ban_jails(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "linux")]
     {
         if !args.is_empty() {
@@ -42170,7 +42170,7 @@ pub fn bi_fail2ban_jails(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
 // ============================================================================
 // 1010: bi_openssl_cert_info
 // ============================================================================
-pub fn bi_openssl_cert_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_openssl_cert_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.is_empty() {
         return Err(anyhow!(
             "openssl_cert_info requires a certificate file path argument"
@@ -42244,7 +42244,7 @@ pub fn bi_openssl_cert_info(args: Vec<Value>, _input: Option<Value>) -> Result<V
 // ============================================================================
 // 1011: bi_openssl_genrsa
 // ============================================================================
-pub fn bi_openssl_genrsa(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_openssl_genrsa(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.is_empty() {
         return Err(anyhow!(
             "openssl_genrsa requires at least a file path argument"
@@ -42289,7 +42289,7 @@ pub fn bi_openssl_genrsa(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
 // ============================================================================
 // 1012: bi_gpg_list_keys
 // ============================================================================
-pub fn bi_gpg_list_keys(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_gpg_list_keys(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let _ = &args;
 
     let out = sec_run_cmd("gpg", &["--list-keys", "--with-colons"])?;
@@ -42376,7 +42376,7 @@ pub fn bi_gpg_list_keys(args: Vec<Value>, _input: Option<Value>) -> Result<Value
 // ============================================================================
 // 1013: bi_gpg_encrypt
 // ============================================================================
-pub fn bi_gpg_encrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_gpg_encrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.len() < 2 {
         return Err(anyhow!(
             "gpg_encrypt requires two arguments: file and recipient"
@@ -42425,7 +42425,7 @@ pub fn bi_gpg_encrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 // ============================================================================
 // 1014: bi_gpg_decrypt
 // ============================================================================
-pub fn bi_gpg_decrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_gpg_decrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.is_empty() {
         return Err(crate::safety::arg_err(
             "gpg_decrypt requires a file path argument",
@@ -42525,7 +42525,7 @@ pub fn bi_htop_snapshot(args: Vec<Value>, _input: Option<Value>) -> Result<Value
 // ---------------------------------------------------------------------------
 // 1016: bi_iotop_snapshot - I/O monitor snapshot (cross-platform via sysinfo)
 // ---------------------------------------------------------------------------
-pub fn bi_iotop_snapshot(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_iotop_snapshot(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let count = match args.first() {
         Some(Value::Int(n)) => *n as usize,
         _ => 20,
@@ -42571,7 +42571,7 @@ pub fn bi_iotop_snapshot(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
 // ---------------------------------------------------------------------------
 // 1017: bi_nethogs_info — Network traffic per process
 // ---------------------------------------------------------------------------
-pub fn bi_nethogs_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_nethogs_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let _ = args;
 
     #[cfg(target_os = "windows")]
@@ -42663,7 +42663,7 @@ pub fn bi_nethogs_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 // ---------------------------------------------------------------------------
 // 1018: bi_iftop_info — Network bandwidth info
 // ---------------------------------------------------------------------------
-pub fn bi_iftop_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_iftop_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let _ = args;
 
     #[cfg(target_os = "windows")]
@@ -42796,7 +42796,7 @@ pub fn bi_nmon_snapshot(args: Vec<Value>, _input: Option<Value>) -> Result<Value
 // ---------------------------------------------------------------------------
 // 1018: bi_glances_info - Comprehensive system info (cross-platform via sysinfo)
 // ---------------------------------------------------------------------------
-pub fn bi_glances_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_glances_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let _ = args;
     let mut sys = System::new_all();
     sys.refresh_all();
@@ -42920,7 +42920,7 @@ fn chrono_timestamp() -> String {
 // ---------------------------------------------------------------------------
 // 1021: bi_tcpdump_capture — Packet capture
 // ---------------------------------------------------------------------------
-pub fn bi_tcpdump_capture(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_tcpdump_capture(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let iface = if !args.is_empty() {
         match &args[0] {
             Value::Str(s) => s.clone(),
@@ -43053,7 +43053,7 @@ pub fn bi_tcpdump_capture(args: Vec<Value>, _input: Option<Value>) -> Result<Val
 // ---------------------------------------------------------------------------
 // 1022: bi_ss_info — Socket statistics
 // ---------------------------------------------------------------------------
-pub fn bi_ss_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_ss_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let filter = if !args.is_empty() {
         match &args[0] {
             Value::Str(s) => s.clone(),
@@ -43159,7 +43159,7 @@ pub fn bi_ss_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // ---------------------------------------------------------------------------
 // 1023: bi_ip_addr — IP address management
 // ---------------------------------------------------------------------------
-pub fn bi_ip_addr(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_ip_addr(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let iface = if !args.is_empty() {
         match &args[0] {
             Value::Str(s) => Some(s.clone()),
@@ -43259,7 +43259,7 @@ pub fn bi_ip_addr(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // ---------------------------------------------------------------------------
 // 1024: bi_ip_route — IP route table
 // ---------------------------------------------------------------------------
-pub fn bi_ip_route(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_ip_route(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let _ = args;
 
     #[cfg(target_os = "windows")]
@@ -43330,7 +43330,7 @@ pub fn bi_ip_route(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // ---------------------------------------------------------------------------
 // 1025: bi_ip_link — Network link info
 // ---------------------------------------------------------------------------
-pub fn bi_ip_link(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_ip_link(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let iface = if !args.is_empty() {
         match &args[0] {
             Value::Str(s) => Some(s.clone()),
@@ -43428,7 +43428,7 @@ pub fn bi_ip_link(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // ---------------------------------------------------------------------------
 // 1026: bi_ethtool_info — Ethernet device info (Linux only)
 // ---------------------------------------------------------------------------
-pub fn bi_ethtool_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_ethtool_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let device = if !args.is_empty() {
         match &args[0] {
             Value::Str(s) => s.clone(),
@@ -43504,7 +43504,7 @@ pub fn bi_ethtool_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 // ---------------------------------------------------------------------------
 // 1027: bi_perf_stat — Performance counters (Linux only)
 // ---------------------------------------------------------------------------
-pub fn bi_perf_stat(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_perf_stat(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let command = if !args.is_empty() {
         match &args[0] {
             Value::Str(s) => s.clone(),
@@ -43587,7 +43587,7 @@ pub fn bi_perf_stat(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // ---------------------------------------------------------------------------
 // 1028: bi_perf_record — Performance recording info (Linux only)
 // ---------------------------------------------------------------------------
-pub fn bi_perf_record(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_perf_record(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let command = if !args.is_empty() {
         match &args[0] {
             Value::Str(s) => s.clone(),
@@ -43690,7 +43690,7 @@ pub fn bi_free_mem(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // ---------------------------------------------------------------------------
 // 1020: bi_uptime_extended - Extended uptime info (cross-platform via sysinfo)
 // ---------------------------------------------------------------------------
-pub fn bi_uptime_extended(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_uptime_extended(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let _ = args;
     let secs = System::uptime();
     let days = secs / 86400;
@@ -43719,7 +43719,7 @@ pub fn bi_uptime_extended(args: Vec<Value>, _input: Option<Value>) -> Result<Val
 // ---------------------------------------------------------------------------
 // 1031: bi_who_users — Currently logged in users
 // ---------------------------------------------------------------------------
-pub fn bi_who_users(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_who_users(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let _ = args;
 
     #[cfg(target_os = "windows")]
@@ -43781,7 +43781,7 @@ pub fn bi_who_users(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // ---------------------------------------------------------------------------
 // 1032: bi_last_logins — Recent login history
 // ---------------------------------------------------------------------------
-pub fn bi_last_logins(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_last_logins(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let count = if !args.is_empty() {
         match &args[0] {
             Value::Int(n) => *n,
@@ -43863,7 +43863,7 @@ pub fn bi_last_logins(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 // ---------------------------------------------------------------------------
 // 1033: bi_syslog_search — System log search
 // ---------------------------------------------------------------------------
-pub fn bi_syslog_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_syslog_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let keyword = if !args.is_empty() {
         match &args[0] {
             Value::Str(s) => s.clone(),
