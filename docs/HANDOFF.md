@@ -211,6 +211,23 @@
 >   `sql_value` helper. Identifiers validated in `drop_table`, `create` and
 >   `export_csv` too.
 >
+>   **A second live one, found by generalising instead of stopping (`927f52a`).**
+>   `db_json_to_sqlite` is registered, and its column names come from the *file*:
+>   a JSON object key of `x TEXT); DROP TABLE victim; --` closed the CREATE TABLE
+>   and the CLI ran the rest. Importing an untrusted file was enough — no hostile
+>   argument required. Its values were the third copy of the hand-rolled escape,
+>   and so the third to lack the NUL check.
+>
+>   **`tests/sql_interpolation_ratchet.rs` is the durable part.**
+>   `safety::ps_quote` solves this structurally — it returns a `PsLiteral` newtype
+>   whose quotes are *included*, so a missed call site breaks the output instead
+>   of failing silently; 72 uses, no drift. The SQL helpers return a plain
+>   `String`, which is why three sites could be missed while the code around them
+>   looked careful. The ratchet substitutes a source lint for that missing type:
+>   every SQL-looking `format!` must interpolate helper calls, things built from
+>   them, or an allowlisted name **with a reason**. Verified to catch a
+>   reintroduced hole, not assumed to.
+>
 >   **Still open here:** `db_sqlite_create` interpolates the column *type* as
 >   written. It is unreachable today, and constraining a SQL type expression
 >   (`VARCHAR(255)`, `DECIMAL(10,2)`, `NOT NULL`) is a decision, not a drive-by
