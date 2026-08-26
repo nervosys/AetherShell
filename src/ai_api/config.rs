@@ -568,3 +568,64 @@ llama = "meta-llama/Llama-2-7b-chat-hf"
         Ok(())
     }
 }
+
+/// Fold a CLI `--require-api-key` flag into the configured value, and say
+/// whether the resulting posture leaves the server exposed.
+///
+/// The flag **may only ever turn authentication on**. `aimodel` used to assign
+/// it straight over the config —
+///
+/// ```text
+/// config.security.require_api_key = args.require_api_key;
+/// ```
+///
+/// — and the flag is a bare `#[arg(long)] bool`, so it is `false` whenever it is
+/// absent. A user who wrote `require_api_key = true` in their config and then ran
+/// `aimodel server` had authentication silently switched **off**: the config was
+/// obeyed for `host`, `port` and `cors`, and reversed for the one setting where
+/// being wrong is a security failure rather than an inconvenience.
+///
+/// The other three overrides are fail-safe in the same position — a config value
+/// replaced by a CLI default lands on `127.0.0.1`, the original port, and CORS
+/// disabled, all of which are *more* restrictive. Only this one failed open,
+/// which is why only this one is `||` rather than assignment.
+///
+/// The returned warning covers the second half: `require_api_key` defaults to
+/// `false` and `host` is independently settable, so nothing couples "I made this
+/// reachable" to "I turned authentication on". Binding a non-loopback address
+/// without auth is a legitimate choice behind a trusted network boundary, so this
+/// warns rather than refuses — but it should never be silent.
+pub fn resolve_auth_requirement(
+    configured: bool,
+    flag: bool,
+    host: &str,
+) -> (bool, Option<String>) {
+    let effective = configured || flag;
+    let warning = if !effective && !is_loopback(host) {
+        Some(format!(
+            "server is binding {host} with no API key required — every route \
+             (model download, convert, delete, storage cleanup) is reachable by \
+             anything that can route to this host. Pass --require-api-key, or set \
+             [security] require_api_key = true and populate api_keys."
+        ))
+    } else {
+        None
+    };
+    (effective, warning)
+}
+
+/// Whether `host` names only this machine.
+///
+/// Deliberately conservative: anything not recognisably loopback counts as
+/// exposed, so an unfamiliar spelling errs toward warning rather than silence.
+/// `0.0.0.0` and `::` are the wildcards that bind every interface.
+pub fn is_loopback(host: &str) -> bool {
+    let h = host.trim().trim_start_matches('[').trim_end_matches(']');
+    if h.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+    match h.parse::<std::net::IpAddr>() {
+        Ok(ip) => ip.is_loopback(),
+        Err(_) => false,
+    }
+}

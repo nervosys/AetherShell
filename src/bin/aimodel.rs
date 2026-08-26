@@ -415,7 +415,19 @@ async fn main() -> Result<()> {
         config.server.host = args.host.clone();
         config.server.port = args.port;
         config.server.enable_cors = args.cors;
-        config.security.require_api_key = args.require_api_key;
+        // `require_api_key` is folded, not assigned. The flag is a bare bool, so
+        // it is `false` whenever absent, and assigning it turned authentication
+        // *off* for anyone who had enabled it in their config file. A CLI flag
+        // may add a requirement; it may not silently drop one.
+        let (require_key, exposure) = aethershell::ai_api::config::resolve_auth_requirement(
+            config.security.require_api_key,
+            args.require_api_key,
+            &config.server.host,
+        );
+        config.security.require_api_key = require_key;
+        if let Some(warning) = exposure {
+            eprintln!("⚠  {warning}");
+        }
     }
 
     match cli.command {
