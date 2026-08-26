@@ -334,6 +334,59 @@
 > rotation (§5 item 1 — a human at <https://crates.io/settings/tokens>) and the
 > external security review and penetration test (§5 item 2). Registering the 168
 > unadvertised `bi_*` (§5 item 3) is a product call, not an engineering one.
+>
+> **A jail escape in `web.download`, and the reason it was invisible: a builtin
+> can have two effects and the taxonomy carries one.** Same question again —
+> where does a value reach something that parses it — this time asked of `curl`.
+>
+> `web_download`, `wget_download` and `web_upload_file` are classified `Network`
+> by the prefix rule, call `guard_network` on the URL, and are listed in
+> `SELF_GUARDED`. Every place a reader checks says *gated*. None of it touches
+> the file. `guard_network` passes `Effect::Network` and `fs_paths: false`, and
+> the jail in `safety::guard` fires only when the effect `is_filesystem()` **and**
+> `fs_paths` is set — so in agent mode this held:
+>
+> ```text
+> file.write   <outside-workspace>          → refused, OutsideWorkspace
+> web.download <url> <outside-workspace>    → allowed
+> ```
+>
+> Same jail, same path, opposite answers. The workspace jail is the containment
+> story for agent mode, so a builtin that writes past it is not a lesser
+> `file_write` — it is the way around it.
+>
+> Fixed with `guard_network_local_write`, which resolves the path
+> workspace-relative (as `file_write` does) and guards it as `WriteLocal` with
+> `fs_paths: true`. `tests/network_write_jail.rs` asserts the **agreement**
+> between the two builtins rather than the refusal, so if the jail policy is ever
+> loosened the test follows it instead of fossilising today's answer. Verified
+> red by removing the guards: three of six tests failed, and the three that
+> should not have.
+>
+> **`web_upload_file` was deliberately left alone**, and that is pinned as a
+> decision rather than left as an oversight. The jail covers `WriteLocal` and
+> `Destructive`; `ReadLocal` is unjailed by design, and `file.read` of an outside
+> path followed by `web.post` is already an allowed pair — so jailing the upload
+> would be a new policy invented at a call site. If reads are ever jailed,
+> `is_filesystem()` is the one place to change, and the test says so.
+>
+> **`reject_option_like` moved into `guard_network`** rather than being added at
+> fourteen call sites. `curl -K<file>` reads a config file that can set `output`
+> and `url`, so an option-like "URL" turns a fetch into an arbitrary write; no
+> legitimate URL starts with `-`. Putting it at the one door every network
+> builtin already goes through means a site added later inherits it — the
+> opposite of the partial-application shape that produced most of this session's
+> findings.
+>
+> **Suite: 1964 passed, 0 failed across 119 binaries**, clippy `-D warnings` and
+> fmt exit 0.
+>
+> **CI note.** The push of `ee5aa54..c541f6d` landed on `origin/master` and
+> triggered **no workflow run at all** — `check-runs` stayed at 0 and the newest
+> run remained `c1833a6`. This is the failure the `workflow_dispatch` trigger was
+> added for on 2026-08-06 ("pushes landed but triggered no runs"), so it was
+> dispatched by hand rather than treated as a green-by-absence. **A commit with
+> no checks is not a passing commit**; verify by SHA.
 
 
 > **Session 4 (2026-08-25): the shell was healthy, everything was pushed, and CI

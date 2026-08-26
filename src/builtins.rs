@@ -4294,6 +4294,16 @@ fn egress_allowed(url: &str, allow: &str) -> bool {
 /// against data exfiltration over an otherwise-open network channel. Unset → the
 /// allowlist is inactive and behavior is unchanged.
 fn guard_network(builtin: &str, url: &str) -> Result<()> {
+    // Every one of these builtins hands the URL to `curl` or `wget` in a
+    // positional slot, so a leading `-` is read as an option rather than an
+    // address — and `curl -K<file>` reads a config file that can set `output`
+    // and `url`, which turns a fetch into an arbitrary write. Checking it here
+    // rather than at each of the fourteen call sites is the point: this is the
+    // one door every network builtin already goes through, so a site added
+    // later inherits the check instead of having to remember it. No legitimate
+    // URL begins with `-`.
+    crate::safety::reject_option_like(builtin, &[url.to_string()])?;
+
     let allow = std::env::var("AETHER_NET_ALLOW").unwrap_or_default();
     if !egress_allowed(url, &allow) {
         return Err(anyhow!(
@@ -4313,6 +4323,44 @@ fn guard_network(builtin: &str, url: &str) -> Result<()> {
     })?;
     Ok(())
 }
+
+/// Gate the *local* half of a network builtin that also touches the filesystem.
+///
+/// A download has two effects and the effect taxonomy carries one. `web_download`,
+/// `wget_download` and `web_upload_file` are classified `Network` by the `web_*`
+/// prefix rule, they call [`guard_network`] on the URL, and they are in
+/// `SELF_GUARDED` — so they look fully gated at every place a reader would check.
+/// None of that touches the file. `guard_network` passes `fs_paths: false` and
+/// `Effect::Network`, and the jail in `safety::guard` fires only when the effect
+/// `is_filesystem()` *and* `fs_paths` is set, so the path went through no check
+/// at all: `web.download <url> C:\outside\workspace\x` wrote there in agent mode
+/// while `file.write` to the identical path was refused.
+///
+/// Returns the workspace-resolved path, so a relative path lands inside the jail
+/// rather than beside the process's working directory — the same treatment
+/// `file_write` gives it, and it also removes the option-injection question,
+/// since a resolved absolute path cannot begin with `-`.
+fn guard_network_local_write(builtin: &str, path: &str) -> Result<String> {
+    let path = crate::safety::resolve_path_str(path);
+    crate::safety::guard(crate::safety::GuardCtx {
+        builtin,
+        effect: crate::safety::Effect::WriteLocal,
+        what: "write",
+        targets: vec![path.clone()],
+        blast_radius: serde_json::json!({ "path": path }),
+        reversible: true,
+        fs_paths: true,
+    })?;
+    Ok(path)
+}
+
+// There is deliberately no read counterpart for `web_upload_file`. The jail in
+// `safety::guard` fires only for `WriteLocal` and `Destructive` — `ReadLocal` is
+// unjailed by design, and `file.read` of a path outside the workspace followed
+// by `web.post` is already an allowed pair. Jailing the upload would be a policy
+// change invented here rather than an inconsistency being corrected, so it is
+// left as it is and named instead. `tests/network_write_jail.rs` pins the
+// distinction so it stays a decision rather than an oversight.
 
 #[cfg(test)]
 mod egress_tests {
@@ -27350,6 +27398,10 @@ fn bi_web_download(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             url.split('/').next_back().unwrap_or("download").to_string()
         }
     };
+    // A download has two effects and the taxonomy carries one. `guard_network`
+    // gates the egress; nothing gated the *file*, so this wrote wherever it was
+    // pointed while `file_write` to the same path was refused by the jail.
+    let path = guard_network_local_write("web_download", &path)?;
 
     let output = std::process::Command::new("curl")
         .args(["-sS", "-L", "-o", &path, &url])
@@ -46368,6 +46420,9 @@ fn bi_wget_download(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             url.split('/').next_back().unwrap_or("download").to_string()
         }
     };
+    // Same two-effect problem as `web_download`: the URL was gated and the file
+    // was not.
+    let output = guard_network_local_write("wget_download", &output)?;
     // Try wget first, fall back to curl
     let result = std::process::Command::new("wget")
         .args(["-q", "-O", &output, &url])
