@@ -27154,12 +27154,29 @@ fn bi_web_open_url(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         _ => return Ok(Value::Bool(false)),
     };
 
+    // The rest of the `web_*` family gates here; this one did not, so it was
+    // both unmetered and outside the `AETHER_NET_ALLOW` egress allowlist — a URL
+    // is a fine channel for carrying data off the machine in its query string.
+    guard_network("web_open_url", &url)?;
+    crate::safety::reject_unsafe_url("web_open_url", &url)?;
+
     #[cfg(target_os = "windows")]
     {
-        let output = std::process::Command::new("cmd")
-            .args(["/C", "start", &url])
-            .output()?;
-        Ok(Value::Bool(output.status.success()))
+        // Not `cmd /C start`. `cmd` splits its command line on `&`, and `&` is
+        // the query-string separator, so no amount of validating the URL can
+        // make that call site safe — `http://example.com&echo.>marker.txt` ran
+        // `echo`. `rundll32 url.dll,FileProtocolHandler` is the same
+        // `ShellExecute` dispatch with no shell in front of it.
+        //
+        // Spawned rather than waited on: the old `.output()` blocked until the
+        // launched process exited, which for a browser is until the user closes
+        // it. The result is whether the launch started, which is all the caller
+        // could ever have learned about a detached GUI program anyway.
+        let started = std::process::Command::new("rundll32.exe")
+            .args(["url.dll,FileProtocolHandler", &url])
+            .spawn()
+            .is_ok();
+        Ok(Value::Bool(started))
     }
     #[cfg(target_os = "macos")]
     {

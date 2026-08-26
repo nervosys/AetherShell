@@ -282,3 +282,102 @@ fn ordinary_paths_are_accepted() {
         "normal paths must pass, including the './-name' workaround"
     );
 }
+
+// ── 5. Command injection through a URL handed to `cmd /C` ────────────────────
+//
+// Found by asking the recurring question of this codebase — "where else is a
+// value handed to something that parses it?" — of the shell-spawn family rather
+// than of a safety helper.
+//
+// `web_open_url` ran `cmd /C start <url>`. Rust quotes an argument only when it
+// contains a space or a quote, and `cmd` splits its command line on `&`, so a
+// URL with neither reached the parser verbatim. Measured against this machine's
+// cmd.exe: `http://example.com&echo.>marker.txt` created the file, through both
+// a plain `echo` and the real `start` form. The builtin was classified
+// `Network` (the `web_*` prefix rule), which is not centrally enforced, and it
+// was not in `SELF_GUARDED` — so in agent mode it was default-allow, unmetered,
+// and outside the `AETHER_NET_ALLOW` egress allowlist.
+//
+// The primary fix is structural and lives at the call site: the Windows branch
+// no longer uses a shell, because `&` is the query-string separator and a
+// blocklist that refuses it breaks the URLs the builtin exists to open. What
+// `reject_unsafe_url` adds is the part a shell-free launcher does not solve —
+// which handler the scheme dispatches to.
+
+#[test]
+fn a_url_scheme_outside_the_web_set_is_refused() {
+    // `ShellExecute` and `xdg-open` dispatch on the scheme, so these reach
+    // whatever program is registered for them. `ms-msdt:` is the Follina shape.
+    for url in [
+        "ms-msdt:/id PCWDiagnostic",
+        "search-ms:query=x",
+        "javascript:alert(1)",
+        "vbscript:x",
+        "data:text/html,payload",
+    ] {
+        assert!(
+            aethershell::safety::reject_unsafe_url("web_open_url", url).is_err(),
+            "{url} dispatches to a registered handler that is not a browser"
+        );
+    }
+}
+
+#[test]
+fn a_url_carrying_a_control_character_is_refused() {
+    for url in [
+        "http://example.com\nrm -rf /",
+        "http://x\r\ny",
+        "http://x\u{0}y",
+    ] {
+        assert!(
+            aethershell::safety::reject_unsafe_url("web_open_url", url).is_err(),
+            "a newline separates commands in every shell and cannot appear in a URL"
+        );
+    }
+}
+
+#[test]
+fn an_option_like_url_is_refused() {
+    // The macOS and Linux branches pass this positionally to `open`/`xdg-open`,
+    // and `open -a <app>` launches an arbitrary application.
+    for url in ["-a/Applications/Calculator.app", "--version", "-"] {
+        assert!(
+            aethershell::safety::reject_unsafe_url("web_open_url", url).is_err(),
+            "{url} is parsed as an option by open/xdg-open"
+        );
+    }
+}
+
+#[test]
+fn ordinary_urls_still_open() {
+    // The check that keeps the fix from being a removal. Note the ampersands:
+    // refusing them was the tempting fix and would have broken every one of
+    // these, which is why the call site drops the shell instead.
+    for url in [
+        "https://example.com",
+        "http://example.com/path?a=1&b=2",
+        "https://example.com/?q=a%20b&r=1",
+        "HTTPS://EXAMPLE.COM",
+        "mailto:someone@example.com?subject=hi&body=x",
+        "file:///C:/Users/x/report.html",
+        "ftp://ftp.example.com/pub/",
+    ] {
+        assert!(
+            aethershell::safety::reject_unsafe_url("web_open_url", url).is_ok(),
+            "{url} is an ordinary URL and must still open"
+        );
+    }
+}
+
+#[test]
+fn a_bare_path_is_refused_rather_than_dispatched() {
+    // Without a scheme the desktop handler opens the file with whatever is
+    // registered for its extension — which for `.ps1`, `.bat` or `.hta` is not
+    // a viewer. A URL-opening builtin should say so rather than guess.
+    for url in ["report.html", r"C:\Users\x\payload.hta", "/etc/passwd", ""] {
+        assert!(
+            aethershell::safety::reject_unsafe_url("web_open_url", url).is_err(),
+            "{url:?} has no scheme"
+        );
+    }
+}

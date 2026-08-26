@@ -2064,6 +2064,97 @@ pub fn reject_option_like(builtin: &str, values: &[String]) -> anyhow::Result<()
     Ok(())
 }
 
+/// Reject a URL that a desktop launcher would treat as something other than a
+/// web address.
+///
+/// This is the *second* layer under `web_open_url`, and it is worth being clear
+/// about which layer does what, because the obvious defence here does not work.
+///
+/// The first layer is structural: the Windows branch used to run
+/// `cmd /C start <url>`, and `cmd` splits its command line on `&`. A URL of
+/// `http://example.com&echo.>marker.txt` therefore ran `echo` — demonstrated,
+/// not theorised. The tempting fix is to refuse `&`, and it is the wrong one:
+/// `&` is the query-string separator, so it is *legal data* in the very values
+/// this builtin exists to accept. A blocklist that refuses it breaks
+/// `?a=1&b=2`; one that allows it leaves the hole open. The only fix that can be
+/// both correct and complete is to stop handing the value to a shell at all,
+/// which is what the call site now does.
+///
+/// What is left for this function is the part a shell-free launcher does not
+/// solve:
+///
+/// * **Scheme.** `ShellExecute` and `xdg-open` dispatch on the scheme, so
+///   `ms-msdt:`, `search-ms:` and friends reach registered handlers that are not
+///   browsers — the Follina shape. An allowlist is right here because the set of
+///   things a *web*-opening builtin should reach is small and closed.
+/// * **Control characters.** A newline is a command separator in every shell,
+///   so it must not survive into any future call site that has one.
+/// * **A leading `-`.** The macOS and Linux branches pass the value positionally
+///   to `open` and `xdg-open`; `open -a <app>` launches an arbitrary
+///   application. This is the same defect [`reject_option_like`] exists for, and
+///   the scheme check would catch it too — it is stated separately so the error
+///   message says which problem it is.
+pub fn reject_unsafe_url(builtin: &str, url: &str) -> anyhow::Result<()> {
+    /// Schemes a URL-opening builtin may hand to the desktop's handler.
+    ///
+    /// This list may only shrink. Every addition widens the set of registered
+    /// protocol handlers an agent can reach with a caller-controlled argument.
+    const ALLOWED_SCHEMES: &[&str] = &["http", "https", "ftp", "ftps", "mailto", "file"];
+
+    let err = |message: String, hint: &str| {
+        anyhow::Error::new(SafetyError {
+            code: ErrorCode::BadArg,
+            message,
+            builtin: builtin.to_string(),
+            hint: hint.to_string(),
+            approval: None,
+            did_you_mean: Vec::new(),
+            expected: format!(
+                "a URL with one of these schemes: {}",
+                ALLOWED_SCHEMES.join(", ")
+            ),
+            got: url.to_string(),
+        })
+    };
+
+    if let Some(c) = url.chars().find(|c| c.is_ascii_control()) {
+        return Err(err(
+            format!(
+                "{builtin}: refusing a URL containing a control character ({:#04x})",
+                c as u32
+            ),
+            "a newline or carriage return separates commands in every shell; a URL \
+             cannot legitimately contain one",
+        ));
+    }
+    if url.starts_with('-') {
+        return Err(err(
+            format!("{builtin}: refusing an option-like URL: {url:?}"),
+            "this position is passed positionally to `open`/`xdg-open`, and a leading \
+             '-' is parsed as an option — `open -a <app>` launches an arbitrary \
+             application",
+        ));
+    }
+    let scheme = match url.split_once(':') {
+        Some((s, _)) if !s.is_empty() => s.to_ascii_lowercase(),
+        _ => {
+            return Err(err(
+                format!("{builtin}: refusing a URL with no scheme: {url:?}"),
+                "give an absolute URL such as 'https://example.com'; a bare path is \
+                 dispatched by the desktop handler rather than opened as a web page",
+            ))
+        }
+    };
+    if !ALLOWED_SCHEMES.contains(&scheme.as_str()) {
+        return Err(err(
+            format!("{builtin}: refusing the URL scheme {scheme:?}"),
+            "the desktop handler dispatches on the scheme, so a non-web scheme reaches \
+             whatever program is registered for it rather than a browser",
+        ));
+    }
+    Ok(())
+}
+
 /// Quote a value for interpolation into a **single-quoted** PowerShell string
 /// literal (CWE-78).
 ///
@@ -2575,6 +2666,7 @@ pub const SELF_GUARDED: &[&str] = &[
     "web_headers",
     "web_json_get",
     "web_json_post",
+    "web_open_url",
     "web_post",
     "web_rest_api",
     "web_scrape",
