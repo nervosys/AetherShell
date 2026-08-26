@@ -29164,6 +29164,7 @@ fn bi_db_sqlite_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         _ => return Ok(Value::Bool(false)),
     };
 
+    crate::safety::reject_option_like("db_sqlite_create", std::slice::from_ref(&db_path))?;
     // Just touch the file to create empty database
     let output = std::process::Command::new("sqlite3")
         .args([&db_path, "SELECT 1"])
@@ -29182,6 +29183,23 @@ fn bi_db_sqlite_backup(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         _ => format!("{}.backup", db_path),
     };
 
+    crate::safety::reject_option_like("db_sqlite_backup", std::slice::from_ref(&db_path))?;
+    // The path is interpolated into a `.backup '…'` dot-command. A quote in it
+    // closes that argument and the rest becomes further arguments to `.backup`
+    // — measured: `.backup 'x' --append 'other.db'` reaches the option parser.
+    // That is not command execution (`.backup`'s options do not run programs,
+    // and a newline does not start a second dot-command when the whole string
+    // arrives as one argv entry — both checked against sqlite3 3.53.4), but it
+    // does let a caller who asked to write one file pass options to a command
+    // they were not given. Refused rather than escaped: a backup path with a
+    // quote or a newline in it is not a request worth honouring.
+    if backup_path.contains('\'') || backup_path.contains('\n') {
+        return Err(crate::safety::bad_arg(
+            "db_sqlite_backup",
+            "a backup path without quotes or newlines",
+            &backup_path,
+        ));
+    }
     let output = std::process::Command::new("sqlite3")
         .args([&db_path, &format!(".backup '{}'", backup_path)])
         .output()?;
@@ -29203,6 +29221,10 @@ fn bi_db_sqlite_import_csv(args: Vec<Value>, _input: Option<Value>) -> Result<Va
         _ => "imported".to_string(),
     };
 
+    crate::safety::reject_option_like(
+        "db_sqlite_import_csv",
+        &[db_path.clone(), csv_path.clone()],
+    )?;
     let output = std::process::Command::new("sqlite3")
         .args([
             &db_path,
@@ -29980,6 +30002,7 @@ fn bi_db_sqlite_dump(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         _ => return Ok(Value::Null),
     };
 
+    crate::safety::reject_option_like("db_sqlite_dump", std::slice::from_ref(&db_path))?;
     let output = std::process::Command::new("sqlite3")
         .args([&db_path, ".dump"])
         .output()?;

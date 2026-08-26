@@ -278,3 +278,73 @@ fn the_allowlist_has_a_reason_for_every_entry_and_no_duplicates() {
         ALLOWED.len()
     );
 }
+
+// ── The other half: the path arguments handed to the sqlite3 CLI ─────────────
+//
+// A leading `-` in a path makes the underlying tool read it as an option.
+// `safety::reject_option_like` exists for that, and — the recurring shape of
+// this session — it was called at three of the eight `sqlite3` spawn sites and
+// not the other five.
+//
+// Measured before being fixed, so the claim here is bounded rather than
+// alarming. Against sqlite3 3.53.4:
+//
+//   * a dot-command DOES execute from a single argv entry — `.system echo hi >
+//     f` created the file, which is what `reject_sqlite_dot_command` is for and
+//     why the SQL-position guard matters;
+//   * a newline does NOT start a second dot-command inside one argv entry, so
+//     `.backup 'x'\n.system …` is a usage error, not execution;
+//   * a quote in `db_sqlite_backup`'s path does reach `.backup`'s option parser
+//     (`.backup 'x' --append 'other.db'`), which is an integrity problem rather
+//     than an execution one, since none of `.backup`'s options runs a program.
+//
+// So no remote execution was demonstrated through the unguarded sites. The
+// guards are added for consistency and defence in depth, and this test keeps the
+// family from drifting apart again.
+
+/// Every `Command::new("sqlite3")` call site, with the ~40 lines of function
+/// body preceding it — enough to see whether the guard was applied.
+fn sqlite_spawn_sites(src: &str) -> Vec<(usize, String)> {
+    let mut out = Vec::new();
+    for (i, _) in src.match_indices("Command::new(\"sqlite3\")") {
+        let start = src[..i].rfind("\nfn ").unwrap_or(0);
+        out.push((i, src[start..i].to_string()));
+    }
+    out
+}
+
+#[test]
+fn every_sqlite3_spawn_guards_its_path_arguments() {
+    let src = builtins_source();
+    let sites = sqlite_spawn_sites(&src);
+    assert!(
+        sites.len() >= 8,
+        "only {} sqlite3 spawn sites found; the scanner has drifted",
+        sites.len()
+    );
+
+    let missing: Vec<String> = sites
+        .iter()
+        .filter(|(_, body)| !body.contains("reject_option_like"))
+        .map(|(i, body)| {
+            let name = body
+                .lines()
+                .find(|l| l.trim_start().starts_with("fn bi_"))
+                .unwrap_or("<unknown fn>")
+                .trim()
+                .to_string();
+            format!("  {name} (byte {i})")
+        })
+        .collect();
+
+    assert!(
+        missing.is_empty(),
+        "{} sqlite3 spawn site(s) pass a path to the CLI without \
+         `safety::reject_option_like`. A leading `-` is parsed as an option by \
+         the tool, and this guard was applied at some sites and not others — the \
+         partial-application shape that hid three SQL injections in the same \
+         file:\n{}",
+        missing.len(),
+        missing.join("\n")
+    );
+}
