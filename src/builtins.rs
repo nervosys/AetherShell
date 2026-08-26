@@ -30034,11 +30034,24 @@ fn bi_db_json_to_sqlite(args: Vec<Value>, _input: Option<Value>) -> Result<Value
         if let serde_json::Value::Array(arr) = json {
             if let Some(first) = arr.first() {
                 if let serde_json::Value::Object(obj) = first {
-                    // Create table
-                    let columns: Vec<String> = obj.keys().map(|k| format!("{} TEXT", k)).collect();
+                    // Column names come from the *file*, so the injection payload
+                    // does not even have to be an argument: a JSON object key of
+                    // `x TEXT); DROP TABLE victim; --` closed the statement and
+                    // the sqlite3 CLI ran what followed. Identifiers are validated
+                    // for that reason, which also means a key that is not a legal
+                    // column name is now refused rather than producing broken SQL.
+                    let columns: Vec<String> = obj
+                        .keys()
+                        .map(|k| {
+                            Ok(format!(
+                                "{} TEXT",
+                                crate::safety::sql_identifier("db_json_to_sqlite", k)?
+                            ))
+                        })
+                        .collect::<Result<_>>()?;
                     let create_sql = format!(
                         "CREATE TABLE IF NOT EXISTS {} ({})",
-                        table_name,
+                        crate::safety::sql_identifier("db_json_to_sqlite", &table_name)?,
                         columns.join(", ")
                     );
                     bi_db_sqlite_exec(
@@ -30049,27 +30062,28 @@ fn bi_db_json_to_sqlite(args: Vec<Value>, _input: Option<Value>) -> Result<Value
                     // Insert rows
                     for row in arr {
                         if let serde_json::Value::Object(obj) = row {
-                            let cols: Vec<String> = obj.keys().cloned().collect();
+                            let cols: Vec<String> = obj
+                                .keys()
+                                .map(|k| crate::safety::sql_identifier("db_json_to_sqlite", k))
+                                .collect::<Result<_>>()?;
                             let vals: Vec<String> = obj
                                 .values()
-                                .map(|v| match v {
-                                    serde_json::Value::String(s) => {
-                                        format!("'{}'", s.replace("'", "''"))
-                                    }
-                                    serde_json::Value::Number(n) => n.to_string(),
-                                    serde_json::Value::Bool(b) => {
-                                        if *b {
-                                            "1".to_string()
-                                        } else {
-                                            "0".to_string()
+                                .map(|v| {
+                                    Ok(match v {
+                                        serde_json::Value::String(s) => {
+                                            crate::safety::sql_literal("db_json_to_sqlite", s)?
                                         }
-                                    }
-                                    _ => "NULL".to_string(),
+                                        serde_json::Value::Number(n) => n.to_string(),
+                                        serde_json::Value::Bool(b) => {
+                                            if *b { "1" } else { "0" }.to_string()
+                                        }
+                                        _ => "NULL".to_string(),
+                                    })
                                 })
-                                .collect();
+                                .collect::<Result<_>>()?;
                             let insert_sql = format!(
                                 "INSERT INTO {} ({}) VALUES ({})",
-                                table_name,
+                                crate::safety::sql_identifier("db_json_to_sqlite", &table_name)?,
                                 cols.join(", "),
                                 vals.join(", ")
                             );

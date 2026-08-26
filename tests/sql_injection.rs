@@ -310,3 +310,79 @@ fn a_nul_in_a_value_is_refused_rather_than_silently_truncating() {
         "the refusal should say what was wrong with it: {err}"
     );
 }
+
+#[test]
+fn a_json_file_cannot_inject_sql_through_its_object_keys() {
+    // The nastiest of the three, because the payload need not be an argument.
+    // `db_json_to_sqlite` built both CREATE TABLE and INSERT from the *file's*
+    // object keys, unvalidated — so importing an untrusted JSON file was enough.
+    if !have_sqlite3() {
+        eprintln!("skipping: sqlite3 not on PATH");
+        return;
+    }
+    let _l = ENV.lock().unwrap_or_else(|e| e.into_inner());
+    let db = fixture("json");
+    assert!(victim_survives(&db));
+    assert!(
+        dispatched("db_json_to_sqlite"),
+        "this test is pointless if the builtin is unreachable — the lesson from \
+         the two vacuous cases above"
+    );
+
+    let ws = std::env::temp_dir().join("ae_sqli");
+    let json = ws.join("payload.json");
+    std::fs::write(&json, r#"[{"x TEXT); DROP TABLE victim; --": "1"}]"#).unwrap();
+
+    let _ = call(
+        "db_json_to_sqlite",
+        vec![
+            s(&db.to_string_lossy()),
+            s(&json.to_string_lossy()),
+            s("imported"),
+        ],
+    );
+
+    assert!(
+        victim_survives(&db),
+        "`db_json_to_sqlite` executed a `DROP TABLE` carried in a JSON object \
+         key. Column names came from the file and were interpolated without \
+         `safety::sql_identifier`, so importing an untrusted file was enough."
+    );
+    let _ = std::fs::remove_file(&json);
+}
+
+#[test]
+fn a_legitimate_json_import_still_works() {
+    // The counterweight. Validation must not mean refusing ordinary imports.
+    if !have_sqlite3() {
+        eprintln!("skipping: sqlite3 not on PATH");
+        return;
+    }
+    let _l = ENV.lock().unwrap_or_else(|e| e.into_inner());
+    let db = fixture("jsonok");
+    let ws = std::env::temp_dir().join("ae_sqli");
+    let json = ws.join("ok.json");
+    std::fs::write(&json, r#"[{"name": "O'Brien", "age": 42}]"#).unwrap();
+
+    call(
+        "db_json_to_sqlite",
+        vec![
+            s(&db.to_string_lossy()),
+            s(&json.to_string_lossy()),
+            s("people"),
+        ],
+    )
+    .expect("an ordinary JSON import must still succeed");
+
+    let read = std::process::Command::new("sqlite3")
+        .arg(&db)
+        .arg("SELECT name, age FROM people;")
+        .output()
+        .expect("read back");
+    let got = String::from_utf8_lossy(&read.stdout);
+    assert!(
+        got.contains("O'Brien") && got.contains("42"),
+        "the imported row should round-trip, apostrophe included: {got:?}"
+    );
+    let _ = std::fs::remove_file(&json);
+}
