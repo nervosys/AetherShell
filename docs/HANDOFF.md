@@ -259,6 +259,77 @@
 >
 > **Suite: 1942 passed, 0 failed across 116 binaries.**
 >
+> **Command execution through `web.open_url` — found by taking the same question
+> to a different family, and the one place today's heuristic was not the tool.**
+> The recurring question of this session has been "where is a safety helper
+> partially applied?" This one came from asking the more general form — *where is
+> a value handed to something that parses it?* — of the shell-spawn sites rather
+> than of a helper. There was no helper here to be partially applied; there was
+> no gate at all.
+>
+> `bi_web_open_url`'s Windows branch ran:
+>
+> ```rust
+> std::process::Command::new("cmd").args(["/C", "start", &url]).output()?
+> ```
+>
+> It reads as a fixed command with the URL in an argument slot, which is why it
+> survived review. It is not one. Rust quotes an argument only when it contains a
+> space or a quote, and `cmd` splits its command line on `&`, so a URL with
+> neither reaches `cmd` verbatim and everything after `&` runs as a second
+> command. **Demonstrated, not theorised:** against this machine's `cmd.exe`,
+> `http://example.com&echo.>marker.txt` created the file — through a plain `echo`
+> in the same argv shape, and again through the real `start` form.
+>
+> The placement in the safety model is what makes it the worst finding of the
+> session. `effect_of("web_open_url")` is `Network` by the `web_*` prefix rule,
+> `Network` is not in `centrally_enforced()`, and the builtin was not in
+> `SELF_GUARDED`. So in agent mode it was **default-allow, unapproved, unmetered,
+> and outside the `AETHER_NET_ALLOW` egress allowlist** — a builtin advertised as
+> "open a web page" was an unapproved `Exec`, and separately a clean exfiltration
+> channel, since a URL carries whatever you put in its query string.
+>
+> **Why the obvious fix is the wrong one, and this is the part worth carrying
+> forward.** The reflex is to refuse `&`. That cannot work: `&` is the
+> query-string separator, so the dangerous character is *legal data* in exactly
+> the values this builtin exists to accept. A blocklist that refuses it breaks
+> `?a=1&b=2`; one that allows it leaves the hole open. When the metacharacter is
+> also the payload, only a structural fix is available. The Windows branch now
+> uses `rundll32 url.dll,FileProtocolHandler` — the same `ShellExecute` dispatch
+> with no shell in front of it — and spawns rather than waits, which also fixes
+> the old `.output()` blocking until the browser was closed.
+>
+> Three things were added, each doing a job the others cannot:
+>
+> - `guard_network("web_open_url", …)`, which the rest of the `web_*` family
+>   already called, plus the `SELF_GUARDED` entry that goes with it — this is the
+>   metering and the egress allowlist, not the injection.
+> - `safety::reject_unsafe_url`, for what a shell-free launcher does *not* solve:
+>   the scheme. `ShellExecute` and `xdg-open` dispatch on it, so `ms-msdt:` (the
+>   Follina shape) reaches a registered handler that is not a browser. Allowlist
+>   of `http https ftp ftps mailto file`; it may only shrink. It also refuses
+>   control characters and a leading `-`, the latter because the macOS and Linux
+>   branches pass the value positionally and `open -a <app>` launches an
+>   arbitrary application.
+> - `tests/shell_spawn_guard.rs`, the ratchet: **every site handing a value to
+>   `sh -c`/`cmd /C` must gate on `Exec` first.** Two entries on the allowlist
+>   (`nohup_run`, `xargs_exec`), each of which runs a caller's command by
+>   contract and calls `guard_exec`. Verified red by restoring the old call site,
+>   which named `bi_web_open_url` exactly.
+>
+> The scanner's first draft had a false positive — `bi_hw_sensors`'s literal
+> `"which osx-cpu-temp && osx-cpu-temp"`, whose `&&` is inside the string — which
+> is now one of the unit tests on the scanner itself.
+>
+> **Suite: 1958 passed, 0 failed across 118 binaries**, clippy `-D warnings` and
+> fmt exit 0.
+>
+> **Revised tally on the heuristic:** six real issues, one false alarm. The
+> generalisation is the useful part — *partially applied helper* was the shape
+> that kept paying, but the question underneath it is **where does a value reach
+> a parser**, and that one still had somewhere to go after the helper question
+> ran dry.
+>
 > **Not closable from this seat, and both still open:** the crates.io token
 > rotation (§5 item 1 — a human at <https://crates.io/settings/tokens>) and the
 > external security review and penetration test (§5 item 2). Registering the 168
