@@ -150,6 +150,32 @@
 >   decision about whether those forms are kept at all; doing it in the margins
 >   of another task is how a grammar acquires accidents.
 >
+> **Adversarial pass over the session's own work (`77bde14`), which found a
+> second bypass.** The effect classification fixed this morning only constrains
+> anything if `guard_dispatch` is genuinely the single door.
+> `call_with_input_inner`'s comment says it is. It was a comment: **128 `bi_*`
+> implementations were `pub`**, so the body could be called directly, meeting no
+> policy at all.
+>
+> The invariant worth stating is narrower than “nothing is pub”. For the four
+> classes `centrally_enforced` gates, skipping the central guard means skipping
+> the *only* guard — unless the body has its own, which `SELF_GUARDED` records.
+> Twelve builtins failed that: seven `terraform_*`, four `ansible_*` (Exec) and
+> `dd_copy` (Destructive). `terraform_destroy` **was** guarded, being one of the
+> eight § 7 wired by hand, while `terraform_apply` beside it was not — which is
+> how a hand-picked list of eight ages.
+>
+> Latent, not live: nothing in `src/` called a body directly, so every in-crate
+> route still went through the door. The exposure was to consumers of the
+> published library and to the next person to add a caller. Fixed by dropping
+> `pub` from 114 of 128 so the **compiler** enforces the door; 14 stay public
+> because tests call them (`bi_rm`/`bi_rmdir` deliberately, to exercise their own
+> guards). `tests/one_door.rs` holds all of it, ordering included — policy
+> consulted *after* the action is a log, not a gate.
+>
+> **Suite after this: 1924 passed, 0 failed across 114 binaries**, clippy and fmt
+> exit 0.
+>
 > **Not closable from this seat, and both still open:** the crates.io token
 > rotation (§5 item 1 — a human at <https://crates.io/settings/tokens>) and the
 > external security review and penetration test (§5 item 2). Registering the 168
