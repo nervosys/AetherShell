@@ -479,6 +479,93 @@
 > need a human. §5 item 3 (registering the 168) is a product decision, and its one
 > engineering blocker is now removed. §5.4's remaining roadmap entries are each
 > closed or explicitly decided against with a test pinning the decision.
+>
+> **`mkdir` did nothing. It had never done anything.**
+>
+> `mkdir`, `mkdirp` and `file_mkdir` were all registered at `BUILTIN_DISPATCH`
+> index 532. The comment above the reserved run read `533-539`; the first
+> placeholder was at **532**. So all three resolved to `|_, _, _|
+> Ok(Value::Null)` — returning a success value and creating nothing — while
+> `bi_file_mkdir` sat in `builtins.rs` fully written, correctly classified
+> `WriteLocal`, and referenced by nothing at all.
+>
+> A silent no-op is worse than a missing builtin: an unknown name fails loudly
+> and the caller tries something else, while this one hands back success.
+> `tests/catalog_reachability.rs` could not see it — it asks whether an advertised
+> name *dispatches*, and this one did. The question nobody had asked is whether it
+> dispatches to anything. `tests/no_stub_dispatch.rs` now asks it.
+>
+> It was found sideways: a workspace-jail test expected `mkdir` outside the
+> workspace to be *refused* and got `Ok(Null)`. Nothing was looking for it.
+>
+> **The `WriteLocal` jail reaches 10 of 119 builtins, and a central fix was tried
+> and reverted.** §5.3 promises `WriteLocal` is "jailed to workspace". The jail
+> lives inside `safety::guard`; `guard_dispatch` returns early for any effect that
+> is not centrally enforced (`Process | Destructive | Exec | Privileged`), so
+> `guard` is never reached. A `WriteLocal` builtin is jailed only if it guards
+> itself. Eight did. **Demonstrated:** `copy_file` overwrote a file outside the
+> workspace — `success: true`, 8 bytes — that `file_write` was refused for.
+>
+> The obvious fix, running the jail over `existing_paths(&args)` in
+> `guard_dispatch` exactly as the enforced branch does, was implemented, tested,
+> and **reverted after measuring it**: it refuses `copy_file <outside-source>
+> <inside-destination>`, which is copying a file *into* the workspace. Reading
+> from outside is allowed by policy and the write lands inside the jail, so that
+> is a false positive with no workaround — the exact failure the existing comment
+> in `guard_dispatch` warns about. The two cases are indistinguishable from a
+> central point: both are "a `WriteLocal` call naming an existing path outside the
+> workspace". Only the call site knows which argument is the destination.
+>
+> So the jail stays at call sites. `file_copy`, `file_mkdir`, `tar_extract` and
+> `zip_extract` gained one (destination only), taking it from 8 to 10, and
+> `tests/writelocal_jail.rs` **measures the remainder** rather than assuming the
+> call sites cover it. The reverted attempt is written into the code comment so
+> the next person does not spend the afternoon rediscovering why it does not work.
+>
+> **A negative result: archive path traversal does not reproduce.** `tar_extract`
+> and `zip_extract` looked like textbook zip-slip — the destination was unjailed
+> and archive entries control paths. Measured on this machine with an archive
+> containing `../escaped.txt`:
+>
+> - GNU tar 1.35 strips `../` from member names on creation and refuses it on
+>   extraction;
+> - Windows bsdtar refuses: `Path contains '..': Unknown error`, and nothing was
+>   written outside the destination;
+> - `Expand-Archive` refuses: `Can not process invalid archive entry
+>   '../escaped_zip.txt'`.
+>
+> **No traversal.** The destination guard was added anyway, because an unjailed
+> `-C` target is a real gap independent of what the archive contains.
+>
+> **The scanner was wrong, and that is the part to read.**
+> `tests/no_stub_dispatch.rs`'s first parser counted only dispatch rows beginning
+> with `|`. One row is a bare function reference:
+>
+> ```rust
+>     bi_try_repair,                                  // 1140
+> ```
+>
+> Every index after it came out one too low. The report said the last row was out
+> of range and that **nine correct registrations** — `plan_diff`, `rm`, `rmdir`,
+> `touch`, `cd` and the four `rbac_*` — each called its neighbour's
+> implementation. That was one edit away from being "fixed", which would have
+> broken `rm`, `rmdir`, `touch`, `cd` and the whole RBAC session family at once.
+>
+> What stopped it: `rm` calling `bi_rmdir` would have failed
+> `tests/filesystem_removal.rs` on its first run, and it does not fail. **A
+> scanner's output is a claim, and a claim that contradicts a passing test is the
+> scanner's problem first.** The row count is now pinned against known-good
+> indices at both ends of the table, so a missed row shape fails immediately
+> instead of producing a plausible list of victims.
+>
+> That is twice in two passes — seven phantom "writers" in
+> `tests/write_evidence.rs`, nine phantom "misregistrations" here. Both times the
+> false report was longer than the true one, and both times the tempting fix would
+> have made things worse. **When a new scanner's first run produces a long list,
+> the list is evidence about the scanner.**
+>
+> **Suite: 1992 passed, 0 failed across 123 binaries**, clippy `-D warnings` and
+> fmt exit 0.
 
 
 > **Session 4 (2026-08-25): the shell was healthy, everything was pushed, and CI

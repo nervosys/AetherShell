@@ -2987,8 +2987,21 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_file_copy(args, input),
     |args, input, _| bi_file_move(args, input),
     |args, input, _| bi_file_exists(args, input),
+    // 532: `mkdir` / `mkdirp` / `file_mkdir`.
+    //
+    // This slot was a placeholder, and the three names were registered into it —
+    // the comment below said the reserved range began at 533 when the first
+    // placeholder was at 532, an off-by-one that put an advertised builtin on a
+    // stub. `mkdir` returned `Ok(Value::Null)` for every input and created
+    // nothing, while `bi_file_mkdir` sat in the file fully written and never
+    // referenced.
+    //
+    // Nothing caught it. `catalog_reachability` asks whether an advertised name
+    // dispatches, and this one did — to `|_, _, _| Ok(Value::Null)`. A silent
+    // no-op is worse than a missing builtin, because the caller is handed a
+    // success value.
+    |args, input, _| bi_file_mkdir(args, input),
     // 533-539: Reserved/placeholder
-    |_, _, _| Ok(Value::Null),
     |_, _, _| Ok(Value::Null),
     |_, _, _| Ok(Value::Null),
     |_, _, _| Ok(Value::Null),
@@ -24161,6 +24174,7 @@ fn bi_zip_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     #[cfg(target_os = "windows")]
     {
+        let dest = guard_local_write("zip_extract", &dest)?;
         let cmd = crate::ps_script!(
             "Expand-Archive -Path {} -DestinationPath {}",
             crate::safety::ps_quote(&archive),
@@ -24175,6 +24189,7 @@ fn bi_zip_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         crate::safety::reject_option_like("zip_extract", std::slice::from_ref(&archive))?;
         crate::safety::reject_option_like("zip_extract", std::slice::from_ref(&dest))?;
+        let dest = guard_local_write("zip_extract", &dest)?;
         let output = std::process::Command::new("unzip")
             .args([&archive, "-d", &dest])
             .output()?;
@@ -24338,6 +24353,10 @@ fn bi_tar_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     cmd.args(["-xvf", &archive]);
     if let Some(d) = dest {
         crate::safety::reject_option_like("tar_extract", std::slice::from_ref(&d))?;
+        // The central check judges only paths that already exist. A `-C`
+        // target usually does, but not always, so the destination is jailed
+        // here where its meaning is known.
+        let d = guard_local_write("tar_extract", &d)?;
         cmd.args(["-C", &d]);
     }
     let output = cmd.output()?;
@@ -31204,6 +31223,13 @@ fn bi_file_copy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         _ => return Err(anyhow!("file_copy: destination must be a string")),
     };
 
+    // The destination only. Reading from outside the workspace is allowed by
+    // policy — `ReadLocal` is unjailed — so jailing the *source* would refuse
+    // copying a file in, which is a legitimate call. Only the call site knows
+    // which argument is which, which is why this cannot live in
+    // `guard_dispatch`.
+    let dest = guard_local_write("file_copy", &dest)?;
+
     let source_path = std::path::Path::new(&source);
 
     if !source_path.exists() {
@@ -31322,6 +31348,10 @@ fn bi_file_mkdir(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(crate::safety::arg_err("file_mkdir requires a path")),
     };
+
+    // Creates a directory at a caller-named path, with no guard until now:
+    // `WriteLocal` is not centrally enforced, so nothing jailed it.
+    let path = guard_local_write("file_mkdir", &path)?;
 
     let already_exists = std::path::Path::new(&path).exists();
 

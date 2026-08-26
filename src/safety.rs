@@ -2825,9 +2825,11 @@ pub const SELF_GUARDED: &[&str] = &[
     "docker_rm",
     "file_append",
     "file_backup",
+    "file_copy",
     "file_delete_lines",
     "file_edit",
     "file_insert",
+    "file_mkdir",
     "file_move",
     "file_patch",
     "file_write",
@@ -2851,6 +2853,7 @@ pub const SELF_GUARDED: &[&str] = &[
     "sh",
     "ssh_exec",
     "strace_cmd",
+    "tar_extract",
     "terraform_destroy",
     "timeout_cmd",
     "tmux_new",
@@ -2872,6 +2875,7 @@ pub const SELF_GUARDED: &[&str] = &[
     "web_upload_file",
     "wget_download",
     "xargs_exec",
+    "zip_extract",
 ];
 
 /// Whether an effect is one the policy table can refuse.
@@ -2926,9 +2930,51 @@ pub fn guard_dispatch(builtin: &str, args: &[crate::value::Value]) -> Result<(),
         return Ok(());
     }
     if !centrally_enforced(effect) {
-        // `WriteLocal` and `Network` decide `Allow`, so there is no decision to
-        // make — but "allowed" and "unobserved" are different things, and until
-        // now these left no trace at all. Record them so an agent session can be
+        // Containment is not the policy decision, and conflating the two left the
+        // jail reaching 8 of the 119 `WriteLocal` builtins.
+        //
+        // The original reasoning here was that `WriteLocal` and `Network` decide
+        // `Allow`, so there is no decision to make and nothing to do but audit.
+        // That is true about the *policy* and beside the point about the *jail*,
+        // which lives inside `guard` and is therefore skipped by this early
+        // return. §5.3 promises `WriteLocal` is "jailed to workspace"; in
+        // practice only the eight builtins that guard themselves were, and
+        // `copy_file` would overwrite a file outside the workspace that
+        // `file_write` was refused for — demonstrated, then fixed here.
+        //
+        // Scope, stated precisely because the restriction is load-bearing: this
+        // judges only arguments naming a path that *already exists*, exactly as
+        // the centrally-enforced branch below does. A string that resolves to a
+        // real file is a path by observation; one that does not may be a
+        // container name, a subcommand or a SQL fragment, and refusing those
+        // would break legitimate calls with no workaround. So creating a *new*
+        // file outside the workspace is still the call site's job — what this
+        // catches is overwriting something already there, which is the half that
+        // can damage a system rather than litter it.
+        // A central jail for `WriteLocal` was tried here and reverted, and the
+        // reason is worth keeping so it is not tried again.
+        //
+        // The gap is real: `guard` holds the jail, this early return skips it, and
+        // §5.3 promises `WriteLocal` is "jailed to workspace" — so `copy_file`
+        // would overwrite a file outside the workspace that `file_write` was
+        // refused for. Demonstrated in `tests/writelocal_jail.rs`.
+        //
+        // The obvious fix — run the jail over `existing_paths(&args)` here, as the
+        // centrally-enforced branch does — was implemented, and then measured:
+        // it refuses `copy_file <outside-source> <inside-destination>`, which is
+        // copying a file *into* the workspace. That is a legitimate call. Reading
+        // from outside is allowed by policy (`ReadLocal` is unjailed) and the
+        // write lands inside the jail, so refusing it is a false positive with no
+        // workaround — precisely what the comment below warns about.
+        //
+        // The two cases are indistinguishable from here: both are "a `WriteLocal`
+        // call naming an existing path outside the workspace". Only the call site
+        // knows which of its arguments is the destination. So the jail stays at
+        // call sites, and `tests/writelocal_jail.rs` measures how many builtins
+        // have one rather than assuming they all do.
+        //
+        // "Allowed" and "unobserved" are different things, and until this these
+        // left no trace at all. Record them so an agent session can be
         // reconstructed afterwards, which is most of what an audit log is for.
         //
         // Agent surface only: a human REPL should not pay a log write per file
