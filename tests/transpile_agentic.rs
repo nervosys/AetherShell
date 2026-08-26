@@ -652,16 +652,8 @@ fn module_sigil_r_str() {
     assert_call("R.s(x, \",\")\n", "str.split");
 }
 #[test]
-fn module_sigil_v_vm() {
-    assert_call("V.l()\n", "vm.list");
-}
-#[test]
 fn module_sigil_u_uv() {
     assert_call("U.i(\"pkg\")\n", "uv.install");
-}
-#[test]
-fn module_sigil_w_wsl() {
-    assert_call("W.l()\n", "wsl.list");
 }
 #[test]
 fn module_sigil_y_yarn() {

@@ -178,6 +178,7 @@ clipboard_has_text	ReadLocal
 clipboard_history	ReadLocal
 clipboard_set	WriteLocal
 clipboard_set_image	Pure
+clipboard_types	ReadLocal
 cloud_config	Pure
 cloud_deploy	Pure
 cloud_instance_connect	Pure
@@ -254,13 +255,18 @@ crypto_jwt_decode	ReadLocal
 crypto_password_hash	ReadLocal
 crypto_password_verify	ReadLocal
 crypto_random_bytes	ReadLocal
+crypto_random_string	ReadLocal
 crypto_sign	Pure
 crypto_uuid	ReadLocal
 crypto_verify_signature	Pure
 curl	Network
 cut	Pure
 cut_columns	Pure
+db_csv_query	ReadLocal
+db_csv_to_json	ReadLocal
 db_csv_to_sqlite	WriteLocal
+db_json_query	ReadLocal
+db_json_to_csv	ReadLocal
 db_json_to_sqlite	WriteLocal
 db_kv_delete	Destructive
 db_kv_get	ReadLocal
@@ -578,6 +584,7 @@ input_date	Pure
 input_editor	Exec
 input_form	Pure
 input_multiselect	Pure
+input_number	Pure
 input_progress	Pure
 input_read_char	Pure
 input_read_line	Pure
@@ -585,6 +592,7 @@ input_read_password	Exec
 input_select	Pure
 input_spinner	Pure
 input_table	Pure
+input_timeout	Pure
 insert_lines	WriteLocal
 inspect	Pure
 iperf3	Network

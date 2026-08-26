@@ -34,7 +34,7 @@ Companion to the security audit (CVE / NIST FIPS / MITRE ATT&CK / CMMC 2.0).
 Set **`AETHER_FIPS=1`** (or `on`/`true`) to enforce *approved-algorithms-only* at the
 application layer (`safety::fips_enabled` / `safety::require_fips_hash`):
 
-- The hash builtins (`crypto_hash`, `file_checksum`, and the file-hash utilities)
+- The hash builtins (`crypto_hash`, `crypto_hash_file`, `crypto_checksum`, and the
   **refuse MD5 and SHA-1**, returning `E_FIPS_DISALLOWED`; only the SHA-2 family is
   permitted.
 - Integrity verification **fails closed** on legacy MD5 digests — `persistence.rs`

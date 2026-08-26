@@ -364,8 +364,8 @@ fn classified_effect(name: &str) -> Option<Effect> {
         // function — that `timeout("rm -rf /")` was a side-effect-free call.
         // Keep in step with the `guard_exec` call sites in `builtins.rs`.
         "sh" | "exec" | "system" | "timeout" | "timeout_cmd" | "xargs" | "xargs_exec"
-        | "proc_spawn" | "nohup_run" | "strace" | "strace_cmd" | "ltrace" | "ltrace_cmd"
-        | "perf_stat" | "perf_record" | "lxc_exec" | "tmux_new" | "tmux_send"
+        | "proc_spawn" | "strace" | "strace_cmd" | "ltrace" | "ltrace_cmd"
+        | "perf_stat" | "perf_record" | "tmux_new" | "tmux_send"
         // Also found by `tests/effect_coverage.rs`. Each of these runs a program
         // (locally, in a container, or on another host) with caller-supplied
         // input; `ssh_exec`/`sudo_exec`/`remote_exec` classifying as `Pure` was
@@ -615,6 +615,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "buildah_images"
         | "capabilities"
         | "clipboard_get"
+        | "clipboard_types"
         | "clipboard_history"
         | "cron_list"
         | "crypto_base64_decode"
@@ -627,7 +628,12 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "crypto_jwt_decode"
         | "crypto_password_hash"
         | "crypto_random_bytes"
+        | "crypto_random_string"
         | "crypto_uuid"
+        | "db_csv_query"
+        | "db_csv_to_json"
+        | "db_json_query"
+        | "db_json_to_csv"
         | "db_sqlite_dump"
         | "delta_diff"
         | "diag_explain"
@@ -2279,6 +2285,9 @@ pub fn ps_arg<T: PsArg + ?Sized>(_: &T) {}
 /// Found by [`ps_script!`]'s type check, which is the one layer that sees an
 /// unquoted interpolation: `vm.create(name, memory, disk)` and
 /// `firewall.allow(port)` both put caller strings straight into a command.
+/// (Both of those builtins were deleted in the 2026-08-26 dead-code pass — they
+/// were never registered. The helper stays because the shape recurs, and the
+/// history is kept so the next reader knows what it was written against.)
 ///
 /// The check is a whitelist — digits, at most one decimal point, and an
 /// optional size suffix — so nothing that could carry a metacharacter survives.
@@ -2816,7 +2825,6 @@ pub const SELF_GUARDED: &[&str] = &[
     "apply",
     "cd",
     "cloud_instance_destroy",
-    "curl_exec",
     "db_kv_delete",
     "db_sqlite_delete",
     "db_sqlite_drop_table",
@@ -2837,8 +2845,6 @@ pub const SELF_GUARDED: &[&str] = &[
     "k8s_delete",
     "k8s_exec",
     "ltrace_cmd",
-    "lxc_exec",
-    "nohup_run",
     "perf_record",
     "perf_stat",
     "platform_db_delete",

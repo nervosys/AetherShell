@@ -76,7 +76,6 @@ const KNOWN_UNIMPLEMENTED: &[&str] = &[
     "gui_scroll",
     "gui_wait_image",
     "gui_window_list",
-    "input_number",
     "input_path",
     "input_text",
     "perm_acl_get",

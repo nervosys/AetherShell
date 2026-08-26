@@ -183,6 +183,11 @@ lazy_static::lazy_static! {
         m.insert("mc", "mcp");
         m.insert("pr", "proc");
         m.insert("fs", "fs");
+        // The `vm`, `hyperv`, `virsh`, `wsl`, `firewall` and `container` module
+        // sigils were removed with their builtins. None of those names was ever
+        // registered, so `V.l()` expanded to `vm.list()` and then to "unknown
+        // builtin" -- a sigil for a module that does not exist is a shorter way
+        // to reach the same error.
         m.insert("gw", "gui");
         m.insert("wb", "web");
         m.insert("sv", "svc");
@@ -393,29 +398,19 @@ lazy_static::lazy_static! {
         m.insert("evo.p", "evo.population");
         // rl
         m.insert("rl.a", "rl.agent");
+        // The `vm`, `hyperv`, `virsh`, `wsl` and `firewall` shorthands were
+        // removed with their builtins: none of those names was ever registered,
+        // so expanding `vm.l` produced `vm.list`, which produced "unknown
+        // builtin". An abbreviation for something that does not exist is a
+        // slower way to fail.
         // helm
         m.insert("helm.l", "helm.list");
         m.insert("helm.i", "helm.install");
-        // vm
-        m.insert("vm.l", "vm.list");
-        m.insert("vm.s", "vm.start");
-        // hyperv
-        m.insert("hyperv.l", "hyperv.list");
-        m.insert("hyperv.s", "hyperv.start");
-        // virsh
-        m.insert("virsh.l", "virsh.list");
-        m.insert("virsh.s", "virsh.start");
-        // wsl
-        m.insert("wsl.l", "wsl.list");
-        m.insert("wsl.e", "wsl.exec");
         // terraform
         m.insert("terraform.p", "terraform.plan");
         m.insert("terraform.a", "terraform.apply");
         // ansible
         m.insert("ansible.p", "ansible.playbook");
-        // firewall
-        m.insert("firewall.r", "firewall.rules");
-        m.insert("firewall.a", "firewall.allow");
         // tmux
         m.insert("tmux.n", "tmux.new");
         m.insert("tmux.l", "tmux.list");

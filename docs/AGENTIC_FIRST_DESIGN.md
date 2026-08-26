@@ -801,7 +801,7 @@ shell."
   op, checked at each guard boundary). Counters tally *attempts* at the boundary (an
   op later denied by jail/policy still counts — the envelope bounds what the agent
   may try, the strictly-safe reading). The network cap is enforced by routing the
-  **every egress builtin** (`http_get`, `curl_exec`, `wget_download`, and the full
+  **every egress builtin** (`http_get`, `wget_download`, and the full
   `web_*` fetch family — `web_fetch`/`web_get`/`web_post`/`web_json_get`/`web_json_post`/
   `web_scrape`/`web_download`/`web_headers`/`web_cookies`/`web_form_submit`/
   `web_upload_file`/`web_rest_api`/`web_graphql`/`web_check_url`, with
@@ -1229,7 +1229,7 @@ Verified end-to-end (`ae --agent -c 'safety_status()'` reports `mode: "agent"`).
 - ✅ Extended `guard()` to the destructive db/docker/file builtins. Assessed the
   remaining candidates: `k8s_delete` and `platform_db_delete` are guarded
   (`Destructive`); `svc_delete` is a no-op stub (returns a message, deletes nothing)
-  so it needs no guard. Network egress (`http_get`/`curl_exec`/`wget_download`/the
+  so it needs no guard. Network egress (`http_get`/`wget_download`/the
   `web_*` fetch family) is now guarded too (`Network`).
 - ✅ Exposed `approve(token)` (dispatch index 1104) and `audit_verify(path?)`
   (1105) as builtins, so the loop is usable in-shell (not just via env):

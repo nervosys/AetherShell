@@ -39,16 +39,10 @@ use std::path::PathBuf;
 ///
 /// This list may only shrink. Adding to it asserts that a string reaching a
 /// shell parser without an execution gate is correct.
-const ALLOWED: &[(&str, &str)] = &[
-    (
-        "bi_nohup_run",
-        "runs a caller's command by contract; calls guard_exec first",
-    ),
-    (
-        "bi_xargs_exec",
-        "runs a caller's command per item; calls guard_exec on the template",
-    ),
-];
+const ALLOWED: &[(&str, &str)] = &[(
+    "bi_xargs_exec",
+    "runs a caller's command per item; calls guard_exec on the template",
+)];
 
 const SOURCES: &[&str] = &[
     "src/builtins.rs",
@@ -190,7 +184,7 @@ fn every_shell_spawn_that_takes_a_value_gates_on_exec() {
     }
 
     assert!(
-        total >= 8,
+        total >= 6,
         "only {total} shell spawn sites found across {SOURCES:?}; the scanner has \
          drifted and this test is checking almost nothing"
     );
@@ -218,12 +212,16 @@ fn the_scanner_sees_the_sites_it_claims_to() {
     let src = source("src/builtins.rs").expect("src/builtins.rs is readable");
     let sites = shell_spawn_sites(&src);
     assert!(
-        sites.len() >= 8,
+        sites.len() >= 6,
         "only {} shell spawn sites parsed in builtins.rs",
         sites.len()
     );
     let names: Vec<&str> = sites.iter().map(|(n, _, _)| n.as_str()).collect();
-    for expected in ["bi_nohup_run", "bi_xargs_exec", "bi_ulimit_info"] {
+    // `bi_nohup_run` was here until it was deleted as unreachable.
+    // `bi_nohup_run` and `bi_ulimit_info` were here until their families were
+    // deleted as unreachable -- the sixth fixture this session found naming
+    // something that no longer exists.
+    for expected in ["bi_xargs_exec", "bi_hw_sensors"] {
         assert!(
             names.contains(&expected),
             "{expected} should be among the parsed spawn sites, got {names:?}"
@@ -260,8 +258,35 @@ fn the_allowlist_has_a_reason_for_every_entry() {
         );
     }
     assert!(
-        ALLOWED.len() <= 2,
+        ALLOWED.len() <= 1,
         "the shell-spawn allowlist has grown to {}; it may only shrink",
         ALLOWED.len()
+    );
+}
+
+#[test]
+fn every_allowlisted_function_still_exists() {
+    // An allowlist entry naming a function that no longer exists is a claim about
+    // nothing: it reads as a considered exception, and it exempts a name the
+    // compiler can no longer check. Three stale `SELF_GUARDED` entries survived
+    // exactly that way -- `curl_exec`, `lxc_exec` and `nohup_run` were listed as
+    // guarding themselves after their implementations had become unreachable.
+    //
+    // The list may only shrink, and this is what makes shrinking mandatory when
+    // the thing it describes is deleted.
+    let src = source("src/builtins.rs").expect("src/builtins.rs is readable");
+    let missing: Vec<&str> = ALLOWED
+        .iter()
+        .map(|(n, _)| *n)
+        // Two conventions in play: this file's allowlist holds *builtin* names
+        // (`apply`), the option-injection and shell-spawn ratchets hold *function*
+        // names (`bi_apply`). The first version of this check tested only one form
+        // and reported four live functions as missing. Accept either.
+        .filter(|n| !src.contains(&format!("fn {n}(")) && !src.contains(&format!("fn bi_{n}(")))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "these allowlist entries name functions that no longer exist: {missing:?}
+         Remove them -- an exception for something that is gone is not an exception."
     );
 }

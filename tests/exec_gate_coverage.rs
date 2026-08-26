@@ -145,17 +145,19 @@ fn human_mode_is_unaffected() {
 /// gate. If these drift, an agent is told `timeout` is side-effect free.
 #[test]
 fn every_guarded_exec_builtin_is_classified_as_exec() {
+    // `nohup_run` and `lxc_exec` were on this list until their implementations
+    // were deleted as unreachable. Asserting the effect class of a builtin that
+    // does not exist is a claim about nothing -- the same shape as a stale
+    // allowlist entry, and the fourth instance of it found in one day.
     for name in [
         "sh",
         "timeout_cmd",
         "xargs_exec",
         "proc_spawn",
-        "nohup_run",
         "strace_cmd",
         "ltrace_cmd",
         "perf_stat",
         "perf_record",
-        "lxc_exec",
         "tmux_new",
         "tmux_send",
     ] {

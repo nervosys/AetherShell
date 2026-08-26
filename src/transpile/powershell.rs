@@ -863,9 +863,6 @@ fn map_ps_cmdlet(name: &str) -> Option<&'static str> {
         "get-netipaddress" => Some("net.ip"),
         "get-netipinterface" => Some("net.interfaces"),
         "get-nettcpconnection" => Some("net.connections"),
-        "get-netfirewallrule" => Some("firewall.rules"),
-        "new-netfirewallrule" => Some("firewall.allow"),
-        "remove-netfirewallrule" => Some("firewall.deny"),
 
         // Disk/storage
         "get-disk" => Some("sys.disk_usage"),

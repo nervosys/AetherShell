@@ -180,7 +180,7 @@ fn the_row_count_matches_the_dispatcher() {
     let rows = dispatch_rows(&source());
     assert_eq!(
         rows.len(),
-        1150,
+        1157,
         "BUILTIN_DISPATCH row count changed. If that is intentional, update this \
          number *and* check that every `map.insert` index still names the row it \
          meant to — inserting a row shifts every index after it."

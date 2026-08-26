@@ -237,16 +237,10 @@ crypto.uuid()         math.sqrt(16)      arr.range(10)
 | `cluster`    | Cluster        | Distributed computing                                 |
 | `docker`     | Docker         | `docker.ps()`, `docker.run(image, args)`              |
 | `podman`     | Podman         | `podman.ps()`, `podman.run(image, args)`              |
-| `container`  | Containers     | `container.ps()`, `container.run(image)`              |
 | `k8s`        | Kubernetes     | `k8s.pods()`, `k8s.apply(manifest)`                   |
 | `helm`       | Helm           | `helm.list()`, `helm.install(chart)`                  |
-| `vm`         | VMs            | `vm.list()`, `vm.start(name)`                         |
-| `hyperv`     | Hyper-V        | `hyperv.list()`, `hyperv.start(name)`                 |
-| `virsh`      | libvirt        | `virsh.list()`, `virsh.start(name)`                   |
-| `wsl`        | WSL            | `wsl.list()`, `wsl.exec(distro, cmd)`                 |
 | `terraform`  | Terraform      | `terraform.plan()`, `terraform.apply()`               |
 | `ansible`    | Ansible        | `ansible.playbook(file)`                              |
-| `firewall`   | Firewall       | `firewall.rules()`, `firewall.allow(port)`            |
 | `tmux`       | Terminal mux   | `tmux.new(name)`, `tmux.list()`                       |
 | `screen`     | Screen         | `screen.new(name)`, `screen.list()`                   |
 | `valgrind`   | Memory debug   | `valgrind.run(prog)`, `valgrind.callgrind(prog)`      |

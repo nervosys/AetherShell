@@ -489,3 +489,30 @@ fn editing_inside_the_workspace_still_works() {
         "the edit must actually have been applied"
     );
 }
+
+#[test]
+fn every_allowlisted_function_still_exists() {
+    // An allowlist entry naming a function that no longer exists is a claim about
+    // nothing: it reads as a considered exception, and it exempts a name the
+    // compiler can no longer check. Three stale `SELF_GUARDED` entries survived
+    // exactly that way -- `curl_exec`, `lxc_exec` and `nohup_run` were listed as
+    // guarding themselves after their implementations had become unreachable.
+    //
+    // The list may only shrink, and this is what makes shrinking mandatory when
+    // the thing it describes is deleted.
+    let src = source();
+    let missing: Vec<&str> = ALLOWED
+        .iter()
+        .map(|(n, _)| *n)
+        // Two conventions in play: this file's allowlist holds *builtin* names
+        // (`apply`), the option-injection and shell-spawn ratchets hold *function*
+        // names (`bi_apply`). The first version of this check tested only one form
+        // and reported four live functions as missing. Accept either.
+        .filter(|n| !src.contains(&format!("fn {n}(")) && !src.contains(&format!("fn bi_{n}(")))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "these allowlist entries name functions that no longer exist: {missing:?}
+         Remove them -- an exception for something that is gone is not an exception."
+    );
+}

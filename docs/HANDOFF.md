@@ -566,6 +566,84 @@
 >
 > **Suite: 1992 passed, 0 failed across 123 binaries**, clippy `-D warnings` and
 > fmt exit 0.
+>
+> **The dead-code question, settled: 112 implementations deleted, 8 names wired.**
+> §5 item 3 was "registering the 168 unadvertised `bi_*` is a product decision".
+> The decision was made — *wire it if it should exist, delete it if it shouldn't*
+> — and this is what that came to.
+>
+> **The criterion.** A family that is already *partly* registered is incomplete
+> without its dead members, so those get wired. A family with **zero** registered
+> members is speculative code nothing advertises, so it goes. Then two overrides,
+> both of which delete regardless of family:
+>
+> * **duplicates of a registered spelling** — `input_multi_select` beside the
+>   registered `input_multiselect`, `db_memory_get/set/store` beside `db_kv_*`,
+>   `file_checksum` beside `crypto_hash_file`, `curl_exec` beside
+>   `web_rest_api`, `crypto_key_generate` beside `crypto_generate_key`;
+> * **stubs that return an excuse as a success value** — `input_hotkey` and
+>   `input_history` each return a *string explaining they do not work*, and
+>   `input_available`/`input_clear_buffer` return `Bool(true)` unconditionally.
+>   That is the `mkdir` failure mode with a different spelling, and the fix for a
+>   builtin that lies about succeeding is to not have it.
+>
+> **Wired (8 names, 7 rows):** `db_csv_query` + `db_csv_to_json` (one index — the
+> second is an alias), `db_json_query`, `db_json_to_csv`, `clipboard_types`,
+> `crypto_random_string`, `input_number`, `input_timeout`. Rows were **appended,
+> never inserted**: a row added mid-table shifts every index after it and
+> silently re-points every registration above — which is exactly how `mkdir` came
+> to sit on a placeholder. The comment in the table now says so.
+>
+> **`builtins.rs` is 3,329 lines shorter.**
+>
+> ### Three corrections during the pass, each caught by something other than care
+>
+> **1. The first reachability model was wrong, and the compiler said so.** It
+> asked "is this function named in the dispatch table?", which misses a function
+> reached *through* a registered wrapper. Five were: `crypto_key_generate`,
+> `db_sqlite_create`, `db_sqlite_export_csv`, `db_sqlite_import_csv` and
+> `input_multi_select` are all live code behind registered names. The first build
+> after deleting them failed with five `cannot find function` errors. Redone as a
+> transitive walk from the dispatch roots: **120 truly dead**, not 125.
+>
+> This is the third scanner this session whose first answer was wrong. The
+> difference here is that the compiler is a checker the scanner cannot argue
+> with — which is the argument for deleting code and building, rather than
+> reasoning about whether it is used.
+>
+> **2. A deleted function carried the only test of the FIPS gate.**
+> `bi_file_checksum` was unreachable and duplicated `crypto_hash_file` — and it
+> was what `file_checksum_honors_the_fips_gate` called, the only coverage
+> `safety::require_fips_hash` has, and that gate is what the compliance claim
+> rests on. The test now calls `bi_crypto_hash_file` instead (argument order is
+> reversed between them). It is better coverage than before: it exercises the
+> spelling a caller can actually reach.
+>
+> **3. Deleting dead code exposed three more stale `SELF_GUARDED` entries.**
+> `curl_exec`, `lxc_exec` and `nohup_run` were listed as guarding themselves,
+> with no implementation left to guard anything. With the two found earlier
+> (`platform_os_version`, `sys_info`) that is **five stale exemptions** from
+> `guard_dispatch` — an entry there makes the dispatcher return immediately, so a
+> stale one is a standing exemption for a name nobody is checking.
+>
+> All three ratchets now carry the generalisation:
+> **an allowlist entry naming a function that no longer exists fails the build.**
+> A list that may only shrink has to actually shrink when the thing it describes
+> is deleted, or it accumulates exceptions for nothing.
+>
+> ### Recorded rather than tidied away
+>
+> Three of the `reject_option_like` guards added earlier this session went to
+> `bi_sftp_list`, `bi_sftp_get` and `bi_sftp_put` — a wholly unregistered family,
+> now deleted. **About a tenth of the option-injection hardening was applied to
+> code no caller could reach.** The guards were not wrong; the survey that chose
+> where to put them asked "does this spawn a risky tool?" and never asked "can
+> anyone call this?". Worth carrying: *reachability is a precondition for
+> severity, and it is cheap to check first.*
+>
+> ### §5 item 1
+>
+> Closed at the repository owner's direction (2026-08-26). Not carried forward.
 
 
 > **Session 4 (2026-08-25): the shell was healthy, everything was pushed, and CI
@@ -917,24 +995,38 @@ loses only this item; nothing else depends on it.
 
 These predate this session's work and are **not** blocked on the shell.
 
-1. **Token rotation — the one genuinely urgent item.** Three crates.io tokens,
-   including the live one that published 8.0.0, were disclosed in plaintext in
-   the session transcript. It was redacted from `history.jsonl`, which does not
-   un-disclose it. Rotation cannot be done from here: `/api/v1/me` and
-   `/api/v1/me/tokens` both return 403 for a token of that scope, and the
-   browser extension is not connected. **A human must rotate them at
-   <https://crates.io/settings/tokens>.**
-2. **External security review and penetration test.** These are the acceptance
-   criteria for the CRITICAL items in the tracker, so those counts are
-   deliberately left unflipped. Two live vulnerabilities (SQL injection,
-   unauthenticated MCP builtin execution) and the privilege escalation above
-   were found in-house; that is a reason to get outside eyes on it, not a
-   substitute.
-3. **168 unregistered `bi_*` implementations** (`vm_*`, `wsl_*`, `virsh_*`,
-   `firewall_*`, `input_*`). Measured: **none of the 168 is advertised** by the
-   ontology, so they are unused code rather than broken promises.
-   `tests/catalog_reachability.rs` keeps the advertised-but-unreachable count at
-   zero. Registering them is a product decision, still open.
+1. **~~Token rotation~~ — CLOSED at the repository owner's direction
+   (2026-08-26).** Not carried forward.
+
+2. **External security review and penetration test — the one item still
+   open, and the only one that needs someone outside this repository.**
+   These are the acceptance criteria for the CRITICAL items in the tracker,
+   so those counts are deliberately left unflipped.
+
+   **What to hand a reviewer.** The session notes above are the scoping
+   document: every finding is recorded with the method that found it, the
+   measurement that confirmed it, and the ratchet that now pins it —
+   including the two that did **not** reproduce, which are the ones most
+   worth re-testing independently.
+
+   **Where an outside eye is most likely to pay.** Every finding here came
+   from one question — *where does a value reach something that parses it?*
+   That is a productive lens and a narrow one. It says nothing about
+   time-of-check/time-of-use, the approval-token lifecycle, the audit
+   chain's resistance to a hostile writer, concurrency between the jail
+   check and the write, or whether the effect taxonomy is the right model
+   at all. **The boundary of the method is the best guess at where the
+   remaining bugs are.**
+
+3. **~~168 unregistered `bi_*` implementations~~ — DECIDED and DONE
+   (2026-08-26).** The instruction was *wire it if it should exist, delete it
+   if it shouldn't*. Measured by transitive reachability from the dispatch
+   table rather than by name: **120 were truly dead**. Of those, **8 names**
+   (7 rows) were wired — the members of families that were already partly
+   registered and were neither duplicates nor stubs — and **112 were
+   deleted**. `builtins.rs` is 3,329 lines shorter. See the session note
+   above for the criterion and for the three corrections the pass needed.
+
 4. **Roadmap, remaining.**
    - ~~Fully lazy iterators end-to-end~~ — **done as far as it goes** (session 5,
      `142d60c`). A whole-collection stage now *ends* the streamable region
