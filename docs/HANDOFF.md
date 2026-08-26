@@ -236,6 +236,29 @@
 > **Suite after this: 1931 passed, 0 failed across 115 binaries**, clippy and fmt
 > exit 0.
 >
+> **A hypothesis that did not reproduce (`902fa28`), recorded because a negative
+> result is still a result.** `safety::reject_option_like` was called at three of
+> eight `sqlite3` spawn sites — the same partial-application shape — and its own
+> doc warns that several tools can be made to run a command through an
+> option-like argument. Expected: command execution through an unguarded path.
+> Measured against sqlite3 3.53.4:
+>
+> - a dot-command **does** execute from a single argv entry (`.system echo hi > f`
+>   created the file) — which is what `reject_sqlite_dot_command` already guards
+>   in the positions that take caller input;
+> - a newline does **not** begin a second dot-command inside one argv entry, so
+>   the chaining the attack needed does not exist;
+> - a quote in `db_sqlite_backup`’s path reaches `.backup`’s option parser, which
+>   is an integrity problem, not an execution one.
+>
+> **No RCE.** Guards added for consistency and defence in depth — described as
+> that, not as a fix for a hole — plus a ratchet over all eight sites. Worth
+> carrying forward: the partial-application heuristic found five real issues
+> today and one false alarm, so it is a good place to *look*, not evidence on its
+> own.
+>
+> **Suite: 1942 passed, 0 failed across 116 binaries.**
+>
 > **Not closable from this seat, and both still open:** the crates.io token
 > rotation (§5 item 1 — a human at <https://crates.io/settings/tokens>) and the
 > external security review and penetration test (§5 item 2). Registering the 168
