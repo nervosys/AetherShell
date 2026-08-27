@@ -81,10 +81,28 @@ fn certificate_checks_never_report_success_when_unimplemented() {
 fn encrypt_and_decrypt_do_not_return_prose_in_place_of_ciphertext() {
     for name in ["crypto_encrypt", "crypto_decrypt"] {
         match try_call(name, vec![s("secret data"), s("password")]) {
-            Err(e) => assert!(
-                e.to_string().contains("E_UNIMPLEMENTED"),
-                "{name}: unexpected error: {e}"
-            ),
+            // Two failures are legitimate here and they are platform-dependent,
+            // which is why this assertion used to be wrong on Unix only:
+            //
+            //   * no openssl on the host          -> E_UNIMPLEMENTED
+            //   * openssl present and it refused  -> E_DECRYPT_FAILED
+            //
+            // The call passes plaintext where ciphertext is expected, so on any
+            // host that actually has openssl the *correct* answer is the second.
+            // This test previously demanded the first, which is how it kept
+            // passing while `crypto_decrypt` reported a decryption failure as
+            // "requires the openssl CLI" — telling a caller with a tampered
+            // ciphertext that their dependency was missing.
+            //
+            // What the test is really for is unchanged: the failure must be a
+            // branchable coded error, never prose handed back as data.
+            Err(e) => {
+                let text = e.to_string();
+                assert!(
+                    text.contains("E_UNIMPLEMENTED") || text.contains("E_DECRYPT_FAILED"),
+                    "{name}: failure must carry a recognisable code, got: {e}"
+                );
+            }
             Ok(Value::Str(out)) => {
                 // A real openssl run is fine; the failure mode is the sentinel
                 // message leaking through as though it were data.
