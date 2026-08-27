@@ -21,7 +21,7 @@ dependencies = [
 
 [[package]]
 name = "aethershell"
-version = "8.0.0"
+version = "9.0.0"
 dependencies = [
  "agentic-eval",
  "anyhow",
@@ -95,7 +95,7 @@ dependencies = [
 
 [[package]]
 name = "aethershell-lsp"
-version = "8.0.0"
+version = "9.0.0"
 dependencies = [
  "aethershell",
  "anyhow",

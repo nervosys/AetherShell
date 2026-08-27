@@ -7,6 +7,122 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [9.0.0] - 2026-08-27
+
+**Major, and the reason is concrete rather than ceremonial:** 114 `pub fn` were
+removed from the library surface, and two documented agent-mode workflows changed
+shape. Both are breaking under semver.
+
+### Breaking
+
+- **`approve()` is refused in agent mode.** §7.2 documented the loop as
+  `E_NEEDS_APPROVAL` → `approve(token)` → re-run, and that loop is right for a
+  human at a REPL and wrong for an agent: the agent holds the token it was just
+  refused with. Demonstrated end to end, then closed. Human mode is untouched;
+  the out-of-band `AETHER_APPROVE` / `AETHER_APPROVE_ALL` channel, set by
+  whoever launches the agent, still works.
+  **Consequence: `plan`/`apply` is no longer self-service for an agent.**
+- **`mv`, `move_file`, `file_move` and `file_rename` are `Destructive`**, so
+  agent mode asks for approval before a move. `fs::rename` removes the source and
+  can overwrite the destination; `file_delete_lines` was already `Destructive`
+  for altering a file in place, and moving one over another is not the smaller
+  act.
+- **114 `pub fn` removed** from the library. The builtin bodies are reached
+  through the dispatcher; exporting them let callers bypass the gate.
+- **112 unreachable builtin implementations deleted** (`vm_*`, `wsl_*`,
+  `virsh_*`, `firewall_*`, `hyperv_*`, `container_*` and others). Measured by
+  transitive reachability from the dispatch table: none was registered, so none
+  was callable. `builtins.rs` is 3,395 lines shorter.
+- **`AGENTS.md` no longer advertises six modules that never existed.**
+  `vm.list()`, `hyperv.list()`, `virsh.list()`, `wsl.exec()`,
+  `firewall.rules()` and `container.ps()` had always returned "unknown builtin";
+  the deletion exposed that rather than causing it. The matching transpiler
+  shorthands, module sigils and PowerShell cmdlet mappings went with them.
+
+### Security
+
+Eleven issues found by asking one question of the codebase — *where does a value
+reach something that parses it?* — and seven more from a framework audit against
+CWE, MITRE ATT&CK, NIST FIPS and CMMC 2.0 (`docs/security/SECURITY_AUDIT_2026-08-26.md`).
+
+- **Command execution through `web.open_url` (CWE-78).** The Windows branch ran
+  `cmd /C start <url>`; `cmd` splits on `&`, and Rust quotes an argument only
+  when it contains a space or a quote. `http://example.com&echo.>marker.txt`
+  created the file. A blocklist cannot fix this — `&` is the query-string
+  separator, so the dangerous character is legal data — so the shell was removed
+  from the path entirely.
+- **`web.open_url` was an unapproved `Exec`** classified `Network`: default-allow
+  in agent mode, unmetered, and outside the `AETHER_NET_ALLOW` egress allowlist.
+- **Three workspace-jail escapes (CWE-22, CWE-732).** `web.download` and
+  `wget_download` wrote past the jail; six builtins (`file_edit`, `file_insert`,
+  `file_patch`, `file_backup`, `session_export`, `file_move`) wrote outside it
+  under a *read* label; `copy_file` overwrote files the jail refused `file_write`.
+- **Option injection (CWE-88)** across `git`, `ssh`, `scp`, `tar`, `zip`,
+  `curl`, `openssl` and `find`. `reject_option_like` went from 11 call sites to
+  43, and the check moved *into* `guard_network` so every network builtin
+  inherits it at the one door they already pass through.
+- **An agent could approve its own denied call (CWE-863).** See Breaking.
+- **The audit log lived inside the jail it audits (CWE-345, CWE-732).** It
+  defaults to `<workspace>/.ae/audit.log` — the region the agent may write — and
+  the chain is unkeyed, so it could be rewritten end to end with a consistent
+  chain that `audit_verify()` accepts. The jail now refuses guarded writes to the
+  log and its directory. **Partial:** an approved `Exec` can still reach it and
+  the chain remains unkeyed; keying it needs key management and stays open.
+- **Secrets on helper-process command lines (CWE-214).** `crypto_password_hash`
+  now reads from stdin; `crypto_encrypt`/`crypto_decrypt` pass through the child
+  environment. `/proc/<pid>/environ` is owner-readable where `cmdline` is
+  world-readable.
+- **`crypto_uuid`'s fallback was a clock wearing a v4 label (CWE-330).**
+  Measured: three of five groups constant, **zero bits of randomness**. Now uses
+  the same CSPRNG as the API-key path.
+- **Modulo bias in `crypto_random_string` (CWE-1241).** Measured at 0.0045 bits
+  per character; now rejection sampling on both platforms.
+- **`crypto_decrypt` reported a decryption failure as `E_UNIMPLEMENTED`** —
+  telling a caller with a tampered ciphertext that openssl was not installed. For
+  an unauthenticated cipher that rejection is the only detection channel there
+  is. Now `E_DECRYPT_FAILED`.
+- **`sql_column_type`** validates the `CREATE TABLE` column type, closing the
+  last unvalidated SQL interpolation.
+
+### Fixed
+
+- **`mkdir` never created anything.** `mkdir`, `mkdirp` and `file_mkdir` were
+  registered at dispatch index 532 while the reserved placeholder run began
+  there — an off-by-one in a comment — so all three returned `Ok(Null)` and did
+  nothing, while `bi_file_mkdir` sat written and referenced by nothing.
+- **Five stale `SELF_GUARDED` entries** exempted names from `guard_dispatch`
+  whose implementations no longer guarded anything.
+- **A dangling module alias**: `input.number` resolved to nothing.
+
+### Known limitations
+
+- **`crypto_encrypt` provides confidentiality, not integrity** (AS-2026-04).
+  OpenSSL 3.5.7 answers `enc: AEAD ciphers not supported`, so `-aes-256-gcm` is
+  unreachable through this path. The alternatives are a dependency that breaks
+  every existing ciphertext, or a hand-rolled construction. Deferred to a release
+  where the format break can be versioned and announced.
+- **The FIPS gate covers hashes only.** Verified complete for those — three of
+  three call sites, three independent ways — but ciphers, key derivation and
+  DRBGs are not gated by `AETHER_FIPS`, and the cryptography is delegated to the
+  host, so any validated-module boundary is the operating system's.
+
+### Testing
+
+Fourteen new mechanical ratchets, each verified red before green, covering:
+shell-spawn gating, option injection, write-evidence versus effect label, the
+workspace jail for downloads and for `WriteLocal`, placeholder dispatch rows,
+approval self-grant, and audit-log tampering. Suite: **2,003 passing across 125
+binaries**, clippy `-D warnings` and fmt clean, green on Linux, macOS and Windows.
+
+
+---
+
+### Also in this release — the earlier remediation-tracker audit
+
+This work was sitting under `[Unreleased]` and ships as part of 9.0.0.
+
 Security work found by auditing `docs/security/REMEDIATION_TRACKER.md` against
 the code. Two of its fifteen itemised findings were live vulnerabilities; both
 were marked NOT STARTED and both were accurate.
