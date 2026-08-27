@@ -1,5 +1,13 @@
-# Canonicalize commit identities to the project's organization address. Maps an
-# earlier personal commit email to opensource@nervosys.ai so git tooling and
-# GitHub display the org identity. (Does not rewrite history; raw commit objects
-# are unchanged — full removal needs a history rewrite + force-push.)
-nervosys <opensource@nervosys.ai> <adam.michael.erickson@gmail.com>
+# Canonicalize commit identities to the project's organization address.
+#
+# This file previously carried a mapping from a personal commit email to
+# opensource@nervosys.ai. The mapping was removed on 2026-08-27 because it was
+# self-defeating: git's mailmap syntax requires naming the address you want
+# hidden, so the file published the very address it was canonicalizing — in a
+# public repository.
+#
+# Removing it costs nothing here. Verified before the change: every author and
+# committer email across all refs is already opensource@nervosys.ai
+# (`git log --all --format='%ae%n%ce' | sort -u`), so the mapping applied to no
+# commit in this repository.
+nervosys <opensource@nervosys.ai>
