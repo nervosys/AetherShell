@@ -179,13 +179,21 @@ fn plan_apply_requires_approval_then_applies_atomically() {
     assert_eq!(get_str(&na, "status"), "needs_approval");
     assert!(!f1.exists() && !f2.exists());
 
-    // Approve the plan token, then apply → atomic success, both files written.
-    call("approve", vec![Value::Str(token)]);
+    // Approve the plan token out of band, then apply -> atomic success.
+    //
+    // This used to call the `approve` builtin. That path is now refused in
+    // agent mode (AS-2026-01): the agent holding a token it was just refused
+    // with must not be the one to spend it. `AETHER_APPROVE` is the channel
+    // that survives, and it is set by whoever launched the agent -- which is
+    // the point. The property under test is unchanged: an approved plan
+    // applies atomically.
+    std::env::set_var("AETHER_APPROVE", &token);
     let ap = call("apply", vec![ops]);
     assert_eq!(get_str(&ap, "status"), "applied");
     assert_eq!(std::fs::read_to_string(&f1).unwrap(), "hello");
     assert_eq!(std::fs::read_to_string(&f2).unwrap(), "world");
 
+    std::env::remove_var("AETHER_APPROVE");
     std::env::remove_var("AETHER_MODE");
     std::env::remove_var("AETHER_WORKSPACE");
     let _ = std::fs::remove_dir_all(&w);

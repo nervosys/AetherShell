@@ -1353,6 +1353,46 @@ pub fn workspace_root() -> PathBuf {
 
 /// Whether the jail is enforced. Enforced in agent mode, or whenever the
 /// workspace root is set explicitly (humans opting into reproducible jails).
+/// Whether `path` names the active audit log or the directory holding it.
+///
+/// Compared lexically after normalising separators, because the target may not
+/// exist yet — a truncating write to a path that is about to *become* the log is
+/// the same attack as editing the one that is there.
+pub fn is_audit_artifact(path: &str) -> bool {
+    let norm = |s: &str| {
+        s.replace('\\', "/")
+            .trim_end_matches('/')
+            .to_ascii_lowercase()
+    };
+    let p = norm(path);
+    if p.is_empty() {
+        return false;
+    }
+    match audit_path() {
+        Some(log) => {
+            let l = norm(&log.to_string_lossy());
+            if p == l {
+                return true;
+            }
+            // The containing directory too, so `rm -r .ae` is caught — but
+            // **only when that directory is ours**. The first version
+            // protected the parent unconditionally, which meant an
+            // `AETHER_AUDIT_LOG` pointing at `/tmp/x.log` made the whole of
+            // `/tmp` unwritable. A guard that swallows a shared directory
+            // because a file was placed in it is a denial of service, not a
+            // control.
+            match log.parent() {
+                Some(dir) if dir.file_name().is_some_and(|n| n == ".ae") => {
+                    let d = norm(&dir.to_string_lossy());
+                    !d.is_empty() && (p == d || p.starts_with(&format!("{d}/")))
+                }
+                _ => false,
+            }
+        }
+        None => false,
+    }
+}
+
 fn jail_enforced(mode: Mode) -> bool {
     mode == Mode::Agent || std::env::var("AETHER_WORKSPACE").is_ok()
 }
@@ -2701,6 +2741,44 @@ pub fn guard(ctx: GuardCtx) -> Result<(), SafetyError> {
                         "operate on paths under {} or set AETHER_WORKSPACE",
                         workspace_root().display()
                     ),
+                    approval: None,
+                    did_you_mean: Vec::new(),
+                    expected: String::new(),
+                    got: String::new(),
+                });
+            }
+            // The audited party must not own the evidence (AS-2026-02).
+            //
+            // `audit_path()` defaults to `<workspace>/.ae/audit.log`, which is
+            // inside the jail — the one region a jailed builtin may write. So an
+            // ordinary `file.write` to it was allowed, and since the hash chain
+            // is unkeyed, the log could be rewritten end-to-end with a fresh,
+            // internally consistent chain that `audit_verify()` accepts.
+            //
+            // This is defence in depth, not a complete fix, and the limit is
+            // worth stating: it stops a *jailed filesystem* builtin. An approved
+            // `Exec` call can still reach the file, and the chain is still
+            // unkeyed. Keying it needs key management, which is a design
+            // decision rather than a patch. What this closes is the cheap path.
+            if is_audit_artifact(t) {
+                let _ = audit(
+                    ctx.builtin,
+                    ctx.effect,
+                    "deny_audit_tamper",
+                    &resource,
+                    json!({ "target": t }),
+                );
+                return Err(SafetyError {
+                    code: ErrorCode::OutsideWorkspace,
+                    message: format!(
+                        "{}: '{}' is the audit log or its directory and cannot be written by a guarded builtin",
+                        ctx.builtin, t
+                    ),
+                    builtin: ctx.builtin.to_string(),
+                    hint: "the audit trail is evidence about this session, so the session \
+                           may not edit it; point AETHER_AUDIT_LOG elsewhere if you need a \
+                           different location"
+                        .to_string(),
                     approval: None,
                     did_you_mean: Vec::new(),
                     expected: String::new(),

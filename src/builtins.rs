@@ -18332,6 +18332,41 @@ fn bi_approve(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(anyhow!("approve: expected an approval token string")),
     };
+
+    // The approver must not be the party being approved (AS-2026-02's sibling,
+    // AS-2026-01).
+    //
+    // §5.3 grades `Destructive` and `Exec` as *approve* in agent mode, and §7.2
+    // documents the loop as `E_NEEDS_APPROVAL` -> `approve(token)` -> re-run.
+    // That loop is right for a human at a REPL and wrong for an agent, because
+    // the agent holds the token it was just refused with: demonstrated in
+    // `tests/approval_self_grant.rs`, where the denied call succeeds on retry.
+    // Against an agent that errs the second step is a real speed bump; against
+    // one that is adversarial or prompt-injected the `approve` cell is simply
+    // `allow`.
+    //
+    // So the in-band path is refused in agent mode only. Human mode is
+    // untouched, and the out-of-band channel the design already provides —
+    // `AETHER_APPROVE` / `AETHER_APPROVE_ALL`, set by whoever launches the
+    // agent — still works. No capability is removed that was not already
+    // reachable by someone outside the agent's control.
+    if crate::safety::current_mode() == crate::safety::Mode::Agent {
+        return Err(anyhow::Error::new(crate::safety::SafetyError {
+            code: crate::safety::ErrorCode::PolicyDeny,
+            message: "approve: an agent may not approve its own call".to_string(),
+            builtin: "approve".to_string(),
+            hint: "the token was issued to the caller that was refused, so spending it \
+                   here would make the approval gate self-service; approve out of band \
+                   with AETHER_APPROVE=<token> (or AETHER_APPROVE_ALL=1 for trusted \
+                   automation), which is set by whoever launched the agent"
+                .to_string(),
+            approval: None,
+            did_you_mean: Vec::new(),
+            expected: String::new(),
+            got: String::new(),
+        }));
+    }
+
     crate::safety::grant_approval(&token);
     let mut rec = BTreeMap::new();
     rec.insert("approved".to_string(), Value::Bool(true));
@@ -28705,19 +28740,24 @@ fn bi_crypto_uuid(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
     }
 
-    // Fallback: generate a v4-like UUID
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let ts = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
+    // Fallback: a real v4 UUID (AS-2026-05).
+    //
+    // This used to be built from a nanosecond clock while setting the version
+    // nibble to 4 and the variant bits to 8 -- advertising randomness it did
+    // not have. Measured, nanoseconds since epoch is a 61-bit quantity, so
+    // `ts >> 96`, `ts >> 80` and `ts >> 64` were all identically zero and the
+    // output had the shape `00000000-0000-4000-98cc-<48 bits of clock>`: three
+    // of five groups constant, zero bits of randomness, monotonic.
+    //
+    // `rand::random` is the same CSPRNG the API-key path in `auth.rs` uses.
+    let b: [u8; 16] = rand::random();
     let uuid = format!(
-        "{:08x}-{:04x}-4{:03x}-{:04x}-{:012x}",
-        (ts >> 96) as u32,
-        (ts >> 80) as u16,
-        ((ts >> 64) as u16) & 0x0fff,
-        (((ts >> 48) as u16) & 0x3fff) | 0x8000,
-        ts as u64 & 0xffffffffffff
+        "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+        b[0], b[1], b[2], b[3],
+        b[4], b[5],
+        (b[6] & 0x0f) | 0x40, b[7],
+        (b[8] & 0x3f) | 0x80, b[9],
+        b[10], b[11], b[12], b[13], b[14], b[15]
     );
     Ok(Value::Str(uuid))
 }
@@ -28785,7 +28825,7 @@ $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
 $result = ""
 for ($i = 0; $i -lt {}; $i++) {{
     $byte = New-Object byte[] 1
-    $rng.GetBytes($byte)
+    do {{ $rng.GetBytes($byte) }} while ($byte[0] -ge (256 - (256 % $charset.Length)))
     $result += $charset[$byte[0] % $charset.Length]
 }}
 $result
@@ -28809,12 +28849,26 @@ $result
             .args(["-c", &(length * 2).to_string(), "/dev/urandom"])
             .output()?;
         if output.status.success() {
+            // Rejection sampling, not `% len` (AS-2026-06).
+            //
+            // With the default 62-character set, 256 = 4*62 + 8, so a plain
+            // modulo makes the first eight characters 25% more likely. The
+            // entropy cost was small -- 5.9497 bits per character against a
+            // uniform 5.9542, about 0.14 bits over a 32-character token -- but
+            // the fix is four lines, so there is no reason to carry the bias.
+            //
+            // `head -c` is asked for `length * 2` bytes, which leaves slack for
+            // rejections; if the slack runs out the result is short rather than
+            // biased, and the caller can see that.
             let chars: Vec<char> = charset.chars().collect();
+            let n = chars.len();
+            let limit = 256 - (256 % n);
             let result: String = output
                 .stdout
                 .iter()
+                .filter(|b| (**b as usize) < limit)
                 .take(length)
-                .map(|b| chars[(*b as usize) % chars.len()])
+                .map(|b| chars[(*b as usize) % n])
                 .collect();
             return Ok(Value::Str(result));
         }
@@ -28963,9 +29017,15 @@ fn bi_crypto_encrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 "-aes-256-cbc",
                 "-pbkdf2",
                 "-base64",
+                // `pass:` puts the secret in argv, which is world-readable
+                // via /proc/<pid>/cmdline on Linux. `env:` keeps it in the
+                // child environment, which is owner-readable only
+                // (AS-2026-03). Not perfect -- an AEAD with a proper key
+                // handoff would be -- but strictly better and contained.
                 "-pass",
-                &format!("pass:{}", password),
+                "env:AE_OPENSSL_PASS",
             ])
+            .env("AE_OPENSSL_PASS", &password)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .spawn()?;
@@ -29009,9 +29069,15 @@ fn bi_crypto_decrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 "-pbkdf2",
                 "-d",
                 "-base64",
+                // `pass:` puts the secret in argv, which is world-readable
+                // via /proc/<pid>/cmdline on Linux. `env:` keeps it in the
+                // child environment, which is owner-readable only
+                // (AS-2026-03). Not perfect -- an AEAD with a proper key
+                // handoff would be -- but strictly better and contained.
                 "-pass",
-                &format!("pass:{}", password),
+                "env:AE_OPENSSL_PASS",
             ])
+            .env("AE_OPENSSL_PASS", &password)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .spawn()?;
@@ -29025,7 +29091,26 @@ fn bi_crypto_decrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 String::from_utf8_lossy(&output.stdout).to_string(),
             ));
         }
+        // openssl ran and refused the input. Falling through to the
+        // `E_UNIMPLEMENTED` below — which is what this used to do — tells the
+        // caller the tool is missing when in fact the tool rejected their data.
+        // For a decryption failure that is the one signal worth surfacing: a
+        // tampered ciphertext looks exactly like this from here.
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(anyhow::anyhow!(
+            "E_DECRYPT_FAILED: crypto.decrypt could not decrypt the input — the password \
+             may be wrong, or the ciphertext may have been modified. AES-256-CBC is not \
+             authenticated, so a *successful* decrypt is not proof the ciphertext is \
+             intact either (AS-2026-04 in docs/security/SECURITY_AUDIT_2026-08-26.md). \
+             openssl: {}",
+            if stderr.is_empty() {
+                "(no detail)".to_string()
+            } else {
+                stderr
+            }
+        ));
     }
+    #[allow(unreachable_code)]
     Err(anyhow::anyhow!(
         "E_UNIMPLEMENTED: crypto.decrypt requires the openssl CLI (Unix only); \
          nothing was decrypted"
@@ -29083,9 +29168,19 @@ fn bi_crypto_password_hash(args: Vec<Value>, _input: Option<Value>) -> Result<Va
 
     #[cfg(unix)]
     {
-        let output = std::process::Command::new("openssl")
-            .args(["passwd", "-6", &password])
-            .output()?;
+        // The password used to be argv, where `/proc/<pid>/cmdline` is
+        // world-readable on Linux (AS-2026-03). `-stdin` moves it to a pipe;
+        // nothing else uses this child's stdin.
+        use std::io::Write as _;
+        let mut child = std::process::Command::new("openssl")
+            .args(["passwd", "-6", "-stdin"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()?;
+        if let Some(stdin) = child.stdin.as_mut() {
+            writeln!(stdin, "{}", password)?;
+        }
+        let output = child.wait_with_output()?;
         if output.status.success() {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&output.stdout).trim().to_string(),

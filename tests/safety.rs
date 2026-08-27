@@ -224,19 +224,26 @@ fn approve_builtin_unblocks_guarded_rm_and_audit_verify_passes() {
     let err = aethershell::builtins::bi_rm(vec![arg.clone()], None).unwrap_err();
     let token = token_from_error(&err);
 
-    // approve(token) via the dispatch table (proves index 1104 → bi_approve).
-    let approved = aethershell::builtins::call("approve", vec![Value::Str(token)], &mut env)
-        .expect("approve builtin runs");
-    match approved {
-        Value::Record(m) => assert_eq!(m.get("approved"), Some(&Value::Bool(true))),
-        other => panic!("approve should return a record, got {other:?}"),
-    }
+    // The in-band `approve(token)` path is refused in agent mode (AS-2026-01):
+    // the agent holding the token it was just refused with must not be the one
+    // to spend it. This asserts the refusal, and that it points somewhere.
+    let self_grant =
+        aethershell::builtins::call("approve", vec![Value::Str(token.clone())], &mut env);
+    let e = self_grant.expect_err("an agent must not approve its own call");
+    assert!(
+        format!("{e:#}").contains("AETHER_APPROVE"),
+        "the refusal must name the channel that does work: {e:#}"
+    );
 
-    // Now the guarded rm proceeds (in-process grant honored).
+    // Approval arrives out of band instead — set by whoever launched the agent.
+    // The property this test exists for is unchanged: an approved token unblocks
+    // the guarded call and the audit chain still verifies.
+    std::env::set_var("AETHER_APPROVE", &token);
     assert!(
         aethershell::builtins::bi_rm(vec![arg], None).is_ok(),
-        "rm should succeed after approve()"
+        "rm should succeed once the token is approved out of band"
     );
+    std::env::remove_var("AETHER_APPROVE");
     assert!(!file.exists());
 
     // audit_verify() via the dispatch table (proves index 1105 → bi_audit_verify).

@@ -11,8 +11,13 @@ mappings are a self-assessment, and where a mapping is approximate it says so.
 **Evidence grades.** *Demonstrated* — executed and observed. *Structural* —
 established by reading the code path, not executed. *Measured* — quantified.
 
-Seven findings are open. Eleven others were found and fixed earlier the same day
-and are recorded in `docs/HANDOFF.md`; each is pinned by a ratchet.
+**Remediation status (same day).** Five of the seven were fixed after the audit
+was written — AS-2026-01, -02, -03, -05 and -06 — and each fix is marked in place
+below. **AS-2026-04 was deliberately not fixed**, for a reason given in its
+section. AS-2026-07 was corrected: as first filed it was wrong.
+
+Eleven further issues were found and fixed earlier the same day and are recorded
+in `docs/HANDOFF.md`; each is pinned by a ratchet.
 
 ---
 
@@ -47,10 +52,16 @@ The content-binding property §7.2 claims **does** hold and is worth keeping: a
 token is a hash of one action descriptor and cannot be replayed against a
 different call. That is asserted independently in the same file.
 
-**Recommendation.** Decide and document which threat model is in scope. If the
-adversarial one is, approval must arrive out-of-band — the existing
-`AETHER_APPROVE` environment path, an A2UI prompt, or a separately authenticated
-endpoint — and in-band `approve()` should be refused in agent mode.
+**FIXED 2026-08-26.** In-band `approve()` is now refused in **agent mode only**;
+human mode is untouched and the documented REPL loop still works. The out-of-band
+channel the design already provides — `AETHER_APPROVE` / `AETHER_APPROVE_ALL`, set
+by whoever launches the agent — is unaffected, so no capability was removed that
+was not already reachable by someone outside the agent's control.
+
+The assumption behind that choice, stated so it can be overridden: **the
+adversarial threat model is in scope.** For a shell built to be driven by language
+models, prompt injection is the defining threat, and hardening in that direction is
+the conservative error.
 
 ---
 
@@ -68,10 +79,15 @@ corruption, not against an author. The audited party can truncate the log, or
 rewrite it end-to-end with a fresh, internally consistent chain that
 `audit_verify()` accepts.
 
-**Recommendation.** Either fix closes it: default the log *outside* the workspace
-root, at which point the jail itself refuses the agent's writes to it; and/or key
-the chain (HMAC) with material the agent cannot read. The first is cheap and
-reachable today by setting `AETHER_AUDIT_LOG` outside the workspace.
+**PARTIALLY FIXED 2026-08-26.** The workspace jail now refuses any guarded
+filesystem write whose target is the active audit log or its directory
+(`safety::is_audit_artifact`), compared lexically so a write to a path that is
+about to *become* the log is caught too.
+
+**What that does not close, stated plainly:** an approved `Exec` call can still
+reach the file, and the chain is still unkeyed. Keying it requires key management —
+where the key lives, who can read it, what happens on rotation — which is a design
+decision rather than a patch, and is left open deliberately.
 
 ---
 
@@ -92,9 +108,12 @@ world-readable by default:
 The Windows `crypto_hmac` path interpolates the key into a PowerShell command
 line and is the same exposure class, though correctly quoted against injection.
 
-**Recommendation.** `openssl` supports `-pass stdin`, `-pass fd:N` and
-`-pass env:VAR`; the first two avoid both argv and the environment. These sites
-already write data over a pipe, so the plumbing exists.
+**FIXED 2026-08-26.** `crypto_password_hash` reads the password from stdin
+(`openssl passwd -6 -stdin`). `crypto_encrypt` and `crypto_decrypt` pass it through
+the child environment (`-pass env:AE_OPENSSL_PASS`) rather than argv, because their
+stdin already carries the plaintext. `/proc/<pid>/environ` is owner-readable only,
+where `/proc/<pid>/cmdline` is world-readable — strictly better, and honest about
+not being perfect.
 
 ---
 
@@ -108,9 +127,47 @@ FIPS-approved and `-pbkdf2` is correctly present — without it OpenSSL's legacy
 CBC is malleable, so ciphertext can be altered and `crypto_decrypt` cannot detect
 it.
 
-**Recommendation.** Move to an AEAD (`-aes-256-gcm`), or encrypt-then-MAC with the
-existing HMAC helper. The API is a round trip within this tool, so a format
-change is contained.
+**PARTIALLY ADDRESSED 2026-08-26 — and a separate bug found while doing it.**
+
+`crypto_decrypt` reported a *decryption failure* as
+`E_UNIMPLEMENTED: requires the openssl CLI (Unix only)`. It ran openssl, openssl
+refused the input, and the code fell through to the "tool is missing" arm. So the
+caller was told the tool was absent when the tool had in fact rejected their
+data — which, for an unauthenticated cipher, is the **one signal that a
+ciphertext has been tampered with**. It now returns `E_DECRYPT_FAILED`, carries
+openssl's own message, and says plainly that a *successful* decrypt is not proof
+of integrity either.
+
+That does not make the scheme authenticated. It stops the one detection channel
+that does exist from being mislabelled as a missing dependency.
+
+Confirmed by measurement rather than memory: OpenSSL 3.5.7 answers
+`enc: AEAD ciphers not supported`, so `-aes-256-gcm` genuinely is unreachable
+through this path.
+
+**The authentication gap itself remains open, deliberately.** The reason matters
+more than the finding.
+
+The obvious fix is unavailable: `openssl enc` refuses AEAD ciphers, so
+`-aes-256-gcm` is not reachable through the CLI this builtin uses. That leaves
+three options, and each is a decision rather than a patch:
+
+1. **Add an AEAD crate** (`aes-gcm`) and encrypt in-process. Correct, but it adds
+   a dependency and **breaks every existing ciphertext** with no migration path.
+   Silently making previously-encrypted data undecryptable is not a change to
+   make on an auditor's initiative.
+2. **Encrypt-then-MAC by hand** with a second `openssl dgst -hmac` call. No new
+   dependency, but it means designing a bespoke construction — key separation,
+   framing, constant-time comparison — and hand-rolled crypto in a remediation is
+   how remediations become findings.
+3. **Leave it and say so**, which is what was done.
+
+The honest position: `crypto_encrypt` provides **confidentiality, not
+integrity**. AES-256-CBC and PBKDF2 are both FIPS-approved and correctly
+invoked; ciphertext can be altered undetectably. Callers who need
+tamper-evidence should not rely on this builtin alone. Option 1 is the right
+long-term answer and belongs in a release where the format break can be
+versioned and announced.
 
 ---
 
@@ -137,8 +194,9 @@ Held at Medium rather than High because it is a third-tier fallback and no
 first-party code uses `uuid()` for a token; the risk is to callers who reasonably
 assume a v4 UUID is unpredictable. Silent degradation is the aggravating factor.
 
-**Recommendation.** Fail loudly, or use the CSPRNG the API-key path already uses
-(`rand::random`).
+**FIXED 2026-08-26.** The fallback now draws 16 bytes from `rand::random` — the
+same CSPRNG `auth.rs` uses for API keys — and sets the version and variant bits over
+real entropy, so the v4 label is now earned.
 
 ---
 
@@ -156,7 +214,11 @@ Quantified honestly, the cost is small: 5.9497 bits per character against a
 uniform 5.9542, a loss of **0.0045 bits per character**, about 0.14 bits across a
 32-character token. A real defect against a uniformity requirement and a
 negligible one against a brute-force attacker. Listed because an auditor will
-find it and the fix — rejection sampling — is four lines.
+find it and the fix is four lines.
+
+**FIXED 2026-08-26.** Rejection sampling on both platforms: bytes at or above
+`256 - (256 % n)` are discarded rather than folded. The Unix path already requested
+twice the bytes it needed, which covers the rejections.
 
 ---
 
@@ -179,9 +241,21 @@ Three scope caveats belong next to the claim:
   CNG wrappers. The validated-module boundary, if any, belongs to the operating
   system, not to AetherShell. `docs/security/CRYPTO_AND_FIPS.md` already states
   this plainly, which is to its credit.
-* `docs/security/FIPS_140-2_COMPLIANCE.md` names a **superseded** standard.
-  FIPS 140-3 is current and 140-2 validations are past their sunset. The document
-  should be renamed and re-scoped against 140-3.
+* **Correction to this finding as first filed.** It claimed
+  `docs/security/FIPS_140-2_COMPLIANCE.md` "names a superseded standard". That was
+  wrong and was reached by reading the *filename* rather than the document: the
+  title is "FIPS 140-2/140-3 Compliance Assessment", it covers both, it states
+  that 140-3 supersedes 140-2, and it is explicit that AetherShell is not
+  independently validated. The document is more honest than the finding was.
+
+  The real problem, found on reading it: it asserts **`COMPLIANT` for both
+  standards**, dated **24 October 2025** against **version 0.1.0**, and that
+  verdict has been carried unqualified into **8.0.0** — eight major versions and,
+  as of today, eleven fixed vulnerabilities later. Its claim of "exclusive use of
+  FIPS-validated cryptographic libraries" was contradicted at 8.0.0 by AS-2026-05
+  and AS-2026-06, both hand-rolled generators. A currency warning has been added
+  to the head of that document; re-running the assessment against 8.0.0 is the
+  actual remediation.
 
 ---
 

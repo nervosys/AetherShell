@@ -1,5 +1,22 @@
 # FIPS 140-2/140-3 Compliance Assessment
 
+> **Currency warning (added 2026-08-26).** The assessment below is dated
+> **24 October 2025** and was made against **version 0.1.0**. The crate is now
+> **8.0.0**. A `COMPLIANT` verdict eight major versions old has not been
+> re-established, and should not be cited as current.
+>
+> Two specific claims below were **not** true of 8.0.0 as audited on
+> 2026-08-26 (`SECURITY_AUDIT_2026-08-26.md`, AS-2026-05 and AS-2026-06):
+> "exclusive use of FIPS-validated cryptographic libraries" was contradicted by
+> `crypto_uuid`, whose fallback generated a v4-labelled UUID from a clock with
+> zero bits of randomness, and by `crypto_random_string`, which reduced CSPRNG
+> bytes to a charset with a modulo bias. Both were fixed on 2026-08-26.
+>
+> What *is* verified for 8.0.0: `safety::require_fips_hash` gates every builtin
+> that takes a caller-chosen hash algorithm — three of three call sites,
+> confirmed three independent ways. That is the hash family only; ciphers, key
+> derivation and DRBGs are not gated by `AETHER_FIPS`.
+
 ## Overview
 
 AetherShell has been evaluated for compliance with both:
