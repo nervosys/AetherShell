@@ -79,6 +79,36 @@ jobs:
             - name: Clippy
               run: cargo clippy --workspace --all-targets --features native -- -D warnings
 
+    vscode-extension:
+        name: VS Code Extension
+        timeout-minutes: 15
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: "20"
+                  cache: npm
+                  cache-dependency-path: editors/vscode/package-lock.json
+
+            - name: Install
+              working-directory: editors/vscode
+              run: npm ci
+
+            # Compiles first (via pretest), then runs the grammar through the
+            # same vscode-textmate/oniguruma pair VS Code uses, so a rule that
+            # is unreachable in practice fails here rather than shipping.
+            - name: Test
+              working-directory: editors/vscode
+              run: npm test
+
+            # The manifest is a set of promises about files that must exist;
+            # packaging is where a broken one surfaces.
+            - name: Package
+              working-directory: editors/vscode
+              run: npx vsce package --no-dependencies --out /tmp/aethershell.vsix
+
     wasm:
         name: WASM Build
         timeout-minutes: 25

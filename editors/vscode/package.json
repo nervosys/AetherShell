@@ -262,7 +262,8 @@
         "watch": "tsc -watch -p ./",
         "pretest": "npm run compile",
         "lint": "eslint src --ext ts",
-        "package": "vsce package"
+        "package": "vsce package",
+        "test": "node --test \"test/**/*.test.mjs\""
     },
     "dependencies": {
         "vscode-languageclient": "^9.0.1"
@@ -275,7 +276,9 @@
         "@typescript-eslint/parser": "^6.13.0",
         "@vscode/vsce": "^2.22.0",
         "eslint": "^8.55.0",
-        "typescript": "^5.3.2"
+        "typescript": "^5.3.2",
+        "vscode-oniguruma": "^2.0.1",
+        "vscode-textmate": "^9.0.0"
     },
     "repository": {
         "type": "git",

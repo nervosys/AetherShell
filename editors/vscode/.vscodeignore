@@ -15,3 +15,5 @@ node_modules/**
 !node_modules/semver/**
 !node_modules/brace-expansion/**
 !node_modules/balanced-match/**
+test/**
+*.mjs

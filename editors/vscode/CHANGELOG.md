@@ -38,14 +38,52 @@ measured against the running dispatcher and parser, not read off the source.
   storage modifiers — rather than lumped into one `keyword.control`, so themes
   can distinguish them.
 
+### Fixed — found by running the grammar rather than reading it
+
+The three items above came from static comparison. Standing the grammar up
+under `vscode-textmate` and `vscode-oniguruma` — the same pair VS Code uses —
+found worse, because a rule can look correct and still be unreachable.
+
+- **Everything inside `{ }` lost its highlighting.** The `records` rule matches
+  every brace, so it covered function bodies, `if`/`else` blocks and
+  `try`/`catch` blocks — not just record literals. Its inner pattern list
+  included only comments, strings, numbers, keywords and property keys, so
+  inside any block the builtins, function calls, member access, variables and
+  operators were all dropped: `git.log()` and `print("x")` came back as
+  unscoped text. That is most of the code in a real script. The rule now
+  includes `$self`.
+- **Two of the three `variables` rules never fired.** `#keywords` is included
+  before `#variables` and matches `let` at the same start position, and
+  TextMate breaks that tie on list order — so the compound "variable
+  declaration" and "function definition" patterns were dead, and no binding
+  ever got `variable.other.declaration` or `entity.name.function.definition`.
+  They are now a separate `#declarations` group, tried before `#keywords`,
+  while the bare-identifier rule stays last so it cannot swallow keywords.
+- **The assignment operator was unscoped** in `let y = 1` (though not in
+  `let f = fn…`, which took a different rule).
+
+One thing deliberately *not* changed: there is no `$VAR` rule, and none was
+added. The parser has no `$` handling at all — the only occurrence in the
+examples is inside a comment — so highlighting it would have invented a feature.
+
 ### Internal
 
-- `tests/vscode_extension_agreement.rs` in the main repository now pins all of
-  this mechanically: every builtin the grammar highlights must be answered by
-  the dispatcher, every keyword the parser accepts must be highlighted (and no
-  others), and every file `package.json` points at must exist. Verified red
-  against the pre-fix files before being made green — three of its four checks
-  fail on 1.5.0.
+- **A test suite, where there was none.** `npm test` runs 37 checks over four
+  files: tokenization through the real TextMate engine, manifest integrity,
+  snippet well-formedness, and language-configuration consistency. A new
+  `VS Code Extension` CI job compiles, tests and packages on every push.
+- `tests/vscode_extension_agreement.rs` in the main repository pins the static
+  half from the Rust side, so it holds even if the Node job is skipped: every
+  builtin the grammar highlights must be answered by the dispatcher, every
+  keyword the parser accepts must be highlighted and no others, and every file
+  `package.json` names must exist.
+- Both were verified red before green. Three of the four Rust checks fail on
+  1.5.0; four of the tokenization tests fail against the pre-fix grammar,
+  naming exactly the block-content and declaration defects above.
+- One test was wrong and the code was right: a naive
+  `body.replace(/\$\{[^}]*\}/g, "")` reported the `MCP Call` snippet as having
+  unbalanced braces, because the default of `${3:{}}` is `{` and the regex
+  stopped at the first `}`. The suite now expands snippets properly.
 
 ## [1.5.0] and earlier
 

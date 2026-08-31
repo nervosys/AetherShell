@@ -13,6 +13,9 @@
       "include": "#numbers"
     },
     {
+      "include": "#declarations"
+    },
+    {
       "include": "#keywords"
     },
     {
@@ -315,17 +318,11 @@
               "include": "#strings"
             },
             {
-              "include": "#numbers"
-            },
-            {
-              "include": "#keywords"
-            },
-            {
               "name": "variable.other.property.aethershell",
               "match": "([a-zA-Z_][a-zA-Z0-9_]*)\\s*:"
             },
             {
-              "include": "#records"
+              "include": "$self"
             }
           ]
         }
@@ -333,43 +330,6 @@
     },
     "variables": {
       "patterns": [
-        {
-          "comment": "Function definition: let name = fn(...)",
-          "match": "\\b(let)\\s+(mut\\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\\s*(=)\\s*(fn)\\b",
-          "captures": {
-            "1": {
-              "name": "keyword.control.aethershell"
-            },
-            "2": {
-              "name": "storage.modifier.mutable.aethershell"
-            },
-            "3": {
-              "name": "entity.name.function.definition.aethershell"
-            },
-            "4": {
-              "name": "keyword.operator.assignment.aethershell"
-            },
-            "5": {
-              "name": "keyword.other.fn.aethershell"
-            }
-          }
-        },
-        {
-          "comment": "Variable declaration",
-          "name": "meta.declaration.variable.aethershell",
-          "match": "\\b(let)\\s+(mut\\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\\s*=",
-          "captures": {
-            "1": {
-              "name": "keyword.control.aethershell"
-            },
-            "2": {
-              "name": "storage.modifier.mutable.aethershell"
-            },
-            "3": {
-              "name": "variable.other.declaration.aethershell"
-            }
-          }
-        },
         {
           "name": "variable.other.aethershell",
           "match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b"
@@ -397,6 +357,50 @@
         {
           "name": "punctuation.separator.colon.aethershell",
           "match": ":"
+        }
+      ]
+    },
+    "declarations": {
+      "patterns": [
+        {
+          "comment": "Function definition: let name = fn(...)",
+          "match": "\\b(let)\\s+(mut\\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\\s*(=)\\s*(fn)\\b",
+          "captures": {
+            "1": {
+              "name": "storage.modifier.aethershell"
+            },
+            "2": {
+              "name": "storage.modifier.mutable.aethershell"
+            },
+            "3": {
+              "name": "entity.name.function.definition.aethershell"
+            },
+            "4": {
+              "name": "keyword.operator.assignment.aethershell"
+            },
+            "5": {
+              "name": "keyword.other.fn.aethershell"
+            }
+          }
+        },
+        {
+          "comment": "Variable declaration",
+          "name": "meta.declaration.variable.aethershell",
+          "match": "\\b(let)\\s+(mut\\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\\s*(=)",
+          "captures": {
+            "1": {
+              "name": "storage.modifier.aethershell"
+            },
+            "2": {
+              "name": "storage.modifier.mutable.aethershell"
+            },
+            "3": {
+              "name": "variable.other.declaration.aethershell"
+            },
+            "4": {
+              "name": "keyword.operator.assignment.aethershell"
+            }
+          }
         }
       ]
     }
