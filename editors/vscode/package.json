@@ -2,7 +2,7 @@
     "name": "aethershell",
     "displayName": "AetherShell",
     "description": "Language support for AetherShell - a typed, functional shell with AI capabilities",
-    "version": "1.5.0",
+    "version": "1.6.0",
     "publisher": "admercs",
     "license": "AGPL-3.0-or-later",
     "engines": {
@@ -48,8 +48,8 @@
                 ],
                 "configuration": "./language-configuration.json",
                 "icon": {
-                    "light": "./icons/ae-light.svg",
-                    "dark": "./icons/ae-dark.svg"
+                    "light": "./icons/ae-icon.svg",
+                    "dark": "./icons/ae-icon.svg"
                 }
             }
         ],
