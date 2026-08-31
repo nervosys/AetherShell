@@ -9,6 +9,104 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Nothing yet.
 
+## [10.0.0] - 2026-08-31
+
+Closes the two findings 9.0.0 left open on purpose. Both fixes are breaking, and
+that is why they waited for a major release rather than being slipped into a
+patch: one changes a ciphertext format, the other changes what
+`verify_audit` will accept.
+
+### Breaking
+
+- **`crypto.encrypt` produces a new, authenticated format.** Output is now
+  `AE1.<salt>.<nonce>.<body>` — AES-256-GCM with an Argon2id-derived key —
+  instead of `openssl enc -aes-256-cbc` base64. Ciphertext written by 9.x and
+  earlier **is refused by default** with `E_DECRYPT_UNAUTHENTICATED`; set
+  `AETHER_CRYPTO_LEGACY_DECRYPT=1` to read it, then re-encrypt.
+  **This is deliberately loud.** Accepting the old format silently would hand an
+  attacker a downgrade: strip the `AE1.` envelope and its tag from a modern
+  ciphertext and the unauthenticated path would take it without complaint. The
+  refusal names the variable, so recovering genuinely old data is one step.
+- **`verify_audit` refuses a chain whose keying does not match the verifier.** A
+  keyed verifier rejects unkeyed entries, and an unkeyed verifier now reports —
+  rather than silently accepts — a log whose entries are keyed. Both directions
+  are downgrades if allowed to pass.
+- **`safety::truthy_env` is now public**, and `safety::verify_audit_with`,
+  `safety::audit_key` are new.
+
+### Security
+
+- **AS-2026-04 — `crypto.encrypt` was unauthenticated (CWE-353, CWE-327).**
+  CBC is malleable: a modified ciphertext decrypted to modified plaintext and
+  the caller could not tell. `openssl enc` cannot do AEAD at all — 3.5.7 answers
+  `enc: AEAD ciphers not supported` — so the cipher moved in-process to
+  AES-256-GCM, key derived by Argon2id, salt and nonce fresh per message.
+  Poly1305 verifies the tag before any plaintext is released, so "it decrypted"
+  finally means "it was not modified".
+
+  Three things came free with dropping the subprocess: **AS-2026-03 no longer
+  applies to these builtins** (no child, so no password handed to a child
+  environment); `crypto.encrypt` **works on Windows**, where the `#[cfg(unix)]`
+  openssl path had been returning `E_UNIMPLEMENTED`; and there is no longer an
+  external CLI whose version determines whether the shell can encrypt.
+
+- **AS-2026-02 — the audit chain was unkeyed (CWE-345, CWE-732).** A chain
+  anyone can recompute is evidence against corruption, not against an author:
+  the audited party could truncate the log and rewrite it end to end with a
+  fresh, internally consistent chain that verified clean. The chain is now
+  HMAC-SHA256 when a key is configured via `AETHER_AUDIT_KEY` (hex or raw,
+  32-byte minimum) or `AETHER_AUDIT_KEY_FILE`.
+
+  The key is read **once** and then removed from the process environment, so no
+  spawned child inherits it. That is load-bearing rather than tidy: an approved
+  `Exec` that could read the key could forge with it, which would leave the
+  chain exactly as unkeyed as before. Each entry carries a `key_id` so rotation
+  reads as rotation rather than as tampering, and the `mac` label lives inside
+  the tagged core so it cannot be relabelled away.
+
+  Keying is **opt-in** — with no key configured the chain stays plain SHA-256.
+  A control that needs somewhere to put a key cannot invent that somewhere on
+  the operator's behalf, and a key stored next to the log would be theatre.
+
+- **Audit-log tampering is now detected at the next append**, not only at the
+  next offline verify. The audit layer compares the file's tail against what
+  this process last wrote and, when they diverge, writes a chained
+  `audit_chain / tamper-detected` entry recording the hash the chain was
+  expected to continue from. A truncation by an approved `Exec` — which no jail
+  rule can prevent — therefore leaves a permanent marker instead of a
+  clean-looking file. The tail read is bounded to 64 KiB, so it stays O(1) in
+  log size.
+
+### Fixed
+
+- **`chacha20` 0.10.1 was yanked** and reached the tree through `rand`, which
+  backs `crypto.uuid` and the API-key generator. Moved to 0.10.2.
+
+### Known limitations
+
+- **Nothing in-process can defend the audit log against in-process code.**
+  Whatever key this process appends with, it can forge with. Keying defends
+  against anyone with only *write* access — an approved `Exec`, an offline edit.
+  Defending against the shell itself needs an append-only sink it cannot
+  rewrite (remote syslog, a WORM mount), which is a deployment decision.
+- **One primitive in the new cipher chain is not FIPS-approved: the Argon2id
+  KDF.** AES-256-GCM was chosen over the more usual ChaCha20-Poly1305 precisely
+  so the cipher stays approved; the KDF is a considered trade of certification
+  for resistance to offline password cracking, unchanged from what `auth.rs`
+  already used. `docs/security/FIPS_140-2_COMPLIANCE.md` now states this instead
+  of claiming approved algorithms throughout.
+- **The `AETHER_FIPS` gate still covers hashes only** — ciphers, key derivation
+  and DRBGs are not gated by it.
+
+### Testing
+
+Sixteen new assertions across two files. `tests/crypto_authenticated.rs` covers
+the round trip, modification of each envelope field, the wrong password,
+salt/nonce freshness, the envelope-strip downgrade, and availability on every
+platform. `tests/audit_chain_keyed.rs` builds the exact forgery the finding
+described, asserts it *does* pass an unkeyed verifier — so the test cannot
+quietly become vacuous — and then that a keyed one refuses it.
+
 ## [9.0.0] - 2026-08-27
 
 **Major, and the reason is concrete rather than ceremonial:** 114 `pub fn` were

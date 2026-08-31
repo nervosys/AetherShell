@@ -86,7 +86,7 @@ FIPS 140-3 introduces stricter requirements and aligns with ISO/IEC 19790:2012. 
 
 | Requirement Area              | FIPS 140-2             | FIPS 140-3               | AetherShell Status                     |
 | ----------------------------- | ---------------------- | ------------------------ | -------------------------------------- |
-| **Algorithm Requirements**    | SP 800-131A Transition | SP 800-131A Strict       | ✅ Uses only approved algorithms        |
+| **Algorithm Requirements**    | SP 800-131A Transition | SP 800-131A Strict       | ⚠️ Approved except Argon2id (see below) |
 | **Minimum Security Strength** | 80 bits                | 112 bits                 | ✅ SHA-256 (256-bit), AES (128/256-bit) |
 | **TLS Versions**              | TLS 1.0+ allowed       | TLS 1.2+ required        | ✅ TLS 1.2/1.3 only                     |
 | **Triple-DES**                | Allowed                | Deprecated               | ✅ Not used                             |
@@ -106,7 +106,7 @@ FIPS 140-3 introduces stricter requirements and aligns with ISO/IEC 19790:2012. 
 #### 2. **Security Functions** (ISO/IEC 19790 Section 7.5)
 - ✅ Cryptographic operations clearly documented
 - ✅ No undocumented security functions
-- ✅ All security functions use approved algorithms
+- ⚠️ All security functions use approved algorithms **except the Argon2id KDF**, documented under "Approved Algorithms"
 - ✅ Integrity verification via approved hash functions
 
 #### 3. **Ports and Interfaces** (ISO/IEC 19790 Section 7.3)
@@ -153,12 +153,35 @@ FIPS 140-3 introduces stricter requirements and aligns with ISO/IEC 19790:2012. 
 
 ## Approved Algorithms
 
-All cryptographic operations use FIPS-approved algorithms:
+Cryptographic operations use FIPS-approved algorithms, with **one deliberate
+exception named below**. The blanket claim this section used to make ("all
+operations") was too strong: password hashing has used Argon2id since before
+this document was written.
 
 ### Hash Functions
 - **SHA-256**: FIPS 180-4 compliant
-  - Used for: File integrity, checksums
+  - Used for: File integrity, checksums, the audit hash chain
   - Implementation: RustCrypto `sha2` crate
+
+### Symmetric Encryption (`crypto.encrypt` / `crypto.decrypt`)
+- **AES-256-GCM**: FIPS 197 (cipher) with SP 800-38D (mode), approved
+  - Used for: `crypto.encrypt`, since 10.0.0
+  - Implementation: RustCrypto `aes-gcm` crate
+  - Chosen over ChaCha20-Poly1305, which is *not* FIPS-approved, specifically
+    to keep this section true. Before 10.0.0 the builtin used AES-256-CBC,
+    which is approved but **unauthenticated** (AS-2026-04); GCM keeps the
+    approval and adds integrity.
+
+### Key Derivation — the exception
+- **Argon2id**: **not** FIPS-approved. SP 800-132 approves PBKDF2.
+  - Used for: password storage (`auth.rs`) and the `crypto.encrypt` key
+  - Why it is here anyway: Argon2id is memory-hard and materially better
+    against offline password cracking, which is the actual threat to a
+    password-derived key. This is a considered trade of certification for
+    resistance, not an oversight.
+  - **If you require an all-approved chain**, do not use `crypto.encrypt` for
+    password-based encryption; derive keys with a PBKDF2 implementation from
+    your validated module and encrypt with it directly.
 
 ### TLS Cipher Suites (via rustls)
 Supported FIPS-approved cipher suites:

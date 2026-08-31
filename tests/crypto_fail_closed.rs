@@ -14,9 +14,11 @@
 //! expected ciphertext, so writing the result to disk stored plaintext-adjacent
 //! prose rather than an encrypted secret (CWE-311).
 //!
-//! These builtins shell out to the `openssl` CLI under `#[cfg(unix)]` only, so
-//! on Windows the stub path is the *only* path — which is where this test runs
-//! in CI as well as on Unix, where `openssl` may be absent or may fail.
+//! Most of these builtins shell out to the `openssl` CLI under `#[cfg(unix)]`
+//! only, so on Windows the stub path is the *only* path — which is where this
+//! test runs in CI as well as on Unix, where `openssl` may be absent or may
+//! fail. `crypto_encrypt`/`crypto_decrypt` are the exception since 10.0.0: they
+//! are in-process AES-256-GCM and behave identically on every platform.
 
 use aethershell::value::Value;
 
@@ -87,19 +89,23 @@ fn encrypt_and_decrypt_do_not_return_prose_in_place_of_ciphertext() {
             //   * no openssl on the host          -> E_UNIMPLEMENTED
             //   * openssl present and it refused  -> E_DECRYPT_FAILED
             //
-            // The call passes plaintext where ciphertext is expected, so on any
-            // host that actually has openssl the *correct* answer is the second.
-            // This test previously demanded the first, which is how it kept
-            // passing while `crypto_decrypt` reported a decryption failure as
-            // "requires the openssl CLI" — telling a caller with a tampered
-            // ciphertext that their dependency was missing.
+            // Since 10.0.0 there is a third, and it is now the one this call
+            // actually produces: the input here is plaintext, so it is not an
+            // authenticated `AE1.` envelope, and `crypto_decrypt` refuses it as
+            // E_DECRYPT_UNAUTHENTICATED rather than falling back to the
+            // unauthenticated CBC path — that fallback would be a downgrade
+            // (AS-2026-04). `crypto_encrypt` no longer fails at all here; it is
+            // in-process and cross-platform, so it returns real ciphertext,
+            // which the Ok arm below checks is not prose.
             //
             // What the test is really for is unchanged: the failure must be a
             // branchable coded error, never prose handed back as data.
             Err(e) => {
                 let text = e.to_string();
                 assert!(
-                    text.contains("E_UNIMPLEMENTED") || text.contains("E_DECRYPT_FAILED"),
+                    text.contains("E_UNIMPLEMENTED")
+                        || text.contains("E_DECRYPT_FAILED")
+                        || text.contains("E_DECRYPT_UNAUTHENTICATED"),
                     "{name}: failure must carry a recognisable code, got: {e}"
                 );
             }

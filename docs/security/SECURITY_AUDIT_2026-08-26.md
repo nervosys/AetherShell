@@ -11,10 +11,19 @@ mappings are a self-assessment, and where a mapping is approximate it says so.
 **Evidence grades.** *Demonstrated* — executed and observed. *Structural* —
 established by reading the code path, not executed. *Measured* — quantified.
 
-**Remediation status (same day).** Five of the seven were fixed after the audit
-was written — AS-2026-01, -02, -03, -05 and -06 — and each fix is marked in place
-below. **AS-2026-04 was deliberately not fixed**, for a reason given in its
-section. AS-2026-07 was corrected: as first filed it was wrong.
+**Remediation status.** Five of the seven were fixed the same day —
+AS-2026-01, -03, -05, -06 and the jail half of -02 — and each fix is marked in
+place below. AS-2026-07 was corrected: as first filed it was wrong.
+
+The two that were left open on purpose were closed on **2026-08-31**, in 10.0.0,
+which is the release their breaking changes belonged in:
+
+* **AS-2026-02** — the audit chain is keyed (HMAC-SHA256, opt-in), and a rewrite
+  is now detected at the next append rather than only at the next offline
+  verify. One residue remains and is named in the section: an append-only sink
+  is a deployment decision, not a code change.
+* **AS-2026-04** — `crypto_encrypt` is authenticated (AES-256-GCM with Argon2id), in a versioned envelope, with the legacy unauthenticated format
+  refused by default so the envelope cannot be stripped to downgrade it.
 
 Eleven further issues were found and fixed earlier the same day and are recorded
 in `docs/HANDOFF.md`; each is pinned by a ratchet.
@@ -79,15 +88,58 @@ corruption, not against an author. The audited party can truncate the log, or
 rewrite it end-to-end with a fresh, internally consistent chain that
 `audit_verify()` accepts.
 
-**PARTIALLY FIXED 2026-08-26.** The workspace jail now refuses any guarded
+**FIXED 2026-08-31 (10.0.0).** In two parts, because the finding had two halves.
+
+*The jail half*, fixed 2026-08-26: the workspace jail refuses any guarded
 filesystem write whose target is the active audit log or its directory
 (`safety::is_audit_artifact`), compared lexically so a write to a path that is
 about to *become* the log is caught too.
 
-**What that does not close, stated plainly:** an approved `Exec` call can still
-reach the file, and the chain is still unkeyed. Keying it requires key management —
-where the key lives, who can read it, what happens on rotation — which is a design
-decision rather than a patch, and is left open deliberately.
+*The keying half.* The chain is now HMAC-SHA256 when a key is configured, via
+`AETHER_AUDIT_KEY` (hex or raw, 32-byte minimum) or `AETHER_AUDIT_KEY_FILE`.
+Forging a chain now requires the key rather than requiring nothing.
+
+The key-management questions this finding said were "a design decision rather
+than a patch" are answered as follows, and the answers are the interesting part:
+
+* **Where the key lives:** with whoever launches the shell — the same
+  out-of-band channel that already carries `AETHER_APPROVE`. Not in the
+  workspace, which is the region the audited party may write.
+* **Who can read it:** this process, once. `AETHER_AUDIT_KEY` is read on first
+  use and then **removed from the process environment**, so no child inherits
+  it. This is load-bearing rather than tidy: children inherit the parent
+  environment by default, and a key an approved `Exec` can read is a key it can
+  forge with, which would have left the chain exactly as unkeyed as before.
+* **Rotation:** each entry carries a `key_id` (16 hex, derived from the key), so
+  a key change reads as a key change rather than as tampering. The 32-byte
+  minimum exists because `key_id` would otherwise be a brute-force oracle on a
+  short key.
+* **Downgrade:** the `mac` label lives *inside* the tagged core, and a keyed
+  verifier refuses any entry lacking it. Without that, an attacker would simply
+  rewrite the log with a plain SHA-256 chain — which needs no key — and it would
+  verify clean. `tests/audit_chain_keyed.rs` asserts both directions, including
+  an explicit assertion that the forgery *does* pass an unkeyed verifier, so the
+  test cannot quietly become vacuous.
+
+Keying is **opt-in**: with no key configured the chain stays plain SHA-256, as
+before. A security control that needs somewhere to put a key cannot invent that
+somewhere on the operator's behalf, and defaulting to a key stored next to the
+log would be theatre.
+
+*Detection timing.* An approved `Exec` runs arbitrary code, and no jail rule
+stops `sh -c '> audit.log'`. Keying makes that rewrite fail an offline verify;
+it does not by itself make anyone look. So the audit layer now compares the
+file's tail against what this process last wrote, on every append, and when they
+diverge it writes a chained `audit_chain / tamper-detected` entry recording the
+hash the chain was expected to continue from. A truncation therefore leaves a
+permanent marker at the point of discovery instead of a clean-looking file. The
+tail read is bounded to the last 64 KiB so this stays O(1) in log size.
+
+**What remains open, and cannot be closed here.** Code running *inside this
+process* can still forge, because whatever key the process appends with it can
+also forge with. No in-process scheme fixes that; it needs an append-only sink
+the process cannot rewrite — remote syslog, a WORM mount — which is a deployment
+decision, not a code change. That is now the only residue of this finding.
 
 ---
 
@@ -145,29 +197,67 @@ Confirmed by measurement rather than memory: OpenSSL 3.5.7 answers
 `enc: AEAD ciphers not supported`, so `-aes-256-gcm` genuinely is unreachable
 through this path.
 
-**The authentication gap itself remains open, deliberately.** The reason matters
-more than the finding.
+**FIXED 2026-08-31 (10.0.0).** Option 1, taken deliberately in a major release
+so the format break is versioned and announced rather than sprung.
 
-The obvious fix is unavailable: `openssl enc` refuses AEAD ciphers, so
-`-aes-256-gcm` is not reachable through the CLI this builtin uses. That leaves
-three options, and each is a decision rather than a patch:
+`crypto_encrypt` now uses **AES-256-GCM** in-process, with the key derived
+from the password by **Argon2id** — the KDF `auth.rs` already uses for password
+storage, for the same reason. Output is a versioned envelope:
 
-1. **Add an AEAD crate** (`aes-gcm`) and encrypt in-process. Correct, but it adds
-   a dependency and **breaks every existing ciphertext** with no migration path.
-   Silently making previously-encrypted data undecryptable is not a change to
-   make on an auditor's initiative.
-2. **Encrypt-then-MAC by hand** with a second `openssl dgst -hmac` call. No new
-   dependency, but it means designing a bespoke construction — key separation,
-   framing, constant-time comparison — and hand-rolled crypto in a remediation is
-   how remediations become findings.
-3. **Leave it and say so**, which is what was done.
+```
+AE1.<b64 salt>.<b64 nonce>.<b64 ciphertext‖tag>
+```
 
-The honest position: `crypto_encrypt` provides **confidentiality, not
-integrity**. AES-256-CBC and PBKDF2 are both FIPS-approved and correctly
-invoked; ciphertext can be altered undetectably. Callers who need
-tamper-evidence should not rely on this builtin alone. Option 1 is the right
-long-term answer and belongs in a release where the format break can be
-versioned and announced.
+Salt (16 bytes) and nonce (12 bytes) are fresh per message from the same CSPRNG
+as the API-key path, so the derived key is unique per ciphertext and encrypting
+the same value twice does not produce the same output.
+
+Three things came free with moving the cipher in-process, and they are worth
+naming because each was a separate open item:
+
+* **AS-2026-03 no longer applies to these two builtins.** There is no child
+  process, so there is no password handoff to a child environment.
+* **The builtin works on Windows.** The openssl path was `#[cfg(unix)]`, so
+  `crypto.encrypt` had been returning `E_UNIMPLEMENTED` on the platform most of
+  this project's development happens on — and the local test suite could say
+  nothing about it either way.
+* **"It decrypted" now means "it was not modified."** Poly1305 verifies the tag
+  before any plaintext is released, so a wrong password and a modified
+  ciphertext are the same answer, and neither releases data.
+
+**The downgrade, which is the part worth reviewing.** An attacker who cannot
+forge a tag will instead strip the envelope and present the remains as a legacy
+ciphertext, hoping decrypt falls back to the unauthenticated path. So legacy
+AES-256-CBC input is refused by default with `E_DECRYPT_UNAUTHENTICATED`, and is
+readable only when the operator sets `AETHER_CRYPTO_LEGACY_DECRYPT=1`. That is a
+breaking change for anyone holding pre-10.0.0 ciphertext, and deliberately a
+loud one: the refusal names the variable and says to re-encrypt. Data written by
+an older AetherShell stays recoverable in one step; it does not stay recoverable
+*silently*, because silence is what the attacker wants.
+
+**Why AES-GCM and not ChaCha20-Poly1305.** The latter is the more usual choice
+for new code and would have been simpler to reach for. It is also not
+FIPS-approved, and this project ships `docs/security/FIPS_140-2_COMPLIANCE.md`
+asserting approved algorithms throughout and maps its findings to CMMC. Trading
+an approved cipher (AES-256-CBC) for an unapproved one *inside a security
+remediation* would have quietly falsified that claim for exactly the audience
+the document is written for. AES-256-GCM is the approved AEAD and gives the
+identical integrity guarantee, so the approval costs nothing here.
+
+The KDF is the one primitive in this chain that is not FIPS-approved: Argon2id,
+not PBKDF2. That is a deliberate choice of resistance to password cracking over
+approval, it is unchanged from what `auth.rs` already used for password storage,
+and it is now stated in the FIPS document rather than left implicit.
+
+The objection raised against option 2 in the original filing — that hand-rolled
+crypto in a remediation is how remediations become findings — is why this uses a
+vetted AEAD rather than composing `openssl enc` with `openssl dgst` by hand. The
+objection raised against option 1 — breaking every existing ciphertext with no
+migration path — is answered by the version tag and the opt-in legacy path.
+
+`tests/crypto_authenticated.rs` covers the round trip, modification of each
+field of the envelope, the wrong password, nonce/salt freshness, the envelope
+strip, and availability on every platform.
 
 ---
 

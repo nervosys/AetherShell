@@ -28999,7 +28999,33 @@ fn bi_crypto_hex_decode(args: Vec<Value>, input: Option<Value>) -> Result<Value>
     Ok(Value::Str(String::from_utf8_lossy(&bytes).to_string()))
 }
 
+/// Envelope version tag for authenticated ciphertext. A ciphertext that does
+/// not begin with this is from before AS-2026-04 was fixed and carries no
+/// integrity protection; `bi_crypto_decrypt` refuses it unless the caller opts
+/// in, so an attacker cannot strip the envelope to downgrade a modern
+/// ciphertext onto the unauthenticated path.
+const CRYPTO_ENVELOPE_V1: &str = "AE1";
+
+/// Additional authenticated data. Not secret; it binds the tag to this format
+/// so a ciphertext cannot be replayed into some future envelope that happens to
+/// derive the same key.
+const CRYPTO_AAD: &[u8] = b"AetherShell-AE1";
+
+/// Derive a 32-byte AEAD key from a password with Argon2id -- the same KDF
+/// `auth.rs` uses for password storage, for the same reason: the threat is a
+/// precomputed table over a small guessable space, and a fast hash invites one.
+fn crypto_derive_key(password: &str, salt: &[u8]) -> Result<[u8; 32]> {
+    let mut key = [0u8; 32];
+    argon2::Argon2::default()
+        .hash_password_into(password.as_bytes(), salt, &mut key)
+        .map_err(|e| anyhow::anyhow!("E_CRYPTO_KDF: key derivation failed: {}", e))?;
+    Ok(key)
+}
+
 fn bi_crypto_encrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    use aes_gcm::aead::{Aead, KeyInit, Payload};
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+
     let data = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
@@ -29008,49 +29034,92 @@ fn bi_crypto_encrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
     };
-
-    #[cfg(unix)]
-    {
-        let mut child = std::process::Command::new("openssl")
-            .args([
-                "enc",
-                "-aes-256-cbc",
-                "-pbkdf2",
-                "-base64",
-                // `pass:` puts the secret in argv, which is world-readable
-                // via /proc/<pid>/cmdline on Linux. `env:` keeps it in the
-                // child environment, which is owner-readable only
-                // (AS-2026-03). Not perfect -- an AEAD with a proper key
-                // handoff would be -- but strictly better and contained.
-                "-pass",
-                "env:AE_OPENSSL_PASS",
-            ])
-            .env("AE_OPENSSL_PASS", &password)
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .spawn()?;
-        if let Some(stdin) = child.stdin.as_mut() {
-            use std::io::Write;
-            stdin.write_all(data.as_bytes())?;
-        }
-        let output = child.wait_with_output()?;
-        if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).trim().to_string(),
-            ));
-        }
+    if password.is_empty() {
+        return Err(anyhow::anyhow!(
+            "E_CRYPTO_BAD_INPUT: crypto.encrypt requires a non-empty password; \
+             nothing was encrypted"
+        ));
     }
-    // Fail closed. Returning a message here would hand the caller a non-empty
-    // string — which `is_truthy` treats as success — in place of ciphertext, so
-    // `file.write(out, crypto.encrypt(secret, pass))` would silently persist
-    // this sentence instead of the encrypted secret.
+
+    // Fresh salt per message, so the derived key is unique per ciphertext and a
+    // random nonce carries no birthday-bound risk across messages.
+    let salt: [u8; 16] = rand::random();
+    let nonce_bytes: [u8; 12] = rand::random();
+    let key = crypto_derive_key(&password, &salt)?;
+
+    let cipher = aes_gcm::Aes256Gcm::new_from_slice(&key)
+        .map_err(|e| anyhow::anyhow!("E_CRYPTO_KDF: bad key length: {}", e))?;
+    let ct = cipher
+        .encrypt(
+            aes_gcm::Nonce::from_slice(&nonce_bytes),
+            Payload {
+                msg: data.as_bytes(),
+                aad: CRYPTO_AAD,
+            },
+        )
+        .map_err(|_| {
+            anyhow::anyhow!("E_CRYPTO_FAILED: encryption failed; nothing was encrypted")
+        })?;
+
+    Ok(Value::Str(format!(
+        "{}.{}.{}.{}",
+        CRYPTO_ENVELOPE_V1,
+        STANDARD.encode(salt),
+        STANDARD.encode(nonce_bytes),
+        STANDARD.encode(&ct)
+    )))
+}
+
+/// Decrypt a pre-AS-2026-04 `openssl enc -aes-256-cbc` ciphertext. Kept so data
+/// written by an older AetherShell stays recoverable, but off by default: see
+/// the refusal in `bi_crypto_decrypt` for why.
+#[cfg(unix)]
+fn crypto_decrypt_legacy_cbc(data: &str, password: &str) -> Result<Value> {
+    let mut child = std::process::Command::new("openssl")
+        .args([
+            "enc",
+            "-aes-256-cbc",
+            "-pbkdf2",
+            "-d",
+            "-base64",
+            // `pass:` puts the secret in argv, which is world-readable via
+            // /proc/<pid>/cmdline on Linux. `env:` keeps it in the child
+            // environment, which is owner-readable only (AS-2026-03).
+            "-pass",
+            "env:AE_OPENSSL_PASS",
+        ])
+        .env("AE_OPENSSL_PASS", password)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+    if let Some(stdin) = child.stdin.as_mut() {
+        use std::io::Write;
+        stdin.write_all(data.as_bytes())?;
+    }
+    let output = child.wait_with_output()?;
+    if output.status.success() {
+        return Ok(Value::Str(
+            String::from_utf8_lossy(&output.stdout).to_string(),
+        ));
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
     Err(anyhow::anyhow!(
-        "E_UNIMPLEMENTED: crypto.encrypt requires the openssl CLI (Unix only); \
-         nothing was encrypted"
+        "E_DECRYPT_FAILED: legacy (unauthenticated) decrypt failed -- the password may be \
+         wrong, or the ciphertext may have been modified. AES-256-CBC is not authenticated, \
+         so a *successful* legacy decrypt is not proof of integrity either. openssl: {}",
+        if stderr.is_empty() {
+            "(no detail)".to_string()
+        } else {
+            stderr
+        }
     ))
 }
 
 fn bi_crypto_decrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    use aes_gcm::aead::{Aead, KeyInit, Payload};
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+
     let data = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
@@ -29060,61 +29129,83 @@ fn bi_crypto_decrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         _ => return Ok(Value::Null),
     };
 
-    #[cfg(unix)]
-    {
-        let mut child = std::process::Command::new("openssl")
-            .args([
-                "enc",
-                "-aes-256-cbc",
-                "-pbkdf2",
-                "-d",
-                "-base64",
-                // `pass:` puts the secret in argv, which is world-readable
-                // via /proc/<pid>/cmdline on Linux. `env:` keeps it in the
-                // child environment, which is owner-readable only
-                // (AS-2026-03). Not perfect -- an AEAD with a proper key
-                // handoff would be -- but strictly better and contained.
-                "-pass",
-                "env:AE_OPENSSL_PASS",
-            ])
-            .env("AE_OPENSSL_PASS", &password)
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .spawn()?;
-        if let Some(stdin) = child.stdin.as_mut() {
-            use std::io::Write;
-            stdin.write_all(data.as_bytes())?;
-        }
-        let output = child.wait_with_output()?;
-        if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).to_string(),
+    let trimmed = data.trim();
+    let parts: Vec<&str> = trimmed.split('.').collect();
+    if parts.len() != 4 || parts[0] != CRYPTO_ENVELOPE_V1 {
+        // Not an authenticated envelope. Accepting this silently would hand an
+        // attacker a downgrade: strip the `AE1.` prefix and tag from a modern
+        // ciphertext and the unauthenticated path would take it. So the legacy
+        // format is opt-in, by whoever runs the shell rather than by whoever
+        // supplies the ciphertext.
+        if !crate::safety::truthy_env("AETHER_CRYPTO_LEGACY_DECRYPT") {
+            return Err(anyhow::anyhow!(
+                "E_DECRYPT_UNAUTHENTICATED: this is not an authenticated `{}` ciphertext. It \
+                 was most likely produced by AetherShell before 10.0.0, when crypto.encrypt \
+                 used unauthenticated AES-256-CBC (AS-2026-04), so decrypting it cannot \
+                 detect tampering. Set AETHER_CRYPTO_LEGACY_DECRYPT=1 to decrypt it anyway, \
+                 then re-encrypt with crypto.encrypt to gain integrity protection. Nothing \
+                 was decrypted",
+                CRYPTO_ENVELOPE_V1
             ));
         }
-        // openssl ran and refused the input. Falling through to the
-        // `E_UNIMPLEMENTED` below — which is what this used to do — tells the
-        // caller the tool is missing when in fact the tool rejected their data.
-        // For a decryption failure that is the one signal worth surfacing: a
-        // tampered ciphertext looks exactly like this from here.
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        #[cfg(unix)]
+        {
+            return crypto_decrypt_legacy_cbc(trimmed, &password);
+        }
+        #[allow(unreachable_code)]
         return Err(anyhow::anyhow!(
-            "E_DECRYPT_FAILED: crypto.decrypt could not decrypt the input — the password \
-             may be wrong, or the ciphertext may have been modified. AES-256-CBC is not \
-             authenticated, so a *successful* decrypt is not proof the ciphertext is \
-             intact either (AS-2026-04 in docs/security/SECURITY_AUDIT_2026-08-26.md). \
-             openssl: {}",
-            if stderr.is_empty() {
-                "(no detail)".to_string()
-            } else {
-                stderr
-            }
+            "E_UNIMPLEMENTED: legacy ciphertext needs the openssl CLI (Unix only); \
+             nothing was decrypted"
         ));
     }
-    #[allow(unreachable_code)]
-    Err(anyhow::anyhow!(
-        "E_UNIMPLEMENTED: crypto.decrypt requires the openssl CLI (Unix only); \
-         nothing was decrypted"
-    ))
+
+    let decode = |what: &str, s: &str| -> Result<Vec<u8>> {
+        STANDARD.decode(s).map_err(|e| {
+            anyhow::anyhow!(
+                "E_DECRYPT_FAILED: malformed ciphertext ({} is not valid base64: {}); \
+                 nothing was decrypted",
+                what,
+                e
+            )
+        })
+    };
+    let salt = decode("salt", parts[1])?;
+    let nonce_bytes = decode("nonce", parts[2])?;
+    let ct = decode("body", parts[3])?;
+    if nonce_bytes.len() != 12 {
+        return Err(anyhow::anyhow!(
+            "E_DECRYPT_FAILED: malformed ciphertext (nonce is {} bytes, expected 12); \
+             nothing was decrypted",
+            nonce_bytes.len()
+        ));
+    }
+
+    let key = crypto_derive_key(&password, &salt)?;
+    let cipher = aes_gcm::Aes256Gcm::new_from_slice(&key)
+        .map_err(|e| anyhow::anyhow!("E_CRYPTO_KDF: bad key length: {}", e))?;
+
+    // Poly1305 verifies the tag before any plaintext is released, so a wrong
+    // password and a modified ciphertext give the same answer here -- and
+    // unlike the CBC path, "it decrypted" now genuinely means "it was not
+    // modified".
+    let plaintext = cipher
+        .decrypt(
+            aes_gcm::Nonce::from_slice(&nonce_bytes),
+            Payload {
+                msg: &ct,
+                aad: CRYPTO_AAD,
+            },
+        )
+        .map_err(|_| {
+            anyhow::anyhow!(
+                "E_DECRYPT_FAILED: authentication failed -- the password is wrong or the \
+                 ciphertext was modified. No plaintext was released"
+            )
+        })?;
+
+    String::from_utf8(plaintext)
+        .map(Value::Str)
+        .map_err(|_| anyhow::anyhow!("E_DECRYPT_FAILED: plaintext is not valid UTF-8"))
 }
 
 fn bi_crypto_sign(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {

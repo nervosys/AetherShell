@@ -1028,27 +1028,40 @@ on that date. None is blocked on the shell.
    deleted**. `builtins.rs` is 3,329 lines shorter. See the session note
    above for the criterion and for the three corrections the pass needed.
 
-4. **Seven open findings from the 2026-08-26 audit** (`docs/security/SECURITY_AUDIT_2026-08-26.md`), mapped to CWE, MITRE
-   ATT&CK, NIST FIPS and CMMC 2.0. None is fixed; all are recorded with the
-   evidence grade that was actually reached.
+4. **The 2026-08-26 audit is closed** (`docs/security/SECURITY_AUDIT_2026-08-26.md`),
+   mapped to CWE, MITRE ATT&CK, NIST FIPS and CMMC 2.0. Five findings were fixed
+   the same day; the two that were left open on purpose were closed in 10.0.0,
+   which is where their breaking changes belonged.
 
-   | ID | Severity | Evidence | Summary |
-   |---|---|---|---|
-   | AS-2026-01 | High | **Demonstrated** | `approve()` is self-callable, so in agent mode the `approve` policy class is `allow` against an adversarial or injected agent |
-   | AS-2026-02 | High | Structural | the audit log sits inside the jail it audits and its chain is unkeyed |
-   | AS-2026-03 | Medium | Structural | passwords reach `openssl` on the command line (3 sites) |
-   | AS-2026-04 | Medium | Structural | `crypto_encrypt` is AES-256-CBC with no integrity |
-   | AS-2026-05 | Medium | Measured | `crypto_uuid`'s fallback is a v4-labelled clock, zero bits of randomness |
-   | AS-2026-06 | Low | Measured | modulo bias in `crypto_random_string`, 0.0045 bits/char |
-   | AS-2026-07 | Info | Verified | the FIPS gate covers hashes only; `FIPS_140-2_COMPLIANCE.md` names a superseded standard |
+   | ID | Severity | Evidence | Summary | Status |
+   |---|---|---|---|---|
+   | AS-2026-01 | High | **Demonstrated** | `approve()` is self-callable, so in agent mode the `approve` policy class is `allow` against an adversarial or injected agent | fixed 9.0.0 |
+   | AS-2026-02 | High | Structural | the audit log sits inside the jail it audits and its chain is unkeyed | fixed 10.0.0 |
+   | AS-2026-03 | Medium | Structural | passwords reach `openssl` on the command line (3 sites) | fixed 9.0.0 |
+   | AS-2026-04 | Medium | Structural | `crypto_encrypt` is AES-256-CBC with no integrity | fixed 10.0.0 |
+   | AS-2026-05 | Medium | Measured | `crypto_uuid`'s fallback is a v4-labelled clock, zero bits of randomness | fixed 9.0.0 |
+   | AS-2026-06 | Low | Measured | modulo bias in `crypto_random_string`, 0.0045 bits/char | fixed 9.0.0 |
+   | AS-2026-07 | Info | Verified | the FIPS gate covers hashes only; `FIPS_140-2_COMPLIANCE.md` names a superseded standard | corrected — the finding was wrong as filed |
 
-   **AS-2026-01 and AS-2026-02 are design decisions, not patches.** Both turn
-   on which threat model is in scope — an agent that *errs* versus one that is
-   *adversarial or prompt-injected*. The options are written up in the audit;
-   choosing between them is the owner's call, and it changes the fix.
+   **What is left is not a patch and cannot be one.** Two residues are named in
+   the audit and neither is closable in this codebase:
 
-   Dependency position at the same commit: **zero vulnerabilities**, nine
-   informational RUSTSEC advisories.
+   - Nothing in-process can defend the audit log against in-process code.
+     Whatever key the shell appends with, it can forge with. Keying defends
+     against anyone holding only *write* access — an approved `Exec`, an offline
+     edit — and tampering is now detected at the next append. Defending against
+     the shell itself needs an append-only sink it cannot rewrite (remote
+     syslog, a WORM mount): a deployment decision.
+   - The Argon2id KDF is not FIPS-approved, deliberately, and is now stated as
+     such in `FIPS_140-2_COMPLIANCE.md` rather than being covered by a blanket
+     claim. The cipher is AES-256-GCM specifically so that the approval question
+     narrows to the KDF alone.
+
+   Still genuinely outstanding, and requiring a third party: an external
+   security review / penetration test.
+
+   Dependency position: **zero vulnerabilities**, nine informational RUSTSEC
+   advisories.
 
 5. **Roadmap, remaining.**
    - ~~Fully lazy iterators end-to-end~~ — **done as far as it goes** (session 5,

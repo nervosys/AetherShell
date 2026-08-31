@@ -4,7 +4,7 @@ exclude = ["web", "integrations/python"]
 
 [package]
 name = "aethershell"
-version = "9.0.0"
+version = "10.0.0"
 edition = "2021"
 authors = ["Nervosys <contact@nervosys.ai>"]
 description = "The world's first multi-agent shell with typed functional pipelines and multi-modal AI"
@@ -144,6 +144,24 @@ sha2 = "0.10"
 # right for a 256-bit random API key and wrong for a password, where the whole
 # threat is a precomputed table over a small guessable space.
 argon2 = { version = "0.5", features = ["std"] }
+# Authenticated encryption for `crypto.encrypt` (AS-2026-04). The previous
+# implementation shelled out to `openssl enc -aes-256-cbc`, which has no
+# integrity: a modified ciphertext decrypts to modified plaintext and the
+# caller cannot tell. `openssl enc` cannot do AEAD at all -- 3.5.7 answers
+# "enc: AEAD ciphers not supported" -- so the cipher had to move in-process.
+# AES-256-GCM specifically, rather than the ChaCha20-Poly1305 that would
+# otherwise be the default choice: docs/security/FIPS_140-2_COMPLIANCE.md
+# claims FIPS-approved algorithms throughout, and swapping an approved cipher
+# for an unapproved one inside a security remediation would quietly falsify
+# that. AES-GCM is the approved AEAD and gives the same guarantee.
+# Moving in-process also drops the subprocess, which removes the
+# password-in-child-environment handoff (AS-2026-03) and makes the builtin
+# work on Windows, where the openssl path was compiled out.
+aes-gcm = "0.10"
+# Keying the audit hash chain (AS-2026-02). An unkeyed SHA-256 chain is
+# evidence against corruption, not against an author: anyone can recompute it
+# end to end.
+hmac = "0.12"
 url = "2.5"
 urlencoding = "2.1"
 flate2 = "1.0"

@@ -992,7 +992,10 @@ pub enum Mode {
     Agent,
 }
 
-fn truthy_env(name: &str) -> bool {
+/// The project's one spelling of "is this switch on?". Public so builtins that
+/// gate on an operator-set variable (rather than on caller-supplied data) share
+/// exactly these accepted spellings instead of each inventing their own.
+pub fn truthy_env(name: &str) -> bool {
     matches!(
         std::env::var(name).ok().as_deref(),
         Some("1") | Some("true") | Some("yes") | Some("on")
@@ -1662,6 +1665,119 @@ fn sha256_hex(s: &str) -> String {
     hex(&h.finalize())
 }
 
+// ── Chain keying (AS-2026-02) ────────────────────────────────────────────
+//
+// An unkeyed SHA-256 chain is evidence against corruption, not against an
+// author. Anyone who can write the file can truncate it and rewrite it
+// end-to-end with a fresh, internally consistent chain that `verify_audit`
+// accepts. Keying the chain with HMAC-SHA256 means a rewrite requires the key,
+// so tampering by anyone who has only *write* access is detectable.
+//
+// What this does and does not defend against, stated plainly, because the
+// difference decides where the key may live:
+//
+//   * An approved `Exec` -- a spawned `sh`, `tar`, `git` -- that writes to the
+//     log: DETECTED. The child never sees the key (see `remove_var` below), so
+//     it cannot produce a valid tag.
+//   * Someone editing the file later, offline: DETECTED.
+//   * Code running *inside this process*: NOT detected, and cannot be. Whatever
+//     key this process can append with, it can forge with. No in-process scheme
+//     fixes that; it needs an append-only sink the process cannot rewrite
+//     (remote syslog, a WORM mount), which is a deployment decision.
+//
+// The key must therefore never reach a child process. `AETHER_AUDIT_KEY` is
+// read exactly once and then removed from this process's environment, so every
+// later `Command::spawn` -- which inherits the parent environment by default --
+// starts without it.
+
+/// Minimum accepted key material. Each entry carries a `key_id` derived from
+/// the key, so a short, guessable key would be a brute-force oracle; 32 bytes
+/// makes that irrelevant rather than merely inconvenient.
+const AUDIT_KEY_MIN_BYTES: usize = 32;
+
+lazy_static! {
+    /// Resolved once. `None` = unkeyed chain (the pre-10.0.0 behaviour, and
+    /// still the default: keying is opt-in because it needs somewhere to put a
+    /// key, which only the operator can decide).
+    static ref AUDIT_KEY: Option<Vec<u8>> = load_audit_key();
+}
+
+/// Read the chain key from `AETHER_AUDIT_KEY` (hex or raw bytes) or from the
+/// file named by `AETHER_AUDIT_KEY_FILE`. A malformed or too-short key is a
+/// hard error rather than a silent downgrade to an unkeyed chain -- a security
+/// control that quietly turns itself off is worse than one that is off.
+fn load_audit_key() -> Option<Vec<u8>> {
+    let from_env = std::env::var("AETHER_AUDIT_KEY").ok();
+    if from_env.is_some() {
+        // Before anything else can spawn a child that would inherit it.
+        std::env::remove_var("AETHER_AUDIT_KEY");
+    }
+    let raw = match from_env {
+        Some(v) => v,
+        None => match std::env::var("AETHER_AUDIT_KEY_FILE") {
+            Ok(path) => match std::fs::read_to_string(&path) {
+                Ok(c) => c.trim().to_string(),
+                Err(e) => {
+                    tracing::error!(
+                        target: "security_audit",
+                        "AETHER_AUDIT_KEY_FILE={} could not be read ({}); the audit chain is \
+                         UNKEYED and a rewrite by anyone with write access will verify clean",
+                        path, e
+                    );
+                    return None;
+                }
+            },
+            Err(_) => return None,
+        },
+    };
+
+    // Hex is the documented form; raw bytes are accepted so an operator can
+    // point the file at `head -c 32 /dev/urandom` output without encoding it.
+    let bytes = match hex::decode(raw.trim()) {
+        Ok(b) if b.len() >= AUDIT_KEY_MIN_BYTES => b,
+        _ => raw.trim().as_bytes().to_vec(),
+    };
+    if bytes.len() < AUDIT_KEY_MIN_BYTES {
+        tracing::error!(
+            target: "security_audit",
+            "audit chain key is {} bytes, below the {}-byte minimum; the chain is UNKEYED",
+            bytes.len(), AUDIT_KEY_MIN_BYTES
+        );
+        return None;
+    }
+    Some(bytes)
+}
+
+/// The active chain key, or `None` when the chain is unkeyed.
+pub fn audit_key() -> Option<&'static [u8]> {
+    AUDIT_KEY.as_deref()
+}
+
+/// A short, non-secret label for the key in use, so a verifier can tell "wrong
+/// key" from "tampered" and so rotation shows up in the log rather than looking
+/// like corruption.
+fn audit_key_id(key: &[u8]) -> String {
+    let mut h = Sha256::new();
+    h.update(b"AetherShell-audit-key-id\x00");
+    h.update(key);
+    hex(&h.finalize())[..16].to_string()
+}
+
+/// The chain tag over an entry's canonical core: HMAC-SHA256 when a key is
+/// configured, plain SHA-256 otherwise.
+fn chain_tag(key: Option<&[u8]>, s: &str) -> String {
+    match key {
+        Some(k) => {
+            use hmac::Mac as _;
+            let mut mac = <hmac::Hmac<Sha256> as hmac::Mac>::new_from_slice(k)
+                .expect("HMAC accepts keys of any length");
+            mac.update(s.as_bytes());
+            hex(&mac.finalize().into_bytes())
+        }
+        None => sha256_hex(s),
+    }
+}
+
 /// Recover `seq`/`last_hash` from the tail of an existing log so the chain
 /// continues across process restarts. Assumes the caller has already reset
 /// `seq`/`last_hash` to genesis for a fresh file.
@@ -1678,6 +1794,148 @@ fn load_tail(path: &PathBuf, state: &mut AuditState) {
             }
         }
     }
+}
+
+/// Read the last non-empty line of a file without reading the whole file. The
+/// audit log is append-only and grows without bound, so the tail check below
+/// runs on every guarded operation and must not be O(size).
+fn read_last_line(path: &PathBuf) -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    const WINDOW: u64 = 64 * 1024;
+
+    let mut f = std::fs::File::open(path).ok()?;
+    let len = f.metadata().ok()?.len();
+    if len == 0 {
+        return None;
+    }
+    let start = len.saturating_sub(WINDOW);
+    f.seek(SeekFrom::Start(start)).ok()?;
+    let mut buf = Vec::with_capacity((len - start) as usize);
+    f.read_to_end(&mut buf).ok()?;
+    let text = String::from_utf8_lossy(&buf);
+    // With a partial window the first line may be a fragment; the last one
+    // never is, which is all this needs.
+    text.lines()
+        .rev()
+        .find(|l| !l.trim().is_empty())
+        .map(|s| s.to_string())
+}
+
+/// Has the log been rewritten underneath us since our last append?
+///
+/// The in-memory chain (`state.last_hash`) is the honest record of what this
+/// process wrote. If the file's tail no longer matches it, something outside
+/// this process's audit path changed the file -- a truncation, an overwrite, a
+/// hand-edit. That is exactly the residual hole in AS-2026-02: an *approved*
+/// `Exec` runs arbitrary code, and no jail rule can stop `sh -c '> audit.log'`.
+///
+/// Keying makes such a rewrite fail an offline verify. This makes it visible at
+/// the next append instead of at the next audit, which is the difference
+/// between catching it in minutes and catching it in months.
+fn detect_tail_divergence(path: &PathBuf, state: &AuditState) -> Option<String> {
+    // Nothing written yet in this process: the tail is whatever we loaded, and
+    // `load_tail` already trusted it. Nothing to compare against.
+    if state.seq == 0 {
+        return None;
+    }
+    match read_last_line(path) {
+        None => Some("the audit log is missing or empty".to_string()),
+        Some(line) => {
+            let observed = serde_json::from_str::<Json>(&line)
+                .ok()
+                .and_then(|o| {
+                    o.get("entry_hash")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                })
+                .unwrap_or_default();
+            if observed == state.last_hash {
+                None
+            } else {
+                Some(format!(
+                    "the audit log tail is {} but this process last wrote {}",
+                    if observed.is_empty() {
+                        "unparseable".to_string()
+                    } else {
+                        format!("entry {}", &observed[..observed.len().min(12)])
+                    },
+                    &state.last_hash[..state.last_hash.len().min(12)]
+                ))
+            }
+        }
+    }
+}
+
+/// Build one chained entry: the serialized line, plus the `(seq, entry_hash)`
+/// the caller should commit to `AuditState` once the line is safely on disk.
+/// Kept separate from the write so the tamper marker and an ordinary entry are
+/// produced by exactly the same code -- a marker that chained differently from
+/// a normal entry would fail verification and look like the tampering it
+/// reports.
+fn build_entry(
+    state: &AuditState,
+    builtin: &str,
+    effect: Effect,
+    decision: &str,
+    resource: &str,
+    detail: Json,
+) -> (u64, String, String) {
+    let seq = state.seq + 1;
+    let ts = chrono::Utc::now().to_rfc3339();
+    let principal = std::env::var("USER")
+        .or_else(|_| std::env::var("USERNAME"))
+        .ok();
+
+    // Scrub secret shapes out of the resource string and detail metadata before
+    // they are hashed and persisted — the audit log is a durable artifact, so a
+    // leaked credential there would outlive the run (§7.6).
+    let (resource, detail) = if redaction_enabled() {
+        let (r, _) = redact_str(resource);
+        let mut d = detail;
+        redact_json(&mut d);
+        (r, d)
+    } else {
+        (resource.to_string(), detail)
+    };
+
+    // Canonical core (everything but entry_hash); prev_hash chains entries.
+    let key = audit_key();
+    let mut core = json!({
+        "seq": seq,
+        "ts": ts,
+        "principal": principal,
+        "builtin": builtin,
+        "effect": effect.as_str(),
+        "decision": decision,
+        "resource": resource,
+        "detail": detail,
+        "prev_hash": state.last_hash,
+    });
+    // The algorithm label lives *inside* the tagged core, so an attacker cannot
+    // relabel a keyed entry as unkeyed and recompute it with a plain SHA-256
+    // (AS-2026-02). `verify_audit` rejects that downgrade from the other side
+    // too, by requiring a tag on every entry once a key is configured.
+    if let Some(k) = key {
+        core["mac"] = json!("hmac-sha256");
+        core["key_id"] = json!(audit_key_id(k));
+    }
+    let entry_hash = chain_tag(key, &core.to_string());
+
+    let mut full = core;
+    full["entry_hash"] = json!(entry_hash);
+    (seq, entry_hash, full.to_string())
+}
+
+/// Append one already-built line to the log, creating the directory if needed.
+fn append_line(path: &PathBuf, line: &str) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
+    writeln!(f, "{}", line)
 }
 
 /// Append a tamper-evident audit entry. Best-effort: a write failure logs a
@@ -1708,54 +1966,45 @@ pub fn audit(
         load_tail(&path, &mut state);
     }
 
-    let seq = state.seq + 1;
-    let ts = chrono::Utc::now().to_rfc3339();
-    let principal = std::env::var("USER")
-        .or_else(|_| std::env::var("USERNAME"))
-        .ok();
+    // If the file no longer ends where we left it, say so *in the log itself*,
+    // as its own chained entry, before appending the entry we were called for.
+    // A rewrite that removed entries then leaves a permanent, chained marker at
+    // the point of discovery instead of a clean-looking file.
+    if let Some(reason) = detect_tail_divergence(&path, &state) {
+        tracing::error!(
+            target: "security_audit",
+            "audit log integrity: {} — the log was modified outside the audit path", reason
+        );
+        let broken_from = state.last_hash.clone();
+        let broken_seq = state.seq;
+        // Re-anchor to what is actually on disk, so the marker chains onto the
+        // file as it now stands; the marker itself records what the chain was.
+        state.seq = 0;
+        state.last_hash = GENESIS_HASH.to_string();
+        load_tail(&path, &mut state);
 
-    // Scrub secret shapes out of the resource string and detail metadata before
-    // they are hashed and persisted — the audit log is a durable artifact, so a
-    // leaked credential there would outlive the run (§7.6).
-    let (resource, detail) = if redaction_enabled() {
-        let (r, _) = redact_str(resource);
-        let mut d = detail;
-        redact_json(&mut d);
-        (r, d)
-    } else {
-        (resource.to_string(), detail)
-    };
-
-    // Canonical core (everything but entry_hash); prev_hash chains entries.
-    let core = json!({
-        "seq": seq,
-        "ts": ts,
-        "principal": principal,
-        "builtin": builtin,
-        "effect": effect.as_str(),
-        "decision": decision,
-        "resource": resource,
-        "detail": detail,
-        "prev_hash": state.last_hash,
-    });
-    let entry_hash = sha256_hex(&core.to_string());
-
-    let mut full = core;
-    full["entry_hash"] = json!(entry_hash);
-    let line = full.to_string();
-
-    let write_result = (|| -> std::io::Result<()> {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
+        let (mseq, mhash, mline) = build_entry(
+            &state,
+            "audit_chain",
+            Effect::Privileged,
+            "tamper-detected",
+            &reason,
+            json!({
+                "expected_prev_hash": broken_from,
+                "entries_written_by_this_process": broken_seq,
+            }),
+        );
+        // Best-effort: if this write fails, the tracing::error above is still
+        // the record, and the caller's own entry is attempted regardless.
+        if append_line(&path, &mline).is_ok() {
+            state.seq = mseq;
+            state.last_hash = mhash;
         }
-        let mut f = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path)?;
-        writeln!(f, "{}", line)
-    })();
+    }
 
-    match write_result {
+    let (seq, entry_hash, line) = build_entry(&state, builtin, effect, decision, resource, detail);
+
+    match append_line(&path, &line) {
         Ok(()) => {
             state.seq = seq;
             state.last_hash = entry_hash;
@@ -1796,6 +2045,13 @@ pub fn read_audit_tail(n: usize) -> Vec<Json> {
 /// error describing the first inconsistency (broken hash, bad chain link, or
 /// non-monotonic sequence).
 pub fn verify_audit(path: &PathBuf) -> Result<u64, String> {
+    verify_audit_with(path, audit_key())
+}
+
+/// `verify_audit` against an explicit chain key. Separated so a verifier can
+/// check a log it did not produce -- an operator holding the key auditing an
+/// agent's log offline is the whole point of keying the chain.
+pub fn verify_audit_with(path: &PathBuf, key: Option<&[u8]>) -> Result<u64, String> {
     let content = std::fs::read_to_string(path).map_err(|e| format!("read: {}", e))?;
     let mut prev = GENESIS_HASH.to_string();
     let mut expected_seq = 1u64;
@@ -1819,7 +2075,31 @@ pub fn verify_audit(path: &PathBuf) -> Result<u64, String> {
         if let Json::Object(m) = &mut obj {
             m.remove("entry_hash");
         }
-        let recomputed = sha256_hex(&obj.to_string());
+        // Downgrade check before the tag check, so the error names the real
+        // problem. A keyed verifier must refuse an unkeyed entry: otherwise
+        // truncating the log and rewriting it with plain SHA-256 -- which needs
+        // no key at all -- would verify clean (AS-2026-02).
+        let claims_mac = obj.get("mac").and_then(|v| v.as_str());
+        match (key, claims_mac) {
+            (Some(_), None) => {
+                return Err(format!(
+                    "line {}: entry is unkeyed but this log is verified with a key — a                      rewritten chain looks exactly like this",
+                    lineno + 1
+                ))
+            }
+            (Some(_), Some(alg)) if alg != "hmac-sha256" => {
+                return Err(format!("line {}: unknown chain mac {:?}", lineno + 1, alg))
+            }
+            (None, Some(_)) => {
+                return Err(format!(
+                    "line {}: entry is keyed but no chain key is configured; set                      AETHER_AUDIT_KEY or AETHER_AUDIT_KEY_FILE to verify it",
+                    lineno + 1
+                ))
+            }
+            _ => {}
+        }
+
+        let recomputed = chain_tag(key, &obj.to_string());
         if recomputed != stored {
             return Err(format!(
                 "line {}: entry_hash mismatch (tampered)",
