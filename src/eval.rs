@@ -1337,15 +1337,13 @@ fn interpolate_string(s: &str, env: &mut Env) -> Result<Value> {
                     if let crate::ast::Stmt::Expr(expr) = &stmts[0] {
                         match eval_expr(expr, env) {
                             Ok(val) => {
-                                // Convert value to string representation
-                                result.push_str(&match val {
-                                    Value::Str(s) => s,
-                                    Value::Int(n) => n.to_string(),
-                                    Value::Float(f) => f.to_string(),
-                                    Value::Bool(b) => b.to_string(),
-                                    Value::Null => "null".to_string(),
-                                    other => format!("{:?}", other),
-                                });
+                                // `to_display_string` renders every variant the
+                                // way a user wrote it. The fallback here used to
+                                // be `format!("{:?}", other)`, so interpolating
+                                // an array or a record printed Rust's Debug —
+                                // `"x: ${r}"` came out as
+                                // `x: Record({"a": Int(1)})`.
+                                result.push_str(&val.to_display_string());
                             }
                             Err(e) => {
                                 // On error, keep the ${expr} literal
@@ -1357,8 +1355,13 @@ fn interpolate_string(s: &str, env: &mut Env) -> Result<Value> {
                     }
                 }
                 _ => {
-                    // Parse failed, keep literal
-                    result.push_str(&format!("${{{}}}", expr_str));
+                    // A hole that does not parse is reported the same way one
+                    // that fails to evaluate is. Keeping the literal silently
+                    // meant `"${msg.from}"` — invalid because `from` is a
+                    // keyword — printed itself verbatim, which reads as a
+                    // successful interpolation of a string that happens to look
+                    // like one.
+                    result.push_str(&format!("${{{}}} [error: does not parse]", expr_str));
                 }
             }
         } else {

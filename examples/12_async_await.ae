@@ -1,12 +1,10 @@
 // Example 12: Async/Await Syntax
 // AetherShell supports async lambdas and await expressions for future-style programming
 
-// Basic async lambda definition
-let fetch_data = async fn(id) => {
-    // In a real implementation, this would be an async HTTP call
-    // For now, we simulate with a computation
-    { "id": id, "data": "result_" + str(id) }
-}
+// Basic async lambda definition. A lambda body is a single expression, so
+// the record below *is* the body — in a real implementation this would be
+// an async HTTP call rather than a simulated one.
+let fetch_data = async fn(id) => { "id": id, "data": "result_" + "${id}" }
 
 // Calling an async lambda returns a Future
 let future1 = fetch_data(1)
@@ -14,29 +12,28 @@ print("Future created: " + type_of(future1))
 
 // Await executes the future and returns the result
 let result1 = await future1
-print("Result 1: " + str(result1))
+print("Result 1: " + "${result1}")
 
 // Combined call and await
 let result2 = await fetch_data(2)
-print("Result 2: " + str(result2))
+print("Result 2: " + "${result2}")
 
 // Async lambdas with multiple parameters
 let combine = async fn(a, b) => a + b
 let sum = await combine(10, 20)
-print("Combined sum: " + str(sum))
+print("Combined sum: " + "${sum}")
 
 // Async in pipeline context
 let process = async fn(x) => x * 2
 let doubled = await process(21)
-print("Doubled: " + str(doubled))
+print("Doubled: " + "${doubled}")
 
 // Nested await - await a future that computes another future
-let outer = async fn(n) => {
-    let inner_future = fetch_data(n * 10)
-    await inner_future
-}
+// Nested await - await a future that computes another future.
+// A lambda body is one expression, so the intermediate binding is inlined.
+let outer = async fn(n) => await fetch_data(n * 10)
 let nested_result = await outer(3)
-print("Nested result: " + str(nested_result))
+print("Nested result: " + "${nested_result}")
 
 // Type inspection
 let my_async = async fn(x) => x

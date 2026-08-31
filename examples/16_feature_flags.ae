@@ -9,14 +9,14 @@
 print("=== Feature Flags ===")
 
 # Check initial features (may include env-loaded features)
-print("Initial features: " + str(features()))
+print("Initial features: " + "${features()}")
 
 # Enable some features
 feature_enable("experimental")
 feature_enable("debug_mode")
 feature_enable("ai_assistant")
 
-print("After enabling features: " + str(features()))
+print("After enabling features: " + "${features()}")
 
 # ============================================================================
 # Checking Features
@@ -25,9 +25,9 @@ print("After enabling features: " + str(features()))
 print("\n=== Feature Checking ===")
 
 # Check if features are enabled
-print("experimental enabled: " + str(feature_enabled("experimental")))
-print("debug_mode enabled: " + str(has_feature("debug_mode")))
-print("nonexistent enabled: " + str(feature_enabled("nonexistent")))
+print("experimental enabled: " + "${feature_enabled('experimental')}")
+print("debug_mode enabled: " + "${has_feature('debug_mode')}")
+print("nonexistent enabled: " + "${feature_enabled('nonexistent')}")
 
 # ============================================================================
 # Conditional Behavior
@@ -57,10 +57,10 @@ print("\n=== Feature Toggle ===")
 
 # Enable then disable a feature
 feature_enable("temporary")
-print("temporary before disable: " + str(feature_enabled("temporary")))
+print("temporary before disable: " + "${feature_enabled('temporary')}")
 
 feature_disable("temporary")
-print("temporary after disable: " + str(feature_enabled("temporary")))
+print("temporary after disable: " + "${feature_enabled('temporary')}")
 
 # ============================================================================
 # Feature Set with Boolean
@@ -70,14 +70,14 @@ print("\n=== Feature Set ===")
 
 # Set feature to specific state
 feature_set("verbose", true)
-print("verbose after set(true): " + str(feature_enabled("verbose")))
+print("verbose after set(true): " + "${feature_enabled('verbose')}")
 
 feature_set("verbose", false)
-print("verbose after set(false): " + str(feature_enabled("verbose")))
+print("verbose after set(false): " + "${feature_enabled('verbose')}")
 
 # Piped syntax
 "piped_feature" | feature_set(true)
-print("piped_feature enabled: " + str("piped_feature" | feature_enabled))
+print("piped_feature enabled: " + "${'piped_feature' | feature_enabled}")
 
 # ============================================================================
 # Feature-based Configuration
@@ -103,12 +103,12 @@ print("\n=== Batch Feature Checking ===")
 # Check multiple features at once
 let required = ["experimental", "debug_mode"]
 let all_enabled = required | map(fn(f) => feature_enabled(f)) | all(fn(x) => x)
-print("All required features enabled: " + str(all_enabled))
+print("All required features enabled: " + "${all_enabled}")
 
 # Find which features from a list are enabled
 let check_list = ["experimental", "beta", "ai_assistant", "nonexistent"]
 let enabled_ones = check_list | filter(fn(f) => feature_enabled(f))
-print("Enabled from list: " + str(enabled_ones))
+print("Enabled from list: " + "${enabled_ones}")
 
 # ============================================================================
 # Environment Variable Integration
@@ -117,7 +117,7 @@ print("Enabled from list: " + str(enabled_ones))
 print("\n=== Environment Integration ===")
 print("Features can be pre-loaded via AETHER_FEATURES env var")
 print("Example: AETHER_FEATURES=ai,debug,experimental ae script.ae")
-print("Current features: " + str(feature_list()))
+print("Current features: " + "${feature_list()}")
 
 # ============================================================================
 # Cleanup
@@ -127,4 +127,4 @@ print("\n=== Cleanup ===")
 feature_disable("experimental")
 feature_disable("debug_mode")
 feature_disable("ai_assistant")
-print("Final features: " + str(features()))
+print("Final features: " + "${features()}")

@@ -107,14 +107,16 @@ print(inspect(err))
 # Practical Examples
 # ==========================================
 
-# Defensive function with type checking
-let safe_divide = fn(a, b) => 
-    let ta = type_assert(a, "Int")
-    let tb = type_assert(b, "Int")
-    if is_error(ta) then ta
-    else if is_error(tb) then tb
-    else if b == 0 then throw "division by zero"
-    else a / b
+# Defensive function with type checking.
+#
+# A lambda body is a single expression, there is no `then` keyword, and
+# `else` must be followed by a brace — so the chain nests rather than
+# using `else if`.
+let safe_divide = fn(a, b) =>
+    if is_error(type_assert(a, "Int")) { type_assert(a, "Int") }
+    else { if is_error(type_assert(b, "Int")) { type_assert(b, "Int") }
+           else { if b == 0 { throw "division by zero" }
+                  else { a / b } } }
 
 # Test the function
 print(safe_divide(10, 2))   # 5.0

@@ -1,35 +1,35 @@
-/* AetherShell TUI MCP Server Demo
-   Launch with: ae tui
-   
-   This demo showcases Model Context Protocol (MCP) server integration:
-   - MCP server discovery
-   - Tool registration
-   - Remote tool execution
-   - Server health monitoring
-*/
+// AetherShell TUI MCP Server Demo
+// Launch with: ae tui
+//
+// This demo showcases Model Context Protocol (MCP) server integration:
+// - MCP server discovery
+// - Tool registration
+// - Remote tool execution
+// - Server health monitoring
+//
 
-/* Start filesystem MCP server */
+// Start filesystem MCP server
 fs_server := mcp_server_start {
   name: "filesystem",
   endpoint: "http://localhost:3001",
   capabilities: ["read_file", "write_file", "list_dir", "search"]
 }
 
-/* Start AWS MCP server */
+// Start AWS MCP server
 aws_server := mcp_server_start {
   name: "aws",
   endpoint: "http://localhost:3002",
   capabilities: ["s3_list", "s3_upload", "ec2_status", "lambda_invoke"]
 }
 
-/* Start database MCP server */
+// Start database MCP server
 db_server := mcp_server_start {
   name: "database",
   endpoint: "http://localhost:3003",
   capabilities: ["query", "insert", "update", "delete", "schema"]
 }
 
-/* Discover available tools from all servers */
+// Discover available tools from all servers
 all_tools := mcp_discover_tools [
   "http://localhost:3001",
   "http://localhost:3002",
@@ -38,42 +38,42 @@ all_tools := mcp_discover_tools [
 
 all_tools | print
 
-/* Create agent with MCP tools */
+// Create agent with MCP tools
 agent_with_mcp {
   goal: "Analyze log files and upload summary to S3",
   model: "openai:gpt-4o-mini",
   mcp_endpoints: [
-    "http://localhost:3001",  /* filesystem */
-    "http://localhost:3002"   /* aws */
+    "http://localhost:3001",  // filesystem
+    "http://localhost:3002"   // aws
   ],
   max_steps: 15
 } | print
 
-/* Direct MCP tool calls (shown in TUI) */
-/* Read a file via MCP */
+// Direct MCP tool calls (shown in TUI)
+// Read a file via MCP
 fs_server.read_file("/path/to/logfile.txt") | print
 
-/* List S3 buckets via MCP */
+// List S3 buckets via MCP
 aws_server.s3_list {} | print
 
-/* Query database via MCP */
+// Query database via MCP
 db_server.query {
   sql: "SELECT * FROM users WHERE active = true",
   limit: 10
 } | print
 
-/* The TUI provides:
-   - Server registry panel (all connected MCP servers)
-   - Server health indicators (green/yellow/red)
-   - Tool catalog browser (searchable)
-   - Request/response inspector
-   - Latency metrics per server
-   - Connection status monitoring
-   - Auto-reconnect on failure
-   - Tool usage statistics
-   - Server log streaming
-   - Interactive tool testing
-*/
+// The TUI provides:
+// - Server registry panel (all connected MCP servers)
+// - Server health indicators (green/yellow/red)
+// - Tool catalog browser (searchable)
+// - Request/response inspector
+// - Latency metrics per server
+// - Connection status monitoring
+// - Auto-reconnect on failure
+// - Tool usage statistics
+// - Server log streaming
+// - Interactive tool testing
+//
 
 print "TUI MCP Server Demo Ready! Launch with: ae tui"
 print "Note: Start MCP servers before running this demo"

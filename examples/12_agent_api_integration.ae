@@ -22,13 +22,13 @@ let eval_result = http("POST", api_base, {
     "action": "eval",
     "code": "1 + 2 * 3"
 })
-print($"Eval result: {eval_result}")
+print("Eval result: ${eval_result}")
 
 # List available builtins
 let builtins = http("POST", api_base, {
     "action": "list_builtins"
 })
-print($"Available builtins: {builtins.result | length}")
+print("Available builtins: ${builtins.result | length}")
 
 # =============================================================================
 # 2. OpenAI Integration (GPT-5, o3, o4-mini)
@@ -71,7 +71,7 @@ let claude_schema = http("POST", api_base, {
 
 # Claude uses a different format - input_schema instead of parameters
 print("Claude schema uses Anthropic tool_use format")
-print($"Compatible models: {claude_schema.result.compatible_models}")
+print("Compatible models: ${claude_schema.result.compatible_models}")
 
 # Example Claude API request structure:
 # {
@@ -92,7 +92,7 @@ let gemini_schema = http("POST", api_base, {
 
 # Gemini uses function_declarations format
 print("Gemini schema uses Google's function_declarations format")
-print($"Declarations count: {gemini_schema.result.function_declarations | length}")
+print("Declarations count: ${gemini_schema.result.function_declarations | length}")
 
 # =============================================================================
 # 5. Open Source Models (Llama 4, Mistral, Qwen)
@@ -103,21 +103,21 @@ let llama_schema = http("POST", api_base, {
     "action": "schema", 
     "format": "llama"
 })
-print($"Llama 4 compatible models: {llama_schema.result.compatible_models}")
+print("Llama 4 compatible models: ${llama_schema.result.compatible_models}")
 
 # Mistral (Large 2501, Codestral 2501)
 let mistral_schema = http("POST", api_base, {
     "action": "schema",
     "format": "mistral"
 })
-print($"Mistral compatible models: {mistral_schema.result.compatible_models}")
+print("Mistral compatible models: ${mistral_schema.result.compatible_models}")
 
 # Qwen 3 (235B A22B, 32B, Coder)
 let qwen_schema = http("POST", api_base, {
     "action": "schema",
     "format": "qwen"
 })
-print($"Qwen 3 compatible models: {qwen_schema.result.compatible_models}")
+print("Qwen 3 compatible models: ${qwen_schema.result.compatible_models}")
 
 # =============================================================================
 # 6. Inference Platforms (Together, Groq, Fireworks)
@@ -128,21 +128,21 @@ let together_schema = http("POST", api_base, {
     "action": "schema",
     "format": "together"
 })
-print($"Together API base: {together_schema.result.api_base}")
+print("Together API base: ${together_schema.result.api_base}")
 
 # Groq - ultra low latency inference
 let groq_schema = http("POST", api_base, {
     "action": "schema",
     "format": "groq"
 })
-print($"Groq ultra low latency: {groq_schema.result.ultra_low_latency}")
+print("Groq ultra low latency: ${groq_schema.result.ultra_low_latency}")
 
 # Fireworks - fast inference
 let fireworks_schema = http("POST", api_base, {
     "action": "schema",
     "format": "fireworks"
 })
-print($"Fireworks fast inference: {fireworks_schema.result.fast_inference}")
+print("Fireworks fast inference: ${fireworks_schema.result.fast_inference}")
 
 # =============================================================================
 # 7. Local Models (Ollama, vLLM)
@@ -153,15 +153,15 @@ let ollama_schema = http("POST", api_base, {
     "action": "schema",
     "format": "ollama"
 })
-print($"Ollama endpoint: {ollama_schema.result.endpoint}")
-print($"Ollama models: {ollama_schema.result.compatible_models}")
+print("Ollama endpoint: ${ollama_schema.result.endpoint}")
+print("Ollama models: ${ollama_schema.result.compatible_models}")
 
 # vLLM - high-performance local inference
 let vllm_schema = http("POST", api_base, {
     "action": "schema",
     "format": "vllm"
 })
-print($"vLLM endpoint: {vllm_schema.result.endpoint}")
+print("vLLM endpoint: ${vllm_schema.result.endpoint}")
 
 # =============================================================================
 # 8. Multi-Provider (OpenRouter)
@@ -172,7 +172,7 @@ let openrouter_schema = http("POST", api_base, {
     "action": "schema",
     "format": "openrouter"
 })
-print($"OpenRouter API base: {openrouter_schema.result.api_base}")
+print("OpenRouter API base: ${openrouter_schema.result.api_base}")
 print("OpenRouter tool-capable models include models from:")
 print("  - OpenAI (gpt-5, o3)")
 print("  - Anthropic (claude-4.5-opus, claude-4.5-sonnet)")
@@ -189,14 +189,14 @@ let kimi_schema = http("POST", api_base, {
     "action": "schema",
     "format": "kimi"
 })
-print($"Kimi API base: {kimi_schema.result.api_base}")
+print("Kimi API base: ${kimi_schema.result.api_base}")
 
 # GLM/ChatGLM (GLM-5, CodeGeeX 4)
 let glm_schema = http("POST", api_base, {
     "action": "schema",
     "format": "glm"
 })
-print($"GLM models: {glm_schema.result.compatible_models}")
+print("GLM models: ${glm_schema.result.compatible_models}")
 
 # =============================================================================
 # 10. Reasoning Models (DeepSeek R1)
@@ -206,8 +206,8 @@ let deepseek_schema = http("POST", api_base, {
     "action": "schema",
     "format": "deepseek"
 })
-print($"DeepSeek reasoning support: {deepseek_schema.result.reasoning_support}")
-print($"DeepSeek models: {deepseek_schema.result.compatible_models}")
+print("DeepSeek reasoning support: ${deepseek_schema.result.reasoning_support}")
+print("DeepSeek models: ${deepseek_schema.result.compatible_models}")
 
 # =============================================================================
 # 11. Executing Tool Calls
@@ -226,12 +226,12 @@ let result = http("POST", api_base, {
     "args": tool_call.arguments
 })
 
+# A block holds a single expression, so the two messages are one call.
+# result.result carries the structured output.
 if result.success {
-    print($"Tool execution successful!")
-    print($"Result type: {result.result_type}")
-    # result.result contains the structured output
+    print("Tool execution successful — result type: ${result.result_type}")
 } else {
-    print($"Tool execution failed: {result.error}")
+    print("Tool execution failed: ${result.error}")
 }
 
 # =============================================================================
@@ -267,7 +267,7 @@ let array_type = http("POST", api_base, {
     "action": "type_info",
     "type_name": "Array"
 })
-print($"Array type info: {array_type.result}")
+print("Array type info: ${array_type.result}")
 
 # =============================================================================
 # 14. Streaming API (Server-Sent Events)
@@ -325,25 +325,26 @@ print($"Array type info: {array_type.result}")
 #   console.log('Result:', data.result);
 # });
 
-print("Streaming endpoints available at /api/v1/stream/*")
-
-# =============================================================================
-# Summary
-# =============================================================================
-
-print("")
-print("=== Agent API Summary ===")
-print("Supported schema formats: 26+")
-print("Including: OpenAI, Claude, Gemini, Llama, Mistral, Cohere, Grok,")
-print("          DeepSeek, Bedrock, Azure OpenAI, Qwen, Kimi, Yi, GLM,")
-print("          Reka, AI21, Perplexity, Together, Groq, Fireworks,")
-print("          Ollama, vLLM, HuggingFace, OpenRouter, JSON, Ontology")
-print("")
-print("Latest models supported:")
-print("  - GPT-5, o3, o4-mini (OpenAI)")
-print("  - Claude 4.5 Opus/Sonnet/Haiku (Anthropic)")
-print("  - Gemini 2.5 Pro/Flash (Google)")
-print("  - Llama 4 400B/200B (Meta)")
-print("  - DeepSeek R1/V3 with reasoning")
-print("  - Grok 3 (xAI)")
-print("  - And many more!")
+print("Streaming endpoints available at /api/v1/stream// ")
+//
+// # =============================================================================
+// # Summary
+// # =============================================================================
+//
+// print("")
+// print("=== Agent API Summary ===")
+// print("Supported schema formats: 26+")
+// print("Including: OpenAI, Claude, Gemini, Llama, Mistral, Cohere, Grok,")
+// print("          DeepSeek, Bedrock, Azure OpenAI, Qwen, Kimi, Yi, GLM,")
+// print("          Reka, AI21, Perplexity, Together, Groq, Fireworks,")
+// print("          Ollama, vLLM, HuggingFace, OpenRouter, JSON, Ontology")
+// print("")
+// print("Latest models supported:")
+// print("  - GPT-5, o3, o4-mini (OpenAI)")
+// print("  - Claude 4.5 Opus/Sonnet/Haiku (Anthropic)")
+// print("  - Gemini 2.5 Pro/Flash (Google)")
+// print("  - Llama 4 400B/200B (Meta)")
+// print("  - DeepSeek R1/V3 with reasoning")
+// print("  - Grok 3 (xAI)")
+// print("  - And many more!")
+//

@@ -13,7 +13,7 @@ let result = try {
 } catch {
     0
 }
-print("Division result: " + str(result))
+print("Division result: " + "${result}")
 
 // ==================== Catching Thrown Errors ====================
 let caught = try {
@@ -35,8 +35,8 @@ print(with_binding)
 // ==================== Safe Division Example ====================
 let safe_divide = fn(a, b) => try { a / b } catch { null }
 
-print("10 / 2 = " + str(safe_divide(10, 2)))
-print("10 / 0 = " + str(safe_divide(10, 0)))
+print("10 / 2 = " + "${safe_divide(10, 2)}")
+print("10 / 0 = " + "${safe_divide(10, 0)}")
 
 // ==================== Nested Try/Catch ====================
 // Use different variable names for nested catches
@@ -56,11 +56,11 @@ print(nested_result)
 let err = throw "test"
 let not_err = 42
 
-print("is_error(err): " + str(is_error(err)))
-print("is_error(42): " + str(is_error(not_err)))
+print("is_error(err): " + "${is_error(err)}")
+print("is_error(42): " + "${is_error(not_err)}")
 
 // Pipeline with is_error
-print("throw 'x' | is_error: " + str(throw "x" | is_error))
+print("throw 'x' | is_error: " + "${throw 'x' | is_error}")
 
 // ==================== Error in Collections ====================
 // Errors can be stored in arrays and records

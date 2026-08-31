@@ -11,8 +11,8 @@ print("Tools: ${len(tools)}")
 
 # A2A Protocol
 print("\nA2A - Agent Communication")
-msg = {from: "coord", to: "worker"}
-print("Message: ${msg.from} to ${msg.to}")
+let msg = {sender: "coord", recipient: "worker"}
+print("Message: ${msg.sender} to ${msg.recipient}")
 
 # NANDA Protocol
 print("\nNANDA - Negotiation")

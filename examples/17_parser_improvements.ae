@@ -10,13 +10,13 @@ print("=== Semicolon Separation ===")
 
 # Multiple statements on one line
 x = 5; y = 10; z = x + y
-print("x + y = " + str(z))
+print("x + y = " + "${z}")
 
 # Pipe followed by semicolon and another statement
-data = [1,2,3] | reverse; print("Reversed: " + str(data))
+data = [1,2,3] | reverse; print("Reversed: " + "${data}")
 
 # Chain multiple operations
-a = 1; b = 2; c = 3; print("Sum: " + str(a + b + c))
+a = 1; b = 2; c = 3; print("Sum: " + "${a + b + c}")
 
 # ============================================================================
 # Pipeline Assignments Without Parentheses
@@ -26,21 +26,21 @@ print("\n=== Pipeline Assignments ===")
 
 # Direct pipeline assignment (no parentheses needed!)
 nums = [5, 3, 1, 4, 2] | sort
-print("Sorted: " + str(nums))
+print("Sorted: " + "${nums}")
 
 # Chained pipelines
 doubled = [1, 2, 3] | map(fn(x) => x * 2)
-print("Doubled: " + str(doubled))
+print("Doubled: " + "${doubled}")
 
 # Multiple pipeline assignments
 evens = [1, 2, 3, 4, 5, 6] | where(fn(x) => x % 2 == 0)
 odds = [1, 2, 3, 4, 5, 6] | where(fn(x) => x % 2 != 0)
-print("Evens: " + str(evens))
-print("Odds: " + str(odds))
+print("Evens: " + "${evens}")
+print("Odds: " + "${odds}")
 
 # Complex pipeline
 result = [1,2,3,4,5] | map(fn(x) => x * 2) | where(fn(x) => x > 4) | sum
-print("Filtered sum: " + str(result))
+print("Filtered sum: " + "${result}")
 
 # ============================================================================
 # Zero-Parameter Lambdas
@@ -50,7 +50,7 @@ print("\n=== Zero-Parameter Lambdas ===")
 
 # Simple thunk
 get_answer = fn() => 42
-print("Answer: " + str(get_answer()))
+print("Answer: " + "${get_answer()}")
 
 # String thunk
 greeting = fn() => "Hello, World!"
@@ -65,11 +65,11 @@ print(say_hello())
 make_counter = fn() => 0
 c1 = make_counter()
 c2 = make_counter()
-print("Counters: " + str(c1) + ", " + str(c2))
+print("Counters: " + "${c1}" + ", " + "${c2}")
 
 # Deferred computation
 expensive = fn() => 100 * 100
-print("Expensive result: " + str(expensive()))
+print("Expensive result: " + "${expensive()}")
 
 # IIFE (Immediately Invoked Function Expression)
 immediate = (fn() => "Immediate!")()
@@ -82,14 +82,14 @@ print(immediate)
 print("\n=== Combined Examples ===")
 
 # Multiple statements with pipelines and closures on one line
-data = [1,2,3] | reverse; transform = fn() => data | map(fn(x) => x * 10); print("Transformed: " + str(transform()))
+data = [1,2,3] | reverse; transform = fn() => data | map(fn(x) => x * 10); print("Transformed: " + "${transform()}")
 
 # Pipeline with zero-param lambda
 get_data = fn() => [10, 20, 30]
 total = get_data() | sum
-print("Total: " + str(total))
+print("Total: " + "${total}")
 
 # Array of thunks
 thunks = [fn() => 1, fn() => 2, fn() => 3]
 results = thunks | map(fn(t) => t())
-print("Thunk results: " + str(results))
+print("Thunk results: " + "${results}")

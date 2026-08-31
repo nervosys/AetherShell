@@ -28,7 +28,7 @@ print response2
 # Multi-turn conversation
 let conversation = [
   { role: "system", content: "You are a helpful shell assistant." },
-  { role: "user", content: "How do I list files in Linux?" },
+  { role: "user", content: "How do I list files in Linux?" }
 ]
 let response3 = ai_chat conversation --model "anthropic:claude-3-5-sonnet-20241022"
 print response3

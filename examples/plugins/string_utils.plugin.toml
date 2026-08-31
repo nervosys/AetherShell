@@ -6,7 +6,7 @@ author = "AetherShell Team"
 description = "String manipulation utilities for AetherShell"
 categories = ["Builtin"]
 min_aether_version = "0.1.0"
-license = "Apache-2.0"
+license = "AGPL-3.0-or-later"
 homepage = "https://github.com/nervosys/AetherShell"
 keywords = ["string", "text", "utilities"]
 

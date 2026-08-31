@@ -1488,6 +1488,40 @@ impl Theme {
 // Tests
 // ============================================================================
 
+// ── Where colour is allowed to go ────────────────────────────────────────
+//
+// Until 10.0.1 every printer asked only `config.colors.enabled`, which says
+// whether the *user* wants colour, never whether the destination can use it.
+// So `ae -c '1 + 2' > out` wrote escape codes into the file and
+// `n=$(ae -c '1 + 2')` captured them. One policy, asked by every printer.
+
+fn color_policy(stream_is_tty: bool) -> bool {
+    if std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty()) {
+        return false;
+    }
+    let forced = ["FORCE_COLOR", "CLICOLOR_FORCE"]
+        .iter()
+        .any(|k| std::env::var_os(k).is_some_and(|v| !v.is_empty() && v != "0"));
+    if !forced && !stream_is_tty {
+        return false;
+    }
+    get_config().colors.enabled
+}
+
+/// Colour for values, which go to stdout.
+pub fn colors_enabled() -> bool {
+    use std::io::IsTerminal;
+    color_policy(std::io::stdout().is_terminal())
+}
+
+/// Colour for diagnostics, which go to stderr. Asked separately because the
+/// streams are redirected independently: `ae … | grep` leaves stderr on the
+/// terminal, and `2>log` leaves stdout on it.
+pub fn colors_enabled_stderr() -> bool {
+    use std::io::IsTerminal;
+    color_policy(std::io::stderr().is_terminal())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

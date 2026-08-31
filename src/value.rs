@@ -308,6 +308,37 @@ pub mod pretty {
         pub dim: fn(&str) -> StyledContent<String>,
     }
 
+    impl Theme {
+        /// A theme that emits no escape sequences at all.
+        ///
+        /// `ContentStyle::default()` sets no attributes, so crossterm writes
+        /// the content unchanged. Used whenever the destination is not a
+        /// terminal, so that `print(x) | grep` and `$(...)` capture see the
+        /// same characters a human does.
+        pub fn plain() -> Self {
+            Self {
+                key: |s| s.to_string().stylize(),
+                string: |s| s.to_string().stylize(),
+                number: |s| s.to_string().stylize(),
+                boolean: |s| s.to_string().stylize(),
+                null: |s| s.to_string().stylize(),
+                uri: |s| s.to_string().stylize(),
+                header: |s| s.to_string().stylize(),
+                dim: |s| s.to_string().stylize(),
+            }
+        }
+
+        /// The default theme when the destination can show colour, the plain
+        /// one otherwise.
+        pub fn for_stdout() -> Self {
+            if crate::config::colors_enabled() {
+                Self::default()
+            } else {
+                Self::plain()
+            }
+        }
+    }
+
     impl Default for Theme {
         fn default() -> Self {
             Self {
@@ -432,11 +463,25 @@ pub mod pretty {
         truncate(&buf, 80)
     }
 
+    /// Truncate to at most `n` *characters*.
+    ///
+    /// This used to slice `&s[..n]` on a byte index, which panics whenever byte
+    /// `n` lands inside a multi-byte character:
+    ///
+    /// ```text
+    /// end byte index 80 is not a char boundary; it is inside '─'
+    /// ```
+    ///
+    /// Five shipped examples crashed the shell that way — any box-drawing rule,
+    /// accented word or emoji long enough to reach the limit did it. Counting
+    /// characters also makes the limit mean what it says: 80 bytes of CJK is
+    /// 26 glyphs, not 80.
     fn truncate(s: &str, n: usize) -> String {
-        if s.len() <= n {
+        if s.chars().count() <= n {
             s.to_string()
         } else {
-            format!("{}…", &s[..n])
+            let cut: String = s.chars().take(n).collect();
+            format!("{}…", cut)
         }
     }
 }

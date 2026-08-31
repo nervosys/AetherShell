@@ -57,7 +57,7 @@ print("Remote execution (simulated):")
 let exec_result = remote_exec("node-1", "ls -la /data")
 print("  Node: " + exec_result.node_id)
 print("  Status: " + exec_result.status)
-print("  Simulated: " + str(exec_result.simulated))
+print("  Simulated: " + "${exec_result.simulated}")
 print("")
 
 # Result aggregation

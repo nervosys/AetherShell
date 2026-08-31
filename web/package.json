@@ -1,6 +1,6 @@
 {
     "name": "@nervosys/aethershell",
-    "version": "0.2.0",
+    "version": "10.0.0",
     "description": "AetherShell - AI-powered typed shell for the browser",
     "main": "aethershell.js",
     "types": "aethershell.d.ts",
@@ -36,7 +36,7 @@
         "llm"
     ],
     "author": "nervosys",
-    "license": "MIT",
+    "license": "AGPL-3.0-or-later",
     "bugs": {
         "url": "https://github.com/nervosys/AetherShell/issues"
     },

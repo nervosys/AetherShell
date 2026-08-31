@@ -65,12 +65,17 @@ test("literals are scoped as constants", async () => {
 
 // ── The regression this suite was written for ────────────────────────────
 
+// Every wrapper here is valid AetherShell. An earlier draft used
+// `fn f() { ... }`, which the parser rejects: `fn` must be followed
+// immediately by `(`, and the language has no named function declarations.
+// Pinning highlighting for a construct nobody can write is worse than not
+// pinning it.
 const INSIDE_BLOCKS = [
-  ["function body", (body) => `fn f() {\n  ${body}\n}`],
-  ["if block", (body) => `if cond {\n  ${body}\n}`],
-  ["else block", (body) => `if cond { a } else {\n  ${body}\n}`],
-  ["try block", (body) => `try {\n  ${body}\n} catch e { a }`],
-  ["nested block", (body) => `fn f() {\n  if c {\n    ${body}\n  }\n}`],
+  ["if block", (body) => `if cond { ${body} }`],
+  ["else block", (body) => `if cond { a } else { ${body} }`],
+  ["try block", (body) => `try { ${body} } catch e { a }`],
+  ["nested block", (body) => `if c { if d { ${body} } }`],
+  ["lambda body", (body) => `let f = fn(x) => { ${body} }`],
 ];
 
 test("builtins are highlighted inside every kind of block", async () => {

@@ -184,7 +184,6 @@ pub fn run(env: &mut Env) -> Result<()> {
 
 /// One-liner (e.g. `ae -c 'code'`)
 pub fn run_one(env: &mut Env, code: &str) -> Result<i32> {
-    let config = get_config();
     match eval_line(env, code) {
         Ok(v) => {
             let budget = std::env::var("AE_TOKEN_BUDGET")
@@ -226,7 +225,7 @@ pub fn run_one(env: &mut Env, code: &str) -> Result<i32> {
             Ok(0)
         }
         Err(e) => {
-            print_eval_error(&e, config.colors.enabled);
+            print_eval_error(&e, colors_enabled_stderr());
             Ok(1)
         }
     }
@@ -297,17 +296,31 @@ pub fn eval_line(env: &mut Env, code: &str) -> Result<Value> {
     eval_program(&stmts, env)
 }
 
+/// Should rendered values carry ANSI colour?
+///
+/// The config alone is not enough to answer this: until 10.0.1 it *was* the
+/// whole answer, so `ae -c '1 + 2' > out` wrote `[38;2;180;142;173m3[39m`
+/// into the file. Anything consuming the shell's output — a pipe, a
+/// `$(...)` capture, the Homebrew formula's own `assert_equal "3"` — got
+/// escape codes it did not ask for.
+///
+/// The order below is the one users expect from other tools:
+///   * `NO_COLOR` set to anything non-empty wins (no-color.org),
+///   * then an explicit force, for people piping into `less -R`,
+///   * then: colour only when stdout is actually a terminal,
+///   * and only then does the config get a say.
+use crate::config::{colors_enabled, colors_enabled_stderr};
+
 /// REPL rendering:
 /// - Null => print nothing
 /// - Str  => print raw (no quotes), so ANSI works
 /// - else => compact colorized pretty-print (or plain if colors disabled)
 fn render_for_repl(v: &Value) -> Option<String> {
-    let config = get_config();
     match v {
         Value::Null => None,
         Value::Str(s) => Some(s.clone()),
         _ => {
-            if config.colors.enabled {
+            if colors_enabled() {
                 Some(pp_colored(v))
             } else {
                 Some(pp(v))
@@ -318,8 +331,10 @@ fn render_for_repl(v: &Value) -> Option<String> {
 
 /// Apply a color from the theme to a string
 fn colorize(s: &str, hex_color: &str) -> String {
-    let config = get_config();
-    if config.colors.true_color {
+    // Checked here as well as in `render_for_repl`, because `pp_colored` is
+    // reachable from other callers and a helper that emits escapes regardless
+    // of destination is the bug this pair of checks exists to prevent.
+    if colors_enabled() && get_config().colors.true_color {
         format!("{}", s.with(parse_hex_color(hex_color)))
     } else {
         // Fallback to basic colors when true_color is disabled

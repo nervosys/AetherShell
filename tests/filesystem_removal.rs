@@ -22,8 +22,27 @@ fn s(v: &str) -> Value {
     Value::Str(v.to_string())
 }
 
+/// A temp path unique to this process and call.
+///
+/// These names used to be fixed — `%TEMP%/ae_rm_reachable.txt` — so a second
+/// run, a leftover from a killed run, or a virus scanner still holding the
+/// handle made the test fail with "Access is denied" or "cannot find the file"
+/// and look like a bug in `rm`. Observed exactly that in a full-workspace run
+/// while the isolated run passed, which is the worst shape a test can have:
+/// the failure says nothing about the code under test.
 fn tmp(tag: &str) -> std::path::PathBuf {
-    let p = std::env::temp_dir().join(format!("ae_rm_{tag}"));
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static N: AtomicU64 = AtomicU64::new(0);
+    let unique = format!(
+        "ae_rm_{}_{}_{}_{tag}",
+        std::process::id(),
+        N.fetch_add(1, Ordering::Relaxed),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0),
+    );
+    let p = std::env::temp_dir().join(unique);
     let _ = std::fs::remove_file(&p);
     let _ = std::fs::remove_dir_all(&p);
     p

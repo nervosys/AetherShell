@@ -69,7 +69,7 @@ print("")
 print("🔹 Computing with Fields:")
 prices = products | map(fn(p) => p.price)
 total = prices | reduce(fn(a,b) => a + b, 0)
-print("  Total value: $" + total)
+print("  Total value: " + total)
 print("")
 
 # ═══ Type Introspection ═══

@@ -5,9 +5,9 @@
 class Aethershell < Formula
   desc "AI-powered typed shell with functional pipelines and multi-agent support"
   homepage "https://github.com/nervosys/AetherShell"
-  url "https://github.com/nervosys/AetherShell/archive/refs/tags/v0.2.0.tar.gz"
-  sha256 "PLACEHOLDER_SHA256"  # Update with actual SHA256 of release tarball
-  license "Apache-2.0"
+  url "https://github.com/nervosys/AetherShell/archive/refs/tags/v10.0.0.tar.gz"
+  sha256 "4aef77487f833389f348b80411cb1f91712e365a05a2098809c4011fa32c30df"
+  license "AGPL-3.0-or-later"
   head "https://github.com/nervosys/AetherShell.git", branch: "master"
 
   depends_on "rust" => :build
@@ -17,8 +17,9 @@ class Aethershell < Formula
     bin.install "target/release/ae"
     bin.install "target/release/aimodel"
 
-    # Generate shell completions
-    generate_completions_from_executable(bin/"ae", "completions", shells: [:bash, :zsh, :fish])
+    # No completions are generated: `ae` has no `completions` subcommand.
+    # This previously called generate_completions_from_executable(...), which
+    # aborts the install when the command does not exist.
 
     # Install documentation
     doc.install "README.md"
@@ -49,8 +50,9 @@ class Aethershell < Formula
     # Test version
     assert_match version.to_s, shell_output("#{bin}/ae --version")
 
-    # Test JSON output
-    output = shell_output("#{bin}/ae --json -c '[1, 2, 3]'")
+    # Canonical, byte-stable JSON. `--json` is not a top-level flag, so the
+    # previous assertion here failed for anyone who ran `brew test`.
+    output = shell_output("#{bin}/ae --deterministic -c '[1, 2, 3]'")
     assert_match "[1,2,3]", output
   end
 end

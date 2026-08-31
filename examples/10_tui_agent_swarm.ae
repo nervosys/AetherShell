@@ -1,14 +1,14 @@
-/* AetherShell TUI Agent Swarm Demo
-   Launch with: ae tui
-   
-   This demo showcases multi-agent coordination in the TUI:
-   - Agent creation and management
-   - Swarm coordination
-   - Real-time agent status
-   - Task distribution
-*/
+// AetherShell TUI Agent Swarm Demo
+// Launch with: ae tui
+//
+// This demo showcases multi-agent coordination in the TUI:
+// - Agent creation and management
+// - Swarm coordination
+// - Real-time agent status
+// - Task distribution
+//
 
-/* Create individual agents with different roles */
+// Create individual agents with different roles
 researcher := agent {
   goal: "Research functional programming concepts",
   model: "openai:gpt-4o-mini",
@@ -30,29 +30,29 @@ reviewer := agent {
   max_steps: 5
 }
 
-/* Create a swarm with coordination strategy */
+// Create a swarm with coordination strategy
 content_team := swarm {
   agents: [researcher, writer, reviewer],
-  policy: "router",  /* Options: router, round-robin, coordinator */
+  policy: "router",  // Options: router, round-robin, coordinator
   goal: "Create a comprehensive guide on functional programming",
   max_iters: 15,
   shared_tools: ["read_file", "write_file"]
 }
 
-/* Execute the swarm - TUI shows real-time progress */
+// Execute the swarm - TUI shows real-time progress
 content_team | print
 
-/* The TUI provides:
-   - Agent status panel (active, idle, completed)
-   - Message blackboard view
-   - Step-by-step execution trace
-   - Agent communication visualization
-   - Resource usage metrics
-   - Pause/resume controls
-   - Individual agent inspection
-*/
+// The TUI provides:
+// - Agent status panel (active, idle, completed)
+// - Message blackboard view
+// - Step-by-step execution trace
+// - Agent communication visualization
+// - Resource usage metrics
+// - Pause/resume controls
+// - Individual agent inspection
+//
 
-/* Alternative: Sequential agents */
+// Alternative: Sequential agents
 agents_run_sync [
   {goal: "Step 1: Gather requirements", model: "openai:gpt-4o-mini", max_steps: 5},
   {goal: "Step 2: Design solution", model: "openai:gpt-4o-mini", max_steps: 5},

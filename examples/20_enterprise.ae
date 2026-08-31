@@ -48,8 +48,8 @@ let stats = audit_stats()
 print("Audit statistics:", stats)
 
 // Export audit log
-let export = audit_export("json")
-print("Exported audit log entries:", export.count)
+let exported = audit_export("json")
+print("Exported audit log entries:", exported.count)
 
 // ===================== SSO (Single Sign-On) =====================
 print("\n=== SSO Demo ===")

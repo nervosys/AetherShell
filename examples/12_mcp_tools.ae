@@ -46,16 +46,15 @@ prompts | map(fn(p) => print("  - " + p.name))
 # Get a specific prompt
 let find_prompt = mcp_prompts("find-tool")
 if find_prompt != null {
-    print("\nFind-tool prompt:")
-    print(find_prompt)
+    print("
+Find-tool prompt: ${find_prompt}")
 }
 
 # Try connecting to an external MCP server (demo)
 print("\n--- External MCP Server (demo) ---")
 let external = mcp_connect("http://localhost:3001")
 if external.available {
-    print("Connected to: " + external.name)
-    print("Tools: " + len(external.tools))
+    print("Connected to: ${external.name} (${len(external.tools)} tools)")
 } else {
     print("Not connected (expected in demo mode)")
 }
@@ -66,8 +65,7 @@ let result = mcp_call("ls", { path: "." })
 if result.is_error {
     print("Tool call failed (expected if ls not available)")
 } else {
-    print("Tool output:")
-    result.content | map(fn(c) => print(c.text))
+    print("Tool output: ${result.content | map(fn(c) => c.text)}")
 }
 
 print("\nMCP integration complete!")

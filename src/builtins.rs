@@ -4680,7 +4680,7 @@ fn bi_print(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     // Print the pretty inline display to stdout (with colors).
     let pretty =
-        crate::value::pretty::display_inline(&target, &crate::value::pretty::Theme::default());
+        crate::value::pretty::display_inline(&target, &crate::value::pretty::Theme::for_stdout());
     println!("{}", pretty);
 
     // Helper to strip ANSI color sequences from a string
@@ -5641,7 +5641,7 @@ fn bi_debug(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     let type_str = val.type_name();
     let pretty =
-        crate::value::pretty::display_inline(&val, &crate::value::pretty::Theme::default());
+        crate::value::pretty::display_inline(&val, &crate::value::pretty::Theme::for_stdout());
     eprintln!("[DEBUG] {}: {}", type_str, pretty);
 
     // Return the value unchanged for pipeline chaining
@@ -5743,7 +5743,7 @@ fn bi_trace(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     let type_str = val.type_name();
     let pretty =
-        crate::value::pretty::display_inline(&val, &crate::value::pretty::Theme::default());
+        crate::value::pretty::display_inline(&val, &crate::value::pretty::Theme::for_stdout());
     eprintln!("[TRACE {}] {}: {}", label, type_str, pretty);
 
     // Return the value unchanged for pipeline chaining

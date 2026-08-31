@@ -1,29 +1,29 @@
-/* AetherShell TUI Chat Demo
-   Launch with: ae tui
-   
-   This demo showcases the interactive chat interface with AI models
-*/
+// AetherShell TUI Chat Demo
+// Launch with: ae tui
+//
+// This demo showcases the interactive chat interface with AI models
+//
 
-/* Chat with GPT-4o-mini (OpenAI) */
+// Chat with GPT-4o-mini (OpenAI)
 ai "openai:gpt-4o-mini" "What are the key features of functional programming?"
 
-/* Multi-turn conversation */
+// Multi-turn conversation
 ai "openai:gpt-4o-mini" "Explain Rust's ownership system"
 ai "openai:gpt-4o-mini" "How does it compare to garbage collection?"
 
-/* Use Ollama local model */
+// Use Ollama local model
 ai "ollama:llama3" "Write a haiku about programming"
 
-/* Anthropic Claude */
+// Anthropic Claude
 ai "anthropic:claude-3-5-sonnet-20241022" "Explain monads in simple terms"
 
-/* The TUI provides:
-   - Real-time message display
-   - Syntax highlighting for code responses
-   - Message history scrolling
-   - Multiple AI model support
-   - Keyboard shortcuts (see bottom bar)
-   - Copy/paste support
-*/
+// The TUI provides:
+// - Real-time message display
+// - Syntax highlighting for code responses
+// - Message history scrolling
+// - Multiple AI model support
+// - Keyboard shortcuts (see bottom bar)
+// - Copy/paste support
+//
 
 print "TUI Chat Demo Ready! Launch with: ae tui"
