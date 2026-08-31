@@ -263,7 +263,7 @@
         "pretest": "npm run compile",
         "lint": "eslint src --ext ts",
         "package": "vsce package",
-        "test": "node --test \"test/**/*.test.mjs\""
+        "test": "node --test test/grammar.test.mjs test/language-configuration.test.mjs test/manifest.test.mjs test/snippets.test.mjs"
     },
     "dependencies": {
         "vscode-languageclient": "^9.0.1"

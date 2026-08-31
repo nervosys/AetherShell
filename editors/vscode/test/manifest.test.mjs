@@ -166,3 +166,23 @@ test("the grammar files the manifest names parse as JSON", () => {
     );
   }
 });
+
+test("the test script names every test file", () => {
+  // `node --test "test/**/*.test.mjs"` only expands the glob on Node 22+. CI
+  // runs Node 20, where it is passed through literally and matches nothing —
+  // which exits non-zero here, but a slightly different mistake would exit
+  // zero having run nothing at all. So the files are listed explicitly, and
+  // this makes the list impossible to forget.
+  const script = pkg.scripts?.test ?? "";
+  const onDisk = readdirSync(join(extRoot, "test"))
+    .filter((f) => f.endsWith(".test.mjs"))
+    .sort();
+  assert.ok(onDisk.length > 0, "no test files found on disk");
+
+  const unlisted = onDisk.filter((f) => !script.includes(`test/${f}`));
+  assert.deepEqual(
+    unlisted,
+    [],
+    `these test files exist but npm test does not run them: ${unlisted.join(", ")}`,
+  );
+});
