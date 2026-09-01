@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — the audit log under concurrent writers
+
+Found by probing the case the default configuration produces: in agent mode the
+log is `<workspace>/.ae/audit.log`, so two agents in one workspace share it. The
+chain is per-process state, so they interleave two independent chains.
+
+- **Records could be torn.** `writeln!` emits the content and the newline as
+  separate writes, and `O_APPEND` only guarantees atomicity *per write*, so two
+  entries could land on one line and the log stopped being valid JSON —
+  observed as `JSONDecodeError: Extra data: line 1 column 401`. Each record is
+  now built with its terminator and issued in one write. A log that fails to
+  verify still tells you something happened; a log that cannot be parsed tells
+  you nothing.
+- **Ordinary concurrency raised false tamper alarms.** Each process's tail
+  check treated the other's appends as evidence of rewriting: 33
+  `tamper-detected` markers in a single 80-operation run. An alarm that fires
+  whenever two agents run is one nobody reads. Entries now carry a per-process
+  `writer` id, and a differing writer is recognised as concurrency rather than
+  tampering.
+- **Verification blamed the wrong thing.** A shared log reported `broken chain
+  link`, which reads as an attack. It now says the log interleaves entries from
+  N writers and names the two remedies — a log per process, or one shared
+  append-only `AETHER_AUDIT_SINK`.
+
+**Not claimed:** that a shared log forms a single verifiable chain. It does not,
+and cannot without cross-process locking. What is asserted is that it stays
+parseable, stays quiet, and explains itself — and that a single writer still
+produces one clean chain with contiguous sequence numbers.
+
+### Testing
+
+- **`tests/audit_concurrency.rs`** — two real processes writing one log, with an
+  assertion that they genuinely interleave, so the suite cannot pass because
+  they happened to run sequentially. Verified red: 33 false alarms without the
+  writer-aware tail check.
+
 ### Testing
 
 - **`tests/gate_routes.rs`** — the safety gate must fire whatever syntactic

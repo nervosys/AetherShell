@@ -1843,6 +1843,28 @@ fn read_last_line(path: &PathBuf) -> Option<String> {
 /// Keying makes such a rewrite fail an offline verify. This makes it visible at
 /// the next append instead of at the next audit, which is the difference
 /// between catching it in minutes and catching it in months.
+/// A random identifier for this process's audit writer.
+///
+/// The chain is per-process state — `seq` and `last_hash` live in memory — so
+/// two processes appending to one log both start at `seq: 1` from genesis and
+/// interleave two chains into one file. That is not exotic: in agent mode the
+/// log defaults to `<workspace>/.ae/audit.log`, so two agents in one workspace
+/// share it by default.
+///
+/// Recording who wrote each entry does not make the interleaving valid. What it
+/// does is let the reader say so accurately — "this log has entries from 2
+/// writers" rather than "broken chain link", which reads as tampering — and let
+/// the tail check tell a concurrent writer apart from someone rewriting the
+/// file. A tamper alarm that fires whenever two agents run is a control that
+/// stops being read.
+fn writer_id() -> &'static str {
+    static ID: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    ID.get_or_init(|| {
+        let n: u64 = rand::random();
+        format!("{:016x}", n)
+    })
+}
+
 fn detect_tail_divergence(path: &PathBuf, state: &AuditState) -> Option<String> {
     // Nothing written yet in this process: the tail is whatever we loaded, and
     // `load_tail` already trusted it. Nothing to compare against.
@@ -1852,6 +1874,19 @@ fn detect_tail_divergence(path: &PathBuf, state: &AuditState) -> Option<String> 
     match read_last_line(path) {
         None => Some("the audit log is missing or empty".to_string()),
         Some(line) => {
+            // Another process appending to the same log is a different thing
+            // from someone rewriting it, and calling both "tamper-detected"
+            // makes the alarm useless in the configuration agent mode ships
+            // with. If the tail carries a different writer id, this is
+            // concurrency; the log is still not a single verifiable chain, and
+            // `verify_audit` says so, but it is not evidence of an attacker.
+            if let Ok(o) = serde_json::from_str::<Json>(&line) {
+                if let Some(w) = o.get("writer").and_then(|v| v.as_str()) {
+                    if w != writer_id() {
+                        return None;
+                    }
+                }
+            }
             let observed = serde_json::from_str::<Json>(&line)
                 .ok()
                 .and_then(|o| {
@@ -1921,6 +1956,7 @@ fn build_entry(
         "resource": resource,
         "detail": detail,
         "prev_hash": state.last_hash,
+        "writer": writer_id(),
     });
     // The algorithm label lives *inside* the tagged core, so an attacker cannot
     // relabel a keyed entry as unkeyed and recompute it with a plain SHA-256
@@ -1946,7 +1982,27 @@ fn append_line(path: &PathBuf, line: &str) -> std::io::Result<()> {
         .create(true)
         .append(true)
         .open(path)?;
-    writeln!(f, "{}", line)
+    write_record(&mut f, line)
+}
+
+/// Write one record — content *and* newline — in a single call.
+///
+/// `writeln!` emits the content and the newline as separate writes, and an
+/// `O_APPEND` handle only guarantees atomicity per write. Two processes
+/// appending to one log could therefore interleave *within a line*, producing
+/// output that is not valid JSON at all:
+///
+/// ```text
+/// json.decoder.JSONDecodeError: Extra data: line 1 column 401
+/// ```
+///
+/// An audit log that cannot be parsed is worse than one that fails to verify:
+/// verification at least tells you something happened. Building the record with
+/// its terminator and issuing one write keeps each line intact, which is what
+/// makes a shared log analysable even when it is not a single chain.
+fn write_record(f: &mut std::fs::File, line: &str) -> std::io::Result<()> {
+    let record = format!("{}\n", line);
+    f.write_all(record.as_bytes())
 }
 
 /// Mirror one entry to the append-only sink named by `AETHER_AUDIT_SINK`.
@@ -1971,7 +2027,7 @@ fn mirror_to_sink(line: &str) -> std::io::Result<()> {
         .create(true)
         .append(true)
         .open(&sink)?;
-    writeln!(f, "{}", line)
+    write_record(&mut f, line)
 }
 
 /// Append a tamper-evident audit entry. Best-effort: a write failure logs a
@@ -2100,6 +2156,7 @@ pub fn verify_audit_with(path: &PathBuf, key: Option<&[u8]>) -> Result<u64, Stri
     let mut prev = GENESIS_HASH.to_string();
     let mut expected_seq = 1u64;
     let mut count = 0u64;
+    let mut writers: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
 
     for (lineno, line) in content.lines().enumerate() {
         if line.trim().is_empty() {
@@ -2107,6 +2164,10 @@ pub fn verify_audit_with(path: &PathBuf, key: Option<&[u8]>) -> Result<u64, Stri
         }
         let mut obj: Json =
             serde_json::from_str(line).map_err(|e| format!("line {}: parse: {}", lineno + 1, e))?;
+
+        if let Some(w) = obj.get("writer").and_then(|v| v.as_str()) {
+            writers.insert(w.to_string());
+        }
 
         let stored = obj
             .get("entry_hash")
@@ -2153,6 +2214,17 @@ pub fn verify_audit_with(path: &PathBuf, key: Option<&[u8]>) -> Result<u64, Stri
 
         let prev_hash = obj.get("prev_hash").and_then(|v| v.as_str()).unwrap_or("");
         if prev_hash != prev {
+            // Distinguish a shared log from a rewritten one. Two processes
+            // appending to one file interleave two chains, each internally
+            // sound; reporting that as "broken chain link" reads as tampering
+            // and sends the reader looking for an attacker who is not there.
+            if writers.len() > 1 {
+                return Err(format!(
+                    "line {}: this log interleaves entries from {} writers, so it is not a single chain; give each process its own AETHER_AUDIT_LOG, or share one append-only sink via AETHER_AUDIT_SINK",
+                    lineno + 1,
+                    writers.len()
+                ));
+            }
             return Err(format!("line {}: broken chain link", lineno + 1));
         }
 
