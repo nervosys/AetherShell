@@ -45,9 +45,21 @@ struct Shared {
 
 impl Shared {
     fn new() -> Self {
+        // pid + a process-wide counter + the clock.
+        //
+        // pid alone is not enough: these tests run as threads of one process.
+        // pid + clock is not enough either — macOS's `SystemTime` is coarse
+        // enough that two tests starting together read the *same* nanosecond,
+        // land in one directory and share an audit log. That is exactly what
+        // happened: the concurrent-writer test read the single-writer test's
+        // log and saw 10 entries where it expected 80, on macOS only. The
+        // counter is what actually guarantees uniqueness here; the clock just
+        // keeps names readable across runs.
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let dir = std::env::temp_dir().join(format!(
-            "ae_auditconc_{}_{}",
+            "ae_auditconc_{}_{}_{}",
             std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_nanos())

@@ -28,9 +28,18 @@ struct Workspace {
 
 impl Workspace {
     fn new(tag: &str) -> Self {
+        // pid + a process-wide counter + the clock. pid alone is not enough
+        // (these tests are threads of one process) and pid + clock is not
+        // either: a coarse `SystemTime` lets two tests read the same
+        // nanosecond and share a directory. Observed on macOS in
+        // tests/audit_concurrency.rs, where one test then read another's
+        // files. The counter is what makes this unique; the clock only keeps
+        // the names readable.
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let dir = std::env::temp_dir().join(format!(
-            "ae_gate_{tag}_{}_{}",
+            "ae_gate_{tag}_{}_{}_{}",
             std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_nanos())
