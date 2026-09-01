@@ -62,6 +62,8 @@ fn benchmark_array_functions(c: &mut Criterion) {
                 left: Box::new(aethershell::ast::Expr::Ident("x".to_string())),
                 right: Box::new(aethershell::ast::Expr::LitInt(500)),
             }),
+            // References only its own parameter, so nothing is free to capture.
+            captured: Default::default(),
         });
 
         group.bench_with_input(

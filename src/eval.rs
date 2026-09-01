@@ -608,12 +608,14 @@ pub fn eval_expr(expr: &Expr, env: &mut Env) -> Result<Value> {
         Expr::Lambda { params, body } => Ok(Value::Lambda(Lambda {
             params: params.clone(),
             body: body.clone(),
+            captured: capture_free_vars(params, body, env),
         })),
 
         // ---------- async lambda ----------
         Expr::AsyncLambda { params, body } => Ok(Value::AsyncLambda(AsyncLambda {
             params: params.clone(),
             body: body.clone(),
+            captured: capture_free_vars(params, body, env),
         })),
 
         // ---------- await ----------
@@ -638,6 +640,7 @@ pub fn eval_expr(expr: &Expr, env: &mut Env) -> Result<Value> {
                     let _depth = crate::safety::enter_call()?;
                     let saved_pipe = env.input().cloned();
                     env.set_input(None);
+                    let restore_caps = install_captured(&future.lambda.captured, env);
 
                     let mut saved: Vec<(String, Option<Value>)> = Vec::new();
                     for (param, arg) in future.lambda.params.iter().zip(future.args.iter()) {
@@ -653,6 +656,7 @@ pub fn eval_expr(expr: &Expr, env: &mut Env) -> Result<Value> {
                             None => env.del_var(&name),
                         }
                     }
+                    restore_captured(restore_caps, env);
                     env.set_input(saved_pipe);
                     out
                 }
@@ -671,11 +675,7 @@ pub fn eval_expr(expr: &Expr, env: &mut Env) -> Result<Value> {
             match eval_expr(try_expr, env) {
                 Ok(Value::Error(msg)) => {
                     // An error value was returned (from throw)
-                    if let Some(var_name) = catch_var {
-                        let _ = env.set_var(var_name.clone(), Value::Str(msg));
-                    }
-                    // Evaluate catch expression; if it also throws, that's the result
-                    eval_expr(catch_expr, env)
+                    bind_caught(catch_var.as_deref(), Value::Str(msg), catch_expr, env)
                 }
                 Ok(val) => {
                     // Success - return the value
@@ -686,15 +686,11 @@ pub fn eval_expr(expr: &Expr, env: &mut Env) -> Result<Value> {
                     // data: bind the catch variable to a Record {error: {code,
                     // message, hint, ...}} so agents can branch on `e.error.code`
                     // instead of parsing a string. Other errors stay as strings.
-                    if let Some(var_name) = catch_var {
-                        let caught = match e.downcast_ref::<crate::safety::SafetyError>() {
-                            Some(se) => Value::from_json(&se.to_json()),
-                            None => Value::Str(e.to_string()),
-                        };
-                        let _ = env.set_var(var_name.clone(), caught);
-                    }
-                    // Evaluate catch expression; if it also throws, that's the result
-                    eval_expr(catch_expr, env)
+                    let caught = match e.downcast_ref::<crate::safety::SafetyError>() {
+                        Some(se) => Value::from_json(&se.to_json()),
+                        None => Value::Str(e.to_string()),
+                    };
+                    bind_caught(catch_var.as_deref(), caught, catch_expr, env)
                 }
             }
         }
@@ -1072,9 +1068,271 @@ fn is_truthy(v: &Value) -> bool {
     }
 }
 
+/// The largest string a single operation may produce.
+///
+/// Applied to *every* string-producing operator, not just repetition. It was
+/// briefly only on `*`, which made it a speed bump rather than a bound:
+/// `"x" * 8_000_000` was allowed and `a + a` then produced 16 MB, walking
+/// straight past the number the constant appeared to promise (AS-2026-10).
+///
+/// This bounds any single string value. It does not bound *total* memory — a
+/// script can still hold many strings, or a large array — so it is a guard
+/// against one value running away, not an allocation budget.
+const MAX_STRING_BYTES: usize = 8 * 1024 * 1024;
+
+/// Build a string value, refusing one that exceeds [`MAX_STRING_BYTES`].
+fn checked_string(s: String) -> Result<Value> {
+    if s.len() > MAX_STRING_BYTES {
+        return Err(anyhow!(
+            "string operation would produce {} bytes, over the {} byte limit",
+            s.len(),
+            MAX_STRING_BYTES
+        ));
+    }
+    Ok(Value::Str(s))
+}
+
+/// Bind the caught value to the `catch` variable, evaluate the handler, and put
+/// the previous binding back.
+///
+/// This used to be `let _ = env.set_var(name, caught)`, which swallowed the
+/// failure. `set_var` refuses to overwrite an immutable binding, so whenever a
+/// variable of the same name already existed the handler silently saw the *old*
+/// value instead of the error:
+///
+/// ```text
+/// let e = "outer"
+/// try { throw "boom" } catch e { e }     # -> "outer"
+/// ```
+///
+/// An error handler reading a stale value is worse than one that fails loudly.
+/// The catch variable is a binding the construct introduces, exactly like a
+/// lambda parameter, so it is installed unconditionally and restored after.
+fn bind_caught(
+    catch_var: Option<&str>,
+    caught: Value,
+    catch_expr: &Expr,
+    env: &mut Env,
+) -> Result<Value> {
+    let Some(name) = catch_var else {
+        return eval_expr(catch_expr, env);
+    };
+    let previous = env.get_var(name).cloned();
+    env.set_var_unchecked(name, caught);
+    let out = eval_expr(catch_expr, env);
+    match previous {
+        Some(v) => env.set_var_unchecked(name, v),
+        None => env.del_var(name),
+    }
+    out
+}
+
+/// Collect the free identifiers of an expression — the names it reads that it
+/// does not itself bind.
+///
+/// This is what a lambda captures. It must cover every `Expr` variant: a
+/// variant left out here is a name silently *not* captured, which reintroduces
+/// exactly the bug the capture exists to fix, and does so only for the
+/// construct that was missed. The `match` is therefore exhaustive with no
+/// wildcard arm, so adding an `Expr` variant fails to compile until it is
+/// handled here.
+fn free_idents(expr: &Expr, bound: &mut Vec<String>, out: &mut std::collections::BTreeSet<String>) {
+    match expr {
+        Expr::LitInt(_) | Expr::LitFloat(_) | Expr::LitStr(_) | Expr::LitBool(_) | Expr::Null => {}
+
+        Expr::Ident(name) => {
+            if !bound.iter().any(|b| b == name) {
+                out.insert(name.clone());
+            }
+        }
+
+        Expr::Array(items) => {
+            for e in items {
+                free_idents(e, bound, out);
+            }
+        }
+        Expr::Record(fields) => {
+            for (_, e) in fields {
+                free_idents(e, bound, out);
+            }
+        }
+
+        // A nested lambda binds its own parameters; anything else it uses is
+        // free in *this* one too, which is what makes currying work.
+        Expr::Lambda { params, body } | Expr::AsyncLambda { params, body } => {
+            let depth = bound.len();
+            bound.extend(params.iter().cloned());
+            free_idents(body, bound, out);
+            bound.truncate(depth);
+        }
+
+        Expr::Await(inner) | Expr::Throw(inner) => free_idents(inner, bound, out),
+
+        Expr::TryCatch {
+            try_expr,
+            catch_var,
+            catch_expr,
+        } => {
+            free_idents(try_expr, bound, out);
+            let depth = bound.len();
+            if let Some(v) = catch_var {
+                bound.push(v.clone());
+            }
+            free_idents(catch_expr, bound, out);
+            bound.truncate(depth);
+        }
+
+        Expr::Call {
+            callee,
+            args,
+            named,
+        } => {
+            free_idents(callee, bound, out);
+            for e in args {
+                free_idents(e, bound, out);
+            }
+            for (_, e) in named {
+                free_idents(e, bound, out);
+            }
+        }
+
+        Expr::Pipe { left, right } => {
+            free_idents(left, bound, out);
+            free_idents(right, bound, out);
+        }
+
+        Expr::Binary { left, right, .. } => {
+            free_idents(left, bound, out);
+            free_idents(right, bound, out);
+        }
+        Expr::Unary { expr, .. } => free_idents(expr, bound, out),
+
+        // `object.field` reads `object`; the field name is not an identifier
+        // in the environment.
+        Expr::MemberAccess { object, .. } => free_idents(object, bound, out),
+
+        Expr::Match { scrutinee, arms } => {
+            free_idents(scrutinee, bound, out);
+            for arm in arms {
+                let depth = bound.len();
+                pattern_bindings(&arm.pattern, bound);
+                if let Some(g) = &arm.guard {
+                    free_idents(g, bound, out);
+                }
+                free_idents(&arm.body, bound, out);
+                bound.truncate(depth);
+            }
+        }
+    }
+}
+
+/// Names a pattern introduces, which are bound inside that arm's guard and body.
+fn pattern_bindings(p: &Pattern, bound: &mut Vec<String>) {
+    match p {
+        Pattern::Wildcard
+        | Pattern::LitInt(_)
+        | Pattern::LitStr(_)
+        | Pattern::LitBool(_)
+        | Pattern::Null => {}
+        Pattern::Ident(name) => bound.push(name.clone()),
+        Pattern::Constructor { args, .. } => {
+            for a in args {
+                pattern_bindings(a, bound);
+            }
+        }
+        Pattern::Array(items) => {
+            for a in items {
+                pattern_bindings(a, bound);
+            }
+        }
+        Pattern::Record(fields) => {
+            for (name, sub) in fields {
+                // `{x}` binds `x`; `{x: p}` binds whatever `p` binds.
+                match sub {
+                    Pattern::Wildcard => bound.push(name.clone()),
+                    other => pattern_bindings(other, bound),
+                }
+            }
+        }
+    }
+}
+
+/// Snapshot the free variables of a lambda body that are bound right now.
+///
+/// Names that are not yet defined are deliberately left out: they stay dynamic
+/// lookups, so a lambda that refers to a binding introduced later keeps
+/// working. Module names are skipped because they are always in scope and
+/// copying a whole module record into every lambda would be pure bloat.
+fn capture_free_vars(
+    params: &[String],
+    body: &Expr,
+    env: &Env,
+) -> std::collections::BTreeMap<String, Value> {
+    let mut bound: Vec<String> = params.to_vec();
+    let mut free = std::collections::BTreeSet::new();
+    free_idents(body, &mut bound, &mut free);
+
+    let mut captured = std::collections::BTreeMap::new();
+    for name in free {
+        #[cfg(feature = "native")]
+        if crate::modules::is_module_name(&name) {
+            continue;
+        }
+        // A `let mut` binding is deliberately *not* captured.
+        //
+        // Capture is by value, so snapshotting a mutable variable would make a
+        // later assignment invisible to the lambda:
+        //
+        //     let mut k = 1
+        //     let f = fn(q) => k
+        //     k = 2
+        //     f(0)              # would be 1, and used to be 2
+        //
+        // That is a silent change to a behaviour scripts already rely on, to
+        // fix a case (`let mut` closed over and then reassigned) that nobody
+        // asked about. Mutable bindings stay dynamic lookups; immutable ones —
+        // which is what a curried parameter is — are captured.
+        if env.is_declared_mutable(&name) {
+            continue;
+        }
+        if let Some(v) = env.get_var(&name) {
+            captured.insert(name, v.clone());
+        }
+    }
+    captured
+}
+
+/// Install a lambda's captured free variables into `env`, returning what was
+/// displaced so the caller can put it back.
+///
+/// Captured values are installed *under* the parameters: a parameter of the
+/// same name must win, or a lambda could not shadow a name it also closes over.
+fn install_captured(
+    captured: &std::collections::BTreeMap<String, Value>,
+    env: &mut Env,
+) -> Vec<(String, Option<Value>)> {
+    let mut saved = Vec::with_capacity(captured.len());
+    for (name, value) in captured {
+        saved.push((name.clone(), env.get_var(name).cloned()));
+        env.set_var_unchecked(name, value.clone());
+    }
+    saved
+}
+
+/// Undo `install_captured`.
+fn restore_captured(saved: Vec<(String, Option<Value>)>, env: &mut Env) {
+    for (name, old) in saved.into_iter().rev() {
+        match old {
+            Some(v) => env.set_var_unchecked(&name, v),
+            None => env.del_var(&name),
+        }
+    }
+}
+
 /// Call a zero-parameter lambda
 fn call_lambda0(l: &Lambda, env: &mut Env) -> Result<Value> {
     let _depth = crate::safety::enter_call()?;
+    let restore_caps = install_captured(&l.captured, env);
     // Save and clear pipe input to prevent leakage
     let saved_pipe = env.input().cloned();
     env.set_input(None);
@@ -1087,11 +1345,14 @@ fn call_lambda0(l: &Lambda, env: &mut Env) -> Result<Value> {
         None => env.set_input(None),
     }
 
+    restore_captured(restore_caps, env);
+
     out
 }
 
 fn call_lambda1(l: &Lambda, x: Value, i: usize, env: &mut Env) -> Result<Value> {
     let _depth = crate::safety::enter_call()?;
+    let restore_caps = install_captured(&l.captured, env);
     let p = l
         .params
         .first()
@@ -1138,12 +1399,15 @@ fn call_lambda1(l: &Lambda, x: Value, i: usize, env: &mut Env) -> Result<Value> 
         None => env.set_input(None),
     }
 
+    restore_captured(restore_caps, env);
+
     out
 }
 
 /// Call a lambda with N arguments (generic version for 3+ args)
 fn call_lambda_n(l: &Lambda, args: Vec<Value>, env: &mut Env) -> Result<Value> {
     let _depth = crate::safety::enter_call()?;
+    let restore_caps = install_captured(&l.captured, env);
     if args.len() != l.params.len() {
         return Err(anyhow!(
             "lambda expects {} arguments, got {}",
@@ -1180,11 +1444,14 @@ fn call_lambda_n(l: &Lambda, args: Vec<Value>, env: &mut Env) -> Result<Value> {
         None => env.set_input(None),
     }
 
+    restore_captured(restore_caps, env);
+
     out
 }
 
 fn call_lambda2(l: &Lambda, a: Value, b: Value, i: usize, env: &mut Env) -> Result<Value> {
     let _depth = crate::safety::enter_call()?;
+    let restore_caps = install_captured(&l.captured, env);
     let p1 = l
         .params
         .first()
@@ -1238,6 +1505,8 @@ fn call_lambda2(l: &Lambda, a: Value, b: Value, i: usize, env: &mut Env) -> Resu
         None => env.set_input(None),
     }
 
+    restore_captured(restore_caps, env);
+
     out
 }
 
@@ -1275,11 +1544,11 @@ fn binop(op: &BinOp, a: Value, b: Value) -> Result<Value> {
         (Add, Value::Int(x), Value::Float(y)) => Value::Float((x as f64) + y),
         (Add, Value::Float(x), Value::Int(y)) => Value::Float(x + (y as f64)),
         // String concatenation
-        (Add, Value::Str(x), Value::Str(y)) => Value::Str(format!("{}{}", x, y)),
-        (Add, Value::Str(x), Value::Int(y)) => Value::Str(format!("{}{}", x, y)),
-        (Add, Value::Str(x), Value::Float(y)) => Value::Str(format!("{}{}", x, y)),
-        (Add, Value::Int(x), Value::Str(y)) => Value::Str(format!("{}{}", x, y)),
-        (Add, Value::Float(x), Value::Str(y)) => Value::Str(format!("{}{}", x, y)),
+        (Add, Value::Str(x), Value::Str(y)) => checked_string(format!("{}{}", x, y))?,
+        (Add, Value::Str(x), Value::Int(y)) => checked_string(format!("{}{}", x, y))?,
+        (Add, Value::Str(x), Value::Float(y)) => checked_string(format!("{}{}", x, y))?,
+        (Add, Value::Int(x), Value::Str(y)) => checked_string(format!("{}{}", x, y))?,
+        (Add, Value::Float(x), Value::Str(y)) => checked_string(format!("{}{}", x, y))?,
 
         (Sub, Value::Int(x), Value::Int(y)) => Value::Int(x - y),
         (Sub, Value::Float(x), Value::Float(y)) => Value::Float(x - y),
@@ -1333,16 +1602,14 @@ fn binop(op: &BinOp, a: Value, b: Value) -> Result<Value> {
             if n <= 0 {
                 Value::Str(String::new())
             } else {
-                // A repeat count is trivially attacker- or typo-controlled, and
-                // `"x" * 10_000_000_000` would try to allocate 10 GB. Refuse
-                // rather than let the process be killed by the OOM killer.
-                const MAX_REPEAT_BYTES: usize = 8 * 1024 * 1024;
+                // Checked before allocating, not after: `"x" * 10_000_000_000`
+                // must not be built and then rejected.
                 let want = s.len().saturating_mul(n as usize);
-                if want > MAX_REPEAT_BYTES {
+                if want > MAX_STRING_BYTES {
                     return Err(anyhow!(
                         "string repeat would produce {} bytes, over the {} byte limit",
                         want,
-                        MAX_REPEAT_BYTES
+                        MAX_STRING_BYTES
                     ));
                 }
                 Value::Str(s.repeat(n as usize))
@@ -1353,8 +1620,12 @@ fn binop(op: &BinOp, a: Value, b: Value) -> Result<Value> {
         // would see it. Str+Int and Str+Float were special-cased above, so
         // `"n: " + 1` worked while `"cache hit: " + true` was an error — an
         // inconsistency with no reason behind it.
-        (Add, Value::Str(x), other) => Value::Str(format!("{}{}", x, other.to_display_string())),
-        (Add, other, Value::Str(y)) => Value::Str(format!("{}{}", other.to_display_string(), y)),
+        (Add, Value::Str(x), other) => {
+            checked_string(format!("{}{}", x, other.to_display_string()))?
+        }
+        (Add, other, Value::Str(y)) => {
+            checked_string(format!("{}{}", other.to_display_string(), y))?
+        }
 
         (op, a, b) => return Err(anyhow!("unsupported op {:?} on {:?} and {:?}", op, a, b)),
     })

@@ -133,3 +133,142 @@ fn an_async_lambda_does_not_leak_its_parameters() {
         "the async call overwrote an outer binding with its parameter"
     );
 }
+
+// ── Closures (AS-2026-13) ────────────────────────────────────────────────
+
+/// The finding: a lambda closed over nothing, so the inner lambda of a curried
+/// function lost the outer parameter the moment the outer call returned.
+#[test]
+fn a_returned_lambda_captures_the_enclosing_parameter() {
+    let out = run("let mk = fn(factor) => fn(x) => x * factor\nlet times3 = mk(3)\ntimes3(2)")
+        .expect("currying should work");
+    assert_eq!(out, Value::Int(6));
+}
+
+/// The shape that made this Medium rather than informational: `Mul` rejects
+/// `Null` loudly, but concatenation accepted it and produced a wrong answer
+/// with no error at all.
+#[test]
+fn the_silent_failure_shape_is_gone() {
+    assert_eq!(
+        s("let mk = fn(f) => fn(x) => \"v: \" + f\nmk(\"A\")(1)"),
+        "v: A"
+    );
+}
+
+#[test]
+fn capture_does_not_shadow_a_parameter_of_the_same_name() {
+    // A parameter must win over a captured binding, or a lambda could not
+    // shadow a name it also closes over.
+    let out = run("let x = 100\nlet f = fn(x) => x + 1\nf(1)").expect("eval");
+    assert_eq!(out, Value::Int(2));
+}
+
+#[test]
+fn capture_does_not_leak_into_the_caller() {
+    // Captured names are installed for the call and restored afterwards.
+    let out = run("let v = 1\nlet f = fn(q) => v\nlet _ = f(0)\nv").expect("eval");
+    assert_eq!(out, Value::Int(1));
+}
+
+/// Backwards compatibility: a lambda referring to a binding that does not exist
+/// yet keeps resolving dynamically at call time. Only names already bound are
+/// captured, so this long-standing behaviour is untouched.
+#[test]
+fn a_binding_introduced_after_the_lambda_still_resolves() {
+    let out = run("let f = fn(x) => x * later\nlet later = 4\nf(2)").expect("eval");
+    assert_eq!(out, Value::Int(8));
+}
+
+#[test]
+fn async_lambdas_capture_too() {
+    let out = run("let mk = fn(k) => async fn(x) => x + k\nlet add5 = mk(5)\nawait add5(1)")
+        .expect("async currying should work");
+    assert_eq!(out, Value::Int(6));
+}
+
+// ── The string size bound (AS-2026-10) ───────────────────────────────────
+
+/// The cap used to sit only on `*`, which made it a speed bump: `a + a`
+/// doubled straight past the number the constant appeared to promise.
+#[test]
+fn concatenation_cannot_exceed_the_string_limit() {
+    let err = run("let a = \"x\" * 8000000\na + a")
+        .expect_err("16 MB via concatenation should be refused")
+        .to_string();
+    assert!(err.contains("limit"), "unexpected error: {err}");
+}
+
+#[test]
+fn a_single_byte_over_the_limit_is_refused() {
+    let err = run("let a = \"x\" * 8388608\na + \"y\"")
+        .expect_err("one byte over should be refused")
+        .to_string();
+    assert!(err.contains("limit"), "unexpected error: {err}");
+}
+
+#[test]
+fn ordinary_string_work_is_unaffected() {
+    assert_eq!(s("\"a\" + \"b\""), "ab");
+    assert_eq!(s("\"=\" * 10"), "==========");
+    assert_eq!(s("\"n: \" + 1"), "n: 1");
+}
+
+// ── Capture must not change existing semantics (AS-2026-14) ──────────────
+
+/// Capture is by value, so a mutable binding must *not* be captured: doing so
+/// would make a later assignment invisible to the lambda, silently changing a
+/// behaviour scripts already rely on.
+#[test]
+fn a_mutable_binding_is_not_snapshotted() {
+    let out = run("let mut k = 1\nlet f = fn(q) => k\nk = 2\nf(0)").expect("eval");
+    assert_eq!(
+        out,
+        Value::Int(2),
+        "the lambda saw a stale copy of a `let mut` binding"
+    );
+}
+
+#[test]
+fn an_immutable_binding_is_still_captured() {
+    let out = run("let k = 1\nlet f = fn(q) => k\nf(0)").expect("eval");
+    assert_eq!(out, Value::Int(1));
+}
+
+/// Lambda parameters are immutable from the user's point of view, so they must
+/// be captured — that is the whole of currying. They are bound internally with
+/// `set_var_unchecked`, which marks them mutable for bookkeeping, so capture
+/// has to consult user-declared mutability rather than that flag.
+#[test]
+fn a_parameter_is_captured_even_though_it_is_internally_mutable() {
+    let out = run("let mk = fn(k) => fn(x) => x * k\nmk(3)(2)").expect("eval");
+    assert_eq!(out, Value::Int(6));
+}
+
+// ── The catch variable actually binds (AS-2026-15) ───────────────────────
+
+/// `catch e` used `set_var`, which refuses to overwrite an immutable binding
+/// and whose error was discarded. With any variable of the same name already
+/// in scope the handler silently read the *old* value instead of the error.
+#[test]
+fn catch_binds_the_error_even_when_the_name_is_taken() {
+    let out = run("let e = \"outer\"\ntry { throw \"boom\" } catch e { e }").expect("eval");
+    assert_eq!(
+        out,
+        Value::Str("boom".into()),
+        "the handler saw a stale value instead of the error"
+    );
+}
+
+#[test]
+fn catch_restores_the_previous_binding() {
+    let out =
+        run("let e = \"outer\"\nlet _ = try { throw \"boom\" } catch e { e }\ne").expect("eval");
+    assert_eq!(out, Value::Str("outer".into()));
+}
+
+#[test]
+fn catch_still_works_with_no_outer_binding() {
+    let out = run("try { throw \"boom\" } catch e { e }").expect("eval");
+    assert_eq!(out, Value::Str("boom".into()));
+}

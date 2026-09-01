@@ -52,24 +52,51 @@ session that fixed the first audit's findings. Five findings, three fixed.
   therefore reached nobody and that no CI run ever executed. Anchored to the
   repository root.
 
+- **AS-2026-13 — lambdas captured nothing, so currying silently failed.**
+  `fn(factor) => fn(x) => x * factor` lost `factor` the moment the outer call
+  returned. Arithmetic errored on the resulting `Null`; **concatenation did
+  not** — `"v: " + f` produced `"v: null"`, a wrong answer with no error.
+
+  A lambda now captures the free variables of its body as a
+  `BTreeMap<String, Value>`, which keeps `Serialize`, `Deserialize` and
+  `PartialEq` intact where an environment handle would have broken them. Only
+  names already bound are captured, so a lambda referring to a binding
+  introduced later still resolves dynamically; parameters win over captures;
+  and captures are restored after the call.
+
+- **AS-2026-14 — capturing by value would have made `let mut` updates
+  invisible.** Caught while testing the fix above, before it shipped: a
+  snapshot of a mutable binding changes what existing scripts do. `let mut`
+  bindings are not captured. This needed a distinction `Env` did not draw —
+  `set_var_unchecked` marks every internal binding mutable, including lambda
+  parameters — so user-declared mutability is now tracked separately.
+
+- **AS-2026-15 — `catch e` silently failed to bind when the name was taken.**
+  Pre-existing, and unrelated to the above:
+
+  ```text
+  let e = "outer"
+  try { throw "boom" } catch e { e }     # -> "outer"
+  ```
+
+  The binding used `set_var`, which refuses to overwrite an immutable variable,
+  and the error was discarded — so the handler read whatever was there before.
+  An error handler returning a stale value is worse than one that fails
+  loudly. The catch variable is now installed like a lambda parameter and the
+  previous binding restored.
+
+- **AS-2026-10 — the string limit now applies to every string operation**, not
+  just repetition, so `a + a` can no longer walk past it.
+
 ### Known limitations
 
-- **The string-repeat cap is per-operation** (AS-2026-10). `"x" * n` is capped
-  at 8 MiB, but `+` is not capped at all, so `a + a` walks straight past it —
-  measured at 16 MB from an 8 MiB cap. Reported rather than relied upon: a
-  limit that reads like a memory bound and is not one invites the assumption.
-  A real bound needs a per-evaluation allocation budget, which is a design
-  change rather than a constant in one match arm.
+- **No global allocation bound.** No single string can exceed 8 MiB, but total
+  memory is not bounded: an array of many strings, or a deep recursion each
+  level of which allocates, is limited only by the call-depth cap. Measured,
+  and true before this release too.
 - **An undefined variable interpolates as `null`** (AS-2026-12), consistent
   with the language's existing treatment of undefined names. A misspelled
   *field* or *function* is loud; a misspelled variable is not.
-- **Lambdas do not capture their defining environment** (AS-2026-13), so
-  currying does not work: `fn(factor) => fn(x) => x * factor` loses `factor`
-  by the time the inner lambda is called. Arithmetic errors on the resulting
-  `Null`; **concatenation does not** — `"v: " + f` yields `"v: null"`, a wrong
-  answer with no error. Fixing it means giving `Lambda` a captured environment,
-  which propagates into `Serialize`, `Deserialize` and `PartialEq` on the value
-  model: a language redesign to decide deliberately, not to append to an audit.
 
 ## [10.1.0] - 2026-09-01
 

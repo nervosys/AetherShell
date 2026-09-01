@@ -19,6 +19,9 @@ fn builtin_map_reduce_direct() {
             op: aethershell::ast::BinOp::Mul,
             right: Box::new(aethershell::ast::Expr::LitInt(2)),
         }),
+        // These lambdas reference only their own parameters, so there is
+        // nothing free to capture.
+        captured: Default::default(),
     });
     let doubled = builtins::call("map", vec![arr, f.clone()], &mut env).unwrap();
     if let Value::Array(v) = doubled {
@@ -36,6 +39,9 @@ fn builtin_map_reduce_direct() {
             op: aethershell::ast::BinOp::Add,
             right: Box::new(aethershell::ast::Expr::Ident("b".into())),
         }),
+        // These lambdas reference only their own parameters, so there is
+        // nothing free to capture.
+        captured: Default::default(),
     });
     let acc0 = Value::Int(0);
     let sum = builtins::call("reduce", vec![arr, add, acc0], &mut env).unwrap();

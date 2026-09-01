@@ -57,18 +57,36 @@ impl fmt::Display for Uri {
     }
 }
 
-/// A lambda closure (AST-captured).
+/// A lambda closure.
+///
+/// `captured` holds the free variables of `body` — the names it uses that are
+/// neither its own parameters nor resolvable as builtins — snapshotted at the
+/// moment the lambda was created.
+///
+/// Without it a lambda closed over nothing: it was evaluated in the *caller's*
+/// environment, so `fn(factor) => fn(x) => x * factor` lost `factor` the
+/// instant the outer call returned (AS-2026-13). Capturing free variables
+/// rather than a whole `Env` keeps this type serializable and comparable,
+/// which an environment handle would not.
+///
+/// Only names that are actually bound at creation time are captured. A name
+/// that is not yet defined stays a dynamic lookup, so the long-standing
+/// behaviour of referring to a binding introduced later still works.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Lambda {
     pub params: Vec<String>,
     pub body: Box<Expr>,
+    #[serde(default)]
+    pub captured: BTreeMap<String, Value>,
 }
 
-/// An async lambda closure (AST-captured).
+/// An async lambda closure. See [`Lambda`] for what `captured` is for.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AsyncLambda {
     pub params: Vec<String>,
     pub body: Box<Expr>,
+    #[serde(default)]
+    pub captured: BTreeMap<String, Value>,
 }
 
 /// A future value representing an async computation.

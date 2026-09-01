@@ -14,6 +14,15 @@ pub struct Env {
     vars: BTreeMap<String, Value>,
     /// Track which variables are mutable (created with `let mut`)
     mutable_vars: BTreeMap<String, bool>,
+    /// Names the *user* declared with `let mut`.
+    ///
+    /// Distinct from `mutable_vars`, which `set_var_unchecked` also sets for
+    /// internal bindings such as lambda parameters and catch variables. Those
+    /// are not user-mutable, and conflating the two made a lambda parameter
+    /// look reassignable — which mattered once closures needed to know whether
+    /// capturing a name by value could go stale.
+    declared_mutable: std::collections::BTreeSet<String>,
+
     /// Track which variables are public (can be imported by other modules)
     public_vars: HashSet<String>,
     /// Explicitly exported names (from `export { ... }` statements)
@@ -28,6 +37,7 @@ impl Env {
         Self {
             vars: BTreeMap::new(),
             mutable_vars: BTreeMap::new(),
+            declared_mutable: std::collections::BTreeSet::new(),
             public_vars: HashSet::new(),
             exported_names: HashSet::new(),
             cwd: None,
@@ -143,6 +153,11 @@ impl Env {
 
         // New variable - set value and mutability
         self.vars.insert(name_str.clone(), value);
+        if is_mut {
+            self.declared_mutable.insert(name_str.clone());
+        } else {
+            self.declared_mutable.remove(&name_str);
+        }
         self.mutable_vars.insert(name_str, is_mut);
         Ok(())
     }
@@ -154,6 +169,13 @@ impl Env {
         self.vars.insert(name_str.clone(), value);
         // Mark as mutable for internal bindings
         self.mutable_vars.insert(name_str, true);
+    }
+
+    /// Did the user declare this name with `let mut`?
+    ///
+    /// `is_mutable` is true for internal bindings too, so it cannot answer this.
+    pub fn is_declared_mutable(&self, name: &str) -> bool {
+        self.declared_mutable.contains(name)
     }
 
     /// Check if a variable is mutable
