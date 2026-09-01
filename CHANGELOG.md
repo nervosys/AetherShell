@@ -7,7 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Nothing yet.
+### Testing
+
+- **`tests/gate_routes.rs`** — the safety gate must fire whatever syntactic
+  route reaches a destructive builtin. `tests/one_door.rs` pins this
+  structurally; this pins it behaviourally from the language side: direct call,
+  lambda, `map`, captured binding, returned closure and `try`/`catch` are each
+  refused, and the file survives. Added when closure capture went in, because
+  capture carries a value from one scope into a call that runs later, which is
+  the shape a gate bypass would take. It does not bypass — but that is worth a
+  test rather than an assumption.
+
+  Includes a **non-vacuity check**, which is the part that matters. The first
+  draft of this file used `file_delete` and every case passed while proving
+  nothing: `file_delete` is *classified* Destructive in `safety.rs` but is not a
+  builtin, so the gate fired on the name before anything resolved it and the
+  file survived because the call did not exist. The suite now grants approval
+  and requires the file to actually be deleted; if that fails, every refusal
+  asserted elsewhere in the file is meaningless.
+
+  Two notes recorded in the file itself: 15 of the 606 classified names are not
+  in the dispatcher, which is defensible as defence in depth — an unclassified
+  builtin would default to ungated `Pure` — but means "the gate fired" is not
+  evidence a builtin exists. And `"path" | rm` is deliberately not among the
+  routes: `rm` takes its path positionally and rejects piped input before any
+  guard runs, so asserting the gate fires there would assert something untrue
+  about a call that cannot happen.
 
 ## [11.0.1] - 2026-09-01
 
