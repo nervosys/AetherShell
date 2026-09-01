@@ -46,14 +46,26 @@ and cannot without cross-process locking. What is asserted is that it stays
 parseable, stays quiet, and explains itself — and that a single writer still
 produces one clean chain with contiguous sequence numbers.
 
+### Fixed — the Homebrew formula was four releases behind
+
+- `Formula/aethershell.rb` still pinned `v10.0.0`, so
+  `brew install nervosys/tap/aethershell` built a version nobody was shipping.
+  It had drifted before — `v0.2.0`, a literal `PLACEHOLDER_SHA256`, and
+  Apache-2.0 declared for AGPL-3.0-or-later code — and fixing it by hand twice
+  is the signal it needs a check rather than a third fix.
+
+  Now pinned to the release tag with its real digest, and `published_contracts`
+  gained two ratchets: the url must name the current crate version with a real
+  64-character digest, and the declared licence must match `Cargo.toml`. A
+  formula tells someone else how to obtain this software, so it is a published
+  contract like the openapi spec and gets the same treatment.
+
 ### Testing
 
 - **`tests/audit_concurrency.rs`** — two real processes writing one log, with an
   assertion that they genuinely interleave, so the suite cannot pass because
   they happened to run sequentially. Verified red: 33 false alarms without the
   writer-aware tail check.
-
-### Testing
 
 - **`tests/gate_routes.rs`** — the safety gate must fire whatever syntactic
   route reaches a destructive builtin. `tests/one_door.rs` pins this
