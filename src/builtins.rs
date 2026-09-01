@@ -29028,19 +29028,106 @@ fn bi_crypto_hex_decode(args: Vec<Value>, input: Option<Value>) -> Result<Value>
 /// ciphertext onto the unauthenticated path.
 const CRYPTO_ENVELOPE_V1: &str = "AE1";
 
-/// Additional authenticated data. Not secret; it binds the tag to this format
-/// so a ciphertext cannot be replayed into some future envelope that happens to
-/// derive the same key.
+/// Additional authenticated data for the original `AE1` envelope.
+///
+/// Frozen: 10.0.0 shipped ciphertext authenticated under exactly these bytes,
+/// and changing them would make every one of those ciphertexts undecryptable.
 const CRYPTO_AAD: &[u8] = b"AetherShell-AE1";
 
-/// Derive a 32-byte AEAD key from a password with Argon2id -- the same KDF
-/// `auth.rs` uses for password storage, for the same reason: the threat is a
-/// precomputed table over a small guessable space, and a fast hash invites one.
-fn crypto_derive_key(password: &str, salt: &[u8]) -> Result<[u8; 32]> {
+/// AAD for the FIPS envelope, which carries its own version.
+const CRYPTO_AAD_FIPS: &[u8] = b"AetherShell-AE1F";
+
+/// Envelope version tag for ciphertext whose key was derived with PBKDF2
+/// rather than Argon2id.
+///
+/// Argon2id is the better choice against offline cracking and stays the
+/// default. It is also not FIPS-approved, which left `crypto.encrypt` with one
+/// non-approved primitive in an otherwise approved chain (AS-2026-08). Under
+/// `AETHER_FIPS` the key is derived with PBKDF2-HMAC-SHA256 (SP 800-132)
+/// instead and the envelope says so, so a deployment that must be
+/// all-approved can be, without changing what anyone else gets.
+const CRYPTO_ENVELOPE_V1_FIPS: &str = "AE1F";
+
+/// Iterations for the PBKDF2 path.
+///
+/// Deliberately a constant rather than a field in the envelope: the header is
+/// not authenticated until after key derivation, so a count carried in the
+/// ciphertext would let an attacker demand an arbitrarily expensive derivation
+/// before the tag could reject it. Changing this value means minting a new
+/// version tag.
+const CRYPTO_PBKDF2_ROUNDS: u32 = 600_000;
+
+/// Which key-derivation function an envelope tag selects.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum CryptoKdf {
+    Argon2id,
+    Pbkdf2HmacSha256,
+}
+
+impl CryptoKdf {
+    /// The KDF to use for new ciphertext.
+    fn for_new_ciphertext() -> Self {
+        if crate::safety::fips_enabled() {
+            Self::Pbkdf2HmacSha256
+        } else {
+            Self::Argon2id
+        }
+    }
+
+    /// The AEAD's additional data, which differs per version so that the
+    /// version tag is *authenticated* rather than merely load-bearing.
+    ///
+    /// Without this, swapping `AE1F` for `AE1` on a ciphertext is rejected only
+    /// because the two tags select different KDFs and therefore different keys
+    /// — true today, and an accident rather than a property. Binding the
+    /// version into the AAD makes the rejection structural: it holds even if
+    /// two versions ever derive the same key.
+    fn aad(self) -> &'static [u8] {
+        match self {
+            Self::Argon2id => CRYPTO_AAD,
+            Self::Pbkdf2HmacSha256 => CRYPTO_AAD_FIPS,
+        }
+    }
+
+    fn tag(self) -> &'static str {
+        match self {
+            Self::Argon2id => CRYPTO_ENVELOPE_V1,
+            Self::Pbkdf2HmacSha256 => CRYPTO_ENVELOPE_V1_FIPS,
+        }
+    }
+
+    /// Decrypt reads the KDF from the envelope, never from the ambient mode:
+    /// ciphertext written under `AETHER_FIPS` must stay readable without it,
+    /// and vice versa.
+    fn from_tag(tag: &str) -> Option<Self> {
+        match tag {
+            CRYPTO_ENVELOPE_V1 => Some(Self::Argon2id),
+            CRYPTO_ENVELOPE_V1_FIPS => Some(Self::Pbkdf2HmacSha256),
+            _ => None,
+        }
+    }
+}
+
+/// Derive a 32-byte AEAD key from a password.
+///
+/// Argon2id by default -- the same KDF `auth.rs` uses for password storage,
+/// for the same reason: the threat is a precomputed table over a small
+/// guessable space, and a fast hash invites one.
+fn crypto_derive_key(password: &str, salt: &[u8], kdf: CryptoKdf) -> Result<[u8; 32]> {
     let mut key = [0u8; 32];
-    argon2::Argon2::default()
-        .hash_password_into(password.as_bytes(), salt, &mut key)
-        .map_err(|e| anyhow::anyhow!("E_CRYPTO_KDF: key derivation failed: {}", e))?;
+    match kdf {
+        CryptoKdf::Argon2id => argon2::Argon2::default()
+            .hash_password_into(password.as_bytes(), salt, &mut key)
+            .map_err(|e| anyhow::anyhow!("E_CRYPTO_KDF: key derivation failed: {}", e))?,
+        CryptoKdf::Pbkdf2HmacSha256 => {
+            pbkdf2::pbkdf2_hmac::<sha2::Sha256>(
+                password.as_bytes(),
+                salt,
+                CRYPTO_PBKDF2_ROUNDS,
+                &mut key,
+            );
+        }
+    }
     Ok(key)
 }
 
@@ -29067,7 +29154,8 @@ fn bi_crypto_encrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // random nonce carries no birthday-bound risk across messages.
     let salt: [u8; 16] = rand::random();
     let nonce_bytes: [u8; 12] = rand::random();
-    let key = crypto_derive_key(&password, &salt)?;
+    let kdf = CryptoKdf::for_new_ciphertext();
+    let key = crypto_derive_key(&password, &salt, kdf)?;
 
     let cipher = aes_gcm::Aes256Gcm::new_from_slice(&key)
         .map_err(|e| anyhow::anyhow!("E_CRYPTO_KDF: bad key length: {}", e))?;
@@ -29076,7 +29164,7 @@ fn bi_crypto_encrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             aes_gcm::Nonce::from_slice(&nonce_bytes),
             Payload {
                 msg: data.as_bytes(),
-                aad: CRYPTO_AAD,
+                aad: kdf.aad(),
             },
         )
         .map_err(|_| {
@@ -29085,7 +29173,7 @@ fn bi_crypto_encrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     Ok(Value::Str(format!(
         "{}.{}.{}.{}",
-        CRYPTO_ENVELOPE_V1,
+        kdf.tag(),
         STANDARD.encode(salt),
         STANDARD.encode(nonce_bytes),
         STANDARD.encode(&ct)
@@ -29153,7 +29241,8 @@ fn bi_crypto_decrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     let trimmed = data.trim();
     let parts: Vec<&str> = trimmed.split('.').collect();
-    if parts.len() != 4 || parts[0] != CRYPTO_ENVELOPE_V1 {
+    let kdf = parts.first().and_then(|t| CryptoKdf::from_tag(t));
+    if parts.len() != 4 || kdf.is_none() {
         // Not an authenticated envelope. Accepting this silently would hand an
         // attacker a downgrade: strip the `AE1.` prefix and tag from a modern
         // ciphertext and the unauthenticated path would take it. So the legacy
@@ -29202,7 +29291,9 @@ fn bi_crypto_decrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         ));
     }
 
-    let key = crypto_derive_key(&password, &salt)?;
+    // The KDF comes from the envelope, never from the ambient FIPS mode.
+    let kdf = kdf.expect("checked above");
+    let key = crypto_derive_key(&password, &salt, kdf)?;
     let cipher = aes_gcm::Aes256Gcm::new_from_slice(&key)
         .map_err(|e| anyhow::anyhow!("E_CRYPTO_KDF: bad key length: {}", e))?;
 
@@ -29215,7 +29306,7 @@ fn bi_crypto_decrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             aes_gcm::Nonce::from_slice(&nonce_bytes),
             Payload {
                 msg: &ct,
-                aad: CRYPTO_AAD,
+                aad: kdf.aad(),
             },
         )
         .map_err(|_| {

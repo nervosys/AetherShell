@@ -1,0 +1,46 @@
+print("=== Testing New Builtin Functions ===")
+
+# Test cache functions
+let status = mcp_cache_status()
+print("Cache enabled")
+
+let cleared = mcp_cache_clear()
+print("Cache cleared")
+
+# Test array functions with proper formatting
+let numbers = [1, 2, 3, 4, 5]
+
+# Test first()
+let f1 = numbers | first()
+print(f1)
+
+let f3 = numbers | first(3)
+print(f3)
+
+# Test last()
+let l1 = numbers | last()
+print(l1)
+
+let l3 = numbers | last(3)
+print(l3)
+
+# Test any() and all()
+let has_big = numbers | any(fn(x) => x > 3)
+let all_positive = numbers | all(fn(x) => x > 0)
+let none_negative = numbers | all(fn(x) => x >= 0)
+
+print(has_big)
+print(all_positive)
+print(none_negative)
+
+# Test edge cases
+let empty = []
+let empty_first = empty | first()
+let empty_any = empty | any()
+let empty_all = empty | all()
+
+print(empty_first)
+print(empty_any)
+print(empty_all)
+
+print("All tests completed successfully")

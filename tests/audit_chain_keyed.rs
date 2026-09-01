@@ -300,3 +300,80 @@ fn truncation_between_appends_is_recorded_in_the_log() {
 
     let _ = std::fs::remove_file(&log);
 }
+
+// ── The append-only sink (AS-2026-02 residue) ────────────────────────────
+
+/// Keying stops anyone who can only *write* the log from forging it. It does
+/// not stop this process, which holds the key. `AETHER_AUDIT_SINK` is the hook
+/// for a destination the shell cannot rewrite — a FIFO drained by a collector,
+/// a WORM mount, a directory where the user has append but not write.
+///
+/// What is asserted here is the mechanism, not the guarantee: the integrity
+/// comes from whatever is behind the path.
+#[test]
+fn every_entry_is_mirrored_to_the_sink() {
+    let _g = lock();
+    install_key();
+    let log = tmp_log("sinklog");
+    let sink = tmp_log("sink");
+    std::env::set_var("AETHER_AUDIT_SINK", &sink);
+    write_entries(&log, 3);
+    std::env::remove_var("AETHER_AUDIT_SINK");
+
+    let mirrored = std::fs::read_to_string(&sink).expect("sink was never written");
+    let lines: Vec<&str> = mirrored.lines().filter(|l| !l.trim().is_empty()).collect();
+    assert_eq!(lines.len(), 3, "sink holds {} of 3 entries", lines.len());
+
+    // Byte-identical to the log, so the sink can be verified with the same
+    // chain check rather than a second, divergent parser.
+    let primary = std::fs::read_to_string(&log).expect("read log");
+    assert_eq!(primary.lines().filter(|l| !l.trim().is_empty()).count(), 3);
+    for (a, b) in primary.lines().zip(lines.iter()) {
+        assert_eq!(a, *b, "sink line differs from the log line");
+    }
+
+    let _ = std::fs::remove_file(&log);
+    let _ = std::fs::remove_file(&sink);
+}
+
+/// A truncated log can be reconstructed from the sink, which is the point of
+/// having one: the sink verifies as a chain on its own.
+#[test]
+fn the_sink_still_verifies_after_the_log_is_truncated() {
+    let _g = lock();
+    install_key();
+    let log = tmp_log("sinktrunc");
+    let sink = tmp_log("sinktrunc_out");
+    std::env::set_var("AETHER_AUDIT_SINK", &sink);
+    write_entries(&log, 3);
+    std::env::remove_var("AETHER_AUDIT_SINK");
+
+    // What an approved `Exec` can do to the log and not to a FIFO.
+    std::fs::write(&log, "").expect("truncate");
+
+    let n = safety::verify_audit_with(&sink, Some(&key_bytes()))
+        .expect("the sink should still verify as a chain");
+    assert_eq!(n, 3, "sink lost entries the log had");
+
+    let _ = std::fs::remove_file(&log);
+    let _ = std::fs::remove_file(&sink);
+}
+
+/// With no sink configured nothing changes — the feature is opt-in and must
+/// not add a failure mode for everyone else.
+#[test]
+fn no_sink_configured_is_not_an_error() {
+    let _g = lock();
+    std::env::remove_var("AETHER_AUDIT_SINK");
+    let log = tmp_log("nosink");
+    write_entries(&log, 2);
+    assert_eq!(
+        std::fs::read_to_string(&log)
+            .expect("read")
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .count(),
+        2
+    );
+    let _ = std::fs::remove_file(&log);
+}

@@ -7,7 +7,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Nothing yet.
+### Security — second audit (`docs/security/SECURITY_AUDIT_2026-09-01.md`)
+
+An audit of everything added since 10.0.0: ~790 new lines, three new
+cryptographic dependencies and a parser change, some of it written in the same
+session that fixed the first audit's findings. Five findings, three fixed.
+
+- **AS-2026-08 — the cipher chain had one non-approved primitive.** AES-256-GCM
+  was chosen so the cipher would be FIPS-approved, but key derivation stayed
+  Argon2id, which is not. Under `AETHER_FIPS` the key is now derived with
+  PBKDF2-HMAC-SHA256 (SP 800-132) at 600,000 iterations and the ciphertext
+  carries the tag `AE1F`. Argon2id remains the default: it is the better choice
+  against offline cracking, and this is a trade a FIPS deployment makes
+  deliberately rather than one imposed on everyone. **Decrypt reads the KDF
+  from the envelope, never from the ambient mode**, so turning the mode on or
+  off never strands existing ciphertext.
+- **AS-2026-09 — the envelope version was not authenticated.** Both versions
+  used the same AAD, so a swapped tag was rejected only because the two KDFs
+  produce different keys — a consequence, not a property. Each version now has
+  its own AAD, making the rejection structural. `AE1`'s AAD is unchanged: 10.0.0
+  shipped ciphertext authenticated under exactly those bytes.
+- **AS-2026-11 — the audit sink was outside the jail's protection.**
+  `is_audit_artifact` knew only about the log, so a sink placed inside the
+  workspace was an ordinary writable file. It is now an audit artifact too.
+
+### Added
+
+- **`AETHER_AUDIT_SINK`** mirrors every audit entry to an append-only
+  destination — a FIFO drained by a collector, a WORM mount, a path where the
+  shell has append but not write. This is the supported mitigation for the one
+  residue of AS-2026-02: in-process code holds the chain key and can forge with
+  it, and no in-process scheme fixes that. The integrity comes from what is
+  behind the path, not from the shell; the sink is byte-identical to the log,
+  so it verifies with the same chain check.
+
+### Fixed
+
+- **A shipped example was excluded from the repository by `.gitignore`.** The
+  `*_test.ae` pattern, listed under "Temporary files", was unanchored and also
+  swallowed `examples/99_comprehensive_test.ae` — a numbered example that
+  therefore reached nobody and that no CI run ever executed. Anchored to the
+  repository root.
+
+### Known limitations
+
+- **The string-repeat cap is per-operation** (AS-2026-10). `"x" * n` is capped
+  at 8 MiB, but `+` is not capped at all, so `a + a` walks straight past it —
+  measured at 16 MB from an 8 MiB cap. Reported rather than relied upon: a
+  limit that reads like a memory bound and is not one invites the assumption.
+  A real bound needs a per-evaluation allocation budget, which is a design
+  change rather than a constant in one match arm.
+- **An undefined variable interpolates as `null`** (AS-2026-12), consistent
+  with the language's existing treatment of undefined names. A misspelled
+  *field* or *function* is loud; a misspelled variable is not.
 
 ## [10.1.0] - 2026-09-01
 

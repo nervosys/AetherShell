@@ -162,6 +162,11 @@ aes-gcm = "0.10"
 # evidence against corruption, not against an author: anyone can recompute it
 # end to end.
 hmac = "0.12"
+# PBKDF2 is the KDF SP 800-132 approves. Argon2id is the better choice against
+# offline cracking and stays the default; this exists so that a deployment
+# running under AETHER_FIPS has an all-approved chain rather than one
+# documented exception (AS-2026-08).
+pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }
 url = "2.5"
 urlencoding = "2.1"
 flate2 = "1.0"

@@ -55,6 +55,7 @@ fn decrypt_err(ciphertext: &str, password: &str) -> String {
 
 #[test]
 fn round_trips_through_the_authenticated_envelope() {
+    let _g = fips_lock();
     let ct = encrypt("the launch code is 0000", "correct horse battery staple");
     assert_ne!(
         ct, "the launch code is 0000",
@@ -73,6 +74,7 @@ fn round_trips_through_the_authenticated_envelope() {
 
 #[test]
 fn ciphertext_is_a_versioned_four_part_envelope() {
+    let _g = fips_lock();
     let ct = encrypt("x", "pw");
     let parts: Vec<&str> = ct.split('.').collect();
     assert_eq!(
@@ -89,6 +91,7 @@ fn ciphertext_is_a_versioned_four_part_envelope() {
 /// The regression test for AS-2026-04 itself.
 #[test]
 fn a_modified_ciphertext_is_rejected_rather_than_decrypted() {
+    let _g = fips_lock();
     let ct = encrypt("transfer $10 to alice", "pw");
     let parts: Vec<&str> = ct.split('.').collect();
 
@@ -110,6 +113,7 @@ fn a_modified_ciphertext_is_rejected_rather_than_decrypted() {
 
 #[test]
 fn tampering_with_the_salt_or_nonce_is_also_rejected() {
+    let _g = fips_lock();
     let ct = encrypt("payload", "pw");
     let parts: Vec<&str> = ct.split('.').collect();
 
@@ -128,6 +132,7 @@ fn tampering_with_the_salt_or_nonce_is_also_rejected() {
 
 #[test]
 fn the_wrong_password_fails_closed_without_releasing_plaintext() {
+    let _g = fips_lock();
     let ct = encrypt("secret", "right");
     let err = decrypt_err(&ct, "wrong");
     assert!(
@@ -142,6 +147,7 @@ fn the_wrong_password_fails_closed_without_releasing_plaintext() {
 /// secret was left unchanged.
 #[test]
 fn encrypting_the_same_value_twice_gives_different_ciphertext() {
+    let _g = fips_lock();
     let a = encrypt("same", "pw");
     let b = encrypt("same", "pw");
     assert_ne!(
@@ -155,6 +161,7 @@ fn encrypting_the_same_value_twice_gives_different_ciphertext() {
 /// unauthenticated path that has no tag to check.
 #[test]
 fn stripping_the_envelope_does_not_reach_the_unauthenticated_path() {
+    let _g = fips_lock();
     std::env::remove_var("AETHER_CRYPTO_LEGACY_DECRYPT");
     let ct = encrypt("payload", "pw");
     let bare = ct.splitn(4, '.').nth(3).expect("body").to_string();
@@ -173,6 +180,7 @@ fn stripping_the_envelope_does_not_reach_the_unauthenticated_path() {
 
 #[test]
 fn an_empty_password_is_refused_rather_than_silently_accepted() {
+    let _g = fips_lock();
     match call("crypto_encrypt", vec!["data", ""]) {
         Err(e) => assert!(
             e.to_string().contains("E_CRYPTO_BAD_INPUT"),
@@ -187,9 +195,70 @@ fn an_empty_password_is_refused_rather_than_silently_accepted() {
 /// Windows-only `E_UNIMPLEMENTED` gap.
 #[test]
 fn encryption_is_available_on_every_platform() {
+    let _g = fips_lock();
     let ct = encrypt("cross-platform", "pw");
     assert!(
         ct.starts_with("AE1."),
         "crypto.encrypt must work without an external openssl on this platform"
     );
+}
+
+// ── The FIPS key-derivation path (AS-2026-08) ────────────────────────────
+
+/// Under `AETHER_FIPS` the key is derived with PBKDF2-HMAC-SHA256 rather than
+/// Argon2id, so the whole chain is SP 800-132 / FIPS 197 approved. The
+/// envelope records which, because the mode a ciphertext was written under is
+/// not the mode it will be read under.
+#[test]
+fn the_fips_mode_uses_an_approved_kdf_and_says_so() {
+    let _g = fips_lock();
+    // Serialised against the other env-mutating test in this file.
+    std::env::set_var("AETHER_FIPS", "1");
+    let ct = encrypt("secret", "pw");
+    std::env::remove_var("AETHER_FIPS");
+
+    assert!(
+        ct.starts_with("AE1F."),
+        "FIPS-mode ciphertext should carry the AE1F tag, got {ct:?}"
+    );
+    // Readable with the mode off: the KDF comes from the envelope, never from
+    // the ambient setting.
+    match call("crypto_decrypt", vec![&ct, "pw"]) {
+        Ok(Value::Str(pt)) => assert_eq!(pt, "secret"),
+        other => panic!("FIPS ciphertext unreadable outside FIPS mode: {other:?}"),
+    }
+}
+
+#[test]
+fn default_ciphertext_stays_readable_in_fips_mode() {
+    let _g = fips_lock();
+    std::env::remove_var("AETHER_FIPS");
+    let ct = encrypt("secret", "pw");
+    assert!(ct.starts_with("AE1."), "expected the Argon2id tag: {ct:?}");
+
+    std::env::set_var("AETHER_FIPS", "1");
+    let out = call("crypto_decrypt", vec![&ct, "pw"]);
+    std::env::remove_var("AETHER_FIPS");
+    match out {
+        Ok(Value::Str(pt)) => assert_eq!(pt, "secret"),
+        other => panic!("turning FIPS on stranded existing ciphertext: {other:?}"),
+    }
+}
+
+#[test]
+fn the_two_kdfs_produce_different_keys_for_the_same_password() {
+    let _g = fips_lock();
+    // Not a security property in itself — a guard that the FIPS branch is
+    // actually taken rather than silently falling through to Argon2id.
+    std::env::set_var("AETHER_FIPS", "1");
+    let fips = encrypt("x", "pw");
+    std::env::remove_var("AETHER_FIPS");
+    let plain = encrypt("x", "pw");
+    assert_ne!(&fips[..4], &plain[..4], "both envelopes carry the same tag");
+}
+
+static FIPS_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn fips_lock() -> std::sync::MutexGuard<'static, ()> {
+    FIPS_LOCK.lock().unwrap_or_else(|e| e.into_inner())
 }

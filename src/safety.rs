@@ -1371,6 +1371,17 @@ pub fn is_audit_artifact(path: &str) -> bool {
     if p.is_empty() {
         return false;
     }
+    // The append-only sink is evidence too. It is normally outside the
+    // workspace — that is the point of it — but nothing forces that, and a
+    // sink placed inside the jail would otherwise be an ordinary writable
+    // file that any `file.write` could clobber.
+    if let Some(sink) = std::env::var_os("AETHER_AUDIT_SINK") {
+        let sink = norm(&sink.to_string_lossy());
+        if !sink.is_empty() && p == sink {
+            return true;
+        }
+    }
+
     match audit_path() {
         Some(log) => {
             let l = norm(&log.to_string_lossy());
@@ -1938,6 +1949,31 @@ fn append_line(path: &PathBuf, line: &str) -> std::io::Result<()> {
     writeln!(f, "{}", line)
 }
 
+/// Mirror one entry to the append-only sink named by `AETHER_AUDIT_SINK`.
+///
+/// Keying the chain (AS-2026-02) stops anyone who can only *write* the log
+/// from forging it, but not code running inside this process: whatever key the
+/// shell appends with, it can also forge with. No in-process scheme fixes
+/// that. What does fix it is a sink the shell cannot rewrite, and this is the
+/// hook for one — point it at a FIFO drained by a collector, a WORM mount, or
+/// a file on a filesystem where the shell's user has append but not write.
+///
+/// Being explicit about the limit: this call opens the path in append mode and
+/// writes a line. If you point it at an ordinary file the process can rewrite,
+/// it buys nothing. The integrity comes from what is behind the path, not from
+/// here.
+fn mirror_to_sink(line: &str) -> std::io::Result<()> {
+    let sink = match std::env::var_os("AETHER_AUDIT_SINK") {
+        Some(p) if !p.is_empty() => PathBuf::from(p),
+        _ => return Ok(()),
+    };
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&sink)?;
+    writeln!(f, "{}", line)
+}
+
 /// Append a tamper-evident audit entry. Best-effort: a write failure logs a
 /// warning but never blocks the guarded operation, unless
 /// `AETHER_AUDIT_REQUIRED=1`, in which case the error is returned.
@@ -2008,6 +2044,14 @@ pub fn audit(
         Ok(()) => {
             state.seq = seq;
             state.last_hash = entry_hash;
+            // Mirror after the primary write succeeds, so the sink never holds
+            // an entry the log itself does not.
+            if let Err(e) = mirror_to_sink(&line) {
+                if truthy_env("AETHER_AUDIT_REQUIRED") {
+                    return Err(format!("audit sink write failed: {}", e));
+                }
+                tracing::warn!(target: "security_audit", "audit sink write failed: {}", e);
+            }
             Ok(())
         }
         Err(e) => {

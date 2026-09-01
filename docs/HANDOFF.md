@@ -1057,6 +1057,22 @@ on that date. None is blocked on the shell.
      claim. The cipher is AES-256-GCM specifically so that the approval question
      narrows to the KDF alone.
 
+   **A second audit ran on 2026-09-01** over everything added since
+   (`docs/security/SECURITY_AUDIT_2026-09-01.md`) — the material most likely to
+   carry a fresh mistake, since some of it was written in the same session that
+   fixed the first audit's findings. Five findings, three fixed on the spot:
+   the cipher chain's one non-approved primitive (AS-2026-08, now PBKDF2 under
+   `AETHER_FIPS`), an envelope version that was not bound into the AEAD's AAD
+   (AS-2026-09), and the new audit sink sitting outside the jail's protection
+   (AS-2026-11). Two left open and documented: the string-repeat cap is
+   per-operation and `+` walks past it (AS-2026-10), and an undefined variable
+   interpolates as `null` (AS-2026-12, the language's existing behaviour).
+
+   The AS-2026-02 residue now has a supported mitigation: `AETHER_AUDIT_SINK`
+   mirrors every entry to a destination the shell cannot rewrite. The integrity
+   comes from what is behind the path — a FIFO, a WORM mount — not from the
+   shell, which is as closed as it gets without leaving the process.
+
    Still genuinely outstanding, and requiring a third party: an external
    security review / penetration test.
 

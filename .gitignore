@@ -17,7 +17,10 @@ infra/
 temp/
 *.tmp
 *.log
-*_test.ae
+# Scratch test scripts at the repository root only. Unanchored, this pattern
+# also swallowed examples/99_comprehensive_test.ae — a numbered example that
+# therefore shipped to nobody, and that no CI run ever executed.
+/*_test.ae
 launch_test.*
 security_audit_report.json
 

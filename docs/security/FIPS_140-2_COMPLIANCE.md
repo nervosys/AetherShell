@@ -12,10 +12,18 @@
 > zero bits of randomness, and by `crypto_random_string`, which reduced CSPRNG
 > bytes to a charset with a modulo bias. Both were fixed on 2026-08-26.
 >
-> What *is* verified for 8.0.0: `safety::require_fips_hash` gates every builtin
-> that takes a caller-chosen hash algorithm — three of three call sites,
-> confirmed three independent ways. That is the hash family only; ciphers, key
-> derivation and DRBGs are not gated by `AETHER_FIPS`.
+> What *is* verified, as of 10.1.0:
+>
+> * `safety::require_fips_hash` gates every builtin that takes a caller-chosen
+>   hash algorithm — three of three call sites, confirmed three independent
+>   ways. That is the hash family.
+> * `crypto.encrypt` derives its key with PBKDF2-HMAC-SHA256 under
+>   `AETHER_FIPS` and encrypts with AES-256-GCM in every mode, so that chain is
+>   approved end to end when the mode is set (AS-2026-08).
+>
+> Still **not** gated by `AETHER_FIPS`: DRBGs, and the Argon2id used for
+> password storage in `auth.rs`. The cryptography is delegated to the host, so
+> any validated-module boundary is the operating system's.
 
 ## Overview
 
@@ -86,7 +94,7 @@ FIPS 140-3 introduces stricter requirements and aligns with ISO/IEC 19790:2012. 
 
 | Requirement Area              | FIPS 140-2             | FIPS 140-3               | AetherShell Status                     |
 | ----------------------------- | ---------------------- | ------------------------ | -------------------------------------- |
-| **Algorithm Requirements**    | SP 800-131A Transition | SP 800-131A Strict       | ⚠️ Approved except Argon2id (see below) |
+| **Algorithm Requirements**    | SP 800-131A Transition | SP 800-131A Strict       | ✅ Approved under AETHER_FIPS; see Key Derivation |
 | **Minimum Security Strength** | 80 bits                | 112 bits                 | ✅ SHA-256 (256-bit), AES (128/256-bit) |
 | **TLS Versions**              | TLS 1.0+ allowed       | TLS 1.2+ required        | ✅ TLS 1.2/1.3 only                     |
 | **Triple-DES**                | Allowed                | Deprecated               | ✅ Not used                             |
@@ -106,7 +114,7 @@ FIPS 140-3 introduces stricter requirements and aligns with ISO/IEC 19790:2012. 
 #### 2. **Security Functions** (ISO/IEC 19790 Section 7.5)
 - ✅ Cryptographic operations clearly documented
 - ✅ No undocumented security functions
-- ⚠️ All security functions use approved algorithms **except the Argon2id KDF**, documented under "Approved Algorithms"
+- ⚠️ Under `AETHER_FIPS` the `crypto.encrypt` chain is fully approved; password storage in `auth.rs` still uses Argon2id in every mode — see "Key Derivation"
 - ✅ Integrity verification via approved hash functions
 
 #### 3. **Ports and Interfaces** (ISO/IEC 19790 Section 7.3)
@@ -172,16 +180,26 @@ this document was written.
     which is approved but **unauthenticated** (AS-2026-04); GCM keeps the
     approval and adds integrity.
 
-### Key Derivation — the exception
-- **Argon2id**: **not** FIPS-approved. SP 800-132 approves PBKDF2.
-  - Used for: password storage (`auth.rs`) and the `crypto.encrypt` key
-  - Why it is here anyway: Argon2id is memory-hard and materially better
+### Key Derivation
+- **PBKDF2-HMAC-SHA256**: SP 800-132 approved. **Used by `crypto.encrypt`
+  whenever `AETHER_FIPS` is set**, at 600,000 iterations.
+  - Ciphertext produced this way carries the envelope tag `AE1F`.
+  - Decryption reads the KDF from the envelope, never from the ambient mode,
+    so data written under `AETHER_FIPS` stays readable without it and vice
+    versa. Turning the mode on does not strand existing ciphertext.
+  - The iteration count is fixed in code rather than carried in the envelope.
+    The envelope is not authenticated until after key derivation, so a count
+    supplied by the ciphertext would let an attacker demand an arbitrarily
+    expensive derivation before the tag could reject it.
+- **Argon2id**: **not** FIPS-approved, and the default when `AETHER_FIPS` is
+  not set. Also used unconditionally for password *storage* in `auth.rs`.
+  - Why it is the default: Argon2id is memory-hard and materially better
     against offline password cracking, which is the actual threat to a
-    password-derived key. This is a considered trade of certification for
-    resistance, not an oversight.
-  - **If you require an all-approved chain**, do not use `crypto.encrypt` for
-    password-based encryption; derive keys with a PBKDF2 implementation from
-    your validated module and encrypt with it directly.
+    password-derived key. Approval is traded for resistance deliberately, and
+    only where the operator has not asked otherwise.
+  - **Password storage in `auth.rs` remains Argon2id in every mode.** If your
+    assessment requires an approved KDF there too, that gap is real and is not
+    closed by `AETHER_FIPS`.
 
 ### TLS Cipher Suites (via rustls)
 Supported FIPS-approved cipher suites:

@@ -1,0 +1,151 @@
+# Comprehensive Feature Test
+# This demonstrates all implemented features of AetherShell
+
+print("╔════════════════════════════════════════════╗")
+print("║  AetherShell Comprehensive Feature Test   ║")
+print("╚════════════════════════════════════════════╝")
+print("")
+
+# ═══ Basic Types ═══
+print("🔢 Basic Types:")
+x = 42
+y = 3.14
+name = "AetherShell"
+flag = true
+print("  Int: " + type_of(x))
+print("  Float: " + type_of(y))
+print("  String: " + type_of(name))
+print("  Bool: " + type_of(flag))
+print("")
+
+# ═══ Collections ═══
+print("📦 Collections:")
+numbers = [1, 2, 3, 4, 5]
+person = {name: "Alice", age: 30, city: "NYC"}
+print("  Array length: " + len(numbers))
+print("  Record keys: " + len(keys(person)))
+print("  Keys are: ")
+print(keys(person))
+print("")
+
+# ═══ Pipelines ═══
+print("🔄 Pipeline Operations:")
+doubled = numbers | map(fn(x) => x * 2)
+print("  Doubled: ")
+print(doubled)
+
+filtered = numbers | where(fn(x) => x > 2)
+print("  Filtered (>2): ")
+print(filtered)
+
+sum = numbers | reduce(fn(a,b) => a + b, 0)
+print("  Sum: " + sum)
+
+first_three = numbers | take(3)
+print("  First 3: ")
+print(first_three)
+print("")
+
+# ═══ Higher-Order Functions ═══
+print("🎯 Higher-Order Functions:")
+double = fn(x) => x * 2
+triple = fn(x) => x * 3
+apply = fn(f, val) => f(val)
+result1 = apply(double, 5)
+result2 = apply(triple, 5)
+print("  double(5) = " + result1)
+print("  triple(5) = " + result2)
+print("")
+
+# ═══ Pattern Matching ═══
+print("🎲 Pattern Matching:")
+value = Some(42)
+match_result = match value {
+  None() => "no value",
+  Some(x) => "value is " + x
+}
+print("  Match result: " + match_result)
+print("")
+
+# ═══ Mutable Variables ═══
+print("🔧 Mutable Variables:")
+mut counter = 0
+counter = counter + 1
+counter = counter + 1
+print("  Counter after 2 increments: " + counter)
+print("")
+
+# ═══ Record Operations ═══
+print("📋 Record Operations:")
+profile = {
+  name: "Bob",
+  email: "bob@example.com",
+  age: 25,
+  active: true
+}
+print("  User record has " + len(profile) + " fields")
+print("  Field names:")
+print(keys(profile))
+print("  Type: " + type_of(profile))
+print("")
+
+# ═══ File I/O ═══
+print("📁 File I/O:")
+readme = read_text("README.md")
+readme_type = type_of(readme)
+readme_length = len(readme)
+print("  README.md loaded")
+print("  Type: " + readme_type)
+print("  Length: " + readme_length + " characters")
+print("")
+
+# ═══ String Operations ═══
+print("✏️  String Operations:")
+greeting = "Hello, " + "World!"
+print("  Concatenation: " + greeting)
+print("  Length: " + len(greeting))
+print("")
+
+# ═══ Array Transformations ═══
+print("🔀 Complex Pipeline:")
+result = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+  | map(fn(x) => x * x)
+  | where(fn(x) => x > 20)
+  | take(3)
+print("  Squares > 20, first 3:")
+print(result)
+print("")
+
+# ═══ Type Checking ═══
+print("🔍 Type Introspection:")
+samples = [
+  42,
+  "text",
+  [1,2,3],
+  {key: "value"},
+  true,
+  3.14
+]
+print("  Types of sample values:")
+sample_types = samples | map(fn(x) => type_of(x))
+print(sample_types)
+print("")
+
+# ═══ Final Summary ═══
+print("╔════════════════════════════════════════════╗")
+print("║         ✅ All Features Working! ✅        ║")
+print("╚════════════════════════════════════════════╝")
+print("")
+print("Features tested:")
+print("  ✓ Basic types (Int, Float, String, Bool)")
+print("  ✓ Collections (Array, Record)")
+print("  ✓ Pipeline operations (map, where, reduce, take)")
+print("  ✓ Higher-order functions")
+print("  ✓ Pattern matching")
+print("  ✓ Mutable variables")
+print("  ✓ Record operations (keys, len)")
+print("  ✓ File I/O (read_text)")
+print("  ✓ Type introspection (type_of)")
+print("  ✓ Complex data transformations")
+print("")
+print("🚀 AetherShell is ready for use!")
