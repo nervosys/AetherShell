@@ -220,3 +220,40 @@ fn a_single_writer_still_produces_one_valid_chain() {
         .expect("a single writer's log must verify");
     assert_eq!(n, 10);
 }
+
+/// The writer id is *authenticated*, not merely recorded.
+///
+/// This matters because of what the id now controls: a differing writer
+/// suppresses the tamper alarm and changes what `verify_audit` reports. If the
+/// field sat outside the hashed core, an attacker who rewrote the log could
+/// stamp fresh writer ids onto their entries and have the result read as
+/// ordinary concurrency instead of tampering — turning a mitigation into a
+/// laundering mechanism.
+///
+/// It is inside the core, so relabelling breaks the entry hash.
+#[test]
+fn relabelling_a_writer_id_is_detected_as_tampering() {
+    let shared = Shared::new();
+    let mut w = shared.spawn_writer("auth", 3);
+    w.wait().expect("writer");
+
+    assert_eq!(
+        aethershell::safety::verify_audit_with(&shared.log(), None).expect("clean log verifies"),
+        3
+    );
+
+    // Rewrite one entry's writer id, leaving its stored hash untouched.
+    let text = std::fs::read_to_string(shared.log()).expect("read log");
+    let mut lines: Vec<String> = text.lines().map(|l| l.to_string()).collect();
+    let mut first: serde_json::Value = serde_json::from_str(&lines[0]).expect("parse first entry");
+    first["writer"] = serde_json::Value::String("deadbeefdeadbeef".into());
+    lines[0] = serde_json::to_string(&first).expect("reserialize");
+    std::fs::write(shared.log(), lines.join("\n") + "\n").expect("write log");
+
+    let err = aethershell::safety::verify_audit_with(&shared.log(), None)
+        .expect_err("a relabelled writer id must not verify");
+    assert!(
+        err.contains("tampered") || err.contains("mismatch"),
+        "expected the hash to catch the relabelling, got: {err}"
+    );
+}
