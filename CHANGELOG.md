@@ -35,7 +35,9 @@ chain is per-process state, so they interleave two independent chains.
   `tamper-detected` markers in a single 80-operation run. An alarm that fires
   whenever two agents run is one nobody reads. Entries now carry a per-process
   `writer` id, and a differing writer is recognised as concurrency rather than
-  tampering.
+  tampering. That id is inside the signed core, so it cannot be used to launder
+  a rewrite: relabelling an entry's writer breaks its hash and the log still
+  reports tampering.
 - **Verification blamed the wrong thing.** A shared log reported `broken chain
   link`, which reads as an attack. It now says the log interleaves entries from
   N writers and names the two remedies — a log per process, or one shared
