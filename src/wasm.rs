@@ -215,6 +215,20 @@ fn eval_expr_wasm(expr: &Expr, env: &mut Env) -> Result<Value, String> {
         Expr::Lambda { params, body } => Ok(Value::Lambda(Lambda {
             params: params.clone(),
             body: body.clone(),
+            // The browser evaluator does not implement closure capture.
+            //
+            // This is a separate, simpler interpreter from `eval.rs` — which is
+            // `#[cfg(feature = "native")]` — and it handles lambdas in seven
+            // places. Capturing here without also installing captures at each
+            // of those call sites would be inert; doing both blind, in a target
+            // this repository cannot execute in its test suite, is how a subtle
+            // scoping bug gets shipped.
+            //
+            // So currying behaves in the browser the way it behaved everywhere
+            // before AS-2026-13: the inner lambda of `fn(a) => fn(b) => a + b`
+            // does not see `a`. Recorded as a known limitation rather than left
+            // as a silent difference between targets.
+            captured: Default::default(),
         })),
         Expr::Binary { left, op, right } => {
             let l = eval_expr_wasm(left, env)?;

@@ -94,6 +94,9 @@ session that fixed the first audit's findings. Five findings, three fixed.
   memory is not bounded: an array of many strings, or a deep recursion each
   level of which allocates, is limited only by the call-depth cap. Measured,
   and true before this release too.
+- **The browser (wasm) evaluator does not implement closure capture.**
+  `src/wasm.rs` is a separate interpreter from the native `eval.rs`, so
+  currying behaves there as it did everywhere before this release.
 - **An undefined variable interpolates as `null`** (AS-2026-12), consistent
   with the language's existing treatment of undefined names. A misspelled
   *field* or *function* is loud; a misspelled variable is not.

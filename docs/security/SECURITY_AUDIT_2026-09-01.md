@@ -298,10 +298,17 @@ yanked version. No new advisories.
    (AS-2026-10), but total memory is unbounded: an array of many strings, or a
    deep recursion each level of which allocates, is limited only by
    `enter_call`'s depth cap. Measured, and true before this audit too.
-3. **An undefined variable interpolates as `null`** (AS-2026-12), consistent
+3. **The browser (wasm) evaluator does not implement closure capture.**
+   `src/wasm.rs` is a separate, simpler interpreter from `eval.rs`, which is
+   native-only. Currying therefore behaves in the browser the way it behaved
+   everywhere before AS-2026-13. Wiring capture through its seven lambda call
+   sites is doable; doing it blind, in a target this repository cannot execute
+   in its test suite, is how a subtle scoping bug ships. Recorded rather than
+   guessed at.
+4. **An undefined variable interpolates as `null`** (AS-2026-12), consistent
    with the language's treatment of undefined names everywhere else. Changing
    it is a language decision.
-4. **An external penetration test**, which requires a third party.
+5. **An external penetration test**, which requires a third party.
 
 ## A note on how three of these were found
 
