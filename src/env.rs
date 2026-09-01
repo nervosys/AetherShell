@@ -72,9 +72,20 @@ impl Env {
     /// first line of a fresh script, and "Cannot reassign immutable variable"
     /// describes neither the cause nor the fix.
     fn is_module_binding(&self, name: &str) -> bool {
-        self.vars.contains_key(name)
-            && !self.is_mutable(name)
-            && crate::modules::is_module_name(name)
+        // `crate::modules` only exists under the `native` feature; on wasm no
+        // modules are pre-bound, so the question cannot arise and the generic
+        // message is the right one.
+        #[cfg(feature = "native")]
+        {
+            self.vars.contains_key(name)
+                && !self.is_mutable(name)
+                && crate::modules::is_module_name(name)
+        }
+        #[cfg(not(feature = "native"))]
+        {
+            let _ = name;
+            false
+        }
     }
 
     /// The refusal message for binding over an existing immutable name.
