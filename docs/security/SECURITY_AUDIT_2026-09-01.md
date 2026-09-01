@@ -28,6 +28,7 @@ established by reading the code path. *Measured* — quantified.
 | AS-2026-10 | Low | **Demonstrated** | the string-repeat cap is per-operation and `+` walks past it | **open, documented** |
 | AS-2026-11 | Low | Structural | the append-only audit sink was not protected by the workspace jail | **fixed** |
 | AS-2026-12 | Info | **Demonstrated** | an undefined variable renders as `null` in string interpolation | **open, by design** |
+| AS-2026-13 | Medium | **Demonstrated** | lambdas do not capture their defining environment; currying fails, sometimes silently | **open, documented** |
 
 Also closed from the previous audit: **AS-2026-02's residue** now has a
 supported mitigation (`AETHER_AUDIT_SINK`), and the `.gitignore` glob that
@@ -140,6 +141,51 @@ names — `print(nope_xyz)` is also `null` — and interpolation is being
 consistent with it. Changing it is a language decision, not a security fix, so
 it is recorded here rather than acted on. Worth knowing when reading a script
 whose output contains an unexpected `null`.
+
+## AS-2026-13 — lambdas do not capture their defining environment
+
+**Medium · Demonstrated · CWE-664**
+
+A lambda is stored as parameters plus a body and evaluated in the *caller's*
+environment. A lambda over a binding that is still live therefore works:
+
+```text
+let factor = 3
+let f = fn(x) => x * factor
+f(2)                                  # 6
+```
+
+A lambda returned from another lambda does not, because the enclosing
+parameter is gone by the time it is called:
+
+```text
+let mk = fn(factor) => fn(x) => x * factor
+mk(3)(2)                              # unsupported op Mul on Int(2) and Null
+```
+
+**The failure is not always loud.** `Mul` rejects `Null`, so the arithmetic
+case errors. Concatenation does not:
+
+```text
+let mk = fn(f) => fn(x) => "v: " + f
+mk("A")(1)                            # "v: null"
+```
+
+— a wrong answer, no error, no warning. That is what raises this above the
+informational findings: a partial-application helper can return plausible
+nonsense.
+
+Found by running `test-scripts/integration/test_complex_workflows.ae`, whose
+"higher-order function pattern" test had been asserting this and failing since
+it was written.
+
+**Open.** Fixing it means giving `Lambda` a captured environment, which is a
+change to the value model — `Lambda` derives `Serialize`, `Deserialize` and
+`PartialEq`, so an `Env` field propagates into all three. That is a language
+redesign with a wide blast radius and it should be decided deliberately, not
+appended to an audit. Recorded here with a reproduction so the decision has
+the evidence it needs. The affected script now uses the form the language does
+support, with a comment pointing at this finding.
 
 ---
 

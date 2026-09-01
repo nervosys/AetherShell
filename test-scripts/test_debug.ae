@@ -1,17 +1,17 @@
 print("=== Simple function test ===")
 
-let arr = [10, 20, 30]
+let values = [10, 20, 30]
 print("Original array: [10, 20, 30]")
 
 print("")
 print("Testing first():")
-let first_result = arr | first()
+let first_result = values | first()
 print("Type check - is it 10?")
 print(first_result)
 
 print("")
 print("Testing first(2):")
-let first2_result = arr | first(2)
+let first2_result = values | first(2)
 print("Type check - is it [10, 20]?")
 print(first2_result)
 

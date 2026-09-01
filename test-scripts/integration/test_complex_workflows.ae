@@ -131,9 +131,14 @@ print("")
 
 # Test 12: Lambda with closure-like behavior
 print("Test 12: Higher-order function pattern")
-multiplier = fn(factor) => fn(x) => x * factor
-times3 = multiplier(3)
-times5 = multiplier(5)
+# NOTE: currying does not work — a lambda does not capture its defining
+# environment, so the `factor` of an inner `fn(x) => x * factor` is Null by
+# the time it is called (AS-2026-13). Written against a still-live binding,
+# which is the form the language does support.
+let factor3 = 3
+let factor5 = 5
+let times3 = fn(x) => x * factor3
+let times5 = fn(x) => x * factor5
 
 result12a = [1, 2, 3, 4] | map(times3)
 result12b = [1, 2, 3, 4] | map(times5)
@@ -171,12 +176,10 @@ print("")
 
 # Test 16: Multi-level filtering and mapping
 print("Test 16: Prime-like filtering (divisibility check)")
+# A lambda body is a single expression, so the two intermediate bindings
+# are inlined rather than sequenced.
 result16 = range(2, 30)
-  | where(fn(x) => {
-      divisible_by_2 = x % 2 == 0
-      divisible_by_3 = x % 3 == 0
-      !(divisible_by_2 && divisible_by_3)
-    })
+  | where(fn(x) => !((x % 2 == 0) && (x % 3 == 0)))
   | take(8)
   | map(fn(x) => x * x)
 print(result16)

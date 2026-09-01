@@ -69,6 +69,23 @@ fn every_example_parses() {
     assert!(bad.is_empty(), "{}", report("example", &bad));
 }
 
+/// `test-scripts/` is tracked and shipped in the repository, and had never been
+/// checked either: two of its ten files failed, in the same two ways the
+/// examples did — a multi-statement lambda body, and a binding over a module
+/// name.
+#[test]
+fn every_tracked_test_script_parses() {
+    let mut files = ae_files("test-scripts");
+    files.extend(ae_files("test-scripts/integration"));
+    assert!(
+        files.len() >= 8,
+        "only {} scripts found — this test is looking in the wrong place",
+        files.len()
+    );
+    let bad = parse_failures(&files);
+    assert!(bad.is_empty(), "{}", report("test-script", &bad));
+}
+
 #[test]
 fn every_stdlib_file_parses() {
     let files = ae_files("lib");

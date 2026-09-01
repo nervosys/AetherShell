@@ -43,6 +43,9 @@ session that fixed the first audit's findings. Five findings, three fixed.
 
 ### Fixed
 
+- **Two tracked `test-scripts/` files never ran**, failing the same two ways
+  the examples did: a multi-statement lambda body, and a binding over a module
+  name. `tests/shipped_scripts_parse.rs` now covers that directory too.
 - **A shipped example was excluded from the repository by `.gitignore`.** The
   `*_test.ae` pattern, listed under "Temporary files", was unanchored and also
   swallowed `examples/99_comprehensive_test.ae` — a numbered example that
@@ -60,6 +63,13 @@ session that fixed the first audit's findings. Five findings, three fixed.
 - **An undefined variable interpolates as `null`** (AS-2026-12), consistent
   with the language's existing treatment of undefined names. A misspelled
   *field* or *function* is loud; a misspelled variable is not.
+- **Lambdas do not capture their defining environment** (AS-2026-13), so
+  currying does not work: `fn(factor) => fn(x) => x * factor` loses `factor`
+  by the time the inner lambda is called. Arithmetic errors on the resulting
+  `Null`; **concatenation does not** — `"v: " + f` yields `"v: null"`, a wrong
+  answer with no error. Fixing it means giving `Lambda` a captured environment,
+  which propagates into `Serialize`, `Deserialize` and `PartialEq` on the value
+  model: a language redesign to decide deliberately, not to append to an audit.
 
 ## [10.1.0] - 2026-09-01
 
