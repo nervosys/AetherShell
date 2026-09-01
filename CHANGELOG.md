@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [11.0.1] - 2026-09-01
+
+A crash fix. Found by adversarial probing rather than by a report or a
+failing test, which is the only reason it was found at all — nothing in the
+suite had ever handed the shell input it did not choose.
+
+
 ### Fixed — a crash found by adversarial probing
 
 - **Deeply nested input overflowed the stack and aborted the process.** The
