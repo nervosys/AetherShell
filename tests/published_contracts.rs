@@ -311,3 +311,63 @@ fn the_homebrew_formula_states_the_real_licence() {
          carries"
     );
 }
+
+/// The crate must not ship debris.
+///
+/// A zero-byte file named `=X%` sat in the repository root from 10 August and
+/// was packaged into every release after it — 340 files went into the 11.0.2
+/// tarball and that was one of them. It is the residue of a malformed shell
+/// redirect, referenced by nothing.
+///
+/// Harmless to run, but it is the kind of thing a reader notices first when
+/// they open a published crate, and nothing was looking for it. The rule is
+/// deliberately narrow — a tracked file's name must begin with an
+/// alphanumeric, a dot, or an underscore — because that flagged exactly this
+/// file and nothing else in the tree.
+#[test]
+fn the_repository_ships_no_shell_redirect_debris() {
+    let out = std::process::Command::new("git")
+        .args(["ls-files"])
+        .current_dir(repo("."))
+        .output();
+    let Ok(out) = out else {
+        // No git available (a vendored build, say). Skipping is right: this
+        // asserts a property of the *tracked* tree, and without git there is
+        // no tracked tree to inspect.
+        return;
+    };
+    if !out.status.success() {
+        return;
+    }
+    let listing = String::from_utf8_lossy(&out.stdout);
+
+    let odd: Vec<&str> = listing
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .filter(|path| {
+            let name = path.rsplit('/').next().unwrap_or(path);
+            !name
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_')
+        })
+        .collect();
+
+    assert!(
+        odd.is_empty(),
+        "these tracked files look like accidental shell output rather than \
+         source, and they are packaged into the published crate:\n{}",
+        odd.iter()
+            .map(|p| format!("  {p}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+
+    // The check on the checker: the listing must not be empty, or the
+    // assertion above passes by inspecting nothing.
+    assert!(
+        listing.lines().filter(|l| !l.trim().is_empty()).count() > 100,
+        "git ls-files returned almost nothing, so this test proves nothing"
+    );
+}
