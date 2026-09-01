@@ -9,6 +9,118 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Nothing yet.
 
+## [10.1.0] - 2026-09-01
+
+Everything here was found by **running what we ship** — the binary, the 57
+example scripts, the Homebrew formula — rather than by reading it. Nothing in
+this release was reported by a user; all of it had been shipping.
+
+If you are on 10.0.0, upgrade: it contains a crash and writes escape codes into
+pipes.
+
+### Fixed — crashes and data loss
+
+- **Printing long non-ASCII text crashed the shell.** `value::pretty::truncate`
+  sliced on a *byte* index, so any output long enough to be elided whose 80th
+  byte fell inside a multi-byte character aborted the evaluator:
+  `end byte index 80 is not a char boundary; it is inside '─'`. Five shipped
+  examples did it, because a row of box-drawing characters is the obvious way
+  to draw a banner; emoji and CJK did it too. Truncation now counts characters,
+  which also makes the limit mean what it says — 80 bytes of CJK is 26 glyphs.
+- **`print` truncated output at 80 characters and discarded the rest.** A
+  shell's `print` is how a script produces output; it now renders the whole
+  value. `debug` and `trace` keep the inline cap, which is what it was for.
+- **ANSI escape codes were written into pipes and files.** The colour decision
+  consulted `config.colors.enabled` and never asked where the output was going,
+  so `ae -c '1 + 2' > out` wrote `\x1b[38;2;180;142;173m3\x1b[39m` and
+  `n=$(ae -c '1 + 2')` captured escapes. There is now one policy — `NO_COLOR`,
+  then `FORCE_COLOR`/`CLICOLOR_FORCE`, then whether the stream is a terminal,
+  then the config — asked separately for stdout and stderr, because the two are
+  redirected independently.
+- **String interpolation leaked Rust's `Debug`.** `"x: ${r}"` produced
+  `x: Record({"a": Int(1)})`. A hole that failed to *parse* was also emitted as
+  literal text, so `"${msg.from}"` printed itself and read as success.
+
+### Fixed — the parser could change what a program means
+
+- **A statement could swallow the statement after it.** The parser has two
+  loops that slurp space-separated word-call arguments, and only one checked
+  that the arguments were on the same line as the callee. So
+
+  ```text
+  let hi = 1
+  hi
+  print("second")
+  ```
+
+  parsed as `hi(print, "second")`. The silent form was worse than the loud one:
+  with a one-argument call the program simply did something else, and with two
+  the error was `expected ')'` pointing at a comma on a line the author had no
+  reason to suspect. Word-calls still take arguments on their own line — that
+  property is pinned by its own test.
+
+### Added — primitives the language was missing
+
+Each of these was assumed by shipped examples and did not exist.
+
+- **`str(v)` / `to_string(v)`** — there was no way to convert a value to a
+  string at all. 41 example sites called a `str()` that has never existed. It
+  uses the same renderer as `print` and `${…}`, so the three agree.
+- **`"=" * 50`** repeats a string — how every example draws a rule, previously
+  `unsupported op`. Capped at 8 MiB so a typo cannot allocate gigabytes.
+- **`"hit: " + true`** — `Str + Int` and `Str + Float` were special-cased while
+  `Bool`, `Null`, `Array` and `Record` fell through to an error. Any value now
+  concatenates with a string, rendering as the user would see it.
+- **Async lambdas can see their enclosing scope.** `await` evaluated the body
+  in a fresh `Env`, so an async lambda could not call a function defined beside
+  it. Plain lambdas bind into the caller's environment, which is why this went
+  unnoticed. Parameters are saved and restored, so a parameter name no longer
+  clobbers an outer binding.
+
+### Fixed — diagnostics
+
+- **`let user = 1` said "Cannot reassign immutable variable"**, sending you to
+  look for an earlier `let` that does not exist. `user` is a module name; the
+  message now says so and names the fix.
+
+### Fixed — packaging and licensing
+
+- **The Homebrew formula declared Apache-2.0 for AGPL-3.0-or-later code** —
+  permissive versus copyleft, not a typo. `web/package.json` said MIT and an
+  example plugin said Apache-2.0. Every declared licence in the repository is
+  now AGPL-3.0-or-later.
+- **The formula could not have installed anyone**: it pinned `v0.2.0`, carried
+  a literal `PLACEHOLDER_SHA256`, ran `ae completions` (no such subcommand —
+  that aborts the install), and its test asserted a `--json` flag that does not
+  exist. Every remaining assertion in it was executed against the real binary
+  before being written down.
+
+### Examples
+
+**All 57 shipped scripts now run; 25 of them failed before.** Seven used
+`/* */` block comments the parser has never accepted. Others called APIs that
+never existed (`a2a_create_bus`, `nanda_coordinator`, `agents_run_sync`,
+`mcp_server_start` used as an object), used `--model` flag syntax the parser
+does not have, `filter` for `where`, `http` for `http.json_post`, `group` given
+a lambda instead of a property name, or bound variables over module names. The
+six that need an AI provider or a running server now detect that and skip with
+an explanation instead of failing partway through.
+
+`docs/EXAMPLES_TEST_REPORT.md` recorded 68% of examples broken in October 2025,
+at v0.1.0. Ten major versions later nobody had acted on it.
+
+### Testing
+
+Six new files, each verified red before green: `shipped_scripts_parse`,
+`unicode_does_not_panic`, `output_is_pipeable`, `statement_boundaries`,
+`language_primitives`, and `vscode_extension_agreement`. Four of the five
+statement-boundary tests fail without the parser guard, and the one that passes
+is "word-calls still work" — the property the fix must not break.
+
+Suite: **2,138 passing across 137 binaries**, 38 VS Code extension tests,
+57/57 shipped scripts running, clippy `-D warnings` and fmt clean, green on
+Linux, macOS, Windows and wasm32.
+
 ## [10.0.0] - 2026-08-31
 
 Closes the two findings 9.0.0 left open on purpose. Both fixes are breaking, and
