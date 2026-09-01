@@ -5,8 +5,8 @@
 class Aethershell < Formula
   desc "AI-powered typed shell with functional pipelines and multi-agent support"
   homepage "https://github.com/nervosys/AetherShell"
-  url "https://github.com/nervosys/AetherShell/archive/refs/tags/v10.0.0.tar.gz"
-  sha256 "4aef77487f833389f348b80411cb1f91712e365a05a2098809c4011fa32c30df"
+  url "https://github.com/nervosys/AetherShell/archive/refs/tags/v11.0.2.tar.gz"
+  sha256 "afc66f6a7c6c40d4516dcd4298ffcaa3e857e5da9329f9a66eccba04892dbf7a"
   license "AGPL-3.0-or-later"
   head "https://github.com/nervosys/AetherShell.git", branch: "master"
 

@@ -250,3 +250,64 @@ fn the_spec_documents_every_endpoint_that_does_exist() {
         missing
     );
 }
+
+/// The Homebrew formula names a release tag, and nothing checked it.
+///
+/// It was pinned at `v10.0.0` while the crate reached 11.0.2 — four releases
+/// of drift, so `brew install` built a version nobody was shipping any more.
+/// It had drifted before too: an earlier pass found it pinned at `v0.2.0` with
+/// a literal `PLACEHOLDER_SHA256`, declaring Apache-2.0 for AGPL code and
+/// invoking a subcommand that does not exist, which meant it could not have
+/// installed anyone at all.
+///
+/// A formula is a published contract like the others in this file: it tells
+/// someone else how to obtain this software. So it gets the same treatment —
+/// checked against the crate version rather than trusted.
+#[test]
+fn the_homebrew_formula_names_the_current_release() {
+    let formula = read("Formula/aethershell.rb");
+    let version = env!("CARGO_PKG_VERSION");
+
+    let expected_tag = format!("/v{version}.tar.gz");
+    assert!(
+        formula.contains(&expected_tag),
+        "the formula's url does not point at v{version}; it will build whatever \
+         tag it does name, which is how it ended up four releases behind"
+    );
+
+    // A real digest, not a placeholder. The earlier version shipped
+    // `PLACEHOLDER_SHA256`, which fails the install rather than the review.
+    let digest = formula
+        .lines()
+        .find(|l| l.trim_start().starts_with("sha256 "))
+        .expect("formula declares a sha256");
+    let hex: String = digest
+        .chars()
+        .filter(|c| c.is_ascii_hexdigit())
+        .collect::<String>()
+        .to_lowercase();
+    assert!(
+        hex.len() >= 64,
+        "the formula's sha256 is not a 64-character digest: {digest}"
+    );
+}
+
+/// The formula must state the licence the crate actually carries. It said
+/// Apache-2.0 for AGPL-3.0-or-later code — permissive versus copyleft, which is
+/// not a typo but a materially wrong claim about what a user may do.
+#[test]
+fn the_homebrew_formula_states_the_real_licence() {
+    let formula = read("Formula/aethershell.rb");
+    let manifest = read("Cargo.toml");
+    let crate_licence = manifest
+        .lines()
+        .find(|l| l.trim_start().starts_with("license "))
+        .and_then(|l| l.split('"').nth(1))
+        .expect("Cargo.toml declares a licence")
+        .to_string();
+    assert!(
+        formula.contains(&format!("license \"{crate_licence}\"")),
+        "the formula does not declare {crate_licence:?}, which is what the crate \
+         carries"
+    );
+}
