@@ -456,8 +456,11 @@ unset GOOGLE_API_KEY
 ae keys store openai-personal sk-proj-...
 ae keys store openai-work sk-proj-...
 
-# Use specific key
-export AETHER_AI_KEY=openai-personal
+# Select the provider; its key comes from that provider's own variable.
+# (There is no AETHER_AI_KEY; the source reads AETHER_AI, AETHER_SECRETS and
+# the provider variables below.)
+export AETHER_AI=openai
+export OPENAI_API_KEY=sk-...
 ae ai "Query"
 ```
 

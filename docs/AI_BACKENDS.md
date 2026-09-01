@@ -333,9 +333,10 @@ curl http://localhost:8080/health      # llama.cpp
 ### Environment Variables
 
 ```bash
-# Debug: Show which backend is being used
-export AETHER_DEBUG=1
-ae 'ai("test")'
+# Show the available backends and which provider is selected.
+# (There is no AETHER_DEBUG; the source reads no such variable.)
+ae 'ai_backends()'
+echo "${AETHER_AI:-unset - the default provider is used}"
 ```
 
 ### Port Conflicts

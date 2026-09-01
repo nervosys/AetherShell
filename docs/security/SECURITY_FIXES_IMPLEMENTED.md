@@ -1054,22 +1054,18 @@ The following LOW-severity issues remain as best-practice improvements (non-bloc
 
 ### New Environment Variables
 
-**Resource Limits** (optional):
+> **Not implemented.** None of `AETHER_MAX_FILE_SIZE_MB`,
+> `AETHER_MAX_MEMORY_MB`, `AETHER_HTTPS_ONLY` or `AETHER_HTTP_TIMEOUT` is read
+> by the source. In particular there is no in-process memory bound: that is an
+> open audit finding, not a setting.
+
+**Resource limits that do exist:**
 ```bash
-# Default: 100MB
-export AETHER_MAX_FILE_SIZE_MB=100
-
-# Default: 512MB
-export AETHER_MAX_MEMORY_MB=512
-```
-
-**HTTP Client** (optional):
-```bash
-# Force HTTPS-only mode
-export AETHER_HTTPS_ONLY=true
-
-# Custom timeout (seconds)
-export AETHER_HTTP_TIMEOUT=30
+export AETHER_MAX_OPS=100000     # evaluator operations
+export AETHER_MAX_FILES=1000     # files touched
+export AETHER_MAX_NET=0          # network calls
+export AETHER_MAX_PROCS=0        # subprocesses
+export AETHER_TIMEOUT_MS=30000   # wall-clock per run
 ```
 
 ---
@@ -1079,20 +1075,23 @@ export AETHER_HTTP_TIMEOUT=30
 ### Production Settings
 
 ```bash
-# 1. Enable HTTPS-only
-export AETHER_HTTPS_ONLY=true
+# 1. Run under the agent policy, with writes jailed to a workspace
+export AETHER_MODE=agent
+export AETHER_WORKSPACE=/srv/work
 
-# 2. Reduce file size limit
-export AETHER_MAX_FILE_SIZE_MB=50
+# 2. Bound resources
+export AETHER_MAX_OPS=100000
+export AETHER_MAX_PROCS=0
 
-# 3. Configure command allowlist
+# 3. Configure the command allowlist
 export AGENT_ALLOW_CMDS=ls,cat,git,grep
 
-# 4. Set allowed directories
-# (Configure via PathSecurityConfig in code)
+# 4. Require a writable, keyed audit log
+export AETHER_AUDIT_REQUIRED=1
+export AETHER_AUDIT_KEY_FILE=/etc/aether/audit.key
 
-# 5. Enable structured logging
-export RUST_LOG=info,aethershell=debug
+# Note: RUST_LOG is honoured by the language server (aethershell-lsp).
+# The `ae` binary does not read it.
 ```
 
 ### Docker Security
@@ -1108,9 +1107,10 @@ LABEL security.capabilities="drop=ALL"
 # No new privileges
 LABEL security.no-new-privileges="true"
 
-# Resource limits
-ENV AETHER_MAX_FILE_SIZE_MB=50
-ENV AETHER_MAX_MEMORY_MB=256
+# Resource limits. Memory is bounded by the container, not by the shell --
+# there is no in-process allocation cap.
+ENV AETHER_MAX_OPS=100000
+ENV AETHER_MAX_FILES=1000
 ```
 
 ---

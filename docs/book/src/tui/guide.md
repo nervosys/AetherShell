@@ -73,12 +73,9 @@ Within the TUI, you can use these commands:
 
 ### Viewing Images
 
-The TUI can display images inline using various protocols:
-
-```bash
-# In configuration
-export AETHER_TUI_IMAGE_PROTOCOL=kitty  # or: iterm, sixel
-```
+> **Not implemented.** Inline image rendering is intended, not present. The
+> source contains no kitty, iterm or sixel support and reads no
+> `AETHER_TUI_IMAGE_PROTOCOL` — exporting it does nothing.
 
 ```aethershell
 # In TUI, send an image

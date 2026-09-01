@@ -271,7 +271,9 @@ export ANTHROPIC_API_KEY=sk-ant-...
 
 # Security Configuration
 export AGENT_ALLOW_CMDS=ls,cat,grep,find,git
-export AETHER_MAX_FILE_SIZE_MB=100
+export AETHER_MODE=agent
+export AETHER_WORKSPACE=/srv/work
+export AETHER_MAX_FILES=1000
 
 # Audit Logging
 export AETHER_AUDIT_LOG=/var/log/aether/audit.json

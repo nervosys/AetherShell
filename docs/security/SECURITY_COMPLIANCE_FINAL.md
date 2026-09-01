@@ -163,13 +163,18 @@ pub fn validate_ai_prompt(prompt: &str) -> Result<String> {
 
 ### Security Configuration
 ```bash
-# Production security environment
-export AETHER_SECURITY_LEVEL=strict
-export AETHER_AUDIT_LOGGING=enabled
-export AETHER_RATE_LIMIT_REQUESTS=1000
-export AETHER_MAX_PROMPT_LENGTH=4000
-export AETHER_COMMAND_WHITELIST="ls,cat,grep,find"
-export AETHER_SESSION_TIMEOUT=1800
+# Production security environment.
+# (An earlier revision listed AETHER_SECURITY_LEVEL, AETHER_AUDIT_LOGGING,
+# AETHER_RATE_LIMIT_REQUESTS, AETHER_MAX_PROMPT_LENGTH,
+# AETHER_COMMAND_WHITELIST and AETHER_SESSION_TIMEOUT. The source reads none
+# of them; exporting them hardened nothing.)
+export AETHER_MODE=agent
+export AETHER_WORKSPACE=/srv/work
+export AETHER_AUDIT_REQUIRED=1
+export AETHER_AUDIT_KEY_FILE=/etc/aether/audit.key
+export AGENT_ALLOW_CMDS="ls,cat,grep,find"
+export AETHER_MAX_OPS=100000
+export AETHER_TIMEOUT_MS=30000
 ```
 
 ### Monitoring and Alerting

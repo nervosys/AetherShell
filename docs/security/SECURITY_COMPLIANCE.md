@@ -26,10 +26,18 @@ This document outlines the comprehensive security measures implemented in Aether
 - [x] **Request Timeouts**: Configurable timeouts prevent hanging connections
 
 ### 4. Memory Safety
-- [x] **No Unsafe Code**: Zero unsafe blocks in production code
 - [x] **Buffer Overflow Protection**: Rust's memory safety guarantees
-- [x] **Credential Zeroization**: Automatic secure memory clearing for secrets
-- [x] **Panic Handling**: All unwrap() calls replaced with proper error handling
+- [x] **Credential Zeroization**: API keys are held in `Zeroizing<String>`
+  (`src/secure_config.rs`), so the buffer is cleared on drop.
+- [ ] **Unsafe code is confined, not absent.** There are 16 `unsafe` blocks,
+  all FFI: dynamic plugin loading via `libloading` (`src/plugins.rs`) and
+  `libc::geteuid` for privilege checks (`src/builtins.rs`, `src/os_tools.rs`,
+  `src/agent.rs`, `src/external_tools.rs`). Loading a plugin executes
+  third-party code in-process and is gated by `AETHER_PLUGIN_ALLOW`.
+- [ ] **Panics are not eliminated.** The source contains roughly 494
+  `.unwrap()` calls, 20 `.expect()` and 21 `panic!`. A panic aborts the shell;
+  it does not corrupt memory or bypass a gate, but it is a denial-of-service
+  surface and is not a resolved item.
 
 ### 5. Audit Logging
 - [x] **Security Event Logging**: Comprehensive audit trail for security events
@@ -123,15 +131,38 @@ pub fn validate_ai_prompt(prompt: &str) -> Result<String> {
 
 ### Production Security Settings
 
+Every variable below is read by the shell. (An earlier revision of this
+document listed seven variables — `AETHER_SECURITY_LEVEL`,
+`AETHER_AUDIT_LOGGING`, `AETHER_RATE_LIMIT_*`, `AETHER_COMMAND_WHITELIST`,
+`AETHER_MAX_PROMPT_LENGTH`, `AETHER_SESSION_TIMEOUT` — that the source never
+read. Exporting them hardened nothing.)
+
 ```bash
-# Environment variables for security hardening
-export AETHER_SECURITY_LEVEL=strict
-export AETHER_AUDIT_LOGGING=enabled
-export AETHER_RATE_LIMIT_REQUESTS=1000
-export AETHER_RATE_LIMIT_WINDOW=3600
-export AETHER_COMMAND_WHITELIST="ls,cat,grep,find"
-export AETHER_MAX_PROMPT_LENGTH=4000
-export AETHER_SESSION_TIMEOUT=1800
+# Run under the agent policy: destructive, process, exec and privileged
+# operations require approval instead of running silently.
+export AETHER_MODE=agent
+export AETHER_WORKSPACE=/srv/work        # the jail; writes outside it are refused
+
+# Audit log. Give each process its own file, or point several at one
+# append-only sink -- a shared plain log interleaves independent hash chains.
+export AETHER_AUDIT_LOG=/var/log/aether/$HOSTNAME.$$.log
+export AETHER_AUDIT_SINK=/var/log/aether/sink.log
+export AETHER_AUDIT_REQUIRED=1           # refuse to run if the log cannot be written
+export AETHER_AUDIT_KEY_FILE=/etc/aether/audit.key   # keyed HMAC chain
+
+# Resource ceilings.
+export AETHER_MAX_OPS=100000
+export AETHER_MAX_FILES=1000
+export AETHER_MAX_PROCS=0                # no subprocesses
+export AETHER_MAX_NET=0                  # no network
+export AETHER_TIMEOUT_MS=30000
+
+# Keep the escape hatches shut.
+unset  AETHER_ALLOW_SH                   # sh() stays disabled
+unset  AETHER_APPROVE AETHER_APPROVE_ALL # no blanket approval
+unset  AETHER_ALLOW_REMOTE_BIND          # HTTP API stays on loopback
+unset  AETHER_PLUGIN_ALLOW               # no third-party code in-process
+export AETHER_REDACT=1                   # redact secrets in output
 ```
 
 ### Security Policies
