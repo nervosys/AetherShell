@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [11.0.0] - 2026-09-01
+
+**Major because `Lambda` gained a public field.** `value::Lambda` and
+`value::AsyncLambda` now carry `captured`, so any code constructing one with a
+struct literal must add it — this repository's own tests and benchmark did.
+That is the break a downstream consumer hits, and it is the whole of it: no
+function was removed and no behaviour a working script relied on has changed.
+
+Everything else here is a fix. The headline: **closures now capture**, so
+currying works instead of silently producing `null`; and **an error handler no
+longer reads a stale value** when its variable name is already taken.
+
 ### Security — second audit (`docs/security/SECURITY_AUDIT_2026-09-01.md`)
 
 An audit of everything added since 10.0.0: ~790 new lines, three new
