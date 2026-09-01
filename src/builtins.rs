@@ -4027,6 +4027,7 @@ pub const FALLBACK_BUILTINS: &[(&str, &str)] = &[
     ("select", "bi_select_object"),
     ("select-object", "bi_select_object"),
     ("sort-object", "bi_sort_object"),
+    ("str", "bi_str"),
     ("suggest", "bi_ai_suggest"),
     ("swarm", "bi_swarm"),
     ("to-csv", "bi_to_csv"),
@@ -4034,6 +4035,7 @@ pub const FALLBACK_BUILTINS: &[(&str, &str)] = &[
     ("to-yaml", "bi_to_yaml"),
     ("to_csv", "bi_to_csv"),
     ("to_json", "bi_to_json"),
+    ("to_string", "bi_str"),
     ("to_yaml", "bi_to_yaml"),
     ("type_fields", "bi_type_fields"),
     ("type_name", "bi_type_name"),
@@ -4207,6 +4209,7 @@ fn call_with_input_inner(
         "ai_local_unload" | "ai-local-unload" => bi_ai_local_unload(args),
 
         // Runtime Type Introspection
+        "str" | "to_string" => bi_str(args, input),
         "typeof" | "type_of" => bi_typeof(args, input),
         "type_name" => bi_type_name(args, input),
         "type_fields" => bi_type_fields(args, input),
@@ -4678,9 +4681,11 @@ fn bi_print(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     // (Removed an unused strip_ansi helper; tests have their own)
 
-    // Print the pretty inline display to stdout (with colors).
+    // Print the pretty display to stdout. `display_full`, not
+    // `display_inline`: the latter caps at 80 characters, which silently threw
+    // away the tail of anything longer that a script tried to print.
     let pretty =
-        crate::value::pretty::display_inline(&target, &crate::value::pretty::Theme::for_stdout());
+        crate::value::pretty::display_full(&target, &crate::value::pretty::Theme::for_stdout());
     println!("{}", pretty);
 
     // Helper to strip ANSI color sequences from a string
@@ -5563,6 +5568,23 @@ fn bi_len(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     };
 
     Ok(Value::Int(length as i64))
+}
+
+/// `str(v)` — render a value as the string a user would see.
+///
+/// The language had no way to do this. `"n: " + 1` worked by coercion, but
+/// there was no conversion function, so 41 sites across the shipped examples
+/// called a `str()` that has never existed. `to_display_string` is the same
+/// renderer `print` and string interpolation use, so the three agree.
+fn bi_str(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let val = if let Some(v) = input {
+        v
+    } else if !args.is_empty() {
+        args[0].clone()
+    } else {
+        return Err(crate::safety::arg_err("str: requires input or argument"));
+    };
+    Ok(Value::Str(val.to_display_string()))
 }
 
 fn bi_type_of(args: Vec<Value>, input: Option<Value>) -> Result<Value> {

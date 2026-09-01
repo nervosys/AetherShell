@@ -1195,6 +1195,7 @@ starts_with	Pure
 startup_list	ReadLocal
 stat	ReadLocal
 status_bar	Pure
+str	Pure
 str_replace_in_file	ReadLocal
 strace	Exec
 strace_cmd	Exec
@@ -1295,6 +1296,7 @@ to-json	Pure
 to-yaml	Pure
 to_csv	Pure
 to_json	Pure
+to_string	Pure
 to_yaml	Pure
 toast	Pure
 tokei	ReadLocal

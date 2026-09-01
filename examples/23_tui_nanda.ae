@@ -7,30 +7,32 @@
 // - Negotiation workflows
 // - Task allocation with agreement
 //
+// Note on shape: a proposal is named and carries its own threshold, and votes
+// are cast against the returned proposal id with a boolean. There is no
+// separate coordinator object to create and pass to every call — an earlier
+// version of this file assumed one, and every line failed.
 
-// Create coordinator for consensus-based decisions
-let coordinator = nanda_coordinator {
-  agents: ["agent1", "agent2", "agent3", "agent4"],
-  consensus_threshold: 0.75,  // 75% agreement required
-  voting_timeout: 30000       // 30 seconds
-}
-
-// Propose a coordination strategy
-let neg1 = nanda_propose coordinator {
+// Propose a coordination strategy. `threshold` is the fraction of votes
+// required for consensus.
+let neg1 = nanda_propose("coordination-strategy", {
   type: "CoordinationStrategy",
   content: "Use round-robin policy for task distribution",
   proposed_by: "agent1",
-  requires_consensus: true
-}
+  threshold: 0.75
+})
+print("Proposal 1: " + neg1)
 
 // Agents vote on the proposal
-nanda_vote coordinator neg1 "agent1" {type: "Accept"}
-nanda_vote coordinator neg1 "agent2" {type: "Accept"}
-nanda_vote coordinator neg1 "agent3" {type: "CounterProposal", alternative: "Use router policy instead"}
-nanda_vote coordinator neg1 "agent4" {type: "Accept"}
+nanda_vote(neg1.id, true)
+nanda_vote(neg1.id, true)
+nanda_vote(neg1.id, false)
+nanda_vote(neg1.id, true)
 
-// Propose task allocation
-let neg2 = nanda_propose coordinator {
+print("Consensus on proposal 1: " + nanda_consensus(neg1.id))
+print("Quorum on proposal 1: " + nanda_quorum(neg1.id))
+
+// Propose a task allocation
+let neg2 = nanda_propose("task-allocation", {
   type: "TaskAllocation",
   content: {
     task1: "agent1",
@@ -38,49 +40,23 @@ let neg2 = nanda_propose coordinator {
     task3: "agent3"
   },
   proposed_by: "coordinator",
-  requires_consensus: true
-}
+  threshold: 0.75
+})
 
-// Vote on task allocation
-nanda_vote coordinator neg2 "agent1" {type: "Accept"}
-nanda_vote coordinator neg2 "agent2" {type: "Accept"}
-nanda_vote coordinator neg2 "agent3" {type: "Accept"}
-nanda_vote coordinator neg2 "agent4" {type: "Abstain"}
+nanda_vote(neg2.id, true)
+nanda_vote(neg2.id, true)
+nanda_vote(neg2.id, true)
 
-// Propose resource allocation
-let neg3 = nanda_propose coordinator {
-  type: "ResourceAllocation",
-  content: {
-    compute: "distributed",
-    storage: "shared",
-    bandwidth: "prioritized"
-  },
-  proposed_by: "agent2",
-  deadline: 60000  // 60 seconds to reach consensus
-}
+print("Consensus on proposal 2: " + nanda_consensus(neg2.id))
 
-// Counter-proposal example
-nanda_vote coordinator neg3 "agent1" {
-  type: "CounterProposal",
-  alternative: {
-    compute: "centralized",
-    storage: "shared",
-    bandwidth: "balanced"
-  }
-}
+// Overall negotiation state
+print("NANDA status: " + nanda_status())
 
 // The TUI provides:
-// - Proposal tracking dashboard
-// - Real-time vote counting
-// - Consensus progress bars
-// - Agent voting history
+// - Live proposal and vote tallies
+// - Consensus threshold progress bars
+// - Per-agent voting history
 // - Negotiation timeline
-// - Counter-proposal comparison view
-// - Quorum status indicators
-// - Decision audit trail
-// - Deadlock detection warnings
-// - Consensus threshold visualization
 //
 
-print "TUI NANDA Protocol Demo Ready! Launch with: ae tui"
-print "Watch consensus emerge through democratic agent voting!"
+print("TUI NANDA Protocol Demo Ready! Launch with: ae tui")

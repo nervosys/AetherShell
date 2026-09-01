@@ -51,8 +51,8 @@ assert([1, 2, 3])           # Passes (non-empty array)
 # assert([])           # Returns Error("assertion failed")
 
 # Use with try/catch for recoverable assertions
-let result = try { assert(false, "expected failure") } catch e { "caught: " + e }
-print(result)
+let assert_result = try { assert(false, "expected failure") } catch e { "caught: " + e }
+print(assert_result)
 
 # ==========================================
 # type_assert() - Type checking at runtime

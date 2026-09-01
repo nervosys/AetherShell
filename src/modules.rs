@@ -1488,6 +1488,20 @@ pub fn nc_module() -> Value {
     module(&[("connect", "nc_connect"), ("listen", "nc_listen")])
 }
 
+/// Is `name` one of the pre-bound module names?
+///
+/// Used to explain a binding refusal properly: `let user = 1` fails because
+/// `user` is a module, and the generic "reassign immutable variable" message
+/// sends people hunting for an earlier `let` that does not exist.
+pub fn is_module_name(name: &str) -> bool {
+    MODULE_NAMES.contains(name)
+}
+
+lazy_static::lazy_static! {
+    static ref MODULE_NAMES: std::collections::HashSet<&'static str> =
+        all_modules().into_iter().map(|(n, _)| n).collect();
+}
+
 pub fn all_modules() -> Vec<(&'static str, Value)> {
     vec![
         ("sys", sys_module()),

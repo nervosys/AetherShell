@@ -107,7 +107,7 @@ print("All required features enabled: " + "${all_enabled}")
 
 # Find which features from a list are enabled
 let check_list = ["experimental", "beta", "ai_assistant", "nonexistent"]
-let enabled_ones = check_list | filter(fn(f) => feature_enabled(f))
+let enabled_ones = check_list | where(fn(f) => feature_enabled(f))
 print("Enabled from list: " + "${enabled_ones}")
 
 # ============================================================================

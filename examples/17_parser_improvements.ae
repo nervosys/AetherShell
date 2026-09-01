@@ -13,7 +13,7 @@ x = 5; y = 10; z = x + y
 print("x + y = " + "${z}")
 
 # Pipe followed by semicolon and another statement
-data = [1,2,3] | reverse; print("Reversed: " + "${data}")
+let mut items = [1,2,3] | reverse; print("Reversed: " + "${data}")
 
 # Chain multiple operations
 a = 1; b = 2; c = 3; print("Sum: " + "${a + b + c}")
@@ -39,7 +39,7 @@ print("Evens: " + "${evens}")
 print("Odds: " + "${odds}")
 
 # Complex pipeline
-result = [1,2,3,4,5] | map(fn(x) => x * 2) | where(fn(x) => x > 4) | sum
+let mut result = [1,2,3,4,5] | map(fn(x) => x * 2) | where(fn(x) => x > 4) | sum
 print("Filtered sum: " + "${result}")
 
 # ============================================================================
@@ -82,7 +82,7 @@ print(immediate)
 print("\n=== Combined Examples ===")
 
 # Multiple statements with pipelines and closures on one line
-data = [1,2,3] | reverse; transform = fn() => data | map(fn(x) => x * 10); print("Transformed: " + "${transform()}")
+items = [1,2,3] | reverse; transform = fn() => items | map(fn(x) => x * 10); print("Transformed: " + "${transform()}")
 
 # Pipeline with zero-param lambda
 get_data = fn() => [10, 20, 30]

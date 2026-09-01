@@ -2,6 +2,13 @@
 # Be sure to allow commands:
 #   export AGENT_ALLOW_CMDS=ls,git
 
+// This example calls a live AI provider. Without one it says so and stops,
+// rather than failing partway through with a provider error.
+if env("AETHER_AI") == null {
+  print("Skipping: set AETHER_AI (openai, ollama, irongate or compat) plus the matching API key to run this example.")
+}
+if env("AETHER_AI") == null { exit(0) }
+
 goal = "Find the three largest files in the current directory and report their names and sizes."
 
 # The second argument is tool names: "ls" (builtin table) and "!git" (external)

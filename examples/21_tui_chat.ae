@@ -5,6 +5,13 @@
 //
 
 // Chat with GPT-4o-mini (OpenAI)
+// This example calls a live AI provider. Without one it says so and stops,
+// rather than failing partway through with a provider error.
+if env("AETHER_AI") == null {
+  print("Skipping: set AETHER_AI (openai, ollama, irongate or compat) plus the matching API key to run this example.")
+}
+if env("AETHER_AI") == null { exit(0) }
+
 ai "openai:gpt-4o-mini" "What are the key features of functional programming?"
 
 // Multi-turn conversation

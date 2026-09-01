@@ -2,6 +2,13 @@
 # Set AETHER_AI=openai and OPENAI_API_KEY for real responses
 
 # Simple text prompt
+
+# This example calls a live AI provider. Without one it says so and stops,
+# rather than failing partway through with a provider error.
+if env("AETHER_AI") == null {
+  print("Skipping: set AETHER_AI (openai, ollama, irongate or compat) plus the matching API key to run this example.")
+}
+if env("AETHER_AI") == null { exit(0) }
 response = ai("What is 2+2?")
 print(response)
 

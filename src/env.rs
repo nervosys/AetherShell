@@ -65,6 +65,33 @@ impl Env {
         self.vars.get(name)
     }
 
+    /// Is this name one of the pre-bound modules (`math`, `git`, `user`, …)?
+    ///
+    /// Worth distinguishing, because the generic message sends people looking
+    /// for an earlier `let` that does not exist: `let user = 1` fails at the
+    /// first line of a fresh script, and "Cannot reassign immutable variable"
+    /// describes neither the cause nor the fix.
+    fn is_module_binding(&self, name: &str) -> bool {
+        self.vars.contains_key(name)
+            && !self.is_mutable(name)
+            && crate::modules::is_module_name(name)
+    }
+
+    /// The refusal message for binding over an existing immutable name.
+    fn immutable_binding_error(&self, name: &str) -> String {
+        if self.is_module_binding(name) {
+            format!(
+                "'{}' is the name of a built-in module and cannot be used as a variable name; pick another name (the module stays reachable as `{}.…`)",
+                name, name
+            )
+        } else {
+            format!(
+                "Cannot reassign immutable variable '{}'. Use 'let mut {}' to make it mutable.",
+                name, name
+            )
+        }
+    }
+
     /// Set a new variable or reassign if mutable.
     /// Returns error if trying to reassign an immutable variable.
     pub fn set_var<S: Into<String>>(&mut self, name: S, value: Value) -> Result<(), String> {
@@ -74,10 +101,7 @@ impl Env {
         if self.vars.contains_key(&name_str) {
             // Check mutability
             if !self.is_mutable(&name_str) {
-                return Err(format!(
-                    "Cannot reassign immutable variable '{}'. Use 'let mut {}' to make it mutable.",
-                    name_str, name_str
-                ));
+                return Err(self.immutable_binding_error(&name_str));
             }
         }
 
@@ -99,10 +123,7 @@ impl Env {
         if self.vars.contains_key(&name_str) {
             // If existing variable is immutable, prevent shadowing/reassignment
             if !self.is_mutable(&name_str) {
-                return Err(format!(
-                    "Cannot reassign immutable variable '{}'. Use 'let mut {}' to make it mutable.",
-                    name_str, name_str
-                ));
+                return Err(self.immutable_binding_error(&name_str));
             }
             // If mutable, allow update but preserve mutability
             self.vars.insert(name_str, value);

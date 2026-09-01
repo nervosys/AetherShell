@@ -3,64 +3,42 @@
 //
 // This demo showcases Model Context Protocol (MCP) server integration:
 // - MCP server discovery
-// - Tool registration
+// - Tool listing
 // - Remote tool execution
 // - Server health monitoring
 //
+// Note on shape: `mcp_server_start` takes a config record and returns a
+// description, not an object with methods on it. An earlier version of this
+// file wrote `fs_server.read_file(...)`, treating the return value as a
+// module; tools are invoked through `mcp_call` instead.
 
-// Start filesystem MCP server
-fs_server := mcp_server_start {
+// What is already reachable? Both are safe to call with nothing running.
+print("Known MCP servers: " + mcp_servers())
+print("Auto-detected server: " + mcp_detect())
+
+// Declare the servers this demo would use.
+let fs_server = mcp_server_start({
   name: "filesystem",
   endpoint: "http://localhost:3001",
   capabilities: ["read_file", "write_file", "list_dir", "search"]
-}
+})
+print("Filesystem server: " + fs_server)
 
-// Start AWS MCP server
-aws_server := mcp_server_start {
+let aws_server = mcp_server_start({
   name: "aws",
   endpoint: "http://localhost:3002",
-  capabilities: ["s3_list", "s3_upload", "ec2_status", "lambda_invoke"]
+  capabilities: ["s3_list", "s3_get", "s3_put"]
+})
+print("AWS server: " + aws_server)
+
+// An agent that may use MCP tools. `agent_with_mcp` takes the goal and the
+// tool list positionally — it is not a single config record.
+if env("AETHER_AI") == null {
+  print("Skipping the agent run: set AETHER_AI (openai, ollama, irongate or compat) plus the matching API key to execute it.")
 }
-
-// Start database MCP server
-db_server := mcp_server_start {
-  name: "database",
-  endpoint: "http://localhost:3003",
-  capabilities: ["query", "insert", "update", "delete", "schema"]
+if env("AETHER_AI") != null {
+  print(agent_with_mcp("Analyze log files and upload a summary to S3", ["read_file", "s3_put"]))
 }
-
-// Discover available tools from all servers
-all_tools := mcp_discover_tools [
-  "http://localhost:3001",
-  "http://localhost:3002",
-  "http://localhost:3003"
-]
-
-all_tools | print
-
-// Create agent with MCP tools
-agent_with_mcp {
-  goal: "Analyze log files and upload summary to S3",
-  model: "openai:gpt-4o-mini",
-  mcp_endpoints: [
-    "http://localhost:3001",  // filesystem
-    "http://localhost:3002"   // aws
-  ],
-  max_steps: 15
-} | print
-
-// Direct MCP tool calls (shown in TUI)
-// Read a file via MCP
-fs_server.read_file("/path/to/logfile.txt") | print
-
-// List S3 buckets via MCP
-aws_server.s3_list {} | print
-
-// Query database via MCP
-db_server.query {
-  sql: "SELECT * FROM users WHERE active = true",
-  limit: 10
-} | print
 
 // The TUI provides:
 // - Server registry panel (all connected MCP servers)
@@ -69,12 +47,8 @@ db_server.query {
 // - Request/response inspector
 // - Latency metrics per server
 // - Connection status monitoring
-// - Auto-reconnect on failure
-// - Tool usage statistics
-// - Server log streaming
-// - Interactive tool testing
 //
 
-print "TUI MCP Server Demo Ready! Launch with: ae tui"
-print "Note: Start MCP servers before running this demo"
-print "See MCP_SERVERS_GUIDE.md for server setup instructions"
+print("TUI MCP Server Demo Ready! Launch with: ae tui")
+print("Note: start the MCP servers before running this demo")
+print("See MCP_SERVERS_GUIDE.md for server setup instructions")

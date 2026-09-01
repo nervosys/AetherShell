@@ -457,6 +457,18 @@ pub mod pretty {
         }
     }
 
+    /// Render a value in full, with no length cap.
+    ///
+    /// `display_inline` truncates at 80 characters, which is right for the
+    /// compact diagnostics `debug` and `trace` emit and wrong for `print`:
+    /// `print` is how a script produces output, and it was silently discarding
+    /// everything past the 80th character of any string.
+    pub fn display_full(v: &Value, theme: &Theme) -> String {
+        let mut buf = String::new();
+        let _ = fmt_value(&mut buf, v, theme);
+        buf
+    }
+
     pub fn display_inline(v: &Value, theme: &Theme) -> String {
         let mut buf = String::new();
         let _ = fmt_value(&mut buf, v, theme);

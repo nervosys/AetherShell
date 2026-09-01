@@ -53,10 +53,10 @@ print(nested_result)
 
 // ==================== is_error Function ====================
 // Check if a value is an Error
-let err = throw "test"
+let thrown = throw "test"
 let not_err = 42
 
-print("is_error(err): " + "${is_error(err)}")
+print("is_error(thrown): " + "${is_error(thrown)}")
 print("is_error(42): " + "${is_error(not_err)}")
 
 // Pipeline with is_error

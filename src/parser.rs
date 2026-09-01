@@ -1369,21 +1369,33 @@ impl Parser {
         // consuming tokens inside nested expressions like lambda bodies.
         if self.allow_word_call {
             if let Expr::Ident(_) = e {
+                // A word-call may only take arguments on its own line.
+                //
+                // Without this guard a bare identifier statement swallowed the
+                // statement after it: `hi` on one line followed by
+                // `print("second")` on the next parsed as `hi(print, "second")`
+                // — silently when the following call had one argument, and as a
+                // baffling "expected ')'" pointing at a comma when it had two.
+                // The sibling word-call loop in `parse_call_like` has always
+                // had this check; this one did not.
+                let call_line = self.prev().line;
                 let mut args: Vec<Expr> = Vec::new();
-                while self.check_any(&[
-                    Tok::Fn,
-                    Tok::Async,
-                    Tok::String,
-                    Tok::Int,
-                    Tok::Float,
-                    Tok::LBrace,
-                    Tok::LBracket,
-                    Tok::Ident,
-                    Tok::LParen,
-                    Tok::True,
-                    Tok::False,
-                    Tok::Null,
-                ]) {
+                while self.peek().line == call_line
+                    && self.check_any(&[
+                        Tok::Fn,
+                        Tok::Async,
+                        Tok::String,
+                        Tok::Int,
+                        Tok::Float,
+                        Tok::LBrace,
+                        Tok::LBracket,
+                        Tok::Ident,
+                        Tok::LParen,
+                        Tok::True,
+                        Tok::False,
+                        Tok::Null,
+                    ])
+                {
                     if self.check(Tok::Fn) {
                         let lam = self.parse_lambda()?;
                         args.push(lam);

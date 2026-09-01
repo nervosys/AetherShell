@@ -15,17 +15,26 @@
 # =============================================================================
 
 # Test if the API is running
+
+# This example talks to a running agent API server. Without one it says so
+# and stops, rather than failing on a field access against a null response.
+# Start the server with `ae agent serve --port 3002`, then set
+# AE_AGENT_API=1 to run this end to end.
+if env("AE_AGENT_API") == null {
+  print("Skipping: start the agent API (ae agent serve --port 3002) and set AE_AGENT_API=1 to run this example.")
+}
+if env("AE_AGENT_API") == null { exit(0) }
 let api_base = "http://localhost:3002"
 
 # Simple eval request
-let eval_result = http("POST", api_base, {
+let eval_result = http.json_post(api_base, {
     "action": "eval",
     "code": "1 + 2 * 3"
 })
 print("Eval result: ${eval_result}")
 
 # List available builtins
-let builtins = http("POST", api_base, {
+let builtins = http.json_post(api_base, {
     "action": "list_builtins"
 })
 print("Available builtins: ${builtins.result | length}")
@@ -35,7 +44,7 @@ print("Available builtins: ${builtins.result | length}")
 # =============================================================================
 
 # Generate schema for OpenAI function calling
-let openai_schema = http("POST", api_base, {
+let openai_schema = http.json_post(api_base, {
     "action": "schema",
     "format": "openai"
 })
@@ -64,7 +73,7 @@ print(openai_schema.result.tools | map(fn(t) => t.function.name))
 # =============================================================================
 
 # Generate schema for Claude's tool_use format
-let claude_schema = http("POST", api_base, {
+let claude_schema = http.json_post(api_base, {
     "action": "schema",
     "format": "claude"
 })
@@ -85,7 +94,7 @@ print("Compatible models: ${claude_schema.result.compatible_models}")
 # 4. Gemini Integration (Gemini 2.5 Pro/Flash)
 # =============================================================================
 
-let gemini_schema = http("POST", api_base, {
+let gemini_schema = http.json_post(api_base, {
     "action": "schema",
     "format": "gemini"
 })
@@ -99,21 +108,21 @@ print("Declarations count: ${gemini_schema.result.function_declarations | length
 # =============================================================================
 
 # Llama 4 (400B Scout, 200B Maverick)
-let llama_schema = http("POST", api_base, {
+let llama_schema = http.json_post(api_base, {
     "action": "schema", 
     "format": "llama"
 })
 print("Llama 4 compatible models: ${llama_schema.result.compatible_models}")
 
 # Mistral (Large 2501, Codestral 2501)
-let mistral_schema = http("POST", api_base, {
+let mistral_schema = http.json_post(api_base, {
     "action": "schema",
     "format": "mistral"
 })
 print("Mistral compatible models: ${mistral_schema.result.compatible_models}")
 
 # Qwen 3 (235B A22B, 32B, Coder)
-let qwen_schema = http("POST", api_base, {
+let qwen_schema = http.json_post(api_base, {
     "action": "schema",
     "format": "qwen"
 })
@@ -124,21 +133,21 @@ print("Qwen 3 compatible models: ${qwen_schema.result.compatible_models}")
 # =============================================================================
 
 # Together AI - run open source models
-let together_schema = http("POST", api_base, {
+let together_schema = http.json_post(api_base, {
     "action": "schema",
     "format": "together"
 })
 print("Together API base: ${together_schema.result.api_base}")
 
 # Groq - ultra low latency inference
-let groq_schema = http("POST", api_base, {
+let groq_schema = http.json_post(api_base, {
     "action": "schema",
     "format": "groq"
 })
 print("Groq ultra low latency: ${groq_schema.result.ultra_low_latency}")
 
 # Fireworks - fast inference
-let fireworks_schema = http("POST", api_base, {
+let fireworks_schema = http.json_post(api_base, {
     "action": "schema",
     "format": "fireworks"
 })
@@ -149,7 +158,7 @@ print("Fireworks fast inference: ${fireworks_schema.result.fast_inference}")
 # =============================================================================
 
 # Ollama - local model serving
-let ollama_schema = http("POST", api_base, {
+let ollama_schema = http.json_post(api_base, {
     "action": "schema",
     "format": "ollama"
 })
@@ -157,7 +166,7 @@ print("Ollama endpoint: ${ollama_schema.result.endpoint}")
 print("Ollama models: ${ollama_schema.result.compatible_models}")
 
 # vLLM - high-performance local inference
-let vllm_schema = http("POST", api_base, {
+let vllm_schema = http.json_post(api_base, {
     "action": "schema",
     "format": "vllm"
 })
@@ -168,7 +177,7 @@ print("vLLM endpoint: ${vllm_schema.result.endpoint}")
 # =============================================================================
 
 # OpenRouter provides unified access to many models
-let openrouter_schema = http("POST", api_base, {
+let openrouter_schema = http.json_post(api_base, {
     "action": "schema",
     "format": "openrouter"
 })
@@ -185,14 +194,14 @@ print("  - And many more...")
 # =============================================================================
 
 # Kimi/Moonshot (K2, V2)
-let kimi_schema = http("POST", api_base, {
+let kimi_schema = http.json_post(api_base, {
     "action": "schema",
     "format": "kimi"
 })
 print("Kimi API base: ${kimi_schema.result.api_base}")
 
 # GLM/ChatGLM (GLM-5, CodeGeeX 4)
-let glm_schema = http("POST", api_base, {
+let glm_schema = http.json_post(api_base, {
     "action": "schema",
     "format": "glm"
 })
@@ -202,7 +211,7 @@ print("GLM models: ${glm_schema.result.compatible_models}")
 # 10. Reasoning Models (DeepSeek R1)
 # =============================================================================
 
-let deepseek_schema = http("POST", api_base, {
+let deepseek_schema = http.json_post(api_base, {
     "action": "schema",
     "format": "deepseek"
 })
@@ -220,7 +229,7 @@ let tool_call = {
 }
 
 # Execute via Agent API
-let result = http("POST", api_base, {
+let result = http.json_post(api_base, {
     "action": "call",
     "builtin": tool_call.name,
     "args": tool_call.arguments
@@ -239,7 +248,7 @@ if result.success {
 # =============================================================================
 
 # Execute multi-step pipelines
-let pipeline_result = http("POST", api_base, {
+let pipeline_result = http.json_post(api_base, {
     "action": "pipeline",
     "steps": [
         {"builtin": "ls", "args": {"path": "."}},
@@ -256,14 +265,14 @@ print(pipeline_result.result)
 # =============================================================================
 
 # Get type information for better function calls
-let type_info = http("POST", api_base, {
+let type_info = http.json_post(api_base, {
     "action": "type_info"
 })
 print("Available types in AetherShell:")
 print(type_info.result.types)
 
 # Get specific type info
-let array_type = http("POST", api_base, {
+let array_type = http.json_post(api_base, {
     "action": "type_info",
     "type_name": "Array"
 })

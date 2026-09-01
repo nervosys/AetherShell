@@ -1,67 +1,63 @@
 // AetherShell TUI A2A Protocol Demo
 // Launch with: ae tui
 //
-// This demo showcases Agent-to-Agent (A2A) messaging protocol:
-// - Message bus creation
-// - Agent registration
+// This demo showcases the Agent-to-Agent (A2A) messaging protocol:
+// - Agent registration with capabilities
 // - Direct messaging
 // - Broadcasting
 // - Task delegation
 //
+// Note on shape: registration and delivery are addressed by agent name.
+// There is no separate "bus" object to create and thread through each call —
+// an earlier version of this file assumed one, and every line failed.
 
-// Create the message bus (communication backbone)
-bus := a2a_create_bus {}
+// Register agents with their capabilities
+a2a_register("researcher", {capabilities: ["research", "analyze", "summarize"]})
+a2a_register("writer", {capabilities: ["write", "edit", "format"]})
+a2a_register("reviewer", {capabilities: ["review", "critique", "approve"]})
+a2a_register("coordinator", {capabilities: ["coordinate", "delegate", "monitor"]})
 
-// Register agents with capabilities
-a2a_register_agent bus "researcher" ["research", "analyze", "summarize"]
-a2a_register_agent bus "writer" ["write", "edit", "format"]
-a2a_register_agent bus "reviewer" ["review", "critique", "approve"]
-a2a_register_agent bus "coordinator" ["coordinate", "delegate", "monitor"]
+print("Registered agents: " + a2a_agents())
 
-// Direct message from coordinator to researcher
-a2a_send_message bus {
+// Direct message from the coordinator to the researcher
+a2a_send("researcher", {
   "from": "coordinator",
-  to: "researcher",
   type: "Task",
   content: "Research the latest trends in AI agents"
-}
+})
 
-// Broadcast message to all agents
-a2a_send_message bus {
+// Broadcast to every registered agent
+a2a_broadcast({
   "from": "coordinator",
-  to: "broadcast",
   type: "Announcement",
-  content: "Project kickoff: We're building a technical guide"
-}
+  content: "Project kickoff: we are building a technical guide"
+})
 
-// Task delegation with capability matching
-a2a_send_message bus {
+// Task delegation, naming the capabilities the work needs
+a2a_send("researcher", {
   "from": "coordinator",
-  to: "researcher",
   type: "Delegate",
   content: "Find 5 key papers on agent communication",
   capabilities_required: ["research", "analyze"]
-}
+})
 
-// Response from researcher to coordinator
-a2a_send_message bus {
+// Response back to the coordinator
+a2a_send("coordinator", {
   "from": "researcher",
-  to: "coordinator",
   type: "Response",
   content: "Research complete. Found 5 relevant papers.",
   in_reply_to: "task-001"
-}
+})
+
+print("Bus status: " + a2a_status())
 
 // The TUI provides:
-// - Message bus visualization (nodes and connections)
-// - Real-time message flow animation
+// - Message flow visualization (nodes and connections)
 // - Agent status indicators (idle, sending, receiving, processing)
 // - Message queue display per agent
 // - Capability registry view
-// - Message filtering and search
 // - Delivery confirmation tracking
-// - Network topology view
 //
 
-print "TUI A2A Protocol Demo Ready! Launch with: ae tui"
-print "Watch messages flow between agents in real-time!"
+print("TUI A2A Protocol Demo Ready! Launch with: ae tui")
+print("Watch messages flow between agents in real-time!")

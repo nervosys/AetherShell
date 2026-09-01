@@ -6,8 +6,8 @@ print("")
 
 # Create a compute cluster
 print("Creating cluster...")
-let cluster = cluster_create("demo-cluster")
-print("Cluster: " + cluster.name)
+let my_cluster = cluster_create("demo-cluster")
+print("Cluster: " + my_cluster.name)
 print("")
 
 # Add compute nodes

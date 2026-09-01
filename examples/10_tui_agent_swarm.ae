@@ -2,45 +2,30 @@
 // Launch with: ae tui
 //
 // This demo showcases multi-agent coordination in the TUI:
-// - Agent creation and management
+// - Agent creation
 // - Swarm coordination
 // - Real-time agent status
 // - Task distribution
 //
+// It calls a live model, so it needs a provider. Without one it says so and
+// stops rather than failing partway through.
 
-// Create individual agents with different roles
-researcher := agent {
-  goal: "Research functional programming concepts",
-  model: "openai:gpt-4o-mini",
-  tools: ["web_search", "read_file"],
-  max_steps: 10
+if env("AETHER_AI") == null {
+  print("Skipping: this example calls a live model. Set AETHER_AI to one of openai, ollama, irongate or compat (plus the matching API key) and run it again.")
 }
+if env("AETHER_AI") == null { exit(0) }
 
-writer := agent {
-  goal: "Write a technical blog post",
-  model: "openai:gpt-4o-mini",
-  tools: ["write_file", "format_markdown"],
-  max_steps: 8
-}
-
-reviewer := agent {
-  goal: "Review and provide feedback",
-  model: "anthropic:claude-3-5-sonnet-20241022",
-  tools: ["read_file", "analyze_text"],
-  max_steps: 5
-}
-
-// Create a swarm with coordination strategy
-content_team := swarm {
-  agents: [researcher, writer, reviewer],
-  policy: "router",  // Options: router, round-robin, coordinator
+// A swarm takes the goal, the tools its agents may use, and a step budget.
+// An earlier version of this file built individual `agent {...}` objects and
+// passed them to `swarm {agents: [...], policy: ...}`; no such shape exists,
+// so none of it ran.
+let content_team = swarm({
   goal: "Create a comprehensive guide on functional programming",
-  max_iters: 15,
-  shared_tools: ["read_file", "write_file"]
-}
+  tools: ["read_file", "write_file", "web_search"],
+  max_steps: 15
+})
 
-// Execute the swarm - TUI shows real-time progress
-content_team | print
+print(content_team)
 
 // The TUI provides:
 // - Agent status panel (active, idle, completed)
@@ -49,14 +34,16 @@ content_team | print
 // - Agent communication visualization
 // - Resource usage metrics
 // - Pause/resume controls
-// - Individual agent inspection
 //
 
-// Alternative: Sequential agents
-agents_run_sync [
-  {goal: "Step 1: Gather requirements", model: "openai:gpt-4o-mini", max_steps: 5},
-  {goal: "Step 2: Design solution", model: "openai:gpt-4o-mini", max_steps: 5},
-  {goal: "Step 3: Review design", model: "anthropic:claude-3-5-sonnet-20241022", max_steps: 3}
-] | print
+// Sequential alternative: one agent per step, each with its own goal.
+// (`agents_run_sync` was called here and has never existed.)
+let step1 = agent({goal: "Gather requirements", tools: ["read_file"], max_steps: 5})
+let step2 = agent({goal: "Design the solution", tools: ["read_file"], max_steps: 5})
+let step3 = agent({goal: "Review the design", tools: ["read_file"], max_steps: 3})
 
-print "TUI Agent Swarm Demo Ready! Launch with: ae tui"
+print(step1)
+print(step2)
+print(step3)
+
+print("TUI Agent Swarm Demo Ready! Launch with: ae tui")

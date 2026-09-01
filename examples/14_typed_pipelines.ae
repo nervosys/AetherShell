@@ -43,7 +43,7 @@ sales = [
   {region: "South", revenue: 1500},
   {region: "North", revenue: 2000}
 ]
-by_region = sales | group(fn(s) => s.region)
+by_region = sales | group("region")
 print("\nRegions: ${len(by_region)} groups")
 
 print("\n✨ Typed pipelines demonstrated!")

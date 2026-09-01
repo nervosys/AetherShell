@@ -621,13 +621,40 @@ pub fn eval_expr(expr: &Expr, env: &mut Env) -> Result<Value> {
             let val = eval_expr(inner, env)?;
             match val {
                 Value::Future(future) => {
-                    // Execute the async lambda with its captured arguments
-                    // Create a new environment for the lambda execution
-                    let mut inner_env = Env::new();
+                    // Bind the parameters in the *calling* environment and
+                    // restore afterwards — the same shape `call_lambda1` uses
+                    // for a plain lambda.
+                    //
+                    // This used to build a fresh `Env::new()`, so the body of an
+                    // async lambda could see nothing but its own arguments:
+                    //
+                    //     let inner = async fn(x) => x + 1
+                    //     let outer = async fn(n) => await inner(n)
+                    //
+                    // failed with `unknown builtin: inner`, because `inner` was
+                    // not a builtin and the fresh environment held no bindings.
+                    // Plain lambdas never had the problem, which is why it went
+                    // unnoticed.
+                    let _depth = crate::safety::enter_call()?;
+                    let saved_pipe = env.input().cloned();
+                    env.set_input(None);
+
+                    let mut saved: Vec<(String, Option<Value>)> = Vec::new();
                     for (param, arg) in future.lambda.params.iter().zip(future.args.iter()) {
-                        let _ = inner_env.set_var(param.clone(), arg.clone());
+                        saved.push((param.clone(), env.get_var(param).cloned()));
+                        env.set_var_unchecked(param, arg.clone());
                     }
-                    eval_expr(&future.lambda.body, &mut inner_env)
+
+                    let out = eval_expr(&future.lambda.body, env);
+
+                    for (name, old) in saved.into_iter().rev() {
+                        match old {
+                            Some(v) => env.set_var_unchecked(&name, v),
+                            None => env.del_var(&name),
+                        }
+                    }
+                    env.set_input(saved_pipe);
+                    out
                 }
                 // If it's not a future, just return the value (auto-await semantics)
                 other => Ok(other),
@@ -1299,6 +1326,35 @@ fn binop(op: &BinOp, a: Value, b: Value) -> Result<Value> {
         (Pow, Value::Float(x), Value::Float(y)) => Value::Float(x.powf(y)),
         (Pow, Value::Int(x), Value::Float(y)) => Value::Float((x as f64).powf(y)),
         (Pow, Value::Float(x), Value::Int(y)) => Value::Float(x.powf(y as f64)),
+
+        // String repetition. `"=" * 50` is how every shipped example draws a
+        // rule, and it was an error.
+        (Mul, Value::Str(s), Value::Int(n)) | (Mul, Value::Int(n), Value::Str(s)) => {
+            if n <= 0 {
+                Value::Str(String::new())
+            } else {
+                // A repeat count is trivially attacker- or typo-controlled, and
+                // `"x" * 10_000_000_000` would try to allocate 10 GB. Refuse
+                // rather than let the process be killed by the OOM killer.
+                const MAX_REPEAT_BYTES: usize = 8 * 1024 * 1024;
+                let want = s.len().saturating_mul(n as usize);
+                if want > MAX_REPEAT_BYTES {
+                    return Err(anyhow!(
+                        "string repeat would produce {} bytes, over the {} byte limit",
+                        want,
+                        MAX_REPEAT_BYTES
+                    ));
+                }
+                Value::Str(s.repeat(n as usize))
+            }
+        }
+
+        // Concatenating anything else with a string renders it the way the user
+        // would see it. Str+Int and Str+Float were special-cased above, so
+        // `"n: " + 1` worked while `"cache hit: " + true` was an error — an
+        // inconsistency with no reason behind it.
+        (Add, Value::Str(x), other) => Value::Str(format!("{}{}", x, other.to_display_string())),
+        (Add, other, Value::Str(y)) => Value::Str(format!("{}{}", other.to_display_string(), y)),
 
         (op, a, b) => return Err(anyhow!("unsupported op {:?} on {:?} and {:?}", op, a, b)),
     })

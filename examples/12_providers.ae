@@ -2,6 +2,13 @@
 # Demonstrates AetherShell's universal LLM provider interface
 
 # List all supported providers
+
+# This example calls live providers. Without one configured it says so and
+# stops, rather than failing partway through.
+if env("AETHER_AI") == null {
+  print("Skipping: set AETHER_AI (openai, ollama, irongate or compat) plus the matching API key to run this example.")
+}
+if env("AETHER_AI") == null { exit(0) }
 let providers = [
   "openai:gpt-4o",
   "anthropic:claude-3-5-sonnet-20241022", 
@@ -22,7 +29,7 @@ let response = ai "Hello, what is 2+2?"
 print response
 
 # Specify a specific model via URI
-let response2 = ai "Explain quantum computing in one sentence" --model "openai:gpt-4o"
+let response2 = ai("Explain quantum computing in one sentence", {model: "openai:gpt-4o"})
 print response2
 
 # Multi-turn conversation
@@ -30,7 +37,7 @@ let conversation = [
   { role: "system", content: "You are a helpful shell assistant." },
   { role: "user", content: "How do I list files in Linux?" }
 ]
-let response3 = ai_chat conversation --model "anthropic:claude-3-5-sonnet-20241022"
+let response3 = ai_chat(conversation, {model: "anthropic:claude-3-5-sonnet-20241022"})
 print response3
 
 # Using tools with the provider system
@@ -60,25 +67,25 @@ let tools = [
 ]
 
 # AI can request tool calls
-let agent_response = ai "What files are in the current directory?" --tools tools --model "openai:gpt-4o"
+let agent_response = ai("What files are in the current directory?", {tools: tools, model: "openai:gpt-4o"})
 print agent_response
 
 # Pipeline integration - AI processes structured data
 let files = ls "."
-let summary = files | ai "Summarize these files by type"
+let summary = files | ai("Summarize these files by type")
 print summary
 
 # Embeddings for semantic search
 let texts = ["shell scripting", "file management", "process control"]
-let embeddings = embed texts --model "openai:text-embedding-3-small"
+let embeddings = embed(texts, {model: "openai:text-embedding-3-small"})
 print "Generated embeddings for semantic search"
 
 # Provider-specific features
 # Streaming (when supported)
-ai_stream "Tell me a short story" --model "openai:gpt-4o" | fn(chunk) => print chunk
+ai_stream("Tell me a short story", {model: "openai:gpt-4o"}) | map(fn(chunk) => print(chunk))
 
 # Local models via Ollama
-ai "What is the meaning of life?" --model "ollama:llama3"
+ai("What is the meaning of life?", {model: "ollama:llama3"})
 
 print ""
 print "=== Provider System Features ==="
