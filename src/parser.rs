@@ -82,6 +82,22 @@ pub struct Parser {
     // When `match { ... }` appears inside a lambda body, the first parameter
     // of the innermost enclosing lambda is used as the implicit scrutinee.
     lambda_param_stack: Vec<Vec<String>>,
+    /// How deep the expression recursion currently is.
+    ///
+    /// The parser is recursive descent, so nesting in the *input* becomes
+    /// nesting on the *native stack*. Without a limit, roughly 15,000 nested
+    /// parentheses — or arrays, or records, or unary operators — overflowed the
+    /// stack and aborted the process:
+    ///
+    /// ```text
+    /// thread 'aether-eval' has overflowed its stack
+    /// ```
+    ///
+    /// That is a crash rather than an error, reachable by anyone who can hand
+    /// the shell a script, which for an agentic shell is the ordinary case.
+    /// The evaluator has guarded call depth since long before this; the parser
+    /// guarded nothing.
+    depth: usize,
 }
 
 /// Parse a program, returning statements and any errors encountered.
@@ -93,6 +109,7 @@ pub fn parse_program(src: &str) -> Result<Vec<Stmt>> {
         i: 0,
         allow_word_call: false,
         lambda_param_stack: Vec::new(),
+        depth: 0,
     };
 
     let mut stmts = Vec::new();
@@ -136,6 +153,7 @@ pub fn parse_program_strict(src: &str) -> Result<Vec<Stmt>> {
         i: 0,
         allow_word_call: false,
         lambda_param_stack: Vec::new(),
+        depth: 0,
     };
     let mut stmts = Vec::new();
     while !p.check(Tok::Eof) {
@@ -1013,13 +1031,55 @@ impl Parser {
         Ok(conditions)
     }
 
+    /// Deepest expression nesting accepted.
+    ///
+    /// Far above anything hand-written or machine-generated in practice, and
+    /// far below the ~15,000 at which the native stack gives out. Exceeding it
+    /// is a parse error, which a caller can handle; overflowing the stack is
+    /// not.
+    const MAX_EXPR_DEPTH: usize = 512;
+
+    /// Refuse an over-long operator/postfix chain.
+    ///
+    /// These loops are iterative, so they never overflow the *parser's* stack —
+    /// but each turn adds one level to the AST, and evaluating (or dropping)
+    /// that AST is recursive. `1 + 1 + 1 …` 40,000 times parsed happily and
+    /// then overflowed the stack somewhere else entirely, which is the worst
+    /// place for it to surface. Bounding the chain bounds the tree.
+    fn chain_guard(&self, links: usize) -> Result<()> {
+        if links > Self::MAX_EXPR_DEPTH {
+            return Err(anyhow::anyhow!(
+                "expression chain longer than {} at line {}, column {}",
+                Self::MAX_EXPR_DEPTH,
+                self.peek().line,
+                self.peek().col
+            ));
+        }
+        Ok(())
+    }
+
     fn parse_expr(&mut self) -> Result<Expr> {
-        self.parse_pipe()
+        self.depth += 1;
+        if self.depth > Self::MAX_EXPR_DEPTH {
+            self.depth -= 1;
+            return Err(anyhow::anyhow!(
+                "expression nested more than {} deep at line {}, column {}",
+                Self::MAX_EXPR_DEPTH,
+                self.peek().line,
+                self.peek().col
+            ));
+        }
+        let out = self.parse_pipe();
+        self.depth -= 1;
+        out
     }
 
     fn parse_pipe(&mut self) -> Result<Expr> {
         let mut left = self.parse_logic_or()?;
+        let mut links = 0usize;
         while self.match_tok(Tok::Pipe) {
+            links += 1;
+            self.chain_guard(links)?;
             // Field projection: `xs |.name` / `xs |.a.b` desugars to
             // `xs | map(fn(__) => __.name)` directly in the grammar (Phase 5:
             // the terse form lives in the parser, not a text pre-pass).
@@ -1149,7 +1209,10 @@ impl Parser {
 
     fn parse_logic_or(&mut self) -> Result<Expr> {
         let mut e = self.parse_logic_and()?;
+        let mut links = 0usize;
         while self.match_tok(Tok::OrOr) {
+            links += 1;
+            self.chain_guard(links)?;
             let r = self.parse_logic_and()?;
             e = Expr::Binary {
                 left: Box::new(e),
@@ -1162,7 +1225,10 @@ impl Parser {
 
     fn parse_logic_and(&mut self) -> Result<Expr> {
         let mut e = self.parse_equality()?;
+        let mut links = 0usize;
         while self.match_tok(Tok::AndAnd) {
+            links += 1;
+            self.chain_guard(links)?;
             let r = self.parse_equality()?;
             e = Expr::Binary {
                 left: Box::new(e),
@@ -1175,7 +1241,10 @@ impl Parser {
 
     fn parse_equality(&mut self) -> Result<Expr> {
         let mut e = self.parse_comparison()?;
+        let mut links = 0usize;
         loop {
+            links += 1;
+            self.chain_guard(links)?;
             if self.match_tok(Tok::EqEq) {
                 let r = self.parse_comparison()?;
                 e = Expr::Binary {
@@ -1199,7 +1268,10 @@ impl Parser {
 
     fn parse_comparison(&mut self) -> Result<Expr> {
         let mut e = self.parse_term()?;
+        let mut links = 0usize;
         loop {
+            links += 1;
+            self.chain_guard(links)?;
             if self.match_tok(Tok::Lt) {
                 let r = self.parse_term()?;
                 e = Expr::Binary {
@@ -1237,7 +1309,10 @@ impl Parser {
 
     fn parse_term(&mut self) -> Result<Expr> {
         let mut e = self.parse_factor()?;
+        let mut links = 0usize;
         loop {
+            links += 1;
+            self.chain_guard(links)?;
             if self.match_tok(Tok::Plus) {
                 let r = self.parse_factor()?;
                 e = Expr::Binary {
@@ -1262,7 +1337,10 @@ impl Parser {
     fn parse_factor(&mut self) -> Result<Expr> {
         // Handle multiplicative operators and exponentiation (right-assoc)
         let mut e = self.parse_power()?;
+        let mut links = 0usize;
         loop {
+            links += 1;
+            self.chain_guard(links)?;
             if self.match_tok(Tok::Star) {
                 let r = self.parse_power()?;
                 e = Expr::Binary {
@@ -1306,6 +1384,26 @@ impl Parser {
     }
 
     fn parse_unary(&mut self) -> Result<Expr> {
+        // `parse_unary` recurses into itself for prefix chains (`!!!x`, `---x`,
+        // `await await x`) without passing through `parse_expr`, so it needs
+        // its own guard: 50,000 leading `-` overflowed the stack even after
+        // parenthesis nesting was bounded.
+        self.depth += 1;
+        if self.depth > Self::MAX_EXPR_DEPTH {
+            self.depth -= 1;
+            return Err(anyhow::anyhow!(
+                "expression nested more than {} deep at line {}, column {}",
+                Self::MAX_EXPR_DEPTH,
+                self.peek().line,
+                self.peek().col
+            ));
+        }
+        let out = self.parse_unary_inner();
+        self.depth -= 1;
+        out
+    }
+
+    fn parse_unary_inner(&mut self) -> Result<Expr> {
         if self.match_tok(Tok::Bang) {
             let e = self.parse_unary()?;
             Ok(Expr::Unary {
@@ -1333,7 +1431,10 @@ impl Parser {
 
     fn parse_postfix(&mut self) -> Result<Expr> {
         let mut e = self.parse_atom_expr()?;
+        let mut links = 0usize;
         loop {
+            links += 1;
+            self.chain_guard(links)?;
             if self.match_tok(Tok::LParen) {
                 let mut args = Vec::new();
                 if !self.check(Tok::RParen) {

@@ -7,7 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed — a crash found by adversarial probing
+
+- **Deeply nested input overflowed the stack and aborted the process.** The
+  parser is recursive descent, so nesting in the input became nesting on the
+  native stack, and nothing bounded it. At roughly 15,000 levels:
+
+  ```text
+  thread 'aether-eval' has overflowed its stack
+  ```
+
+  A crash, not an error, reachable by anyone who can hand the shell a script —
+  which for an agentic shell is the ordinary case. The evaluator had guarded
+  call depth at 2,000 since long before; the parser guarded nothing.
+
+  It had three separate sources, and closing it took three passes:
+
+  1. **Bracket nesting** (`(((…`, `[[[…`, `{a:{a:…`) — bounded by a depth
+     counter in the expression parser.
+  2. **Prefix chains** (`----1`, `!!!!true`, `await await …`) — `parse_unary`
+     recurses into itself without passing through that counter, so the first
+     guard never fired for them.
+  3. **Operator and postfix chains** (`x.f.f.f…`, `1 + 1 + 1…`, `a | f | f…`) —
+     these parse *iteratively*, so the parser's own stack was never at risk.
+     They built a tree tens of thousands deep that overflowed whatever walked
+     it next, which put the failure a long way from its cause.
+
+  The limit is 512 levels: far above anything hand-written or generated in
+  practice, far below where the stack gives out. Exceeding it is a parse error,
+  which a caller can handle.
+
+### Testing
+
+- **`tests/hostile_input.rs`** — the shell must never abort and must always
+  terminate on input it did not choose. Covers nesting depth, prefix and
+  operator chains, unbalanced brackets, malformed and adversarial bytes (NUL,
+  control characters, RTL override, BOM, 500 KB literals), and pathological
+  interpolation — alongside cases asserting that ordinary programs still run,
+  because a depth limit that rejected real code would be worse than the crash.
+  Verified red: five of its tests report `Crashed("stack overflow")` against an
+  unguarded parser.
 
 ## [11.0.0] - 2026-09-01
 
