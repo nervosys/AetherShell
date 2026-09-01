@@ -112,135 +112,120 @@ fn test_example_02_tables() {
 }
 
 // ============================================================================
-// BROKEN EXAMPLES (marked as ignored until fixed)
+// EXAMPLES REQUIRING AN EXTERNAL SERVICE
 // ============================================================================
+//
+// This section was headed "BROKEN EXAMPLES (marked as ignored until fixed)"
+// and held eighteen ignored tests. Fifteen were not broken. `01_pipelines`
+// and `19_showcase` blamed word-call greedy parsing across statements, which
+// the same-line guard in `parse_postfix` fixed; `07_uri_types`,
+// `12_multi_agent_orchestration`, `13_multimodal_ai`, `15_ai_protocols` and
+// the TUI examples claimed to need AI or a terminal and call neither. All
+// fifteen run, and are no longer ignored.
+//
+// Nothing rechecked them, so an ignore written for a bug outlived the bug by
+// several releases and took fourteen honest tests with it.
+//
+// The three below stay ignored because they genuinely reach outside the
+// process. Each says what it needs, so the next reader can tell a real
+// dependency from a stale excuse.
 
 #[test]
-#[ignore]
 fn test_example_01_pipelines() {
-    // Currently broken due to word-call greedy parsing across statements
-    // Will pass after parser improvements
     run_example("01_pipelines.ae").expect("01_pipelines.ae should work after parser fix");
 }
 
 #[test]
 #[ignore]
 fn test_example_03_http() {
-    // Requires network access and HTTP implementation
+    // Fetches https://api.github.com over the network: it passes on a
+    // connected machine and fails on an isolated runner.
     run_example("03_http.ae").expect("03_http.ae should work with HTTP builtins");
 }
 
 #[test]
 #[ignore]
 fn test_example_05_ai() {
-    // Requires OPENAI_API_KEY or Ollama setup
+    // Calls ai("What is 2+2?"), which needs a configured backend
+    // (OPENAI_API_KEY, or a local Ollama).
     run_example("05_ai.ae").expect("05_ai.ae should work with AI configuration");
 }
 
 #[test]
-#[ignore]
 fn test_example_06_agent() {
-    // Requires AI configuration and AGENT_ALLOW_CMDS
     run_example("06_agent.ae").expect("06_agent.ae should work with agent configuration");
 }
 
 #[test]
-#[ignore]
 fn test_example_07_uri_types() {
-    // Requires AI backends
     run_example("07_uri_types.ae").expect("07_uri_types.ae should work with AI");
 }
 
 #[test]
-#[ignore]
 fn test_example_09_tui_multimodal() {
-    // Requires --tui flag and AI
-    // Note: Can't easily test TUI mode in automated tests
     run_example("09_tui_multimodal.ae").expect("09_tui_multimodal.ae should work in TUI mode");
 }
 
 #[test]
-#[ignore]
 fn test_example_10_tui_agent_swarm() {
-    // Requires --tui flag and AI
     run_example("10_tui_agent_swarm.ae").expect("10_tui_agent_swarm.ae should work in TUI mode");
 }
 
 #[test]
-#[ignore]
 fn test_example_11_tui_showcase() {
-    // Requires --tui flag and AI
     run_example("11_tui_showcase.ae").expect("11_tui_showcase.ae should work in TUI mode");
 }
 
 #[test]
-#[ignore]
 fn test_example_12_multi_agent_orchestration() {
-    // Requires AI configuration
     run_example("12_multi_agent_orchestration.ae")
         .expect("12_multi_agent_orchestration.ae should work with AI");
 }
 
 #[test]
-#[ignore]
 fn test_example_13_multimodal_ai() {
-    // Requires AI configuration and media files
     run_example("13_multimodal_ai.ae").expect("13_multimodal_ai.ae should work with multimodal AI");
 }
 
 #[test]
-#[ignore]
 fn test_example_14_typed_pipelines() {
-    // Uses dot notation (now works) but may have other issues
     run_example("14_typed_pipelines.ae").expect("14_typed_pipelines.ae should work");
 }
 
 #[test]
-#[ignore]
 fn test_example_15_ai_protocols() {
-    // Requires AI configuration
     run_example("15_ai_protocols.ae").expect("15_ai_protocols.ae should work with AI");
 }
 
 #[test]
-#[ignore]
 fn test_example_16_mcp_servers() {
-    // Requires MCP setup and potentially DB features
     run_example("16_mcp_servers.ae").expect("16_mcp_servers.ae should work with MCP");
 }
 
 #[test]
-#[ignore]
 fn test_example_19_showcase() {
-    // Comprehensive language feature showcase
-    // Ignored due to word-call greedy parsing issue
     run_example("19_showcase.ae").expect("19_showcase.ae should run successfully");
 }
 
 #[test]
-#[ignore]
 fn test_example_20_tui_a2a() {
-    // Requires --tui flag and AI for A2A protocol
     run_example("20_tui_a2a.ae").expect("20_tui_a2a.ae should work in TUI mode");
 }
 
 #[test]
-#[ignore]
 fn test_example_21_tui_chat() {
-    // Requires --tui flag
     run_example("21_tui_chat.ae").expect("21_tui_chat.ae should work in TUI mode");
 }
 
 #[test]
 #[ignore]
 fn test_example_22_tui_mcp() {
-    // Requires --tui flag and MCP setup
+    // Starts and detects MCP servers, so it depends on what is
+    // installed and listening on the machine.
     run_example("22_tui_mcp.ae").expect("22_tui_mcp.ae should work in TUI mode");
 }
 
 #[test]
-#[ignore]
 fn test_example_23_tui_nanda() {
-    // Requires --tui flag and AI for NANDA protocol
     run_example("23_tui_nanda.ae").expect("23_tui_nanda.ae should work in TUI mode");
 }
