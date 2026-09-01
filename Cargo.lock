@@ -45,7 +45,7 @@ dependencies = [
 
 [[package]]
 name = "aethershell"
-version = "11.0.1"
+version = "11.0.2"
 dependencies = [
  "aes-gcm",
  "agentic-eval",
@@ -122,7 +122,7 @@ dependencies = [
 
 [[package]]
 name = "aethershell-lsp"
-version = "11.0.1"
+version = "11.0.2"
 dependencies = [
  "aethershell",
  "anyhow",

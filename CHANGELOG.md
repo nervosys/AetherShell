@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [11.0.2] - 2026-09-01
+
+An integrity fix for the audit log, in the configuration the defaults produce.
+The failure mode was silent: a torn record makes the log unparseable, and a
+tamper alarm that fires whenever two agents run trains people to ignore the
+real ones.
+
+
 ### Fixed — the audit log under concurrent writers
 
 Found by probing the case the default configuration produces: in agent mode the

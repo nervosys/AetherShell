@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: AetherShell Agent API
-  version: 11.0.1
+  version: 11.0.2
   description: >
     Structured JSON API for AI agents to interact with AetherShell, a typed
     functional shell with 1,300+ builtins. Start the server with
