@@ -232,6 +232,7 @@ pub mod tui;
 pub mod tx;
 /// Workflows — workflow engine for multi-step automation.
 #[cfg(feature = "native")]
+pub mod workflow_builtins;
 pub mod workflows;
 
 /// WASM bindings — browser REPL and web integration.

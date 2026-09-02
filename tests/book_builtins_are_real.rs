@@ -1,11 +1,19 @@
 //! A builtin the documentation tells you to call must be one the shell has.
 //!
 //! Publishing the book turned its contents from private notes into
-//! instructions, and the audit that followed found several calls that do not
-//! exist: `agent_reset` for clearing an agent's memory (`unknown builtin:
-//! agent_reset`), and `workflow_templates` among sixteen `workflow_*` names
-//! declared in `src/workflows.rs` by a `workflow_builtins()` whose only caller
-//! is its own unit test.
+//! instructions, and the audit that followed found calls that do not exist:
+//! `agent_reset`, documented for clearing an agent's memory, which the shell
+//! answers with `unknown builtin: agent_reset`.
+//!
+//! # What this cannot catch
+//!
+//! The index is names the *source quotes*, which is a proxy for names the
+//! shell serves, and the two are not the same. Every `workflow_*` name was
+//! quoted in `src/workflows.rs` for months while nothing registered any of
+//! them, so `workflow_create` answered `unknown builtin` and this rule would
+//! have passed a chapter documenting it. That gap was closed by registering
+//! them, not by this test. A name that is quoted but unserved still slips
+//! through; catching those needs the dispatcher itself, not a text index.
 //!
 //! Those are worse than a gap. A reader who follows a chapter and gets
 //! `unknown builtin` assumes they typed it wrong, or that their install is

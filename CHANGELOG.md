@@ -7,6 +7,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — the workflow engine reaches the shell
+
+`workflow_builtins()` listed sixteen names and nothing registered any of them,
+so `workflow_create` at the prompt answered `unknown builtin`. All sixteen are
+served now, from `src/workflow_builtins.rs`:
+
+```aethershell
+let t = workflow_pipeline("demo", [
+  {id: "up",    run: "upper", args: ["hello"], output: "$.shouted"},
+  {id: "count", run: "len",   input: "$.shouted"}
+])
+workflow_execute(workflow_create(t, {input: null}))
+# 5
+```
+
+A step is a record whose kind is decided by one key — `run`, `agent`, `url`,
+`delay_ms`, `emit`, `wait` or `workflow` — with `id`, `input`, `output`, `when`,
+`timeout_ms`, `retries` and `compensate` available to any of them. The first
+test iterates `workflow_builtins()` and requires the dispatcher to answer every
+name, so the list and the implementation cannot drift apart the way they did.
+
+Three things this needed that are worth recording:
+
+- **Effect classification was not optional.** `safety::effect_of` falls through
+  to `Pure` for a name it does not know, so registering sixteen builtins without
+  classifying them would have advertised "run this workflow" to every agent as
+  side-effect-free. `workflow_execute` is `Exec` — it is `sh` wearing a template
+  — and so are the template builders, because what they store is the list of
+  commands `workflow_execute` will later run. `workflow_cancel`, `pause`,
+  `resume` and `create` are `Process`; the read-only calls stay `Pure`.
+  Confirmed in agent mode: `workflow_execute` and `workflow_create` demand
+  approval, `workflow_templates` does not.
+- **The async bridge has three cases.** A naive `Runtime::new().block_on()`
+  panics when a runtime is already running, which is exactly the situation
+  inside `ae mcp` and `ae agent serve`. With no runtime, these use their own;
+  inside a multi-thread runtime they hand the thread to `block_in_place` and
+  reuse it; inside a current-thread runtime there is no safe move, so they
+  report rather than deadlock. The last two have tests, because both are panics
+  rather than errors when got wrong.
+- **`ai/workflows.md` is back in the book**, written from commands run against
+  the shell. It was removed when the surface turned out not to exist.
+
+### Changed — `WorkflowEvent` and `WorkflowContext` are `#[non_exhaustive]`
+
+**Correction.** An earlier note in this session said marking them so would make
+the `Custom` variant and the `depth` field a minor change. That is wrong:
+downstream code that matched `WorkflowEvent` exhaustively against 11.0.1 stops
+compiling as soon as `Custom` exists, and `#[non_exhaustive]` does not undo it.
+What the attribute buys is that the *next* variant or field is free. Applied for
+that reason, with `WorkflowContext::new` since a struct literal is no longer
+available outside the crate.
+
+This remains a major-version change.
+
+### Fixed — a documentation ratchet claimed a catch it never made
+
+`tests/book_builtins_are_real.rs` said it existed partly because of
+`workflow_templates` being documented while unregistered. It could not have
+caught that. The test indexes names the *source quotes*, as a proxy for names
+the shell serves, and every `workflow_*` name was quoted in `src/workflows.rs`
+throughout — so a chapter documenting them would have passed. The gap closed by
+registering the builtins, not by the test. Its documentation now says what it
+cannot see: a name that is quoted but unserved still slips through, and catching
+those needs the dispatcher rather than a text index.
+
 ### Fixed — the workflow engine described its work instead of doing it
 
 `src/workflows.rs` is 1,733 lines added in January and touched twice since,

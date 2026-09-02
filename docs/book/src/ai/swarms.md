@@ -39,6 +39,9 @@ set_env("AETHER_AGENT_MODEL_URI", "openai:gpt-4o")
 set_env("AETHER_SWARM_AGENT_MODEL_URI", "ollama:llama3")
 ```
 
+See [Workflows](./workflows.md) for the orchestration surface, which is
+registered and runnable.
+
 There is no `model` key in the record form. `agent`/`swarm` read exactly four
 keys — `goal`, `tools`, `max_steps`, `dry_run` — and silently ignore the rest,
 so a `model:` entry has no effect.

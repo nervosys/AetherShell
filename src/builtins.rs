@@ -4135,6 +4135,16 @@ fn call_with_input_inner(
         return result;
     }
 
+    // The workflow engine's own surface. It lives in its own module because it
+    // is the one family of builtins that has to bridge to an async engine, and
+    // that bridge has to know which kind of runtime it was called from.
+    if let Some(result) = crate::workflow_builtins::call(name, args.clone(), input.clone()) {
+        if result.is_err() {
+            crate::journal::rollback_to(journal_mark);
+        }
+        return result;
+    }
+
     // Fall back to the comprehensive match for functions not in fast lookup
     match name {
         // PowerShell-style cmdlets (not in fast lookup)

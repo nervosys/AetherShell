@@ -356,14 +356,28 @@ fn classified_effect(name: &str) -> Option<Effect> {
         // so it is not pure even though it only reports.
         // Restarting a service is process-lifecycle control, not a data write:
         // it interrupts whatever that service was doing.
-        "proc_kill" | "kill" | "signal" | "pkill" | "sudo_check"
+        // Cancelling, pausing or resuming a workflow is lifecycle control over
+        // something that is running, which is what Process means here.
+        "workflow_cancel" | "workflow_pause" | "workflow_resume"
+        | "workflow_create" | "circuit_breaker_create"
+        | "proc_kill" | "kill" | "signal" | "pkill" | "sudo_check"
         | "svc_restart" | "k8s_rollout_restart" => Some(Effect::Process),
         // Every builtin whose argument *is* a command to run. These are the
         // same capability as `sh` under different names; classifying them as
         // `Pure` told `agent_api`'s discovery — and any other consumer of this
         // function — that `timeout("rm -rf /")` was a side-effect-free call.
         // Keep in step with the `guard_exec` call sites in `builtins.rs`.
-        "sh" | "exec" | "system" | "timeout" | "timeout_cmd" | "xargs" | "xargs_exec"
+        // A workflow step names a builtin to run, so executing one is the same
+        // capability as `sh` wearing a template. Every step is gated again on
+        // its own way through `call_with_input`, but an agent asking whether it
+        // may run a workflow must not be told the call is side-effect free.
+        | "workflow_execute"
+        // These build a template out of caller-supplied step records. Nothing
+        // runs yet, but what they store is the list of commands `workflow_execute`
+        // will later run, so they are not reads.
+        | "workflow_register" | "workflow_pipeline" | "workflow_map_reduce"
+        | "workflow_saga" | "workflow_fan_out" | "workflow_scatter_gather"
+        | "sh" | "exec" | "system" | "timeout" | "timeout_cmd" | "xargs" | "xargs_exec"
         | "proc_spawn" | "strace" | "strace_cmd" | "ltrace" | "ltrace_cmd"
         | "perf_stat" | "perf_record" | "tmux_new" | "tmux_send"
         // Also found by `tests/effect_coverage.rs`. Each of these runs a program

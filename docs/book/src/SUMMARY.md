@@ -36,6 +36,7 @@
 - [Creating Agents](./ai/agents.md)
 - [Agent Swarms](./ai/swarms.md)
 - [Tool Use](./ai/tools.md)
+- [Workflows](./ai/workflows.md)
 
 # TUI & Interactive Mode
 

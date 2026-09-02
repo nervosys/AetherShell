@@ -69,6 +69,9 @@ pub type StepId = String;
 
 /// Workflow execution context
 #[derive(Debug, Clone, Serialize, Deserialize)]
+// Same reasoning as `WorkflowEvent`: construct one with `new` or `default` and
+// set what you need, so a future field is additive.
+#[non_exhaustive]
 pub struct WorkflowContext {
     /// Workflow instance ID
     pub workflow_id: WorkflowId,
@@ -89,6 +92,19 @@ pub struct WorkflowContext {
     /// otherwise recurse until the stack ran out.
     #[serde(default)]
     pub depth: u32,
+}
+
+impl WorkflowContext {
+    /// A fresh context for one workflow instance.
+    ///
+    /// The struct is `#[non_exhaustive]`, so this and [`Default`] are how one
+    /// is built from outside the crate.
+    pub fn new(workflow_id: impl Into<WorkflowId>) -> Self {
+        Self {
+            workflow_id: workflow_id.into(),
+            ..Default::default()
+        }
+    }
 }
 
 /// How many levels of `SubWorkflow` nesting are allowed before a workflow is
@@ -145,6 +161,10 @@ pub enum WorkflowStatus {
 
 /// Workflow event for monitoring and choreography
 #[derive(Debug, Clone, Serialize, Deserialize)]
+// Marked non-exhaustive so the *next* variant is not a breaking change. It does
+// not rescue this one: downstream code that matched exhaustively against 11.0.1
+// stops compiling either way, because `Custom` is already there.
+#[non_exhaustive]
 pub enum WorkflowEvent {
     Started {
         workflow_id: WorkflowId,
