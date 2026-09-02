@@ -9,6 +9,79 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Nothing yet.
 
+## [12.0.1] - 2026-09-02
+
+### Fixed — a torn read of a concurrent append was reported as tampering
+
+**This corrects a claim 11.0.2 made.** That release said the per-process
+`writer` id meant "a differing writer is recognised as concurrency rather than
+tampering", and presented the false-alarm problem as solved. It was not. The
+writer check sat inside `if let Ok(parsed)`:
+
+```rust
+if let Ok(o) = serde_json::from_str::<Json>(&line) {
+    if let Some(w) = o.get("writer").and_then(|v| v.as_str()) {
+        if w != writer_id() { return None; }   // concurrency, not an attack
+    }
+}
+```
+
+so it only ran when the tail line parsed. `read_last_line` carried the comment
+"With a partial window the first line may be a fragment; the last one never
+is", and under concurrency that is false: a reader can catch another process's
+append in flight and see a truncated final line. Parsing then fails, the
+concurrency check is skipped entirely, the observed hash falls through as
+empty, and an empty string never matches — so the log records
+`decision: tamper-detected, effect: privileged` against ordinary two-agent
+operation.
+
+`detect_tail_divergence` now reads the last line that *parses* rather than the
+last line, so an in-flight append is skipped instead of being read as evidence.
+A log whose window holds no complete entry at all is still reported, because
+that is not something concurrency produces.
+
+**How it was found, and why the suite missed it.** `audit_concurrency` already
+had the right test — `concurrent_writers_never_tear_a_record`, asserting
+exactly 80 entries for two writers of 40 operations. The coverage existed; the
+power did not. Measured failure rate: about one run in seven, and only under
+load. It passed three consecutive full-suite runs across Windows and Linux
+before a loaded ubuntu CI runner produced 81 entries. 11.0.2 cut the false
+alarms from 33 per run to roughly 0.15 per run — a 200× improvement, which in a
+changelog reads as a fix.
+
+Measurements after the change, on the same machine and load that produced the
+failures: **260 concurrent runs, 0 anomalies**, against 15% before. The stress
+harness counts writer-id transitions per log and refuses to credit a run where
+the two processes did not actually interleave — a concurrency test that does
+not concurrently execute proves nothing, and the first stress pass was
+initially suspect for finishing 100 runs in three seconds.
+
+Two deterministic regression tests replace reliance on the racy one:
+
+- `a_partially_written_tail_is_not_reported_as_tampering` appends a truncated
+  line by hand and asserts no marker appears. It fails against the previous
+  code and passes against this one.
+- `skipping_a_torn_tail_does_not_hide_a_rewrite_beneath_it` guards the other
+  direction, so the relaxation cannot blind the check to a real rewrite.
+
+Every existing tamper test still passes, including
+`truncation_between_appends_is_recorded_in_the_log` and
+`relabelling_a_writer_id_is_detected_as_tampering`: a genuine rewrite is still
+caught, and only the false alarm is gone.
+
+### Fixed — the release digest could not be read back
+
+The `homebrew-digest` job added in 12.0.0 wrote the tarball sha256 only to
+`$GITHUB_STEP_SUMMARY`, which cannot be grepped from the job log or fetched
+from the API — so the digest could not be cross-checked against the committed
+formula, which was the entire reason for computing it in CI. It is now echoed
+to stdout as well, with the tarball's byte count.
+
+### Note on 12.0.0
+
+12.0.0 is tagged and its binaries are published, and it carries the audit
+defect above. It was never published to crates.io. Use 12.0.1.
+
 ## [12.0.0] - 2026-09-02
 
 A major version because the workflow engine's public types changed shape, not because the shell did. `WorkflowEvent` gained a variant and

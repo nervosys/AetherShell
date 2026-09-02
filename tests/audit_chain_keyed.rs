@@ -301,6 +301,84 @@ fn truncation_between_appends_is_recorded_in_the_log() {
     let _ = std::fs::remove_file(&log);
 }
 
+/// A half-written last line is another process appending, not an attacker.
+///
+/// `detect_tail_divergence` read the last *line* of the log and, when it failed
+/// to parse, fell straight through to the hash comparison: the writer-id check
+/// that recognises concurrency sat inside `if let Ok(..)` and was skipped, and
+/// an empty hash never matches, so the log recorded `tamper-detected`.
+///
+/// Two concurrent writers hit this in roughly one run in seven under load --
+/// found by CI on ubuntu (81 entries where 80 were expected) after the same
+/// suite had passed on Windows and on a quiet Linux box. The mechanism is
+/// reproduced deterministically here rather than by racing processes, because
+/// the racing version only catches it about 15% of the time.
+#[test]
+fn a_partially_written_tail_is_not_reported_as_tampering() {
+    let _g = lock();
+    install_key();
+    let log = tmp_log("torn-tail");
+    write_entries(&log, 2);
+
+    // Exactly what a reader sees when it catches another process's append in
+    // flight: a final line with no terminator and truncated JSON.
+    {
+        use std::io::Write;
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&log)
+            .expect("open log for append");
+        f.write_all(b"{\"builtin\":\"file_write\",\"seq\":9,\"entry_ha")
+            .expect("append a torn line");
+    }
+
+    write_entries(&log, 1);
+
+    let content = std::fs::read_to_string(&log).expect("read");
+    assert!(
+        !content.contains("tamper-detected"),
+        "a torn final line was reported as tampering; that is the false alarm \
+         the writer id was supposed to end, arriving by another route:\n{content}"
+    );
+
+    let _ = std::fs::remove_file(&log);
+}
+
+/// The relaxation above must not blind the check to a real rewrite.
+///
+/// Same shape as the torn-tail case -- an unparseable final line -- except the
+/// entries before it have been replaced. The tail check should still find the
+/// last complete entry, see that it is this writer's and does not match what
+/// this process last wrote, and say so.
+#[test]
+fn skipping_a_torn_tail_does_not_hide_a_rewrite_beneath_it() {
+    let _g = lock();
+    install_key();
+    let log = tmp_log("torn-over-rewrite");
+    write_entries(&log, 2);
+
+    // Rewrite the whole log with an entry this process never wrote, then leave
+    // a torn line on the end.
+    let forged = std::fs::read_to_string(&log)
+        .expect("read")
+        .lines()
+        .next()
+        .expect("at least one entry")
+        .replace("file_write", "file_read");
+    std::fs::write(&log, format!("{forged}\n{{\"seq\":9,\"entry_ha"))
+        .expect("rewrite with a torn tail");
+
+    write_entries(&log, 1);
+
+    let content = std::fs::read_to_string(&log).expect("read");
+    assert!(
+        content.contains("tamper-detected"),
+        "a rewrite hiding under a torn last line went unremarked:\n{content}"
+    );
+
+    let _ = std::fs::remove_file(&log);
+}
+
 // ── The append-only sink (AS-2026-02 residue) ────────────────────────────
 
 /// Keying stops anyone who can only *write* the log from forging it. It does

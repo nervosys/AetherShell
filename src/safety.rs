@@ -1838,12 +1838,53 @@ fn read_last_line(path: &PathBuf) -> Option<String> {
     let mut buf = Vec::with_capacity((len - start) as usize);
     f.read_to_end(&mut buf).ok()?;
     let text = String::from_utf8_lossy(&buf);
-    // With a partial window the first line may be a fragment; the last one
-    // never is, which is all this needs.
+    // With a partial window the first line may be a fragment.
+    //
+    // The last one can be too. This used to say it never is, and that was
+    // wrong: another process appending while this one reads can be observed
+    // mid-write, and the reader then sees a truncated final line. Measured at
+    // ~15% of runs with two concurrent writers under load.
+    //
+    // A caller that needs a *usable* tail should ask for the last line that
+    // parses, not the last line; see `read_last_entry_line`.
     text.lines()
         .rev()
         .find(|l| !l.trim().is_empty())
         .map(|s| s.to_string())
+}
+
+/// The last line of the log that is a complete JSON entry.
+///
+/// Trailing garbage is skipped rather than read as evidence. A line that does
+/// not parse is far more often another process's append caught in flight than
+/// it is an attack, and the two were indistinguishable to
+/// [`detect_tail_divergence`], which reported the torn read as
+/// `tamper-detected`. An alarm that fires because two agents wrote at once is
+/// the alarm nobody reads -- the same failure the per-process writer id was
+/// added to fix, arriving by a different route.
+///
+/// Returns the parsed entry with its line, or `None` if the window holds no
+/// complete entry at all. That case is genuinely suspicious and the caller
+/// still treats it as such.
+fn read_last_entry_line(path: &PathBuf) -> Option<Json> {
+    use std::io::{Read, Seek, SeekFrom};
+    const WINDOW: u64 = 64 * 1024;
+
+    let mut f = std::fs::File::open(path).ok()?;
+    let len = f.metadata().ok()?.len();
+    if len == 0 {
+        return None;
+    }
+    let start = len.saturating_sub(WINDOW);
+    f.seek(SeekFrom::Start(start)).ok()?;
+    let mut buf = Vec::with_capacity((len - start) as usize);
+    f.read_to_end(&mut buf).ok()?;
+    let text = String::from_utf8_lossy(&buf);
+
+    text.lines()
+        .rev()
+        .filter(|l| !l.trim().is_empty())
+        .find_map(|l| serde_json::from_str::<Json>(l).ok())
 }
 
 /// Has the log been rewritten underneath us since our last append?
@@ -1885,29 +1926,34 @@ fn detect_tail_divergence(path: &PathBuf, state: &AuditState) -> Option<String> 
     if state.seq == 0 {
         return None;
     }
-    match read_last_line(path) {
-        None => Some("the audit log is missing or empty".to_string()),
-        Some(line) => {
+    // The last *complete* entry, not the last line. A partially written line at
+    // the end of the file is another process appending, not an attacker.
+    match read_last_entry_line(path) {
+        None => {
+            // No complete entry anywhere in the window. An empty or missing
+            // file, or one whose tail is entirely unreadable -- both are worth
+            // reporting, and neither is produced by ordinary concurrency.
+            if read_last_line(path).is_none() {
+                Some("the audit log is missing or empty".to_string())
+            } else {
+                Some("the audit log tail holds no complete entry".to_string())
+            }
+        }
+        Some(entry) => {
             // Another process appending to the same log is a different thing
             // from someone rewriting it, and calling both "tamper-detected"
             // makes the alarm useless in the configuration agent mode ships
             // with. If the tail carries a different writer id, this is
             // concurrency; the log is still not a single verifiable chain, and
             // `verify_audit` says so, but it is not evidence of an attacker.
-            if let Ok(o) = serde_json::from_str::<Json>(&line) {
-                if let Some(w) = o.get("writer").and_then(|v| v.as_str()) {
-                    if w != writer_id() {
-                        return None;
-                    }
+            if let Some(w) = entry.get("writer").and_then(|v| v.as_str()) {
+                if w != writer_id() {
+                    return None;
                 }
             }
-            let observed = serde_json::from_str::<Json>(&line)
-                .ok()
-                .and_then(|o| {
-                    o.get("entry_hash")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string())
-                })
+            let observed = entry
+                .get("entry_hash")
+                .and_then(|v| v.as_str())
                 .unwrap_or_default();
             if observed == state.last_hash {
                 None
@@ -1915,7 +1961,7 @@ fn detect_tail_divergence(path: &PathBuf, state: &AuditState) -> Option<String> 
                 Some(format!(
                     "the audit log tail is {} but this process last wrote {}",
                     if observed.is_empty() {
-                        "unparseable".to_string()
+                        "an entry with no hash".to_string()
                     } else {
                         format!("entry {}", &observed[..observed.len().min(12)])
                     },

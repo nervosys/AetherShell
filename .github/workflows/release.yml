@@ -492,6 +492,13 @@ jobs:
                   done
                   test -s release.tar.gz
                   digest="$(sha256sum release.tar.gz | cut -d' ' -f1)"
+                  # To stdout as well as the summary. The first version wrote
+                  # only to $GITHUB_STEP_SUMMARY, which cannot be read back
+                  # from the API or grepped from the log -- so the digest could
+                  # not be cross-checked against the committed formula, which
+                  # was the reason for computing it here at all.
+                  echo "tarball-bytes=$(wc -c < release.tar.gz)"
+                  echo "tarball-sha256=$digest"
                   {
                     echo "### Homebrew formula"
                     echo
