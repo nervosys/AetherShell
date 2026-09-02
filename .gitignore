@@ -67,3 +67,7 @@ __pycache__/
 integrations/python/dist/
 integrations/python/build/
 *.egg-info/
+
+# mdBook build output (docs/book/book, per docs/book/book.toml build-dir).
+docs/book/book/
+website/book/

@@ -48,6 +48,56 @@ and cannot without cross-process locking. What is asserted is that it stays
 parseable, stays quiet, and explains itself — and that a single writer still
 produces one clean chain with contiguous sequence numbers.
 
+### Fixed — the documentation book was never built or published
+
+The only open issue on the repository asks whether AetherShell has
+documentation. It has 47 chapters of it, under `docs/book`, and there was no
+way for anyone to find out.
+
+- **The book could not be built.** `book.toml` still declared `multilingual`,
+  `use-hierarchical-outline` and `git-repository-icon = "fa-github"` — three
+  keys mdBook has removed — plus an `additional-js` naming a `highlight.js`
+  that does not exist, and an `additional-css` path resolved relative to the
+  book root while `custom.css` sat in `src/`. Any one of them aborts the
+  render. Nothing had run mdBook against this book, so all four accumulated
+  unseen.
+- **Two chapters pointed at nothing.** `SUMMARY.md` linked `./changelog.md` and
+  `./faq.md`; the files are in `appendix/`. `create-missing = true` meant
+  mdBook quietly invented empty files for both rather than reporting the
+  broken links, so the failure mode was two blank pages. That setting is now
+  `false`. `tui/guide.md` existed but was in no chapter list at all.
+- **`agent_reset` is not a builtin.** `ai/agents.md` documented it for clearing
+  an agent's memory. The shell answers `error[E_UNKNOWN_BUILTIN]: unknown
+  builtin: agent_reset`. The section now says what is actually true: memory is
+  bound to the agent, so a new agent is how you start over.
+- **`ai/tools.md` was listed but never written.** Now written, against the real
+  builtins: `tool_list`, `tool_search`, `tool_info`, `tool_schema` and
+  `tool_exec`/`tool_execute`, with the catalogue's real numbers (198 tools; 131
+  `Safe`, 49 `Caution`, 14 `Dangerous`, 4 `Critical`) and the real refusal
+  message for a gated tool. `ai/workflows.md` was listed too and is now
+  dropped: `src/workflows.rs` declares fourteen `workflow_*` builtins (plus two
+  circuit-breaker ones) in a `workflow_builtins()` whose only caller is its own
+  unit test — which asserts the list has at least ten entries and names three of
+  them, and so passes whether or not the shell has ever registered one. It has
+  not: `workflow_templates()` at the prompt answers `unknown builtin`.
+  Documenting them would have been the same mistake as the settings the shell
+  never read.
+- **The book carried its own changelog, stuck at v0.3.0.** `appendix/changelog.md`
+  held a hand-written copy of v0.1.0 to v0.3.0 with v0.3.0 marked "(Current)",
+  eleven major versions out of date. It now links `CHANGELOG.md` and the
+  releases page instead of duplicating them.
+- **Pages served one file.** The workflow uploaded `website/` and nothing else,
+  and both "Documentation" links on that page — and every one in the README —
+  pointed at `docs/TUI_GUIDE.md`. The book is now built in CI and published at
+  <https://nervosys.github.io/AetherShell/book/>, and the workflow runs when
+  `docs/book/**` changes.
+
+`tests/book_is_publishable.rs` holds the line: every `SUMMARY` entry must
+resolve to a non-empty file, no chapter may be stranded outside the summary,
+`create-missing` must stay `false`, the removed mdBook keys must not return,
+`additional-css` must name a file that exists, and the README must link the
+published book.
+
 ### Fixed — the Homebrew formula was four releases behind
 
 - `Formula/aethershell.rb` still pinned `v10.0.0`, so

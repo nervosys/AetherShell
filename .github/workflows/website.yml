@@ -5,6 +5,7 @@ on:
         branches: [master, main]
         paths:
             - "website/**"
+            - "docs/book/**"
             - ".github/workflows/website.yml"
     workflow_dispatch:
 
@@ -26,6 +27,37 @@ jobs:
 
             - name: Setup Pages
               uses: actions/configure-pages@v4
+
+            # The 47-chapter book under docs/book has existed since the project
+            # started and was never built by anything. Pages only ever served
+            # website/index.html, so every "Documentation" link in the README
+            # and on the landing page pointed at a single markdown file in the
+            # repository. The book is now built here and served at /book/.
+            #
+            # Pinned: mdBook makes breaking config changes across minor
+            # versions, and this book.toml was already broken by three of them
+            # (`multilingual`, `use-hierarchical-outline`, `fa-github`) before
+            # anyone noticed, because nothing ever ran it.
+            - name: Install mdBook
+              env:
+                  MDBOOK_VERSION: "0.5.2"
+              run: |
+                  set -euo pipefail
+                  url="https://github.com/rust-lang/mdBook/releases/download/v${MDBOOK_VERSION}/mdbook-v${MDBOOK_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+                  mkdir -p "$HOME/.mdbook"
+                  curl -sSfL "$url" | tar -xz -C "$HOME/.mdbook"
+                  echo "$HOME/.mdbook" >> "$GITHUB_PATH"
+
+            - name: Build the book
+              run: |
+                  set -euo pipefail
+                  mdbook build docs/book
+                  # `create-missing = false` in book.toml means a SUMMARY entry
+                  # with no file fails the build rather than rendering blank.
+                  rm -rf website/book
+                  cp -r docs/book/book website/book
+                  test -f website/book/index.html
+                  echo "book pages: $(find website/book -name '*.html' | wc -l)"
 
             - name: Upload artifact
               uses: actions/upload-pages-artifact@v3

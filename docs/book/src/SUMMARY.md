@@ -36,7 +36,6 @@
 - [Creating Agents](./ai/agents.md)
 - [Agent Swarms](./ai/swarms.md)
 - [Tool Use](./ai/tools.md)
-- [Workflows](./ai/workflows.md)
 
 # TUI & Interactive Mode
 
@@ -44,6 +43,7 @@
 - [Navigation](./tui/navigation.md)
 - [Chat Interface](./tui/chat.md)
 - [Multimodal Support](./tui/multimodal.md)
+- [TUI Guide](./tui/guide.md)
 
 # API Reference
 
@@ -75,5 +75,5 @@
 
 ---
 
-[Changelog](./changelog.md)
-[FAQ](./faq.md)
+[Changelog](./appendix/changelog.md)
+[FAQ](./appendix/faq.md)

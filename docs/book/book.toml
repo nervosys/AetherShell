@@ -3,22 +3,23 @@ title = "AetherShell Documentation"
 authors = ["Nervosys"]
 description = "Complete documentation for AetherShell - a typed, functional shell with AI capabilities"
 language = "en"
-multilingual = false
 src = "src"
 
 [build]
 build-dir = "book"
-create-missing = true
+# `true` silently invents an empty file for any SUMMARY entry that does not
+# exist, so a broken link renders as a blank chapter instead of failing. Two
+# entries pointed at `./changelog.md` and `./faq.md` while the real files sat in
+# `appendix/`, and this setting is why nobody ever saw an error.
+create-missing = false
 
 [output.html]
 default-theme = "ayu"
 preferred-dark-theme = "ayu"
 git-repository-url = "https://github.com/nervosys/AetherShell"
-git-repository-icon = "fa-github"
 edit-url-template = "https://github.com/nervosys/AetherShell/edit/master/docs/book/src/{path}"
-site-url = "/AetherShell/"
+site-url = "/AetherShell/book/"
 additional-css = ["custom.css"]
-additional-js = ["highlight.js"]
 
 [output.html.fold]
 enable = true
@@ -34,4 +35,3 @@ line-numbers = true
 enable = true
 limit-results = 30
 teaser-word-count = 30
-use-hierarchical-outline = true

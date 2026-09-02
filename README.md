@@ -14,6 +14,7 @@
 <h3 align="center">The shell for AI agents. Typed pipelines. Multi-modal. Protocol-native.</h3>
 
 <p align="center">
+  <a href="https://nervosys.github.io/AetherShell/book/">Documentation</a> •
   <a href="#agentic-benchmark">Benchmark</a> •
   <a href="#-quick-start">Quick Start</a> •
   <a href="#-modules">Modules</a> •

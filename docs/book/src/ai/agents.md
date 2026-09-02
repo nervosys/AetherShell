@@ -98,11 +98,10 @@ coder("Add type hints")
 
 ## Clearing Memory
 
-```aethershell
-# Reset the agent's memory
-agent_reset(coder)
+There is no reset builtin. An agent's memory is bound to the agent, so a fresh
+one is the way to start over:
 
-# Or create a new agent for a fresh start
+```aethershell
 let new_coder = agent("You are a Python expert")
 ```
 
