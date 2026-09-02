@@ -126,6 +126,15 @@ now nothing outside the `AETHER_` prefix was checked at all, so an invented
 {{goal: String}}`. `safety::arg_err` is not a formatting macro, so the escaped
 braces were emitted literally.
 
+### Changed — the crate's documentation link
+
+`Cargo.toml`'s `documentation` field pointed at README.md on GitHub. It now
+points at the published book. **Note:** this and the error-message fix put
+`src/` and `Cargo.toml` out of step with tag `v11.0.2`, which was previously
+byte-identical to the shipping source. Before 11.0.2 is published, either
+re-tag and refresh the Homebrew digest (`published_contracts` checks it), or
+publish knowing the tag lags by these two changes.
+
 ### Fixed — the documentation book was never built or published
 
 The only open issue on the repository asks whether AetherShell has
