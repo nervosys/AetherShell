@@ -44,7 +44,7 @@ agent("Find all TODO comments in src/", ["ls", "cat", "grep"])
 | **Pattern Matching**   | `match` expressions with guards and destructuring            |
 | **AI Providers**       | 20 provider types; OpenAI, Anthropic, Google and Ollama have dedicated clients, the rest go over OpenAI-compatible endpoints |
 | **Agent Framework**    | Single agents with builtins as tools, over MCP or in-process  |
-| **MCP**                | `ae mcp stdio` serves every builtin as an MCP tool             |
+| **MCP**                | `ae mcp stdio` makes every builtin callable through a three-tool facade |
 | **Interactive TUI**    | Real-time chat and multimodal file references                 |
 
 ## Getting Started

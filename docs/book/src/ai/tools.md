@@ -89,6 +89,23 @@ Two things can stop a call, and both report rather than guess:
   A tool marked `requires_admin` is additionally refused unless the process is
   actually privileged.
 
+## Over MCP
+
+`ae mcp stdio` serves the shell as an MCP server. `tools/list` returns **three**
+tools, not one per builtin:
+
+| Tool | Purpose |
+| --- | --- |
+| `ontology_manifest` | the categories, with counts and effect classes |
+| `ontology_describe` | expand a category into its builtins, or one builtin into full detail |
+| `aether` | invoke a builtin by name |
+
+That is deliberate. Advertising several hundred tool schemas would spend an
+agent's context before it had read a single result; the manifest is the compact
+index and detail is fetched for the slice actually needed. Every builtin is
+reachable through `aether`, and every call goes through the same safety model
+as one typed at the prompt.
+
 `tool_exec` also passes through the ordinary execution guard, so agent mode's
 effect gate and the workspace jail apply to it exactly as they do to any other
 process-spawning builtin. See [Security & Auth](../advanced/security.md).

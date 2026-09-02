@@ -209,8 +209,11 @@ enum McpCommands {
         category: Option<String>,
     },
     /// Serve over stdio as a strict JSON-RPC 2.0 MCP server (the canonical MCP
-    /// transport). Exposes every builtin as a tool, routed through the safety
-    /// model. Pair with `--agent` for default-deny gating: `ae --agent mcp stdio`.
+    /// transport). Every builtin is callable, through three advertised tools
+    /// rather than as several hundred schemas: `ontology_manifest` indexes the
+    /// categories, `ontology_describe` expands one, and `aether` invokes a
+    /// builtin by name. Every call is routed through the safety model. Pair
+    /// with `--agent` for default-deny gating: `ae --agent mcp stdio`.
     Stdio,
 }
 
