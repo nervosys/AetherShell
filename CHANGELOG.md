@@ -98,6 +98,12 @@ resolve to a non-empty file, no chapter may be stranded outside the summary,
 `additional-css` must name a file that exists, and the README must link the
 published book.
 
+### Fixed — `help("file")` promised documentation that does not exist
+
+`bi_help` takes no arguments. The README's `help("file") # Documentation for
+file module` described a per-module lookup the shell has never had; passing any
+argument prints the same full list. The README now says what it does.
+
 ### Fixed — the Homebrew formula was four releases behind
 
 - `Formula/aethershell.rb` still pinned `v10.0.0`, so

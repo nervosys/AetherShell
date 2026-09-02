@@ -290,7 +290,7 @@ AI assistants can discover available operations:
 
 ```ae
 mcp.tools()              # List all 130+ MCP-compatible tools
-help("file")             # Documentation for file module
+help()                   # list every builtin (takes no arguments)
 file                     # => {read, write, exists, copy, move, patch, ...}
 ```
 
