@@ -48,6 +48,78 @@ and cannot without cross-process locking. What is asserted is that it stays
 parseable, stays quiet, and explains itself — and that a single writer still
 produces one clean chain with contiguous sequence numbers.
 
+### Fixed — the AI chapters documented an API the shell does not have
+
+Publishing the book made its content something a reader could act on, so it was
+audited against the running binary rather than read. Both AI chapters described
+things that do not exist.
+
+- **Agents are not callable objects.** Every example in `ai/agents.md` was built
+  on `let coder = agent("You are a Python expert")` followed by
+  `coder("Write a function…")`. A bound value is not callable — `x("hi")`
+  answers `unknown builtin: x` — and `agent` takes a *goal*, not a persona, and
+  returns a string. The "Conversation Memory" section claimed agents remember
+  across calls; `run_sync` builds a fresh dialogue every time, so a second call
+  knows nothing about the first. The option record was wrong too: `model`,
+  `temperature`, `max_iterations`, `context_length` and `timeout` are read by
+  nothing. `agent`/`swarm` read exactly `goal`, `tools`, `max_steps`,
+  `dry_run`. The chapter is rewritten against the real signature.
+- **`swarm` does not create a swarm.** `ai::agents::swarm::run_sync` is one
+  line: it calls the single-agent `run_sync`. The `Swarm` struct, its
+  blackboard and both coordinators are never constructed by any builtin, and
+  `ai/swarms.md` described all of it as working behaviour. It now says what the
+  builtin does and marks the engine as present in the library but unreachable
+  from the shell.
+- **An empty tools array was documented as "allow all tools (use with
+  caution)".** It is the opposite: `resolve_many` resolves names one at a time,
+  so `[]` gives the agent no tools at all. The advice inverted a permission
+  boundary.
+- **The 512 MB memory limit is Unix-only.** `ai/swarms.md` listed it among the
+  sandbox guarantees without qualification. `configure_sandbox` on Windows is a
+  documented no-op with a TODO for Job Objects, so Windows gets the 30-second
+  timeout and the 10 MB output cap and nothing more. Verified alongside it and
+  left standing: the 4,000-character prompt cap, metacharacter rejection, the
+  10/minute and 5/minute rate limits, and `sh` gated behind `AETHER_ALLOW_SH`.
+- **`mcp_server_start` takes a configuration record**, not the URL string the
+  chapter passed it.
+- **`AGENT_ALLOW_CMDS` is read once.** Both chapters implied `set_env` could
+  change the allowlist mid-session. The configuration is built on first use, so
+  it must be exported before `ae` starts.
+
+`tests/book_builtins_are_real.rs` is the ratchet: every underscored identifier
+called in an `aethershell` fence must be a name the source quotes, unless the
+same example defines it. Scope is deliberately narrow — bare words like `map`
+or `person` are as likely to be an example's own variable, and a rule that
+fires on those gets switched off rather than obeyed. Verified against the
+original defect: restoring `agent_reset(coder)` fails it. One placeholder,
+`risky_operation()` in `language/errors.md`, became a real call rather than an
+exemption.
+
+`documented_env_is_real` now covers `AGENT_*` as well as `AETHER_*`, on both
+sides — the scanner and the source index. `AGENT_ALLOW_CMDS` is real, but until
+now nothing outside the `AETHER_` prefix was checked at all, so an invented
+`AGENT_*` setting would have passed.
+
+### Fixed — the front pages, and two dead community links
+
+- **`introduction.md` and `getting-started/quick-start.md`** — the first two
+  pages of the book — carried the same callable-agent pattern, plus
+  `read("app.rs")` (`read` is not a builtin; `cat` is) and an `ai` config key
+  `context` that `bi_ai` never reads. The "Features at a Glance" table
+  advertised a workflow engine with "MapReduce, Saga, Pipeline, Fan-Out
+  patterns" that is not reachable, swarms and coordinators that are not
+  constructed, and TUI "image rendering" that does not exist.
+- **`tui/multimodal.md` contradicted `tui/guide.md`** in the same book: one
+  said the TUI "can display images … directly in the terminal", the other
+  already carried the correction that inline rendering is absent. The chapter
+  now describes what it does — classify and reference files — and links the
+  correction.
+- **The Discord invite is invalid and the Twitter handle does not exist.**
+  `discord.gg/aethershell` returns `Unknown Invite` (code 10006) from the
+  Discord API, and `twitter.com/AetherShell` returns 404. Both were advertised
+  in the README, which ships inside the published crate, and in the book. They
+  are replaced with the documentation site and the issue tracker.
+
 ### Fixed — the documentation book was never built or published
 
 The only open issue on the repository asks whether AetherShell has

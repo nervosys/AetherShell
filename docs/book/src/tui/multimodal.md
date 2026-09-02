@@ -1,6 +1,13 @@
 # Multimodal Support
 
-The TUI can display images, play audio references, and handle video content directly in the terminal. This enables rich AI interactions with visual context.
+The TUI recognises image, video and audio files, classifies them by extension,
+and carries the reference into the conversation so a multimodal model can be
+asked about them.
+
+> **It does not render them.** Inline image display is intended, not present:
+> the source contains no kitty, iterm or sixel support. What follows describes
+> attaching and referencing files, not viewing them in the terminal. See
+> [TUI Guide](./guide.md#viewing-images).
 
 ## Supported Formats
 

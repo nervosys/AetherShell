@@ -26,16 +26,13 @@ let files = ls "."
   | take(5)
 
 # AI-powered analysis  
-let review = ai("Review this code for security issues", {
-  model: "gpt-4o",
-  context: read("app.rs")
+let review = ai("Review this code for security issues:
+" + cat("app.rs"), {
+  model: "gpt-4o"
 })
 
-# Agent with tools
-let assistant = agent("You help with shell tasks", {
-  tools: ["ls", "cat", "grep", "http_get"]
-})
-assistant("Find all TODO comments in src/")
+# An agent, with the builtins it may call
+agent("Find all TODO comments in src/", ["ls", "cat", "grep"])
 ```
 
 ## Features at a Glance
@@ -45,10 +42,10 @@ assistant("Find all TODO comments in src/")
 | **Typed Values**       | Int, Float, String, Bool, Array, Record, Table, Lambda       |
 | **Pipeline Operators** | `\|`, `\|>`, `?>` with full type inference                   |
 | **Pattern Matching**   | `match` expressions with guards and destructuring            |
-| **AI Providers**       | OpenAI, Claude, Gemini, Llama, Mistral, Cohere, and 20+ more |
-| **Agent Framework**    | Single agents, swarms, coordinators, distributed execution   |
-| **Workflow Engine**    | MapReduce, Saga, Pipeline, Fan-Out patterns                  |
-| **Interactive TUI**    | Real-time chat, image rendering, workflow visualization      |
+| **AI Providers**       | 20 provider types; OpenAI, Anthropic, Google and Ollama have dedicated clients, the rest go over OpenAI-compatible endpoints |
+| **Agent Framework**    | Single agents with builtins as tools, over MCP or in-process  |
+| **MCP**                | `ae mcp stdio` serves every builtin as an MCP tool             |
+| **Interactive TUI**    | Real-time chat and multimodal file references                 |
 
 ## Getting Started
 
@@ -59,8 +56,7 @@ If you're coming from Bash or PowerShell, check out our [Quick Start](./getting-
 ## Community
 
 - **GitHub**: [nervosys/AetherShell](https://github.com/nervosys/AetherShell)
-- **Discord**: [Join our community](https://discord.gg/aethershell)
-- **Twitter**: [@AetherShell](https://twitter.com/AetherShell)
+- **Issues**: [Report a bug or ask a question](https://github.com/nervosys/AetherShell/issues)
 
 ## License
 

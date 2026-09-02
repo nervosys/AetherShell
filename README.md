@@ -1231,5 +1231,6 @@ Dual-licensed under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-
   <strong>AetherShell</strong> - The OS interface for agentic AI<br>
   <a href="https://github.com/nervosys/AetherShell">GitHub</a> |
   <a href="https://crates.io/crates/aethershell">Crates.io</a> |
-  <a href="https://discord.gg/aethershell">Discord</a>
+  <a href="https://nervosys.github.io/AetherShell/book/">Documentation</a> |
+  <a href="https://github.com/nervosys/AetherShell/issues">Issues</a>
 </p>

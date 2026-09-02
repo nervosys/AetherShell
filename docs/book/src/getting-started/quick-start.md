@@ -99,19 +99,21 @@ ai("What is the capital of France?")
 ai("Explain monads", { model: "claude-3-sonnet" })
 ```
 
-### Create an Agent
+### Run an Agent
+
+`agent` takes a goal, not a persona, and returns the final answer as a string.
+It is not a callable object: there is no `let a = agent(...)` then `a("...")`.
 
 ```aethershell
-# Agent with system prompt
-let assistant = agent("You are a helpful coding assistant")
-assistant("How do I reverse a string in Rust?")
+# A goal, with no tools
+agent("Explain what this project builds")
 
-# Agent with tools
-let devops = agent("You help with DevOps tasks", {
-    tools: ["ls", "cat", "grep", "http_get"]
-})
-devops("Check if port 8080 is open")
+# A goal, with the builtins it may call
+agent("Find all TODO comments under src/", ["ls", "grep", "cat"])
 ```
+
+Shell commands are default-deny; export `AGENT_ALLOW_CMDS` before starting `ae`
+to permit any. See [Creating Agents](../ai/agents.md).
 
 ### Set Up AI Provider
 

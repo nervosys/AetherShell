@@ -1,214 +1,142 @@
 # Agent Swarms
 
-AetherShell supports autonomous AI agents that can use shell builtins as tools, and multi-agent swarms that coordinate to solve complex tasks.
+## What `swarm` currently does
 
-## Single Agent
-
-An agent is an AI model in a ReAct (Reason + Act) loop, emitting tool calls and observations until it reaches a final answer.
-
-### Basic Usage
-
-```aethershell
-agent "Find the 3 largest files in src/"
-```
-
-The agent will:
-1. Plan its approach
-2. Call tools like `ls`, `sort_by`, `take`
-3. Observe results
-4. Return a final answer
-
-### Specifying Tools
-
-Control which builtins the agent can use:
+`swarm` is a builtin, and it works, but not the way its name suggests: it takes
+the same arguments as [`agent`](./agents.md) and delegates to the same
+single-agent loop. `ai::agents::swarm::run_sync` is one line — it calls
+`ai::agents::run_sync`.
 
 ```aethershell
-# Allow specific tools
-agent "Find large files" ["ls", "cat", "grep"]
-
-# Allow all tools (use with caution)
-agent "Analyze the project" []
+swarm("Analyze this project thoroughly", ["ls", "cat", "grep"], 12)
 ```
 
-### Configuration Options
+That runs one agent with those three tools and a twelve-step limit. It does not
+create multiple agents.
+
+The multi-agent engine below **exists in the library and is not reachable from
+the shell**. `Swarm`, its blackboard and its two coordinators are defined in
+`src/ai.rs` and never constructed by any builtin. They are documented here so
+the distinction is on the record, not because you can call them today.
+
+- **Coordination policies.** `RoundRobin` takes agents in turn; `Router` sends
+  each turn to the agent whose declared capabilities best match. Both
+  coordinators are implemented; neither is selectable from the shell, because
+  the `swarm` builtin reads only `goal`, `tools`, `max_steps` and `dry_run`.
+- **Blackboard.** Agents would share a message list with kinds `note`,
+  `thought` and `final`, and could delegate with
+  `{"type": "delegate", "target": "...", "input": "..."}`.
+
+If you want several agents today, chain calls and pass each result into the next
+goal — see [Creating Agents](./agents.md#each-call-starts-fresh).
+
+## Model override
+
+Both builtins honour an environment variable for the model URI:
 
 ```aethershell
-# Positional: goal, tools, max_steps
-agent "Analyze logs" ["cat", "grep", "wc"] 6
-
-# Record syntax for full control
-agent {
-  goal: "Find and fix TODO comments",
-  tools: ["grep", "cat", "file_replace"],
-  max_steps: 10,
-  dry_run: true,          # Show plan without executing
-  model: "openai:gpt-4o"  # Override model
-}
+set_env("AETHER_AGENT_MODEL_URI", "openai:gpt-4o")
+set_env("AETHER_SWARM_AGENT_MODEL_URI", "ollama:llama3")
 ```
 
-### Max Steps
+There is no `model` key in the record form. `agent`/`swarm` read exactly four
+keys — `goal`, `tools`, `max_steps`, `dry_run` — and silently ignore the rest,
+so a `model:` entry has no effect.
 
-Limit how many tool calls an agent can make (default: 8):
+## Choosing tools
+
+Tools are the builtins the agent may call. Name them individually, or as an
+array:
 
 ```aethershell
-agent "Quick check" ["ls"] 3        # At most 3 tool calls
-agent "Deep analysis" ["ls", "cat", "grep"] 20   # Up to 20 steps
+agent("Find large files", ["ls", "cat", "grep"])
 ```
 
-### Dry Run
-
-Preview what the agent would do without executing:
+An **empty array gives the agent no tools at all**, not every tool. Tool names
+are resolved one by one against the registry, so an empty list resolves to an
+empty toolset and the agent can only answer from the model.
 
 ```aethershell
-agent { goal: "Delete temp files", tools: ["ls", "rm"], dry_run: true }
-# Shows the plan without actually deleting anything
+agent("Analyze the project", [])   # no tools; the model answers unaided
 ```
 
-## Agent Security
+## Agent security
 
-Agents operate in a sandboxed environment with multiple safety layers.
+### Command allowlist
 
-### Command Allowlist
+`AGENT_ALLOW_CMDS` restricts which shell commands an agent may run, and it is
+default-deny: unset, *nothing* is allowed, and the refusal says so.
 
-The `AGENT_ALLOW_CMDS` environment variable restricts which commands agents can call:
+```bash
+export AGENT_ALLOW_CMDS=ls,cat,grep,wc
+```
+
+The list is read once, when the security configuration is first built. Setting
+it from inside a running shell with `set_env` only takes effect if no command
+has been validated yet, so prefer exporting it before starting `ae`.
+
+### Measured limits
+
+- **Prompt validation** — goals are capped at 4,000 characters and at most 50
+  newlines, rejected if empty or containing a null byte, and screened for
+  injection.
+- **Argument validation** — shell metacharacters are rejected in tool
+  arguments.
+- **Rate limiting** — 10 agent calls per minute, and within the agent API, 10
+  plans and 5 executions per minute.
+- **Output cap** — 10 MB per execution.
+- **Timeout** — 30 seconds per execution, on every platform.
+- **Memory** — 512 MB, **on Linux and macOS only**. The Windows
+  `configure_sandbox` is a documented no-op: Job Object sandboxing is a TODO,
+  so on Windows you get the timeout and the output cap and nothing else.
+- **No shell escape** — the `sh` builtin is gated behind `AETHER_ALLOW_SH=true`
+  and is unavailable by default.
+
+## Agents with MCP tools
+
+`agent_with_mcp` takes a goal, an array of tool names, and optionally one
+endpoint or an array of endpoints:
 
 ```aethershell
-set_env "AGENT_ALLOW_CMDS" "ls,cat,grep,wc"
-
-# The agent can only use these 4 commands
-agent "Analyze source code" ["ls", "cat", "grep"]
+agent_with_mcp("Analyze repository", ["read_file", "list_dir"], "http://localhost:9090")
 ```
 
-### Safety Measures
+The agent discovers the available tools from the server and can call them
+during its loop. Note that `mcp_server_start` takes a **configuration record**,
+not a URL string.
 
-- **Command validation**: Shell metacharacters (`;`, `|`, `&&`, `||`, `` ` ``) are blocked in tool arguments
-- **Prompt validation**: Agent goals are limited to 4,000 characters with injection prevention
-- **Rate limiting**: 10 plans/minute, 5 executions/minute
-- **Execution sandbox**: 30-second timeout, 10MB output limit, 512MB memory limit
-- **No escalation**: Agents cannot call `sh`, `shell`, or `exit` by default
+## Practical examples
 
-### Model Override
-
-Set the model for all agent calls:
+### Code review
 
 ```aethershell
-set_env "AETHER_AGENT_MODEL_URI" "openai:gpt-4o"
-# All agents now use GPT-4o regardless of default provider
-
-# Or per-call:
-agent { goal: "...", model: "ollama:codellama" }
-```
-
-## Multi-Agent Swarms
-
-Swarms coordinate multiple agents with different specializations.
-
-### Basic Swarm
-
-```aethershell
-swarm "Analyze this project thoroughly" ["ls", "cat", "grep"] 12
-```
-
-A swarm creates multiple agents that share a **blackboard** — a shared communication space where agents post notes, thoughts, and intermediate results.
-
-### Swarm Configuration
-
-```aethershell
-swarm {
-  goal: "Review code quality and security",
-  tools: ["ls", "cat", "grep", "find"],
-  max_steps: 20,
-  dry_run: false
-}
-```
-
-### Coordination Policies
-
-Swarms use a coordination policy to decide which agent acts next:
-
-| Policy | Description |
-|--------|-------------|
-| `RoundRobin` | Agents take turns in order |
-| `Router` | A coordinator selects the best agent for each step |
-
-### Blackboard Communication
-
-Agents communicate through the shared blackboard using structured messages:
-
-| Message Kind | Purpose |
-|-------------|---------|
-| `note` | Share observations or intermediate findings |
-| `thought` | Internal reasoning visible to other agents |
-| `final` | Propose a final answer |
-
-Agents can also delegate tasks to specific peers:
-
-```
-# Agent A delegates to Agent B
-{"type": "delegate", "target": "agent-b", "input": "check security of auth.rs"}
-```
-
-### Swarm Model Override
-
-```aethershell
-set_env "AETHER_SWARM_AGENT_MODEL_URI" "ollama:llama3"
-# All swarm agents use this model
-```
-
-## Agent with MCP Tools
-
-Connect agents to external tool servers via the Model Context Protocol:
-
-```aethershell
-# Start an MCP server
-mcp_server_start "http://localhost:9090"
-
-# Create an agent that uses MCP tools
-agent_with_mcp "Analyze repository" ["mcp:read_file", "mcp:list_dir"] "http://localhost:9090"
-```
-
-The agent discovers available tools from the MCP server and can call them during its execution loop.
-
-## Practical Examples
-
-### Code Review Agent
-
-```aethershell
-agent {
+agent({
   goal: "Review src/main.rs for potential bugs, style issues, and missing error handling",
   tools: ["cat", "grep", "wc"],
   max_steps: 8
-}
+})
 ```
 
-### Project Analysis Swarm
+### Project analysis
 
 ```aethershell
-swarm {
-  goal: "Provide a comprehensive analysis of this Rust project: structure, dependencies, code quality, and test coverage",
+agent({
+  goal: "Describe this Rust project: structure, dependencies, and test coverage",
   tools: ["ls", "cat", "grep", "find", "wc", "fs_tree"],
   max_steps: 25
-}
+})
 ```
 
-### Automated Git Workflow
+### Git summary
+
+```bash
+export AGENT_ALLOW_CMDS=ls,cat,grep,git
+```
 
 ```aethershell
-set_env "AGENT_ALLOW_CMDS" "ls,cat,grep,git_status,git_diff,git_log"
-
-agent {
+agent({
   goal: "Summarize all changes since the last release tag",
   tools: ["git_log", "git_diff", "cat"],
   max_steps: 10
-}
-```
-
-### Research Agent
-
-```aethershell
-agent {
-  goal: "Find all TODO and FIXME comments in the project and create a prioritized list",
-  tools: ["grep", "cat", "ls"],
-  max_steps: 12
-}
+})
 ```

@@ -17,7 +17,7 @@ Catch errors and recover gracefully:
 
 ```ae
 let result = try {
-    risky_operation()
+    cat("config.toml")
 } catch {
     "fallback value"
 }

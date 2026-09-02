@@ -78,7 +78,12 @@ fn recommended_in(text: &str) -> BTreeSet<String> {
                 .chars()
                 .take_while(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || *c == '_')
                 .collect();
-            if name.starts_with("AETHER_") {
+            // `AGENT_` joined `AETHER_` after `AGENT_ALLOW_CMDS` was found
+            // documented in the book: the shell reads it, but nothing had been
+            // checking names outside the AETHER_ prefix, so a fabricated one
+            // would have passed. Generic names (PATH, OPENAI_API_KEY) stay out
+            // of scope -- they are not this shell's configuration surface.
+            if name.starts_with("AETHER_") || name.starts_with("AGENT_") {
                 found.insert(name);
             }
         }
@@ -109,18 +114,24 @@ fn read_by_source() -> BTreeSet<String> {
 
     let mut names = BTreeSet::new();
     let bytes: Vec<char> = src.chars().collect();
-    let needle: Vec<char> = "AETHER_".chars().collect();
-    let mut i = 0;
-    while i + needle.len() <= bytes.len() {
-        if bytes[i..i + needle.len()] == needle[..] {
-            let name: String = bytes[i..]
-                .iter()
-                .take_while(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || **c == '_')
-                .collect();
-            names.insert(name);
-            i += needle.len();
-        } else {
-            i += 1;
+    // Both prefixes the shell configures itself with. `AGENT_` was added after
+    // `AGENT_ALLOW_CMDS` turned up documented in the book: it is real, but the
+    // index had no way to say so, and an invented `AGENT_*` name would have
+    // gone unchallenged.
+    for prefix in ["AETHER_", "AGENT_"] {
+        let needle: Vec<char> = prefix.chars().collect();
+        let mut i = 0;
+        while i + needle.len() <= bytes.len() {
+            if bytes[i..i + needle.len()] == needle[..] {
+                let name: String = bytes[i..]
+                    .iter()
+                    .take_while(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || **c == '_')
+                    .collect();
+                names.insert(name);
+                i += needle.len();
+            } else {
+                i += 1;
+            }
         }
     }
     names
@@ -188,6 +199,20 @@ fn non_vacuity_the_scanner_and_the_index_both_work() {
     assert!(
         known.contains("AETHER_MODE") && known.contains("AETHER_WORKSPACE"),
         "the source index is empty or wrong, so the main test proves nothing"
+    );
+    assert!(
+        known.contains("AGENT_ALLOW_CMDS"),
+        "the index missed the AGENT_ prefix, so documenting an invented          AGENT_* name would pass unchallenged"
+    );
+    let fake_agent = "text
+
+```bash
+export AGENT_NOT_A_REAL_SETTING=1
+```
+";
+    assert!(
+        recommended_in(fake_agent).contains("AGENT_NOT_A_REAL_SETTING"),
+        "the scanner must catch an invented AGENT_* name too"
     );
     assert!(
         !known.contains("AETHER_SECURITY_LEVEL"),

@@ -1,197 +1,123 @@
-# Agents
+# Creating Agents
 
-AI Agents in AetherShell are autonomous entities that can understand context, use tools, and accomplish complex tasks.
+An agent is a model in a ReAct loop: it is given a goal and a set of tools,
+emits a JSON tool call, sees the result, and repeats until it emits a final
+answer or runs out of steps. `agent` runs that loop and returns the final
+answer as a string.
 
-## Creating an Agent
+## Prerequisites
+
+An agent needs a provider. Without one, every call fails immediately and says
+so:
 
 ```aethershell
-# Simple agent with just a system prompt
-let assistant = agent("You are a helpful coding assistant")
-
-# Ask the agent
-assistant("How do I reverse a string in Rust?")
+agent("list the files here")
+# error[E_UNKNOWN]: No AI provider configured.
+# Set AETHER_AI environment variable to: irongate, openai, ollama, or compat
 ```
 
-## Agent with Tools
+See [Configuring Providers](./providers.md).
 
-Agents become powerful when they can use tools:
+## Running an agent
 
 ```aethershell
-let devops = agent("You are a DevOps expert who helps manage systems", {
-    tools: ["ls", "cat", "grep", "ps", "http_get"]
+agent(<goal>, [tools...], [max_steps], [dry_run])
+```
+
+Only the goal is required. It is a task, not a persona — the system prompt is
+supplied by the loop, and the goal is the user turn.
+
+```aethershell
+agent("Find the three largest files under src/")
+```
+
+Tools are named individually or as an array. They are ordinary builtins:
+
+```aethershell
+agent("Find every .log file over 1 MB", "ls", "find", "stat")
+
+agent("Summarise what this project builds", ["cat", "ls", "grep"])
+```
+
+After the tools come two optional positional arguments: an integer step limit
+(default **8**) and a boolean dry-run flag.
+
+```aethershell
+# Twenty steps, and do not actually execute the tool calls.
+agent("Reorganise the test fixtures", ["ls", "mv"], 20, true)
+```
+
+## The record form
+
+The same call can be written as a record, which is easier to build
+programmatically. Exactly four keys are read — `goal`, `tools`, `max_steps` and
+`dry_run` — and anything else is ignored:
+
+```aethershell
+agent({
+    goal: "Summarise the open TODOs",
+    tools: ["grep", "cat"],
+    max_steps: 12,
+    dry_run: false
 })
-
-# The agent can now use these commands
-devops("Find all .log files larger than 1MB")
-# Agent will:
-# 1. Use ls to find files
-# 2. Filter by extension and size
-# 3. Return the results
 ```
 
-## Available Tools
+A record with no `goal` is refused with `agent config requires {goal: String}`.
 
-Agents can use any builtin command as a tool:
+## Each call starts fresh
 
-| Category        | Tools                                       |
-| --------------- | ------------------------------------------- |
-| **File System** | `ls`, `cat`, `read`, `write`, `mkdir`, `rm` |
-| **Search**      | `grep`, `find`, `which`                     |
-| **System**      | `ps`, `env`, `pwd`, `cd`                    |
-| **Network**     | `http_get`, `http_post`, `curl`             |
-| **Data**        | `json_parse`, `json_stringify`, `csv_parse` |
+`agent` builds a new dialogue every time — a system prompt and your goal — and
+returns a string. There is no session, no conversation history, and no reset
+builtin, so a second call knows nothing about the first. To carry context
+forward, put it in the next goal:
 
-## Tool Whitelist
+```aethershell
+let plan = agent("Break down building a CLI todo app into steps")
+let code = agent("Implement this plan: " + plan, ["write", "cat"])
+```
 
-For security, configure which tools agents can use:
+This is also how multiple agents are composed; see
+[Agent Swarms](./swarms.md) for the coordinated form.
+
+## Which tools an agent may run
+
+Naming a tool in the call does not by itself permit it. Shell-command execution
+is default-deny: with `AGENT_ALLOW_CMDS` unset, *no* command is allowed, and the
+refusal says exactly that.
 
 ```bash
-# Environment variable
-export AGENT_ALLOW_CMDS="ls,cat,grep,http_get"
+export AGENT_ALLOW_CMDS=ls,cat,grep,git
 ```
+
+The list is read once, when the security configuration is first built, so
+export it before starting `ae`. Setting it from inside a running shell with
+`env_set` or `set_env` takes effect only if no command has been validated yet.
+
+Anything outside the list is refused by name, and both the allowed and the
+refused attempts are written to the security audit log.
+
+## MCP tools
+
+`agent_with_mcp` takes a goal and an array of MCP tool names, for agents that
+should reach tools served over the Model Context Protocol rather than builtins:
 
 ```aethershell
-# Or in code
-env_set("AGENT_ALLOW_CMDS", "ls,cat,grep,find")
+agent_with_mcp("Check the deployment status", ["k8s_get_pods", "k8s_logs"])
 ```
 
-## Agent Options
+## Rate limiting
 
-```aethershell
-let agent = agent("System prompt", {
-    # Model selection
-    model: "gpt-4o",
-    
-    # Available tools
-    tools: ["ls", "cat", "grep"],
-    
-    # Max iterations for complex tasks
-    max_iterations: 10,
-    
-    # Temperature for creativity
-    temperature: 0.3,
-    
-    # Context window
-    context_length: 4096,
-    
-    # Timeout in seconds
-    timeout: 300
-})
-```
+`agent` is capped at 10 calls per minute per process. Exceeding it fails with
+`Agent rate limit exceeded` rather than queuing.
 
-## Conversation Memory
+## Security
 
-Agents maintain context across calls:
+An agent runs real commands. Beyond `AGENT_ALLOW_CMDS`:
 
-```aethershell
-let coder = agent("You are a Python expert")
+- `ae --agent` puts the shell in default-deny mode, gating destructive effect
+  classes behind approval.
+- `ae --workspace <dir>` confines writes and destructive operations to that
+  directory.
+- `dry_run` lets you watch the loop's intent without executing it.
 
-coder("Write a function to calculate factorial")
-# Returns factorial implementation
-
-coder("Now add memoization to it")
-# Remembers the previous function and modifies it
-
-coder("Add type hints")
-# Still remembers context
-```
-
-## Clearing Memory
-
-There is no reset builtin. An agent's memory is bound to the agent, so a fresh
-one is the way to start over:
-
-```aethershell
-let new_coder = agent("You are a Python expert")
-```
-
-## Multi-Step Tasks
-
-Agents can break down complex tasks:
-
-```aethershell
-let project_helper = agent("You help set up projects", {
-    tools: ["ls", "mkdir", "write", "cat"]
-})
-
-project_helper("Create a new Rust project structure with src/main.rs, Cargo.toml, and README.md")
-# Agent will:
-# 1. Create directories
-# 2. Generate file contents
-# 3. Write files
-# 4. Verify the structure
-```
-
-## Error Handling
-
-```aethershell
-let result = try {
-    agent("helper")("Do something risky")
-} catch err {
-    print("Agent error: " + err.message)
-    null
-}
-```
-
-## Agent Patterns
-
-### Research Agent
-
-```aethershell
-let researcher = agent("You research topics and summarize findings", {
-    tools: ["http_get", "grep"]
-})
-
-researcher("Find information about WebAssembly and summarize the key benefits")
-```
-
-### Code Review Agent
-
-```aethershell
-let reviewer = agent("You review code for bugs and improvements. Be concise.", {
-    tools: ["cat", "grep"]
-})
-
-reviewer("Review the file src/main.rs for potential issues")
-```
-
-### Data Analysis Agent
-
-```aethershell
-let analyst = agent("You analyze data and provide insights", {
-    tools: ["cat", "grep", "ls"]
-})
-
-analyst("Analyze the CSV files in data/ and summarize the trends")
-```
-
-## Agent Swarms
-
-For complex tasks, use multiple coordinated agents:
-
-```aethershell
-# Create specialized agents
-let planner = agent("You break down tasks into steps")
-let coder = agent("You write code", { tools: ["write", "cat"] })
-let tester = agent("You test code", { tools: ["cat", "grep"] })
-
-# Coordinate them
-let plan = planner("Create a plan to build a CLI todo app")
-let code = coder("Implement: " + plan)
-let review = tester("Test this implementation: " + code)
-```
-
-## Best Practices
-
-1. **Clear system prompts** - Be specific about the agent's role and capabilities
-2. **Minimal tools** - Only give agents the tools they need
-3. **Set timeouts** - Prevent runaway agents
-4. **Handle errors** - Agents can fail, always have fallbacks
-5. **Clear memory** - Reset agents when switching contexts
-
-## Security Considerations
-
-- Agents can execute commands on your system
-- Always use the tool whitelist (`AGENT_ALLOW_CMDS`)
-- Review agent actions in sensitive environments
-- Consider sandboxing for untrusted inputs
+See [Security & Auth](../advanced/security.md).
