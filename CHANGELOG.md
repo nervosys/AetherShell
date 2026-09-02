@@ -48,6 +48,38 @@ and cannot without cross-process locking. What is asserted is that it stays
 parseable, stays quiet, and explains itself — and that a single writer still
 produces one clean chain with contiguous sequence numbers.
 
+### Added — the documented limits are now checked against the code
+
+The other documentation ratchets check names: that a builtin the docs tell you
+to call exists, that a variable they tell you to export is read. Neither looks
+at prose, and prose is where the security numbers live — the 10 MB output cap,
+the 512 MB memory limit, the 4,000-character prompt cap, "198 tools, 14 of them
+Dangerous". Those were verified by hand against the running binary while the AI
+chapters were being rewritten, and a hand check holds for exactly as long as
+nothing changes.
+
+`tests/documented_limits_are_real.rs` pins them two ways:
+
+- **Catalogue counts are computed, not compared to a literal.**
+  `OSToolsDatabase::new()` is built and its tools counted by safety level, so
+  adding one `Dangerous` tool fails the test until `ai/tools.md` is updated. It
+  currently holds 198 tools: 131 `Safe`, 49 `Caution`, 14 `Dangerous`, 4
+  `Critical`.
+- **Limits are read out of the source.** `MAX_PROMPT_LENGTH`, `MAX_NEWLINES`,
+  `MAX_OUTPUT_SIZE_BYTES` and `MAX_EXECUTION_TIMEOUT_SECS` are private to their
+  modules, so the constant is parsed from the text — and each is asserted to
+  have been *found* before it is compared, so renaming one fails loudly instead
+  of silently matching nothing. The three `check_rate_limit` calls and the
+  512 MB `setrlimit` are pinned the same way, the last of them together with
+  its Unix-only qualification and the Windows `cfg` stub that makes the
+  qualification necessary.
+
+Documents are hard-wrapped, so the comparison runs against prose with
+whitespace collapsed; a claim split across two lines would otherwise read as
+absent. Verified against drift in both directions: changing "30 seconds" in the
+chapter, and the tool count from 198 to 197, each fails with a message naming
+the real figure.
+
 ### Fixed — the comparison documents claimed features that do not exist
 
 Extending the builtin check past the book found the worst documents in the
