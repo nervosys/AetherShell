@@ -120,6 +120,12 @@ now nothing outside the `AETHER_` prefix was checked at all, so an invented
   in the README, which ships inside the published crate, and in the book. They
   are replaced with the documentation site and the issue tracker.
 
+### Fixed — two error messages printed doubled braces
+
+`agent` and `swarm` answered a record with no goal with `agent config requires
+{{goal: String}}`. `safety::arg_err` is not a formatting macro, so the escaped
+braces were emitted literally.
+
 ### Fixed — the documentation book was never built or published
 
 The only open issue on the repository asks whether AetherShell has

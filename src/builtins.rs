@@ -7144,7 +7144,7 @@ fn agent_from_record(cfg: BTreeMap<String, Value>, env: &mut Env) -> Result<Valu
         Some(Value::Str(s)) => s.clone(),
         _ => {
             return Err(crate::safety::arg_err(
-                "agent config requires {{goal: String}}",
+                "agent config requires {goal: String}",
             ))
         }
     };
@@ -7257,7 +7257,7 @@ fn swarm_from_record(cfg: BTreeMap<String, Value>, env: &mut Env) -> Result<Valu
         Some(Value::Str(s)) => s.clone(),
         _ => {
             return Err(crate::safety::arg_err(
-                "swarm config requires {{goal: String}}",
+                "swarm config requires {goal: String}",
             ))
         }
     };
