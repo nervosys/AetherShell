@@ -13,3 +13,25 @@
 #   Debian/Ubuntu: sudo apt-get install gcc-aarch64-linux-gnu
 [target.aarch64-unknown-linux-gnu]
 linker = "aarch64-linux-gnu-gcc"
+
+# Debug info for local builds.
+#
+# The default `debug = true` writes a full PDB per binary on Windows, and this
+# workspace produces 141 test binaries. Measured on 2026-09-01: 387 PDB files
+# holding 40.5 GB of a 49 GB `target/debug`. That is not a slow build, it is a
+# failing one — the link step dies with LNK1318 ("Unexpected PDB error; LIMIT
+# (12)") or LNK1140, and the release profile hits `os error 112` (disk full),
+# neither of which names disk space as the cause.
+#
+# `line-tables-only` keeps file and line numbers in backtraces, which is what a
+# failing test actually needs; it drops variable inspection, so attach a
+# debugger with `CARGO_PROFILE_DEV_DEBUG=2 cargo build` when you need that.
+#
+# Set here rather than in Cargo.toml so it applies to builds of this repository
+# without becoming part of the published package. Verified against cargo 1.98:
+# a config-level profile produces byte-identical output to the equivalent
+# CARGO_PROFILE_DEV_DEBUG override.
+#
+# `[profile.test]` inherits from `dev`, so this covers the test binaries too.
+[profile.dev]
+debug = "line-tables-only"

@@ -104,6 +104,16 @@ published book.
 file module` described a per-module lookup the shell has never had; passing any
 argument prints the same full list. The README now says what it does.
 
+### Changed — debug info for local builds
+
+`.cargo/config.toml` sets `[profile.dev] debug = "line-tables-only"`. The
+default writes a full PDB per binary and this workspace builds 141 test
+binaries: 387 PDB files holding 40.5 GB of a 49 GB `target/debug`, which
+surfaces as `LNK1318`, `LNK1140` or `os error 112` — none of which names disk
+space. Backtraces keep their line numbers; use `CARGO_PROFILE_DEV_DEBUG=2` when
+you need variable inspection. It lives in `.cargo/config.toml` rather than
+`Cargo.toml` so it applies to this repository without shipping in the package.
+
 ### Fixed — the Homebrew formula was four releases behind
 
 - `Formula/aethershell.rb` still pinned `v10.0.0`, so
