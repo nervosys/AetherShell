@@ -461,19 +461,50 @@ jobs:
                     } | tee -a "$GITHUB_STEP_SUMMARY"
                   fi
 
-    update-homebrew:
-        name: Update Homebrew Formula
+    homebrew-digest:
+        # Was `update-homebrew`, a job whose only step echoed "Homebrew formula
+        # update would be triggered here" and exited 0 -- so every release
+        # reported a green "Update Homebrew Formula" while updating nothing.
+        # That is the same defect as the publish jobs above: a name that claims
+        # an action, and a success that means the echo worked.
+        #
+        # Pushing to the tap needs a token this repository does not have, so
+        # this does the half that does not: it computes the digest the formula
+        # needs and puts it in the run summary. The formula is then a one-line
+        # edit instead of a manual download-and-hash. The job is named for what
+        # it does.
+        name: Homebrew formula digest
         needs: [create-release, build-binaries]
         runs-on: ubuntu-latest
         steps:
-            - name: Trigger Homebrew tap update
+            - name: Compute the release tarball digest
+              env:
+                  VERSION: ${{ needs.create-release.outputs.version }}
               run: |
-                  echo "Homebrew formula update would be triggered here"
-                  echo "Version: ${{ needs.create-release.outputs.version }}"
-                  # This would typically:
-                  # 1. Calculate SHA256 of the release tarball
-                  # 2. Update the formula in nervosys/homebrew-tap
-                  # 3. Create a PR or push directly
+                  set -euo pipefail
+                  url="https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/v${VERSION}.tar.gz"
+                  # The tarball is generated on demand and can lag the tag by a
+                  # few seconds on a fresh release.
+                  for attempt in 1 2 3 4 5; do
+                    if curl -sSfL "$url" -o release.tar.gz; then break; fi
+                    echo "tarball not ready yet (attempt $attempt); waiting"
+                    sleep 10
+                  done
+                  test -s release.tar.gz
+                  digest="$(sha256sum release.tar.gz | cut -d' ' -f1)"
+                  {
+                    echo "### Homebrew formula"
+                    echo
+                    echo "Pushing to the tap is not configured, so update"
+                    echo '`Formula/aethershell.rb` by hand:'
+                    echo
+                    echo '```ruby'
+                    echo "  url \"$url\""
+                    echo "  sha256 \"$digest\""
+                    echo '```'
+                    echo
+                    echo "\`published_contracts\` checks both lines against the crate version."
+                  } >> "$GITHUB_STEP_SUMMARY"
 
     publish-pypi:
         name: Publish Python SDK to PyPI
@@ -501,11 +532,20 @@ jobs:
               uses: pypa/gh-action-pypi-publish@release/v1
               with:
                   packages-dir: integrations/python/dist/
-              # WARNING (2026-08-07): this has never succeeded, and unlike npm
-              # it is user-facing — docs told readers to `pip install
-              # aethershell`, and that name is unregistered on PyPI. Anyone may
-              # claim it, and pip executes package code at install time. A live
-              # supply-chain exposure, not just a broken job.
+              # WARNING (2026-08-07, updated 2026-09-02): this has never
+              # succeeded from CI.
+              #
+              # The original note said the `aethershell` name was unregistered
+              # on PyPI, that anyone could claim it, and that since pip executes
+              # package code at install time this was a live supply-chain
+              # exposure rather than merely a broken job. That was true when it
+              # was written and is not true now: the name was registered on
+              # 2026-08-10 by a manual upload, and PyPI reports 1.5.0 authored
+              # by `nervosys <contact@nervosys.ai>` with project URLs pointing
+              # at this repository. Verified against the PyPI API, not assumed.
+              #
+              # What remains true is everything below: CI has never published,
+              # and `continue-on-error` hides that.
               #
               # Observed on the v4.0.0 release: the action logs
               # `outcome=failure;conclusion=failure` with `environment:

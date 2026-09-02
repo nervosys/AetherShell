@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [12.0.0] - 2026-09-02
+
+A major version because the workflow engine's public types changed shape, not because the shell did. `WorkflowEvent` gained a variant and
+`WorkflowContext` a field, so downstream code that matched exhaustively or built one with a struct literal no longer compiles. Both are
+`#[non_exhaustive]` now, so the next such change will not need a major.
+
 ### Added — the workflow engine reaches the shell
 
 `workflow_builtins()` listed sixteen names and nothing registered any of them,
