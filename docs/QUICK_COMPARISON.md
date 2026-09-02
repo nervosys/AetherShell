@@ -4,7 +4,7 @@
 
 **Question**: *"What makes AetherShell different?"*
 
-**Answer**: AetherShell is the **first shell with programmable multimodal AI agents** built into the language itself, not bolted on as external tools.
+**Answer**: AetherShell is the **first shell with programmable AI agents** built into the language itself, calling the shell's own builtins as tools rather than bolting an assistant on the side — behind a default-deny effect gate and a keyed audit chain.
 
 ---
 
@@ -17,11 +17,10 @@
 | Type safety        | ❌        | ⚠️ Manual   | ❌             | ✅ Auto          |
 | AI assistance      | ❌        | ❌          | ✅ Suggestions | ✅ Full          |
 | AI agents          | ❌        | ❌          | ❌             | ✅               |
-| Agent swarms       | ❌        | ❌          | ❌             | ✅               |
-| Vision AI          | ❌        | ❌          | ❌             | ✅               |
-| Audio AI           | ❌        | ❌          | ❌             | ✅               |
+| MCP server         | ❌        | ❌          | ❌             | ✅               |
+| Effect gate + jail | ❌        | ❌          | ❌             | ✅               |
+| Audit chain        | ❌        | ❌          | ❌             | ✅               |
 | Lambda functions   | ❌        | ❌          | ❌             | ✅               |
-| Distributed agents | ❌        | ❌          | ❌             | ✅               |
 
 ---
 
@@ -71,11 +70,11 @@ ls "images/"
   | where(fn(f) => f.ext == "jpg")
   | map(fn(f) => {
       image: f.path,
-      analysis: ai_vision(f.path, "describe content"),
-      tags: ai_vision(f.path, "suggest tags")
+      size: f.size,
+      modified: f.modified
     })
   | to_json
-# Vision AI built-in, structured output
+# Structured output, no text parsing
 ```
 
 ---
@@ -103,10 +102,9 @@ swarm "Research quantum computing applications" [
 
 | Capability             | Description                       | Available In                |
 | ---------------------- | --------------------------------- | --------------------------- |
-| **Multimodal AI**      | Vision, audio, video processing   | **AetherShell ONLY**        |
-| **Agent Swarms**       | Coordinated AI agent teams        | **AetherShell ONLY**        |
-| **Distributed Agents** | Network-aware agent coordination  | **AetherShell ONLY**        |
-| **Advanced Reasoning** | Chain-of-Thought, Tree-of-Thought | **AetherShell ONLY**        |
+| **Effect Gate + Jail** | Default-deny destructive classes   | **AetherShell ONLY**        |
+| **Keyed Audit Chain**  | Tamper-evident record of every op  | **AetherShell ONLY**        |
+| **MCP Server**         | Every builtin as an MCP tool       | **AetherShell ONLY**        |
 | **HM Type Inference**  | Automatic type detection          | **AetherShell ONLY**        |
 | **Typed Lambdas**      | `fn(x) => x * 2`                  | **AetherShell ONLY**        |
 | Structured Pipelines   | Tables/records not text           | PowerShell, **AetherShell** |
@@ -119,9 +117,9 @@ swarm "Research quantum computing applications" [
 
 ### ✅ Use **AetherShell** for:
 - 🤖 AI-powered automation
-- 🎭 Multimodal data processing
+- 🔒 Automation that must be confined and auditable
 - 🧠 Complex decision-making tasks
-- 🌐 Distributed workflows
+- 🔌 Driving or serving MCP tools
 - 📊 Type-safe data pipelines
 - 🔄 Modern functional scripting
 
@@ -249,7 +247,7 @@ ae demos/showcase.ae
 cd /projects && git pull
 
 # Use AetherShell for AI tasks
-ae "ls *.jpg | ai_vision | generate_report"
+ae -c 'ls | where(fn(f) => f.size > 1000000) | to_json'
 ```
 
 **Week 3**: Build your first AI agent
@@ -267,7 +265,7 @@ swarm "Daily DevOps tasks" [...]
 
 ## 🎯 Key Takeaway
 
-> **AetherShell is not just "a shell with AI"**—it's a **complete rethinking of shell design for the AI era**, combining type safety, functional programming, multimodal AI, and distributed agent coordination in ways no other shell can match.
+> **AetherShell is not just "a shell with AI"**—it's a **complete rethinking of shell design for the AI era**, combining type safety, functional programming, agents that call builtins as tools, and a default-deny effect gate over a keyed audit chain.
 
 **The future of automation is programmable AI agents. AetherShell brings that future to your terminal today.**
 

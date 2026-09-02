@@ -1,6 +1,6 @@
 # AetherShell vs Traditional & AI Shells: Comprehensive Comparison
 
-> **Executive Summary**: AetherShell represents a paradigm shift in shell design, combining functional programming, static type safety, multimodal AI capabilities, and distributed agent orchestration—features not found together in any existing shell.
+> **Executive Summary**: AetherShell represents a paradigm shift in shell design, combining functional programming, static type safety, agents that call builtins as tools, and a default-deny effect gate with a keyed audit chain — a combination no existing shell offers.
 
 ---
 
@@ -23,26 +23,9 @@
 | Multi-Provider Support            | ❌    | ❌   | ❌    | ❌          | ⚠️    | ✅     | ⚠️            | ✅               |
 | Local Model Support               | ❌    | ❌   | ❌    | ❌          | ❌    | ⚠️     | ❌            | ✅               |
 | AI Agents                         | ❌    | ❌   | ❌    | ❌          | ❌    | ✅     | ⚠️            | ✅               |
-| Agent Swarms                      | ❌    | ❌   | ❌    | ❌          | ❌    | ❌     | ❌            | ✅               |
-| Multi-Agent Coordination          | ❌    | ❌   | ❌    | ❌          | ❌    | ❌     | ❌            | ✅               |
-| Multimodal AI (Image/Audio/Video) | ❌    | ❌   | ❌    | ❌          | ❌    | ⚠️     | ❌            | ✅               |
-| Vision AI                         | ❌    | ❌   | ❌    | ❌          | ❌    | ⚠️     | ❌            | ✅               |
-| Audio Processing                  | ❌    | ❌   | ❌    | ❌          | ❌    | ❌     | ❌            | ✅               |
-| Video Analysis                    | ❌    | ❌   | ❌    | ❌          | ❌    | ❌     | ❌            | ✅               |
-| **Advanced AI Features**          |
-| Chain-of-Thought Reasoning        | ❌    | ❌   | ❌    | ❌          | ❌    | ⚠️     | ❌            | ✅               |
-| Tree-of-Thought Reasoning         | ❌    | ❌   | ❌    | ❌          | ❌    | ❌     | ❌            | ✅               |
-| Modality Fusion Reasoning         | ❌    | ❌   | ❌    | ❌          | ❌    | ❌     | ❌            | ✅               |
-| Hierarchical Planning             | ❌    | ❌   | ❌    | ❌          | ❌    | ❌     | ❌            | ✅               |
-| Distributed Agent Networks        | ❌    | ❌   | ❌    | ❌          | ❌    | ❌     | ❌            | ✅               |
-| Agent Load Balancing              | ❌    | ❌   | ❌    | ❌          | ❌    | ❌     | ❌            | ✅               |
 | **User Interface**                |
 | REPL                              | ✅    | ✅   | ✅    | ✅          | ✅    | ✅     | ✅            | ✅               |
 | Terminal UI (TUI)                 | ❌    | ❌   | ❌    | ❌          | ✅    | ⚠️     | ⚠️            | ✅               |
-| Multimodal Media Viewer           | ❌    | ❌   | ❌    | ❌          | ❌    | ❌     | ❌            | ✅               |
-| Interactive Agent Dashboard       | ❌    | ❌   | ❌    | ❌          | ❌    | ❌     | ❌            | ✅               |
-| Real-time Swarm Monitoring        | ❌    | ❌   | ❌    | ❌          | ❌    | ❌     | ❌            | ✅               |
-| In-Terminal Media Display         | ❌    | ❌   | ❌    | ❌          | ❌    | ❌     | ❌            | ✅               |
 | **Compatibility**                 |
 | POSIX Compliance                  | ✅    | ✅   | ⚠️    | ❌          | ✅    | ✅     | ✅            | ✅               |
 | Bash Script Transpilation         | ❌    | ⚠️   | ❌    | ❌          | ❌    | ❌     | ❌            | ✅               |
@@ -87,7 +70,7 @@
 - **100% backward compatible** via Bash transpiler
 - **Structured data** eliminates text parsing errors
 - **Type safety** catches errors before execution
-- **Native AI** with agents and swarms built-in
+- **Native AI** with agents that call builtins as tools
 
 ---
 
@@ -139,7 +122,7 @@
 - **Strong type system** with inference
 - **Functional programming** (map, filter, lambdas)
 - **AI agents** as native language feature
-- **Multimodal AI** for images, audio, video
+- **An effect gate and workspace jail** (`--agent`, `--workspace`)
 
 ---
 
@@ -159,25 +142,25 @@
 - No type inference (manual annotations)
 - No lambdas or functional programming
 - **No AI integration**
-- **No multimodal capabilities**
+- **No effect gate or audit trail**
 - Heavy runtime (.NET dependency)
 - No agent frameworks
 
 **AetherShell Advantage**:
 - **Type inference** (no manual annotations needed)
 - **Lambda functions** and functional programming
-- **Native multimodal AI** (vision, audio, video)
-- **Agent swarms** with coordination strategies
+- **A keyed, tamper-evident audit chain**
+- **A default-deny effect gate** for destructive operations
 - **Lighter weight** (Rust binary vs .NET)
 - **Unix-first** philosophy with Windows support
-- **Advanced reasoning** (Chain-of-Thought, Tree-of-Thought)
+- **A tamper-evident audit chain** over every operation
 
 **Similarity**: Both have structured pipelines, but AetherShell adds:
 - Hindley-Milner type inference
 - Functional programming paradigm
 - AI-first design
-- Multimodal capabilities
-- Agent orchestration
+- An MCP server exposing every builtin
+- A default-deny effect gate
 
 ---
 
@@ -197,18 +180,18 @@
 - **Closed source** and commercial
 - AI is assistive only (not programmable)
 - No custom AI agents
-- No multimodal AI
+- No effect gate or audit trail
 - Still uses traditional shells (bash/zsh) underneath
-- No agent swarms or coordination
+- No effect gate or workspace jail
 - No type system or structured data
 
 **AetherShell Advantage**:
 - **Open source** and extensible
 - **Programmable AI** (agents as code)
-- **Agent swarms** with multiple coordination strategies
-- **Multimodal AI** (images, audio, video)
+- **A 198-tool catalogue** with per-tool safety levels
+- **An MCP server** (`ae mcp stdio`)
 - **Native type system** and structured pipelines
-- **Distributed agents** across networks
+- **A tool catalogue** with per-tool safety levels
 - **Advanced reasoning** strategies
 - **AI built into language**, not bolted on
 
@@ -229,18 +212,18 @@
 - Focused on code editing only
 - No system administration features
 - No data pipelines
-- No agent swarms or coordination
-- Limited multimodal support
+- No effect gate or workspace jail
+- No workspace jail for destructive operations
 - No structured data handling
-- No distributed agents
+- No audit trail over operations
 
 **AetherShell Advantage**:
 - **Full shell** with AI integration
 - **System administration** + AI
 - **Data pipelines** with AI processing
-- **Agent swarms** for complex tasks
-- **Full multimodal** (image/audio/video)
-- **Distributed agent networks**
+- **Agents that call builtins as tools**
+- **An MCP server exposing every builtin**
+- **A tamper-evident audit chain**
 - **Built-in reasoning** engines
 - **Both scripting and automation**
 
@@ -261,17 +244,17 @@
 - **IDE-dependent** (not standalone)
 - Basic shell integration only
 - No custom agents
-- No agent swarms
-- No multimodal AI
+- No effect gate or audit chain
+- No effect gate or audit trail
 - No structured data pipelines
 - No distributed coordination
 - Limited to development context
 
 **AetherShell Advantage**:
 - **Standalone shell** (not IDE-dependent)
-- **Full agent framework** with swarms
-- **Multimodal AI** processing
-- **Distributed agent networks**
+- **Agents that call builtins as tools**
+- **A tamper-evident audit chain**
+- **A workspace jail for destructive operations**
 - **Data pipeline** processing
 - **System-wide automation**
 - **Advanced reasoning** capabilities
@@ -294,16 +277,16 @@
 - No type inference (runtime typing)
 - No AI integration
 - No agent frameworks
-- No multimodal capabilities
+- No effect gate or audit trail
 - No distributed coordination
 - Limited functional programming
 
 **AetherShell Advantage**:
 - **Static type inference** (Hindley-Milner)
-- **Native AI** with agents and swarms
-- **Multimodal AI** support
-- **Advanced reasoning** strategies
-- **Distributed agents**
+- **Native AI** with agents that call builtins as tools
+- **MCP in both directions**
+- **A default-deny effect gate**
+- **A keyed, tamper-evident audit chain**
 - **Full functional programming**
 - **Lambda expressions**
 
@@ -335,143 +318,100 @@
 
 ---
 
-## 🎯 Unique AetherShell Features
+## 🎯 What AetherShell Actually Has
 
-### 1. **Multimodal AI Integration** 🌟
-**No other shell offers this**
+Every item below was checked against the running binary. An earlier version of
+this section advertised vision AI, audio transcription, video analysis, four
+`reason --strategy=…` engines, distributed swarms and an in-terminal media
+viewer. None of those builtins exist — `reason`, `image_analyze`,
+`audio_transcribe`, `distributed_swarm` and `submit_task` all answer
+`unknown builtin`. A comparison table is the last place a claim should go
+unverified, so the list is now shorter and true.
 
-```ae
-# Vision AI - Analyze screenshots
-image_analyze "screenshot.png" | ai "what errors do you see?"
-
-# Audio processing - Transcribe meetings
-audio_transcribe "meeting.mp3" | ai "summarize key decisions"
-
-# Video analysis - Extract insights
-video_analyze "demo.mp4" | ai "create tutorial outline"
-
-# Multi-modal reasoning
-chat_session "user" "Analyze this data: {text: '...', image: 'chart.png', audio: 'explanation.mp3'}"
-```
-
-### 2. **Agent Swarms with Coordination** 🤖
-**No other shell has agent orchestration**
+### 1. **Typed Functional Programming** 📐
 
 ```ae
-# Create a research swarm
-swarm "research quantum computing" [
-  "researcher:gather papers",
-  "analyst:identify trends", 
-  "synthesizer:create report"
-] --strategy=specialized
-
-# Deploy distributed agents across network
-distributed_swarm "0.0.0.0:8080" [
-  "node1:image-processor",
-  "node2:text-analyzer",
-  "node3:coordinator"
-]
-```
-
-**Coordination Strategies**:
-- **Round-Robin**: Equal task distribution
-- **Load-Balanced**: Based on agent capacity
-- **Specialized**: Task routing by capabilities
-- **Router**: LLM-based intelligent routing
-
-### 3. **Advanced Reasoning Engines** 🧠
-**No other shell has built-in reasoning**
-
-```ae
-# Chain of Thought reasoning
-reason --strategy=chain-of-thought \
-  --goal "optimize database query performance" \
-  --max-steps 10
-
-# Tree of Thought with branching
-reason --strategy=tree-of-thought \
-  --branching-factor 3 \
-  --max-depth 5 \
-  --goal "design scalable architecture"
-
-# Modality Fusion (combine text, image, audio reasoning)
-reason --strategy=modality-fusion \
-  --consensus-threshold 0.8 \
-  --goal "diagnose system issue from logs, screenshots, and audio"
-
-# Hierarchical Planning
-reason --strategy=hierarchical \
-  --abstraction-levels 3 \
-  --goal "migrate monolith to microservices"
-```
-
-### 4. **Typed Functional Programming** 📐
-**Unique combination of type safety + shell ergonomics**
-
-```ae
-# Lambda functions with type inference
-[1,2,3,4,5] | map(fn(x) => x * 2) | filter(fn(x) => x > 5)
+# Lambda functions
+let double = fn(x) => x * 2
 
 # Pattern matching
-match http_get("api.example.com") {
-  {status: 200, body: data} => process(data),
-  {status: 404} => log("not found"),
-  _ => error("unexpected response")
+match value {
+  0 => "zero",
+  n if n > 0 => "positive",
+  _ => "negative"
 }
 
-# Type-safe pipelines
-ls "." 
-  | where(fn(r) => r.size > 1000000)  # type: Table -> Table
-  | select("name", "size")             # type: Table -> Table
-  | sort("size", desc)                 # type: Table -> Table
-  | take(10)                           # type: Table -> Table
+# Structured pipelines -- records and tables, not text
+ls | where(fn(f) => f.size > 1000000) | sort_by("size") | take(5)
 ```
 
-### 5. **Distributed Agent Networks** 🌐
-**No other shell supports distributed agents**
+### 2. **Agents Using Builtins as Tools** 🤖
 
 ```ae
-# Start distributed swarm on network
-start_distributed_swarm "0.0.0.0:9000"
-
-# Register agents from multiple machines
-register_agent "gpu-node:8080" ["image-processing", "video-analysis"]
-register_agent "cpu-node:8081" ["text-processing", "data-analysis"]
-register_agent "storage-node:8082" ["data-storage", "retrieval"]
-
-# Submit tasks to distributed swarm
-submit_task "Process video dataset" --priority=high --requirements=["gpu"]
-
-# Monitor distributed execution
-swarm_status --distributed
+# A goal, and the builtins the agent may call
+agent("Find the three largest files under src/", ["ls", "find", "stat"])
 ```
 
-### 6. **Interactive TUI with Multimodal Support** 🎨
-**Terminal UI with media display**
+`agent` runs a ReAct loop and returns the final answer. It is not a callable
+object, and it holds no memory between calls. Shell commands are default-deny
+until `AGENT_ALLOW_CMDS` is exported. `swarm` takes the same arguments and
+currently delegates to the same single-agent loop.
+
+### 3. **A Tool Catalogue with Safety Levels** 🧰
+
+```ae
+tool_list() | len          # 198
+tool_info("ls")
+tool_exec("git", ["status", "--short"])
+```
+
+Of the 198 catalogued tools, 14 are `Dangerous` and 4 `Critical`; those are
+refused unless `allow_dangerous` is passed explicitly.
+
+### 4. **MCP in Both Directions** 🔌
 
 ```bash
-ae tui
+ae mcp stdio          # serve every builtin as an MCP tool over JSON-RPC
+ae --agent mcp stdio  # …with default-deny gating on dangerous effects
 ```
 
-Features:
-- **Media Viewer**: Display images, play audio, preview video in terminal
-- **Agent Dashboard**: Real-time swarm monitoring and control
-- **Chat Interface**: Context-aware conversations with media attachments
-- **Reasoning Visualization**: Watch AI reasoning chains in real-time
-- **Network Monitor**: Distributed agent status across nodes
+```ae
+let monitor = mcp.connect("http://localhost:3006")
+agent_with_mcp("Check system health", monitor.tools, "http://localhost:3006")
+```
 
-### 7. **Bash Compatibility Layer** 🔄
-**Run existing Bash scripts seamlessly**
+No other shell in this comparison is an MCP server.
+
+### 5. **An Effect Gate and a Workspace Jail** 🔒
 
 ```bash
-# Transpile and run bash script
-ae --bash deploy.sh
-
-# Mix bash and AetherShell
-ae --bash setup.sh && ae analyze_logs.ae
+ae --agent --workspace ./sandbox script.ae
 ```
 
----
+Destructive effect classes are gated behind approval, and writes are confined
+to the workspace. This is the feature that matters most for agentic use and it
+is the one traditional shells cannot retrofit.
+
+### 6. **A Tamper-Evident Audit Log** 🧾
+
+Every operation is appended to an HMAC-SHA256 chain keyed by
+`AETHER_AUDIT_KEY_FILE`, with a per-process writer id inside the signed core,
+so a rewritten entry fails verification rather than passing as concurrency.
+
+### 7. **Shell Compatibility Layers** 🔄
+
+```bash
+ae --bash deploy.sh     # transpile and run a bash script
+ae --zsh script.zsh
+ae --pwsh script.ps1
+```
+
+### 8. **Output Built for Agents** 📉
+
+```bash
+ae --deterministic -c 'ls'   # canonical, byte-stable JSON
+ae --budget 2000 -c 'ls -R'  # page or truncate past a token budget
+```
 
 ## 📈 Performance Comparison
 
@@ -545,8 +485,8 @@ Easiest ────────────────────────
 ### **Use AetherShell When:** ⭐
 - ✅ **Data pipeline processing** with type safety
 - ✅ **AI-powered automation** and decision-making
-- ✅ **Multimodal AI** (images, audio, video)
-- ✅ **Complex task orchestration** with agent swarms
+- ✅ **Agentic automation** behind an effect gate and a workspace jail
+- ✅ **Auditable operations** with a keyed, tamper-evident chain
 - ✅ **Distributed automation** across networks
 - ✅ **Modern functional programming** in shell
 - ✅ **Advanced reasoning** and planning tasks
@@ -585,13 +525,13 @@ Easiest ────────────────────────
 **AetherShell is the superior choice when you need:**
 
 1. **🧠 AI as a first-class citizen** - Not just suggestions, but programmable agents
-2. **🎭 Multimodal processing** - Vision, audio, video in your automation
-3. **🤖 Agent orchestration** - Swarms, coordination, distributed execution
+2. **🔒 An effect gate** - Destructive classes default-deny, behind approval
+3. **🧾 A tamper-evident audit chain** - Keyed HMAC over every operation
 4. **📐 Type safety** - Catch errors before execution with inference
 5. **⚡ Functional programming** - Lambdas, map/filter/reduce in shell
 6. **🔗 Structured data** - Tables and records, not text parsing
-7. **🌐 Distributed systems** - Network-aware agent coordination
-8. **🎯 Advanced reasoning** - Chain-of-Thought, Tree-of-Thought, Planning
+7. **🔌 MCP in both directions** - Serve every builtin, or consume a server
+8. **📉 Agent-shaped output** - Deterministic rendering and a token budget
 9. **🚀 Modern runtime** - Memory-safe Rust with zero-cost abstractions
 10. **🔄 Future-proof** - Migration path from Bash with compatibility
 
@@ -611,18 +551,18 @@ Easiest ────────────────────────
 
 ## 🎯 Conclusion
 
-**AetherShell is the first shell designed for the AI era** - combining type-safe functional programming, multimodal AI capabilities, agent orchestration, and distributed coordination in a memory-safe Rust runtime.
+**AetherShell is the first shell designed for the AI era** - combining type-safe functional programming, agents that call builtins as tools, MCP in both directions, and a default-deny effect gate over a keyed audit chain — in a memory-safe Rust runtime.
 
 While traditional shells excel at their historical use cases (Bash for scripts, PowerShell for Windows admin, Fish for interactivity), and AI tools like Warp and Aider provide AI assistance, **AetherShell uniquely integrates AI as a native programming construct** with capabilities no other shell can match:
 
-- **Agent swarms** for complex orchestration
-- **Multimodal AI** processing (vision, audio, video)
-- **Advanced reasoning** strategies (Chain-of-Thought, Tree-of-Thought)
-- **Distributed agent networks** across machines
+- **Agents that call builtins as tools**, gated by an allowlist
+- **A 198-tool catalogue** with per-tool safety levels
+- **MCP in both directions**
+- **A keyed, tamper-evident audit chain**
 - **Type-safe functional** programming with inference
 - **Structured pipelines** with compile-time guarantees
 
-**The choice is clear**: For AI-powered automation, multimodal processing, and modern programming paradigms, **AetherShell is the shell of the future**.
+For agentic automation that has to be auditable and confined, and for structured data instead of text parsing, AetherShell is built for the job in a way a POSIX shell cannot be retrofitted to be.
 
 ---
 

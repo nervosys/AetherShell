@@ -60,6 +60,10 @@ empty toolset and the agent can only answer from the model.
 agent("Analyze the project", [])   # no tools; the model answers unaided
 ```
 
+A name that is not a builtin is not rejected either: the resolver wraps any
+string it is given, so a typo — or a model URI passed where the tool list
+belongs -- is accepted here and only fails when the agent tries to call it.
+
 ## Agent security
 
 ### Command allowlist

@@ -146,7 +146,7 @@ agent "list big files" ["ls","!"] 3 true
 
 ## 3. Grammar (Excerpt)
 
-```ae
+```ebnf
 program    := stmt* ;
 stmt       := let_stmt | expr ;
 let_stmt   := IDENT ":=" expr | "let" ("mut")? IDENT (":" type)? "=" expr ;

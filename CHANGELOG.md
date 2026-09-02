@@ -48,6 +48,61 @@ and cannot without cross-process locking. What is asserted is that it stays
 parseable, stays quiet, and explains itself — and that a single writer still
 produces one clean chain with contiguous sequence numbers.
 
+### Fixed — the comparison documents claimed features that do not exist
+
+Extending the builtin check past the book found the worst documents in the
+repository. `docs/SHELL_COMPARISON.md` is a competitive feature matrix, and it
+carried **16 rows marked ✅ for AetherShell** against capabilities no builtin
+provides: Agent Swarms, Multi-Agent Coordination, Multimodal AI, Vision AI,
+Audio Processing, Video Analysis, Chain-of-Thought, Tree-of-Thought, Modality
+Fusion, Hierarchical Planning, Distributed Agent Networks, Agent Load
+Balancing, Multimodal Media Viewer, Interactive Agent Dashboard, Real-time
+Swarm Monitoring, In-Terminal Media Display.
+
+Its "Unique AetherShell Features" section then demonstrated them: `reason
+--strategy=chain-of-thought`, `image_analyze`, `audio_transcribe`,
+`distributed_swarm`, `submit_task`, `swarm_status`. Every one answers `unknown
+builtin`; `reason` does not exist in any form. The same claims ran through the
+per-shell comparisons ("No multimodal AI" as a competitor's weakness), the
+verdict, and the conclusion. `docs/QUICK_COMPARISON.md` and
+`docs/WHY_AETHERSHELL.md` repeated them.
+
+A comparison table is the last place an unverified claim belongs, so the rows
+are gone and the feature section is rewritten around what was checked against
+the running binary: typed pipelines, agents calling builtins as tools, the
+198-tool catalogue with safety levels, MCP in both directions, the effect gate
+and workspace jail, the keyed audit chain, the shell compatibility layers, and
+deterministic/token-budgeted output.
+
+Also corrected:
+
+- **The A2A and NANDA examples used an API that never existed.**
+  `docs/LIVE_DEMO.md` and `docs/QUICK_REFERENCE.md` built a bus object with
+  `a2a_create_bus`, registered agents with `a2a_register_agent(bus, agent)`,
+  and called methods like `agent1.send_message(...)` and
+  `coordinator.propose(...)`. The real surface is flat and much smaller:
+  `a2a_register(name)`, `a2a_send(target, message)`, `a2a_receive`,
+  `a2a_broadcast`, `a2a_discover`, `a2a_status`, `a2a_unregister`, and
+  `nanda_propose(name, data)` / `nanda_vote(id, approve)` / `nanda_quorum` /
+  `nanda_consensus` / `nanda_commit` / `nanda_abort`. Both blocks were rerun
+  against the binary.
+- **The README passed a model where the tool list goes.** `agent("goal",
+  "openai:gpt-4o", tools, 10)` reads the second argument as a tool name, and
+  `BuiltinToolResolver::get` accepts *any* string, so the model URI was
+  silently registered as a tool rather than rejected. Two record examples also
+  carried a `model:` key that nothing reads. The book now states that unknown
+  tool names are accepted and only fail when called.
+- **`docs/specs/SPEC.md` tagged its EBNF grammar as `ae`**, so a grammar rule
+  read as a builtin call.
+
+The ratchet now covers the README and everything under `docs/`, not just the
+book. Two categories are exempt and say so in their own titles: a document
+named `_PROPOSAL` describes builtins that do not exist yet, which is its
+purpose, and `docs/INDEX.md` lists `README_old.md` and `README_clean.md` as
+historical versions. The scanner also learned that `name = ...` and
+`name := ...` define a name, which is what let the check run over documents
+written in that style without drowning in false positives.
+
 ### Fixed — the AI chapters documented an API the shell does not have
 
 Publishing the book made its content something a reader could act on, so it was

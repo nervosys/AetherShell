@@ -175,25 +175,24 @@ result := devops.execute {task: "List all project files and S3 buckets"}
 
 ### A2A (Agent-to-Agent Communication)
 ```ae
-bus := a2a_create_bus
-a2a_register_agent bus agent1
-a2a_register_agent bus agent2
+a2a_register("agent1")
+a2a_register("agent2")
+a2a_agents()                     # => [agent1, agent2]
 
-agent1.send_message agent2.id {type: "task_request", data: "Process data"}
-messages := agent2.receive_messages
+a2a_send("agent2", "Process data")
+a2a_receive()
+a2a_status()                     # => {active: true, agents: 2, pending_messages: 1}
 ```
 
 ### NANDA (Negotiation And Decision Aggregation)
 ```ae
-coordinator := nanda_coordinator [agent1, agent2, agent3] 0.75 3
+let proposal = nanda_propose("TaskAllocation", { task: "Implement feature X" })
+# => {id: "prop_…", name: "TaskAllocation", status: "pending", threshold: 0.5}
 
-neg_id := coordinator.propose agent1.id {
-  type: "TaskAllocation",
-  task: "Implement feature X"
-}
-
-coordinator.vote neg_id agent2.id {type: "Accept"}
-status := coordinator.get_status neg_id
+nanda_vote(proposal.id, true)
+nanda_quorum(proposal.id)
+nanda_consensus(proposal.id)
+nanda_status()
 ```
 
 ---

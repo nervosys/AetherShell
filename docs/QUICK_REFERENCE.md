@@ -218,52 +218,42 @@ result := devops.execute({
 ### A2A (Agent-to-Agent Communication)
 
 ```aethershell
-# Create message bus
-bus := a2a_create_bus()
+# Register agents by name -- there is no bus object
+a2a_register("agent1")
+a2a_register("agent2")
+a2a_agents()                  # => [agent1, agent2]
 
-# Register agents
-a2a_register_agent(bus, agent1)
-a2a_register_agent(bus, agent2)
+# Send and receive
+a2a_send("agent2", "Process this data")
+a2a_broadcast("shutting down")
+a2a_receive()
 
-# Send message
-agent1.send_message(agent2.id, {
-  type: "task_request",
-  data: "Process this data"
-})
-
-# Receive messages
-messages := agent2.receive_messages()
+a2a_discover()
+a2a_status()                  # => {active: true, agents: 2, pending_messages: 0}
+a2a_unregister("agent1")
 ```
 
 ### NANDA (Negotiation and Decision Aggregation)
 
 ```aethershell
-# Create coordinator
-coordinator := nanda_coordinator(
-  [agent1, agent2, agent3],
-  0.75,  # threshold
-  3      # quorum
-)
-
-# Propose decision
-neg_id := coordinator.propose(agent1.id, {
-  type: "TaskAllocation",
+# Propose a decision -- name and data, no coordinator object
+let proposal = nanda_propose("TaskAllocation", {
   task: "Implement feature X",
-  assignee: agent2.id
+  assignee: "agent2"
 })
+# => {id: "prop_…", name: "TaskAllocation", status: "pending", threshold: 0.5}
 
-# Vote on proposal
-coordinator.vote(neg_id, agent1.id, {type: "Accept"})
-coordinator.vote(neg_id, agent2.id, {type: "Accept"})
-coordinator.vote(neg_id, agent3.id, {type: "CounterProposal", alternative: "..."})
+# Vote: proposal id and a boolean
+nanda_vote(proposal.id, true)
 
-# Check status
-status := coordinator.get_status(neg_id)
-match status.state {
-  "Accepted" => print("Consensus reached!"),
-  "Rejected" => print("Proposal rejected"),
-  "Active" => print("Still negotiating...")
-}
+# Check the outcome
+nanda_quorum(proposal.id)
+nanda_consensus(proposal.id)
+nanda_status()
+
+# Finish
+nanda_commit(proposal.id)
+# or nanda_abort(proposal.id)
 ```
 
 ## Built-in Functions

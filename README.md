@@ -318,8 +318,7 @@ agent("Find all TODOs in the codebase", ["file.read", "grep", "ls"])
 agent({
     goal: "Fix code style violations",
     tools: ["file.read", "file.write", "grep"],
-    max_steps: 20,
-    model: "openai:gpt-4o"
+    max_steps: 20
 })
 
 # Multi-agent swarm
@@ -905,8 +904,7 @@ file.replace("template.html",
 # AI agent can safely edit any file
 agent({
     goal: "Add error handling to all functions",
-    tools: ["file.read", "file.patch", "file.insert", "grep"],
-    model: "openai:gpt-4o"
+    tools: ["file.read", "file.patch", "file.insert", "grep"]
 })
 ```
 
@@ -1051,9 +1049,10 @@ print(monitor.available)                 # => true
 print(monitor.tools)                     # => ["cpu_usage", "memory_info", ...]
 
 # Create agent with external tool access
+# The second argument is the tool list, not a model. Pick the model with
+# AETHER_AGENT_MODEL_URI; a model string here would be read as a tool name.
 agent(
     "Monitor system health and alert on high CPU usage",
-    ai.detect(),                         # Use best available LLM
     monitor.tools,                       # Give agent access to metrics
     5                                    # Max reasoning steps
 )
@@ -1067,7 +1066,6 @@ monitor = mcp.connect("http://localhost:3006")        # Hardware metrics
 all_tools = fs_server.tools + git_server.tools + monitor.tools
 agent(
     "Analyze codebase performance impact on system resources",
-    "openai:gpt-4o",
     all_tools,
     10
 )

@@ -14,10 +14,10 @@
    - **A2A**: Agent-to-Agent messaging (direct/broadcast/delegate)
    - **NANDA**: Negotiation framework for consensus
    
-3. **Multi-Modal AI Native**
-   - Process images, audio, video directly in pipelines
-   - Combine multiple media types in single queries
-   - AI vision, transcription, video analysis built-in
+3. **Safety Built for Agents**
+   - `--agent` puts destructive effect classes behind approval
+   - `--workspace` confines writes and destructive operations to one directory
+   - Every operation appended to a keyed, tamper-evident audit chain
    
 4. **Hindley-Milner Type System**
    - Advanced type inference like Haskell/OCaml

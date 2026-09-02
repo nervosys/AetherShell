@@ -1,4 +1,4 @@
-//! A builtin the book tells you to call must be one the shell has.
+//! A builtin the documentation tells you to call must be one the shell has.
 //!
 //! Publishing the book turned its contents from private notes into
 //! instructions, and the audit that followed found several calls that do not
@@ -84,7 +84,8 @@ fn calls_and_definitions(block: &str) -> (BTreeSet<String>, BTreeSet<String>) {
         if line.is_empty() || line.starts_with('#') || line.starts_with("//") {
             continue;
         }
-        // `let name = ...` and `fn name(...)` introduce a name for this example.
+        // `let name = ...`, `fn name(...)`, and bare `name = ...` / `name := ...`
+        // all introduce a name for this example.
         for kw in ["let ", "fn "] {
             if let Some(rest) = line.strip_prefix(kw) {
                 let name: String = rest
@@ -94,6 +95,16 @@ fn calls_and_definitions(block: &str) -> (BTreeSet<String>, BTreeSet<String>) {
                 if !name.is_empty() {
                     defined.insert(name);
                 }
+            }
+        }
+        let head: String = line
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+            .collect();
+        if !head.is_empty() {
+            let rest = line[head.len()..].trim_start();
+            if rest.starts_with(":=") || (rest.starts_with('=') && !rest.starts_with("==")) {
+                defined.insert(head);
             }
         }
         for seg in line.split('|') {
@@ -128,9 +139,27 @@ fn book_blocks() -> Vec<(String, String)> {
             }
         }
     }
-    let src = root().join("docs").join("book").join("src");
+    // The book, every other document under docs/, and the README -- which is
+    // the repository's front page and ships inside the published crate.
+    //
+    // Two kinds of file are out of scope, and both say so in their own titles:
+    // a proposal describes builtins that do not exist yet, which is its whole
+    // purpose, and docs/INDEX.md lists README_old.md and README_clean.md as
+    // "historical README versions". Everything else is read as instructions.
+    const NOT_INSTRUCTIONS: [&str; 3] = [
+        "A2A_A2UI_OPTIMIZATION_PROPOSAL.md",
+        "README_old.md",
+        "README_clean.md",
+    ];
+
+    let src = root();
     let mut files = Vec::new();
-    walk(&src, &mut files);
+    walk(&src.join("docs"), &mut files);
+    files.push(src.join("README.md"));
+    files.retain(|f| {
+        let name = f.file_name().map(|n| n.to_string_lossy().to_string());
+        !name.is_some_and(|n| NOT_INSTRUCTIONS.contains(&n.as_str()))
+    });
 
     let mut blocks = Vec::new();
     for f in files {
@@ -167,7 +196,7 @@ fn book_blocks() -> Vec<(String, String)> {
 }
 
 #[test]
-fn every_underscored_call_in_the_book_names_something_real() {
+fn every_underscored_call_in_the_docs_names_something_real() {
     let known = names_quoted_by_source();
     let mut bad: Vec<String> = Vec::new();
     for (file, block) in book_blocks() {
@@ -181,8 +210,8 @@ fn every_underscored_call_in_the_book_names_something_real() {
     }
     assert!(
         bad.is_empty(),
-        "the book calls builtins the source never names, so a reader following \
-         it gets `unknown builtin`:\n  {}",
+        "documentation calls builtins the source never names, so a reader \
+         following it gets `unknown builtin`:\n  {}",
         bad.join("\n  ")
     );
 }
