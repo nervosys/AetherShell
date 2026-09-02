@@ -4326,7 +4326,7 @@ fn egress_allowed(url: &str, allow: &str) -> bool {
 /// allowlist), only those hosts and their subdomains may be reached — a control
 /// against data exfiltration over an otherwise-open network channel. Unset → the
 /// allowlist is inactive and behavior is unchanged.
-fn guard_network(builtin: &str, url: &str) -> Result<()> {
+pub(crate) fn guard_network(builtin: &str, url: &str) -> Result<()> {
     // Every one of these builtins hands the URL to `curl` or `wget` in a
     // positional slot, so a leading `-` is read as an option rather than an
     // address — and `curl -K<file>` reads a config file that can set `output`

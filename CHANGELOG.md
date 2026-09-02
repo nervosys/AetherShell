@@ -7,7 +7,93 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed — the workflow engine described its work instead of doing it
+
+`src/workflows.rs` is 1,733 lines added in January and touched twice since,
+both times by warning cleanups. It declares eight distributed-computing
+patterns and a `WorkflowEngine` with a real async API. Every leaf step was a
+placeholder:
+
+```rust
+StepType::Execute { function, args } => {
+    // In a real implementation, this would call the actual function
+    Ok(Value::Str(format!("Executed {} with {:?}", function, args)))
+}
+StepType::Http { method, url, body: _ } => {
+    // Would make HTTP request
+    Ok(Value::Record(BTreeMap::from([
+        ("status".to_string(), Value::Int(200)),   // always 200
+```
+
+An HTTP step that answers `200` without making a request is worse than one
+that is missing: a caller cannot tell. The module had eighteen tests and they
+all passed, because the only one that called `execute()` used an *empty*
+pipeline — the step executor had never been run by anything.
+
+Each step type now does the work:
+
+- **`Execute`** calls the named builtin through `builtins::call_with_input`, on
+  the blocking pool, so a workflow step passes through the same effect gate,
+  workspace jail and audit chain as a call typed at the prompt. A workflow must
+  not be a way around them.
+- **`Agent`** goes through the `agent` builtin for the same reason, so the
+  command allowlist and the 10-per-minute rate limit still apply.
+- **`Http`** issues the request. `http_get` is the only HTTP builtin, so the
+  other methods are issued here — through the same egress allowlist
+  (`guard_network`, now `pub(crate)`), the same SSRF validation
+  (`validate_http_url`) and the same hardened client.
+- **`EmitEvent`/`WaitForEvent`** carry a payload over the engine's broadcast
+  channel with a real timeout. An event already emitted by the same workflow
+  satisfies a later wait, which a subscribe-then-wait implementation alone
+  would deadlock on until the timeout.
+- **`SubWorkflow`** re-enters the engine, bounded by `MAX_SUBWORKFLOW_DEPTH`
+  (8). A template naming itself is refused with a message that says so, rather
+  than recursing until the stack ends.
+
+Four further defects surfaced while implementing it, three of them caught by
+the new tests rather than by reading:
+
+- **`evaluate_condition` returned `true` unconditionally.** A guarded step
+  always ran and a `Branch` always took its first arm — the engine could not
+  branch at all, and nothing said so. Conditions are now parsed and evaluated
+  by the shell's own interpreter against the workflow's variables. One that
+  fails to parse is `false`, not `true`: a guard that cannot be understood must
+  not be treated as satisfied.
+- **`input_mapping`, `output_mapping` and `timeout_ms` were read by nothing.**
+  The template factory sets all three on every step it builds. Map-reduce never
+  handed the mapper's results to the reducer, and a step could run forever.
+- **`execute_parallel` held a second copy of the executor**, inline and
+  smaller, returning `"Executed: {fn}"` for an execute step and `"Step: {id}"`
+  for everything else — so a parallel branch never reached the real executor
+  even after one existed. Branches now run the real step, each on a cloned
+  context merged back in step order, and every branch is awaited before a
+  failure is reported so a fan-out says what each branch did.
+- **`FanOutFanIn` and `ScatterGather` ran their two stages concurrently.** Both
+  templates are a `Parallel` step followed by an aggregator that reads what it
+  published; running the stages in parallel meant the aggregator read a
+  variable that did not exist yet. They dispatch sequentially now — the
+  concurrency is inside stage one.
+- **`execute()` discarded its own work.** It mutated a clone of the context and
+  wrote back only `status` and `ended_at`, so the variables every step produced
+  and the per-step results were thrown away and `get_instance` answered with
+  the state from before the run.
+
+Twenty-two tests were added, each asserting a value the engine can only produce
+by doing the work. Verified against the defect: restoring the single `Execute`
+placeholder fails ten of them.
+
+**Still not exposed to the shell.** `workflow_builtins()` lists sixteen names
+and nothing registers them, so `workflow_create` at the prompt remains
+`unknown builtin`. This is library API. Wiring those names into the dispatcher
+is a separate decision about the shell's surface; the documentation continues
+to say they are unavailable, and `book_builtins_are_real` keeps it that way.
+
+**Version note.** `WorkflowEvent` gained a `Custom` variant and
+`WorkflowContext` gained a `depth` field. Both are public in a published
+crate, so an exhaustive `match` or a struct literal downstream would no longer
+compile: by semver this is a major change, not a patch. The version has not
+been bumped here — 11.0.2 has not shipped, and which number this lands under is
+a release decision.
 
 ## [11.0.2] - 2026-09-01
 
