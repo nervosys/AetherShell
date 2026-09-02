@@ -230,9 +230,14 @@ pub mod tui;
 /// Transactions — filesystem checkpoint/rollback journal for undoable actions.
 #[cfg(feature = "native")]
 pub mod tx;
-/// Workflows — workflow engine for multi-step automation.
+/// Workflows — the shell-facing builtins over the workflow engine.
 #[cfg(feature = "native")]
 pub mod workflow_builtins;
+/// Workflows — workflow engine for multi-step automation.
+///
+/// Native only: the engine is built on tokio and calls into `builtins`,
+/// `security` and `eval`, none of which exist in the `web` feature set.
+#[cfg(feature = "native")]
 pub mod workflows;
 
 /// WASM bindings — browser REPL and web integration.
