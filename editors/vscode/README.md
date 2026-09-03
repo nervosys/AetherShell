@@ -34,9 +34,53 @@ The extension will automatically find the language server if built in the standa
 - `aethershell.lsp.path`: Custom path to the language server binary
 - `aethershell.trace.server`: Trace server communication for debugging
 
+## Installing
+
+The same package installs in VS Code and in the editors built on it. Cursor,
+VSCodium, Gitpod and Theia are VS Code forks and take the same `.vsix`; what
+differs is where each one looks for it.
+
+### VS Code
+
+```bash
+code --install-extension admercs.aethershell
+```
+
+### Cursor, VSCodium, and other forks
+
+These resolve extensions from [Open VSX](https://open-vsx.org), not from the
+Visual Studio Marketplace, so an extension published only to the Marketplace is
+invisible to them. Install from the registry once it is published there:
+
+```bash
+cursor --install-extension admercs.aethershell
+```
+
+or install a `.vsix` directly, which always works:
+
+```bash
+cursor --install-extension aethershell-1.6.0.vsix
+```
+
+In the UI: **Extensions → … → Install from VSIX**.
+
+### From source
+
+```bash
+cd editors/vscode
+npm install
+npm run package                 # produces aethershell-<version>.vsix
+code --install-extension aethershell-*.vsix
+```
+
+Build with `npm run package`, never `vsce package --no-dependencies`: the latter
+omits `vscode-languageclient`, producing a package that installs without
+complaint and then fails to activate with `MODULE_NOT_FOUND`. `test/package.test.mjs`
+checks for this.
+
 ## Quick Start
 
-1. Install the extension
+1. Install the extension (above)
 2. Build the language server (see above)
 3. Open any `.ae` file
 4. Start writing AetherShell code!

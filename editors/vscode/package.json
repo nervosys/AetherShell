@@ -22,7 +22,9 @@
     "ai",
     "typed",
     "agents",
-    "llm"
+    "llm",
+    "cursor",
+    "open-vsx"
   ],
   "activationEvents": [
     "onLanguage:aethershell"
@@ -263,7 +265,10 @@
     "pretest": "npm run compile",
     "lint": "eslint src --ext ts",
     "package": "vsce package",
-    "test": "node --test test/grammar.test.mjs test/language-configuration.test.mjs test/manifest.test.mjs test/snippets.test.mjs test/providers.test.mjs test/runner.test.mjs test/codeactions-markdown.test.mjs test/package.test.mjs"
+    "test": "node --test test/grammar.test.mjs test/language-configuration.test.mjs test/manifest.test.mjs test/snippets.test.mjs test/providers.test.mjs test/runner.test.mjs test/codeactions-markdown.test.mjs test/package.test.mjs test/cursor.test.mjs",
+    "publish:vscode": "vsce publish",
+    "publish:openvsx": "ovsx publish",
+    "publish:all": "npm run publish:vscode && npm run publish:openvsx"
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"
@@ -276,6 +281,7 @@
     "@typescript-eslint/parser": "^6.13.0",
     "@vscode/vsce": "^2.22.0",
     "eslint": "^8.55.0",
+    "ovsx": "^1.1.1",
     "typescript": "^5.3.2",
     "vscode-oniguruma": "^2.0.1",
     "vscode-textmate": "^9.0.0"
