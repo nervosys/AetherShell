@@ -9,6 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Nothing yet.
 
+## [12.0.2] - 2026-09-03
+
+### Fixed — the README documented an `ai` parameter that does nothing
+
+`README.md` ships inside the published crate and is what crates.io renders, so
+this was the front page of the package. Its Quick Start showed
+
+```aethershell
+ai("Explain this code", {context: file.read("main.rs")})
+```
+
+`bi_ai` reads exactly one key from that record, `model`. `context` was accepted
+and ignored, so the documented call did something quieter than it claimed.
+
+The front half of the README is rewritten around two sections — Getting Started
+and Syntax — with every snippet executed against the published 12.0.1 binary
+before being written down, and the finished text then audited against the
+shell's own dispatch tables: 34 builtin calls, all served.
+
+Also corrected there:
+
+- A builtin used as a value needs its parentheses. `ls()` returns an array of
+  records; bare `ls` returns null, so `ls | len` fails. The old text used the
+  right form without saying why, which is the part a reader trips over.
+- `and` and `or` are not operators; `&&`, `||` and `!` are.
+- Two navigation anchors were dead — `#-ai-agents` and `#-protocols` pointed at
+  headings that had lost their emoji prefixes.
+
+No code changed: `src/`, `crates/`, `Cargo.toml` and `Cargo.lock` are
+byte-identical to v12.0.1. This release exists to correct what the registry
+page says.
+
 ## [12.0.1] - 2026-09-02
 
 ### Fixed — a torn read of a concurrent append was reported as tampering

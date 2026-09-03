@@ -5,6 +5,49 @@ All notable changes to the AetherShell VS Code extension are documented here.
 The extension is versioned independently of the AetherShell shell itself; the
 shell's changelog lives at the repository root.
 
+## [1.6.1] - 2026-09-03
+
+Two commands had never worked, seven hover entries described builtins that do
+not exist, and the 1.6.0 package could not activate. Each was found by running
+the thing rather than reading it.
+
+### Fixed
+
+- **Run Selection was broken since it was added.** It emitted
+  `ae -e "<code>"`, and `ae` has no `-e` flag: `error: unexpected argument '-e'
+  found`. The flag is `-c`. Verified against the clap definition in
+  `src/main.rs` and against the published binary.
+- **Open TUI was broken the same way.** It launched `ae --tui`; `tui` is a
+  subcommand, not a flag, so the terminal opened and immediately errored. Both
+  survived because the failure appears in the user's terminal, where it reads
+  as a broken install rather than a broken extension.
+- **Seven hover entries were not builtins.** `filter`, `skip`, `to_int`,
+  `to_float`, `which`, `os` and `arch` all answer `E_UNKNOWN_BUILTIN` at the
+  prompt. `filter` is spelled `where`, `skip` is covered by `slice`, and
+  `os`/`arch` are fields of `sys_info()`. The table is 56 entries now, each one
+  checked against the shell's dispatcher.
+- **1.6.0 was packaged without its dependencies** and could not activate.
+  `vsce package --no-dependencies` produced 18 files and 38 KB; `extension.ts`
+  imports `vscode-languageclient` at the top level, so the editor got
+  MODULE_NOT_FOUND on the first `.ae` file opened. The package is 331 files.
+
+### Added
+
+- **Tests for the extension's own code.** The suite was 38 tests over static
+  JSON — grammar, language configuration, manifest, snippets — and covered none
+  of the six TypeScript modules. It is 78 now, over all of them, using a `vscode`
+  stub so providers can be driven outside the editor.
+- **Four ratchets**, each guarding the class rather than the instance: no source
+  may invoke `ae` with an interface it does not have; every name in the hover
+  table must be one the shell dispatches; every declared runtime dependency must
+  be present and resolvable in the package; and no script may package without
+  dependencies.
+- **Open VSX publishing.** Cursor, VSCodium, Gitpod and Theia resolve extensions
+  from Open VSX rather than the Visual Studio Marketplace, where this extension
+  was absent — so there had never been anything for those users to install.
+  `npm run publish:openvsx` and `publish:all` added, with install instructions
+  for both registries in the README.
+
 ## [1.6.0] - 2026-08-31
 
 Correctness pass. The extension is a second, hand-maintained description of the
