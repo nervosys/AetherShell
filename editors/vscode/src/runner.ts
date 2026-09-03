@@ -98,11 +98,17 @@ export class AetherShellRunner {
         const terminal = this.getTerminal();
         terminal.show();
 
-        // For multi-line code, use -e flag
+        // Multi-line selections go through the command flag; a bare paste
+        // would be read by whatever shell owns the terminal, not by ae.
+        //
+        // The flag is -c. This read -e, which ae has never accepted --
+        //   error: unexpected argument '-e' found
+        // -- so running a multi-line selection failed for everyone who
+        // tried it. Verified against the clap definition in src/main.rs
+        // (`#[arg(long, short = 'c')]`) and against the published binary.
         if (code.includes('\n')) {
-            // Write to temp file and run
             const escapedCode = code.replace(/"/g, '\\"');
-            terminal.sendText(`${this.getAetherShellPath()} -e "${escapedCode}"`);
+            terminal.sendText(`${this.getAetherShellPath()} -c "${escapedCode}"`);
         } else {
             terminal.sendText(code);
         }
@@ -123,7 +129,10 @@ export class AetherShellRunner {
         const terminal = vscode.window.createTerminal({
             name: 'AetherShell TUI',
             shellPath: this.getAetherShellPath(),
-            shellArgs: ['--tui'],
+            // `tui` is a subcommand, not a flag. This read ['--tui'], which
+            // ae rejects with "unexpected argument '--tui' found", so the
+            // Open TUI command opened a terminal that immediately errored.
+            shellArgs: ['tui'],
         });
         terminal.show();
     }

@@ -1,291 +1,291 @@
 {
-    "name": "aethershell",
-    "displayName": "AetherShell",
-    "description": "Language support for AetherShell - a typed, functional shell with AI capabilities",
-    "version": "1.6.0",
-    "publisher": "admercs",
-    "license": "AGPL-3.0-or-later",
-    "engines": {
-        "vscode": "^1.85.0"
-    },
-    "categories": [
-        "Programming Languages",
-        "Linters",
-        "Formatters",
-        "Snippets",
-        "Machine Learning"
+  "name": "aethershell",
+  "displayName": "AetherShell",
+  "description": "Language support for AetherShell - a typed, functional shell with AI capabilities",
+  "version": "1.6.0",
+  "publisher": "admercs",
+  "license": "AGPL-3.0-or-later",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters",
+    "Formatters",
+    "Snippets",
+    "Machine Learning"
+  ],
+  "keywords": [
+    "shell",
+    "aethershell",
+    "functional",
+    "ai",
+    "typed",
+    "agents",
+    "llm"
+  ],
+  "activationEvents": [
+    "onLanguage:aethershell"
+  ],
+  "main": "./out/extension.js",
+  "capabilities": {
+    "documentSymbolProvider": "true",
+    "foldingRangeProvider": "true",
+    "hoverProvider": "true",
+    "codeActionProvider": "true"
+  },
+  "contributes": {
+    "languages": [
+      {
+        "id": "aethershell",
+        "aliases": [
+          "AetherShell",
+          "aethershell",
+          "ae"
+        ],
+        "extensions": [
+          ".ae"
+        ],
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./icons/ae-icon.svg",
+          "dark": "./icons/ae-icon.svg"
+        }
+      }
     ],
-    "keywords": [
-        "shell",
-        "aethershell",
-        "functional",
-        "ai",
-        "typed",
-        "agents",
-        "llm"
+    "grammars": [
+      {
+        "language": "aethershell",
+        "scopeName": "source.aethershell",
+        "path": "./syntaxes/aethershell.tmLanguage.json"
+      },
+      {
+        "scopeName": "markdown.aethershell.codeblock",
+        "path": "./syntaxes/aethershell.markdown.tmLanguage.json",
+        "injectTo": [
+          "text.html.markdown"
+        ],
+        "embeddedLanguages": {
+          "meta.embedded.block.aethershell": "aethershell"
+        }
+      }
     ],
-    "activationEvents": [
-        "onLanguage:aethershell"
+    "views": {
+      "explorer": [
+        {
+          "type": "webview",
+          "id": "aethershell.agentPanel",
+          "name": "AI Agents",
+          "when": "resourceLangId == aethershell || resourceExtname == .ae"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "AetherShell",
+      "properties": {
+        "aethershell.lsp.path": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the AetherShell language server binary."
+        },
+        "aethershell.lsp.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable/disable the AetherShell language server."
+        },
+        "aethershell.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Traces the communication between VS Code and the language server."
+        },
+        "aethershell.executable.path": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the AetherShell executable (ae). If empty, uses 'ae' from PATH."
+        },
+        "aethershell.ai.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable AI-powered features like code improvements."
+        },
+        "aethershell.ai.provider": {
+          "type": "string",
+          "enum": [
+            "openai",
+            "anthropic",
+            "ollama",
+            "auto"
+          ],
+          "default": "auto",
+          "description": "AI provider to use for AI-powered features."
+        },
+        "aethershell.runOnSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically run the file when saved."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "aethershell.restartServer",
+        "title": "Restart Language Server",
+        "category": "AetherShell"
+      },
+      {
+        "command": "aethershell.showOutput",
+        "title": "Show Output Channel",
+        "category": "AetherShell"
+      },
+      {
+        "command": "aethershell.runFile",
+        "title": "Run File",
+        "category": "AetherShell",
+        "icon": "$(play)"
+      },
+      {
+        "command": "aethershell.runSelection",
+        "title": "Run Selection/Line",
+        "category": "AetherShell",
+        "icon": "$(debug-start)"
+      },
+      {
+        "command": "aethershell.startRepl",
+        "title": "Start REPL",
+        "category": "AetherShell",
+        "icon": "$(terminal)"
+      },
+      {
+        "command": "aethershell.startTui",
+        "title": "Start TUI Mode",
+        "category": "AetherShell",
+        "icon": "$(screen-full)"
+      },
+      {
+        "command": "aethershell.extractFunction",
+        "title": "Extract to Function",
+        "category": "AetherShell"
+      },
+      {
+        "command": "aethershell.wrapWithTryCatch",
+        "title": "Wrap with try-catch",
+        "category": "AetherShell"
+      },
+      {
+        "command": "aethershell.aiImprove",
+        "title": "AI: Improve Code",
+        "category": "AetherShell",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "aethershell.aiDocument",
+        "title": "AI: Generate Documentation",
+        "category": "AetherShell",
+        "icon": "$(book)"
+      },
+      {
+        "command": "aethershell.convertToPipeline",
+        "title": "Convert to Pipeline",
+        "category": "AetherShell"
+      },
+      {
+        "command": "aethershell.addTypeAnnotation",
+        "title": "Add Type Annotation",
+        "category": "AetherShell"
+      },
+      {
+        "command": "aethershell.convertToFormat",
+        "title": "Convert to format()",
+        "category": "AetherShell"
+      }
     ],
-    "main": "./out/extension.js",
-    "capabilities": {
-        "documentSymbolProvider": "true",
-        "foldingRangeProvider": "true",
-        "hoverProvider": "true",
-        "codeActionProvider": "true"
-    },
-    "contributes": {
-        "languages": [
-            {
-                "id": "aethershell",
-                "aliases": [
-                    "AetherShell",
-                    "aethershell",
-                    "ae"
-                ],
-                "extensions": [
-                    ".ae"
-                ],
-                "configuration": "./language-configuration.json",
-                "icon": {
-                    "light": "./icons/ae-icon.svg",
-                    "dark": "./icons/ae-icon.svg"
-                }
-            }
-        ],
-        "grammars": [
-            {
-                "language": "aethershell",
-                "scopeName": "source.aethershell",
-                "path": "./syntaxes/aethershell.tmLanguage.json"
-            },
-            {
-                "scopeName": "markdown.aethershell.codeblock",
-                "path": "./syntaxes/aethershell.markdown.tmLanguage.json",
-                "injectTo": [
-                    "text.html.markdown"
-                ],
-                "embeddedLanguages": {
-                    "meta.embedded.block.aethershell": "aethershell"
-                }
-            }
-        ],
-        "views": {
-            "explorer": [
-                {
-                    "type": "webview",
-                    "id": "aethershell.agentPanel",
-                    "name": "AI Agents",
-                    "when": "resourceLangId == aethershell || resourceExtname == .ae"
-                }
-            ]
+    "keybindings": [
+      {
+        "command": "aethershell.runFile",
+        "key": "ctrl+shift+r",
+        "mac": "cmd+shift+r",
+        "when": "editorLangId == aethershell"
+      },
+      {
+        "command": "aethershell.runSelection",
+        "key": "ctrl+enter",
+        "mac": "cmd+enter",
+        "when": "editorLangId == aethershell"
+      },
+      {
+        "command": "aethershell.startRepl",
+        "key": "ctrl+shift+t",
+        "mac": "cmd+shift+t",
+        "when": "editorLangId == aethershell"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "aethershell.runFile",
+          "when": "resourceLangId == aethershell",
+          "group": "navigation"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "aethershell.runSelection",
+          "when": "editorLangId == aethershell",
+          "group": "1_run"
         },
-        "configuration": {
-            "title": "AetherShell",
-            "properties": {
-                "aethershell.lsp.path": {
-                    "type": "string",
-                    "default": "",
-                    "description": "Path to the AetherShell language server binary."
-                },
-                "aethershell.lsp.enabled": {
-                    "type": "boolean",
-                    "default": true,
-                    "description": "Enable/disable the AetherShell language server."
-                },
-                "aethershell.trace.server": {
-                    "type": "string",
-                    "enum": [
-                        "off",
-                        "messages",
-                        "verbose"
-                    ],
-                    "default": "off",
-                    "description": "Traces the communication between VS Code and the language server."
-                },
-                "aethershell.executable.path": {
-                    "type": "string",
-                    "default": "",
-                    "description": "Path to the AetherShell executable (ae). If empty, uses 'ae' from PATH."
-                },
-                "aethershell.ai.enabled": {
-                    "type": "boolean",
-                    "default": true,
-                    "description": "Enable AI-powered features like code improvements."
-                },
-                "aethershell.ai.provider": {
-                    "type": "string",
-                    "enum": [
-                        "openai",
-                        "anthropic",
-                        "ollama",
-                        "auto"
-                    ],
-                    "default": "auto",
-                    "description": "AI provider to use for AI-powered features."
-                },
-                "aethershell.runOnSave": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "Automatically run the file when saved."
-                }
-            }
-        },
-        "commands": [
-            {
-                "command": "aethershell.restartServer",
-                "title": "Restart Language Server",
-                "category": "AetherShell"
-            },
-            {
-                "command": "aethershell.showOutput",
-                "title": "Show Output Channel",
-                "category": "AetherShell"
-            },
-            {
-                "command": "aethershell.runFile",
-                "title": "Run File",
-                "category": "AetherShell",
-                "icon": "$(play)"
-            },
-            {
-                "command": "aethershell.runSelection",
-                "title": "Run Selection/Line",
-                "category": "AetherShell",
-                "icon": "$(debug-start)"
-            },
-            {
-                "command": "aethershell.startRepl",
-                "title": "Start REPL",
-                "category": "AetherShell",
-                "icon": "$(terminal)"
-            },
-            {
-                "command": "aethershell.startTui",
-                "title": "Start TUI Mode",
-                "category": "AetherShell",
-                "icon": "$(screen-full)"
-            },
-            {
-                "command": "aethershell.extractFunction",
-                "title": "Extract to Function",
-                "category": "AetherShell"
-            },
-            {
-                "command": "aethershell.wrapWithTryCatch",
-                "title": "Wrap with try-catch",
-                "category": "AetherShell"
-            },
-            {
-                "command": "aethershell.aiImprove",
-                "title": "AI: Improve Code",
-                "category": "AetherShell",
-                "icon": "$(sparkle)"
-            },
-            {
-                "command": "aethershell.aiDocument",
-                "title": "AI: Generate Documentation",
-                "category": "AetherShell",
-                "icon": "$(book)"
-            },
-            {
-                "command": "aethershell.convertToPipeline",
-                "title": "Convert to Pipeline",
-                "category": "AetherShell"
-            },
-            {
-                "command": "aethershell.addTypeAnnotation",
-                "title": "Add Type Annotation",
-                "category": "AetherShell"
-            },
-            {
-                "command": "aethershell.convertToFormat",
-                "title": "Convert to format()",
-                "category": "AetherShell"
-            }
-        ],
-        "keybindings": [
-            {
-                "command": "aethershell.runFile",
-                "key": "ctrl+shift+r",
-                "mac": "cmd+shift+r",
-                "when": "editorLangId == aethershell"
-            },
-            {
-                "command": "aethershell.runSelection",
-                "key": "ctrl+enter",
-                "mac": "cmd+enter",
-                "when": "editorLangId == aethershell"
-            },
-            {
-                "command": "aethershell.startRepl",
-                "key": "ctrl+shift+t",
-                "mac": "cmd+shift+t",
-                "when": "editorLangId == aethershell"
-            }
-        ],
-        "menus": {
-            "editor/title": [
-                {
-                    "command": "aethershell.runFile",
-                    "when": "resourceLangId == aethershell",
-                    "group": "navigation"
-                }
-            ],
-            "editor/context": [
-                {
-                    "command": "aethershell.runSelection",
-                    "when": "editorLangId == aethershell",
-                    "group": "1_run"
-                },
-                {
-                    "command": "aethershell.aiImprove",
-                    "when": "editorLangId == aethershell && editorHasSelection",
-                    "group": "2_ai"
-                }
-            ]
-        },
-        "snippets": [
-            {
-                "language": "aethershell",
-                "path": "./snippets/aethershell.json"
-            }
-        ],
-        "markdown.markdownItPlugins": true,
-        "markdown.previewStyles": [
-            "./styles/aethershell-preview.css"
-        ]
+        {
+          "command": "aethershell.aiImprove",
+          "when": "editorLangId == aethershell && editorHasSelection",
+          "group": "2_ai"
+        }
+      ]
     },
-    "scripts": {
-        "vscode:prepublish": "npm run compile",
-        "compile": "tsc -p ./",
-        "watch": "tsc -watch -p ./",
-        "pretest": "npm run compile",
-        "lint": "eslint src --ext ts",
-        "package": "vsce package",
-        "test": "node --test test/grammar.test.mjs test/language-configuration.test.mjs test/manifest.test.mjs test/snippets.test.mjs"
-    },
-    "dependencies": {
-        "vscode-languageclient": "^9.0.1"
-    },
-    "devDependencies": {
-        "@types/markdown-it": "^14.1.2",
-        "@types/node": "^20.10.0",
-        "@types/vscode": "^1.85.0",
-        "@typescript-eslint/eslint-plugin": "^6.13.0",
-        "@typescript-eslint/parser": "^6.13.0",
-        "@vscode/vsce": "^2.22.0",
-        "eslint": "^8.55.0",
-        "typescript": "^5.3.2",
-        "vscode-oniguruma": "^2.0.1",
-        "vscode-textmate": "^9.0.0"
-    },
-    "repository": {
-        "type": "git",
-        "url": "https://github.com/nervosys/AetherShell"
-    },
-    "bugs": {
-        "url": "https://github.com/nervosys/AetherShell/issues"
-    },
-    "homepage": "https://github.com/nervosys/AetherShell#readme"
+    "snippets": [
+      {
+        "language": "aethershell",
+        "path": "./snippets/aethershell.json"
+      }
+    ],
+    "markdown.markdownItPlugins": true,
+    "markdown.previewStyles": [
+      "./styles/aethershell-preview.css"
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile",
+    "lint": "eslint src --ext ts",
+    "package": "vsce package",
+    "test": "node --test test/grammar.test.mjs test/language-configuration.test.mjs test/manifest.test.mjs test/snippets.test.mjs test/providers.test.mjs test/runner.test.mjs test/codeactions-markdown.test.mjs test/package.test.mjs"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/markdown-it": "^14.1.2",
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "@vscode/vsce": "^2.22.0",
+    "eslint": "^8.55.0",
+    "typescript": "^5.3.2",
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nervosys/AetherShell"
+  },
+  "bugs": {
+    "url": "https://github.com/nervosys/AetherShell/issues"
+  },
+  "homepage": "https://github.com/nervosys/AetherShell#readme"
 }
