@@ -142,30 +142,63 @@ test('hovering ordinary text offers nothing rather than inventing something', ()
 
 // ── the hover table against the shell itself ─────────────────────────────
 
-test('every builtin the hover table documents exists in the shell', () => {
+test('every builtin the hover table documents is one the shell dispatches', () => {
     const provider = new P.AetherShellHoverProvider();
     const table = Object.values(provider).find((v) => v instanceof Map);
     assert.ok(table, 'the builtin table was not found on the provider');
     assert.ok(table.size > 50, `only ${table.size} builtins documented; table looks empty`);
 
-    // Every string literal in the shell's Rust sources. A builtin is dispatched
-    // by name, so a name the sources never quote is one the shell cannot serve.
+    // The dispatcher's own two halves, not "any quoted string in the source".
+    //
+    // The first version of this test asked whether a name appeared as a string
+    // literal anywhere in 200k lines of Rust. That is a proxy for "is a
+    // builtin", and it was too weak: `filter`, `skip`, `to_int`, `to_float`,
+    // `which`, `os` and `arch` all passed it and all answer
+    // E_UNKNOWN_BUILTIN at the prompt. Seven wrong entries shipped in a hover
+    // tooltip because the check tested the wrong thing.
+    //
+    // BUILTIN_LOOKUP is a table of `map.insert("name", index)`. FALLBACK_BUILTINS
+    // is a public const pairing each fallback match arm with its function, which
+    // the shell's own tests/fallback_dispatch.rs keeps equal to the real match.
+    // Together they are the set of names the shell answers to.
     const shellSrc = path.join(here, '..', '..', '..', 'src');
-    let text = '';
-    (function walk(dir) {
-        for (const entry of readdirSync(dir)) {
-            const p = path.join(dir, entry);
-            if (statSync(p).isDirectory()) walk(p);
-            else if (p.endsWith('.rs')) text += readFileSync(p, 'utf8');
-        }
-    })(shellSrc);
-    const quoted = new Set([...text.matchAll(/"([a-z_][a-z0-9_]*)"/g)].map((m) => m[1]));
-    assert.ok(quoted.size > 500, `only ${quoted.size} names read from the shell source`);
+    const builtinsRs = readFileSync(path.join(shellSrc, 'builtins.rs'), 'utf8');
+    const lookup = [...builtinsRs.matchAll(/map\.insert\("([^"]+)"/g)].map((m) => m[1]);
+    const fallback = [...builtinsRs.matchAll(/\("([^"]+)",\s*"bi_[a-z_0-9]+"\)/g)].map(
+        (m) => m[1]
+    );
 
-    const missing = [...table.keys()].filter((name) => !quoted.has(name));
+    // The dispatcher has a third half, and missing it is how a correct name
+    // gets reported as invented: `call_with_input_inner` also routes to
+    // `workflow_builtins::call`, whose names live in `workflows.rs`. Leaving it
+    // out flagged workflow_pipeline and friends as unknown even though they run.
+    const workflowsRs = readFileSync(path.join(shellSrc, 'workflows.rs'), 'utf8');
+    const workflow = [
+        ...workflowsRs.matchAll(/\(\s*"((?:workflow|circuit_breaker)_[a-z_]+)"/g),
+    ].map((m) => m[1]);
+
+    const dispatched = new Set([...lookup, ...fallback, ...workflow]);
+
+    // Non-vacuity: if the parse breaks, the set collapses and everything passes.
+    assert.ok(
+        lookup.length > 1000,
+        `only ${lookup.length} names read from BUILTIN_LOOKUP; the parse is broken`
+    );
+    assert.ok(
+        fallback.length > 50,
+        `only ${fallback.length} names read from FALLBACK_BUILTINS; the parse is broken`
+    );
+    assert.ok(
+        workflow.length > 10,
+        `only ${workflow.length} names read from workflow_builtins(); the parse is broken`
+    );
+    assert.ok(dispatched.has('map') && dispatched.has('where'), 'known builtins are absent');
+    assert.ok(!dispatched.has('skip'), 'skip is not a builtin; the set is too permissive');
+
+    const missing = [...table.keys()].filter((name) => !dispatched.has(name));
     assert.deepEqual(
         missing,
         [],
-        `the hover table documents builtins the shell does not have: ${missing.join(', ')}`
+        `the hover table documents names the shell does not dispatch: ${missing.join(', ')}`
     );
 });

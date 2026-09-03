@@ -256,10 +256,8 @@ export class AetherShellHoverProvider implements vscode.HoverProvider {
             // Functional
             ['map', { signature: 'map(array, fn) -> Array', description: 'Transform each element using a function.', example: '[1, 2, 3] | map(fn(x) => x * 2) // [2, 4, 6]' }],
             ['where', { signature: 'where(array, fn) -> Array', description: 'Filter elements that match a predicate.', example: '[1, 2, 3, 4] | where(fn(x) => x > 2) // [3, 4]' }],
-            ['filter', { signature: 'filter(array, fn) -> Array', description: 'Alias for where.', example: '[1, 2, 3] | filter(fn(x) => x % 2 == 0)' }],
             ['reduce', { signature: 'reduce(array, fn, init) -> value', description: 'Reduce array to single value using accumulator.', example: '[1, 2, 3] | reduce(fn(a, b) => a + b, 0) // 6' }],
             ['take', { signature: 'take(array, n) -> Array', description: 'Take the first n elements.', example: '[1, 2, 3, 4, 5] | take(3) // [1, 2, 3]' }],
-            ['skip', { signature: 'skip(array, n) -> Array', description: 'Skip the first n elements.', example: '[1, 2, 3, 4, 5] | skip(2) // [3, 4, 5]' }],
             ['first', { signature: 'first(array) -> value', description: 'Get the first element or null.', example: '[1, 2, 3] | first // 1' }],
             ['last', { signature: 'last(array) -> value', description: 'Get the last element or null.', example: '[1, 2, 3] | last // 3' }],
             ['any', { signature: 'any(array, fn) -> Bool', description: 'Check if any element matches predicate.', example: '[1, 2, 3] | any(fn(x) => x > 2) // true' }],
@@ -302,8 +300,6 @@ export class AetherShellHoverProvider implements vscode.HoverProvider {
 
             // Type conversion
             ['to_string', { signature: 'to_string(value) -> String', description: 'Convert value to string.', example: 'to_string(42) // "42"' }],
-            ['to_int', { signature: 'to_int(value) -> Int', description: 'Convert to integer.', example: 'to_int("42") // 42' }],
-            ['to_float', { signature: 'to_float(value) -> Float', description: 'Convert to float.', example: 'to_float("3.14") // 3.14' }],
 
             // File system
             ['ls', { signature: 'ls() | ls(path) -> Table', description: 'List directory contents as a table.', example: 'ls(".") | where(fn(r) => r.size > 1000)' }],
@@ -320,9 +316,6 @@ export class AetherShellHoverProvider implements vscode.HoverProvider {
 
             // OS
             ['env', { signature: 'env(name) -> String', description: 'Get environment variable.', example: 'env("HOME")' }],
-            ['which', { signature: 'which(cmd) -> String', description: 'Find command location.', example: 'which("git")' }],
-            ['os', { signature: 'os() -> String', description: 'Get operating system name.', example: 'os() // "windows"' }],
-            ['arch', { signature: 'arch() -> String', description: 'Get CPU architecture.', example: 'arch() // "x86_64"' }],
             ['hostname', { signature: 'hostname() -> String', description: 'Get system hostname.', example: 'hostname()' }],
         ]);
     }

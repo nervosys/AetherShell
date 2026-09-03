@@ -26,7 +26,24 @@ const manifest = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'
 const vsix = path.join(root, `aethershell-${manifest.version}.vsix`);
 
 const havePackage = existsSync(vsix);
-const skip = havePackage ? false : `no ${path.basename(vsix)}; run \`npm run package\` first`;
+
+// These three shell out to `vsce`, which needs npx on PATH. A test that cannot
+// run should say why rather than report a failure that is about the machine
+// instead of the code.
+let haveNpx = true;
+try {
+    execFileSync('npx', ['--version'], { stdio: 'ignore', shell: true });
+} catch {
+    haveNpx = false;
+}
+
+// Needs the package on disk.
+const skipNoPackage = havePackage
+    ? false
+    : `no ${path.basename(vsix)}; run \`npm run package\` first`;
+
+// Needs the package *and* vsce, for the tests that read its listing.
+const skip = skipNoPackage || (haveNpx ? false : 'npx is not on PATH, so vsce cannot be invoked');
 
 test('every runtime dependency the code imports is declared', () => {
     // A dependency used but not declared is not packaged either, with the same
@@ -80,7 +97,7 @@ test('the packaged extension carries each dependency as a resolvable module', { 
     }
 });
 
-test('the package is not implausibly small', { skip }, () => {
+test('the package is not implausibly small', { skip: skipNoPackage }, () => {
     const { size } = require('node:fs').statSync(vsix);
     assert.ok(
         size > 100 * 1024,

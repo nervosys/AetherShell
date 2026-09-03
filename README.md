@@ -15,13 +15,13 @@
 
 <p align="center">
   <a href="https://nervosys.github.io/AetherShell/book/">Documentation</a> •
+  <a href="#getting-started">Getting Started</a> •
+  <a href="#syntax">Syntax</a> •
   <a href="#agentic-benchmark">Benchmark</a> •
-  <a href="#-quick-start">Quick Start</a> •
-  <a href="#-modules">Modules</a> •
-  <a href="#-ai-agents">AI Agents</a> •
+  <a href="#ai-agents">AI Agents</a> •
   <a href="#reliable-file-editing-for-llms">File Editing</a> •
   <a href="#shell-migration-transpilers">Migration</a> •
-  <a href="#-protocols">Protocols</a> •
+  <a href="#protocols">Protocols</a> •
   <a href="#external-integrations">External Integrations</a> •
   <a href="#ai-context--discoverability">AI Context</a> •
   <a href="docs/TUI_GUIDE.md">TUI Guide</a>
@@ -59,158 +59,306 @@ methodology, per-task token tables, and capability matrices are in
 
 ---
 
-## Quick Start
+## Getting Started
+
+### Install
 
 ```bash
-# Install
-cargo install aethershell
+cargo install aethershell          # from crates.io
+```
 
-# Or from source
+<details>
+<summary>Other ways</summary>
+
+```bash
+# Homebrew
+brew install nervosys/tap/aethershell
+
+# From source
 git clone https://github.com/nervosys/AetherShell && cd AetherShell
 cargo install --path . --bin ae
 
-# Run
-ae              # REPL
-ae tui          # Interactive TUI
-ae script.ae    # Run script
-ae -c 'expr'    # Evaluate expression
-ae --bash script.sh   # Transpile & run Bash
-ae --zsh  script.zsh  # Transpile & run Zsh
-ae --pwsh script.ps1  # Transpile & run PowerShell
-ae script.sh          # Auto-detect by extension
+# Prebuilt binaries for Linux, macOS and Windows
+# https://github.com/nervosys/AetherShell/releases
 ```
 
-```ae
-# Typed pipelines, not text streams
-ls("./src") | where(fn(f) => f.size > 1024) | take(5)
+Editor support: `code --install-extension admercs.aethershell`, or
+`cursor --install-extension admercs.aethershell` for Cursor, VSCodium and other
+forks.
 
-# Module system for clean APIs
-file.exists("config.json")     # => {exists: true, is_file: true, ...}
-sys.hostname()                 # => "my-machine"
-crypto.uuid()                  # => "550e8400-e29b-41d4-a716-446655440000"
+</details>
 
-# AI with multi-modal support
-ai("Explain this code", {context: file.read("main.rs")})
-agent("Find bugs in src/", ["file.read", "grep"])
+### Run it
+
+```bash
+ae                     # REPL
+ae script.ae           # run a script
+ae -c 'expr'           # evaluate one expression
+ae tui                 # full-screen interactive mode
 ```
 
-> Set `OPENAI_API_KEY` for AI features
+Three flags matter more than the rest, and they are what make this shell
+different from the one you are using now:
 
-### Make the shell yours
-
-The REPL ships fish-style autosuggestions (dimmed ghost text from history, `→`
-to accept), abbreviations, and four prompt styles — including an oh-my-posh-style
-powerline:
-
-```toml
-# ~/.config/aether/config.toml
-[prompt]
-style = "fish"          # classic | fish | powerline | pure | custom
-show_git_dirty = true
-transient = true
-
-[prompt.abbreviations]
-ll = "ls(\".\") | sort()"
+```bash
+ae --agent             # default-deny: destructive effects need approval
+ae --workspace ./sbx   # confine writes and deletes to one directory
+ae --deterministic     # byte-stable canonical JSON, for diffs and snapshots
 ```
 
-See [docs/PROMPT_GUIDE.md](docs/PROMPT_GUIDE.md).
+### Your first five minutes
+
+```aethershell
+1 + 2                                    # 3
+"hello" | upper                          # "HELLO"
+[1, 2, 3] | map(fn(x) => x * 2)          # [2, 4, 6]
+ls() | len                               # 199
+pwd()                                    # "/home/you"
+```
+
+Two things to know straight away.
+
+**A builtin used as a value needs its parentheses.** `ls()` returns an array of
+records; bare `ls` returns null.
+
+```aethershell
+ls() | first | keys
+# ["ext", "is_dir", "modified", "name", "path", "size"]
+```
+
+**Pipelines carry typed values, not text.** There is nothing to parse, so there
+is nothing to parse wrongly:
+
+```aethershell
+ls(".") | where(fn(f) => f.size > 1024) | map(fn(f) => f.name) | take(5)
+```
+
+### What it is for
+
+<table>
+<tr><td width="33%">
+
+**Agents that touch a real machine**
+
+An effect gate, a workspace jail and a keyed audit chain, so an agent can be
+given a directory rather than a machine.
+
+</td><td width="33%">
+
+**Data work without text parsing**
+
+`ls`, `http_get` and `from_json` return records and arrays. No `awk`, no
+column-counting, no quoting bugs.
+
+</td><td width="33%">
+
+**Scripts that behave the same everywhere**
+
+One language on Linux, macOS and Windows, with transpilers for the Bash, Zsh and
+PowerShell you already have.
+
+</td></tr>
+</table>
+
+### Examples
+
+**Find the five largest files under `src/`**
+
+```aethershell
+ls("src") | sort_by("size") | reverse | take(5) | map(fn(f) => f.name)
+```
+
+**Fetch JSON and pull one field out**
+
+```aethershell
+http_get("https://api.github.com/repos/nervosys/AetherShell")
+  | from_json
+  | keys
+```
+
+`http_get` returns `{body, headers, status, url}` — the status is a number you
+can branch on, not a line you have to grep.
+
+**Write a file and read it back**
+
+```aethershell
+file_write("notes.txt", "hello")
+# {bytes: 5, lines: 1, path: "notes.txt", success: true}
+
+cat("notes.txt")                          # "hello"
+```
+
+**Run an agent against your own shell, safely**
+
+```bash
+export AETHER_AI=ollama                   # or openai, compat, irongate
+export AGENT_ALLOW_CMDS=ls,cat,grep       # default-deny until you say otherwise
+ae --agent --workspace ./sandbox
+```
+
+```aethershell
+agent("Find every TODO under src/", ["ls", "grep", "cat"])
+```
+
+**Orchestrate several steps**
+
+```aethershell
+let t = workflow_pipeline("audit", [
+  {id: "scan",  run: "grep", args: ["TODO", "src"], output: "$.hits"},
+  {id: "count", run: "len",  input: "$.hits"}
+])
+
+workflow_execute(workflow_create(t, {input: null}))
+```
+
+**Keep a tamper-evident record of what ran**
+
+```bash
+export AETHER_AUDIT_LOG=./audit.log
+export AETHER_AUDIT_KEY_FILE=./audit.key
+ae --agent --workspace ./sandbox script.ae
+```
+
+Every operation is appended to an HMAC-SHA256 chain. A rewritten entry fails
+verification rather than passing quietly.
 
 ---
 
-## Language
+## Syntax
 
-```ae
-# Types (inferred or explicit)
-name = "AetherShell"                    # String
-count = 42                              # Int
-config: Record = {host: "localhost"}    # Explicit annotation
+Every snippet below is executable as written.
 
-# Lambdas
-double = fn(x) => x * 2
-add = fn(a, b) => a + b
+### Values
 
-# Pipelines - typed data, not text
-[1, 2, 3, 4, 5]
-  | where(fn(x) => x > 2)               # [3, 4, 5]
-  | map(fn(x) => x * 2)                 # [6, 8, 10]
-  | reduce(fn(a, b) => a + b, 0)        # 24
+```aethershell
+42                          # Int
+3.14                        # Float
+"text"                      # String
+true                        # Bool
+[1, 2, 3]                   # Array
+{name: "ae", version: 12}   # Record
+```
 
-# Pattern matching
-grade = fn(score) => match {
-    90..100 => "A",
-    80..89 => "B",
-    _ => "C"
+### Bindings
+
+```aethershell
+let x = 42                  # immutable
+let mut n = 1               # mutable
+n = n + 1                   # 2
+
+let name = "world"
+"hello ${name}"             # "hello world"
+```
+
+### Operators
+
+```aethershell
+1 + 2      1 - 2      2 * 3      10 / 4      # 2.5 — division is exact
+10 % 3                                        # 1
+1 == 1     1 != 2     1 < 2      2 >= 2
+true && false            # false
+true || false            # true
+!true                    # false
+```
+
+`&&`, `||` and `!` are the boolean operators. There is no `and` / `or`.
+
+### Functions
+
+```aethershell
+let double = fn(x) => x * 2
+double(21)                  # 42
+
+let add = fn(a, b) => a + b
+add(2, 3)                   # 5
+```
+
+### Pipelines
+
+The pipe passes a value, so each stage receives whatever the last one produced.
+
+```aethershell
+[1, 2, 3]    | map(fn(x) => x * 2)         # [2, 4, 6]
+[1, 2, 3, 4] | where(fn(x) => x > 2)       # [3, 4]
+[1, 2, 3, 4] | reduce(fn(a, b) => a + b, 0)  # 10
+[3, 1, 2]    | sort                        # [1, 2, 3]
+[1, 2, 3]    | sum                         # 6
+[1, 2, 3]    | len                         # 3
+[1, 2, 3]    | reverse                     # [3, 2, 1]
+[1, 2, 2, 3] | unique                      # [1, 2, 3]
+[1, 2, 3, 4] | take(3)                     # [1, 2, 3]
+[1, 2, 3]    | slice(1, 3)                 # [2, 3]
+[[1, 2], [3]] | flatten                    # [1, 2, 3]
+[1, 2, 3]    | any(fn(x) => x > 2)         # true
+[1, 2, 3]    | all(fn(x) => x > 0)         # true
+range(1, 5)                                # [1, 2, 3, 4]
+```
+
+### Strings
+
+```aethershell
+"hello"      | upper                       # "HELLO"
+"  padded  " | trim                        # "padded"
+"hello"      | contains("ell")             # true
+"a-b"        | replace("-", "+")           # "a+b"
+"a,b,c"      | split(",")                  # ["a", "b", "c"]
+["a", "b"]   | join(", ")                  # "a, b"
+```
+
+### Records
+
+```aethershell
+let p = {name: "ada", age: 36}
+p.name                      # "ada"
+p | keys                    # ["age", "name"]
+```
+
+### Control flow
+
+```aethershell
+if 1 > 0 { "yes" } else { "no" }           # "yes"
+
+match n {
+  0        => "zero",
+  n if n > 0 => "positive",
+  _        => "negative"
 }
 
-# Error handling
-result = try { risky() } catch e { default }
-
-# String interpolation
-greeting = "Hello, ${name}!"
+let result = try { cat("missing.txt") } catch { "fallback" }
 ```
 
----
+### Modules
 
-## Modules
+Related builtins are also reachable by a dotted name:
 
-All 1,300+ builtins are organized into **108 namespaced modules**:
-
-```ae
-# File operations
-file.read("config.toml")                    # Read file content
-file.write("out.txt", "hello")              # Write => {success: true, bytes: 5}
-file.exists("path")                         # Check => {exists: bool, is_file: bool, is_dir: bool}
-file.copy("src", "dst")                     # Copy file or directory
-file.move("old", "new")                     # Move/rename
-file.backup("file.txt")                     # Create file.txt.bak
-file.patch("file", 10, 20, "new content")   # Replace lines 10-20
-file.mkdir("path/to/dir")                   # Create directories recursively
-
-# System info
-sys.hostname()                # => "my-machine"
-sys.uptime()                  # => {days: 5, hours: 3, minutes: 42}
-sys.cpu_info()                # => {cores: 8, model: "Apple M2", ...}
-sys.mem_info()                # => {total: 16384, used: 8192, free: 8192}
-
-# Network
-net.interfaces()              # List network interfaces
-net.ping("google.com")        # => {success: true, latency_ms: 12}
-net.dns_lookup("github.com")  # => {ips: ["140.82.121.4"], ...}
-http.get("https://api.github.com/users/octocat")
-
-# Crypto
-crypto.uuid()                              # Generate UUID
-crypto.hash("sha256", "hello")             # => "2cf24dba5fb0a30e..."
-crypto.jwt_decode(token)                   # Decode JWT
-
-# Database
-db.sqlite_open("app.db")                   # Open SQLite
-db.sqlite_query(conn, "SELECT * FROM users")
-
-# Platform detection & hardware info
-platform.os()                 # => "windows" | "linux" | "macos"
-platform.arch()               # => "x86_64" | "aarch64"
-platform.cpu()                # => {name: "AMD Ryzen 9", cores: 12, logical_processors: 24, ...}
-platform.memory()             # => {total_gb: 93.6, free_gb: 14.6, ...}
-platform.disks()              # => [{mount: "C:", size_gb: 3725, free_gb: 256, ...}, ...]
-platform.disk_usage("C:")     # => {total_bytes: 3999990280192, free_bytes: 275183259648, usage_percent: 93.1}
-platform.gpus()               # => [{name: "NVIDIA RTX 4090", memory_mb: 24564}, ...]
-platform.network_interfaces() # => [{name: "Ethernet", ip: "192.168.1.5", mac: "..."}, ...]
-platform.hardware_summary()   # => {cpu: {...}, memory: {...}, disks: [...], gpus: [...], ...}
-
-# Math and strings
-math.sqrt(16)                 # => 4.0
-math.pow(2, 10)               # => 1024
-str.upper("hello")            # => "HELLO"
-str.split("a,b,c", ",")       # => ["a", "b", "c"]
-
-# Arrays
-arr.range(5)                  # => [0, 1, 2, 3, 4]
-arr.flatten([[1,2], [3,4]])   # => [1, 2, 3, 4]
-arr.unique([1, 2, 2, 3])      # => [1, 2, 3]
+```aethershell
+file.exists("config.toml")  # {exists: true, is_file: true, is_dir: false, path: ...}
+file.read("config.toml")
+sys.hostname()              # "heimdall"
+crypto.uuid()               # "62375508-c80a-4490-9824-6b6a883acc88"
+str.upper("ab")             # "AB"
+math.sqrt(9.0)              # 3
 ```
 
-**Core modules:** `file`, `sys`, `proc`, `fs`, `net`, `http`, `gui`, `web`, `crypto`, `db`, `svc`, `cron`, `archive`, `user`, `perm`, `pkg`, `hw`, `clip`, `input`, `ai`, `agent`, `math`, `str`, `arr`, `json`, `mcp`, `shell`, `platform`, `a2ui`, `a2a`, `nanda`, `rbac`, `audit`, `sso`, `cluster`, `nn`, `evo`, `rl` — and 68 more (see [AGENTS.md](AGENTS.md) for the full directory)
+### The system
+
+```aethershell
+pwd()                       # "/home/you"
+hostname()                  # "heimdall"
+platform()                  # "linux"
+sys_info()                  # {arch: "x86_64", family: "unix", os: "linux", ...}
+exists("/etc/hostname")     # {exists: true, is_file: true, ...}
+```
+
+### JSON
+
+```aethershell
+{a: 1} | to_json            # "{\"a\":1}"
+from_json("{\"a\":1}")      # {a: 1}   — a Record, not a string
+```
+
+`help()` lists every builtin. `ontology_manifest()` gives an agent the same
+thing as a compact, categorised index.
 
 ---
 
