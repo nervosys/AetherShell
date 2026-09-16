@@ -884,8 +884,13 @@ pub fn validate_integer_param(value: i64, field_name: &str) -> Result<i64> {
 pub fn validate_sh_allowed() -> Result<()> {
     match std::env::var("AETHER_ALLOW_SH") {
         Ok(val) if val == "true" || val == "1" || val == "yes" => Ok(()),
-        _ => Err(anyhow!(
-            "sh() is disabled for security. Set AETHER_ALLOW_SH=true to enable.\n             WARNING: sh() executes arbitrary system commands with no sandboxing.\n             Prefer typed builtins (file.read, proc.list, net.ping, etc.) for safe operations."
+        _ => Err(crate::safety::policy_deny(
+            "sh",
+            "sh() is disabled for security: it executes arbitrary system \
+             commands with no sandboxing",
+            "prefer a typed builtin (cat, proc_list, http_get, …); to allow \
+             arbitrary execution anyway, set AETHER_ALLOW_SH=true before \
+             starting the shell",
         )),
     }
 }

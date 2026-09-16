@@ -71,11 +71,11 @@
     "exit": 1,
     "failed": true,
     "distinct_exit": false,
-    "machine_code": false,
-    "repair_hint": false,
-    "bytes": 68,
-    "lines": 2,
-    "excerpt": "error: found 1 error(s): unexpected token Eof at line 1, column 27"
+    "machine_code": true,
+    "repair_hint": true,
+    "bytes": 188,
+    "lines": 3,
+    "excerpt": "error[E_PARSE]: found 1 error(s): unexpected token Eof at line 1, column 27 hint: fix the syntax at the reported line and column; the source never reached the e"
   },
   {
     "engine": "aethershell",

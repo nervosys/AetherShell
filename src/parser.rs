@@ -2,6 +2,76 @@ use anyhow::{anyhow, Result};
 
 use crate::ast::{BinOp, CfgCondition, ExportItem, Expr, ImportItem, Stmt, UnOp, Visibility};
 
+/// A program that did not parse, carried as a structured failure.
+///
+/// Every other failure the shell produces reaches an agent as
+/// `{"error":{"code":…,"message":…,"hint":…,"retryable":…}}` — that is the
+/// contract `safety::ErrorCode` documents when it says "every uncoded failure
+/// lands here rather than escaping as bare prose, so *every* failure is
+/// branchable on `.code`." Parse errors were the exception, arriving as
+/// `error: found 1 error(s): unexpected token Eof at line 1, column 27`, with
+/// nothing to switch on. Measured against three other shells, it was the one
+/// failure in ten where AetherShell carried no machine-readable code.
+///
+/// This type lives in the parser rather than in `safety` on purpose:
+/// `safety` is `#[cfg(feature = "native")]` and the parser is not, so reaching
+/// for `SafetyError` here would make the shell's error contract differ between
+/// the native and wasm builds. `Display` is the same JSON shape `SafetyError`
+/// emits, so an agent cannot tell the two apart, and `repl::print_eval_error`
+/// unpacks it into prose for a human exactly as it does for a `SafetyError`.
+#[derive(Debug, Clone)]
+pub struct ParseError {
+    /// The diagnostics, already joined, with their line and column.
+    pub message: String,
+    /// What to do about it.
+    pub hint: String,
+}
+
+impl ParseError {
+    /// The code an agent branches on.
+    pub const CODE: &'static str = "E_PARSE";
+
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            hint: "fix the syntax at the reported line and column; the source \
+                   never reached the evaluator, so nothing ran"
+                .to_string(),
+        }
+    }
+}
+
+impl std::fmt::Display for ParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Hand-rolled rather than via serde_json: the parser has no serde
+        // dependency and should not acquire one for an error path.
+        let esc = |s: &str| {
+            s.chars()
+                .fold(String::with_capacity(s.len()), |mut acc, c| {
+                    match c {
+                        '"' => acc.push_str("\\\""),
+                        '\\' => acc.push_str("\\\\"),
+                        '\n' => acc.push_str("\\n"),
+                        '\r' => acc.push_str("\\r"),
+                        '\t' => acc.push_str("\\t"),
+                        c if (c as u32) < 0x20 => acc.push_str(&format!("\\u{:04x}", c as u32)),
+                        c => acc.push(c),
+                    }
+                    acc
+                })
+        };
+        write!(
+            f,
+            r#"{{"error":{{"code":"{}","message":"{}","hint":"{}","retryable":true}}}}"#,
+            Self::CODE,
+            esc(&self.message),
+            esc(&self.hint)
+        )
+    }
+}
+
+impl std::error::Error for ParseError {}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Tok {
     LParen,
@@ -103,7 +173,7 @@ pub struct Parser {
 /// Parse a program, returning statements and any errors encountered.
 /// Uses error recovery to report multiple errors when possible.
 pub fn parse_program(src: &str) -> Result<Vec<Stmt>> {
-    let toks = lex(src)?;
+    let toks = lex(src).map_err(|e| ParseError::new(e.to_string()))?;
     let mut p = Parser {
         toks,
         i: 0,
@@ -134,11 +204,11 @@ pub fn parse_program(src: &str) -> Result<Vec<Stmt>> {
     // If we had errors, return them combined
     if !errors.is_empty() {
         let error_messages: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
-        return Err(anyhow!(
+        return Err(anyhow::Error::new(ParseError::new(format!(
             "found {} error(s):\n  {}",
             errors.len(),
             error_messages.join("\n  ")
-        ));
+        ))));
     }
 
     Ok(stmts)
@@ -147,7 +217,7 @@ pub fn parse_program(src: &str) -> Result<Vec<Stmt>> {
 /// Parse a program without error recovery (stops at first error).
 /// Useful for cases where partial parsing is not desired.
 pub fn parse_program_strict(src: &str) -> Result<Vec<Stmt>> {
-    let toks = lex(src)?;
+    let toks = lex(src).map_err(|e| ParseError::new(e.to_string()))?;
     let mut p = Parser {
         toks,
         i: 0,

@@ -248,6 +248,27 @@ fn print_eval_error(e: &anyhow::Error, color: bool) {
         return;
     }
 
+    // A parse failure is a `ParseError` rather than a `SafetyError`, because
+    // the parser is built for wasm too and `safety` is not. It carries the same
+    // code/message/hint contract, so unpack it the same way.
+    if let Some(pe) = e.downcast_ref::<crate::parser::ParseError>() {
+        let code = crate::parser::ParseError::CODE;
+        if color {
+            eprintln!(
+                "{}{}{} {}",
+                "error[".red().bold(),
+                code.red().bold(),
+                "]:".red().bold(),
+                pe.message
+            );
+            eprintln!("  {} {}", "hint:".yellow().bold(), pe.hint);
+        } else {
+            eprintln!("error[{code}]: {}", pe.message);
+            eprintln!("  hint: {}", pe.hint);
+        }
+        return;
+    }
+
     if let Some(se) = e.downcast_ref::<SafetyError>() {
         let code = se.code.as_str();
         if color {

@@ -1149,6 +1149,33 @@ pub fn bad_arg(builtin: &str, expected: &str, got: &str) -> anyhow::Error {
     })
 }
 
+/// Build a structured policy refusal (`E_POLICY_DENY`) for a gate that is not
+/// the central effect governor.
+///
+/// A handful of refusals are decided before `guard` ever sees the call — the
+/// `sh()` gate is the important one. They used to return a bare `anyhow!`, so
+/// `ensure_structured` filed them under `E_UNKNOWN` with the hint "failed
+/// without a specific error code; inspect the message rather than retrying the
+/// same call". That is exactly backwards for the most security-relevant
+/// refusal the shell makes: the cause is known precisely, and `E_UNKNOWN` is
+/// the one code an agent is told *not* to reason about.
+pub fn policy_deny(
+    builtin: &str,
+    message: impl Into<String>,
+    hint: impl Into<String>,
+) -> anyhow::Error {
+    anyhow::Error::new(SafetyError {
+        code: ErrorCode::PolicyDeny,
+        message: message.into(),
+        builtin: builtin.to_string(),
+        hint: hint.into(),
+        approval: None,
+        did_you_mean: Vec::new(),
+        expected: String::new(),
+        got: String::new(),
+    })
+}
+
 /// Build a structured unknown-builtin error (`E_UNKNOWN_BUILTIN`) carrying the
 /// nearest real names. `candidates` must already have been filtered against the
 /// live builtin table — this constructor does not invent names.

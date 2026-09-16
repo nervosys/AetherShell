@@ -272,17 +272,20 @@ denial, an index past the end — expressed in each shell.
 
 | Engine | Failed | Machine-readable code | Repair hint | Distinct exit status | Mean bytes |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| AetherShell | 10/10 | **9/10** | **9/10** | 0/10 | 129 |
+| AetherShell | 10/10 | **10/10** | **10/10** | 0/10 | 141 |
 | nushell | 10/10 | **10/10** | 7/10 | 0/10 | 294 |
 | bash | 10/10 | 0/10 | 1/10 | **5/10** | **42** |
 | PowerShell | 8/10 | 0/10 | 1/10 | 0/10 | 114 |
 
-**nushell wins the code column outright** — 10/10 against our 9/10 — and it
-deserves to be said first. Nushell is the other shell that took this problem
-seriously, and on the axis of "is there a stable identifier to switch on" it is
-ahead of us.
+**The first measurement put AetherShell at 9/10 and nushell at 10/10, and we
+changed the shell rather than the benchmark.** The row above is after that fix;
+the row before it was 9/10 codes, 9/10 hints, 129 bytes. §7 describes what was
+wrong. We report the before as well as the after because a benchmark you edit
+your product in response to is only honest if the edit is visible — and because
+nushell is the other shell that took this problem seriously and got there
+first.
 
-What separates the two is what the code costs. The same mistake, `lenght`
+What separates the two now is what the code costs. The same mistake, `lenght`
 instead of `length`:
 
 ```
@@ -304,9 +307,14 @@ bash          bash: line 1: lenght: command not found
 76 bytes, ~300 bytes, 38 bytes. All three identify the problem; two suggest the
 fix; nushell spends 4× the tokens on source-span art that is valuable to a
 human at a terminal and is pure cost to a model that already has the source. At
-a mean of 294 bytes against our 129, nushell's failures cost 2.3× more to read.
+a mean of 294 bytes against our 141, nushell's failures cost 2.1× more to read.
 bash's are the cheapest of all and carry neither a code nor, in 9 cases out of
 10, a suggestion.
+
+That is the trade an agent is actually making on this axis: bash's errors are
+3.4× cheaper than ours and tell you nothing you can branch on, nushell's tell
+you the same things ours do and cost 2.1× more. A code and a suggestion are
+worth roughly 100 bytes; a rendered source span is not.
 
 **bash wins the exit-status column, and we lose it 0/10.** `command not found`
 exits 127, a permission denial exits 1, a syntax error exits 2. That is free,
@@ -314,20 +322,25 @@ pre-parse signal, and AetherShell throws it away by exiting 1 for everything.
 Whether an agent that reads stderr anyway benefits from it is arguable; that
 bash offers something here and we do not is not.
 
-**One AetherShell gap, unfixed.** Parse errors are the 1 in 10 that carries no
-code:
+**The gap the first measurement found.** Parse errors were the 1 in 10 that
+carried no code:
 
 ```
 error: found 1 error(s): unexpected token Eof at line 1, column 27
 ```
 
-The doc comment on `ErrorCode::Unknown` states that "every uncoded failure
-lands here rather than escaping as bare prose, so *every* failure is branchable
-on `.code`." For parse errors that is not true today. It is not a one-line fix:
-`safety` is `#[cfg(feature = "native")]` and `parser` is not, so adding
-`E_PARSE` means introducing a native/wasm divergence in the parser's error
-path, and we would rather do that deliberately than at the end of a long
-session. It is filed, not fixed.
+`ErrorCode`'s own doc comment says "every uncoded failure lands here rather
+than escaping as bare prose, so *every* failure is branchable on `.code`." For
+parse errors that was simply untrue, and the obvious fix — build the error out
+of `SafetyError` — would have made the contract differ between the native and
+wasm builds, because `safety` is `#[cfg(feature = "native")]` and the parser is
+not. The error type now lives in the parser, renders the identical JSON, and
+the library still compiles clean for `wasm32-unknown-unknown`.
+
+Worth recording: the first version of that fix wrapped the parser's
+diagnostics and not the lexer's, so `let x = @` still escaped as bare prose.
+The test written alongside it caught that within minutes. The measurement
+found the class of defect; only a test found the second instance of it.
 
 ---
 
@@ -367,11 +380,15 @@ PowerShell contained none. The refusals are structured, not prose:
 
 `retryable: true` is the field that matters: the agent is told this is a
 mistake it can correct, not a wall to stop at. The refusals carry
-`E_OUTSIDE_WORKSPACE`, `E_POLICY_DENY` and `E_BUDGET_EXCEEDED` respectively —
-except the `sh` refusal, which is the most security-relevant of the seven and
-carries the generic `E_UNKNOWN` with the unhelpful hint "sh failed without a
-specific error code". That is the same gap as the parse errors in §5 and is
-also filed rather than fixed.
+`E_OUTSIDE_WORKSPACE`, `E_POLICY_DENY` and `E_BUDGET_EXCEEDED`.
+
+The `sh` refusal was the exception when we first ran this, and in the worst
+possible place: the most security-relevant refusal the shell makes carried the
+generic `E_UNKNOWN` with the hint "sh failed without a specific error code;
+inspect the message rather than retrying the same call". `E_UNKNOWN` is the one
+code the taxonomy tells an agent *not* to reason about, and it was attached to
+a refusal whose cause was known exactly. It is now `E_POLICY_DENY`, not
+retryable, with a hint naming the switch that changes the answer.
 
 **Three caveats, all of which we would raise against ourselves.**
 
@@ -401,10 +418,10 @@ data says the score comes from.
 ## 7. What the benchmark found in our own shell
 
 Writing ten ordinary queries and checking the answers against an oracle is not
-a demanding test. It found six defects that more than 2,200 passing tests had not, and
-the pattern in them is the interesting part: **every one was invisible to unit
-tests because unit tests use small inputs and check the cases the author
-thought of.**
+a demanding test. It found eight defects that more than 2,200 passing tests had
+not, and the pattern in them is the interesting part: **every one was invisible
+to unit tests because unit tests use small inputs and check the cases the
+author thought of.**
 
 | # | Defect | Before | After |
 | --- | --- | --- | --- |
@@ -414,9 +431,12 @@ thought of.**
 | 4 | `map`/`where` deep-copied the whole pipe per element | O(n²) | linear |
 | 5 | Path denylist matched substrings | keys readable, `samples/` unreadable | anchored |
 | 6 | `1 / 0` → `inf` exit 0; `1 % 0` panicked the evaluator | silent / crash | structured error |
+| 7 | Parse and lexer failures carried no error code | bare prose | `E_PARSE`, retryable |
+| 8 | The `sh()` refusal was filed under `E_UNKNOWN` | "no specific error code" | `E_POLICY_DENY` |
 
-All six are fixed, each with a regression test. The suite is **148 binaries,
-2,274 tests, 0 failing** on Linux. Two deserve description.
+All eight are fixed, each with a regression test. The suite is **149 binaries,
+2,283 tests, 0 failing** on Linux, and the library still compiles clean for
+`wasm32-unknown-unknown`. Two deserve description.
 
 ### The quadratic in every pipeline
 

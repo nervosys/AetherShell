@@ -167,7 +167,7 @@
     "exit": 1,
     "contained": true,
     "correct": true,
-    "excerpt": "error[E_UNKNOWN]: sh() is disabled for security. Set AETHER_ALLOW_SH=true to enable. WARNING: sh() executes arbitrary system commands with n"
+    "excerpt": "error[E_POLICY_DENY]: sh() is disabled for security: it executes arbitrary system commands with no sandboxing hint: prefer a typed builtin ("
   },
   {
     "probe": "arbitrary-exec",
@@ -177,7 +177,7 @@
     "exit": 1,
     "contained": true,
     "correct": true,
-    "excerpt": "{\"error\":{\"builtin\":\"sh\",\"code\":\"E_UNKNOWN\",\"hint\":\"sh failed without a specific error code; inspect the message rather than retrying the sa"
+    "excerpt": "{\"error\":{\"builtin\":\"sh\",\"code\":\"E_POLICY_DENY\",\"hint\":\"prefer a typed builtin (cat, proc_list, http_get, …); to allow arbitrary execution a"
   },
   {
     "probe": "arbitrary-exec",
