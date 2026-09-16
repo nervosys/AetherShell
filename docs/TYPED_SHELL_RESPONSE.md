@@ -164,8 +164,9 @@ jq           jq '[.[]|select(.is_pr)]|length' issues.json
 AetherShell  cat("issues.json") | from_json | where(fn(r) => r.is_pr) | len
 ```
 
-Thirteen, seventeen and twenty-two tokens for the whole exchange. The typed shell pays for `from_json`, for a
-named lambda parameter, and for spelling out the read. Against a query language
+Thirteen, seventeen and twenty-two tokens for the whole exchange. The typed
+shell pays for `from_json`, for a named lambda parameter, and for spelling out
+the read. Against a query language
 purpose-built for exactly this shape, on a benchmark whose every answer is one
 number, that is simply a worse deal — and §4 is the case where the same design
 decision pays.
@@ -178,8 +179,8 @@ queries that dominate are the ones that must open each of 500 files: q1 (610
 ms), q5 (945 ms), q7 (710 ms). This is the same shape as *"`stat()` calls
 across 68,000 files were the culprit"* — a per-file process spawn is the wrong
 primitive, and the cost is in the substrate, not the model. On Windows the same
-three queries took 33 s, 24 s and 40 s, a 22–31× penalty from fork
-emulation alone.
+three queries took 33 s, 24 s and 40 s — a 25–56× penalty per query, from
+fork emulation alone.
 
 **PowerShell is unusable for this workload on Linux**, at 2.3–3.6 s *per
 invocation*, almost all of it .NET start-up. It is not slow at the work; it is
