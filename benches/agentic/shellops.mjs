@@ -11,6 +11,12 @@
 
 export const ENGINES = {
     aethershell: { bin: 'ae', argv: (c) => ['-c', c], label: 'AetherShell 12.0.2' },
+    // The mode an agent actually runs in: AECON output, effect gating on. It is
+    // listed separately rather than replacing the default, because the two
+    // render differently and a reader is entitled to both numbers.
+    'aethershell (agent)': {
+        bin: 'ae', argv: (c) => ['--agent', '-c', c], label: 'AetherShell 12.0.2 --agent',
+    },
     bash: { bin: 'bash', argv: (c) => ['-c', c], label: 'bash 5.2 + coreutils' },
     pwsh: { bin: 'pwsh', argv: (c) => ['-NoProfile', '-Command', c], label: 'PowerShell 7.6.6' },
     nushell: { bin: 'nu', argv: (c) => ['-n', '-c', c], label: 'nushell 0.115.1' },
@@ -26,6 +32,90 @@ export const TASKS = {
     t7: 'Count the .rs files under src/ recursively.',
     t8: 'The newest three files in src/, by modification time.',
 };
+
+// What every engine's output must contain for the measurement to count.
+//
+// E2 originally had no oracle: `correct` was `exit === 0 && output non-empty`.
+// That let AetherShell's default renderer -- which printed an array of records
+// as `[{…}, {…}, …]` -- score 316 bytes against bash's 2,650 and be reported
+// as a 7.9x win, while containing none of the requested data. An output-size
+// comparison is meaningless unless something checks that both outputs contain
+// the answer. These are deliberately loose: a filename that must appear, and a
+// number where a number belongs. They are not equality checks, because the
+// engines legitimately format differently -- they exist to catch an output
+// that is not an answer at all.
+// A file size, however the engine chose to write it. Engines legitimately
+// differ here and the oracle must not mistake a different encoding for a
+// missing answer:
+//
+//   bash                27260
+//   AetherShell --agent 27260, under a factored `@suffix name: .rs` header
+//   nushell             27.2 kB
+//
+// That third form is worth noticing rather than merely tolerating: nushell's
+// default table rounds to three significant figures, so an agent that asks for
+// file sizes cannot sum, diff or compare them exactly. It is the only engine
+// here whose cheapest path to the answer loses information, and it is also the
+// most expensive.
+const SIZE = /\d{3,}|\d+(\.\d+)?\s*[kKMGT]i?B/;
+
+// `\blib\b` rather than `lib\.rs`, because AetherShell's agent mode factors the
+// common suffix out of the column (`@suffix name: .rs` then bare stems). The
+// data is there and is reconstructible; only the spelling differs.
+export const EXPECT = {
+    t1: [/\blib\b/, SIZE],
+    t2: [/\d{4,}/],
+    t3: [/builtins/, SIZE],
+    // A bare `\w` accepted a header row with no data in it; the branch this
+    // repository is on is a known fact, exactly as `builtins` is in t3.
+    t4: [/master|main/],
+    t5: [/\d{2,}/],
+    t6: [/12\.\d+\.\d+/],
+    t7: [/\d{2,}/],
+    t8: [/\.rs|@suffix/],
+};
+
+// A vacuity guard on the guard itself. The first version of this table was
+// written through a script whose escaping ate every backslash, turning
+// `/\d{4,}/` into `/d{4,}/` -- a pattern matching four literal letter d's,
+// which nothing would ever match, in a table whose entire job is to catch
+// output that is not an answer. A broken oracle is worse than none, because it
+// reads as rigour. This asserts the patterns match text of the shape they are
+// meant to accept and reject text of the shape they are meant to catch.
+export function selfCheck() {
+    // One sample per engine's real encoding of the same facts. All three must
+    // be accepted, or the oracle is scoring spelling instead of content.
+    const accept = {
+        'plain (bash, AetherShell default)':
+            'lib.rs 10991 builtins.rs 1770246 master 190 12.0.2 88 parser.rs',
+        'AECON (AetherShell --agent)':
+            '@suffix name: .rs\nlib\t10991\nbuiltins\t1770246\nmaster 190 12.0.2 88 parser.rs',
+        'rounded units (nushell)':
+            '│ src/lib.rs │ 11.0 kB │ src/builtins.rs │ 1.8 MB │ master 190 12.0.2 88 parser.rs 109968',
+    };
+    // Things that are not answers and must never score.
+    const reject = {
+        'elided records': '[{…}, {…}, {…}]',
+        'empty': '',
+        'headers only': 'name\tsize',
+    };
+
+    const problems = [];
+    for (const [task, pats] of Object.entries(EXPECT)) {
+        for (const re of pats) {
+            for (const [label, text] of Object.entries(accept)) {
+                if (!re.test(text)) problems.push(`${task}: ${re} rejects ${label}`);
+            }
+        }
+        // A rejection only has to fail one of the task's patterns.
+        for (const [label, text] of Object.entries(reject)) {
+            if (pats.every((re) => re.test(text))) {
+                problems.push(`${task}: accepts ${label}, which is not an answer`);
+            }
+        }
+    }
+    return problems;
+}
 
 export const COMMANDS = {
     aethershell: {
@@ -69,3 +159,8 @@ export const COMMANDS = {
         t8: 'ls src | sort-by modified | last 3 | select name modified',
     },
 };
+
+// Agent mode runs the identical programs; only the renderer and the effect
+// gate differ. Sharing the map rather than copying it keeps the two rows a
+// comparison of output modes and not, accidentally, of two different corpora.
+COMMANDS['aethershell (agent)'] = COMMANDS.aethershell;

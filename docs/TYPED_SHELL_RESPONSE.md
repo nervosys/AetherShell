@@ -205,42 +205,71 @@ not answered, and we would not assert either.
 
 ---
 
-## 4. The same comparison where the answer is data: 4.3×
+## 4. The same comparison where the answer is data: 2.9×
 
 §3 asks ten questions whose answers are scalars. §4 asks eight questions whose
 answers are *tables* — the things an agent actually does between decisions:
 list the source files with their sizes, find the five largest, count the tests,
 read the declared version, show the three most recently modified. Run against
-this repository, four shells, same methodology.
+this repository, five engines, same methodology.
+
+> **This section was wrong the first time, in our favour, and the correction is
+> larger than most of the differences it reports.** The first run measured
+> AetherShell's default output at 340 total tokens and reported a 4.3× win. Its
+> renderer was printing an array of records as `[{…}, {…}, …]`, so the
+> "cheapest" output contained none of the requested data, and the harness —
+> which then checked only that the exit status was zero and the output
+> non-empty — scored it as correct. The renderer is fixed (§7, defect 9), the
+> harness now requires each answer to contain the facts it asked for, and the
+> numbers below are from the re-run. The real advantage is **2.9×**, not 4.3×.
 
 | Engine | Command tokens | **Output tokens** | **Total** | Median ms |
 | --- | ---: | ---: | ---: | ---: |
-| **AetherShell** | 163 | **177** | **340** | 5.3 |
-| PowerShell | 142 | 593 | **735** | 2,944 |
-| nushell | 91 | 1,180 | **1,271** | 31.3 |
-| bash | 68 | 1,395 | **1,463** | 3.8 |
+| **AetherShell `--agent`** | 163 | **334** | **497** | 9.7 |
+| PowerShell | 142 | 593 | **735** | 3,285 |
+| AetherShell (default) | 163 | 679 | **842** | 9.7 |
+| nushell | 91 | 1,183 | **1,274** | 36.6 |
+| bash | 68 | 1,395 | **1,463** | 5.3 |
+
+Two AetherShell rows, because the shell has two renderers and it would be
+sleight of hand to quote only the better one. `--agent` is the mode an agent
+runs in: it emits AECON, which factors repeated structure out of a column. The
+default is the human pretty-printer. The programs are identical; only the
+rendering differs.
 
 The command column has not changed its story: AetherShell is still the most
-verbose to write, 2.4× bash. The output column has inverted completely.
-**AetherShell's output costs 7.9× less than bash's and 6.7× less than
-nushell's**, and the total is **4.3× cheaper than bash**, 3.7× cheaper than
-nushell, 2.2× cheaper than PowerShell.
+verbose to write, 2.4× bash. The output column inverts it. **Agent-mode output
+costs 4.2× less than bash's and 3.5× less than nushell's**, and the total is
+**2.9× cheaper than bash**, 2.6× cheaper than nushell, 1.5× cheaper than
+PowerShell. In its default human rendering it is still 1.7× cheaper than bash
+overall.
 
 One task carries most of it. *List the `.rs` files in `src/` with their sizes*
 — 45 files:
 
-| | tokens |
-| --- | ---: |
-| AetherShell `ls("src") \| where(…) \| pick("name", "size")` | **161** |
-| PowerShell `Get-ChildItem src/*.rs \| Select-Object Name,Length` | 398 |
-| nushell `ls src/*.rs \| select name size` | 913 |
-| bash `ls -l src/*.rs` | 1,177 |
+| | tokens | bytes | exact sizes? |
+| --- | ---: | ---: | --- |
+| AetherShell `--agent` | **285** | 657 | yes |
+| PowerShell `Get-ChildItem src/*.rs \| Select-Object Name,Length` | 398 | 1,409 | yes |
+| AetherShell default `ls("src") \| where(…) \| pick("name", "size")` | 582 | 1,485 | yes |
+| nushell `ls src/*.rs \| select name size` | 913 | 3,023 | **no** |
+| bash `ls -l src/*.rs` | 1,177 | 2,650 | yes |
 
-Same 45 facts. bash spends its tokens on permission strings, owner, group,
-month-day-time and a repeated `./src/` prefix on every line. nushell spends
-them on box-drawing characters and column padding — it is *more* expensive than
-bash here, because its table renderer is built for a human looking at a
-terminal. AetherShell emits the two requested fields and nothing else.
+Same 45 facts, four renderings of them. bash spends its tokens on permission
+strings, owner, group, month-day-time and a repeated `src/` prefix on every
+line — six fields nobody asked for. nushell spends them on box-drawing
+characters and column padding, and is *more* expensive than bash, because its
+table renderer is built for a human looking at a terminal.
+
+nushell also loses information doing it. Its default table rounds to three
+significant figures — `27.2 kB` where the file is 27,260 bytes — so an agent
+that asks for sizes cannot sum, diff or compare them exactly. It is the only
+engine here whose cheapest path to the answer is lossy, and it is also the most
+expensive. That combination is worth more than the ranking: the cost is being
+paid for presentation, and the presentation is destroying the data.
+
+AetherShell's agent mode emits the two requested fields and factors the common
+suffix into a header (`@suffix name: .rs`), which is reconstructible and exact.
 
 This is the finding we would ask a reader to take away, because it explains the
 disagreement in §1 rather than just adding a data point to it:
@@ -251,12 +280,12 @@ disagreement in §1 rather than just adding a data point to it:
 The Vercel benchmark is of the scalar kind — reasonably, since it was testing
 query accuracy. But an agent's session is not ten scalar questions; it is
 hundreds of turns of listing, reading, diffing and inspecting, where the result
-*is* a table. That is the regime §4 measures, and the 4.3× applies to the term
+*is* a table. That is the regime §4 measures, and the 2.9× applies to the term
 that dominates a real transcript.
 
 It also puts a number on the Microsoft finding from the other side. Their
 Bash-vs-Tool-only token gap was 19–72%. The gap here between two *shells*, on
-output alone, is 7.9×. Whether the shell's values are typed is a bigger lever
+output alone, is 4.2×. Whether the shell's values are typed is a bigger lever
 on token cost than whether the interface is a shell at all.
 
 ---
@@ -418,7 +447,7 @@ data says the score comes from.
 ## 7. What the benchmark found in our own shell
 
 Writing ten ordinary queries and checking the answers against an oracle is not
-a demanding test. It found eight defects that more than 2,200 passing tests had
+a demanding test. It found nine defects that more than 2,200 passing tests had
 not, and the pattern in them is the interesting part: **every one was invisible
 to unit tests because unit tests use small inputs and check the cases the
 author thought of.**
@@ -433,10 +462,13 @@ author thought of.**
 | 6 | `1 / 0` → `inf` exit 0; `1 % 0` panicked the evaluator | silent / crash | structured error |
 | 7 | Parse and lexer failures carried no error code | bare prose | `E_PARSE`, retryable |
 | 8 | The `sh()` refusal was filed under `E_UNKNOWN` | "no specific error code" | `E_POLICY_DENY` |
+| 9 | An array of records rendered as `[{…}, {…}, …]` | no data at all | fields, bounded at depth two |
 
-All eight are fixed, each with a regression test. The suite is **149 binaries,
-2,283 tests, 0 failing** on Linux, and the library still compiles clean for
-`wasm32-unknown-unknown`. Two deserve description.
+All nine are fixed, each with a regression test. Defect 9 is the one that
+matters most, because it is the only one that made *this document* wrong: it is
+described in §4 and below. The suite is **150 binaries, 2,289 tests, 0 failing** on Linux,
+and the library still compiles clean for `wasm32-unknown-unknown`. Three
+deserve description.
 
 ### The quadratic in every pipeline
 
@@ -516,6 +548,49 @@ permissive direction is a security defect; one that is wrong in the restrictive
 direction is a usability defect. The same line produced both, it shipped, and
 what found it was not a security review — it was asking the shell to count some
 lines.
+
+### The one that made this document wrong
+
+The other eight defects cost users something. This one cost *us* our headline,
+which is a more useful story.
+
+`ls("src") | pick("name", "size")` — the flagship example in the README and in
+the book — printed this:
+
+```
+[{…}, {…}, {…}, {…}, … forty-five of them]
+```
+
+No filenames, no sizes. `pp_item` rendered every nested record as `{…}`,
+one level too early. It was not a token budget, though it looked like one:
+`[{a: 1}, {a: 2}]` did it too, with two tiny records and nothing to budget.
+Volume is already handled by `budget_value` before the value reaches the
+renderer, so eliding here bought nothing and cost the answer.
+
+Then the part that matters. §4 originally measured that output at **316 bytes
+against bash's 2,650** and reported a 7.9× output advantage — the single most
+quotable number in this document. The 316 bytes were forty-five copies of
+`{…}`. The harness marked it correct because E2's check was `exit == 0 &&
+output is non-empty`, and `benches/agentic/README.md` had a paragraph
+*explaining* why E2 needed no oracle. That paragraph was the defect: **an
+output-size comparison is meaningless unless something asserts that both
+outputs contain the answer.** A smaller output is only better if it is still an
+answer, and "smaller" is exactly what a broken renderer produces.
+
+E2 now carries a content oracle — each task names facts its answer must contain
+— and that oracle carries a self-check, because the first version of it was
+written through a script whose escaping ate every backslash and left patterns
+like `/d{4,}/` that could never match anything. Rigour-shaped and useless, in
+the code whose entire job was to catch output that was not an answer. The
+self-check asserts the patterns accept all three engines' real encodings (raw
+bytes, AECON with a factored suffix, nushell's rounded units) and reject an
+elided placeholder, an empty string and a bare header row.
+
+Re-run with the renderer fixed and the oracle in place, the advantage is 2.9×
+rather than 4.3×. We would rather publish the smaller true number than the
+larger one, and the way this was found — the benchmark's own output looked
+*too good*, so we opened it — is the only method that reliably catches this
+class of mistake.
 
 ---
 

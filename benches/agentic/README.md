@@ -34,7 +34,7 @@ experiment that would close the gap.
 | | File | What it does |
 | --- | --- | --- |
 | **E1** | `corpus.mjs`, `run.mjs` | Ten queries over 500 real GitHub issues, in six engines, against an oracle. Replicates the Vercel post's setup. |
-| **E2** | `shellops.mjs` | Eight ordinary repository operations — the per-turn cost of the shell itself. |
+| **E2** | `shellops.mjs` | Eight ordinary repository operations — the per-turn cost of the shell itself, in two AetherShell render modes. |
 | **E3** | `errors.mjs` | Ten induced failures per shell: exit status, machine-readable code, repair hint, byte cost. |
 | **E4** | `safety.mjs` | Seven dangerous operations, scored by whether the file outside the jail actually changed. |
 
@@ -82,3 +82,33 @@ generated markdown reports, the raw per-measurement JSON for all four
 experiments, and the E2 transcript so a reader can check that every engine was
 asked the same question and gave the same answer. Platform: Debian on WSL2,
 24 cores, AetherShell 12.0.2, median of 11 runs.
+
+## E2 has an oracle, and the oracle has a self-check
+
+An earlier version of this file argued that E2 needed no oracle, because its
+tasks have no single canonical rendering and the question is what a turn
+*costs*. That argument was wrong and it produced a wrong published number.
+
+AetherShell's renderer was printing an array of records as `[{…}, {…}, …]`.
+E2's check was `exit == 0 && output non-empty`, so that scored as correct — at
+316 bytes against bash's 2,650, and it was reported as a 7.9× advantage. The
+316 bytes contained none of the requested data. **An output-size comparison is
+meaningless unless something asserts that both outputs contain the answer**, and
+the engine most likely to produce a suspiciously small output is the one that
+has stopped answering.
+
+`EXPECT` in `shellops.mjs` now names, per task, the facts an answer must
+contain. It is a content check rather than an equality check, because the
+engines legitimately encode the same facts differently:
+
+| | bash | AetherShell `--agent` | nushell |
+| --- | --- | --- | --- |
+| `src/agent.rs`, 27260 bytes | `27260` | `27260` under `@suffix name: .rs` | `27.2 kB` |
+
+`selfCheck()` asserts the patterns accept all three of those and reject an
+elided placeholder, an empty string and a bare header row; `run-shellops.mjs`
+refuses to report at all if it fails. That guard exists because the first
+version of `EXPECT` was written through a script whose escaping ate every
+backslash, leaving patterns like `/d{4,}/` — four literal letter d's — in the
+table whose one job was to catch output that is not an answer. A broken oracle
+is worse than no oracle, because it reads as rigour.

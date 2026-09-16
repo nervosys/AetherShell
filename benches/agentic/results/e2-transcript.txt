@@ -1,7 +1,7 @@
 ### t1 -- List the .rs files in src/ with their sizes.
 
 $ aethershell: ls("src") | where(fn(f) => ends_with(f.name, ".rs")) | pick("name", "size")
-[{…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}]
+[{name: ai.rs, size: 114529}, {name: auth.rs, size: 51857}, {name: builtins.rs, size: 1770246}, {name: evolution.rs, size: 29151}, {name: mcp.rs, size: 57301}, {name: workflow_builtins.rs, size: 28644}, {name: workflows.rs, size: 105578}, {name: value.rs, size: 20084}, {name: rlm.rs, size: 44249}, {name: types.rs, size: 2867}, {name: packages.rs, size: 30804}, {name: syntax_kb.rs, size: 19347}, {name: ast.rs, size: 5122}, {name: wasm.rs, size: 48653}, {name: external_tools.rs, size: 43230}, {name: line_editor.rs, size: 25128}, {name: agent_api.rs, size: 199700}, {name: agent.rs, size: 27260}, {name: typecheck.rs, size: 21989}, {name: shell_features.rs, size: 14813}, {name: lib.rs, size: 10991}, {name: shapes.rs, size: 11839}, {name: handles.rs, size: 14268}, {name: journal.rs, size: 16140}, {name: marketplace.rs, size: 20399}, {name: main.rs, size: 38295}, {name: yaml.rs, size: 27597}, {name: metrics.rs, size: 49879}, {name: env.rs, size: 9160}, {name: eval.rs, size: 66312}, {name: modules.rs, size: 51769}, {name: safety.rs, size: 186375}, {name: persistence.rs, size: 48820}, {name: security.rs, size: 57506}, {name: config.rs, size: 57178}, {name: rl.rs, size: 31230}, {name: os_tools.rs, size: 326688}, {name: secure_config.rs, size: 10571}, {name: plugins.rs, size: 79119}, {name: model_plane.rs, size: 13947}, {name: prompt.rs, size: 41111}, {name: repl.rs, size: 16989}, {name: parser.rs, size: 75492}, {name: neural.rs, size: 25266}, {name: tx.rs, size: 12558}]
 
 
 ### t2 -- Total line count of the Rust sources in src/.
@@ -13,7 +13,7 @@ $ aethershell: ls("src") | where(fn(f) => ends_with(f.name, ".rs")) | map(fn(f) 
 ### t3 -- The five largest files in src/, with sizes.
 
 $ aethershell: ls("src") | sort_by("size") | last(5) | pick("name", "size")
-[{…}, {…}, {…}, {…}, {…}]
+[{name: ai.rs, size: 114529}, {name: safety.rs, size: 186375}, {name: agent_api.rs, size: 199700}, {name: os_tools.rs, size: 326688}, {name: builtins.rs, size: 1770246}]
 
 
 ### t4 -- The current git branch.
@@ -43,7 +43,110 @@ $ aethershell: fs_walk("src") | where(fn(f) => ends_with(f, ".rs")) | len
 ### t8 -- The newest three files in src/, by modification time.
 
 $ aethershell: ls("src") | sort_by("modified") | last(3) | pick("name", "modified")
-[{…}, {…}, {…}]
+[{modified: 1789584988, name: tx.rs}, {modified: 1789584988, name: providers}, {modified: 1789584988, name: ai_api}]
+
+
+### t1 -- List the .rs files in src/ with their sizes.
+
+$ aethershell (agent): ls("src") | where(fn(f) => ends_with(f.name, ".rs")) | pick("name", "size")
+name	size
+@suffix name: .rs
+ai	114529
+auth	51857
+builtins	1770246
+evolution	29151
+mcp	57301
+workflow_builtins	28644
+workflows	105578
+value	20084
+rlm	44249
+types	2867
+packages	30804
+syntax_kb	19347
+ast	5122
+wasm	48653
+external_tools	43230
+line_editor	25128
+agent_api	199700
+agent	27260
+typecheck	21989
+shell_features	14813
+lib	10991
+shapes	11839
+handles	14268
+journal	16140
+marketplace	20399
+main	38295
+yaml	27597
+metrics	49879
+env	9160
+eval	66312
+modules	51769
+safety	186375
+persistence	48820
+security	57506
+config	57178
+rl	31230
+os_tools	326688
+secure_config	10571
+plugins	79119
+model_plane	13947
+prompt	41111
+repl	16989
+parser	75492
+neural	25266
+tx	12558
+
+
+### t2 -- Total line count of the Rust sources in src/.
+
+$ aethershell (agent): ls("src") | where(fn(f) => ends_with(f.name, ".rs")) | map(fn(f) => len(split(cat(f.path), "\n"))) | sum
+109968
+
+
+### t3 -- The five largest files in src/, with sizes.
+
+$ aethershell (agent): ls("src") | sort_by("size") | last(5) | pick("name", "size")
+name	size
+ai.rs	114529
+safety.rs	186375
+agent_api.rs	199700
+os_tools.rs	326688
+builtins.rs	1770246
+
+
+### t4 -- The current git branch.
+
+$ aethershell (agent): git_branch()
+master
+
+
+### t5 -- How many files are under tests/.
+
+$ aethershell (agent): fs_walk("tests") | len
+190
+
+
+### t6 -- The package version declared in Cargo.toml.
+
+$ aethershell (agent): cat("Cargo.toml") | split("\n") | where(fn(l) => starts_with(l, "version")) | first
+version = "12.0.2"
+
+
+### t7 -- Count the .rs files under src/ recursively.
+
+$ aethershell (agent): fs_walk("src") | where(fn(f) => ends_with(f, ".rs")) | len
+88
+
+
+### t8 -- The newest three files in src/, by modification time.
+
+$ aethershell (agent): ls("src") | sort_by("modified") | last(3) | pick("name", "modified")
+name
+@const modified=1789584988
+tx.rs
+providers
+ai_api
 
 
 ### t1 -- List the .rs files in src/ with their sizes.
@@ -362,7 +465,7 @@ $ nushell: ls src | sort-by modified | last 3 | select name modified
 ╭───┬──────────────────────────┬─────────────╮
 │ # │           name           │  modified   │
 ├───┼──────────────────────────┼─────────────┤
-│ 0 │ src/workflow_builtins.rs │ an hour ago │
-│ 1 │ src/workflows.rs         │ an hour ago │
-│ 2 │ src/yaml.rs              │ an hour ago │
+│ 0 │ src/workflow_builtins.rs │ 4 hours ago │
+│ 1 │ src/workflows.rs         │ 4 hours ago │
+│ 2 │ src/yaml.rs              │ 4 hours ago │
 ╰───┴──────────────────────────┴─────────────╯
