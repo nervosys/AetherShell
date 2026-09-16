@@ -4482,9 +4482,18 @@ fn call_lambda(lam: &Lambda, args: &[Value], env: &mut Env) -> Result<Value> {
         ));
     }
 
-    // Save and clear pipe input to prevent it from leaking into lambda evaluation
-    let saved_pipe = env.input().cloned();
-    env.set_input(None);
+    // Save and clear pipe input to prevent it from leaking into lambda
+    // evaluation.
+    //
+    // This used to *clone* the pipe input rather than take it, and that clone
+    // was the single largest cost in the shell. In `xs | map(fn(x) => ...)`
+    // the pipe input at this point is the whole of `xs`, so the collection was
+    // deep-copied once per element: 500 records of GitHub issue data cost
+    // 237 ms for a closure that ignored its argument entirely, and `map` over
+    // N integers ran in O(N^2) -- 10,000 elements took 515 ms where jq took 7.
+    // Taking the value moves it; `set_input` below puts it back, so the
+    // observable behaviour is identical.
+    let saved_pipe = env.take_input();
 
     // Save previous bindings
     let mut saved: Vec<(String, Option<Value>)> = Vec::with_capacity(params.len());
@@ -4815,12 +4824,19 @@ fn bi_map(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Value
     let lam = need_lambda(lam_val, "map")?;
 
     let arr = expect_array("map", &arr_val)?;
+    // Both `fn(x, i)` and `fn(x)` are supported. This used to be discovered by
+    // calling with two arguments and retrying with one on failure, which made
+    // three copies of every element (`.cloned()`, `v_clone`, and the call's
+    // own `v.clone()`) to keep the retry path alive. The lambda knows its own
+    // arity, so ask it once.
+    let two_arg = lam.params.len() == 2;
     let mut out = Vec::with_capacity(arr.len());
-    for (i, v) in arr.iter().cloned().enumerate() {
-        // clone v/acc before trying fallbacks to avoid use-after-move
-        let v_clone = v.clone();
-        let y = call_lambda(lam, &[v.clone(), Value::Int(i as i64)], env)
-            .or_else(|_| call_lambda(lam, &[v_clone], env))?; // support fn(x,i) or fn(x)
+    for (i, v) in arr.iter().enumerate() {
+        let y = if two_arg {
+            call_lambda(lam, &[v.clone(), Value::Int(i as i64)], env)?
+        } else {
+            call_lambda(lam, &[v.clone()], env)?
+        };
         out.push(y);
     }
     Ok(Value::Array(out))
@@ -4843,13 +4859,18 @@ fn bi_where(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Val
     let lam = need_lambda(lam_val, "where")?;
 
     let arr = expect_array("where", &arr_val)?;
+    // See `bi_map`: ask the lambda its arity once instead of calling twice and
+    // keeping three copies of each element alive to make the retry possible.
+    let two_arg = lam.params.len() == 2;
     let mut out = Vec::new();
-    for (i, v) in arr.iter().cloned().enumerate() {
-        let v_clone = v.clone();
-        let keep_val = call_lambda(lam, &[v_clone.clone(), Value::Int(i as i64)], env)
-            .or_else(|_| call_lambda(lam, &[v_clone], env))?;
+    for (i, v) in arr.iter().enumerate() {
+        let keep_val = if two_arg {
+            call_lambda(lam, &[v.clone(), Value::Int(i as i64)], env)?
+        } else {
+            call_lambda(lam, &[v.clone()], env)?
+        };
         match keep_val {
-            Value::Bool(true) => out.push(v),
+            Value::Bool(true) => out.push(v.clone()),
             Value::Bool(false) => {}
             other => return Err(anyhow!("where predicate must return Bool, got {:?}", other)),
         }
@@ -12064,9 +12085,73 @@ fn bi_abs(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 ///
 /// Example:
 ///   min(3, 7)     # Returns 3
-fn bi_min(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+/// The array `min`/`max` should aggregate over, if this is the aggregate form.
+///
+/// Both builtins were binary-only: `min(a, b)`. The ontology advertised them
+/// under `Aggregation` as "Get minimum value" / "Get maximum value" with an
+/// empty parameter list, so an agent reading the ontology writes `max(xs)` or
+/// `xs | max` and is told "max requires two arguments" -- a discovery surface
+/// describing a function that does not exist. The aggregate form is accepted
+/// here; the two-number form below is untouched.
+fn aggregate_operand<'a>(args: &'a [Value], input: &'a Option<Value>) -> Option<&'a Vec<Value>> {
+    match (args.first(), args.len()) {
+        (Some(Value::Array(items)), 1) => Some(items),
+        (None, _) => match input {
+            Some(Value::Array(items)) => Some(items),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Largest (`want_max`) or smallest element of a numeric array.
+fn fold_extremum(items: &[Value], want_max: bool) -> Result<Value> {
+    if items.is_empty() {
+        return Err(crate::safety::arg_err(if want_max {
+            "max of an empty array is undefined"
+        } else {
+            "min of an empty array is undefined"
+        }));
+    }
+    // Stay in Int while every element is one, so `[1, 5, 3] | max` is `5` and
+    // not `5.0`: an agent comparing the answer to a literal should not have to
+    // know whether the aggregate silently promoted.
+    let all_int = items.iter().all(|v| matches!(v, Value::Int(_)));
+    let mut best: Option<f64> = None;
+    for v in items {
+        let n = match v {
+            Value::Int(i) => *i as f64,
+            Value::Float(f) => *f,
+            other => {
+                return Err(crate::safety::arg_err(&format!(
+                    "{} requires numeric elements, found {}",
+                    if want_max { "max" } else { "min" },
+                    other.type_name()
+                )))
+            }
+        };
+        best = Some(match best {
+            None => n,
+            Some(b) if want_max => b.max(n),
+            Some(b) => b.min(n),
+        });
+    }
+    let b = best.expect("non-empty array yields a value");
+    Ok(if all_int {
+        Value::Int(b as i64)
+    } else {
+        Value::Float(b)
+    })
+}
+
+fn bi_min(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if let Some(items) = aggregate_operand(&args, &input) {
+        return fold_extremum(items, false);
+    }
     if args.len() < 2 {
-        return Err(crate::safety::arg_err("min requires two arguments"));
+        return Err(crate::safety::arg_err(
+            "min requires two numbers, one array, or a piped array",
+        ));
     }
 
     match (&args[0], &args[1]) {
@@ -12086,9 +12171,14 @@ fn bi_min(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 ///
 /// Example:
 ///   max(3, 7)     # Returns 7
-fn bi_max(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_max(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if let Some(items) = aggregate_operand(&args, &input) {
+        return fold_extremum(items, true);
+    }
     if args.len() < 2 {
-        return Err(crate::safety::arg_err("max requires two arguments"));
+        return Err(crate::safety::arg_err(
+            "max requires two numbers, one array, or a piped array",
+        ));
     }
 
     match (&args[0], &args[1]) {
@@ -12150,15 +12240,46 @@ fn bi_ceil(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 /// Example:
 ///   round(3.5)     # Returns 4
 fn bi_round(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let val = if args.is_empty() {
-        input.ok_or_else(|| crate::safety::arg_err("round requires number argument"))?
+    // In a pipeline the piped value is the subject and the arguments are
+    // parameters -- `xs | map(f)`, `xs | nth(2)`. `round` inherited the unary
+    // convention "first argument if present, else the input", so
+    // `mean | round(2)` took 2 as the number to round and answered 2. It is
+    // the same defect as discarding `digits`, wearing a pipe.
+    let piped_subject = input.is_some() && args.len() == 1;
+    let (val, digit_arg) = if piped_subject {
+        (input.clone().expect("checked"), args.first())
+    } else if args.is_empty() {
+        (
+            input.ok_or_else(|| crate::safety::arg_err("round requires number argument"))?,
+            None,
+        )
     } else {
-        args[0].clone()
+        (args[0].clone(), args.get(1))
     };
 
-    match val {
-        Value::Int(n) => Ok(Value::Int(n)),
-        Value::Float(f) => Ok(Value::Int(f.round() as i64)),
+    // `round(x, digits)` used to parse, run, and silently discard `digits`:
+    // `round(4.966, 2)` answered `5`. A wrong number returned without an error
+    // is the worst shape a failure can take for an agent, because nothing in
+    // the result says to look again. Absent or zero `digits` keeps the old
+    // Int-returning behaviour exactly.
+    let digits = match digit_arg {
+        None => None,
+        Some(Value::Int(d)) if (0..=17).contains(d) => Some(*d as u32),
+        Some(other) => {
+            return Err(crate::safety::arg_err(&format!(
+                "round: digits must be an integer in 0..=17, got {}",
+                other.type_name()
+            )))
+        }
+    };
+
+    match (val, digits) {
+        (Value::Int(n), _) => Ok(Value::Int(n)),
+        (Value::Float(f), None) | (Value::Float(f), Some(0)) => Ok(Value::Int(f.round() as i64)),
+        (Value::Float(f), Some(d)) => {
+            let scale = 10f64.powi(d as i32);
+            Ok(Value::Float((f * scale).round() / scale))
+        }
         _ => Err(crate::safety::arg_err("round requires numeric input")),
     }
 }

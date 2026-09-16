@@ -190,7 +190,15 @@ impl Default for PathSecurityConfig {
             allow_symlinks: false,
             max_depth: 50,
             blocked_patterns: vec![
-                // Windows sensitive files
+                // Windows registry hives. Named both by their real location
+                // and as bare component names, because a hive can be copied
+                // elsewhere. These are matched as whole path components, not
+                // as substrings -- see `path_matches_blocked_pattern` for what
+                // substring matching did to `src/security.rs`.
+                "Windows/System32/config/SAM".to_string(),
+                "Windows/System32/config/SYSTEM".to_string(),
+                "Windows/System32/config/SECURITY".to_string(),
+                "Windows/System32/config/SOFTWARE".to_string(),
                 "SAM".to_string(),
                 "SYSTEM".to_string(),
                 "SECURITY".to_string(),
@@ -255,6 +263,55 @@ pub fn is_deceptive_char(c: char) -> bool {
 /// - CWE-22: Path Traversal prevention
 /// - CWE-73: External Control of File Name or Path
 /// - Complies with OWASP ASVS v4.0 Section 12.3
+/// Does `path` match one entry of the blocked-pattern list?
+///
+/// This used to be `path.to_lowercase().contains(&pattern.to_lowercase())`, and
+/// that one line was wrong in both directions at once.
+///
+/// **It blocked ordinary files.** The bare entries `SAM`, `SYSTEM`, `SECURITY`
+/// and `SOFTWARE` name the Windows registry hives under
+/// `C:\Windows\System32\config\`, but as substrings they match any path
+/// containing those letters. `src/security.rs` was unreadable. So was
+/// `filesystem.rs` ("system"), `software_list.rs`, and every path under this
+/// repository's own `samples/` directory ("sam").
+///
+/// **It protected none of the files it named.** `*.key`, `*.pem`, `*.p12` and
+/// `*.pfx` were compared as literal text, and no filename contains the
+/// characters `*.pem`, so a private key was readable. The four entries meant
+/// to stop key exfiltration had no effect whatsoever.
+///
+/// Three pattern shapes are now distinguished:
+///
+/// * `*.ext` — matches on extension, case-insensitively. This is the one that
+///   was silently dead.
+/// * anything containing a separator (`/etc/shadow`, `.ssh/id_rsa`) — matches
+///   as a path suffix on component boundaries, so `/etc/shadow` blocks
+///   `/etc/shadow` and `../../etc/shadow` but not `my-etc-shadow-notes.txt`.
+/// * a bare name (`SAM`) — matches only a whole final component,
+///   case-insensitively. `SECURITY` blocks a file named `SECURITY`; it does
+///   not block `security.rs`, whose final component is `security.rs`.
+fn path_matches_blocked_pattern(path: &str, pattern: &str) -> bool {
+    let norm = |s: &str| s.replace('\\', "/").to_lowercase();
+    let p = norm(path);
+    let pat = norm(pattern);
+
+    if let Some(ext) = pat.strip_prefix("*.") {
+        return Path::new(&p)
+            .extension()
+            .is_some_and(|e| e.to_string_lossy().to_lowercase() == ext);
+    }
+
+    if pat.contains('/') {
+        let pat = pat.trim_start_matches('/');
+        // Suffix match, but only on a component boundary.
+        return p == pat || p.ends_with(&format!("/{pat}"));
+    }
+
+    Path::new(&p)
+        .file_name()
+        .is_some_and(|n| n.to_string_lossy() == pat)
+}
+
 pub fn validate_safe_path(path: &str) -> Result<PathBuf> {
     // Basic validation
     if path.is_empty() {
@@ -296,10 +353,8 @@ pub fn validate_safe_path(path: &str) -> Result<PathBuf> {
     let requested_path = Path::new(path);
 
     // Check for dangerous patterns BEFORE canonicalization
-    let path_str = path.to_lowercase();
     for pattern in &config.blocked_patterns {
-        let pattern_lower = pattern.to_lowercase();
-        if path_str.contains(&pattern_lower) {
+        if path_matches_blocked_pattern(path, pattern) {
             return Err(anyhow!(
                 "Access denied: path matches blocked pattern '{}' (security policy)",
                 pattern

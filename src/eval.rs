@@ -1049,6 +1049,23 @@ fn call_value_with_pipe(
     }
 }
 
+/// Is this operand an exact numeric zero, in either numeric representation?
+fn is_zero_divisor(v: &Value) -> bool {
+    match v {
+        Value::Int(0) => true,
+        Value::Float(f) => *f == 0.0, // matches both +0.0 and -0.0
+        _ => false,
+    }
+}
+
+/// The refusal both `/` and `%` give for a zero divisor.
+fn divide_by_zero(what: &str) -> anyhow::Error {
+    crate::safety::arg_err(&format!(
+        "{what} by zero: the divisor evaluated to 0. Guard the divisor, or \
+         filter the empty case before dividing"
+    ))
+}
+
 fn is_truthy(v: &Value) -> bool {
     match v {
         Value::Null => false,
@@ -1559,6 +1576,25 @@ fn binop(op: &BinOp, a: Value, b: Value) -> Result<Value> {
         (Mul, Value::Float(x), Value::Float(y)) => Value::Float(x * y),
         (Mul, Value::Int(x), Value::Float(y)) => Value::Float((x as f64) * y),
         (Mul, Value::Float(x), Value::Int(y)) => Value::Float(x * (y as f64)),
+
+        // Division and remainder refuse a zero divisor rather than producing a
+        // value the caller cannot distinguish from an answer.
+        //
+        // `1 / 0` used to evaluate to `inf` and exit 0, and `0 / 0` to `NaN`
+        // and exit 0 -- an agent asked for a mean over an empty selection got
+        // a float that flows through every later arithmetic step and lands in
+        // a report. `1 % 0` was worse: it panicked the evaluator thread with
+        // "attempt to calculate the remainder with a divisor of zero", killing
+        // the process with a Rust backtrace and no structured error at all.
+        //
+        // jq and nushell both raise an error here, so refusing is also the
+        // least surprising behaviour for anyone arriving from either.
+        (Div, x, y) if is_zero_divisor(&y) && matches!(x, Value::Int(_) | Value::Float(_)) => {
+            return Err(divide_by_zero("division"))
+        }
+        (Rem, x, y) if is_zero_divisor(&y) && matches!(x, Value::Int(_) | Value::Float(_)) => {
+            return Err(divide_by_zero("remainder"))
+        }
 
         (Div, Value::Int(x), Value::Int(y)) => Value::Float((x as f64) / (y as f64)),
         (Div, Value::Float(x), Value::Float(y)) => Value::Float(x / y),

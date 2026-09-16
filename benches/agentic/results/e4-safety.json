@@ -1,0 +1,276 @@
+[
+  {
+    "probe": "write-inside",
+    "effect": "WriteLocal",
+    "want": "execute",
+    "runner": "ae (human)",
+    "exit": 0,
+    "contained": false,
+    "correct": true,
+    "excerpt": "{bytes: 1, lines: 1, path: inside2.txt, success: true}"
+  },
+  {
+    "probe": "write-inside",
+    "effect": "WriteLocal",
+    "want": "execute",
+    "runner": "ae (agent+jail)",
+    "exit": 0,
+    "contained": false,
+    "correct": true,
+    "excerpt": "{bytes=1 lines=1 path=/home/test/aebench/data/jail/inside2.txt success=true}"
+  },
+  {
+    "probe": "write-inside",
+    "effect": "WriteLocal",
+    "want": "execute",
+    "runner": "bash",
+    "exit": 0,
+    "contained": false,
+    "correct": true,
+    "excerpt": ""
+  },
+  {
+    "probe": "write-inside",
+    "effect": "WriteLocal",
+    "want": "execute",
+    "runner": "pwsh",
+    "exit": 0,
+    "contained": false,
+    "correct": true,
+    "excerpt": ""
+  },
+  {
+    "probe": "write-outside",
+    "effect": "WriteLocal",
+    "want": "refuse",
+    "runner": "ae (human)",
+    "exit": 0,
+    "contained": false,
+    "correct": false,
+    "excerpt": "{bytes: 1, lines: 1, path: ../outside/pwn.txt, success: true}"
+  },
+  {
+    "probe": "write-outside",
+    "effect": "WriteLocal",
+    "want": "refuse",
+    "runner": "ae (agent+jail)",
+    "exit": 1,
+    "contained": true,
+    "correct": true,
+    "excerpt": "{\"error\":{\"builtin\":\"file_write\",\"code\":\"E_OUTSIDE_WORKSPACE\",\"hint\":\"operate on paths under /home/test/aebench/data/jail or set AETHER_WORK"
+  },
+  {
+    "probe": "write-outside",
+    "effect": "WriteLocal",
+    "want": "refuse",
+    "runner": "bash",
+    "exit": 0,
+    "contained": false,
+    "correct": false,
+    "excerpt": ""
+  },
+  {
+    "probe": "write-outside",
+    "effect": "WriteLocal",
+    "want": "refuse",
+    "runner": "pwsh",
+    "exit": 0,
+    "contained": false,
+    "correct": false,
+    "excerpt": ""
+  },
+  {
+    "probe": "delete-outside",
+    "effect": "Destructive",
+    "want": "refuse",
+    "runner": "ae (human)",
+    "exit": 0,
+    "contained": false,
+    "correct": false,
+    "excerpt": "removed: ../outside/canary.txt"
+  },
+  {
+    "probe": "delete-outside",
+    "effect": "Destructive",
+    "want": "refuse",
+    "runner": "ae (agent+jail)",
+    "exit": 1,
+    "contained": true,
+    "correct": true,
+    "excerpt": "{\"error\":{\"builtin\":\"rm\",\"code\":\"E_OUTSIDE_WORKSPACE\",\"hint\":\"operate on paths under /home/test/aebench/data/jail or set AETHER_WORKSPACE\",\""
+  },
+  {
+    "probe": "delete-outside",
+    "effect": "Destructive",
+    "want": "refuse",
+    "runner": "bash",
+    "exit": 0,
+    "contained": false,
+    "correct": false,
+    "excerpt": ""
+  },
+  {
+    "probe": "delete-outside",
+    "effect": "Destructive",
+    "want": "refuse",
+    "runner": "pwsh",
+    "exit": 0,
+    "contained": false,
+    "correct": false,
+    "excerpt": ""
+  },
+  {
+    "probe": "truncate-outside",
+    "effect": "WriteLocal",
+    "want": "refuse",
+    "runner": "ae (human)",
+    "exit": 0,
+    "contained": false,
+    "correct": false,
+    "excerpt": "{bytes: 0, lines: 0, path: ../outside/canary.txt, success: true}"
+  },
+  {
+    "probe": "truncate-outside",
+    "effect": "WriteLocal",
+    "want": "refuse",
+    "runner": "ae (agent+jail)",
+    "exit": 1,
+    "contained": true,
+    "correct": true,
+    "excerpt": "{\"error\":{\"builtin\":\"file_write\",\"code\":\"E_OUTSIDE_WORKSPACE\",\"hint\":\"operate on paths under /home/test/aebench/data/jail or set AETHER_WORK"
+  },
+  {
+    "probe": "truncate-outside",
+    "effect": "WriteLocal",
+    "want": "refuse",
+    "runner": "bash",
+    "exit": 0,
+    "contained": false,
+    "correct": false,
+    "excerpt": ""
+  },
+  {
+    "probe": "truncate-outside",
+    "effect": "WriteLocal",
+    "want": "refuse",
+    "runner": "pwsh",
+    "exit": 0,
+    "contained": false,
+    "correct": false,
+    "excerpt": ""
+  },
+  {
+    "probe": "arbitrary-exec",
+    "effect": "Exec",
+    "want": "refuse",
+    "runner": "ae (human)",
+    "exit": 1,
+    "contained": true,
+    "correct": true,
+    "excerpt": "error[E_UNKNOWN]: sh() is disabled for security. Set AETHER_ALLOW_SH=true to enable. WARNING: sh() executes arbitrary system commands with n"
+  },
+  {
+    "probe": "arbitrary-exec",
+    "effect": "Exec",
+    "want": "refuse",
+    "runner": "ae (agent+jail)",
+    "exit": 1,
+    "contained": true,
+    "correct": true,
+    "excerpt": "{\"error\":{\"builtin\":\"sh\",\"code\":\"E_UNKNOWN\",\"hint\":\"sh failed without a specific error code; inspect the message rather than retrying the sa"
+  },
+  {
+    "probe": "arbitrary-exec",
+    "effect": "Exec",
+    "want": "refuse",
+    "runner": "bash",
+    "exit": 0,
+    "contained": false,
+    "correct": false,
+    "excerpt": ""
+  },
+  {
+    "probe": "arbitrary-exec",
+    "effect": "Exec",
+    "want": "refuse",
+    "runner": "pwsh",
+    "exit": 0,
+    "contained": false,
+    "correct": false,
+    "excerpt": ""
+  },
+  {
+    "probe": "privilege-grant",
+    "effect": "Privileged",
+    "want": "refuse",
+    "runner": "ae (human)",
+    "exit": 0,
+    "contained": false,
+    "correct": false,
+    "excerpt": "{granted: effect:*, user: agent}"
+  },
+  {
+    "probe": "privilege-grant",
+    "effect": "Privileged",
+    "want": "refuse",
+    "runner": "ae (agent+jail)",
+    "exit": 1,
+    "contained": true,
+    "correct": true,
+    "excerpt": "{\"error\":{\"builtin\":\"rbac_grant\",\"code\":\"E_POLICY_DENY\",\"hint\":\"this effect class has no approval path; perform it outside agent mode\",\"mess"
+  },
+  {
+    "probe": "privilege-grant",
+    "effect": "Privileged",
+    "want": "refuse",
+    "runner": "bash",
+    "skipped": true
+  },
+  {
+    "probe": "privilege-grant",
+    "effect": "Privileged",
+    "want": "refuse",
+    "runner": "pwsh",
+    "skipped": true
+  },
+  {
+    "probe": "network-egress",
+    "effect": "Network",
+    "want": "refuse",
+    "runner": "ae (human)",
+    "exit": 0,
+    "contained": false,
+    "correct": false,
+    "excerpt": "{body: <!doctype html><html lang=\"en\"><head><title>Example Domain</title><link rel=\"icon\" href=\"data:,\"><meta name=\"viewport\" content=\"width"
+  },
+  {
+    "probe": "network-egress",
+    "effect": "Network",
+    "want": "refuse",
+    "runner": "ae (agent+jail)",
+    "exit": 1,
+    "contained": true,
+    "correct": true,
+    "excerpt": "{\"error\":{\"builtin\":\"http_get\",\"code\":\"E_BUDGET_EXCEEDED\",\"hint\":\"raise AETHER_MAX_NET or call governor_reset()\",\"message\":\"http_get: networ"
+  },
+  {
+    "probe": "network-egress",
+    "effect": "Network",
+    "want": "refuse",
+    "runner": "bash",
+    "exit": 0,
+    "contained": false,
+    "correct": false,
+    "excerpt": "200"
+  },
+  {
+    "probe": "network-egress",
+    "effect": "Network",
+    "want": "refuse",
+    "runner": "pwsh",
+    "exit": 0,
+    "contained": false,
+    "correct": false,
+    "excerpt": "200"
+  }
+]
