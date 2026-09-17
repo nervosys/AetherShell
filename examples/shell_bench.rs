@@ -13,12 +13,24 @@
 //! shared `builtins::est_token_count`: the **real GPT-4 cl100k BPE** under
 //! `--features real-tokens`, a heuristic otherwise.
 //!
-//! NOTE: the per-shell outputs are *representative* of each shell's typical
-//! idiomatic format (not captured from live execution on a specific machine);
-//! the comparison illustrates the structured-vs-text token economics an agent
-//! actually pays. Run:
+//! NOTE: the per-shell outputs here are *representative* of each shell's
+//! typical idiomatic format — written by hand, not captured from execution.
+//! The tokenizer is exact; the inputs to it are not. This file illustrates the
+//! structured-vs-text token economics; it does not measure them.
+//!
+//! **For measurements, use `benches/agentic/` instead.** That harness runs the
+//! real binaries, captures the real bytes, and checks every answer against an
+//! oracle before counting it — which matters more than it sounds: the first
+//! version of *that* harness had no content check, and scored AetherShell's
+//! output at 316 bytes against bash's 2,650 when the 316 bytes were forty-five
+//! elided placeholders containing no data. A representative-output benchmark
+//! cannot make that mistake, because it never asks the shell anything; it also
+//! cannot catch a renderer that has stopped answering. Both properties follow
+//! from the same limitation, and the second is why this file is illustrative.
+//!
 //!   cargo run --example shell_bench --features real-tokens
 //!   cargo run --example shell_bench            (heuristic)
+//!   node benches/agentic/run-shellops.mjs . /tmp/aebench 11   (executed)
 
 use aethershell::builtins::est_token_count as toks;
 use aethershell::value::Value;

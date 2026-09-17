@@ -665,11 +665,13 @@ been is a model's job — and a test pins that down so the number cannot be over
 
 Three things matter to an AI agent driving a shell: how many **tokens** the
 interaction costs, how **reliable** the output is to parse, and whether actions are
-**safe**. Token efficiency below is *measured* with the real GPT-4 cl100k tokenizer
+**safe**. Token counts below use the real GPT-4 cl100k tokenizer
 (`cargo run --example shell_bench --features real-tokens`, counting each shell's
-idiomatic command + output). Reliability and safety are capability comparisons — the
-traditional shells return unstructured text and have no effect/approval model, so
-there is no single-number benchmark to run there.
+idiomatic command + output) over *representative* outputs; for figures captured
+from shells that actually ran, with the answers checked against an oracle, see
+[`benches/agentic/`](benches/agentic/). Reliability and safety are capability
+comparisons — the traditional shells return unstructured text and have no
+effect/approval model, so there is no single-number benchmark to run there.
 
 ### Result handles: the tokens you never send
 
@@ -747,11 +749,22 @@ The examples exist because a type is not a format: `ext:str` is true, and
 `".rs"`. That filter does not error — it returns an empty set, which is the worst
 failure available to an agent, since an empty result is a plausible answer.
 
-### Token efficiency (measured, real cl100k BPE)
+### Token efficiency (real cl100k BPE over representative output)
 
 Per-task **output** tokens — what the agent must read back, each shell's *idiomatic
 display* output (reliably-parseable forms are compared in the scale table and
-scoreboard below):
+scoreboard below).
+
+The tokenizer is exact; the outputs in this first table are **representative**,
+written by hand to match each shell's usual format rather than captured from a
+run. Executed measurements — real processes, real bytes, answers checked against
+an oracle — are in [`benches/agentic/`](benches/agentic/), and the argument built
+on them is [docs/TYPED_SHELL_RESPONSE.md](docs/TYPED_SHELL_RESPONSE.md). On eight
+ordinary repository operations there, AetherShell's agent mode costs **2.9× fewer
+total tokens than bash** (497 vs 1,463) and **4.2× fewer output tokens** (334 vs
+1,395); on a ten-query corpus whose every answer is a scalar it comes **fourth of
+six**, behind SQLite and jq. Both numbers are worth having, and the second is why
+this table is not the whole story.
 
 | Task | AetherShell | Bash | Zsh | Fish | Nushell | PowerShell |
 |---|--:|--:|--:|--:|--:|--:|

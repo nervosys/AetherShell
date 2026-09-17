@@ -213,9 +213,17 @@ disclosure (§5.4).** ✅ Done — exactly the work carried out in §5–§9.
 
 An agent pays tokens for the **command** it writes *and* the **output it reads
 back**. Traditional shells return verbose, non-deterministic text; AetherShell
-returns compact typed AECON. Measured with the real cl100k tokenizer
-(`cargo run --example shell_bench --features real-tokens`) over 4 representative
-tasks (list files, processes, JSON field, disk usage), counting command + output:
+returns compact typed AECON. Counted with the real cl100k tokenizer
+(`cargo run --example shell_bench --features real-tokens`) over 4 tasks (list
+files, processes, JSON field, disk usage), counting command + output.
+
+**The outputs below are representative, not captured.** For executed figures —
+real processes, real bytes, every answer checked against an oracle — see
+[`benches/agentic/`](../benches/agentic/) and
+[TYPED_SHELL_RESPONSE.md](TYPED_SHELL_RESPONSE.md). The executed result is
+directionally the same and smaller: 2.9× against bash on total tokens for eight
+repository operations, not the ~2.8× shown here for four representative ones,
+and *fourth of six* on a corpus whose every answer is a scalar.
 
 | Shell | cmd tok | output tok | total | vs AetherShell |
 | --- | --- | --- | --- | --- |
