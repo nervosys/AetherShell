@@ -42,10 +42,39 @@ jobs:
             # regression tests are exactly the ones worth actually running.
             # They were silently not running on Windows until they were made to
             # skip rather than fail.
+            # `choco install` exits 0 when the community feed is unavailable,
+            # having installed nothing:
+            #
+            #   Failed to fetch results from V2 feed at '…Packages(Id='SQLite')'
+            #   with following message : Response status code does not indicate
+            #   success: 503 (Service Unavailable).
+            #   Chocolatey installed 0/0 packages.
+            #
+            # The job then went red two steps later on "sqlite3 is not
+            # recognized as a name of a cmdlet", which names the symptom and
+            # not the cause. That happened on one run in eight (2026-09-17,
+            # run 35165937172). Retry the transient failure, and fail *here*
+            # with the real reason if it persists.
             - name: Install sqlite3 (Windows)
               if: matrix.os == 'windows-latest'
-              run: choco install sqlite -y --no-progress
+              shell: pwsh
+              run: |
+                  $env:PATH = "C:\ProgramData\chocolatey\bin;$env:PATH"
+                  foreach ($attempt in 1..3) {
+                      choco install sqlite -y --no-progress
+                      if (Get-Command sqlite3 -ErrorAction SilentlyContinue) {
+                          Write-Host "sqlite3 available after attempt $attempt"
+                          exit 0
+                      }
+                      Write-Host "::warning::attempt $attempt installed nothing (feed unavailable?); retrying"
+                      Start-Sleep -Seconds (10 * $attempt)
+                  }
+                  Write-Host "::error::sqlite3 could not be installed after 3 attempts. The Chocolatey community feed returns 503 intermittently; this is not a code failure."
+                  exit 1
 
+            # Kept as a hard gate rather than a skip: the db builtins shell out
+            # to the `sqlite3` CLI, and the SQL-injection regression tests are
+            # exactly the ones worth actually running.
             - name: Verify sqlite3 is on PATH
               run: sqlite3 --version
 
