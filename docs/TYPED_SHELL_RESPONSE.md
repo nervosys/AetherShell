@@ -103,7 +103,7 @@ replication of the Vercel setup, and it is where we lose.
 
 ### How this was measured
 
-Four experiments, all executing real processes on a 24-core Debian (WSL2)
+Five experiments, all executing real processes on a 24-core Debian (WSL2)
 host, all re-runnable from `benches/agentic/`. Token counts are **exact
 cl100k_base BPE** via tiktoken, computed by this repository's own `tokens_of`
 example over the captured bytes — never estimated. Latency is the median of 11
@@ -650,8 +650,9 @@ oracle, the harness and the raw results are in `benches/agentic/`, including
 the loop. The Microsoft headline (+24.6 pp on TheAgentCompany) is an accuracy
 number produced by 174 tasks × 2 frontier models; the Vercel accuracies are
 likewise end-to-end. **Nothing here is evidence about either quantity, and we
-make no claim about them.** These four experiments characterise the substrate —
-per-turn cost, determinism, failure legibility, containment — and a substrate
+make no claim about them.** These five experiments characterise the substrate —
+per-turn cost, determinism under a changed environment, failure legibility,
+containment — and a substrate
 result does not license an accuracy result. A shell can be cheap per turn and
 still lead a model astray.
 
@@ -660,8 +661,9 @@ engine's command took to become correct (AetherShell 18 for ten queries; SQL, jq
 PowerShell 10 each; nushell 16; bash+coreutils 17). The author had written far more
 bash and SQL than nushell and wrote AetherShell's standard library. That number
 measures one author's fluency crossed with each language, not the languages. It
-is published because the *reasons* for our retries were informative — one of them, q8, traces
-directly to defect #3 below — not because the count means anything.
+is published because the *reasons* for our retries were informative — one of
+them, q8, traces directly to defect #3 in §7 — not because the count means
+anything.
 
 **The experiment that would settle this.** Run TheAgentCompany's 174 tasks
 under five conditions — Tool-only, Bash, Bash+Tool, PTC, and **AetherShell
@@ -675,7 +677,7 @@ would help run it, and we would publish the result if AetherShell lost.
 Three specific ways we could be shown wrong:
 
 1. **If output tokens don't matter as much as §4 implies.** With prompt caching
-   and a model that skims tables well, the 7.9× output difference might not move
+   and a model that skims tables well, the 4.2× output difference might not move
    end-to-end cost much. Measurable, and we have not measured it.
 2. **If the command-verbosity penalty compounds.** §3 shows AetherShell costs
    more to *write*. Over hundreds of turns, and with more retries from an
@@ -701,7 +703,7 @@ The claim is narrower:
 > typed, whether its failures carry codes, and whether its effects are gated.
 > You can have all four. On the operations that dominate a real agent
 > transcript — the ones whose answer is a table rather than a number — typing
-> the output is worth 4.3× in tokens, and gating the effects removes the
+> the output is worth 2.9× in tokens, and gating the effects removes the
 > precondition on which the paper's own recommendation rests.
 
 And one methodological point, which we hold more firmly than the product claim:
@@ -719,6 +721,7 @@ node benches/agentic/run.mjs       /tmp/aebench 11   # E1
 node benches/agentic/run-shellops.mjs . /tmp/aebench 11   # E2
 node benches/agentic/errors.mjs    /tmp/aebench      # E3
 node benches/agentic/safety.mjs    /tmp/aebench      # E4
+node benches/agentic/environment.mjs .               # E5, against this repo
 node benches/agentic/report.mjs    /tmp/aebench      # exact BPE
 ```
 
