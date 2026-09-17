@@ -1,0 +1,76 @@
+[
+  {
+    "engine": "aethershell",
+    "distinct": 1,
+    "differing": [],
+    "baseline_bytes": 1485,
+    "samples": {
+      "baseline (C locale, UTC, 80 cols)": "[{name: ai.rs, size: 114529}, {name: auth.rs, size: 51857}, {name: builtins.rs, size: 1770",
+      "German locale": "[{name: ai.rs, size: 114529}, {name: auth.rs, size: 51857}, {name: builtins.rs, size: 1770",
+      "Japanese locale": "[{name: ai.rs, size: 114529}, {name: auth.rs, size: 51857}, {name: builtins.rs, size: 1770",
+      "Tokyo timezone": "[{name: ai.rs, size: 114529}, {name: auth.rs, size: 51857}, {name: builtins.rs, size: 1770",
+      "narrow terminal (60 cols)": "[{name: ai.rs, size: 114529}, {name: auth.rs, size: 51857}, {name: builtins.rs, size: 1770",
+      "wide terminal (200 cols)": "[{name: ai.rs, size: 114529}, {name: auth.rs, size: 51857}, {name: builtins.rs, size: 1770"
+    }
+  },
+  {
+    "engine": "aethershell (agent)",
+    "distinct": 1,
+    "differing": [],
+    "baseline_bytes": 657,
+    "samples": {
+      "baseline (C locale, UTC, 80 cols)": "name\tsize",
+      "German locale": "name\tsize",
+      "Japanese locale": "name\tsize",
+      "Tokyo timezone": "name\tsize",
+      "narrow terminal (60 cols)": "name\tsize",
+      "wide terminal (200 cols)": "name\tsize"
+    }
+  },
+  {
+    "engine": "bash",
+    "distinct": 2,
+    "differing": [
+      "Tokyo timezone"
+    ],
+    "baseline_bytes": 2650,
+    "samples": {
+      "baseline (C locale, UTC, 80 cols)": "-rw-r--r-- 1 test test   27260 Sep 16 18:56 src/agent.rs",
+      "German locale": "-rw-r--r-- 1 test test   27260 Sep 16 18:56 src/agent.rs",
+      "Japanese locale": "-rw-r--r-- 1 test test   27260 Sep 16 18:56 src/agent.rs",
+      "Tokyo timezone": "-rw-r--r-- 1 test test   27260 Sep 17 03:56 src/agent.rs",
+      "narrow terminal (60 cols)": "-rw-r--r-- 1 test test   27260 Sep 16 18:56 src/agent.rs",
+      "wide terminal (200 cols)": "-rw-r--r-- 1 test test   27260 Sep 16 18:56 src/agent.rs"
+    }
+  },
+  {
+    "engine": "pwsh",
+    "distinct": 1,
+    "differing": [],
+    "baseline_bytes": 1409,
+    "samples": {
+      "baseline (C locale, UTC, 80 cols)": "",
+      "German locale": "",
+      "Japanese locale": "",
+      "Tokyo timezone": "",
+      "narrow terminal (60 cols)": "",
+      "wide terminal (200 cols)": ""
+    }
+  },
+  {
+    "engine": "nushell",
+    "distinct": 2,
+    "differing": [
+      "German locale"
+    ],
+    "baseline_bytes": 3023,
+    "samples": {
+      "baseline (C locale, UTC, 80 cols)": "╭────┬──────────────────────────┬──────────╮",
+      "German locale": "╭────┬──────────────────────────┬──────────╮",
+      "Japanese locale": "╭────┬──────────────────────────┬──────────╮",
+      "Tokyo timezone": "╭────┬──────────────────────────┬──────────╮",
+      "narrow terminal (60 cols)": "╭────┬──────────────────────────┬──────────╮",
+      "wide terminal (200 cols)": "╭────┬──────────────────────────┬──────────╮"
+    }
+  }
+]

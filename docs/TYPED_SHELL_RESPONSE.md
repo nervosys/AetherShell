@@ -136,7 +136,8 @@ computed independently in JavaScript.
 **Every engine answered all ten correctly, and every engine was byte-stable
 across all 11 runs.** That is worth stating plainly: on this corpus the
 determinism axis separates nobody, and correctness separates nobody. What
-separates them is cost.
+separates them is cost. (That determinism result is also weaker than it looks,
+because nothing varied except the clock — §4 puts it under real pressure.)
 
 | Engine | Command tokens | Output tokens | **Total** | Total ms (two runs) |
 | --- | ---: | ---: | ---: | ---: |
@@ -287,6 +288,49 @@ It also puts a number on the Microsoft finding from the other side. Their
 Bash-vs-Tool-only token gap was 19–72%. The gap here between two *shells*, on
 output alone, is 4.2×. Whether the shell's values are typed is a bigger lever
 on token cost than whether the interface is a shell at all.
+
+### The same output, on a different machine
+
+§3's determinism result — every engine byte-stable across eleven runs — is true
+and nearly worthless, because the only thing that varied was the clock. An
+agent's output is not re-read in the environment that produced it. It is cached,
+diffed against last week's run, compared across a fleet, or replayed in CI, and
+those environments differ in locale, timezone and terminal width.
+
+The same listing, run under six environments a real fleet spans:
+
+| Engine | Distinct outputs | Varies with |
+| --- | ---: | --- |
+| **AetherShell** (both modes) | **1 of 6** | nothing |
+| PowerShell | **1 of 6** | nothing |
+| bash | 2 of 6 | **timezone** |
+| nushell | 2 of 6 | **locale** |
+
+bash's `ls -l` prints the modification time in local time, so the same unchanged
+file reads `Sep 16 18:56` in UTC and `Sep 17 03:56` in `Asia/Tokyo`. Two
+developers diffing the same directory listing get a diff.
+
+nushell's is the more interesting one. Its size column is locale-formatted:
+
+```
+LC_ALL=C         │ src/agent.rs │  27.2 kB │
+LC_ALL=de_DE     │ src/agent.rs │  27,2 kB │
+```
+
+A decimal comma. So that column is *rounded* (§4: 27,260 bytes rendered as three
+significant figures), *locale-dependent* in its separator, and therefore both
+lossy and unparseable by a consumer written against a different machine — three
+compounding problems in one field, all in service of presentation. It happens
+even on a host where the German locale is not generated, because nushell applies
+the formatting itself rather than deferring to the system.
+
+Two caveats, both against the strength of this result. The locale axis is
+**understated for bash**: `de_DE.UTF-8` and `ja_JP.UTF-8` were not generated on
+the test host, so `ls` could not localise its month names and scored stable on
+an axis where it would otherwise vary. And a single stable engine proves less
+than six environments suggest — these are the environments we thought to try,
+and an axis nobody varies is an axis on which everything looks deterministic,
+which is the mistake §3 made.
 
 ---
 

@@ -37,6 +37,7 @@ experiment that would close the gap.
 | **E2** | `shellops.mjs` | Eight ordinary repository operations — the per-turn cost of the shell itself, in two AetherShell render modes. |
 | **E3** | `errors.mjs` | Ten induced failures per shell: exit status, machine-readable code, repair hint, byte cost. |
 | **E4** | `safety.mjs` | Seven dangerous operations, scored by whether the file outside the jail actually changed. |
+| **E5** | `environment.mjs` | The same listing under six locales, timezones and terminal widths: do the bytes change? |
 
 ## Running them
 
@@ -46,6 +47,7 @@ node benches/agentic/run.mjs       /tmp/aebench 7   # E1, median of 7
 node benches/agentic/report.mjs    /tmp/aebench     # exact BPE, writes report.md
 node benches/agentic/errors.mjs    /tmp/aebench     # E3
 node benches/agentic/safety.mjs    /tmp/aebench     # E4
+node benches/agentic/environment.mjs .              # E5, against this repo
 ```
 
 Requires `ae` on PATH plus whichever comparators are installed; engines whose
