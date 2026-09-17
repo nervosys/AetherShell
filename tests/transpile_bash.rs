@@ -124,8 +124,11 @@ fn pipeline_basic() {
     let ae = transpile_bash_to_ae(bash).expect("transpile ok");
     let ae_n = strip_ws(&ae);
 
-    // echo, grep (str.grep), wc (file.wc) are all mapped to builtins
-    let expected = r#"echo("hello ${USER}") | str.grep("hello") | file.wc("-l")"#;
+    // echo, grep (str.grep), wc (file.wc) are all mapped to builtins. The
+    // interpolated argument now reads the environment rather than emitting the
+    // literal `"hello ${USER}"`, which resolved against bindings and rendered
+    // `hello null` at runtime.
+    let expected = r#"echo("hello " + env("USER", "")) | str.grep("hello") | file.wc("-l")"#;
     let ex_n = strip_ws(expected);
 
     assert!(ae_n.contains(&ex_n), "got:\n{ae}");
@@ -144,18 +147,28 @@ fn simple_assignment() {
 }
 
 #[test]
-fn var_arg_as_identifier() {
+fn var_arg_reads_the_environment() {
     let bash = r#"echo $HOME"#;
     let ae = transpile_bash_to_ae(bash).expect("transpile ok");
     let ae_n = strip_ws(&ae);
 
-    // Single $VAR becomes identifier (HOME), not an interpolated string
-    let expected1 = r#"echo(HOME)"#;
-    let expected2 = r#"echo(HOME);"#;
-    let ex1_n = strip_ws(expected1);
-    let ex2_n = strip_ws(expected2);
-
-    assert!(ae_n.contains(&ex1_n) || ae_n.contains(&ex2_n), "got:\n{ae}");
+    // This test used to be `var_arg_as_identifier` and asserted `echo(HOME)`:
+    // a lone `$VAR` became a bare identifier, on the theory that a preceding
+    // `NAME=value` had bound it. Nothing binds `$HOME`, an unbound identifier
+    // evaluates to null rather than raising, and so `ae -b -c 'echo $HOME'`
+    // printed `null` and exited 0 — a confident wrong answer for the most
+    // common expansion in shell. The test passed throughout, because it
+    // asserted the emission rather than the answer.
+    //
+    // `env(name, "")` reads the variable and gives bash's empty-string
+    // semantics when it is unset. See tests/bash_compat_variables.rs, which
+    // checks the answer and not the shape.
+    let expected = strip_ws(r#"echo(env("HOME",""))"#);
+    assert!(ae_n.contains(&expected), "got:\n{ae}");
+    assert!(
+        !ae_n.contains(&strip_ws("echo(HOME)")),
+        "the bare-identifier emission is back, which renders null at runtime:\n{ae}"
+    );
 }
 
 #[test]
@@ -178,14 +191,20 @@ fn single_vs_double_quotes() {
     let ae = transpile_bash_to_ae(bash).expect("transpile ok");
     let ae_n = strip_ws(&ae);
 
-    // Expected: single quotes literal; double quotes expand;
-    // "${e}" -> bare identifier e (our transpiler collapses var-only tokens).
-    let expected1 = r##"echo("a $b", "c ${d}", e, "#{f}")"##;
-    let expected2 = r##"echo("a $b", "c ${d}", e, "#{f}");"##;
-    let ex1_n = strip_ws(expected1);
-    let ex2_n = strip_ws(expected2);
+    // Single quotes stay literal; double quotes expand. What changed is *how*
+    // they expand: `"c $d"` used to become the literal `"c ${d}"`, which
+    // resolved against bindings and rendered `c null`, and `"${e}"` used to
+    // collapse to a bare identifier with the same fault. Both now read the
+    // environment. The single-quoted arguments are untouched, which is the
+    // property this test exists for.
+    let expected = strip_ws(r##"echo("a $b", "c " + env("d", ""), env("e", ""), "#{f}")"##);
+    assert!(ae_n.contains(&expected), "got:\n{ae}");
 
-    assert!(ae_n.contains(&ex1_n) || ae_n.contains(&ex2_n), "got:\n{ae}");
+    // The point of the test: `'a $b'` must not have expanded.
+    assert!(
+        ae_n.contains(&strip_ws(r#""a $b""#)),
+        "single quotes expanded:\n{ae}"
+    );
 }
 
 #[test]

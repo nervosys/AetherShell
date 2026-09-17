@@ -713,6 +713,130 @@ has shape, and the ranking inverts completely between them.
 
 ---
 
+## 10. Where this sits against the published benchmarks
+
+Two questions follow from the above, and they have different answers. *Which
+agentic benchmarks run from a shell?* Several. *Can they be pointed at
+AetherShell today?* No — and the measurement of why is the useful part.
+
+### The benchmark you probably mean is not the one at that address
+
+`assistantbenchmark.com` is a consumer-assistant review site: 115 assistants
+scored 1–10 by hand across 15 dimensions after real use, 215 tasks, a running
+mean, and a leaderboard led by Muse (9.1), Instinct (8.4) and szn (8.0). It
+publishes no dataset and no harness, the scoring is human judgement rather than
+a programmatic checker, and nothing about it runs from a shell. It cannot be
+used to evaluate a shell, by us or anyone.
+
+**AssistantBench** — no relation — is the academic benchmark of that name: 214
+realistic web tasks over 525+ pages from 258 websites. It has a harness, but the
+action space is a browser, so a shell is not the thing under test there either.
+
+The distinction matters because the two are a search result apart, and one of
+them looks like a leaderboard we could enter.
+
+### Which of the compendium's benchmarks are shell-native
+
+Of the ~50 benchmarks in [philschmid's
+compendium](https://github.com/philschmid/ai-agent-benchmark-compendium), most
+drive an agent through a function-calling API (BFCL, ToolBench, τ-Bench,
+API-Bank, ComplexFuncBench, the MCP suites) or a browser or GUI (WebArena,
+Mind2Web, OSWorld, AndroidWorld, WorldGUI, macOSWorld). Neither family
+exercises a shell.
+
+The ones where the agent's action space *is* shell commands:
+
+| Benchmark | Shell surface | Retargetable to AetherShell? |
+| --- | --- | --- |
+| **AgentBench** (OS environment) | commands executed in an Ubuntu Docker container | not today — see below |
+| **SWE-bench** / Verified / Pro / PolyBench | agent edits a repo and runs tests through a shell in a container | not today |
+| **SWE-agent** | action space "governed by a single `yaml` file" | the most promising route; untested |
+| **OSWorld** (terminal tasks) | a real OS, terminal among other surfaces | partial at best |
+| **Aider** benchmarks, **LiveCodeBench** | edit-and-run loops, shell-mediated | partial |
+
+We have run none of them. Each needs model inference across hundreds of tasks —
+SWE-bench Verified alone is 500 — and that is a budget question, not a
+harness question. Section 8 states what the decisive experiment would cost.
+
+### Why the cheap route is closed: 2 of 32
+
+Retargeting a shell-native harness looks like it should be free, because the
+repository advertises "Bash compatibility (via transpiler)" and every one of
+those harnesses drives its agent with a string of shell. So we measured it
+(`benches/agentic/bashcompat.mjs`): 32 ordinary commands of the kind an agent
+emits on a SWE-bench-shaped task — orient, search, read, edit, test, inspect
+git — through `ae -b`.
+
+| Outcome | Count | |
+| --- | ---: | --- |
+| **native** | **2** | AetherShell ran it and matched bash |
+| delegated | 10 | handed to `bash -lc`; bash did the work |
+| refused | 3 | blocked by the `sh()` gate in the default posture |
+| failed | 17 | did not run, or gave a different answer |
+
+The delegated column is the one to read twice. Those ten did not demonstrate
+compatibility; they demonstrated that the transpiler's fallback is
+`sh(["bash","-lc", …])`. bash ran them. And because the effect gate sees one
+`sh` call rather than the fifty things the script did, **every containment
+property in section 6 is bypassed on exactly that path** — which is why the
+default posture refuses it, and why turning `AETHER_ALLOW_SH=true` on to make
+the compatibility work would trade away the argument section 6 makes.
+
+So the feature claim and the safety claim are in direct tension, and the
+tension is structural: the compatibility is implemented *by delegating to the
+shell we are arguing against*. A benchmark retargeted onto that path would be
+measuring bash in a costume.
+
+Two defects surfaced while measuring this, both now fixed. `echo $HOME`
+returned `null` at exit 0 — every environment-variable expansion did, because
+the transpiler emitted a bare identifier and an unbound identifier evaluates to
+null rather than raising. Underneath it, `env(name, default)` accepted a
+default and discarded it, the same shape as defect 1 in section 7. A confident
+wrong answer for the most common expansion in shell.
+
+**What this means for the claim in section 9.** It narrows it. A typed shell is
+a better substrate per turn, on the evidence above; but "you can have all four"
+is a statement about a shell an agent is *prompted for*, not a drop-in for one
+it already knows. Retargeting SWE-agent by rewriting its YAML action space and
+its prompt is a real route and we have not walked it. Claiming bash
+compatibility as though it were one is not, and the README has been corrected.
+
+### Shells ranked, with the sources of every score
+
+`crates/agentic-eval` now carries a `shells` module scoring six shells on the
+crate's four axes, with each axis pinned to one of the runs above rather than
+to a judgement:
+
+```
+cargo run -p agentic-eval --example shell_benchmark
+```
+
+| Shell | Fitness | Tokens | Determinism | Reliability | Safety | Basis |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| aethershell `--agent` | **0.82** | 0.85 | 0.90 | 0.75 | 0.80 | executed |
+| aethershell (default) | 0.57 | 0.50 | 0.90 | 0.75 | 0.15 | executed |
+| powershell | 0.45 | 0.60 | 0.90 | 0.25 | 0.05 | executed |
+| nushell | 0.41 | 0.40 | 0.50 | 0.70 | 0.05 | executed |
+| fish | 0.34 | 0.35 | 0.55 | 0.40 | 0.05 | **analogy to bash** |
+| zsh | 0.33 | 0.35 | 0.55 | 0.38 | 0.05 | **analogy to bash** |
+| bash | 0.33 | 0.35 | 0.55 | 0.35 | 0.05 | executed |
+
+Read this table with three things in hand. **We build two of these rows**, and a
+curated composite is exactly where that shows; the axes are anchored, the
+weighting into a single number is not. **zsh and fish were never executed** —
+their profiles are inherited from bash, which is an assumption the module marks
+in its output and a test enforces, and which is weaker for fish, since fish
+deliberately breaks POSIX compatibility. And **the composite hides the
+inversion that section 4 is about**: on scalar answers AetherShell places fourth
+of six, and no single fitness number will tell you that.
+
+The row that most deserves attention is nushell's. It reached a complete error
+taxonomy — 10/10 machine-readable codes — before AetherShell did, and we only
+matched it by fixing our own gap after measuring. It loses the composite on
+tokens and determinism, not on the axis it leads.
+
+---
+
 ### Reproducing
 
 ```bash

@@ -3,9 +3,19 @@
 //! This is a pragmatic, line-oriented transpiler for a *useful subset* of Bash:
 //!   - simple commands, args, and pipelines (`|`)
 //!   - single quotes:  'no expansion'
-//!   - double quotes:  expand $V and ${V} as Aether string interpolations `${V}`
-//!   - $VAR as a standalone arg becomes an identifier `VAR`
+//!   - double quotes:  expand $V and ${V} by reading the environment
+//!   - $VAR as a standalone arg becomes `env("VAR", "")`
 //!   - simple assignments: NAME=value  →  let NAME = <expr>
+//!
+//! Both expansion forms used to emit a *binding* reference — a bare identifier
+//! `VAR`, or the literal `"${VAR}"` — which resolved to null for anything the
+//! script had not itself assigned. `echo $HOME` printed `null` and exited 0.
+//!
+//! How much of Bash this actually covers is measured, not asserted:
+//! `benches/agentic/bashcompat.mjs` runs 32 ordinary agent-emitted commands
+//! through this path. Two run natively; ten fall back to `bash -lc`; the rest
+//! are refused or fail. Read that before treating compat mode as a way to
+//! point a shell-native benchmark at AetherShell.
 //!
 //! Fallback: if a line contains redirections or constructs we don't yet handle,
 //! we emit:  sh(["bash","-lc", "<original line>"])
@@ -466,28 +476,69 @@ fn render_arg_expr(tok: &Token) -> String {
     match tok {
         Token::Single(s) => double_quote_with_escapes(s),
         Token::Interp(pcs) => {
-            // If it's exactly one Var, render as an identifier (VAR) not a string.
+            // A lone `$VAR` reads the environment.
+            //
+            // This used to emit the bare identifier `VAR`, on the theory that a
+            // preceding `NAME=value` assignment had bound it. When nothing had
+            // — which is every `$HOME`, `$PATH` or `$PWD` an agent writes —
+            // the identifier was simply unbound, and an unbound identifier
+            // evaluates to null rather than raising. So:
+            //
+            //     $ ae -b -c 'echo $HOME'
+            //     null                        # exit 0
+            //
+            // A confident wrong answer at exit 0, for the most common
+            // expansion in shell. `env(name)` returns the variable, and a name
+            // that is genuinely a local binding still resolves because the
+            // evaluator checks bindings before this call is reached.
             if pcs.len() == 1 {
                 if let Piece::Var(v) = &pcs[0] {
                     if is_ident(v) {
-                        return v.clone();
+                        return format!("env({}, \"\")", double_quote_with_escapes(v));
                     }
                 }
             }
-            // Otherwise, produce an interpolated string: "text${VAR}more"
-            let mut s = String::from("\"");
+            // Mixed text and variables: concatenate, reading each variable from
+            // the environment with an empty default.
+            //
+            // This used to build an interpolated literal `"text${VAR}more"`,
+            // whose `${VAR}` resolved against *bindings* and so produced
+            // `home is null` for `echo "home is $HOME"`. Concatenation keeps
+            // the same reading path as the standalone case above, so both forms
+            // agree.
+            // The lexer emits one `Piece::Text` per character, so literal runs
+            // are coalesced before joining. Without this, `echo hello` became
+            // `echo("h" + "e" + "l" + "l" + "o")` — correct, and four times the
+            // tokens, in a shell whose case rests on token efficiency. The
+            // transpiler's own unit tests caught it.
+            let mut parts: Vec<String> = Vec::new();
+            let mut literal = String::new();
+            let flush = |literal: &mut String, parts: &mut Vec<String>| {
+                if !literal.is_empty() {
+                    parts.push(format!("\"{}\"", escape_in_double_quotes(literal)));
+                    literal.clear();
+                }
+            };
             for p in pcs {
                 match p {
-                    Piece::Text(t) => s.push_str(&escape_in_double_quotes(t)),
+                    Piece::Text(t) => literal.push_str(t),
+                    Piece::Var(v) if is_ident(v) => {
+                        flush(&mut literal, &mut parts);
+                        parts.push(format!("env({}, \"\")", double_quote_with_escapes(v)));
+                    }
+                    // Not a plain name (`${1}`, `${x[0]}`): leave it to the
+                    // interpolation machinery rather than guessing.
                     Piece::Var(v) => {
-                        s.push_str("${");
-                        s.push_str(v);
-                        s.push('}');
+                        flush(&mut literal, &mut parts);
+                        parts.push(format!("\"${{{v}}}\""));
                     }
                 }
             }
-            s.push('"');
-            s
+            flush(&mut literal, &mut parts);
+            if parts.is_empty() {
+                return String::from("\"\"");
+            }
+            parts.join(" + ")
         }
     }
 }

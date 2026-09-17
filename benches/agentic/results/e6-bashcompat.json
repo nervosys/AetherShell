@@ -1,0 +1,290 @@
+[
+  {
+    "group": "orient",
+    "cmd": "pwd",
+    "verdict": "native",
+    "bash_code": 0,
+    "sealed_code": 0,
+    "open_code": 0,
+    "sealed_excerpt": "/home/test/aebench/repo"
+  },
+  {
+    "group": "orient",
+    "cmd": "ls",
+    "verdict": "failed",
+    "bash_code": 0,
+    "sealed_code": 0,
+    "open_code": 0,
+    "sealed_excerpt": "[{ext: , is_dir: true, modified: 1789584988, name: lib, path: /home/test/aebench/repo/lib,"
+  },
+  {
+    "group": "orient",
+    "cmd": "ls -la src | head -5",
+    "verdict": "failed",
+    "bash_code": 0,
+    "sealed_code": 1,
+    "open_code": 1,
+    "sealed_excerpt": "error[E_PARSE]: found 1 error(s): unexpected token Dot at line 2, column 24 hint: fix the "
+  },
+  {
+    "group": "orient",
+    "cmd": "ls src/*.rs",
+    "verdict": "failed",
+    "bash_code": 0,
+    "sealed_code": 1,
+    "open_code": 1,
+    "sealed_excerpt": "error[E_UNKNOWN]: ls: failed to read directory: \"/home/test/aebench/repo/src/*.rs\" hint: l"
+  },
+  {
+    "group": "orient",
+    "cmd": "find src -name \"*.rs\" | head -3",
+    "verdict": "failed",
+    "bash_code": 0,
+    "sealed_code": 1,
+    "open_code": 1,
+    "sealed_excerpt": "error[E_PARSE]: found 1 error(s): unexpected token Dot at line 2, column 41 hint: fix the "
+  },
+  {
+    "group": "search",
+    "cmd": "grep -rn \"fn main\" src | head -3",
+    "verdict": "failed",
+    "bash_code": 0,
+    "sealed_code": 1,
+    "open_code": 1,
+    "sealed_excerpt": "error[E_PARSE]: found 1 error(s): unexpected token Dot at line 2, column 41 hint: fix the "
+  },
+  {
+    "group": "search",
+    "cmd": "grep -c \"fn \" src/lib.rs",
+    "verdict": "failed",
+    "bash_code": 1,
+    "sealed_code": 1,
+    "open_code": 1,
+    "sealed_excerpt": "error[E_UNKNOWN_FIELD]: field 'grep' not found in record hint: no field named 'grep'; chec"
+  },
+  {
+    "group": "search",
+    "cmd": "grep -l \"pub fn\" src/*.rs | wc -l",
+    "verdict": "failed",
+    "bash_code": 0,
+    "sealed_code": 1,
+    "open_code": 1,
+    "sealed_excerpt": "error[E_PARSE]: found 1 error(s): unexpected token Dot at line 2, column 44 hint: fix the "
+  },
+  {
+    "group": "read",
+    "cmd": "cat Cargo.toml | head -5",
+    "verdict": "failed",
+    "bash_code": 0,
+    "sealed_code": 1,
+    "open_code": 1,
+    "sealed_excerpt": "error[E_PARSE]: found 1 error(s): unexpected token Dot at line 2, column 31 hint: fix the "
+  },
+  {
+    "group": "read",
+    "cmd": "head -20 src/lib.rs | tail -5",
+    "verdict": "failed",
+    "bash_code": 0,
+    "sealed_code": 1,
+    "open_code": 1,
+    "sealed_excerpt": "error[E_PARSE]: found 1 error(s): unexpected token Dot at line 2, column 38 hint: fix the "
+  },
+  {
+    "group": "read",
+    "cmd": "wc -l src/lib.rs",
+    "verdict": "failed",
+    "bash_code": 0,
+    "sealed_code": 1,
+    "open_code": 1,
+    "sealed_excerpt": "error[E_UNKNOWN_FIELD]: field 'wc' not found in record hint: no field named 'wc'; check th"
+  },
+  {
+    "group": "read",
+    "cmd": "sed -n \"1,3p\" Cargo.toml",
+    "verdict": "failed",
+    "bash_code": 0,
+    "sealed_code": 1,
+    "open_code": 1,
+    "sealed_excerpt": "error[E_UNKNOWN_FIELD]: field 'sed' not found in record hint: no field named 'sed'; check "
+  },
+  {
+    "group": "vars",
+    "cmd": "X=5; echo $X",
+    "verdict": "refused",
+    "bash_code": 0,
+    "sealed_code": 1,
+    "open_code": 1,
+    "sealed_excerpt": "error[E_POLICY_DENY]: sh() is disabled for security: it executes arbitrary system commands"
+  },
+  {
+    "group": "vars",
+    "cmd": "echo $HOME",
+    "verdict": "native",
+    "bash_code": 0,
+    "sealed_code": 0,
+    "open_code": 0,
+    "sealed_excerpt": "/home/test"
+  },
+  {
+    "group": "vars",
+    "cmd": "export FOO=bar && echo $FOO",
+    "verdict": "delegated",
+    "bash_code": 0,
+    "sealed_code": 1,
+    "open_code": 0,
+    "sealed_excerpt": "error[E_POLICY_DENY]: sh() is disabled for security: it executes arbitrary system commands"
+  },
+  {
+    "group": "vars",
+    "cmd": "echo \"${PATH:-unset}\" | head -c 10",
+    "verdict": "failed",
+    "bash_code": 0,
+    "sealed_code": 1,
+    "open_code": 1,
+    "sealed_excerpt": "error[E_PARSE]: found 1 error(s): unexpected token Dot at line 2, column 30 hint: fix the "
+  },
+  {
+    "group": "subst",
+    "cmd": "echo $(date +%Y)",
+    "verdict": "delegated",
+    "bash_code": 0,
+    "sealed_code": 1,
+    "open_code": 0,
+    "sealed_excerpt": "error[E_POLICY_DENY]: sh() is disabled for security: it executes arbitrary system commands"
+  },
+  {
+    "group": "subst",
+    "cmd": "echo \"lines: $(wc -l < Cargo.toml)\"",
+    "verdict": "delegated",
+    "bash_code": 0,
+    "sealed_code": 1,
+    "open_code": 0,
+    "sealed_excerpt": "error[E_POLICY_DENY]: sh() is disabled for security: it executes arbitrary system commands"
+  },
+  {
+    "group": "control",
+    "cmd": "for i in 1 2 3; do echo $i; done",
+    "verdict": "delegated",
+    "bash_code": 0,
+    "sealed_code": 1,
+    "open_code": 0,
+    "sealed_excerpt": "error[E_POLICY_DENY]: sh() is disabled for security: it executes arbitrary system commands"
+  },
+  {
+    "group": "control",
+    "cmd": "if [ -f Cargo.toml ]; then echo yes; else echo no; fi",
+    "verdict": "delegated",
+    "bash_code": 0,
+    "sealed_code": 1,
+    "open_code": 0,
+    "sealed_excerpt": "error[E_POLICY_DENY]: sh() is disabled for security: it executes arbitrary system commands"
+  },
+  {
+    "group": "control",
+    "cmd": "test -d src && echo present",
+    "verdict": "delegated",
+    "bash_code": 0,
+    "sealed_code": 1,
+    "open_code": 0,
+    "sealed_excerpt": "error[E_POLICY_DENY]: sh() is disabled for security: it executes arbitrary system commands"
+  },
+  {
+    "group": "control",
+    "cmd": "while read -r l; do echo \"$l\"; break; done < Cargo.toml",
+    "verdict": "delegated",
+    "bash_code": 0,
+    "sealed_code": 1,
+    "open_code": 0,
+    "sealed_excerpt": "error[E_POLICY_DENY]: sh() is disabled for security: it executes arbitrary system commands"
+  },
+  {
+    "group": "pipes",
+    "cmd": "cat Cargo.toml | grep version | head -1",
+    "verdict": "failed",
+    "bash_code": 0,
+    "sealed_code": 1,
+    "open_code": 1,
+    "sealed_excerpt": "error[E_PARSE]: found 2 error(s): unexpected token Dot at line 2, column 30 unexpected tok"
+  },
+  {
+    "group": "pipes",
+    "cmd": "ls src | sort | head -3",
+    "verdict": "failed",
+    "bash_code": 0,
+    "sealed_code": 1,
+    "open_code": 1,
+    "sealed_excerpt": "error[E_PARSE]: found 1 error(s): unexpected token Dot at line 2, column 26 hint: fix the "
+  },
+  {
+    "group": "pipes",
+    "cmd": "grep \"name\" Cargo.toml | cut -d= -f2 | head -1",
+    "verdict": "failed",
+    "bash_code": 0,
+    "sealed_code": 1,
+    "open_code": 1,
+    "sealed_excerpt": "error[E_PARSE]: found 2 error(s): unexpected token Dot at line 2, column 37 unexpected tok"
+  },
+  {
+    "group": "redirect",
+    "cmd": "echo hi > /tmp/ae_compat_probe.txt && cat /tmp/ae_compat_probe.txt",
+    "verdict": "delegated",
+    "bash_code": 0,
+    "sealed_code": 1,
+    "open_code": 0,
+    "sealed_excerpt": "error[E_POLICY_DENY]: sh() is disabled for security: it executes arbitrary system commands"
+  },
+  {
+    "group": "redirect",
+    "cmd": "cat Cargo.toml 2>/dev/null | head -1",
+    "verdict": "delegated",
+    "bash_code": 0,
+    "sealed_code": 1,
+    "open_code": 0,
+    "sealed_excerpt": "error[E_POLICY_DENY]: sh() is disabled for security: it executes arbitrary system commands"
+  },
+  {
+    "group": "git",
+    "cmd": "git rev-parse --abbrev-ref HEAD",
+    "verdict": "refused",
+    "bash_code": 0,
+    "sealed_code": 1,
+    "open_code": 1,
+    "sealed_excerpt": "error[E_POLICY_DENY]: sh() is disabled for security: it executes arbitrary system commands"
+  },
+  {
+    "group": "git",
+    "cmd": "git status --porcelain | head -3",
+    "verdict": "failed",
+    "bash_code": 0,
+    "sealed_code": 1,
+    "open_code": 1,
+    "sealed_excerpt": "error[E_PARSE]: found 1 error(s): unexpected token Dot at line 2, column 35 hint: fix the "
+  },
+  {
+    "group": "git",
+    "cmd": "git log --oneline -1",
+    "verdict": "refused",
+    "bash_code": 0,
+    "sealed_code": 1,
+    "open_code": 1,
+    "sealed_excerpt": "error[E_POLICY_DENY]: sh() is disabled for security: it executes arbitrary system commands"
+  },
+  {
+    "group": "exit",
+    "cmd": "false || echo recovered",
+    "verdict": "failed",
+    "bash_code": 0,
+    "sealed_code": 1,
+    "open_code": 1,
+    "sealed_excerpt": "error: cannot call non-function value: Bool(false)"
+  },
+  {
+    "group": "exit",
+    "cmd": "true && echo chained",
+    "verdict": "delegated",
+    "bash_code": 0,
+    "sealed_code": 1,
+    "open_code": 0,
+    "sealed_excerpt": "error[E_POLICY_DENY]: sh() is disabled for security: it executes arbitrary system commands"
+  }
+]

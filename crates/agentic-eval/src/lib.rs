@@ -66,6 +66,7 @@ pub mod ontology;
 pub mod reliability;
 pub mod repair;
 pub mod safety;
+pub mod shells;
 pub mod tokens;
 pub mod vms;
 pub mod web;
@@ -90,6 +91,7 @@ pub use safety::{
     assess_exfiltration, assess_reversibility, assess_safety, assess_safety_named, Decision,
     Effect, ExfiltrationReport, Mode, ReversibilityReport, SafetyReport,
 };
+pub use shells::{compare_shells, rank_shells, Shell, ShellComparison, ShellProfile};
 pub use tokens::{
     assess_cache, assess_scaling, cacheable_prefix_tokens, compare, evaluate, evaluate_with, rank,
     rank_with, AgentCost, CacheReport, Comparison, Model, Program, ScalingReport,

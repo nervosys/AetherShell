@@ -12384,7 +12384,14 @@ fn bi_env(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let key = expect_string("env", &args[0])?;
     match std::env::var(key) {
         Ok(val) => Ok(gate_env_secret(key, val)),
-        Err(_) => Ok(Value::Null),
+        // `env(name, default)` returns `default` when the variable is unset.
+        //
+        // The second argument used to be accepted and discarded, so an unset
+        // variable was always `null` — the same defect shape as `round(x, n)`
+        // ignoring `n`. It matters most in bash compatibility mode, where
+        // `echo $NOPE` must print an empty line as bash does, not the word
+        // "null".
+        Err(_) => Ok(args.get(1).cloned().unwrap_or(Value::Null)),
     }
 }
 
