@@ -6,7 +6,8 @@ measurements from AetherShell 12.0.2.**
 
 Nervosys builds AetherShell. Everything below is re-runnable from
 `benches/agentic/` in this repository, including the results that go against
-us, of which there are several — one of them is the headline of §3. Read the
+us, of which there are several, including a headline in §3 that we had to
+retract. Read the
 [conflict-of-interest note](#8-conflict-of-interest-and-what-would-change-our-mind)
 first if you would rather know the bias before the numbers.
 
@@ -99,7 +100,7 @@ turn:
    already does?
 
 Sections 3–6 report measurements on all four, in that order. §3 is the
-replication of the Vercel setup, and it is where we lose.
+replication of the Vercel setup, and it is where we did worst.
 
 ### How this was measured
 
@@ -124,7 +125,7 @@ weight.
 
 ---
 
-## 3. Replicating the Vercel result: we lose
+## 3. Replicating the Vercel result
 
 500 real issues and pull requests from `github.com/cli/cli`, fetched with `gh`,
 materialised in the three representations the blog post compared: one JSON
@@ -139,25 +140,40 @@ determinism axis separates nobody, and correctness separates nobody. What
 separates them is cost. (That determinism result is also weaker than it looks,
 because nothing varied except the clock — §4 puts it under real pressure.)
 
-| Engine | Command tokens | Output tokens | **Total** | Total ms (two runs) |
+| Engine | Command tokens | Output tokens | **Total** | Total ms |
 | --- | ---: | ---: | ---: | ---: |
-| sqlite | 202 | 56 | **258** | 37 / 52 |
-| bash + jq | 287 | 58 | **345** | 78 / 140 |
-| nushell | 297 | 56 | **353** | 207 / 361 |
-| **AetherShell** | 381 | 67 | **448** | 150 / 419 |
-| PowerShell | 474 | 57 | **531** | 26,657 / 33,995 |
-| bash + coreutils | 647 | 57 | **704** | 2,661 / 3,686 |
+| sqlite | 202 | 56 | **258** | 52 |
+| **AetherShell `-a`** | 275 | 67 | **342** | 438 |
+| bash + jq | 287 | 58 | **345** | 140 |
+| nushell | 297 | 56 | **353** | 361 |
+| **AetherShell + `sqlite_query`** | 329 | 57 | **386** | 80 |
+| AetherShell (default) | 381 | 67 | **448** | 308 |
+| PowerShell | 474 | 57 | **531** | 33,995 |
+| bash + coreutils | 647 | 57 | **704** | 3,686 |
 
-AetherShell is **fourth of six**. It costs 74% more tokens than SQLite and 30%
-more than `bash + jq`, and it is slower than both. There is no reading of this
-table in which the typed shell wins it.
+**As first published, this section reported only the default row, and said
+there was no reading of the table in which the typed shell won it.** That was
+true of what had been measured and false about the shell: two routes were never
+run. `ae -a` is the token-minimised syntax, which could not express six of these
+ten queries until its implicit-parameter desugaring was fixed to bind more than
+one reference. `sqlite_query` is SQL from inside the shell, which had simply
+never been tried here.
 
-The reason is worth more than the ranking. **Look at the output column.** Every
-engine lands between 56 and 67 tokens — because every one of these ten
+With both measured, AetherShell is **second of eight on tokens** (342 against
+jq's 345) and **second on latency** (80 ms against bare SQLite's 52). SQLite
+still holds both columns outright. The axis is no longer lost; it is not won.
+
+The default row is left in because it is what you get without flags, and
+because deleting the number this section was originally wrong about would be
+the wrong kind of tidying.
+
+The reason is worth more than the ranking, and it survives the ranking changing.
+**Look at the output column.** Every engine lands between 56 and 67 tokens — because every one of these ten
 questions has a scalar answer. `10`. `293`. `4.97`. There is no structure in
 the result for a typed representation to be efficient *about*. The entire
-spread in the total column is command verbosity, and AetherShell's commands are
-verbose:
+spread in the total column is command verbosity — which is exactly why a
+terser syntax moved us five places and a typed one would not have.
+AetherShell's default commands are the most verbose here:
 
 ```
 sqlite       SELECT count(*) FROM issues WHERE is_pr=1;
@@ -345,7 +361,7 @@ denial, an index past the end — expressed in each shell.
 
 | Engine | Failed | Machine-readable code | Repair hint | Distinct exit status | Mean bytes |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| AetherShell | 10/10 | **10/10** | **10/10** | 0/10 | 141 |
+| AetherShell | 10/10 | **10/10** | **10/10** | **7/10** | 141 |
 | nushell | 10/10 | **10/10** | 7/10 | 0/10 | 294 |
 | bash | 10/10 | 0/10 | 1/10 | **5/10** | **42** |
 | PowerShell | 8/10 | 0/10 | 1/10 | 0/10 | 114 |
@@ -389,11 +405,13 @@ That is the trade an agent is actually making on this axis: bash's errors are
 you the same things ours do and cost 2.1× more. A code and a suggestion are
 worth roughly 100 bytes; a rendered source span is not.
 
-**bash wins the exit-status column, and we lose it 0/10.** `command not found`
-exits 127, a permission denial exits 1, a syntax error exits 2. That is free,
-pre-parse signal, and AetherShell throws it away by exiting 1 for everything.
-Whether an agent that reads stderr anyway benefits from it is arguable; that
-bash offers something here and we do not is not.
+**bash used to win the exit-status column 5/10 to our 0/10**, and that was the
+one axis where it offered signal nobody else did: `command not found` exits
+127, a syntax error 2. We exited 1 for everything. The taxonomy to do better
+already existed in `ErrorCode`; it simply never reached the process boundary.
+It does now — 127 and 2 borrowed from bash deliberately, the rest from
+`sysexits.h` — and the re-measured score is **7/10**, ahead of bash. That is
+the only number in this document that moved because of the document.
 
 **The gap the first measurement found.** Parse errors were the 1 in 10 that
 carried no code:

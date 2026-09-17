@@ -1729,8 +1729,18 @@ fn consume_builtin(chars: &[char], i: &mut usize, out: &mut String, hash: bool) 
     // builtins accept it, and such a builtin is never itself a record whose
     // field could be accessed, so a leading `.` can only mean "field of the
     // implicit parameter".
-    let args = if takes_lambda && trimmed.starts_with('.') {
-        scan(&format!("~{trimmed}"))
+    let args = if takes_lambda {
+        // The bare-dot form is sugar for the tilde form; normalise first so
+        // both go down one path.
+        let normalised = if trimmed.starts_with('.') {
+            format!("~{trimmed}")
+        } else {
+            trimmed.to_string()
+        };
+        match hoist_implicit_lambda(&normalised) {
+            Some(lambda) => lambda,
+            None => scan(trimmed),
+        }
     } else {
         scan(trimmed)
     };
@@ -1739,6 +1749,78 @@ fn consume_builtin(chars: &[char], i: &mut usize, out: &mut String, hash: bool) 
     } else {
         out.push_str(&format!("{}({})", name, args));
     }
+}
+
+/// Lift an implicit-parameter expression into one lambda over the whole
+/// argument, binding **every** `~.` in it.
+///
+/// `consume_lambda` builds the lambda at the `~` it happens to reach first and
+/// then runs to the end of the body, which is correct for exactly one
+/// reference and wrong for two:
+///
+/// ```text
+/// w(~.is_pr)                     where(fn(__) => __.is_pr)               ok
+/// w(!~.is_pr && ~.state=="open") where(!fn(__) => __.is_pr && …)         broken
+///                                error: where: expected a lambda, got Bool
+/// w(contains(lower(~.title), x)) where(contains(lower(fn(__) => …), x))  broken
+///                                error: lower: expected a string, got Lambda
+/// ```
+///
+/// Measured consequence: six of the ten queries in `benches/agentic/` could not
+/// be written in the token-minimised syntax at all — the six with compound
+/// predicates, which is where the tokens are. The syntax that exists to save
+/// tokens was unusable on the shape that spends them.
+///
+/// The boundary is the argument list of a lambda-taking builtin, which in a
+/// pipeline is the predicate. A `~` that introduces an explicit parameter
+/// (`~x:body`) is left to `consume_lambda`; only the implicit `~.` form is
+/// hoisted. Returns `None` when there is nothing to hoist, so every expression
+/// without an implicit parameter takes exactly the path it did before.
+fn hoist_implicit_lambda(arg: &str) -> Option<String> {
+    let chars: Vec<char> = arg.chars().collect();
+    let mut body = String::with_capacity(arg.len());
+    let mut found = false;
+    let mut i = 0;
+    let mut quote: Option<char> = None;
+
+    while i < chars.len() {
+        let c = chars[i];
+        match quote {
+            // Inside a literal: copy verbatim, so `"~.name"` stays a string.
+            Some(q) => {
+                body.push(c);
+                if c == '\\' && i + 1 < chars.len() {
+                    body.push(chars[i + 1]);
+                    i += 2;
+                    continue;
+                }
+                if c == q {
+                    quote = None;
+                }
+                i += 1;
+            }
+            None => {
+                if c == '"' || c == '\'' {
+                    quote = Some(c);
+                    body.push(c);
+                    i += 1;
+                } else if c == '~' && chars.get(i + 1) == Some(&'.') {
+                    // The implicit parameter, wherever it appears.
+                    body.push_str("__");
+                    found = true;
+                    i += 1;
+                } else {
+                    body.push(c);
+                    i += 1;
+                }
+            }
+        }
+    }
+
+    if !found {
+        return None;
+    }
+    Some(format!("fn(__) => {}", scan(&body)))
 }
 
 /// `\x:body`, `~x:body`, `\.f`, `~.f` → `fn(params) => body`. None if not a lambda.

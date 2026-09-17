@@ -226,9 +226,29 @@ pub fn run_one(env: &mut Env, code: &str) -> Result<i32> {
         }
         Err(e) => {
             print_eval_error(&e, colors_enabled_stderr());
-            Ok(1)
+            Ok(exit_status_for(&e))
         }
     }
+}
+
+/// The exit status a failure leaves behind.
+///
+/// Every failure used to exit 1, which scored 0 of 10 on exit-status
+/// granularity against bash's 5 of 10 (`benches/agentic/errors.mjs`). The
+/// taxonomy already existed; it just never reached the process boundary.
+/// See [`crate::safety::ErrorCode::exit_code`] for the mapping and why two of
+/// them borrow bash's numbers.
+pub fn exit_status_for(e: &anyhow::Error) -> i32 {
+    if let Some(se) = e.downcast_ref::<crate::safety::SafetyError>() {
+        return se.code.exit_code();
+    }
+    // A parse failure is a `ParseError` rather than a `SafetyError`, because the
+    // parser builds for wasm and `safety` does not. bash exits 2 on a syntax
+    // error; so do we.
+    if e.downcast_ref::<crate::parser::ParseError>().is_some() {
+        return 2;
+    }
+    1
 }
 
 /// Render an uncaught evaluation error.

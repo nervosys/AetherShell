@@ -259,3 +259,63 @@ And none of this is evidence about task score. Every number here is substrate
 cost; the experiment that would settle whether a typed, effect-gated shell keeps
 bash's composition advantage is the 1,700-run study in §8 of the response, and
 nothing proposed above is a substitute for running it.
+
+---
+
+## Outcome: items 1–3 implemented, and what they measured
+
+Landed 2026-09-17. The projections above are replaced by measurements; where
+the two differ, the measurement stands.
+
+### E1, re-run with every engine
+
+| Engine | Cmd tokens | Output | **Total** | Total ms |
+| --- | ---: | ---: | ---: | ---: |
+| sqlite | 202 | 56 | **258** | 52 |
+| **AetherShell `-a`** | 275 | 67 | **342** | 438 |
+| bash + jq | 287 | 58 | **345** | 140 |
+| nushell | 297 | 56 | **353** | 361 |
+| **AetherShell + `sqlite_query`** | 329 | 57 | **386** | 80 |
+| AetherShell (default) | 381 | 67 | **448** | 308 |
+| PowerShell | 474 | 57 | 531 | 33,995 |
+| bash + coreutils | 647 | 57 | 704 | 3,686 |
+
+**Fourth of six to second of eight on tokens.** Item 1 projected ~343 total
+against jq's 345; the measurement is **342**. All ten queries correct, all
+byte-stable.
+
+**And second on latency, by a different route.** `sqlite_query` from inside
+AetherShell answers all ten in 80 ms against bare `sqlite3`'s 52 and the JSON
+pipeline's 308 — the hybrid the Vercel post found best, inside one shell, with
+the typed output, the structured errors and the effect gate still around it.
+
+Neither route takes first place: SQLite holds both columns. The honest summary
+is that the axis we were losing is no longer lost, not that it is won.
+
+One result went the wrong way and is worth recording: **agentic mode is slower**
+(438 ms against the default renderer's 308), because every invocation pays to
+transpile. That is a real cost of the token saving, it was not predicted above,
+and it argues for caching the transpile rather than for pretending it is free.
+
+### E3 exit statuses
+
+| Failure | Before | After | Matches |
+| --- | ---: | ---: | --- |
+| unknown name | 1 | **127** | bash |
+| syntax error | 1 | **2** | bash |
+| malformed call | 1 | **64** | `EX_USAGE` |
+| refusal (`sh()`, jail) | 1 | **77** | `EX_NOPERM` |
+| budget exhausted | 1 | **69** | `EX_UNAVAILABLE` |
+| unidentified | 1 | 1 | unchanged |
+
+0/10 to **7/10** on distinct exit statuses, past bash's 5/10 on the one axis
+where bash was the only shell scoring at all. The proposal predicted parity;
+the measurement came out ahead of it, because the taxonomy is finer than
+bash's conventions are.
+
+### What is still open
+
+Item 4 (workspace-by-default) needs a decision, not a patch: it is breaking for
+non-interactive callers that write outside the cwd. Items 5–7 stand as written
+— profile the evaluator, do not chase bash compatibility, do not trim error
+bytes.

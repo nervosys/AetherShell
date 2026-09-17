@@ -1128,6 +1128,39 @@ impl ErrorCode {
             ErrorCode::PolicyDeny | ErrorCode::BudgetExceeded | ErrorCode::Unknown => false,
         }
     }
+
+    /// The process exit status this failure leaves behind.
+    ///
+    /// Measured against bash, PowerShell and nushell on ten induced failures
+    /// (`benches/agentic/errors.mjs`), AetherShell scored 0 of 10 on
+    /// exit-status granularity: every failure exited 1. bash scored 5 of 10 and
+    /// was the only shell to offer anything here. That is free signal — a
+    /// caller, a `set -e` wrapper or a CI step can branch on it without reading
+    /// stderr at all — and we were discarding it.
+    ///
+    /// Two of these deliberately borrow bash's conventions rather than invent
+    /// better ones, because an agent that already knows shell gets them for
+    /// free: **127** for a name that does not resolve, **2** for a syntax
+    /// error. The rest follow `sysexits.h`, which is the closest thing to a
+    /// convention for the others.
+    ///
+    /// `Unknown` stays 1: an unidentified fault should look like the generic
+    /// failure it is, not claim a precision the shell does not have.
+    pub fn exit_code(&self) -> i32 {
+        match self {
+            // bash: "command not found".
+            ErrorCode::UnknownBuiltin => 127,
+            // EX_USAGE — the call was malformed.
+            ErrorCode::BadArg | ErrorCode::UnknownField => 64,
+            // EX_NOPERM — refused, and retrying unchanged will refuse again.
+            ErrorCode::PolicyDeny | ErrorCode::OutsideWorkspace => 77,
+            // EX_TEMPFAIL — the same call may succeed once approved.
+            ErrorCode::NeedsApproval => 75,
+            // EX_UNAVAILABLE — the envelope is spent.
+            ErrorCode::BudgetExceeded => 69,
+            ErrorCode::Unknown => 1,
+        }
+    }
 }
 
 /// Build a structured argument error (`E_BAD_ARG`). Threads through `anyhow`/`?`

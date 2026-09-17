@@ -28,6 +28,7 @@
 - [HTTP & Networking](./builtins/http.md)
 - [String Operations](./builtins/strings.md)
 - [Math Operations](./builtins/math.md)
+- [Databases & SQL](./builtins/databases.md)
 
 # AI & Agents
 

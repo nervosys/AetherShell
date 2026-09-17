@@ -8,6 +8,18 @@
 
 export const ENGINES = {
     aethershell: { bin: 'ae', argv: (c) => ['-c', c], label: 'AetherShell 12.0.2' },
+    // The token-minimised syntax, which exists for exactly this benchmark's
+    // failure mode and was not measured until the implicit-lambda desugaring
+    // was fixed to bind more than one reference.
+    'aethershell (agentic)': {
+        bin: 'ae', argv: (c) => ['-a', '-c', c], label: 'AetherShell 12.0.2 -a',
+    },
+    // SQL from inside the shell. The Vercel post's own conclusion was that the
+    // hybrid wins; this measures whether that is available here without
+    // leaving AetherShell.
+    'aethershell (sql)': {
+        bin: 'ae', argv: (c) => ['-c', c], label: 'AetherShell 12.0.2 + sqlite_query',
+    },
     'bash+jq': { bin: 'bash', argv: (c) => ['-c', c], label: 'bash 5.2 + jq 1.7.1' },
     'bash+coreutils': { bin: 'bash', argv: (c) => ['-c', c], label: 'bash 5.2 + coreutils (files)' },
     sqlite: { bin: 'sqlite3', argv: (c) => ['issues.db', c], label: 'sqlite3' },
@@ -41,6 +53,40 @@ const AE = {
     q9: 'let iss = cat("issues.json") | from_json | where(fn(r) => !r.is_pr) | map(fn(r) => r.user) | unique\ncat("issues.json") | from_json | where(fn(r) => r.is_pr) | map(fn(r) => r.user) | unique | where(fn(u) => any(iss, fn(i) => i == u)) | len',
     q10: 'cat("issues.json") | from_json | where(fn(r) => !r.is_pr && r.state == "open") | map(fn(r) => r.comments) | mean | round(2)',
 };
+
+// The same ten in the token-minimised syntax. `~` is the implicit parameter and
+// binds every occurrence in the predicate; `|.field` projects; a leading letter
+// is the builtin. Six of these could not be written at all until the
+// desugaring was fixed to bind more than one reference.
+const AGENTIC = {
+    q1: 'c"issues.json"|from_json|w(~.state=="open"&&contains(lower(~.title+" "+~.body),"security"))|len',
+    q2: 'c"issues.json"|from_json|w(~.is_pr)|len',
+    q3: 'c"issues.json"|from_json|w(~.state=="closed")|.comments|sum',
+    q4: 'c"issues.json"|from_json|w(~.is_pr)|group_by("user")|sort_by("Count")|last|fn(g)=>g.Name+" "+to_string(g.Count)',
+    q5: 'c"issues.json"|from_json|w(!~.is_pr&&~.state=="open"&&~.comments>5)|.number|sort',
+    q6: 'c"issues.json"|from_json|.labels|flatten|unique|len',
+    q7: 'c"issues.json"|from_json|w(~.state=="open"&&any(~.labels,fn(l)=>l=="bug"))|len',
+    q8: 'c"issues.json"|from_json|.comments|max',
+    q9: 'let iss=c"issues.json"|from_json|w(!~.is_pr)|.user|unique\nc"issues.json"|from_json|w(~.is_pr)|.user|unique|w~u:any(iss,fn(i)=>i==u)|len',
+    q10: 'c"issues.json"|from_json|w(!~.is_pr&&~.state=="open")|.comments|mean|round(2)',
+};
+
+// SQL from inside AetherShell. Same engine, same effect gate, same structured
+// errors -- the hybrid the Vercel post found best, without leaving the shell.
+const AESQL = Object.fromEntries(
+    Object.entries({
+        q1: `SELECT count(*) FROM issues WHERE state='open' AND lower(title||' '||body) LIKE '%security%'`,
+        q2: `SELECT count(*) FROM issues WHERE is_pr=1`,
+        q3: `SELECT sum(comments) FROM issues WHERE state='closed'`,
+        q4: `SELECT user||' '||count(*) FROM issues WHERE is_pr=1 GROUP BY user ORDER BY count(*) DESC LIMIT 1`,
+        q5: `SELECT group_concat(number) FROM (SELECT number FROM issues WHERE is_pr=0 AND state='open' AND comments>5 ORDER BY number)`,
+        q6: `SELECT count(DISTINCT j.value) FROM issues, json_each(issues.labels) j`,
+        q7: `SELECT count(*) FROM issues WHERE state='open' AND EXISTS(SELECT 1 FROM json_each(issues.labels) j WHERE j.value='bug')`,
+        q8: `SELECT max(comments) FROM issues`,
+        q9: `SELECT count(*) FROM (SELECT user FROM issues WHERE is_pr=1 INTERSECT SELECT user FROM issues WHERE is_pr=0)`,
+        q10: `SELECT round(avg(comments),2) FROM issues WHERE is_pr=0 AND state='open'`,
+    }).map(([k, sql]) => [k, `sqlite_query("issues.db","${sql}")|first|values|first`])
+);
 
 const JQ = {
     q1: `jq '[.[]|select(.state=="open" and ((.title+" "+.body)|ascii_downcase|test("security")))]|length' issues.json`,
@@ -108,7 +154,9 @@ const NU = {
 };
 
 export const COMMANDS = {
-    aethershell: AE, 'bash+jq': JQ, 'bash+coreutils': CORE,
+    aethershell: AE,
+    'aethershell (agentic)': AGENTIC,
+    'aethershell (sql)': AESQL, 'bash+jq': JQ, 'bash+coreutils': CORE,
     sqlite: SQL, pwsh: PS, nushell: NU,
 };
 

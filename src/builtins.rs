@@ -30563,13 +30563,32 @@ fn bi_db_sqlite_to_csv(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 }
 
 fn bi_db_json_to_sqlite(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    // A malformed call used to return `Ok(Value::Bool(false))`: no error, exit
+    // 0, and a value the caller may well read as "the import found nothing".
+    // Same shape as `round(x, digits)` discarding `digits` and `env(name,
+    // default)` discarding `default` -- a wrong answer with nothing in it that
+    // says to look again. The argument order is (db, json, table), which is the
+    // opposite of what the name reads like, so getting it wrong is the likely
+    // mistake and it must say so.
     let db_path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_json_to_sqlite",
+                "a database path as the first argument: db_json_to_sqlite(db, json, table)",
+                other.map_or("nothing", |v| v.type_name()),
+            ))
+        }
     };
     let json_path = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_json_to_sqlite",
+                "a JSON path as the second argument: db_json_to_sqlite(db, json, table)",
+                other.map_or("nothing", |v| v.type_name()),
+            ))
+        }
     };
     let table_name = match args.get(2) {
         Some(Value::Str(s)) => s.clone(),
