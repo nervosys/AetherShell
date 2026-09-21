@@ -63,7 +63,11 @@ function promptHash() {
     const h = crypto.createHash('sha256');
     for (const f of fs.readdirSync(PROMPTS).sort()) {
         h.update(f);
-        h.update(fs.readFileSync(path.join(PROMPTS, f)));
+        // Line endings are normalised first. The hash exists to detect an edit
+        // to a prompt, and a Windows checkout converting LF to CRLF is not an
+        // edit -- without this, the same experiment run on two platforms would
+        // be reported as two different experiments.
+        h.update(fs.readFileSync(path.join(PROMPTS, f), 'utf8').replace(/\r\n/g, '\n'));
     }
     return h.digest('hex').slice(0, 16);
 }
