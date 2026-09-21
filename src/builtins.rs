@@ -3903,6 +3903,13 @@ pub fn call_with_input(
     input: Option<Value>,
     env: &mut Env,
 ) -> Result<Value> {
+    // A builtin with a declared signature is checked before its body runs, so
+    // it cannot answer a call it could not honour. Undeclared builtins are
+    // unaffected — see `crate::signature` for why this exists and why the
+    // migration is incremental.
+    crate::signature::validate(name, &args, input.as_ref())
+        .map_err(|e| crate::safety::ensure_structured(name, e))?;
+
     call_with_input_inner(name, args, input, env)
         .map_err(|e| crate::safety::ensure_structured(name, e))
 }
@@ -18040,8 +18047,22 @@ fn bi_diagnose(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     if let Some(v) = diag_field(&err, "retryable") {
         out.insert("retryable".to_string(), v.clone());
     }
-    if let Some(v) = diag_field(&err, "hint") {
-        out.insert("hint".to_string(), v.clone());
+    // `bad_arg`'s hint is "pass an argument matching: {expected}", and `expected`
+    // is emitted below as its own field. Carrying both is the same duplication
+    // this builtin already refuses for `return_type` and `parameters` -- and it
+    // is not free: an expected clause that names a full signature costs as much
+    // again. Emitted only when it says something `expected` does not.
+    if let Some(Value::Str(hint)) = diag_field(&err, "hint") {
+        let restates_expected = matches!(
+            diag_field(&err, "expected"),
+            Some(Value::Str(e)) if !e.is_empty() && hint.ends_with(e.as_str())
+        // ...and only when `expected` actually survives into the output, which
+        // it does only alongside `got`. Otherwise dropping the hint would drop
+        // the information rather than deduplicate it.
+        ) && diag_field(&err, "got").is_some();
+        if !restates_expected {
+            out.insert("hint".to_string(), Value::Str(hint.clone()));
+        }
     }
     if let Some(v) = diag_field(&err, "did_you_mean") {
         out.insert("did_you_mean".to_string(), v.clone());
@@ -18070,6 +18091,15 @@ fn bi_diagnose(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     for key in ["builtin", "signature", "effect"] {
         if let Some(v) = def.get(key) {
             out.insert(key.to_string(), Value::from_json(v));
+        }
+    }
+    // A declared builtin refuses a malformed call by naming its signature, and
+    // the signature field above is generated from that same declaration. When
+    // they are the same string, one of them is free to go; `got` still says
+    // what was wrong with the call.
+    if let (Some(e), Some(sg)) = (out.get("expected"), out.get("signature")) {
+        if e == sg {
+            out.remove("expected");
         }
     }
     // Whether re-running the *operation* is safe, which is a different question from

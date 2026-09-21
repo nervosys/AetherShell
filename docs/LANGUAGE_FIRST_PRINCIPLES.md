@@ -180,6 +180,48 @@ This is the highest-leverage change available and it is mechanical: the
 information mostly exists, scattered between the dispatch table, the ontology
 and the doc comments. It needs to exist once.
 
+**Status: a vertical slice has landed** (`src/signature.rs`). Nine builtins are
+declared: the three from the table above that are builtins with arguments
+(`round`, `env`, `db_json_to_sqlite`), `max` and `min` whose ontology entries
+contradicted their behaviour, and the everyday verbs the benchmark corpus
+actually reaches for (`where`, `map`, `sum`, `len`).
+`builtins::call_with_input` validates against the declaration before the body
+runs. Undeclared builtins dispatch exactly as before, so the
+migration is incremental and nothing regressed. The measured effect on the
+discovery surface:
+
+| `ontology_describe` | Before | After |
+| --- | --- | --- |
+| `db_json_to_sqlite` | "Database: json to sqlite", 0 parameters | `db_json_to_sqlite(db: String, json: String, table?: String) -> Bool`, 3 parameters, 1 worked example |
+| `max` | `max() -> Number`, refusing the array it implies | `Array \| max(values?: Any) -> Number`, 2 worked examples |
+
+And on refusals: `round(1.0, 99)` now names `0..=17`; `round(1.0, "two")` names
+`digits: Int`; `where(5)` names `predicate`; `db_json_to_sqlite("x")` prints the
+full signature with the argument order, which is the part that was actually
+wrong. `tests/declared_signatures.rs` asserts each of these, that every
+declaration names a builtin that is really dispatched, and — as non-vacuity —
+that validation both accepts a valid call and refuses an invalid one.
+
+What has *not* landed is the `builtin!` macro or the remaining 1,271 builtins.
+The mechanism does not depend on the list's size; growing it is the migration.
+
+Landing it also found a seventh instance of the same defect, which is the
+argument for the approach more than any of the first six. `map` is one of the
+nineteen builtins with a *hand-written* catalogue entry, and that entry said
+`map(array: Array, fn: Lambda) -> Array` while the dispatcher enforced
+something else. A declaration that sits beside a hand-written description is
+still two descriptions, so declarations now outrank them.
+
+And `tests/self_healing.rs` caught the cost of doing it carelessly: `diagnose`
+is contractually cheaper than a full `ontology_describe`, and a refusal that
+names its whole signature inside `expected` — then again inside `hint`, which
+is literally `"pass an argument matching: {expected}"` — broke that bound
+(144 tokens against a 107 ceiling). The signature belongs in the field named
+`signature`, once. `expected` is now dropped when it equals it, the hint is
+dropped when it only restates it, and `got` carries `"0 of 1 required"`. The
+same repair context costs **82 tokens against `ontology_describe`'s 212** —
+measured with the same exact BPE path as every other number here.
+
 ---
 
 ## 5. The third finding: 1,280 builtins is a discovery cost, not a feature

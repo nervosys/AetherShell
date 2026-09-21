@@ -63,10 +63,18 @@ fn bad_arg_reports_the_offending_type() {
 #[test]
 fn shared_extraction_helpers_emit_structured_bad_arg() {
     // A wrong-typed argument to ANY builtin that uses the shared `expect_*`
-    // helpers now surfaces a structured, catchable E_BAD_ARG — not ad-hoc prose.
-    // `env(123)` exercises `expect_string`; the same upgrade covers the ~90
-    // call sites of expect_string/expect_int/expect_array/need_lambda.
-    let src = r#"try { env(123) } catch e { e }"#;
+    // helpers surfaces a structured, catchable E_BAD_ARG — not ad-hoc prose.
+    // The same upgrade covers the ~90 call sites of
+    // expect_string/expect_int/expect_array/need_lambda.
+    //
+    // This used to exercise `env(123)`. `env` now carries a declared signature
+    // (`src/signature.rs`), so it is refused at dispatch and never reaches the
+    // shared helper — a better error, naming the parameter as well as the
+    // type, but a different code path. Relaxing this assertion would have left
+    // the test passing while silently covering nothing. `upper` is undeclared
+    // and still goes through `expect_string`, which is what this test is for;
+    // `tests/declared_signatures.rs` covers the declared path.
+    let src = r#"try { upper(123) } catch e { e }"#;
     let stmts = aethershell::parser::parse_program(src).expect("parse");
     let mut env = aethershell::env::Env::new();
     let result = aethershell::eval::eval_program(&stmts, &mut env).expect("eval");

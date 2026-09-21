@@ -13,8 +13,8 @@ fn main() {
     println!("Axes anchored to benches/agentic/ (E1–E6); see shells.rs for the mapping.\n");
 
     println!(
-        "{:<20} {:>8} {:>8} {:>8} {:>8} {:>8}  {}",
-        "shell", "fitness", "tokens", "determ.", "reliab.", "safety", "basis"
+        "{:<20} {:>8} {:>8} {:>8} {:>8} {:>8}  basis",
+        "shell", "fitness", "tokens", "determ.", "reliab.", "safety"
     );
     println!("{}", "-".repeat(78));
     for p in rank_shells() {

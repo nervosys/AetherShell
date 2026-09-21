@@ -38,6 +38,8 @@ experiment that would close the gap.
 | **E3** | `errors.mjs` | Ten induced failures per shell: exit status, machine-readable code, repair hint, byte cost. |
 | **E4** | `safety.mjs` | Seven dangerous operations, scored by whether the file outside the jail actually changed. |
 | **E5** | `environment.mjs` | The same listing under six locales, timezones and terminal widths: do the bytes change? |
+| **E6** | `bashcompat.mjs` | Thirty-two everyday bash one-liners through the compatibility transpiler: how many run unchanged? |
+| **E7** | `PREREGISTERED_E7.md` | **Pre-registered, not yet run.** Does a model write a borrowed syntax (SQL, jq) correctly on the first attempt more often than an invented one? Written down before the numbers exist, because it can falsify a direction this project is invested in. |
 
 ## Running them
 
@@ -45,9 +47,11 @@ experiment that would close the gap.
 node benches/agentic/prepare.mjs   /tmp/aebench     # fetches 500 issues via gh
 node benches/agentic/run.mjs       /tmp/aebench 7   # E1, median of 7
 node benches/agentic/report.mjs    /tmp/aebench     # exact BPE, writes report.md
+node benches/agentic/run-shellops.mjs . /tmp/aebench 7   # E2, median of 7
 node benches/agentic/errors.mjs    /tmp/aebench     # E3
 node benches/agentic/safety.mjs    /tmp/aebench     # E4
 node benches/agentic/environment.mjs .              # E5, against this repo
+node benches/agentic/bashcompat.mjs .               # E6, against this repo
 ```
 
 Requires `ae` on PATH plus whichever comparators are installed; engines whose

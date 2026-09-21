@@ -2132,15 +2132,85 @@ fn infer_return_type(name: &str) -> String {
     }
 }
 
+/// Build a catalogue entry from a declared signature, so the description an
+/// agent reads and the check the dispatcher runs come from one place.
+fn definition_from_signature(
+    sig: &crate::signature::Signature,
+    primary_name: &str,
+    idx: &usize,
+    index_to_names: &HashMap<usize, Vec<String>>,
+) -> BuiltinDefinition {
+    let aliases: Vec<String> = index_to_names
+        .get(idx)
+        .map(|names| {
+            names
+                .iter()
+                .filter(|n| n.as_str() != primary_name)
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let properties: serde_json::Map<String, JsonValue> = sig
+        .params
+        .iter()
+        .map(|p| {
+            (
+                p.name.to_string(),
+                json!({ "type": p.ty.as_str(), "description": p.doc }),
+            )
+        })
+        .collect();
+    let required: Vec<&str> = sig
+        .params
+        .iter()
+        .filter(|p| p.required)
+        .map(|p| p.name)
+        .collect();
+
+    BuiltinDefinition {
+        name: primary_name.to_string(),
+        description: sig.doc.to_string(),
+        category: categorize_builtin(primary_name),
+        signature: sig.render(),
+        parameters: sig
+            .params
+            .iter()
+            .map(|p| ParameterDefinition {
+                name: p.name.to_string(),
+                param_type: p.ty.as_str().to_string(),
+                description: p.doc.to_string(),
+                required: p.required,
+                default: None,
+            })
+            .collect(),
+        return_type: sig.returns.to_string(),
+        examples: sig
+            .examples
+            .iter()
+            .map(|(code, result)| ExampleDefinition {
+                description: sig.doc.to_string(),
+                code: (*code).to_string(),
+                result: Some((*result).to_string()),
+            })
+            .collect(),
+        aliases: if aliases.is_empty() {
+            None
+        } else {
+            Some(aliases)
+        },
+        json_schema: json!({
+            "type": "object",
+            "properties": properties,
+            "required": required,
+        }),
+    }
+}
+
 /// Generate all builtin definitions dynamically from BUILTIN_LOOKUP.
 /// Enriched hand-coded definitions for core builtins are preserved;
 /// all remaining builtins get auto-generated schemas.
 fn get_all_builtin_definitions() -> Vec<BuiltinDefinition> {
-    // Start with hand-coded enriched definitions
-    let enriched = get_builtin_definitions();
-    let enriched_names: std::collections::HashSet<String> =
-        enriched.iter().map(|b| b.name.clone()).collect();
-
     // Build reverse lookup: index → Vec<name> to detect aliases
     let mut index_to_names: HashMap<usize, Vec<String>> = HashMap::new();
     for (name, &idx) in BUILTIN_LOOKUP.iter() {
@@ -2149,6 +2219,29 @@ fn get_all_builtin_definitions() -> Vec<BuiltinDefinition> {
             .or_default()
             .push(name.to_string());
     }
+
+    // Start with hand-coded enriched definitions — except where the builtin has
+    // a declared signature, which outranks them. Two independent descriptions of
+    // one builtin is the defect this work exists to remove, and the hand-written
+    // entries are where it bit hardest: `map`'s said `map(array, fn) -> Array`
+    // while the dispatcher checked something else. The declaration is what the
+    // dispatcher enforces, so the catalogue must say what the declaration says.
+    let enriched: Vec<BuiltinDefinition> = get_builtin_definitions()
+        .into_iter()
+        .map(|d| {
+            match (
+                crate::signature::signature_of(&d.name),
+                BUILTIN_LOOKUP.get(d.name.as_str()),
+            ) {
+                (Some(sig), Some(idx)) => {
+                    definition_from_signature(sig, &d.name, idx, &index_to_names)
+                }
+                _ => d,
+            }
+        })
+        .collect();
+    let enriched_names: std::collections::HashSet<String> =
+        enriched.iter().map(|b| b.name.clone()).collect();
 
     // Determine the "canonical" name for each index (shortest non-alias name)
     let mut canonical: HashMap<usize, String> = HashMap::new();
@@ -2177,6 +2270,23 @@ fn get_all_builtin_definitions() -> Vec<BuiltinDefinition> {
         seen_indices.insert(*idx);
 
         let category = categorize_builtin(primary_name);
+        // A declared signature is the truth. Everything below it is inference
+        // from the builtin's *name* -- `describe_builtin_name` splits on `_`
+        // and title-cases the rest, so `db_json_to_sqlite` becomes "Database:
+        // json to sqlite" with no parameters, and `max` became "Get maximum
+        // value, max() -> Number" while refusing the array that implies. An
+        // agent asking what a function does was being told what its name looks
+        // like. See `crate::signature`.
+        if let Some(sig) = crate::signature::signature_of(primary_name) {
+            all.push(definition_from_signature(
+                sig,
+                primary_name,
+                idx,
+                &index_to_names,
+            ));
+            continue;
+        }
+
         let description = describe_builtin_name(primary_name);
         let return_type = infer_return_type(primary_name);
 

@@ -218,6 +218,9 @@ pub mod security;
 /// Return shapes — what a builtin gives back, advertised before it is called.
 #[cfg(feature = "native")]
 pub mod shapes;
+/// Declared builtin signatures — enforced at dispatch, read by the ontology.
+#[cfg(feature = "native")]
+pub mod signature;
 /// Syntax knowledge base — command documentation and help system.
 #[cfg(feature = "native")]
 pub mod syntax_kb;
