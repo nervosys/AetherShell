@@ -180,11 +180,11 @@ This is the highest-leverage change available and it is mechanical: the
 information mostly exists, scattered between the dispatch table, the ontology
 and the doc comments. It needs to exist once.
 
-**Status: a vertical slice has landed** (`src/signature.rs`). Nine builtins are
-declared: the three from the table above that are builtins with arguments
-(`round`, `env`, `db_json_to_sqlite`), `max` and `min` whose ontology entries
-contradicted their behaviour, and the everyday verbs the benchmark corpus
-actually reaches for (`where`, `map`, `sum`, `len`).
+**Status: landed, and growing** (`src/signature.rs`). It began as nine
+declarations — the three from the table above that take arguments (`round`,
+`env`, `db_json_to_sqlite`), `max` and `min` whose ontology entries contradicted
+their behaviour, and the verbs the benchmark corpus reaches for (`where`, `map`,
+`sum`, `len`). It is now **39**, covering the working sets of both E1 and E2.
 `builtins::call_with_input` validates against the declaration before the body
 runs. Undeclared builtins dispatch exactly as before, so the
 migration is incremental and nothing regressed. The measured effect on the
@@ -202,8 +202,37 @@ wrong. `tests/declared_signatures.rs` asserts each of these, that every
 declaration names a builtin that is really dispatched, and — as non-vacuity —
 that validation both accepts a valid call and refuses an invalid one.
 
-What has *not* landed is the `builtin!` macro or the remaining 1,271 builtins.
+What has *not* landed is the `builtin!` macro or the remaining ~1,240 builtins.
 The mechanism does not depend on the list's size; growing it is the migration.
+
+**Growing it is where the risk is, and it is not the risk you would guess.** A
+declaration is enforced at dispatch, so one that is *narrower* than the builtin
+does not mis-document it — it deletes working syntax. That happened on **four
+separate occasions**, across nine of the thirty-nine declarations:
+
+| Declaration | Too narrow how | What it removed |
+| --- | --- | --- |
+| `any`, `all`, `contains`, `lower`, `str` | listed the pipeline subject as a parameter, which `validate` already shifts past | the direct-call form, e.g. `any(r.labels, fn(l) => …)` — 4 of E1's 20 queries |
+| `any`, `all` | predicate declared required | `any([false, true])` over booleans |
+| `sort_by` | `key: String`, required | the lambda form, and `sort_by(key, "desc")` |
+| `first`, `last` | parameterless | `last(5)` — 2 of E2's 8 tasks |
+
+The full Rust suite stayed green through every one of them.
+
+None was found by review. The guards that now exist are the ones that would
+have caught them: every declaration's examples are **executed** and checked
+against their claimed results, and the call shapes both benchmark corpora use
+are exercised directly. Authoring a declaration means probing the shell for the
+forms it accepts first — reading the builtin's name is how the original defects
+got there.
+
+One more thing fell out of the second batch. `[1, 2, 3] | head` failed with
+`E_UNKNOWN` and the prose "head: input must be a string". `E_UNKNOWN` is the one
+code the taxonomy tells an agent *not* to reason about, so a wrong-typed subject
+— entirely diagnosable — was reported as undiagnosable. Declaring the subject
+turned it into an `E_BAD_ARG` naming the expected type, without touching the
+builtin. That is the argument for the whole mechanism in one line: the
+declaration is where a diagnosable failure becomes a diagnosed one.
 
 ### Two more of the same defect, found by probing the surface rather than reading it
 

@@ -191,14 +191,14 @@ fn the_calls_the_declarations_describe_all_run() {
 fn an_undeclared_builtin_is_unaffected() {
     // The migration is incremental: validation must not reach builtins that
     // have not been declared, or the slice becomes a rewrite.
+    // `upper` played this role until it was declared. Any still-undeclared
+    // builtin does; the assertion below fails loudly if this one gets declared
+    // too, rather than quietly testing the declared path instead.
     assert!(
-        signature_of("upper").is_none(),
-        "test assumes `upper` is undeclared"
+        signature_of("abs").is_none(),
+        "test assumes `abs` is undeclared; pick another undeclared builtin"
     );
-    assert_eq!(
-        ok("upper", vec![Value::Str("abc".into())]),
-        Value::Str("ABC".into())
-    );
+    assert_eq!(ok("abs", vec![Value::Int(-2)]), Value::Int(2));
 }
 
 // ── non-vacuity ─────────────────────────────────────────────────────────
@@ -545,5 +545,134 @@ fn a_self_contained_example_produces_the_result_it_claims() {
     assert!(
         checked >= 25,
         "only {checked} examples were actually executed; the skips have eaten the test"
+    );
+}
+
+#[test]
+fn a_declared_subject_replaces_an_uncoded_failure_with_a_coded_one() {
+    // `[1, 2, 3] | head` used to fail with E_UNKNOWN and the prose "head: input
+    // must be a string". E_UNKNOWN is the one code the taxonomy tells an agent
+    // *not* to reason about, so a wrong-typed subject -- a completely
+    // diagnosable condition -- was being reported as undiagnosable.
+    //
+    // Declaring the subject fixes that without touching the builtin: validation
+    // refuses the call before the body runs, naming the type it wanted.
+    let mut env = Env::new();
+    let e = call_with_input(
+        "head",
+        vec![],
+        Some(Value::Array(vec![Value::Int(1)])),
+        &mut env,
+    )
+    .expect_err("head over an array must be refused");
+    let msg = e.to_string();
+    assert!(msg.contains("E_BAD_ARG"), "still uncoded: {msg}");
+    assert!(
+        msg.contains("String"),
+        "does not name the expected type: {msg}"
+    );
+    assert!(!msg.contains("E_UNKNOWN"), "{msg}");
+
+    // ...and the form that works still works.
+    let out = call_with_input("head", vec![], Some(Value::Str("abc".into())), &mut env)
+        .expect("head over a string");
+    assert_eq!(out, Value::Str("abc".into()));
+}
+
+#[test]
+fn a_variadic_parameter_accepts_any_number_of_arguments() {
+    // `pick("name", "size", "modified")` is the form E2's corpus uses. A fixed
+    // parameter list cannot describe it, and declaring a fixed arity would have
+    // removed it -- which is how `first`/`last` lost their counted forms.
+    let sig = signature_of("pick").expect("pick is declared");
+    assert!(
+        sig.params.last().is_some_and(|p| p.variadic),
+        "pick's last parameter must be variadic"
+    );
+    assert!(
+        sig.render().contains("..."),
+        "the rendered signature must show it is variadic: {}",
+        sig.render()
+    );
+
+    let row = || {
+        Value::Array(vec![Value::Record(
+            [
+                ("a".to_string(), Value::Int(1)),
+                ("b".to_string(), Value::Int(2)),
+                ("c".to_string(), Value::Int(3)),
+            ]
+            .into_iter()
+            .collect(),
+        )])
+    };
+    for n in 1..=3 {
+        let fields: Vec<Value> = ["a", "b", "c"][..n]
+            .iter()
+            .map(|f| Value::Str((*f).to_string()))
+            .collect();
+        let mut env = Env::new();
+        call_with_input("pick", fields, Some(row()), &mut env)
+            .unwrap_or_else(|e| panic!("pick with {n} field(s) was refused: {e}"));
+    }
+
+    // Non-vacuity: the variadic must still type-check what it absorbs.
+    let mut env = Env::new();
+    assert!(
+        call_with_input(
+            "pick",
+            vec![Value::Str("a".into()), Value::Int(7)],
+            Some(row()),
+            &mut env
+        )
+        .is_err(),
+        "a variadic parameter accepted an Int where it declared String"
+    );
+}
+
+#[test]
+fn an_optional_parameter_is_demonstrated_both_ways() {
+    // An optional parameter means two call shapes, and the example-running
+    // tests can only check the shapes the examples show. `head` declared an
+    // optional `n` and demonstrated only the bare form, so `head(2)` was
+    // declared but never executed by anything.
+    //
+    // That is precisely how the too-narrow declarations survived: `first` and
+    // `last` had one example each, neither using a count, so nothing noticed
+    // that the counted form had been declared away.
+    //
+    // World-touching builtins are exempt by name -- their examples cannot run
+    // here -- and the exemption list is asserted small so it cannot grow into a
+    // way of avoiding this rule.
+    const CANNOT_DEMONSTRATE: &[&str] = &["db_json_to_sqlite"];
+    assert!(
+        CANNOT_DEMONSTRATE.len() <= 2,
+        "the exemption list is becoming a loophole"
+    );
+
+    let mut checked = 0;
+    for sig in SIGNATURES {
+        if CANNOT_DEMONSTRATE.contains(&sig.name) {
+            continue;
+        }
+        let optional = sig
+            .params
+            .iter()
+            .filter(|p| !p.required && !p.variadic)
+            .count();
+        if optional == 0 {
+            continue;
+        }
+        assert!(
+            sig.examples.len() >= 2,
+            "{} has {optional} optional parameter(s) but only {} example(s): the              form that omits them and the form that supplies them cannot both be              demonstrated, so one of them is declared and never run",
+            sig.name,
+            sig.examples.len()
+        );
+        checked += 1;
+    }
+    assert!(
+        checked >= 8,
+        "only {checked} declarations with optional parameters were checked;          either the rule stopped finding them or the exemptions have eaten it"
     );
 }

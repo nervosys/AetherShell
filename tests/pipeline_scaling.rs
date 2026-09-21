@@ -71,14 +71,41 @@ fn growth(small: &str, large: &str) -> f64 {
     hi.as_secs_f64() / lo.as_secs_f64().max(1e-9)
 }
 
-/// The same 10x size step through a path with no closures in it.
+/// Baseline and subject measured *in the same rounds*, returning the median
+/// ratio of each.
 ///
-/// `sum` walks the collection once in Rust, so its growth is linear by
-/// construction. Load inflates it exactly as it inflates `map`, which is what
-/// makes it usable as a yardstick: the assertions below compare `map` against
-/// *this machine right now*, not against a number chosen on a quiet one.
-fn linear_baseline() -> f64 {
-    growth("range(0, 2000) | sum", "range(0, 20000) | sum")
+/// `growth` already interleaves the two sizes of one program, so a spike cannot
+/// land on only one size. It does not interleave the *baseline* with the
+/// *subject*: those were two sequential calls, so the baseline could be timed in
+/// a quiet window and the subject in a loud one. Under `--jobs 12` that is
+/// exactly what happened -- a 6.9x baseline against a 37.8x `map`, on a change
+/// that cannot affect scaling at all (`map` calls `call_lambda` per element,
+/// which does not go through the argument validator).
+///
+/// Here the four programs are timed adjacently inside each round and the ratio
+/// for that round is computed from those four numbers, so contention inflates
+/// both sides together. The median over rounds then discards a round that was
+/// contended anyway. A genuinely quadratic subject is ~100x in *every* round, so
+/// the median stays ~100x and the ratchet still bites.
+fn calibrated(base: (&str, &str), subject: (&str, &str)) -> (f64, f64) {
+    let time = |src: &str| {
+        let t = Instant::now();
+        let _ = run(src);
+        t.elapsed().as_secs_f64()
+    };
+    let mut bases = Vec::with_capacity(ROUNDS);
+    let mut subjects = Vec::with_capacity(ROUNDS);
+    for _ in 0..ROUNDS {
+        let (bs, bl) = (time(base.0), time(base.1));
+        let (ss, sl) = (time(subject.0), time(subject.1));
+        bases.push(bl / bs.max(1e-9));
+        subjects.push(sl / ss.max(1e-9));
+    }
+    let median = |mut v: Vec<f64>| {
+        v.sort_by(|a, b| a.partial_cmp(b).expect("no NaN timings"));
+        v[v.len() / 2]
+    };
+    (median(bases), median(subjects))
 }
 
 /// The ceiling a linear `map` must stay under, given today's baseline.
@@ -100,10 +127,12 @@ fn array_len(v: &Value) -> usize {
 
 #[test]
 fn map_cost_grows_with_n_not_with_n_squared() {
-    let base = linear_baseline();
-    let ratio = growth(
-        "range(0, 2000) | map(fn(x) => x + 1)",
-        "range(0, 20000) | map(fn(x) => x + 1)",
+    let (base, ratio) = calibrated(
+        ("range(0, 2000) | sum", "range(0, 20000) | sum"),
+        (
+            "range(0, 2000) | map(fn(x) => x + 1)",
+            "range(0, 20000) | map(fn(x) => x + 1)",
+        ),
     );
     assert!(
         ratio < ceiling(base),
@@ -139,10 +168,12 @@ fn a_closure_that_ignores_its_argument_does_not_pay_for_the_collection() {
 
 #[test]
 fn where_is_held_to_the_same_bound() {
-    let base = linear_baseline();
-    let ratio = growth(
-        "range(0, 2000) | where(fn(x) => x > 0)",
-        "range(0, 20000) | where(fn(x) => x > 0)",
+    let (base, ratio) = calibrated(
+        ("range(0, 2000) | sum", "range(0, 20000) | sum"),
+        (
+            "range(0, 2000) | where(fn(x) => x > 0)",
+            "range(0, 20000) | where(fn(x) => x > 0)",
+        ),
     );
     assert!(
         ratio < ceiling(base),

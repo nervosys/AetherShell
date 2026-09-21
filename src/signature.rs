@@ -101,6 +101,11 @@ pub struct Param {
     /// Inclusive bounds for an `Int`, when the builtin has them. `round`'s
     /// digits argument is the reason this exists: it silently accepted 99.
     pub range: Option<(i64, i64)>,
+    /// This parameter absorbs all remaining arguments. Only meaningful on the
+    /// last one. `pick("name", "size", "modified")` is why: a fixed parameter
+    /// list cannot describe it, and declaring a fixed arity would have removed
+    /// the form E2's corpus uses.
+    pub variadic: bool,
     pub doc: &'static str,
 }
 
@@ -133,12 +138,10 @@ impl Signature {
         let params = self
             .params
             .iter()
-            .map(|p| {
-                if p.required {
-                    format!("{}: {}", p.name, p.ty.as_str())
-                } else {
-                    format!("{}?: {}", p.name, p.ty.as_str())
-                }
+            .map(|p| match (p.required, p.variadic) {
+                (_, true) => format!("{}...: {}", p.name, p.ty.as_str()),
+                (true, false) => format!("{}: {}", p.name, p.ty.as_str()),
+                (false, false) => format!("{}?: {}", p.name, p.ty.as_str()),
             })
             .collect::<Vec<_>>()
             .join(", ");
@@ -161,6 +164,7 @@ const fn req(name: &'static str, ty: Ty, doc: &'static str) -> Param {
         ty,
         required: true,
         range: None,
+        variadic: false,
         doc,
     }
 }
@@ -171,6 +175,7 @@ const fn opt(name: &'static str, ty: Ty, doc: &'static str) -> Param {
         ty,
         required: false,
         range: None,
+        variadic: false,
         doc,
     }
 }
@@ -181,6 +186,19 @@ const fn opt_range(name: &'static str, ty: Ty, lo: i64, hi: i64, doc: &'static s
         ty,
         required: false,
         range: Some((lo, hi)),
+        variadic: false,
+        doc,
+    }
+}
+
+/// A parameter that absorbs every remaining argument.
+const fn rest(name: &'static str, ty: Ty, doc: &'static str) -> Param {
+    Param {
+        name,
+        ty,
+        required: true,
+        range: None,
+        variadic: true,
         doc,
     }
 }
@@ -523,6 +541,162 @@ pub static SIGNATURES: &[Signature] = &[
         doc: "Convert a string to lowercase.",
         examples: &[(r#"lower("ABC")"#, r#""abc""#)],
     },
+    Signature {
+        name: "ends_with",
+        aliases: &[],
+        subject: Some(Ty::Str),
+        params: &[req("suffix", Ty::Str, "text the string must end with")],
+        returns: "Bool",
+        doc: "Whether a string ends with the given suffix.",
+        examples: &[(r#"ends_with("main.rs", ".rs")"#, "true"), (r#""main.rs" | ends_with(".rs")"#, "true")],
+    },
+    Signature {
+        name: "starts_with",
+        aliases: &[],
+        subject: Some(Ty::Str),
+        params: &[req("prefix", Ty::Str, "text the string must begin with")],
+        returns: "Bool",
+        doc: "Whether a string starts with the given prefix.",
+        examples: &[(r#"starts_with("version = 1", "version")"#, "true")],
+    },
+    Signature {
+        name: "split",
+        aliases: &[],
+        subject: Some(Ty::Str),
+        params: &[req("delimiter", Ty::Str, "separator to split on; required")],
+        returns: "Array",
+        doc: "Split a string on a delimiter.",
+        examples: &[(r#"split("a,b,c", ",")"#, r#"["a", "b", "c"]"#), (r#""a,b,c" | split(",") | len"#, "3")],
+    },
+    Signature {
+        name: "upper",
+        aliases: &[],
+        subject: Some(Ty::Str),
+        params: &[],
+        returns: "String",
+        doc: "Convert a string to uppercase.",
+        examples: &[(r#"upper("ab")"#, r#""AB""#)],
+    },
+    Signature {
+        name: "trim",
+        aliases: &[],
+        subject: Some(Ty::Str),
+        params: &[],
+        returns: "String",
+        doc: "Remove leading and trailing whitespace.",
+        examples: &[(r#"trim("  x  ")"#, r#""x""#)],
+    },
+    Signature {
+        name: "replace",
+        aliases: &[],
+        subject: Some(Ty::Str),
+        params: &[req("from", Ty::Str, "text to find"), req("to", Ty::Str, "replacement")],
+        returns: "String",
+        doc: "Replace every occurrence of one substring with another.",
+        examples: &[(r#"replace("aXa", "X", "Y")"#, r#""aYa""#)],
+    },
+    Signature {
+        name: "join",
+        aliases: &[],
+        subject: Some(Ty::Array),
+        params: &[req("separator", Ty::Str, "text placed between elements")],
+        returns: "String",
+        doc: "Join an array into a string with a separator.",
+        examples: &[(r#"join(["a", "b"], "-")"#, r#""a-b""#), (r#"["a", "b"] | join("-")"#, r#""a-b""#)],
+    },
+    Signature {
+        name: "keys",
+        aliases: &[],
+        subject: Some(Ty::Record),
+        params: &[],
+        returns: "Array",
+        doc: "The field names of a record.",
+        examples: &[(r#"keys({a: 1, b: 2}) | len"#, "2")],
+    },
+    Signature {
+        name: "values",
+        aliases: &[],
+        subject: Some(Ty::Record),
+        params: &[],
+        returns: "Array",
+        doc: "The field values of a record.",
+        examples: &[(r#"values({a: 1, b: 2}) | sum"#, "3")],
+    },
+    Signature {
+        name: "reverse",
+        aliases: &[],
+        subject: Some(Ty::Array),
+        params: &[],
+        returns: "Array",
+        doc: "Reverse the order of an array.",
+        examples: &[("[1, 2, 3] | reverse", r#"[3, 2, 1]"#)],
+    },
+    Signature {
+        name: "take",
+        aliases: &[],
+        subject: Some(Ty::Array),
+        params: &[req("n", Ty::Int, "how many elements to keep")],
+        returns: "Array",
+        doc: "The first n elements of an array.",
+        examples: &[("[1, 2, 3, 4] | take(2) | len", "2")],
+    },
+    Signature {
+        // A declared String subject turns `[1,2,3] | head` from an uncoded
+        // E_UNKNOWN ("head: input must be a string") into an E_BAD_ARG naming
+        // the expected type -- the taxonomy says E_UNKNOWN is the one code an
+        // agent must not reason about.
+        name: "head",
+        aliases: &[],
+        subject: Some(Ty::Str),
+        params: &[opt("n", Ty::Int, "how many leading lines; default 10")],
+        returns: "String",
+        doc: "The first lines of a string.",
+        examples: &[
+            (r#""abc" | head"#, r#""abc""#),
+            (r#""a\nb\nc" | head(2) | split("\n") | len"#, "2"),
+        ],
+    },
+    Signature {
+        name: "to-json",
+        aliases: &["to_json"],
+        subject: Some(Ty::Any),
+        params: &[],
+        returns: "String",
+        doc: "Render a value as JSON text.",
+        examples: &[(r#"[1, 2] | to_json"#, r#""[1,2]""#)],
+    },
+    Signature {
+        name: "ls",
+        aliases: &[],
+        subject: None,
+        params: &[opt("path", Ty::Str, "directory to list; defaults to the working directory")],
+        returns: "Array",
+        doc: "List a directory as records with name, path, size and modified.",
+        examples: &[
+            (r#"(ls("src") | len) > 0"#, "true"),
+            (r#"(ls() | len) > 0"#, "true"),
+        ],
+    },
+    Signature {
+        name: "fs_walk",
+        aliases: &[],
+        subject: None,
+        params: &[req("path", Ty::Str, "directory to walk recursively")],
+        returns: "Array",
+        doc: "Every file beneath a directory, recursively.",
+        examples: &[(r#"(fs_walk("tests") | len) > 0"#, "true")],
+    },
+    Signature {
+        // Variadic: `pick("name", "size", "modified")` is the form E2's
+        // corpus uses, and a fixed arity would have removed it.
+        name: "pick",
+        aliases: &[],
+        subject: Some(Ty::Array),
+        params: &[rest("fields", Ty::Str, "field names to keep")],
+        returns: "Array",
+        doc: "Keep only the named fields of each record.",
+        examples: &[(r#"[{a: 1, b: 2}] | pick("a") | first | keys | len"#, "1")],
+    },
 ];
 
 /// The declaration for `name`, if it has one.
@@ -577,7 +751,10 @@ pub fn validate(name: &str, args: &[Value], input: Option<&Value>) -> anyhow::Re
             &format!("{supplied} of {required} required"),
         ));
     }
-    if supplied > sig.params.len() {
+    // A trailing variadic parameter absorbs everything after it, so there is no
+    // upper bound to check.
+    let variadic = sig.params.last().is_some_and(|p| p.variadic);
+    if !variadic && supplied > sig.params.len() {
         return Err(crate::safety::bad_arg(
             name,
             &format!("at most {} argument(s): {}", sig.params.len(), sig.render()),
@@ -585,7 +762,16 @@ pub fn validate(name: &str, args: &[Value], input: Option<&Value>) -> anyhow::Re
         ));
     }
 
-    for (param, arg) in sig.params.iter().zip(args[params_start..].iter()) {
+    // Each supplied argument is checked against its own parameter, and every
+    // argument past the last against the variadic one.
+    let rest = args[params_start..].iter().enumerate().map(|(i, a)| {
+        let p = sig
+            .params
+            .get(i)
+            .or_else(|| sig.params.last().filter(|p| p.variadic));
+        (p, a)
+    });
+    for (param, arg) in rest.filter_map(|(p, a)| p.map(|p| (p, a))) {
         if !param.ty.accepts(arg) {
             return Err(crate::safety::bad_arg(
                 name,
