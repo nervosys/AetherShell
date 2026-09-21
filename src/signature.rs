@@ -113,6 +113,21 @@ pub struct Param {
 #[derive(Debug, Clone, Copy)]
 pub struct Signature {
     pub name: &'static str,
+    /// The catalogue category, when the name-derived one is wrong.
+    ///
+    /// `categorize_builtin` works from the name, so the array `zip` was filed
+    /// under **Archive** and `uniq`/`sort` under **FileSystem**. Categories are
+    /// how an agent browses (`ontology_describe("Array")` lists a category), so
+    /// a wrong one does not just mislabel a builtin, it hides it from the list
+    /// it belongs in. `None` keeps the derived category.
+    pub category: Option<&'static str>,
+    /// This builtin only works with a piped subject; the direct-call form is
+    /// not supported.
+    ///
+    /// `uniq([1, 1, 2])` failed with `E_UNKNOWN` and "uniq: no input provided"
+    /// -- the one code an agent is told not to reason about, for a condition
+    /// that is entirely knowable before the body runs.
+    pub subject_required: bool,
     /// Other spellings that dispatch to the same implementation.
     ///
     /// Needed because a builtin is reachable under several names and an agent
@@ -212,6 +227,8 @@ const fn rest(name: &'static str, ty: Ty, doc: &'static str) -> Param {
 pub static SIGNATURES: &[Signature] = &[
     Signature {
         name: "round",
+        category: None,
+        subject_required: false,
         aliases: &[],
         subject: Some(Ty::Numeric),
         params: &[opt_range(
@@ -231,6 +248,8 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "max",
+        category: None,
+        subject_required: false,
         aliases: &[],
         subject: Some(Ty::Array),
         params: &[opt(
@@ -244,6 +263,8 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "min",
+        category: None,
+        subject_required: false,
         aliases: &[],
         subject: Some(Ty::Array),
         params: &[opt(
@@ -257,6 +278,8 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "env",
+        category: None,
+        subject_required: false,
         aliases: &[],
         subject: None,
         params: &[
@@ -272,6 +295,8 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "db_json_to_sqlite",
+        category: None,
+        subject_required: false,
         aliases: &[],
         subject: None,
         params: &[
@@ -292,6 +317,8 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "where",
+        category: None,
+        subject_required: false,
         aliases: &[],
         subject: Some(Ty::Array),
         params: &[req(
@@ -310,6 +337,8 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "map",
+        category: None,
+        subject_required: false,
         aliases: &[],
         subject: Some(Ty::Array),
         params: &[req(
@@ -326,6 +355,8 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "sum",
+        category: None,
+        subject_required: false,
         aliases: &[],
         subject: Some(Ty::Array),
         params: &[],
@@ -335,6 +366,8 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "len",
+        category: None,
+        subject_required: false,
         aliases: &[],
         subject: Some(Ty::Any),
         params: &[],
@@ -356,6 +389,8 @@ pub static SIGNATURES: &[Signature] = &[
     // fundamental one, so it lands before that experiment runs.
     Signature {
         name: "from-json",
+        category: None,
+        subject_required: false,
         aliases: &["from_json"],
         subject: Some(Ty::Str),
         params: &[],
@@ -368,6 +403,8 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "group",
+        category: None,
+        subject_required: false,
         aliases: &["group_by", "group-object", "Group-Object"],
         subject: Some(Ty::Array),
         params: &[req("key", Ty::Str, "field name to group on")],
@@ -380,6 +417,8 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "avg",
+        category: None,
+        subject_required: false,
         aliases: &["mean"],
         subject: Some(Ty::Array),
         params: &[],
@@ -392,6 +431,8 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "str",
+        category: None,
+        subject_required: false,
         aliases: &["to_string"],
         subject: Some(Ty::Any),
         params: &[],
@@ -401,6 +442,8 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "sort_by",
+        category: None,
+        subject_required: false,
         aliases: &[],
         subject: Some(Ty::Array),
         // `key` is deliberately `Any` and optional. It takes a field name or a
@@ -427,6 +470,8 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "sort",
+        category: None,
+        subject_required: false,
         aliases: &[],
         subject: Some(Ty::Array),
         params: &[],
@@ -436,6 +481,8 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "first",
+        category: None,
+        subject_required: false,
         aliases: &[],
         subject: Some(Ty::Array),
         // `first(n)` returns the first n as an array; bare `first` returns the
@@ -453,6 +500,8 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "last",
+        category: None,
+        subject_required: false,
         aliases: &[],
         subject: Some(Ty::Array),
         params: &[opt(
@@ -466,6 +515,8 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "flatten",
+        category: None,
+        subject_required: false,
         aliases: &[],
         subject: Some(Ty::Array),
         params: &[],
@@ -475,6 +526,8 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "unique",
+        category: None,
+        subject_required: false,
         aliases: &[],
         subject: Some(Ty::Array),
         params: &[],
@@ -484,6 +537,8 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "any",
+        category: None,
+        subject_required: false,
         aliases: &[],
         subject: Some(Ty::Array),
         // The subject is NOT listed as a parameter: `validate` already shifts
@@ -509,6 +564,8 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "all",
+        category: None,
+        subject_required: false,
         aliases: &[],
         subject: Some(Ty::Array),
         params: &[opt(
@@ -525,6 +582,8 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "contains",
+        category: None,
+        subject_required: false,
         aliases: &[],
         subject: Some(Ty::Any),
         params: &[req("needle", Ty::Any, "substring or element to look for")],
@@ -534,6 +593,8 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "lower",
+        category: None,
+        subject_required: false,
         aliases: &[],
         subject: Some(Ty::Str),
         params: &[],
@@ -543,6 +604,8 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "ends_with",
+        category: None,
+        subject_required: false,
         aliases: &[],
         subject: Some(Ty::Str),
         params: &[req("suffix", Ty::Str, "text the string must end with")],
@@ -552,6 +615,8 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "starts_with",
+        category: None,
+        subject_required: false,
         aliases: &[],
         subject: Some(Ty::Str),
         params: &[req("prefix", Ty::Str, "text the string must begin with")],
@@ -561,6 +626,8 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "split",
+        category: None,
+        subject_required: false,
         aliases: &[],
         subject: Some(Ty::Str),
         params: &[req("delimiter", Ty::Str, "separator to split on; required")],
@@ -570,6 +637,8 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "upper",
+        category: None,
+        subject_required: false,
         aliases: &[],
         subject: Some(Ty::Str),
         params: &[],
@@ -579,6 +648,8 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "trim",
+        category: None,
+        subject_required: false,
         aliases: &[],
         subject: Some(Ty::Str),
         params: &[],
@@ -588,6 +659,8 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "replace",
+        category: None,
+        subject_required: false,
         aliases: &[],
         subject: Some(Ty::Str),
         params: &[req("from", Ty::Str, "text to find"), req("to", Ty::Str, "replacement")],
@@ -597,6 +670,8 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "join",
+        category: None,
+        subject_required: false,
         aliases: &[],
         subject: Some(Ty::Array),
         params: &[req("separator", Ty::Str, "text placed between elements")],
@@ -606,6 +681,8 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "keys",
+        category: None,
+        subject_required: false,
         aliases: &[],
         subject: Some(Ty::Record),
         params: &[],
@@ -615,6 +692,8 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "values",
+        category: None,
+        subject_required: false,
         aliases: &[],
         subject: Some(Ty::Record),
         params: &[],
@@ -624,6 +703,8 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "reverse",
+        category: None,
+        subject_required: false,
         aliases: &[],
         subject: Some(Ty::Array),
         params: &[],
@@ -633,6 +714,8 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "take",
+        category: None,
+        subject_required: false,
         aliases: &[],
         subject: Some(Ty::Array),
         params: &[req("n", Ty::Int, "how many elements to keep")],
@@ -646,6 +729,8 @@ pub static SIGNATURES: &[Signature] = &[
         // the expected type -- the taxonomy says E_UNKNOWN is the one code an
         // agent must not reason about.
         name: "head",
+        category: None,
+        subject_required: false,
         aliases: &[],
         subject: Some(Ty::Str),
         params: &[opt("n", Ty::Int, "how many leading lines; default 10")],
@@ -658,6 +743,8 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "to-json",
+        category: None,
+        subject_required: false,
         aliases: &["to_json"],
         subject: Some(Ty::Any),
         params: &[],
@@ -667,6 +754,8 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "ls",
+        category: None,
+        subject_required: false,
         aliases: &[],
         subject: None,
         params: &[opt("path", Ty::Str, "directory to list; defaults to the working directory")],
@@ -679,6 +768,8 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "fs_walk",
+        category: None,
+        subject_required: false,
         aliases: &[],
         subject: None,
         params: &[req("path", Ty::Str, "directory to walk recursively")],
@@ -690,12 +781,141 @@ pub static SIGNATURES: &[Signature] = &[
         // Variadic: `pick("name", "size", "modified")` is the form E2's
         // corpus uses, and a fixed arity would have removed it.
         name: "pick",
+        category: None,
+        subject_required: false,
         aliases: &[],
         subject: Some(Ty::Array),
         params: &[rest("fields", Ty::Str, "field names to keep")],
         returns: "Array",
         doc: "Keep only the named fields of each record.",
         examples: &[(r#"[{a: 1, b: 2}] | pick("a") | first | keys | len"#, "1")],
+    },
+    Signature {
+        // Categorised by hand: `categorize_builtin` read the name and filed
+        // this under Archive, next to the compression builtins.
+        name: "zip",
+        category: Some("Array"),
+        subject_required: false,
+        aliases: &[],
+        subject: Some(Ty::Array),
+        params: &[req("other", Ty::Array, "array to pair with, element by element")],
+        returns: "Array",
+        doc: "Pair two arrays element by element.",
+        examples: &[("zip([1, 2], [3, 4]) | len", "2"), ("[1, 2] | zip([3, 4]) | first | len", "2")],
+    },
+    Signature {
+        // `subject_required`: `uniq([1, 1, 2])` failed with E_UNKNOWN and
+        // "uniq: no input provided". The direct form is genuinely
+        // unsupported, and saying so in the declaration makes the refusal
+        // coded and the requirement visible in the signature.
+        name: "uniq",
+        category: Some("Array"),
+        subject_required: true,
+        aliases: &[],
+        subject: Some(Ty::Array),
+        params: &[],
+        returns: "Array",
+        doc: "Remove duplicate elements. Pipeline only.",
+        examples: &[("[1, 1, 2] | uniq | len", "2")],
+    },
+    Signature {
+        name: "abs",
+        category: Some("Math"),
+        subject_required: false,
+        aliases: &[],
+        subject: Some(Ty::Numeric),
+        params: &[],
+        returns: "Number",
+        doc: "Absolute value of a number.",
+        examples: &[("abs(-2)", "2")],
+    },
+    Signature {
+        name: "sqrt",
+        category: Some("Math"),
+        subject_required: false,
+        aliases: &[],
+        subject: Some(Ty::Numeric),
+        params: &[],
+        returns: "Number",
+        doc: "Square root of a number.",
+        examples: &[("sqrt(16)", "4")],
+    },
+    Signature {
+        name: "pow",
+        category: Some("Math"),
+        subject_required: false,
+        aliases: &[],
+        subject: Some(Ty::Numeric),
+        params: &[req("exponent", Ty::Numeric, "the power to raise to")],
+        returns: "Number",
+        doc: "Raise a number to a power.",
+        examples: &[("pow(2, 3)", "8")],
+    },
+    Signature {
+        name: "floor",
+        category: Some("Math"),
+        subject_required: false,
+        aliases: &[],
+        subject: Some(Ty::Numeric),
+        params: &[],
+        returns: "Int",
+        doc: "Largest integer not greater than a number.",
+        examples: &[("floor(2.7)", "2")],
+    },
+    Signature {
+        name: "ceil",
+        category: Some("Math"),
+        subject_required: false,
+        aliases: &[],
+        subject: Some(Ty::Numeric),
+        params: &[],
+        returns: "Int",
+        doc: "Smallest integer not less than a number.",
+        examples: &[("ceil(2.1)", "3")],
+    },
+    Signature {
+        name: "range",
+        category: Some("Array"),
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("start_or_count", Ty::Int, "count when alone, start when an end follows"), opt("end", Ty::Int, "exclusive upper bound")],
+        returns: "Array",
+        doc: "A range of integers: range(n) is 0..n, range(a, b) is a..b.",
+        examples: &[("range(3) | len", "3"), ("range(1, 4) | first", "1")],
+    },
+    Signature {
+        name: "typeof",
+        category: Some("Core"),
+        subject_required: false,
+        aliases: &["type_of"],
+        subject: Some(Ty::Any),
+        params: &[],
+        returns: "String",
+        doc: "The type name of a value.",
+        examples: &[(r#"type_of(42)"#, r#""Int""#), (r#"typeof("x")"#, r#""String""#)],
+    },
+    Signature {
+        name: "grep",
+        category: Some("Text"),
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("pattern", Ty::Str, "text or regex to search for"), opt("path", Ty::Str, "file to search; omit to search the piped text")],
+        returns: "Array",
+        doc: "Lines matching a pattern.",
+        examples: &[(r#"grep("fn main", "src/main.rs") | len"#, "1"), (r#"(grep("fn", "src/main.rs") | len) > 0"#, "true")],
+    },
+    Signature {
+        name: "find",
+        category: Some("FileSystem"),
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("path", Ty::Str, "directory to search"), opt("pattern", Ty::Str, "glob such as *.rs; omit for every file")],
+        returns: "Array",
+        doc: "Files under a directory, optionally matching a glob.",
+        examples: &[(r#"(find("src", "*.rs") | len) > 0"#, "true"), (r#"(find("src") | len) > 0"#, "true")],
     },
 ];
 
@@ -719,6 +939,15 @@ pub fn validate(name: &str, args: &[Value], input: Option<&Value>) -> anyhow::Re
     let Some(sig) = signature_of(name) else {
         return Ok(());
     };
+
+    // A pipeline-only builtin says so before the body has to.
+    if sig.subject_required && input.is_none() {
+        return Err(crate::safety::bad_arg(
+            name,
+            &format!("a piped subject: {}", sig.render()),
+            "a direct call",
+        ));
+    }
 
     // A declared subject must match when one was piped in.
     if let (Some(want), Some(got)) = (sig.subject, input) {

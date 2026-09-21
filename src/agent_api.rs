@@ -2172,7 +2172,14 @@ fn definition_from_signature(
     BuiltinDefinition {
         name: primary_name.to_string(),
         description: sig.doc.to_string(),
-        category: categorize_builtin(primary_name),
+        // A declared category wins. `categorize_builtin` works from the name,
+        // which filed the array `zip` under Archive and `uniq` under
+        // FileSystem -- and a category is how an agent browses, so a wrong one
+        // hides the builtin from the list it belongs in.
+        category: sig
+            .category
+            .map(str::to_string)
+            .unwrap_or_else(|| categorize_builtin(primary_name)),
         signature: sig.render(),
         parameters: sig
             .params

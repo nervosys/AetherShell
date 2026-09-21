@@ -16,7 +16,7 @@
 //!
 //! One declaration now serves both jobs. These tests assert that it does.
 
-use aethershell::builtins::{call, call_with_input, is_dispatched};
+use aethershell::builtins::{call, call_with_input, is_dispatched, BUILTIN_LOOKUP};
 use aethershell::env::Env;
 use aethershell::signature::{signature_of, Ty, SIGNATURES};
 use aethershell::value::Value;
@@ -191,14 +191,40 @@ fn the_calls_the_declarations_describe_all_run() {
 fn an_undeclared_builtin_is_unaffected() {
     // The migration is incremental: validation must not reach builtins that
     // have not been declared, or the slice becomes a rewrite.
-    // `upper` played this role until it was declared. Any still-undeclared
-    // builtin does; the assertion below fails loudly if this one gets declared
-    // too, rather than quietly testing the declared path instead.
+    //
+    // This used to name a builtin -- `upper`, then `abs` -- and each time that
+    // builtin was declared, the test went red and had to be repointed. The
+    // property has nothing to do with which builtin it is, so it is now taken
+    // from the dispatch table at run time and cannot go stale.
+    let undeclared: Vec<&str> = BUILTIN_LOOKUP
+        .keys()
+        .copied()
+        .filter(|n| signature_of(n).is_none())
+        .collect();
     assert!(
-        signature_of("abs").is_none(),
-        "test assumes `abs` is undeclared; pick another undeclared builtin"
+        undeclared.len() > 100,
+        "only {} builtins are undeclared; if the migration is really complete,          this test has served its purpose and should be deleted rather than          weakened",
+        undeclared.len()
     );
-    assert_eq!(ok("abs", vec![Value::Int(-2)]), Value::Int(2));
+
+    // `validate` must pass every one of them, whatever it is handed: an
+    // undeclared builtin has no contract to check, and inventing one would be
+    // the name-based reasoning this whole mechanism exists to remove.
+    let junk = vec![
+        Value::Int(-2),
+        Value::Str("unexpected".into()),
+        Value::Array(vec![Value::Bool(true)]),
+    ];
+    for name in &undeclared {
+        aethershell::signature::validate(name, &junk, Some(&Value::Int(1)))
+            .unwrap_or_else(|e| panic!("validation reached undeclared builtin `{name}`: {e}"));
+    }
+
+    // ...and a declared one is still checked, or the loop above proves nothing.
+    assert!(
+        aethershell::signature::validate("round", &junk, None).is_err(),
+        "validate accepted junk for a declared builtin"
+    );
 }
 
 // ── non-vacuity ─────────────────────────────────────────────────────────
@@ -674,5 +700,84 @@ fn an_optional_parameter_is_demonstrated_both_ways() {
     assert!(
         checked >= 8,
         "only {checked} declarations with optional parameters were checked;          either the rule stopped finding them or the exemptions have eaten it"
+    );
+}
+
+#[test]
+fn a_pipeline_only_builtin_says_so_before_the_body_does() {
+    // `uniq([1, 1, 2])` failed with E_UNKNOWN and "uniq: no input provided".
+    // The direct form is genuinely unsupported, but "unsupported" was being
+    // reported with the one code the taxonomy tells an agent not to reason
+    // about, for a condition knowable before the body ran.
+    let e = err(
+        "uniq",
+        vec![Value::Array(vec![Value::Int(1), Value::Int(1)])],
+    );
+    assert!(e.contains("E_BAD_ARG"), "still uncoded: {e}");
+    assert!(
+        e.contains("piped subject"),
+        "the refusal must say what shape of call is wanted: {e}"
+    );
+    assert!(!e.contains("E_UNKNOWN"), "{e}");
+
+    // The supported form is untouched.
+    let mut env = Env::new();
+    let out = call_with_input(
+        "uniq",
+        vec![],
+        Some(Value::Array(vec![
+            Value::Int(1),
+            Value::Int(1),
+            Value::Int(2),
+        ])),
+        &mut env,
+    )
+    .expect("piped uniq");
+    assert_eq!(out, Value::Array(vec![Value::Int(1), Value::Int(2)]));
+
+    // Non-vacuity: a builtin that does *not* require a subject is unaffected,
+    // or `subject_required` could be refusing every direct call.
+    assert_eq!(ok("max", vec![Value::Int(2), Value::Int(9)]), Value::Int(9));
+}
+
+#[test]
+fn a_declared_category_puts_the_builtin_where_an_agent_will_look() {
+    // `categorize_builtin` reads the name, so the array `zip` was filed under
+    // Archive next to the compression builtins, and `uniq` under FileSystem.
+    // A category is how an agent browses -- `ontology_describe("Array")`
+    // returns a category listing -- so a wrong one does not merely mislabel a
+    // builtin, it hides it from the list it belongs in.
+    for name in ["zip", "uniq"] {
+        let def = aethershell::agent_api::ontology_describe_json(name);
+        assert_eq!(
+            def.get("category").and_then(|v| v.as_str()),
+            Some("Array"),
+            "{name} is not categorised where it belongs"
+        );
+    }
+
+    // And the category listing actually contains them, which is the thing that
+    // matters and does not follow from the field alone.
+    let listing = aethershell::agent_api::ontology_describe_json("Array");
+    let names: Vec<String> = listing
+        .get("builtins")
+        .and_then(|v| v.as_array())
+        .map(|bs| {
+            bs.iter()
+                .filter_map(|b| b.get("name").and_then(|v| v.as_str()))
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    for name in ["zip", "uniq"] {
+        assert!(
+            names.iter().any(|n| n == name),
+            "browsing the Array category does not list {name}: {names:?}"
+        );
+    }
+    // Non-vacuity: the listing must not simply contain everything.
+    assert!(
+        !names.iter().any(|n| n == "http_get"),
+        "the Array category lists unrelated builtins, so finding zip there          proves nothing"
     );
 }

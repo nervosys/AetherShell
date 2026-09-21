@@ -184,7 +184,8 @@ and the doc comments. It needs to exist once.
 declarations — the three from the table above that take arguments (`round`,
 `env`, `db_json_to_sqlite`), `max` and `min` whose ontology entries contradicted
 their behaviour, and the verbs the benchmark corpus reaches for (`where`, `map`,
-`sum`, `len`). It is now **39**, covering the working sets of both E1 and E2.
+`sum`, `len`). It is now **50**: the working sets of both E1 and E2, plus the arithmetic and
+array verbs an agent reaches for next.
 `builtins::call_with_input` validates against the declaration before the body
 runs. Undeclared builtins dispatch exactly as before, so the
 migration is incremental and nothing regressed. The measured effect on the
@@ -202,13 +203,13 @@ wrong. `tests/declared_signatures.rs` asserts each of these, that every
 declaration names a builtin that is really dispatched, and — as non-vacuity —
 that validation both accepts a valid call and refuses an invalid one.
 
-What has *not* landed is the `builtin!` macro or the remaining ~1,240 builtins.
+What has *not* landed is the `builtin!` macro or the remaining ~1,230 builtins.
 The mechanism does not depend on the list's size; growing it is the migration.
 
 **Growing it is where the risk is, and it is not the risk you would guess.** A
 declaration is enforced at dispatch, so one that is *narrower* than the builtin
 does not mis-document it — it deletes working syntax. That happened on **four
-separate occasions**, across nine of the thirty-nine declarations:
+separate occasions**, across nine of the first thirty-nine declarations:
 
 | Declaration | Too narrow how | What it removed |
 | --- | --- | --- |
@@ -225,6 +226,23 @@ against their claimed results, and the call shapes both benchmark corpora use
 are exercised directly. Authoring a declaration means probing the shell for the
 forms it accepts first — reading the builtin's name is how the original defects
 got there.
+
+Two further capabilities came out of the third batch, and both fix something
+the catalogue was getting wrong rather than merely under-describing.
+
+**A category is how an agent browses, and ours were name-derived.**
+`categorize_builtin` reads the builtin's name, so the array `zip` was filed
+under **Archive**, beside the compression builtins, and `uniq` and `sort` under
+**FileSystem**. `ontology_describe("Array")` returns a category listing, so a
+wrong category does not mislabel a builtin — it hides it from the list it
+belongs in. A declaration can now state its category, and the test asserts the
+*listing* contains it, not just that the field reads correctly.
+
+**Some builtins are pipeline-only, and said so with the wrong code.**
+`uniq([1, 1, 2])` failed with `E_UNKNOWN` and "uniq: no input provided". The
+direct form is genuinely unsupported; the problem was reporting a knowable
+condition with the one code an agent is told not to reason about. A declaration
+can now require a subject, and the refusal names the pipe form.
 
 One more thing fell out of the second batch. `[1, 2, 3] | head` failed with
 `E_UNKNOWN` and the prose "head: input must be a string". `E_UNKNOWN` is the one
