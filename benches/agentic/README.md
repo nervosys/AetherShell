@@ -137,7 +137,11 @@ the benchmark.
 The first replay run reported `sql 0/10` on commands known to be correct,
 because the host had no `sqlite3`. An arm whose interpreter is absent is now
 named and **skipped, never scored**: absence and failure must not look alike,
-or every comparative number here is worthless.
+or every comparative number here is worthless. It mattered more than usual
+here — E7's hypothesis is that borrowed syntaxes (SQL, jq) beat invented ones,
+so a silently-zeroed SQL arm would have produced evidence *for* the hypothesis
+out of a missing package. With `sqlite3` installed, all five arms replay
+10/10.
 
 The prompts in `e7-prompts/` are hashed into every result file. A run whose
 hash differs from an earlier run is a different experiment and is reported

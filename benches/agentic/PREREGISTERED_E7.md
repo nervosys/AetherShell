@@ -146,13 +146,21 @@ against the corpus, no partial credit), and the exact cl100k token path.
 What has been done, and what has not:
 
 **Done.** The scoring path is exercised end to end by `--replay`, which feeds
-the known-good corpus commands through it: jq, AetherShell, agentic and the
-agentic control all score 10/10, and a per-run self-check proves the scorer
-marks a wrong-but-valid command, an erroring command, an empty answer and a
-plausible placeholder as incorrect. The `sql` arm is skipped and named on this
-host because `sqlite3` is not installed — the first replay reported it as
-`0/10`, which is a missing tool wearing the costume of a model that cannot
-write SQL, and is now impossible.
+the known-good corpus commands through it: **all five arms score 10/10**, and a
+per-run self-check proves the scorer marks a wrong-but-valid command, an
+erroring command, an empty answer and a plausible placeholder as incorrect.
+That guard was itself checked by replacing the scorer with one that returns
+true for everything: the run aborts at exit 3 rather than printing five perfect
+arms.
+
+Getting there took fixing something that would have quietly halved the
+experiment. The first replay reported `sql 0/10` on commands known to be
+correct, because this host had no `sqlite3` — a missing tool wearing the costume
+of a model that cannot write SQL. Since H1 is *specifically* the claim that
+borrowed syntaxes (SQL, jq) beat invented ones, an E7 run with the SQL arm
+silently scoring zero would have been evidence for H1 manufactured by a missing
+package. An arm whose interpreter is absent is now named and skipped, never
+scored; `sqlite3` has been installed here, so all five arms are live.
 
 **Also done, and it was a prerequisite this file asked for.** "We wrote the
 AetherShell reference material" above warned that a poor ontology would make
