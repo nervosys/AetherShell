@@ -588,7 +588,12 @@ pub static SIGNATURES: &[Signature] = &[
         subject: Some(Ty::Any),
         params: &[req("needle", Ty::Any, "substring or element to look for")],
         returns: "Bool",
-        doc: "Whether a string contains a substring, or an array an element.",
+        // Strings only. This said "or an array an element" until
+        // `contains([1, 2, 3], 2)` was actually run: it answers
+        // `E_BAD_ARG: expected a string, got Array`. Exactly the kind of
+        // plausible-but-wrong sentence that name-derived documentation
+        // produces, written here by hand instead.
+        doc: "Whether a string contains a substring. Strings only.",
         examples: &[(r#"contains("security fix", "security")"#, "true")],
     },
     Signature {
@@ -800,8 +805,12 @@ pub static SIGNATURES: &[Signature] = &[
         subject: Some(Ty::Array),
         params: &[req("other", Ty::Array, "array to pair with, element by element")],
         returns: "Array",
-        doc: "Pair two arrays element by element.",
-        examples: &[("zip([1, 2], [3, 4]) | len", "2"), ("[1, 2] | zip([3, 4]) | first | len", "2")],
+        doc: "Pair two arrays element by element, stopping at the shorter one.",
+        examples: &[
+            ("zip([1, 2], [3, 4]) | len", "2"),
+            ("[1, 2] | zip([3, 4]) | first | len", "2"),
+            ("zip([1, 2, 3], [4]) | len", "1"),
+        ],
     },
     Signature {
         // `subject_required`: `uniq([1, 1, 2])` failed with E_UNKNOWN and
@@ -916,6 +925,45 @@ pub static SIGNATURES: &[Signature] = &[
         returns: "Array",
         doc: "Files under a directory, optionally matching a glob.",
         examples: &[(r#"(find("src", "*.rs") | len) > 0"#, "true"), (r#"(find("src") | len) > 0"#, "true")],
+    },
+    Signature {
+        // The design document names this a core verb, and the hybrid arm of E1
+        // is built on it. It was described as `sql() -> Value`, "Sql", with no
+        // parameters -- and it answered three calls it could not honour:
+        //
+        //   sqlite_query(":memory:")                       exit 0, no output
+        //   sqlite_query()                                  exit 0, no output
+        //   sqlite_query(db, "SELECT ? AS n", [7])          exit 0, n = null
+        //
+        // The first two are the worst kind: an agent asks for data, and gets
+        // silence and success. The third accepts bind parameters and discards
+        // them, which is `round(4.966, 2)` returning 5 in a different costume.
+        // Declaring two required parameters and no more refuses all three.
+        //
+        // Bind parameters are genuinely unsupported; that is now visible in the
+        // signature instead of being discovered when a query returns nulls.
+        name: "sql",
+        category: Some("Database"),
+        subject_required: false,
+        aliases: &["sqlite_query", "db_sqlite_query"],
+        subject: None,
+        params: &[
+            req(
+                "database",
+                Ty::Str,
+                "path to the SQLite file, or \":memory:\" for a scratch database",
+            ),
+            req("query", Ty::Str, "SQL to execute; bind parameters are not supported"),
+        ],
+        returns: "Array",
+        doc: "Run a SQL query against a SQLite database, returning rows as records.",
+        examples: &[
+            (
+                r#"sqlite_query(":memory:", "SELECT 1 AS n") | first | fn(r) => r.n"#,
+                "1",
+            ),
+            (r#"sql(":memory:", "SELECT 2 AS n") | len"#, "1"),
+        ],
     },
 ];
 

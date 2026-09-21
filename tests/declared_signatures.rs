@@ -781,3 +781,49 @@ fn a_declared_category_puts_the_builtin_where_an_agent_will_look() {
         "the Array category lists unrelated builtins, so finding zip there          proves nothing"
     );
 }
+
+#[test]
+fn sqlite_query_no_longer_answers_calls_it_cannot_honour() {
+    // The design document names this a core verb and E1's hybrid arm is built
+    // on it, and it was doing all three things this work exists to stop:
+    //
+    //   sqlite_query(":memory:")                  exit 0, no output
+    //   sqlite_query()                            exit 0, no output
+    //   sqlite_query(db, "SELECT ? AS n", [7])    exit 0, n = null
+    //
+    // The first two are the worst shape a defect can take here: an agent asks
+    // for data and receives silence *and* success. The third takes bind
+    // parameters and discards them, which is `round(4.966, 2)` returning 5 in
+    // different clothing.
+    for (args, why) in [
+        (vec![Value::Str(":memory:".into())], "no query"),
+        (vec![], "no arguments at all"),
+        (
+            vec![
+                Value::Str(":memory:".into()),
+                Value::Str("SELECT ? AS n".into()),
+                Value::Array(vec![Value::Int(7)]),
+            ],
+            "bind parameters, which are not supported",
+        ),
+    ] {
+        let e = err("sqlite_query", args);
+        assert!(
+            e.contains("E_BAD_ARG"),
+            "{why}: answered instead of refusing, or refused uncoded: {e}"
+        );
+    }
+
+    // The supported call is untouched, and still returns rows as records.
+    let out = ok(
+        "sqlite_query",
+        vec![
+            Value::Str(":memory:".into()),
+            Value::Str("SELECT 1 AS n".into()),
+        ],
+    );
+    match &out {
+        Value::Array(rows) => assert_eq!(rows.len(), 1, "expected one row: {out:?}"),
+        other => panic!("expected an array of rows, got {other:?}"),
+    }
+}

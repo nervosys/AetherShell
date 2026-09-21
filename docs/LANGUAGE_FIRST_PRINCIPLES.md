@@ -147,8 +147,18 @@ There is no schema. Nothing can check arity or types before the body runs, and
 the body is free to ignore what it was given. `ontology_describe` carries a
 *separate*, hand-written signature, which is why `max()` could advertise
 `Aggregation / "Get maximum value" / max() -> Number` while refusing arrays,
-and why `sqlite_query` is absent from the ontology entirely while working
-perfectly.
+and why `sqlite_query` was absent from the ontology entirely.
+
+> **Correction, and a sharper example than the one it replaces.** This sentence
+> used to end "… while working perfectly." It was not. Asked for the contract it
+> had never been made to state, `sqlite_query` turned out to answer three calls
+> it could not honour: `sqlite_query(":memory:")` and `sqlite_query()` both
+> returned **exit 0 with no output**, and a third argument of bind parameters
+> was accepted and discarded, substituting `null` into the result. An agent
+> asking for data received silence *and* success. The builtin the document
+> reached for as "undocumented but fine" was undocumented *and* silently wrong
+> in three ways — which is the argument for declarations, made at the expense of
+> the sentence that was trying to make it.
 
 **First-principles fix: make the declaration the only source of truth.**
 
@@ -184,7 +194,7 @@ and the doc comments. It needs to exist once.
 declarations — the three from the table above that take arguments (`round`,
 `env`, `db_json_to_sqlite`), `max` and `min` whose ontology entries contradicted
 their behaviour, and the verbs the benchmark corpus reaches for (`where`, `map`,
-`sum`, `len`). It is now **50**: the working sets of both E1 and E2, plus the arithmetic and
+`sum`, `len`). It is now **51**: the working sets of both E1 and E2, plus the arithmetic and
 array verbs an agent reaches for next.
 `builtins::call_with_input` validates against the declaration before the body
 runs. Undeclared builtins dispatch exactly as before, so the
@@ -307,8 +317,33 @@ measured with the same exact BPE path as every other number here.
 
 `AGENTS.md` advertises 1,280+ builtins across 108 modules. E1 and E2 together —
 eighteen realistic tasks — needed about **twenty**. The other 1,260 are carried
-in every ontology dump, every schema export, and every drift check, and we found
-three of them mis-described in a single week of looking.
+in every ontology dump, every schema export, and every drift check.
+
+The "three mis-described in a single week" this section originally reported was
+an undercount. Writing real contracts for fifty-one builtins turned up these,
+each verified by running the call rather than by reading the entry:
+
+| Defect | Examples |
+| --- | --- |
+| Absent from the ontology while dispatching fine | `from_json`, `group_by`, `mean`, `to_string`, and ~200 more in the fallback half |
+| Parameters omitted entirely | `sort_by`, `any`, `all`, `contains`, `first`, `last` — all advertised `f() -> T` |
+| Category that hides it from the right listing | `zip` under Archive, `uniq` and `sort` under FileSystem |
+| Answered a call it could not honour | `round`, `env`, `db_json_to_sqlite`, `sqlite_query` |
+| Reported a knowable failure as `E_UNKNOWN` | `head`, `uniq` |
+
+Not every entry was wrong. `cat` — one of the nineteen hand-written ones — was
+accurate, and is named here so the table is not read as "all of them".
+
+`flatten` is worth a line of its own, because it looked accurate and was not.
+Its entry read "Flatten nested arrays", which sounds right and implies a deep
+flatten; `[[1, [2]], [3]] | flatten` gives `[1, [2], 3]`. One level, not all of
+them. Nothing in the entry was false enough to notice, and an agent reading it
+would write the wrong pipeline — which is the failure mode name-derived
+documentation is *best* at producing, and the hardest to find by reading.
+
+The errors did not thin out as the sample grew from nine to fifty-one, which is
+what you would expect when descriptions are generated from names: the defect is
+not in any particular builtin, it is in the method.
 
 Not a proposal to delete anything. A proposal to **stratify**:
 

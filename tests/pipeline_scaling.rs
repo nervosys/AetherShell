@@ -46,30 +46,19 @@ fn best_of(n: usize, src: &str) -> Duration {
         .expect("at least one run")
 }
 
-const ROUNDS: usize = 9;
-
-/// How much slower `src_large` is than `src_small`, measured by interleaving
-/// them so a load spike cannot land on only one side.
+/// Serialises the timing tests in this file.
 ///
-/// The first version of this file compared two independent best-of-5 runs
-/// against a fixed threshold, and it failed inside `cargo test --workspace
-/// --jobs 12`: 146 test binaries competing for 24 cores turned a 10x ratio
-/// into 41x, in a build with no optimisation. The measurement was not wrong
-/// about the machine, it was wrong about the code -- which is the definition
-/// of a flaky ratchet, and a flaky ratchet gets ignored and then deleted.
-fn growth(small: &str, large: &str) -> f64 {
-    let mut lo = Duration::MAX;
-    let mut hi = Duration::MAX;
-    for _ in 0..ROUNDS {
-        let a = Instant::now();
-        let _ = run(small);
-        lo = lo.min(a.elapsed());
-        let b = Instant::now();
-        let _ = run(large);
-        hi = hi.min(b.elapsed());
-    }
-    hi.as_secs_f64() / lo.as_secs_f64().max(1e-9)
-}
+/// They share one process, and `cargo test` runs them on parallel threads. A
+/// ratchet calibrated against *external* load is still wrecked by a sibling
+/// timing test hammering the same process -- adding the wide-record check made
+/// the other two fail immediately. Serialise with a lock rather than
+/// `--test-threads=1`, which only helps whoever remembers to pass it.
+/// (empty, small, large) source for one program.
+type Sizes = (&'static str, &'static str, &'static str);
+
+static TIMING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+const ROUNDS: usize = 9;
 
 /// Baseline and subject measured *in the same rounds*, returning the median
 /// ratio of each.
@@ -87,25 +76,48 @@ fn growth(small: &str, large: &str) -> f64 {
 /// both sides together. The median over rounds then discards a round that was
 /// contended anyway. A genuinely quadratic subject is ~100x in *every* round, so
 /// the median stays ~100x and the ratchet still bites.
-fn calibrated(base: (&str, &str), subject: (&str, &str)) -> (f64, f64) {
-    let time = |src: &str| {
-        let t = Instant::now();
-        let _ = run(src);
-        t.elapsed().as_secs_f64()
+fn calibrated(base: Sizes, subject: Sizes) -> (f64, f64) {
+    // Every program is timed at three sizes -- empty, small, large -- and the
+    // empty case measures the fixed cost of a run (parse, environment setup,
+    // printing) that has nothing to do with N.
+    //
+    // Subtracting that cost matters: `range(0, N) | sum` walks the collection
+    // in Rust and is so fast that the fixed cost dominated it, so a 10x step in
+    // N measured as 4.3x. A yardstick reading 4.3x for something linear made an
+    // honest 21x `map` look quadratic, and three runs in six failed that way.
+    //
+    // The subtraction is done on the BEST time for each size, not per round.
+    // Per-round subtraction was tried and could not work: at 2,000 elements the
+    // work is smaller than the run-to-run noise, so the empty case often timed
+    // slower than the small one and only one round in nine was usable. The
+    // minimum over rounds is the measurement least polluted by whatever else
+    // the machine was doing, which is exactly what a subtraction needs.
+    let best_of = |src: &str| {
+        let mut best = f64::MAX;
+        for _ in 0..ROUNDS {
+            let t = Instant::now();
+            let _ = run(src);
+            best = best.min(t.elapsed().as_secs_f64());
+        }
+        best
     };
-    let mut bases = Vec::with_capacity(ROUNDS);
-    let mut subjects = Vec::with_capacity(ROUNDS);
-    for _ in 0..ROUNDS {
-        let (bs, bl) = (time(base.0), time(base.1));
-        let (ss, sl) = (time(subject.0), time(subject.1));
-        bases.push(bl / bs.max(1e-9));
-        subjects.push(sl / ss.max(1e-9));
-    }
-    let median = |mut v: Vec<f64>| {
-        v.sort_by(|a, b| a.partial_cmp(b).expect("no NaN timings"));
-        v[v.len() / 2]
+    // Paired by size, so the two programs meet each size in the same stretch
+    // of time. The load robustness comes from the minimum over rounds, not
+    // from the pairing -- each `best_of` is nine consecutive runs of one
+    // program, which is not interleaving and should not be described as it.
+    let (bz, sz) = (best_of(base.0), best_of(subject.0));
+    let (bs, ss) = (best_of(base.1), best_of(subject.1));
+    let (bl, sl) = (best_of(base.2), best_of(subject.2));
+
+    let net = |zero: f64, small: f64, large: f64, what: &str| {
+        let (ds, dl) = (small - zero, large - zero);
+        assert!(
+            ds > 0.0 && dl > 0.0,
+            "{what}: the timer cannot see past the fixed per-run cost (empty {zero:.5}s, small {small:.5}s, large {large:.5}s), so nothing built on it means anything"
+        );
+        dl / ds
     };
-    (median(bases), median(subjects))
+    (net(bz, bs, bl, "baseline"), net(sz, ss, sl, "subject"))
 }
 
 /// The ceiling a linear `map` must stay under, given today's baseline.
@@ -127,9 +139,15 @@ fn array_len(v: &Value) -> usize {
 
 #[test]
 fn map_cost_grows_with_n_not_with_n_squared() {
+    let _timing = TIMING.lock().unwrap_or_else(|e| e.into_inner());
     let (base, ratio) = calibrated(
-        ("range(0, 2000) | sum", "range(0, 20000) | sum"),
         (
+            "range(0, 0) | sum",
+            "range(0, 2000) | sum",
+            "range(0, 20000) | sum",
+        ),
+        (
+            "range(0, 0) | map(fn(x) => x + 1)",
             "range(0, 2000) | map(fn(x) => x + 1)",
             "range(0, 20000) | map(fn(x) => x + 1)",
         ),
@@ -145,32 +163,50 @@ fn map_cost_grows_with_n_not_with_n_squared() {
 
 #[test]
 fn a_closure_that_ignores_its_argument_does_not_pay_for_the_collection() {
-    // The sharpest form of the defect: identical element count, one cheap
-    // closure, and the only thing that varies is how much data is sitting in
-    // the pipe. If the pipe input is being copied per call, the wide case
-    // costs many times the narrow one for no additional work.
-    let ratio = growth(
-        "range(0, 2000) | map(fn(x) => 1)",
-        "range(0, 2000) | map(fn(x) => { id: x, pad: \"................................\" }) \
-         | map(fn(r) => 1)",
+    let _timing = TIMING.lock().unwrap_or_else(|e| e.into_inner());
+    // The defect copied the pipe input once per element, so cost grew with
+    // (elements x width). The two ratchets above catch the element half on
+    // narrow data; this one carries the width half, by running the same
+    // calibrated scaling check over WIDE records.
+    //
+    // It used to compare wide against narrow at a fixed element count, which
+    // is the more direct statement of the defect and could not be measured.
+    // Three designs were tried and all failed, for the same reason: cloning a
+    // wide record legitimately costs more than cloning an integer, that
+    // difference is large and variable, and it sits on top of the signal.
+    //
+    //   direct comparison, fixed threshold   28.0x healthy / 28.8x broken
+    //   build cost subtracted               2.2x-10.6x healthy over five runs
+    //   build amortised over five maps      1.5x-14.4x healthy over five runs
+    //
+    // A healthy spread wider than the gap to the broken case is not a test.
+    // Scaling is the formulation that survives: the width confound is present
+    // in both sizes and divides out, exactly as load does.
+    // Deliberately smaller than the other two. Under the defect this walks
+    // N^2 *wide records*, and at 20,000 it did not finish in half an hour --
+    // a falsification nobody can afford to run is one nobody runs, so the
+    // check that this test still bites would quietly stop happening.
+    let (base, ratio) = calibrated(
+        ("range(0, 0) | sum", "range(0, 500) | sum", "range(0, 5000) | sum"),
+        ("range(0, 0) | map(fn(x) => { id: x, pad: \"................................\" }) | map(fn(r) => 1)", "range(0, 500) | map(fn(x) => { id: x, pad: \"................................\" }) | map(fn(r) => 1)", "range(0, 5000) | map(fn(x) => { id: x, pad: \"................................\" }) | map(fn(r) => 1)"),
     );
-    // Both sides have the same element count and the same trivial closure;
-    // only the width of what sits in the pipe differs, and the wide side pays
-    // an honest extra pass to build the records. Anything beyond a small
-    // multiple is the collection being copied per call.
     assert!(
-        ratio < 25.0,
-        "mapping a constant over 2,000 wide records cost {ratio:.1}x the same \
-         map over 2,000 integers. The closure reads neither, so the difference \
-         is the collection being copied per call."
+        ratio < ceiling(base),
+        "mapping a constant over wide records grew {ratio:.1}x from 500 to 5,000 elements, against a closure-free baseline of {base:.1}x on this machine. The closure reads nothing, so anything superlinear is the collection being copied per call."
     );
 }
 
 #[test]
 fn where_is_held_to_the_same_bound() {
+    let _timing = TIMING.lock().unwrap_or_else(|e| e.into_inner());
     let (base, ratio) = calibrated(
-        ("range(0, 2000) | sum", "range(0, 20000) | sum"),
         (
+            "range(0, 0) | sum",
+            "range(0, 2000) | sum",
+            "range(0, 20000) | sum",
+        ),
+        (
+            "range(0, 0) | where(fn(x) => x > 0)",
             "range(0, 2000) | where(fn(x) => x > 0)",
             "range(0, 20000) | where(fn(x) => x > 0)",
         ),
