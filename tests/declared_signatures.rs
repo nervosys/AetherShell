@@ -380,3 +380,73 @@ fn non_vacuity_an_unrelated_name_still_resolves_to_nothing() {
         "the ontology invented an entry for a name that does not exist"
     );
 }
+
+#[test]
+fn the_forms_the_benchmark_corpora_use_are_all_accepted() {
+    // A declaration is a promise about a builtin that is enforced at dispatch,
+    // so declaring one too narrowly *removes* working syntax. That is exactly
+    // what happened: `first`/`last` were declared parameterless, and
+    // `ls("src") | sort_by("size") | last(5)` -- two of E2's eight tasks --
+    // started being refused. The whole Rust suite stayed green, because nothing
+    // in it called `last` with a count.
+    //
+    // The E1 corpus was checked by running it; E2 was not, and that asymmetry
+    // is the bug. These are the call shapes both corpora actually use, so a
+    // declaration narrower than the language fails here rather than in a
+    // benchmark nobody re-ran.
+    let cases: &[(&str, &str)] = &[
+        // E1 working set.
+        ("[1, 2, 3] | last", "3"),
+        ("[1, 2, 3] | first", "1"),
+        ("[3, 1, 2] | sort | first", "1"),
+        ("[[1, 2], [3]] | flatten | len", "3"),
+        ("[1, 2, 1] | unique | len", "2"),
+        (r#"any(["a", "b"], fn(l) => l == "b")"#, "true"),
+        ("any([false, true])", "true"),
+        ("all([true, true])", "true"),
+        (r#"contains("security fix", "security")"#, "true"),
+        (r#"lower("ABC")"#, "abc"),
+        ("to_string(42)", "42"),
+        ("[1, 2, 3, 4] | mean", "2.5"),
+        (r#""[1, 2]" | from_json | len"#, "2"),
+        // E2 working set -- the counted forms that were broken.
+        ("[1, 2, 3, 4, 5, 6] | last(5) | len", "5"),
+        ("[1, 2, 3, 4] | first(2) | len", "2"),
+        (
+            r#"[{n: 2}, {n: 1}] | sort_by("n") | first | fn(r) => r.n"#,
+            "1",
+        ),
+        (
+            r#"[{n: 2}, {n: 1}] | sort_by("n", "desc") | first | fn(r) => r.n"#,
+            "2",
+        ),
+        (
+            "[{n: 2}, {n: 1}] | sort_by(fn(r) => r.n) | first | fn(r) => r.n",
+            "1",
+        ),
+    ];
+    for (src, want) in cases {
+        let stmts =
+            aethershell::parser::parse_program(src).unwrap_or_else(|e| panic!("parse {src}: {e}"));
+        let got = aethershell::eval::eval_program(&stmts, &mut Env::new()).unwrap_or_else(|e| {
+            panic!("`{src}` was refused, so a declaration is narrower than the language: {e}")
+        });
+        let shown = format!("{got}");
+        assert!(
+            shown.contains(want),
+            "`{src}` gave {shown}, expected something containing {want}"
+        );
+    }
+}
+
+#[test]
+fn non_vacuity_the_corpus_form_check_can_fail() {
+    // The test above passes if every call succeeds. This pins that a call the
+    // declarations *should* refuse still is refused, so a `validate` that
+    // returned Ok unconditionally would not slip through both.
+    let stmts = aethershell::parser::parse_program("round(1.0, 99)").expect("parse");
+    assert!(
+        aethershell::eval::eval_program(&stmts, &mut Env::new()).is_err(),
+        "an out-of-range argument is being accepted; the checks above prove nothing"
+    );
+}

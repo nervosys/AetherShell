@@ -420,19 +420,31 @@ pub static SIGNATURES: &[Signature] = &[
         name: "first",
         aliases: &[],
         subject: Some(Ty::Array),
-        params: &[],
+        // `first(n)` returns the first n as an array; bare `first` returns the
+        // element. Declaring it parameterless refused `ls(…) | first(5)`, which
+        // is the form E2's corpus uses -- and the Rust suite did not notice,
+        // because nothing in it calls `first` with a count.
+        params: &[opt(
+            "count",
+            Ty::Int,
+            "how many to return, as an array; omit for the single element",
+        )],
         returns: "Any",
-        doc: "First element of an array.",
-        examples: &[("[1, 2, 3] | first", "1")],
+        doc: "First element of an array, or the first `count` elements.",
+        examples: &[("[1, 2, 3] | first", "1"), ("[1, 2, 3] | first(2)", "[1, 2]")],
     },
     Signature {
         name: "last",
         aliases: &[],
         subject: Some(Ty::Array),
-        params: &[],
+        params: &[opt(
+            "count",
+            Ty::Int,
+            "how many to return, as an array; omit for the single element",
+        )],
         returns: "Any",
-        doc: "Last element of an array.",
-        examples: &[("[1, 2, 3] | last", "3")],
+        doc: "Last element of an array, or the last `count` elements.",
+        examples: &[("[1, 2, 3] | last", "3"), ("[1, 2, 3] | last(2)", "[2, 3]")],
     },
     Signature {
         name: "flatten",
