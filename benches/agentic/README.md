@@ -36,7 +36,7 @@ experiment that would close the gap.
 | **E1** | `corpus.mjs`, `run.mjs` | Ten queries over 500 real GitHub issues, in six engines, against an oracle. Replicates the Vercel post's setup. |
 | **E2** | `shellops.mjs` | Eight ordinary repository operations — the per-turn cost of the shell itself, in two AetherShell render modes. |
 | **E3** | `errors.mjs` | Ten induced failures per shell: exit status, machine-readable code, repair hint, byte cost. |
-| **E4** | `safety.mjs` | Seven dangerous operations, scored by whether the file outside the jail actually changed. |
+| **E4** | `safety.mjs` | Seven dangerous operations, scored by whether the file outside the jail actually changed. One arm is a live `ae agent serve` with no flags, because that is the surface an agent really drives. |
 | **E5** | `environment.mjs` | The same listing under six locales, timezones and terminal widths: do the bytes change? |
 | **E6** | `bashcompat.mjs` | Thirty-two everyday bash one-liners through the compatibility transpiler: how many run unchanged? |
 | **E7** | `PREREGISTERED_E7.md` | **Pre-registered, not yet run.** Does a model write a borrowed syntax (SQL, jq) correctly on the first attempt more often than an invented one? Written down before the numbers exist, because it can falsify a direction this project is invested in. |

@@ -448,16 +448,16 @@ the world, not the exit status: is the canary file outside the jail still
 intact? A refusal that prints politely and performs the write anyway scores as
 executed.
 
-| Probe | Effect | AetherShell (human) | **AetherShell (agent + jail)** | bash | PowerShell |
-| --- | --- | --- | --- | --- | --- |
-| write inside workspace | WriteLocal | executed ✓ | executed ✓ | executed ✓ | executed ✓ |
-| write outside workspace | WriteLocal | executed | **contained** | executed | executed |
-| delete outside workspace | Destructive | executed | **contained** | executed | executed |
-| truncate file outside | WriteLocal | executed | **contained** | executed | executed |
-| arbitrary process spawn | Exec | contained | **contained** | executed | executed |
-| privilege self-grant | Privileged | executed | **contained** | — | — |
-| network egress past quota | Network | executed | **contained** | executed | executed |
-| | | **1/6 contained** | **6/6 contained** | **0/5** | **0/5** |
+| Probe | Effect | AetherShell (human) | **`ae agent serve`, no flags** | **AetherShell (agent + jail)** | bash | PowerShell |
+| --- | --- | --- | --- | --- | --- | --- |
+| write inside workspace | WriteLocal | executed ✓ | executed ✓ | executed ✓ | executed ✓ | executed ✓ |
+| write outside workspace | WriteLocal | executed | **contained** | **contained** | executed | executed |
+| delete outside workspace | Destructive | executed | **contained** | **contained** | executed | executed |
+| truncate file outside | WriteLocal | executed | **contained** | **contained** | executed | executed |
+| arbitrary process spawn | Exec | contained | **contained** | **contained** | executed | executed |
+| privilege self-grant | Privileged | executed | **contained** | **contained** | — | — |
+| network egress past quota | Network | executed | executed | **contained** | executed | executed |
+| | | **1/6 contained** | **5/6 contained** | **6/6 contained** | **0/5** | **0/5** |
 
 `ae --agent --policy strict --workspace <dir>` contained every one. bash and
 PowerShell contained none. The refusals are structured, not prose:
@@ -485,8 +485,31 @@ retryable, with a hint naming the switch that changes the answer.
 
 *Human mode contains almost nothing, by design.* The 1/6 column is not a bug
 and it is not a safe default — it is the deliberate choice that a person at a
-prompt is not treated as an adversary. The containment is opt-in, and a
-deployment that forgets the flags has a shell exactly as unbounded as bash.
+prompt is not treated as an adversary. A shell that refused to write outside its
+working directory would not be a shell, and `ae deploy.sh` is a documented
+migration path.
+
+*The middle column is the one we got wrong.* "A deployment that forgets the
+flags has a shell exactly as unbounded as bash" is what an earlier draft of this
+section said, and it was truer than intended: `ae agent serve` — the documented
+way for an agent to drive this shell over HTTP — ran the **human** profile
+unless the operator also passed `--agent`. The default posture of the
+agent-facing surface was the permissive one.
+
+It stayed invisible because a second defect hid it. `POST /api/v1/eval` built
+its environment without the module namespaces bound, so `file.write(…)` failed
+as a field access on `Null` and every probe came back *contained* — the call had
+never run. Fixing the namespaces turned the same probe into a successful write
+to an arbitrary path. **Containment that rests on a second bug reads exactly
+like containment**, right up until someone fixes the second bug, and the only
+reason we know is that E4 scores by consequence: it goes and looks at the file.
+
+Serving an agent now implies agent mode. `ae agent serve` and `ae mcp serve`
+default to default-deny with the jail rooted at the server's working directory,
+and print which profile they are in at startup. `ae -c` and the REPL are
+unchanged. The middle column is that default, measured with no flags at all:
+**5/6**, not 6/6 — because network egress is governed by `AETHER_MAX_NET`, which
+agent mode does not set, which is the next caveat.
 
 *Network is metered, not denied.* The policy table
 (`src/safety.rs`) has `Network → allow` in agent mode; what stopped the egress

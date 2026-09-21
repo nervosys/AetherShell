@@ -1310,6 +1310,18 @@ pub mod server {
         println!("🚀 AetherShell MCP Server starting on http://{}", addr);
         println!("   Protocol: MCP 2024-11-05");
         println!("   Safety level: {:?}", config.safety_level);
+        // MCP's own `--safety` level gates which *tools* are exposed. It is a
+        // different question from the effect gate and the workspace jail, which
+        // are keyed on the execution mode, so both are printed.
+        match crate::safety::current_mode() {
+            crate::safety::Mode::Agent => println!(
+                "   Effect gate: agent mode — writes confined to {}",
+                crate::safety::workspace_root().display()
+            ),
+            other => println!(
+                "⚠  Effect gate: {other:?} mode (AETHER_MODE set explicitly) — OFF.                  Unset AETHER_MODE to get the agent profile."
+            ),
+        }
         println!();
         println!("Endpoints:");
         println!("  POST /mcp/v1/initialize     - Initialize MCP session");

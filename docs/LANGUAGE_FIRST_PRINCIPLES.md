@@ -205,6 +205,38 @@ that validation both accepts a valid call and refuses an invalid one.
 What has *not* landed is the `builtin!` macro or the remaining 1,271 builtins.
 The mechanism does not depend on the list's size; growing it is the migration.
 
+### Two more of the same defect, found by probing the surface rather than reading it
+
+**`POST /api/v1/eval` could not call any module function.** It built its
+environment with a bare `Env::default()` where two other call sites looped over
+`modules::all_modules()`, so `file.read(…)`, `sys.hostname()` — all 108
+namespaces — failed with `cannot access field 'read' on non-record value: Null`.
+That is Option 2 of `AGENTS.md`, the documented way for an agent to drive this
+shell over HTTP. Three copies of a registration loop is how a surface gets left
+out of one; there is now a single `modules::env_with_modules()`.
+
+Fixing it **unmasked a containment hole**: a probe that wrote outside the
+server's directory had been coming back *contained* because the call never ran.
+With the namespaces bound, the same probe wrote the file — `ae agent serve` was
+running the human safety profile. Serving an agent now implies agent mode; see
+`docs/WINNING_ACROSS_THE_BOARD.md`, "Item 4, resolved".
+
+**`$HOME` in agentic mode had never worked.** The transpiler expands `$VAR` to
+`sys.env("VAR")` — documented in `AGENTS.md` as a v4 feature, advertised in the
+sigil map as `S.e`, and carried as a worked example in the transpiler's own rule
+table. The `sys` module table had `env_all` and no `env`, so every documented
+spelling raised `E_UNKNOWN_FIELD`. The transpiler tests passed the whole time
+because they assert on the *emitted source*, and the emitted source was correct.
+
+That is the second `$VAR` feature in one week to ship broken behind a test that
+checked the text instead of the result, and it is the sharpest argument in this
+document. The declaration work above removes the defect class *within* a
+builtin's boundary. Nothing in it would have caught a module table that never
+names the builtin, a server that constructs its environment differently, or a
+test that never runs what it describes. **A description is only worth what the
+thing does when you run it**, which is why every claim in §4 above is stated
+with the command that produced it.
+
 Landing it also found a seventh instance of the same defect, which is the
 argument for the approach more than any of the first six. `map` is one of the
 nineteen builtins with a *hand-written* catalogue entry, and that entry said

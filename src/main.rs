@@ -8,11 +8,7 @@ use clap::{Parser, Subcommand};
 
 /// Create an environment with all builtin modules pre-registered
 fn create_env_with_modules() -> Env {
-    let mut env = Env::new();
-    for (name, module) in modules::all_modules() {
-        env.register_module(name, module);
-    }
-    env
+    modules::env_with_modules()
 }
 
 #[derive(Parser)]
@@ -288,6 +284,23 @@ fn main() -> Result<()> {
     aethershell::safety::with_eval_stack(move || run(cli))
 }
 
+/// Whether this invocation exists to serve an AI agent rather than a person.
+///
+/// Only the two server subcommands qualify. A one-shot `ae -c` may well be run
+/// *by* an agent, but it is equally the way a person and every shell script
+/// invoke the shell, so it keeps the human profile and `--agent` stays the way
+/// to ask for the other one.
+fn serves_an_agent(cmd: &Option<Commands>) -> bool {
+    matches!(
+        cmd,
+        Some(Commands::Agent {
+            command: AgentApiCommands::Serve { .. }
+        }) | Some(Commands::Mcp {
+            command: McpCommands::Serve { .. }
+        })
+    )
+}
+
 fn run(cli: Cli) -> Result<()> {
     // An output token budget applies to all eval/print paths via the REPL.
     if let Some(n) = cli.budget {
@@ -299,6 +312,27 @@ fn run(cli: Cli) -> Result<()> {
     }
     if let Some(ws) = &cli.workspace {
         std::env::set_var("AETHER_WORKSPACE", ws);
+    }
+    // `ae agent serve` and `ae mcp serve` exist for one purpose: to let an AI
+    // agent drive this shell. They ran with the *human* safety profile unless
+    // the operator also remembered `--agent`, which meant the default posture
+    // of the two agent-facing surfaces was the permissive one.
+    //
+    // That was masked for as long as `POST /api/v1/eval` could not resolve a
+    // module namespace at all (see `modules::env_with_modules`): a probe that
+    // tried to write outside the server's directory came back "contained",
+    // because the call had never run. With the namespaces bound, the same probe
+    // writes the file. Containment that depends on a second bug is not
+    // containment.
+    //
+    // So serving an agent now implies agent mode — default-deny on dangerous
+    // effect classes, and the workspace jail rooted at the server's working
+    // directory. This changes nothing for `ae -c`, `ae script.ae` or the REPL;
+    // a human shell that refused to write outside its cwd would not be a shell.
+    // An operator who wants the old posture sets `AETHER_MODE` explicitly,
+    // which is honoured here and announced at startup either way.
+    if serves_an_agent(&cli.subcommand) && std::env::var_os("AETHER_MODE").is_none() {
+        std::env::set_var("AETHER_MODE", "agent");
     }
     if let Some(p) = &cli.policy {
         std::env::set_var("AETHER_POLICY", p);

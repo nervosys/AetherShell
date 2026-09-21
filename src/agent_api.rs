@@ -32,7 +32,6 @@ use serde_json::{json, Value as JsonValue};
 use std::collections::HashMap;
 
 use crate::builtins::BUILTIN_LOOKUP;
-use crate::env::Env;
 use crate::eval::eval_program;
 use crate::marketplace::{RegistryClient, SearchQuery, SortBy};
 use crate::modules::all_modules;
@@ -440,7 +439,9 @@ fn execute_pipeline(steps: &[PipelineStep], input: Option<&JsonValue>) -> AgentR
 
 /// Execute raw AetherShell code
 fn execute_eval(code: &str) -> AgentResponse {
-    let mut env = Env::default();
+    // Arbitrary source: the module namespaces must be bound, or every
+    // `file.read(…)`/`sys.hostname()` in it fails as a field access on Null.
+    let mut env = crate::modules::env_with_modules();
 
     match parse_program(code) {
         Ok(stmts) => match eval_program(&stmts, &mut env) {
@@ -4070,6 +4071,25 @@ pub mod server {
             println!("   Auth token: (from configuration)");
         }
         println!("   Send it as: Authorization: Bearer <token>");
+        // The safety posture is stated, never assumed. This endpoint evaluates
+        // arbitrary code, so which mode it is in is the single most important
+        // thing an operator needs to read off the banner.
+        match crate::safety::current_mode() {
+            crate::safety::Mode::Agent => {
+                println!("   Safety: agent mode — dangerous effect classes default-denied");
+                println!(
+                    "           Writes confined to {}",
+                    crate::safety::workspace_root().display()
+                );
+            }
+            other => {
+                println!(
+                    "⚠  Safety: {other:?} mode (AETHER_MODE set explicitly) — the effect
+                     ⚠  gate and the workspace jail are OFF for a surface that evaluates
+                     ⚠  arbitrary code. Unset AETHER_MODE to get the agent profile."
+                );
+            }
+        }
         println!("   Supports: OpenAI, Claude, Gemini, Llama, Mistral, Cohere, Grok, DeepSeek,");
         println!("             Bedrock, Azure, Qwen, Ollama, vLLM, HuggingFace, OpenRouter,");
         println!("             Kimi, Yi, GLM, Reka, AI21, Perplexity, Together, Groq, Fireworks");
@@ -4338,7 +4358,7 @@ pub mod server {
             // Stream-evaluate: results are produced incrementally (element-by-element
             // for a streamable `source | map/where/…` pipeline) rather than the whole
             // value being materialized first, then chunked for the wire.
-            let mut env = crate::env::Env::new();
+            let mut env = crate::modules::env_with_modules();
             let mut items: Vec<JsonValue> = Vec::new();
             let result = {
                 let mut emit = |v: crate::value::Value| items.push(v.to_json());

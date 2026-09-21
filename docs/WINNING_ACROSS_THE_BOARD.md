@@ -167,6 +167,10 @@ This is a breaking change for non-interactive callers that write outside the
 cwd, which is why it wants a minor-version boundary and a release note, not a
 quiet patch.
 
+> **Resolved, narrower than proposed.** See "Item 4, resolved" at the end of
+> this document: the blanket non-interactive default was rejected, and the two
+> agent-serving subcommands imply agent mode instead.
+
 ---
 
 ## 5. Latency: index, do not micro-optimise
@@ -315,7 +319,44 @@ bash's conventions are.
 
 ### What is still open
 
-Item 4 (workspace-by-default) needs a decision, not a patch: it is breaking for
-non-interactive callers that write outside the cwd. Items 5–7 stand as written
-— profile the evaluator, do not chase bash compatibility, do not trim error
-bytes.
+Items 5–7 stand as written — profile the evaluator, do not chase bash
+compatibility, do not trim error bytes.
+
+### Item 4, resolved — narrower than proposed, and for a reason found by testing
+
+The proposal was `--workspace` by default for **all** non-interactive
+invocations. That was too broad. `ae -c` and `ae deploy.sh` are how people and
+shell scripts use the shell, and Option 4 of `AGENTS.md` sells running existing
+bash scripts unchanged; a shell that refuses to write outside its working
+directory would break that and would not really be a shell. Scaling a safety
+default up until it breaks the product is not a safety win.
+
+What the proposal was right about was that the headline described a
+configuration most users would not be in. Probing the actual surface showed
+where: **`ae agent serve` and `ae mcp serve` ran the human profile** unless the
+operator also passed `--agent`. Those two subcommands exist for no purpose other
+than to serve an AI agent, so they now imply agent mode — default-deny, jail
+rooted at the server's working directory, profile printed at startup, and
+`AETHER_MODE` honoured as an explicit opt-out. Nothing about `ae -c`, `ae
+script.ae` or the REPL changes, so this is not the breaking change the proposal
+worried about and does not need a version boundary.
+
+Two things worth keeping from how this was found:
+
+**The hole was masked by a second bug.** `POST /api/v1/eval` built its
+environment without the module namespaces bound (`Env::default()` where two
+other call sites looped over `modules::all_modules()`), so every
+module-qualified call — all 108 namespaces — failed as a field access on
+`Null`. A containment probe therefore came back *contained* because the call had
+never run. Fixing the namespaces turned the same probe into a successful write
+to an arbitrary path. Containment that rests on a second defect is
+indistinguishable from containment until the day someone fixes the second
+defect.
+
+**The measured number went down, and that is the honest one.** E4 now carries a
+third AetherShell arm — a live `ae agent serve` with no flags — and it scores
+**5/6, not 6/6**. Network egress still executes, because that axis is governed
+by `AETHER_MAX_NET`, which agent mode does not set. Making agent mode imply a
+zero network quota would make the table read 6/6 and would break every
+legitimate `http.get` an agent makes, so the gap is reported rather than
+closed.

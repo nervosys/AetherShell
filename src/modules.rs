@@ -7,6 +7,7 @@
 //! - `crypto.hash()`, `crypto.encrypt()`, `crypto.sign()`
 //! - etc.
 
+use crate::env::Env;
 use crate::value::{BuiltinRef, Value};
 use std::collections::BTreeMap;
 
@@ -46,6 +47,12 @@ pub fn sys_module() -> Value {
         ("users", "sys_users"),
         ("groups", "sys_groups"),
         ("user_info", "sys_user_info"),
+        // `sys.env(name, default?)` is the same builtin as the bare `env`.
+        // It is what the agentic `$VAR` sugar expands to and what the module
+        // sigil map advertises as `S.e`, and it was simply missing from this
+        // table -- so `$HOME` in agentic mode raised E_UNKNOWN_FIELD on a
+        // documented, headline feature.
+        ("env", "env"),
         ("env_all", "sys_env_all"),
         ("locale", "sys_locale"),
         ("timezone", "sys_timezone"),
@@ -1500,6 +1507,30 @@ pub fn is_module_name(name: &str) -> bool {
 lazy_static::lazy_static! {
     static ref MODULE_NAMES: std::collections::HashSet<&'static str> =
         all_modules().into_iter().map(|(n, _)| n).collect();
+}
+
+/// An [`Env`] with every module namespace registered.
+///
+/// Use this anywhere arbitrary AetherShell *source* is about to be evaluated.
+/// A bare `Env::new()`/`Env::default()` has no `file`, `sys`, `http`, … bound,
+/// so every module-qualified call in that source fails with
+/// `cannot access field 'read' on non-record value: Null` — a generic
+/// field-access error that names neither the module nor the real problem.
+///
+/// This exists because that is not hypothetical: the registration loop had been
+/// copied into `main.rs` and into `builtins::Session::new` but not into
+/// `agent_api::execute_eval`, so `POST /api/v1/eval` — the documented way for an
+/// agent to drive the shell over HTTP — could not call *any* of the 108 module
+/// namespaces. Three copies of a loop is how that happens; one function is the
+/// fix. Constructing the environment by hand is still correct for callers that
+/// only dispatch a builtin **by name** (`builtins::call`), which needs no
+/// module bindings.
+pub fn env_with_modules() -> Env {
+    let mut env = Env::new();
+    for (name, module) in all_modules() {
+        env.register_module(name, module);
+    }
+    env
 }
 
 pub fn all_modules() -> Vec<(&'static str, Value)> {

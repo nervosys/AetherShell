@@ -17815,10 +17815,7 @@ impl Session {
     fn new() -> Self {
         // Register the module namespaces (file, sys, str, http, …) so a session
         // can run module-qualified calls like `file.read(…)`, not just builtins.
-        let mut env = crate::env::Env::new();
-        for (name, module) in crate::modules::all_modules() {
-            env.register_module(name, module);
-        }
+        let env = crate::modules::env_with_modules();
         Self {
             env,
             tokens_in: 0,

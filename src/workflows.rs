@@ -863,7 +863,8 @@ fn store_path(context: &mut WorkflowContext, path: &str, value: Value) {
 /// An environment seeded with the workflow's variables, for evaluating a
 /// condition or calling a builtin.
 fn context_env(context: &WorkflowContext) -> Env {
-    let mut env = Env::new();
+    // A step's condition is arbitrary source, so it may call `file.exists(…)`.
+    let mut env = crate::modules::env_with_modules();
     for (k, v) in &context.variables {
         let _ = env.set_var(k.clone(), v.clone());
     }
