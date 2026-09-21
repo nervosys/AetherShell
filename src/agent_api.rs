@@ -2325,6 +2325,54 @@ fn get_all_builtin_definitions() -> Vec<BuiltinDefinition> {
         });
     }
 
+    // The dispatcher has two halves and this loop only walked one. Everything
+    // in `FALLBACK_BUILTINS` -- `from_json`, `to_json`, `group_by`, `select`,
+    // `columns`, `describe` and ~200 more -- dispatches perfectly and was
+    // absent from the catalogue entirely, so an agent asking the shell what it
+    // can call was told a subset and given no hint that it was a subset. Four
+    // of the builtins our own E1 corpus needs were in that gap.
+    //
+    // Fallback arms share an implementation the way `BUILTIN_LOOKUP` aliases
+    // share an index, so they are grouped by callee to get the same
+    // canonical-name-plus-aliases treatment.
+    let seen_names: std::collections::HashSet<String> =
+        all.iter().map(|d| d.name.clone()).collect();
+    let mut by_callee: HashMap<&str, Vec<&str>> = HashMap::new();
+    for (name, callee) in crate::builtins::FALLBACK_BUILTINS {
+        // `BUILTIN_LOOKUP` wins where both define a name; its entry is already
+        // in `all` and is the one dispatch actually reaches.
+        if BUILTIN_LOOKUP.contains_key(*name) {
+            continue;
+        }
+        by_callee.entry(callee).or_default().push(name);
+    }
+    for (_, mut names) in by_callee {
+        names.sort_by(|a, b| a.len().cmp(&b.len()).then(a.cmp(b)));
+        let primary = names[0];
+        if seen_names.contains(primary) {
+            continue;
+        }
+        let aliases: Vec<String> = names[1..].iter().map(|n| (*n).to_string()).collect();
+        if let Some(sig) = crate::signature::signature_of(primary) {
+            let mut def = definition_from_signature(sig, primary, &usize::MAX, &HashMap::new());
+            def.aliases = (!aliases.is_empty()).then_some(aliases);
+            all.push(def);
+            continue;
+        }
+        let return_type = infer_return_type(primary);
+        all.push(BuiltinDefinition {
+            name: primary.to_string(),
+            description: describe_builtin_name(primary),
+            category: categorize_builtin(primary),
+            signature: format!("{primary}() -> {return_type}"),
+            parameters: vec![],
+            return_type,
+            examples: vec![],
+            aliases: (!aliases.is_empty()).then_some(aliases),
+            json_schema: json!({ "type": "object", "properties": {} }),
+        });
+    }
+
     // Sort by category then name for consistent output
     all.sort_by(|a, b| a.category.cmp(&b.category).then(a.name.cmp(&b.name)));
     annotate_effects(all)
@@ -2421,7 +2469,22 @@ pub fn ontology_describe_json(query: &str) -> JsonValue {
     let defs = get_all_builtin_definitions();
     let q = query.trim();
 
-    if let Some(d) = defs.iter().find(|d| d.name.eq_ignore_ascii_case(q)) {
+    // Resolve by alias as well as by canonical name. Every entry already
+    // *lists* its aliases, so refusing to look one up was the catalogue
+    // declining to answer a question it had the answer to: `mean` is an alias
+    // of `avg`, it is the spelling our own benchmark corpus uses, and
+    // `ontology_describe("mean")` said "not a known builtin".
+    let found = defs
+        .iter()
+        .find(|d| d.name.eq_ignore_ascii_case(q))
+        .or_else(|| {
+            defs.iter().find(|d| {
+                d.aliases
+                    .as_ref()
+                    .is_some_and(|a| a.iter().any(|x| x.eq_ignore_ascii_case(q)))
+            })
+        });
+    if let Some(d) = found {
         let params: Vec<JsonValue> = d
             .parameters
             .iter()

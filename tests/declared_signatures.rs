@@ -55,9 +55,22 @@ fn every_declaration_carries_a_worked_example() {
         assert!(!sig.examples.is_empty(), "{} declares no example", sig.name);
         assert!(!sig.doc.is_empty(), "{} declares no description", sig.name);
         for (code, _) in sig.examples {
+            // Under the canonical name or any declared alias -- an example for
+            // `from-json` naturally reads `… | from_json | …`, which is the
+            // spelling an agent writes. Both must be real: the alias is
+            // asserted dispatchable below, so this cannot pass on a typo.
+            let spellings = std::iter::once(sig.name).chain(sig.aliases.iter().copied());
             assert!(
-                code.contains(sig.name),
-                "{}'s example does not call it: {code}",
+                spellings.clone().any(|n| code.contains(n)),
+                "{}'s example calls neither it nor any of its aliases {:?}: {code}",
+                sig.name,
+                sig.aliases
+            );
+        }
+        for alias in sig.aliases {
+            assert!(
+                is_dispatched(alias),
+                "{} declares alias `{alias}`, which is not dispatched",
                 sig.name
             );
         }
@@ -274,5 +287,96 @@ fn a_refusal_does_not_carry_its_signature_twice() {
     assert!(
         matches!(r.get("got"), Some(Value::Str(_))),
         "no `got`: {r:?}"
+    );
+}
+
+// ── declarations must describe the language as it is actually written ───
+
+#[test]
+fn the_corpus_working_set_is_discoverable_with_real_parameters() {
+    // `benches/agentic/PREREGISTERED_E7.md` hands the AetherShell arm its
+    // `ontology_describe` output as reference material, and names a poor
+    // ontology as the thing that would make that arm lose for a fixable reason
+    // rather than a fundamental one. These are the builtins the E1 corpus
+    // actually calls; four of them (`from_json`, `group_by`, `mean`,
+    // `to_string`) could not be looked up at all, because they live in the
+    // dispatcher's fallback half which the catalogue never walked.
+    const WORKING_SET: &[&str] = &[
+        "cat",
+        "from_json",
+        "where",
+        "map",
+        "sum",
+        "len",
+        "group_by",
+        "sort_by",
+        "sort",
+        "last",
+        "first",
+        "flatten",
+        "unique",
+        "any",
+        "all",
+        "max",
+        "min",
+        "mean",
+        "round",
+        "to_string",
+        "lower",
+        "contains",
+    ];
+    for name in WORKING_SET {
+        let def = aethershell::agent_api::ontology_describe_json(name);
+        assert!(
+            def.get("error").is_none(),
+            "{name} is called by the benchmark corpus but is not in the ontology: {def}"
+        );
+        let sig = def.get("signature").and_then(|v| v.as_str()).unwrap_or("");
+        assert!(
+            !sig.is_empty() && sig != format!("{name}() -> Value"),
+            "{name}'s catalogue entry is name-derived, not declared: {sig}"
+        );
+        let examples = def.get("examples").and_then(|v| v.as_array());
+        assert!(
+            examples.is_some_and(|e| !e.is_empty()),
+            "{name} has no worked example, which is the part an agent copies"
+        );
+    }
+}
+
+#[test]
+fn a_declaration_is_found_by_every_spelling_that_dispatches() {
+    // `from_json` and `from-json` are one implementation; a declaration keyed
+    // on one spelling would enforce nothing for the other and would leave the
+    // catalogue describing it by name-splitting.
+    for (canonical, alias) in [
+        ("from-json", "from_json"),
+        ("group", "group_by"),
+        ("avg", "mean"),
+        ("str", "to_string"),
+    ] {
+        let a = signature_of(canonical).unwrap_or_else(|| panic!("{canonical} not declared"));
+        let b = signature_of(alias).unwrap_or_else(|| panic!("{alias} does not resolve"));
+        assert_eq!(
+            a.name, b.name,
+            "{alias} resolved to a different declaration"
+        );
+        assert!(
+            is_dispatched(alias),
+            "{alias} is declared as an alias but is not dispatched"
+        );
+    }
+}
+
+#[test]
+fn non_vacuity_an_unrelated_name_still_resolves_to_nothing() {
+    // If `signature_of` fell back to something for any input, both tests above
+    // would pass without meaning anything.
+    assert!(signature_of("definitely_not_a_builtin_94117").is_none());
+    assert!(
+        aethershell::agent_api::ontology_describe_json("definitely_not_a_builtin_94117")
+            .get("error")
+            .is_some(),
+        "the ontology invented an entry for a name that does not exist"
     );
 }

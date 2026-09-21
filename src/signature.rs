@@ -108,6 +108,14 @@ pub struct Param {
 #[derive(Debug, Clone, Copy)]
 pub struct Signature {
     pub name: &'static str,
+    /// Other spellings that dispatch to the same implementation.
+    ///
+    /// Needed because a builtin is reachable under several names and an agent
+    /// may write any of them: `from_json`/`from-json`, `group_by`/`group`,
+    /// `mean`/`avg`, `to_string`/`str`. A declaration keyed on one spelling
+    /// would enforce nothing for the others and would leave the catalogue
+    /// describing them by name-splitting.
+    pub aliases: &'static [&'static str],
     /// What the pipeline supplies, for a builtin that takes a subject.
     pub subject: Option<Ty>,
     pub params: &'static [Param],
@@ -186,6 +194,7 @@ const fn opt_range(name: &'static str, ty: Ty, lo: i64, hi: i64, doc: &'static s
 pub static SIGNATURES: &[Signature] = &[
     Signature {
         name: "round",
+        aliases: &[],
         subject: Some(Ty::Numeric),
         params: &[opt_range(
             "digits",
@@ -204,6 +213,7 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "max",
+        aliases: &[],
         subject: Some(Ty::Array),
         params: &[opt(
             "values",
@@ -216,6 +226,7 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "min",
+        aliases: &[],
         subject: Some(Ty::Array),
         params: &[opt(
             "values",
@@ -228,6 +239,7 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "env",
+        aliases: &[],
         subject: None,
         params: &[
             req("name", Ty::Str, "environment variable to read"),
@@ -242,6 +254,7 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "db_json_to_sqlite",
+        aliases: &[],
         subject: None,
         params: &[
             req(
@@ -261,6 +274,7 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "where",
+        aliases: &[],
         subject: Some(Ty::Array),
         params: &[req(
             "predicate",
@@ -278,6 +292,7 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "map",
+        aliases: &[],
         subject: Some(Ty::Array),
         params: &[req(
             "transform",
@@ -293,6 +308,7 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "sum",
+        aliases: &[],
         subject: Some(Ty::Array),
         params: &[],
         returns: "Number",
@@ -301,17 +317,208 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "len",
+        aliases: &[],
         subject: Some(Ty::Any),
         params: &[],
         returns: "Int",
         doc: "Number of elements in an array, characters in a string, or fields in a record.",
         examples: &[("[1, 2, 3] | len", "3"), (r#""abc" | len"#, "3")],
     },
+    // ── the E1 corpus's working set ─────────────────────────────────────
+    //
+    // Everything below is a builtin the benchmark corpus actually calls. They
+    // were all described by name-splitting -- `from-json` as "From-json" with
+    // no parameters, `sort_by` as "Sort by" with none, `str` as "Str" -- and
+    // four of them (`from_json`, `group_by`, `mean`, `to_string`) could not be
+    // looked up at all, because they live in the dispatcher's fallback half
+    // which the catalogue never walked.
+    //
+    // `benches/agentic/PREREGISTERED_E7.md` names this as the thing that would
+    // make the AetherShell arm lose for a fixable reason rather than a
+    // fundamental one, so it lands before that experiment runs.
+    Signature {
+        name: "from-json",
+        aliases: &["from_json"],
+        subject: Some(Ty::Str),
+        params: &[],
+        returns: "Any",
+        doc: "Parse a JSON string into typed values.",
+        examples: &[
+            (r#"cat("issues.json") | from_json | len"#, "500"),
+            (r#""[1, 2]" | from_json"#, "[1, 2]"),
+        ],
+    },
+    Signature {
+        name: "group",
+        aliases: &["group_by", "group-object", "Group-Object"],
+        subject: Some(Ty::Array),
+        params: &[req("key", Ty::Str, "field name to group on")],
+        returns: "Array",
+        doc: "Group records by a field, returning {Name, Count, Group} records.",
+        examples: &[(
+            r#"[{user: "a"}, {user: "a"}, {user: "b"}] | group_by("user") | len"#,
+            "2",
+        )],
+    },
+    Signature {
+        name: "avg",
+        aliases: &["mean"],
+        subject: Some(Ty::Array),
+        params: &[],
+        returns: "Float",
+        doc: "Arithmetic mean of a numeric array.",
+        examples: &[
+            ("[1, 2, 3, 4] | mean", "2.5"),
+            ("[1, 2] | avg | round(2)", "1.5"),
+        ],
+    },
+    Signature {
+        name: "str",
+        aliases: &["to_string"],
+        subject: Some(Ty::Any),
+        params: &[],
+        returns: "String",
+        doc: "Render any value as a string.",
+        examples: &[(r#"to_string(42) + "!""#, r#""42!""#)],
+    },
+    Signature {
+        name: "sort_by",
+        aliases: &[],
+        subject: Some(Ty::Array),
+        // `key` is deliberately `Any` and optional. It takes a field name or a
+        // lambda, `"desc"` may follow it, and calling it with no key at all
+        // must reach the builtin's own error, which names both accepted forms
+        // -- a better message than a declaration can give, and one
+        // `tests/sort_by_key.rs` asserts. Declaring `key: String, required`
+        // rejected the lambda form and replaced that message with a worse one.
+        params: &[
+            opt(
+                "key",
+                Ty::Any,
+                "field name (String), or fn(record) -> Any",
+            ),
+            opt("order", Ty::Str, r#""desc" for descending; default ascending"#),
+        ],
+        returns: "Array",
+        doc: "Sort an array of records by a field name or a lambda.",
+        examples: &[
+            (r#"[{n: 2}, {n: 1}] | sort_by("n") | first | fn(r) => r.n"#, "1"),
+            (r#"sort_by(rows, "size", "desc")"#, "largest first"),
+            ("[{n: 2}, {n: 1}] | sort_by(fn(r) => r.n)", "[{n: 1}, {n: 2}]"),
+        ],
+    },
+    Signature {
+        name: "sort",
+        aliases: &[],
+        subject: Some(Ty::Array),
+        params: &[],
+        returns: "Array",
+        doc: "Sort an array ascending by natural ordering.",
+        examples: &[("[3, 1, 2] | sort", "[1, 2, 3]")],
+    },
+    Signature {
+        name: "first",
+        aliases: &[],
+        subject: Some(Ty::Array),
+        params: &[],
+        returns: "Any",
+        doc: "First element of an array.",
+        examples: &[("[1, 2, 3] | first", "1")],
+    },
+    Signature {
+        name: "last",
+        aliases: &[],
+        subject: Some(Ty::Array),
+        params: &[],
+        returns: "Any",
+        doc: "Last element of an array.",
+        examples: &[("[1, 2, 3] | last", "3")],
+    },
+    Signature {
+        name: "flatten",
+        aliases: &[],
+        subject: Some(Ty::Array),
+        params: &[],
+        returns: "Array",
+        doc: "Flatten one level of nesting.",
+        examples: &[("[[1, 2], [3]] | flatten", "[1, 2, 3]")],
+    },
+    Signature {
+        name: "unique",
+        aliases: &[],
+        subject: Some(Ty::Array),
+        params: &[],
+        returns: "Array",
+        doc: "Remove duplicate elements, preserving first-seen order.",
+        examples: &[("[1, 2, 1, 3] | unique", "[1, 2, 3]")],
+    },
+    Signature {
+        name: "any",
+        aliases: &[],
+        subject: Some(Ty::Array),
+        // The subject is NOT listed as a parameter: `validate` already shifts
+        // past it for the direct-call form `any(array, predicate)`. Listing it
+        // too counted it twice and refused the corpus's own `any(r.labels,
+        // fn(l) => ...)` -- caught by running E1, not by the type checker.
+        // Optional: `any([false, true])` over an array of booleans is a
+        // documented form with its own tests. Declaring the predicate required
+        // refused it -- caught by `tests/builtin_consistent_syntax.rs`, which
+        // is what a suite is for.
+        params: &[opt(
+            "predicate",
+            Ty::Lambda,
+            "fn(element) -> Bool; omit to test the elements themselves",
+        )],
+        returns: "Bool",
+        doc: "True when the predicate holds for at least one element, or when               any element is itself true.",
+        examples: &[
+            (r#"any(["a", "b"], fn(l) => l == "b")"#, "true"),
+            ("[1, 2] | any(fn(x) => x > 1)", "true"),
+            ("any([false, true, false])", "true"),
+        ],
+    },
+    Signature {
+        name: "all",
+        aliases: &[],
+        subject: Some(Ty::Array),
+        params: &[opt(
+            "predicate",
+            Ty::Lambda,
+            "fn(element) -> Bool; omit to test the elements themselves",
+        )],
+        returns: "Bool",
+        doc: "True when the predicate holds for every element, or when every               element is itself true.",
+        examples: &[
+            ("[2, 3] | all(fn(x) => x > 1)", "true"),
+            ("all([true, false, true])", "false"),
+        ],
+    },
+    Signature {
+        name: "contains",
+        aliases: &[],
+        subject: Some(Ty::Any),
+        params: &[req("needle", Ty::Any, "substring or element to look for")],
+        returns: "Bool",
+        doc: "Whether a string contains a substring, or an array an element.",
+        examples: &[(r#"contains("security fix", "security")"#, "true")],
+    },
+    Signature {
+        name: "lower",
+        aliases: &[],
+        subject: Some(Ty::Str),
+        params: &[],
+        returns: "String",
+        doc: "Convert a string to lowercase.",
+        examples: &[(r#"lower("ABC")"#, r#""abc""#)],
+    },
 ];
 
 /// The declaration for `name`, if it has one.
 pub fn signature_of(name: &str) -> Option<&'static Signature> {
-    SIGNATURES.iter().find(|s| s.name == name)
+    SIGNATURES
+        .iter()
+        .find(|s| s.name == name)
+        .or_else(|| SIGNATURES.iter().find(|s| s.aliases.contains(&name)))
 }
 
 /// Check a call against its declaration, if it has one.

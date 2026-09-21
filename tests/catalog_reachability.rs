@@ -14,46 +14,19 @@
 //! registering them is a product decision left open.
 //!
 //! This test is what keeps that gap at zero.
+//!
+//! It also used to only half-watch. The catalog enumerated `BUILTIN_LOOKUP`
+//! alone, so the dispatcher's whole fallback half -- `from_json`, `group_by`,
+//! `select`, `str`, `measure` and ~200 more -- was neither advertised nor
+//! checked: invisible to an agent rather than misdescribed to one, which this
+//! test could not see because there was nothing advertised to compare. Now
+//! that the catalog walks both halves, `reachable` asks `is_dispatched`
+//! instead of consulting a hand-copied list of the fallback names, which had
+//! drifted 27 entries out of date the moment it was needed.
 
 use aethershell::agent_api::{ontology_describe_json, ontology_manifest_json};
 use aethershell::builtins::BUILTIN_LOOKUP;
 use serde_json::Value as J;
-
-/// Names the dispatcher serves from its fallback `match` rather than from
-/// `BUILTIN_LOOKUP`, so absence from the table is not absence from the shell.
-///
-/// Kept explicit and short. Anything added here is a claim that the name is
-/// reachable by some other route -- verify it before adding, because an
-/// unchecked entry turns this test into decoration.
-const SERVED_BY_FALLBACK: &[&str] = &[
-    // Option constructors, capitalised.
-    "Some",
-    "None",
-    // PowerShell-style cmdlets.
-    "Get-Files",
-    "Get-Content",
-    "Select-Object",
-    "Where-Object",
-    "ForEach-Object",
-    "Sort-Object",
-    "Group-Object",
-    "Measure-Object",
-    // Nushell-style data commands.
-    "from-json",
-    "to-json",
-    "from-csv",
-    "to-csv",
-    "from-yaml",
-    "to-yaml",
-    "from_json",
-    "to_json",
-    "from_csv",
-    "to_csv",
-    "from_yaml",
-    "to_yaml",
-    "columns",
-    "describe",
-];
 
 /// Every builtin name the ontology describes, walked category by category --
 /// the same route an agent takes.
@@ -83,8 +56,15 @@ fn advertised_builtins() -> Vec<String> {
 }
 
 fn reachable(name: &str) -> bool {
-    BUILTIN_LOOKUP.contains_key(name)
-        || SERVED_BY_FALLBACK.contains(&name)
+    // Ask the dispatcher, not a copy of it. `SERVED_BY_FALLBACK`, removed here, was a
+    // hand-maintained transcription of the fallback half, and it was
+    // incomplete: when the catalog started enumerating that half (it had been
+    // advertising only `BUILTIN_LOOKUP`), 27 genuinely-callable builtins --
+    // `select`, `str`, `group`, `measure`, `is_type`, `foreach`, the
+    // `ontology_*` family -- were reported as unreachable. Every one of them
+    // runs. A test guarding against a second source of truth should not itself
+    // be one; `is_dispatched` covers both halves by construction.
+    aethershell::builtins::is_dispatched(name)
         // The catalog carries a few display-cased names whose lookup entry is
         // lowercase; treat a case-insensitive hit as reachable, since the
         // dispatcher resolves them.
@@ -130,7 +110,7 @@ fn the_reachability_check_can_actually_fail() {
     );
     assert!(
         reachable("Some"),
-        "a fallback-served name must resolve, or the allow-list is not wired"
+        "a fallback-served name must resolve, or `is_dispatched` is only \n         seeing the lookup half"
     );
 }
 

@@ -41,7 +41,7 @@ so it cannot be quietly dropped.
 **Corpus.** The ten questions already in `corpus.mjs`, over the same 500
 `cli/cli` records, checked against the same oracle. Nothing new to validate.
 
-**Arms.** Four, one per surface:
+**Arms.** Five, one per surface (the fifth added by Amendment 1):
 
 | Arm | Reference material supplied |
 | --- | --- |
@@ -49,13 +49,14 @@ so it cannot be quietly dropped.
 | jq | the JSON schema only |
 | AetherShell (default) | the schema + `ontology_describe` output for the ~20 relevant builtins |
 | AetherShell (agentic) | the schema + the same ontology + the 1,196-token cheatsheet |
+| AetherShell (agentic, no cheatsheet) | the schema + the same ontology — the control |
 
 The asymmetry in reference material *is the hypothesis*: the borrowed surfaces
 need none. Supplying AetherShell's ontology and cheatsheet is the steel-manned
 version of our own side, not a handicap on theirs.
 
-**Model.** One frontier model, temperature 0, one attempt per question per arm,
-no retries, no tool access, no repository access. The prompt asks only for the
+**Model.** One frontier model, one attempt per question per arm (temperature per
+Amendment 1), no retries, no tool access, no repository access. The prompt asks only for the
 command, in a fenced block, with no prose.
 
 **Blinding.** Arm order randomised per question. The prompts are fixed in this
@@ -67,8 +68,10 @@ the oracle with the existing `normalise`. First-try correct or not — no partia
 credit, no "close enough". Tokens counted with the same exact cl100k path as
 every other experiment.
 
-**Sample size.** 10 questions × 4 arms × 5 seeds = 200 generations. Small, and
-stated as small: this detects a large effect and will not resolve a subtle one.
+**Sample size.** ~~10 questions × 4 arms × 5 seeds = 200 generations. Small, and
+stated as small: this detects a large effect and will not resolve a subtle
+one.~~ — superseded by Amendment 1 below; the original wording is kept struck
+through because it was internally inconsistent and that is worth seeing.
 
 ## What would falsify each claim
 
@@ -98,6 +101,41 @@ run as a fifth arm.
 
 ## Cost
 
-200 generations of a few hundred tokens each. Small enough that the reason it
-has not been run is a budget decision rather than a technical one, and it should
-be made explicitly rather than by default.
+Headline tier: **50 generations** of a few hundred tokens each (see Amendment
+1). Small enough that the reason it has not been run is a budget decision rather
+than a technical one, and it should be made explicitly rather than by default.
+The conditional variance tier would add 200 more.
+
+## Amendment 1 — 2026-09-21, before the first generation
+
+**The protocol as first written could not be executed.** It specified
+*temperature 0* and *5 seeds* in the same breath. At temperature 0 the five
+seeds are five identical generations, so the stated sample of 200 was really a
+sample of 40, and the four duplicates would have inflated any significance test
+run over them.
+
+This is recorded rather than quietly corrected because the point of the file is
+that the protocol is fixed before the numbers exist. It is being amended before
+the first generation, with no results in hand, and the original text is struck
+through above rather than deleted.
+
+**Resolved as two tiers:**
+
+| Tier | Setting | Generations | Purpose |
+| --- | --- | --- | --- |
+| Headline | temperature 0, 1 generation per (question, arm) | 10 × 5 = **50** | What the model deterministically does with each syntax |
+| Variance | temperature 0.7, 4 further seeds per (question, arm) | 10 × 5 × 4 = **200** | Run only if the headline arms are within 2 of each other |
+
+The headline is the pre-registered result. The variance tier exists so that a
+close headline is not over-read, and it is explicitly *conditional* — running it
+after seeing a decisive headline would be choosing the analysis that suits the
+answer.
+
+**A fifth arm** is added, as the original "known limits" section already
+recommended: AetherShell agentic **without** the cheatsheet. It is the cheapest
+control and the one that tests whether the cheatsheet is a real cost or a real
+benefit.
+
+**What has not changed:** the corpus, the oracle, `normalise`, the arm-order
+randomisation, the no-retries rule, the scoring (first-try correct, executed
+against the corpus, no partial credit), and the exact cl100k token path.
