@@ -403,7 +403,7 @@ pub static SIGNATURES: &[Signature] = &[
         doc: "Sort an array of records by a field name or a lambda.",
         examples: &[
             (r#"[{n: 2}, {n: 1}] | sort_by("n") | first | fn(r) => r.n"#, "1"),
-            (r#"sort_by(rows, "size", "desc")"#, "largest first"),
+            (r#"[{n: 1}, {n: 2}] | sort_by("n", "desc") | first | fn(r) => r.n"#, "2"),
             ("[{n: 2}, {n: 1}] | sort_by(fn(r) => r.n)", "[{n: 1}, {n: 2}]"),
         ],
     },

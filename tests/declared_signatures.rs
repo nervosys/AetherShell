@@ -450,3 +450,100 @@ fn non_vacuity_the_corpus_form_check_can_fail() {
         "an out-of-range argument is being accepted; the checks above prove nothing"
     );
 }
+
+#[test]
+fn every_declaration_accepts_its_own_examples() {
+    // The examples are the part an agent copies, and they are also the cheapest
+    // possible check that a declaration is not narrower than the builtin: if a
+    // declaration rejects its own documented form, it will reject the agent's.
+    //
+    // `every_declaration_carries_a_worked_example` only asserted the example
+    // *mentions* the builtin. That is testing the description of the thing.
+    // This runs it.
+    //
+    // Only an E_BAD_ARG naming this builtin counts as a failure. An example
+    // that reaches for a file this test does not have fails for an unrelated
+    // reason, and that reason is still proof the call shape was accepted and
+    // the body ran.
+    for sig in SIGNATURES {
+        for (code, _) in sig.examples {
+            let Ok(stmts) = aethershell::parser::parse_program(code) else {
+                panic!("{}'s example does not parse: {code}", sig.name);
+            };
+            if let Err(e) = aethershell::eval::eval_program(&stmts, &mut Env::new()) {
+                let msg = e.to_string();
+                assert!(
+                    !(msg.contains("E_BAD_ARG") && msg.contains(sig.name)),
+                    "{}'s declaration rejects its own example.
+  example: {code}
+  {msg}",
+                    sig.name
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn a_self_contained_example_produces_the_result_it_claims() {
+    // An example with a wrong expected value is a lie in the catalogue, which
+    // is the one place an agent has no way to check.
+    //
+    // Examples that touch the filesystem or the environment are skipped by
+    // name, not silently: each skip is listed, so the list cannot quietly grow
+    // to cover a failure.
+    const NEEDS_THE_WORLD: &[&str] = &["env", "db_json_to_sqlite"];
+    // `Value`'s Display writes ANSI colour unconditionally -- there is no TTY
+    // check in it -- so a comparison against a plain string must strip it.
+    fn plain(s: &str) -> String {
+        let mut out = String::new();
+        let mut chars = s.chars();
+        while let Some(c) = chars.next() {
+            if c == '\u{1b}' {
+                for c in chars.by_ref() {
+                    if c == 'm' {
+                        break;
+                    }
+                }
+            } else {
+                out.push(c);
+            }
+        }
+        out
+    }
+    let strip = |s: &str| plain(s).trim().trim_matches('"').to_string();
+
+    let mut checked = 0;
+    for sig in SIGNATURES {
+        if NEEDS_THE_WORLD.contains(&sig.name) {
+            continue;
+        }
+        for (code, want) in sig.examples {
+            if code.contains("issues.json") {
+                continue; // needs the benchmark corpus; covered by benches/agentic
+            }
+            let stmts = aethershell::parser::parse_program(code)
+                .unwrap_or_else(|e| panic!("{}: {code}: {e}", sig.name));
+            let got =
+                aethershell::eval::eval_program(&stmts, &mut Env::new()).unwrap_or_else(|e| {
+                    panic!(
+                        "{}'s example failed to run: {code}
+  {e}",
+                        sig.name
+                    )
+                });
+            assert_eq!(
+                strip(&format!("{got}")),
+                strip(want),
+                "{}'s example claims the wrong result: {code}",
+                sig.name
+            );
+            checked += 1;
+        }
+    }
+    // Non-vacuity: a skip list that swallowed everything would pass silently.
+    assert!(
+        checked >= 25,
+        "only {checked} examples were actually executed; the skips have eaten the test"
+    );
+}
