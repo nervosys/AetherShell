@@ -39,7 +39,7 @@ experiment that would close the gap.
 | **E4** | `safety.mjs` | Seven dangerous operations, scored by whether the file outside the jail actually changed. One arm is a live `ae agent serve` with no flags, because that is the surface an agent really drives. |
 | **E5** | `environment.mjs` | The same listing under six locales, timezones and terminal widths: do the bytes change? |
 | **E6** | `bashcompat.mjs` | Thirty-two everyday bash one-liners through the compatibility transpiler: how many run unchanged? |
-| **E7** | `PREREGISTERED_E7.md` | **Pre-registered, not yet run.** Does a model write a borrowed syntax (SQL, jq) correctly on the first attempt more often than an invented one? Written down before the numbers exist, because it can falsify a direction this project is invested in. |
+| **E7** | `e7.mjs`, `e7-prompts/`, `PREREGISTERED_E7.md` | **Harness ready; not yet run against a model.** Does a model write a borrowed syntax (SQL, jq) correctly on the first attempt more often than an invented one? Pre-registered before the numbers exist, because it can falsify a direction this project is invested in. |
 
 ## Running them
 
@@ -52,6 +52,8 @@ node benches/agentic/errors.mjs    /tmp/aebench     # E3
 node benches/agentic/safety.mjs    /tmp/aebench     # E4
 node benches/agentic/environment.mjs .              # E5, against this repo
 node benches/agentic/bashcompat.mjs .               # E6, against this repo
+node benches/agentic/e7.mjs /tmp/aebench --replay      # E7 harness check, no model, no spend
+node benches/agentic/e7.mjs /tmp/aebench --provider anthropic   # E7 for real
 ```
 
 Requires `ae` on PATH plus whichever comparators are installed; engines whose
@@ -118,3 +120,27 @@ version of `EXPECT` was written through a script whose escaping ate every
 backslash, leaving patterns like `/d{4,}/` — four literal letter d's — in the
 table whose one job was to catch output that is not an answer. A broken oracle
 is worse than no oracle, because it reads as rigour.
+
+## E7 will not run without being able to fail
+
+E7 calls a model, so its harness cannot be checked by reading it. `--replay`
+pushes the *known-good* commands from `corpus.mjs` through the identical
+prompt-hash, extraction, execution, oracle and scoring path. Before any of
+that, a self-check asserts the scorer marks a wrong-but-valid command, an
+erroring command, an empty answer and a plausible placeholder as **incorrect**,
+and that extraction rejects prose with no fenced block. If any of those pass
+when they should fail, the runner exits 3 and reports nothing — a scorer that
+cannot tell right from wrong produces numbers that mean nothing, which is
+exactly how E2 once scored `[{…}, {…}, …]` as the cheapest correct answer in
+the benchmark.
+
+The first replay run reported `sql 0/10` on commands known to be correct,
+because the host had no `sqlite3`. An arm whose interpreter is absent is now
+named and **skipped, never scored**: absence and failure must not look alike,
+or every comparative number here is worthless.
+
+The prompts in `e7-prompts/` are hashed into every result file. A run whose
+hash differs from an earlier run is a different experiment and is reported
+separately. The ontology the AetherShell arms receive is generated at run time
+from the shell under test, not pasted into the prompts, so the reference
+material and the shell cannot drift apart.

@@ -139,3 +139,32 @@ benefit.
 **What has not changed:** the corpus, the oracle, `normalise`, the arm-order
 randomisation, the no-retries rule, the scoring (first-try correct, executed
 against the corpus, no partial credit), and the exact cl100k token path.
+
+## Status — 2026-09-21: harness ready, not run
+
+`e7.mjs` implements this protocol and `e7-prompts/` holds the frozen prompts.
+What has been done, and what has not:
+
+**Done.** The scoring path is exercised end to end by `--replay`, which feeds
+the known-good corpus commands through it: jq, AetherShell, agentic and the
+agentic control all score 10/10, and a per-run self-check proves the scorer
+marks a wrong-but-valid command, an erroring command, an empty answer and a
+plausible placeholder as incorrect. The `sql` arm is skipped and named on this
+host because `sqlite3` is not installed — the first replay reported it as
+`0/10`, which is a missing tool wearing the costume of a model that cannot
+write SQL, and is now impossible.
+
+**Also done, and it was a prerequisite this file asked for.** "We wrote the
+AetherShell reference material" above warned that a poor ontology would make
+that arm lose for a fixable reason. It was worse than poor: four of the
+builtins the answers require (`from_json`, `group_by`, `mean`, `to_string`)
+were not in the ontology at all, because the catalogue walked only one of the
+dispatcher's two halves. `e7.mjs` now refuses to run if any builtin in the
+working set is missing from the ontology, rather than quietly handing an arm
+a hobbled reference.
+
+**Not done: no model has been called.** This environment has no provider
+credentials and no local endpoint. The headline tier is 50 generations and
+wants an explicit budget decision, which is what the Cost section above says
+it should get. Nothing in this file has been revised in the light of a result,
+because there is no result.
