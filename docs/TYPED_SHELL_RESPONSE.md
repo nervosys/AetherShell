@@ -366,6 +366,38 @@ denial, an index past the end — expressed in each shell.
 | bash | 10/10 | 0/10 | 1/10 | **5/10** | **42** |
 | PowerShell | 8/10 | 0/10 | 1/10 | 0/10 | 114 |
 
+> **The 10/10 is real and does not generalise, and we measured that too.**
+> Those are ten failures chosen to be representative. Sweeping the *whole*
+> catalogue — 1,052 builtins, each handed an argument no builtin can accept,
+> every call through `--agent --policy strict` in a jail so the effect gate
+> refuses anything dangerous before it runs — gives a different picture:
+>
+> | Response to a nonsense argument | Builtins |
+> | --- | ---: |
+> | accepted it and answered | 507 |
+> | `E_BAD_ARG` | 227 |
+> | **`E_UNKNOWN`** | **156** |
+> | `E_NEEDS_APPROVAL` (the gate, correctly) | 142 |
+> | other coded | 20 |
+>
+> **Nearly 15% of the catalogue reports a type error with the one code an
+> agent is told not to reason about** — `cat: path must be a string`,
+> `file_append: path must be a string` — built ad hoc instead of through the
+> shared `expect_*` helpers that produce `E_BAD_ARG`.
+>
+> `cat` was among them, and it appears in every E1 query. Declaring it moved it
+> across: the sweep read 157 before and 156 after, with `E_BAD_ARG` going
+> 226 -> 227. One builtin, one column, and the counts agree — which is also the
+> cheapest evidence that the sweep measures what it claims.
+>
+> So the honest claim is narrower than the row above: on ten representative
+> failures AetherShell codes all ten, and across the catalogue it codes about
+> 85% of them. Both numbers are ours and both are reproducible
+> (`tests/uncoded_failure_census.rs` holds the line for the core;
+> `benches/agentic/` has the sweep). A benchmark of ten hand-picked cases is
+> exactly the kind of thing that flatters the party running it, which is the
+> criticism this document makes of others.
+
 **The first measurement put AetherShell at 9/10 and nushell at 10/10, and we
 changed the shell rather than the benchmark.** The row above is after that fix;
 the row before it was 9/10 codes, 9/10 hints, 129 bytes. §7 describes what was

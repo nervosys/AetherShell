@@ -993,6 +993,40 @@ pub static SIGNATURES: &[Signature] = &[
             (r#""abcdef" | slice(1, 3)"#, r#""bc""#),
         ],
     },
+    Signature {
+        // `subject: None` on purpose. With a piped subject `cat` is a
+        // passthrough -- `"Cargo.toml" | cat` returns the string, it does not
+        // read the file -- so the path is a parameter, not a subject. Declaring
+        // a subject would have made `cat("Cargo.toml")` treat the path as the
+        // subject and then complain the path was missing.
+        //
+        // `path` is optional for the same reason: required would refuse the
+        // passthrough form. That leaves `cat()` still answering E_UNKNOWN ("no
+        // file specified"), which a declaration cannot reach -- the contract is
+        // "a piped subject OR a path" and this model cannot say that. Two of
+        // the three defects go, and the third is written down rather than
+        // implied:
+        //
+        //   cat({unexpected: true})        was E_UNKNOWN, now E_BAD_ARG
+        //   cat("Cargo.toml", "README.md") silently ignored the second file
+        //   cat()                          still E_UNKNOWN; needs a body change
+        name: "cat",
+        category: Some("FileSystem"),
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[opt(
+            "path",
+            Ty::Str,
+            "file to read; omit when the content arrives through the pipe",
+        )],
+        returns: "String",
+        doc: "Read a file as text, or pass piped text through unchanged.",
+        examples: &[
+            (r#"(cat("Cargo.toml") | len) > 0"#, "true"),
+            (r#""passthrough" | cat"#, r#""passthrough""#),
+        ],
+    },
 ];
 
 /// The declaration for `name`, if it has one.

@@ -36,6 +36,7 @@ experiment that would close the gap.
 | **E1** | `corpus.mjs`, `run.mjs` | Ten queries over 500 real GitHub issues, in six engines, against an oracle. Replicates the Vercel post's setup. |
 | **E2** | `shellops.mjs` | Eight ordinary repository operations — the per-turn cost of the shell itself, in two AetherShell render modes. |
 | **E3** | `errors.mjs` | Ten induced failures per shell: exit status, machine-readable code, repair hint, byte cost. |
+| **E3b** | `uncoded.mjs` | The same question as E3, asked of all 1,052 catalogued builtins instead of ten chosen ones: how many report a failure an agent can branch on? |
 | **E4** | `safety.mjs` | Seven dangerous operations, scored by whether the file outside the jail actually changed. One arm is a live `ae agent serve` with no flags, because that is the surface an agent really drives. |
 | **E5** | `environment.mjs` | The same listing under six locales, timezones and terminal widths: do the bytes change? |
 | **E6** | `bashcompat.mjs` | Thirty-two everyday bash one-liners through the compatibility transpiler: how many run unchanged? |
@@ -49,6 +50,7 @@ node benches/agentic/run.mjs       /tmp/aebench 7   # E1, median of 7
 node benches/agentic/report.mjs    /tmp/aebench     # exact BPE, writes report.md
 node benches/agentic/run-shellops.mjs . /tmp/aebench 7   # E2, median of 7
 node benches/agentic/errors.mjs    /tmp/aebench     # E3
+node benches/agentic/uncoded.mjs                    # E3b, sweeps the catalogue
 node benches/agentic/safety.mjs    /tmp/aebench     # E4
 node benches/agentic/environment.mjs .              # E5, against this repo
 node benches/agentic/bashcompat.mjs .               # E6, against this repo
