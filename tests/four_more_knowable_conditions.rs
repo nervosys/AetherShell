@@ -142,3 +142,52 @@ fn an_interactive_dialog_refuses_rather_than_blocks() {
         "human mode still has a desktop; the guard is for agent mode only"
     );
 }
+
+/// A failure to *start* a process is classified, not propagated raw.
+///
+/// `Command::new(prog).output()?` was the single commonest uncoded failure in
+/// the shell: 346 sites propagating a bare `io::Error`, so what reached an
+/// agent was `No such file or directory (os error 2)` -- no code, no builtin,
+/// not even the name of the program that was missing. Thirteen builtins were
+/// still answering exactly that *after* `E_TOOL_MISSING` shipped, because that
+/// code had been added only at the sites which already named their tool.
+#[test]
+fn a_process_that_cannot_start_says_which_one_and_why() {
+    use std::io::{Error, ErrorKind};
+
+    let absent = aethershell::safety::spawn_error(
+        "env_go",
+        "go",
+        &Error::new(
+            ErrorKind::NotFound,
+            "No such file or directory (os error 2)",
+        ),
+    );
+    let s = absent.to_string();
+    assert!(
+        s.contains("E_TOOL_MISSING"),
+        "expected a coded failure: {s}"
+    );
+    assert!(
+        s.contains("go"),
+        "the program's name is the one thing the bare io::Error lost: {s}"
+    );
+
+    // Not every spawn failure is an absent tool, and "install it" would be
+    // advice that cannot work for the rest.
+    let unusable = aethershell::safety::spawn_error(
+        "env_go",
+        "go",
+        &Error::new(ErrorKind::PermissionDenied, "permission denied"),
+    );
+    let u = unusable.to_string();
+    assert!(
+        !u.contains("is not installed"),
+        "go IS installed; it could not be run: {u}"
+    );
+    assert!(u.contains("E_TOOL_FAILED"), "expected E_TOOL_FAILED: {u}");
+
+    // Non-vacuity: the two branches must actually differ, or this asserts that
+    // one message happens to contain two substrings.
+    assert_ne!(s, u, "both spawn failures rendered identically");
+}

@@ -25,21 +25,22 @@
 //     285  E_BAD_ARG
 //     142  E_NEEDS_APPROVAL   (the gate, correctly)
 //      96  E_BUDGET_EXCEEDED  (AETHER_MAX_NET=0, correctly)
-//      20  E_TOOL_MISSING
-//      13  E_UNKNOWN
+//      31  E_TOOL_MISSING
 //      12  E_UNKNOWN_BUILTIN
 //       5  E_TOOL_FAILED
 //       4  E_NO_UI
+//       4  E_NOT_FOUND
 //       4  E_POLICY_DENY
 //       3  E_PARSE
 //       3  E_BAD_STATE
-//       2  E_NOT_FOUND
 //       2  E_UNIMPLEMENTED
 //
-// All 13 remaining E_UNKNOWNs are an external tool absent on THIS host,
-// propagating a bare io::Error with no context -- not even the tool's name
-// survives, so there is nothing to convert without reading each one. The
-// shell's own uncoded failures are at ZERO.
+//       0  E_UNKNOWN
+//
+// **E_UNKNOWN does not appear.** Every one of 1,052 builtins, handed an
+// argument none of them can accept, answers with a code an agent can branch
+// on. The code still exists -- it is the boundary's guarantee that nothing
+// escapes as bare prose -- but nothing in the catalogue reaches it.
 //
 // How it got here, and why the edit count is the wrong number to quote:
 //
@@ -50,10 +51,12 @@
 //    56  171 argument errors -> arg_err              42 builtins moved
 //    29   38 tail sites + a census false positive    27 builtins moved
 //    13   the last 16, read one at a time            16 builtins moved
+//     2  346 bare `Command::new(p).output()?` sites  11 builtins moved
+//     0   2 that wrapped the io error in prose        2 builtins moved
 //
-// ~390 edits, ~144 builtins moved: about 30% each time, five times running,
-// because most converted sites sit behind an earlier failure path this probe
-// never reaches. Quote what the sweep reports.
+// ~750 edits, ~157 builtins moved. The 346-site pass is the clearest case of
+// why the diff is the wrong number: it moved eleven builtins out of the
+// uncoded column. Quote what the sweep reports.
 //
 // **The last sixteen were not what the label said.** Five passes of regex
 // conversion had left a residue described as "the shell's own argument and
@@ -74,7 +77,15 @@
 // review, but because the sweep kept naming conditions the shell could
 // identify perfectly well and was declining to.
 //
-// Six error shapes had to be found, and each was invisible from the edit
+// **And the biggest single class was invisible to all of it.** 346 sites read
+// `Command::new(prog).output()?`, propagating a bare io::Error: what reached
+// an agent was `No such file or directory (os error 2)` -- no code, no
+// builtin, not even the name of the program that was missing. Thirteen
+// builtins still answered that *after* E_TOOL_MISSING shipped, because the
+// code had been added only where the tool was already named. The sweep could
+// not tell those apart from a missing *file*, which is the next entry.
+//
+// Seven error shapes had to be found, and each was invisible from the edit
 // side until a builtin that was supposed to be fixed still was not:
 //   * a dot in the builtin label (`a2a.register`)
 //   * no article (`must be integer`)
@@ -84,14 +95,23 @@
 //   * a multi-line `anyhow!` with no format args at all
 //   * prose that named a code the taxonomy did not have (`E_UNIMPLEMENTED:`),
 //     so the message said one thing and the `code` field said another
+//   * `.output()?` with no message at all -- the largest class, and the one
+//     no grep for error text could ever have found
 //
-// And two false positives of its own. `diagnose({unexpected: true})` SUCCEEDS,
-// returning `{code: E_UNKNOWN}` about the record it was handed; grepping the
-// output for a code without checking that the call failed counted the shell's
-// own diagnostic machinery as a defect. And the sweep was once run against a
-// `release/ae` five days older than `src/`, which reported `head` and `uniq`
-// -- both long fixed -- as still broken. The staleness guard below exists
-// because of that: a number from the wrong binary is worse than no number.
+// And three false positives of its own, all flattering:
+//   * `diagnose({unexpected: true})` SUCCEEDS, returning `{code: E_UNKNOWN}`
+//     about the record it was handed. Grepping output for a code without
+//     checking that the call failed counted the shell's own diagnostic
+//     machinery as a defect.
+//   * one run used a `release/ae` five days older than `src/` and reported
+//     `head` and `uniq` -- both long fixed -- as still broken. Hence the
+//     staleness guard below.
+//   * the tool-absent classifier matched `No such file or directory` alone,
+//     which is a missing *file* as much as a missing *program*. It filed
+//     `make_targets` (no Makefile) and `ssh_config` (no ~/.ssh/config) under
+//     the bucket this sweep does not score, excusing two real defects. A
+//     classifier that quietly moves defects into its own unscored bucket is
+//     the most flattering bug a benchmark can have.
 //// `tests/uncoded_failure_census.rs` holds the line at zero for the
 // data-transformation categories, in-process and fast enough for CI. This
 // sweep is the wide, slow version: 1,052 subprocesses, far too slow for the
@@ -183,7 +203,17 @@ if (names.size < 500) {
 // worth coding (a missing tool is a knowable, branchable condition, not an
 // unknown one), but it is a different defect from a type error, and counting
 // them together inflates a claim about the shell with a fact about this host.
-const TOOL_ABSENT = /not found: No such file|No such file or directory \(os error 2\)/;
+//
+// This test used to be `/No such file or directory \(os error 2\)/` alone,
+// which is the message for a missing *file* as much as a missing *program*.
+// It filed `make_targets` (no Makefile here) and `ssh_config` (no ~/.ssh/config)
+// under "external tool absent" and so excused them from the count -- a
+// classifier that quietly moves defects into the bucket it does not score is
+// the most flattering bug a benchmark can have. Both were real, both are now
+// E_NOT_FOUND. The pattern now requires evidence that a *process* failed to
+// start.
+const TOOL_ABSENT =
+    /not found: No such file|is not installed|could not start `|program not found/;
 
 const tally = new Map();
 const uncoded = [];

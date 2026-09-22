@@ -394,9 +394,9 @@ more codes carried more of the diagnosis in the message.)
 > | `E_BAD_ARG` | 285 |
 > | `E_NEEDS_APPROVAL` (the gate, correctly) | 142 |
 > | `E_BUDGET_EXCEEDED` (`AETHER_MAX_NET=0`, correctly) | 96 |
-> | `E_TOOL_MISSING` | 20 |
-> | **`E_UNKNOWN`** | **13** |
-> | other coded (8 kinds) | 35 |
+> | `E_TOOL_MISSING` | 31 |
+> | other coded (7 kinds) | 37 |
+> | **`E_UNKNOWN`** | **0** |
 >
 > **Two findings, and the second one corrected the first.** The sweep began at
 > 157 uncoded. Of those, 57 turned out not to be argument-handling defects at
@@ -447,13 +447,40 @@ more codes carried more of the diagnosis in the message.)
 > (`tx_begin`, `sso.init`), so its hint names the prerequisite rather than a
 > corrected argument.
 >
-> **The shell's own uncoded failures are now zero.**
+> **And then the largest class turned out to be invisible to all of it.** The
+> thirteen that remained were reported as "an external tool absent on this
+> host" — a fact about the laptop, not the shell, and therefore excused. Two
+> of the thirteen were not that at all: `make_targets` could not find a
+> `Makefile` and `ssh_config` could not find `~/.ssh/config`. The classifier
+> matched `No such file or directory`, which is a missing *file* as much as a
+> missing *program*, and had been quietly moving real defects into the bucket
+> it does not score. **A classifier that files defects under its own unscored
+> category is the most flattering bug a benchmark can have**, and it is the
+> third one this harness has had pointed at itself.
+>
+> The other eleven shared one shape: `Command::new(prog).output()?`. The `?`
+> propagates a bare `io::Error`, so what reached an agent was `No such file or
+> directory (os error 2)` — no code, no builtin, **not even the name of the
+> program that was missing**. There were **346 such sites**, and thirteen
+> builtins were still answering that way *after* `E_TOOL_MISSING` shipped,
+> because that code had been added only where the tool was already named. No
+> grep for error text could have found them: they have no error text.
+>
+> `spawn_error` now classifies every one — `NotFound` is `E_TOOL_MISSING`,
+> anything else (a permission denial, a broken interpreter line) is
+> `E_TOOL_FAILED`, because "install it" is advice that cannot work for a tool
+> that is present but unusable.
+>
+> **Every failure in the catalogue is now coded.**
 >
 > ```
-> uncoded: 13 of 1052
+> uncoded: 0 of 1052
 >       0  the shell's own: argument and type errors (0.0%)
->      13  external tool absent on this host
+>       0  external tool absent on this host
 > ```
+>
+> `E_UNKNOWN` still exists — it is the boundary's guarantee that nothing
+> escapes as bare prose — but nothing in the catalogue reaches it.
 >
 > A seventh finding came from the sweep's own conduct rather than its results.
 > One run was made against an `ae` binary five days older than `src/`, and it
@@ -463,12 +490,13 @@ more codes carried more of the diagnosis in the message.)
 > build is worse than no number: it is the same error as quoting the edit count
 > instead of the sweep, one level further out.
 >
-> The count came down 157 -> 156 -> 140 -> 98 -> 56 -> 29 -> 13 across six
-> passes. Two lines on method, both unflattering to the method:
+> The count came down 157 -> 156 -> 140 -> 98 -> 56 -> 29 -> 13 -> 2 -> 0
+> across eight passes. Two lines on method, both unflattering to the method:
 >
-> **~390 edits moved ~144 builtins** — about 30%, five times running — because
-> most converted sites sit behind an earlier failure path the probe never
-> reaches. Quote what the sweep reports, not the diff.
+> **~750 edits moved ~157 builtins.** The last large pass is the clearest case:
+> 346 call sites rewritten, **eleven builtins** moved out of the uncoded
+> column. Most converted sites sit behind an earlier failure path the probe
+> never reaches. Quote what the sweep reports, not the diff.
 >
 > And every regex pass was quietly incomplete, in a way invisible from the edit
 > side: a dot in `a2a.register`, a missing article in `must be integer`, and a
@@ -479,11 +507,11 @@ more codes carried more of the diagnosis in the message.)
 > remove.
 >
 > So the honest claim is narrower than the row above: on ten representative
-> failures AetherShell codes all ten; across the catalogue it codes **98.8%**
-> of them (13 of 1,052 uncoded), and **100% of the failures that are its own**
-> — every remaining one is an external tool missing from the measuring
-> machine, which is a fact about this laptop and not about the shell. Quoting
-> either number without the other would be picking whichever flatters.
+> failures AetherShell codes all ten; across the whole catalogue of 1,052 it
+> codes **all of them**. That claim needed eight passes, four new codes and
+> three corrections to the measuring instrument to become true, and it was
+> false in a flattering direction at every intermediate step — which is the
+> only reason worth writing any of this down.
 >
 > Both numbers are ours and both are reproducible
 > (`tests/uncoded_failure_census.rs` holds the line for the core;

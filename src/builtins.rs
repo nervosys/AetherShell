@@ -20459,7 +20459,8 @@ fn bi_proc_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 "-Command",
                 "Get-Process | Select-Object Id,ProcessName,CPU,WorkingSet64 | ConvertTo-Json",
             ])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("proc_list", "powershell", &e))?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -20519,7 +20520,10 @@ fn bi_proc_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(not(target_os = "windows"))]
     {
         // ps aux works on both Linux and macOS
-        let output = std::process::Command::new("ps").args(["aux"]).output()?;
+        let output = std::process::Command::new("ps")
+            .args(["aux"])
+            .output()
+            .map_err(|e| crate::safety::spawn_error("proc_list", "ps", &e))?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
             let mut procs = Vec::new();
@@ -20579,7 +20583,9 @@ fn bi_proc_kill(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         if force {
             cmd.arg("/F");
         }
-        let output = cmd.output()?;
+        let output = cmd
+            .output()
+            .map_err(|e| crate::safety::spawn_error("proc_kill", "taskkill", &e))?;
         Ok(Value::Bool(output.status.success()))
     }
     #[cfg(not(target_os = "windows"))]
@@ -20595,7 +20601,8 @@ fn bi_proc_kill(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         };
         let output = std::process::Command::new("kill")
             .args([sig, &pid.to_string()])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("proc_kill", "kill", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
 }
@@ -20615,7 +20622,8 @@ fn bi_proc_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &cmd])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("proc_info", "powershell", &e))?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -20666,7 +20674,8 @@ fn bi_proc_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("ps")
             .args(["-p", &pid.to_string(), "-o", "pid=,comm=,stat=,ppid="])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("proc_info", "ps", &e))?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
             let parts: Vec<&str> = text.trim().split_whitespace().collect();
@@ -20765,7 +20774,8 @@ fn bi_proc_wait(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     "-Command",
                     &crate::ps_script!("Get-Process -Id {} -ErrorAction SilentlyContinue", pid),
                 ])
-                .output()?;
+                .output()
+                .map_err(|e| crate::safety::spawn_error("proc_wait", "powershell", &e))?;
             if !output.status.success() || output.stdout.is_empty() {
                 return Ok(Value::Bool(true));
             }
@@ -20774,7 +20784,8 @@ fn bi_proc_wait(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         {
             let output = std::process::Command::new("kill")
                 .args(["-0", &pid.to_string()])
-                .output()?;
+                .output()
+                .map_err(|e| crate::safety::spawn_error("proc_wait", "kill", &e))?;
             if !output.status.success() {
                 return Ok(Value::Bool(true));
             }
@@ -20798,7 +20809,8 @@ fn bi_proc_exists(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 "-Command",
                 &crate::ps_script!("Get-Process -Id {} -ErrorAction SilentlyContinue", pid),
             ])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("proc_exists", "powershell", &e))?;
         Ok(Value::Bool(
             output.status.success() && !output.stdout.is_empty(),
         ))
@@ -20807,7 +20819,8 @@ fn bi_proc_exists(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("kill")
             .args(["-0", &pid.to_string()])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("proc_exists", "kill", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
 }
@@ -20826,7 +20839,8 @@ fn bi_proc_children(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &cmd])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("proc_children", "powershell", &e))?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -20847,7 +20861,8 @@ fn bi_proc_children(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("pgrep")
             .args(["-P", &pid.to_string()])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("proc_children", "pgrep", &e))?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
             let children: Vec<Value> = text
@@ -20875,7 +20890,8 @@ fn bi_proc_parent(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &cmd])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("proc_parent", "powershell", &e))?;
         if output.status.success() {
             let ppid: i64 = String::from_utf8_lossy(&output.stdout)
                 .trim()
@@ -20899,7 +20915,8 @@ fn bi_proc_parent(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("ps")
             .args(["-p", &pid.to_string(), "-o", "ppid="])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("proc_parent", "ps", &e))?;
         if output.status.success() {
             let ppid: i64 = String::from_utf8_lossy(&output.stdout)
                 .trim()
@@ -20923,7 +20940,8 @@ fn bi_proc_priority(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let cmd = crate::ps_script!("(Get-Process -Id {}).PriorityClass", pid);
         let output = std::process::Command::new("powershell")
             .args(["-Command", &cmd])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("proc_priority", "powershell", &e))?;
         if output.status.success() {
             let class = String::from_utf8_lossy(&output.stdout).trim().to_string();
             let nice: i64 = match class.as_str() {
@@ -20945,7 +20963,8 @@ fn bi_proc_priority(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("ps")
             .args(["-o", "ni=", "-p", &pid.to_string()])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("proc_priority", "ps", &e))?;
         if output.status.success() {
             let nice: i64 = String::from_utf8_lossy(&output.stdout)
                 .trim()
@@ -20999,14 +21018,16 @@ fn bi_proc_set_priority(args: Vec<Value>, _input: Option<Value>) -> Result<Value
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &cmd])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("proc_set_priority", "powershell", &e))?;
         Ok(Value::Bool(output.status.success()))
     }
     #[cfg(not(target_os = "windows"))]
     {
         let output = std::process::Command::new("renice")
             .args([&priority.to_string(), "-p", &pid.to_string()])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("proc_set_priority", "renice", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
 }
@@ -21022,7 +21043,8 @@ fn bi_proc_cpu_usage(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let cmd = crate::ps_script!("(Get-Process -Id {}).CPU", pid);
         let output = std::process::Command::new("powershell")
             .args(["-Command", &cmd])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("proc_cpu_usage", "powershell", &e))?;
         if output.status.success() {
             let cpu: f64 = String::from_utf8_lossy(&output.stdout)
                 .trim()
@@ -21035,7 +21057,8 @@ fn bi_proc_cpu_usage(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("ps")
             .args(["-o", "%cpu=", "-p", &pid.to_string()])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("proc_cpu_usage", "ps", &e))?;
         if output.status.success() {
             let cpu: f64 = String::from_utf8_lossy(&output.stdout)
                 .trim()
@@ -21058,7 +21081,8 @@ fn bi_proc_mem_usage(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let cmd = crate::ps_script!("(Get-Process -Id {}).WorkingSet64", pid);
         let output = std::process::Command::new("powershell")
             .args(["-Command", &cmd])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("proc_mem_usage", "powershell", &e))?;
         if output.status.success() {
             let mem: i64 = String::from_utf8_lossy(&output.stdout)
                 .trim()
@@ -21071,7 +21095,8 @@ fn bi_proc_mem_usage(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("ps")
             .args(["-o", "rss=", "-p", &pid.to_string()])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("proc_mem_usage", "ps", &e))?;
         if output.status.success() {
             let mem: i64 = String::from_utf8_lossy(&output.stdout)
                 .trim()
@@ -21094,7 +21119,8 @@ fn bi_proc_threads(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let cmd = crate::ps_script!("(Get-Process -Id {}).Threads.Count", pid);
         let output = std::process::Command::new("powershell")
             .args(["-Command", &cmd])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("proc_threads", "powershell", &e))?;
         if output.status.success() {
             let threads: i64 = String::from_utf8_lossy(&output.stdout)
                 .trim()
@@ -21114,7 +21140,8 @@ fn bi_proc_threads(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("ps")
             .args(["-M", "-p", &pid.to_string()])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("proc_threads", "ps", &e))?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
             // ps -M shows one line per thread; subtract 1 for the header
@@ -21140,7 +21167,8 @@ fn bi_proc_env(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &cmd])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("proc_env", "powershell", &e))?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -21174,7 +21202,8 @@ fn bi_proc_env(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         // macOS: use ps to get command environment (limited)
         let output = std::process::Command::new("ps")
             .args(["-p", &pid.to_string(), "-E", "-o", "command="])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("proc_env", "ps", &e))?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
             let mut rec = std::collections::BTreeMap::new();
@@ -21211,7 +21240,8 @@ fn bi_proc_cwd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("lsof")
             .args(["-p", &pid.to_string(), "-Fn", "-d", "cwd"])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("proc_cwd", "lsof", &e))?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
             for line in text.lines() {
@@ -21235,7 +21265,8 @@ fn bi_proc_exe(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let cmd = crate::ps_script!("(Get-Process -Id {}).Path", pid);
         let output = std::process::Command::new("powershell")
             .args(["-Command", &cmd])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("proc_exe", "powershell", &e))?;
         if output.status.success() {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&output.stdout).trim().to_string(),
@@ -21253,7 +21284,8 @@ fn bi_proc_exe(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("ps")
             .args(["-p", &pid.to_string(), "-o", "comm="])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("proc_exe", "ps", &e))?;
         if output.status.success() {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&output.stdout).trim().to_string(),
@@ -21278,7 +21310,8 @@ fn bi_proc_cmdline(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &cmd])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("proc_cmdline", "powershell", &e))?;
         if output.status.success() {
             let cmdline = String::from_utf8_lossy(&output.stdout).trim().to_string();
             // Split command line into args (simple split; Windows command lines are complex)
@@ -21305,7 +21338,8 @@ fn bi_proc_cmdline(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("ps")
             .args(["-p", &pid.to_string(), "-o", "args="])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("proc_cmdline", "ps", &e))?;
         if output.status.success() {
             let cmdline = String::from_utf8_lossy(&output.stdout).trim().to_string();
             let args: Vec<Value> = cmdline
@@ -21329,7 +21363,8 @@ fn bi_proc_start_time(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
         let cmd = crate::ps_script!("(Get-Process -Id {}).StartTime.ToString('o')", pid);
         let output = std::process::Command::new("powershell")
             .args(["-Command", &cmd])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("proc_start_time", "powershell", &e))?;
         if output.status.success() {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&output.stdout).trim().to_string(),
@@ -21340,7 +21375,8 @@ fn bi_proc_start_time(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
     {
         let output = std::process::Command::new("ps")
             .args(["-o", "lstart=", "-p", &pid.to_string()])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("proc_start_time", "ps", &e))?;
         if output.status.success() {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&output.stdout).trim().to_string(),
@@ -21365,7 +21401,8 @@ fn bi_proc_suspend(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("kill")
             .args(["-STOP", &pid.to_string()])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("proc_suspend", "kill", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
 }
@@ -21384,7 +21421,8 @@ fn bi_proc_resume(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("kill")
             .args(["-CONT", &pid.to_string()])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("proc_resume", "kill", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
 }
@@ -21535,7 +21573,8 @@ fn bi_fs_chown(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("chown")
             .args([&format!("{}:{}", uid, gid), &path])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("fs_chown", "chown", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
     #[cfg(not(unix))]
@@ -21846,7 +21885,8 @@ fn bi_fs_df(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("powershell")
             .args(["-Command", "Get-PSDrive -PSProvider FileSystem | Select-Object Name,Used,Free | ConvertTo-Json"])
-            .output()?;
+            .output()
+        .map_err(|e| crate::safety::spawn_error("fs_df", "powershell", &e))?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -21893,7 +21933,10 @@ fn bi_fs_df(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(not(target_os = "windows"))]
     {
         // df -h works on both Linux and macOS
-        let output = std::process::Command::new("df").args(["-h"]).output()?;
+        let output = std::process::Command::new("df")
+            .args(["-h"])
+            .output()
+            .map_err(|e| crate::safety::spawn_error("fs_df", "df", &e))?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
             let mut drives = Vec::new();
@@ -21935,7 +21978,8 @@ fn bi_fs_mounts(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 "-Command",
                 "Get-PSDrive -PSProvider FileSystem | Select-Object Name,Root | ConvertTo-Json",
             ])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("fs_mounts", "powershell", &e))?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -21986,7 +22030,9 @@ fn bi_fs_mounts(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "macos")]
     {
         // macOS: use mount command (no /proc/mounts)
-        let output = std::process::Command::new("mount").output()?;
+        let output = std::process::Command::new("mount")
+            .output()
+            .map_err(|e| crate::safety::spawn_error("fs_mounts", "mount", &e))?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
             let mut result = Vec::new();
@@ -22028,7 +22074,8 @@ fn bi_net_interfaces(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
     {
         let output = std::process::Command::new("powershell")
             .args(["-Command", "Get-NetAdapter | Select-Object Name,InterfaceDescription,MacAddress,Status,LinkSpeed | ConvertTo-Json"])
-            .output()?;
+            .output()
+        .map_err(|e| crate::safety::spawn_error("net_interfaces", "powershell", &e))?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -22113,7 +22160,8 @@ fn bi_net_interfaces(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
         // Fallback: text parsing
         let output = std::process::Command::new("ip")
             .args(["addr", "show"])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("net_interfaces", "ip", &e))?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
             let mut interfaces = Vec::new();
@@ -22141,7 +22189,9 @@ fn bi_net_interfaces(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
     #[cfg(target_os = "macos")]
     {
         // macOS: use ifconfig (ip command not available by default)
-        let output = std::process::Command::new("ifconfig").output()?;
+        let output = std::process::Command::new("ifconfig")
+            .output()
+            .map_err(|e| crate::safety::spawn_error("net_interfaces", "ifconfig", &e))?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
             let mut interfaces = Vec::new();
@@ -22174,7 +22224,8 @@ fn bi_net_ip(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("powershell")
             .args(["-Command", "Get-NetIPAddress | Where-Object {$_.AddressFamily -eq 'IPv4'} | Select-Object IPAddress,InterfaceAlias | ConvertTo-Json"])
-            .output()?;
+            .output()
+        .map_err(|e| crate::safety::spawn_error("net_ip", "powershell", &e))?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -22213,7 +22264,8 @@ fn bi_net_ip(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("hostname")
             .args(["-I"])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("net_ip", "hostname", &e))?;
         if output.status.success() {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&output.stdout).trim().to_string(),
@@ -22225,7 +22277,8 @@ fn bi_net_ip(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         // macOS: hostname -I doesn't exist; use ipconfig getifaddr en0
         let output = std::process::Command::new("ipconfig")
             .args(["getifaddr", "en0"])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("net_ip", "ipconfig", &e))?;
         if output.status.success() {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&output.stdout).trim().to_string(),
@@ -22254,7 +22307,8 @@ fn bi_net_dns_lookup(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     crate::safety::ps_quote(&hostname)
                 ),
             ])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("net_dns_lookup", "powershell", &e))?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -22280,7 +22334,8 @@ fn bi_net_dns_lookup(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("dig")
             .args(["+short", &hostname])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("net_dns_lookup", "dig", &e))?;
         if output.status.success() {
             let ips: Vec<Value> = String::from_utf8_lossy(&output.stdout)
                 .lines()
@@ -22311,7 +22366,8 @@ fn bi_net_dns_reverse(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
                     crate::safety::ps_quote(&ip)
                 ),
             ])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("net_dns_reverse", "powershell", &e))?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -22336,7 +22392,8 @@ fn bi_net_dns_reverse(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
     {
         let output = std::process::Command::new("dig")
             .args(["+short", "-x", &ip])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("net_dns_reverse", "dig", &e))?;
         if output.status.success() {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&output.stdout).trim().to_string(),
@@ -22437,7 +22494,8 @@ fn bi_net_ping(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("ping")
             .args(["-n", &count.to_string(), &host])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("net_ping", "ping", &e))?;
         let text = String::from_utf8_lossy(&output.stdout);
         Ok(parse_ping_output(&text, &host))
     }
@@ -22445,7 +22503,8 @@ fn bi_net_ping(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("ping")
             .args(["-c", &count.to_string(), &host])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("net_ping", "ping", &e))?;
         let text = String::from_utf8_lossy(&output.stdout);
         return Ok(parse_ping_output(&text, &host));
     }
@@ -22464,7 +22523,8 @@ fn bi_net_traceroute(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("tracert")
             .args(["-d", &host])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("net_traceroute", "tracert", &e))?;
         let text = String::from_utf8_lossy(&output.stdout);
         let hops: Vec<Value> = text
             .lines()
@@ -22501,7 +22561,8 @@ fn bi_net_traceroute(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("traceroute")
             .args(["-n", &host])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("net_traceroute", "traceroute", &e))?;
         let text = String::from_utf8_lossy(&output.stdout);
         let hops: Vec<Value> = text
             .lines()
@@ -22543,7 +22604,8 @@ fn bi_net_connections(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     {
         let output = std::process::Command::new("powershell")
             .args(["-Command", "Get-NetTCPConnection | Select-Object LocalAddress,LocalPort,RemoteAddress,RemotePort,State | ConvertTo-Json"])
-            .output()?;
+            .output()
+        .map_err(|e| crate::safety::spawn_error("net_connections", "powershell", &e))?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -22600,7 +22662,10 @@ fn bi_net_connections(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     #[cfg(target_os = "linux")]
     {
         // Try ss with JSON output first
-        let output = std::process::Command::new("ss").args(["-tuln"]).output()?;
+        let output = std::process::Command::new("ss")
+            .args(["-tuln"])
+            .output()
+            .map_err(|e| crate::safety::spawn_error("net_connections", "ss", &e))?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
             let mut conns = Vec::new();
@@ -22624,7 +22689,8 @@ fn bi_net_connections(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         // macOS: use netstat (ss not available)
         let output = std::process::Command::new("netstat")
             .args(["-an", "-p", "tcp"])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("net_connections", "netstat", &e))?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
             let mut conns = Vec::new();
@@ -22671,7 +22737,10 @@ fn bi_net_ports(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_net_arp(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("arp").args(["-a"]).output()?;
+    let output = std::process::Command::new("arp")
+        .args(["-a"])
+        .output()
+        .map_err(|e| crate::safety::spawn_error("net_arp", "arp", &e))?;
     let text = String::from_utf8_lossy(&output.stdout);
     let entries: Vec<Value> = text
         .lines()
@@ -22730,7 +22799,8 @@ fn bi_net_route(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("powershell")
             .args(["-Command", "Get-NetRoute | Select-Object DestinationPrefix,NextHop,InterfaceAlias,RouteMetric | ConvertTo-Json"])
-            .output()?;
+            .output()
+        .map_err(|e| crate::safety::spawn_error("net_route", "powershell", &e))?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -22768,7 +22838,8 @@ fn bi_net_route(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("ip")
             .args(["-j", "route"])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("net_route", "ip", &e))?;
         if output.status.success() {
             if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
                 let items = match &json {
@@ -22799,7 +22870,10 @@ fn bi_net_route(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             }
         }
         // Fallback to text parsing
-        let output = std::process::Command::new("ip").args(["route"]).output()?;
+        let output = std::process::Command::new("ip")
+            .args(["route"])
+            .output()
+            .map_err(|e| crate::safety::spawn_error("net_route", "ip", &e))?;
         let text = String::from_utf8_lossy(&output.stdout);
         let routes: Vec<Value> = text
             .lines()
@@ -22831,7 +22905,8 @@ fn bi_net_route(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("netstat")
             .args(["-rn"])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("net_route", "netstat", &e))?;
         let text = String::from_utf8_lossy(&output.stdout);
         let routes: Vec<Value> = text
             .lines()
@@ -22866,7 +22941,8 @@ fn bi_net_stats(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // netstat -s works on all platforms
     let output = std::process::Command::new("netstat")
         .args(["-s"])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("net_stats", "netstat", &e))?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).to_string(),
     ))
@@ -22920,7 +22996,8 @@ fn bi_net_bandwidth(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         // macOS: netstat -ib shows per-interface byte counts
         let output = std::process::Command::new("netstat")
             .args(["-ib"])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("net_bandwidth", "netstat", &e))?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
             let lines: Vec<&str> = text.lines().collect();
@@ -22962,7 +23039,8 @@ fn bi_net_bandwidth(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("powershell")
             .args(["-Command", "Get-NetAdapterStatistics | Select-Object Name,ReceivedBytes,SentBytes,ReceivedUnicastPackets,SentUnicastPackets | ConvertTo-Json"])
-            .output()?;
+            .output()
+        .map_err(|e| crate::safety::spawn_error("net_bandwidth", "powershell", &e))?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -23020,7 +23098,8 @@ fn bi_net_latency(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("ping")
             .args(["-n", "1", &host])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("net_latency", "ping", &e))?;
         if output.status.success() {
             let elapsed = start.elapsed().as_millis();
             return Ok(Value::Int(elapsed as i64));
@@ -23030,7 +23109,8 @@ fn bi_net_latency(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("ping")
             .args(["-c", "1", &host])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("net_latency", "ping", &e))?;
         if output.status.success() {
             let elapsed = start.elapsed().as_millis();
             return Ok(Value::Int(elapsed as i64));
@@ -23147,7 +23227,8 @@ fn bi_sys_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 "-Command",
                 "(Get-CimInstance Win32_OperatingSystem).Caption",
             ])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("sys_info", "powershell", &e))?;
         if output.status.success() {
             rec.insert(
                 "os_name".to_string(),
@@ -23207,7 +23288,9 @@ fn bi_sys_hostname(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let output = std::process::Command::new("hostname").output()?;
+        let output = std::process::Command::new("hostname")
+            .output()
+            .map_err(|e| crate::safety::spawn_error("sys_hostname", "hostname", &e))?;
         if output.status.success() {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&output.stdout).trim().to_string(),
@@ -23228,14 +23311,19 @@ fn bi_sys_arch(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_sys_kernel(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
-        let output = std::process::Command::new("ver").output()?;
+        let output = std::process::Command::new("ver")
+            .output()
+            .map_err(|e| crate::safety::spawn_error("sys_kernel", "ver", &e))?;
         Ok(Value::Str(
             String::from_utf8_lossy(&output.stdout).trim().to_string(),
         ))
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let output = std::process::Command::new("uname").args(["-r"]).output()?;
+        let output = std::process::Command::new("uname")
+            .args(["-r"])
+            .output()
+            .map_err(|e| crate::safety::spawn_error("sys_kernel", "uname", &e))?;
         return Ok(Value::Str(
             String::from_utf8_lossy(&output.stdout).trim().to_string(),
         ));
@@ -23247,7 +23335,8 @@ fn bi_sys_uptime(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("powershell")
             .args(["-Command", "((Get-Date) - (Get-CimInstance Win32_OperatingSystem).LastBootUpTime).TotalSeconds"])
-            .output()?;
+            .output()
+        .map_err(|e| crate::safety::spawn_error("sys_uptime", "powershell", &e))?;
         if output.status.success() {
             let secs: f64 = String::from_utf8_lossy(&output.stdout)
                 .trim()
@@ -23270,7 +23359,8 @@ fn bi_sys_uptime(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         // macOS: sysctl kern.boottime returns "{ sec = 1234567890, usec = 0 }"
         let output = std::process::Command::new("sysctl")
             .args(["-n", "kern.boottime"])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("sys_uptime", "sysctl", &e))?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
             // Parse "{ sec = 1234567890, usec = 0 }" or "sec = 1234567890"
@@ -23303,7 +23393,8 @@ fn bi_sys_boot_time(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 "-Command",
                 "(Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToString('o')",
             ])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("sys_boot_time", "powershell", &e))?;
         if output.status.success() {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&output.stdout).trim().to_string(),
@@ -23312,7 +23403,10 @@ fn bi_sys_boot_time(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let output = std::process::Command::new("uptime").args(["-s"]).output()?;
+        let output = std::process::Command::new("uptime")
+            .args(["-s"])
+            .output()
+            .map_err(|e| crate::safety::spawn_error("sys_boot_time", "uptime", &e))?;
         if output.status.success() {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&output.stdout).trim().to_string(),
@@ -23328,7 +23422,8 @@ fn bi_sys_cpu_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("powershell")
             .args(["-Command", "Get-CimInstance Win32_Processor | Select-Object Name,NumberOfCores,NumberOfLogicalProcessors,MaxClockSpeed | ConvertTo-Json"])
-            .output()?;
+            .output()
+        .map_err(|e| crate::safety::spawn_error("sys_cpu_info", "powershell", &e))?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -23465,7 +23560,8 @@ fn bi_sys_cpu_freq(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 "-Command",
                 "(Get-CimInstance Win32_Processor).MaxClockSpeed",
             ])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("sys_cpu_freq", "powershell", &e))?;
         if output.status.success() {
             let mhz: i64 = String::from_utf8_lossy(&output.stdout)
                 .trim()
@@ -23507,7 +23603,8 @@ fn bi_sys_mem_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("powershell")
             .args(["-Command", "Get-CimInstance Win32_OperatingSystem | Select-Object TotalVisibleMemorySize,FreePhysicalMemory | ConvertTo-Json"])
-            .output()?;
+            .output()
+        .map_err(|e| crate::safety::spawn_error("sys_mem_info", "powershell", &e))?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -23607,7 +23704,8 @@ fn bi_sys_swap_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("powershell")
             .args(["-Command", "Get-CimInstance Win32_PageFileUsage | Select-Object Name,CurrentUsage,AllocatedBaseSize | ConvertTo-Json"])
-            .output()?;
+            .output()
+        .map_err(|e| crate::safety::spawn_error("sys_swap_info", "powershell", &e))?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -23773,7 +23871,8 @@ fn bi_sys_load_avg(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 "-Command",
                 "(Get-CimInstance Win32_Processor).LoadPercentage",
             ])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("sys_load_avg", "powershell", &e))?;
         if output.status.success() {
             let load: f64 = String::from_utf8_lossy(&output.stdout)
                 .trim()
@@ -23798,7 +23897,8 @@ fn bi_sys_users(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 "-Command",
                 "Get-LocalUser | Select-Object Name,Enabled,LastLogon | ConvertTo-Json",
             ])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("sys_users", "powershell", &e))?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -23861,7 +23961,8 @@ fn bi_sys_groups(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 "-Command",
                 "Get-LocalGroup | Select-Object Name,Description | ConvertTo-Json",
             ])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("sys_groups", "powershell", &e))?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -23964,7 +24065,8 @@ fn bi_sys_locale(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("powershell")
             .args(["-Command", "(Get-Culture).Name"])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("sys_locale", "powershell", &e))?;
         if output.status.success() {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&output.stdout).trim().to_string(),
@@ -23985,7 +24087,8 @@ fn bi_sys_timezone(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("powershell")
             .args(["-Command", "(Get-TimeZone).Id"])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("sys_timezone", "powershell", &e))?;
         if output.status.success() {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&output.stdout).trim().to_string(),
@@ -24016,7 +24119,8 @@ fn bi_svc_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 "-Command",
                 "Get-Service | Select-Object Name,DisplayName,Status | ConvertTo-Json",
             ])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("svc_list", "powershell", &e))?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -24060,7 +24164,8 @@ fn bi_svc_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 "--no-pager",
                 "--output=json",
             ])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("svc_list", "systemctl", &e))?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -24072,7 +24177,8 @@ fn bi_svc_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("launchctl")
             .arg("list")
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("svc_list", "launchctl", &e))?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
             // Format: PID\tStatus\tLabel
@@ -24118,7 +24224,8 @@ fn bi_svc_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     crate::safety::ps_quote(&name)
                 ),
             ])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("svc_status", "powershell", &e))?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -24142,7 +24249,8 @@ fn bi_svc_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("systemctl")
             .args(["is-active", &name])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("svc_status", "systemctl", &e))?;
         let status_text = String::from_utf8_lossy(&output.stdout).trim().to_string();
         let mut rec = std::collections::BTreeMap::new();
         rec.insert("name".to_string(), Value::Str(name.clone()));
@@ -24153,7 +24261,8 @@ fn bi_svc_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("launchctl")
             .args(["list", &name])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("svc_status", "launchctl", &e))?;
         let mut rec = std::collections::BTreeMap::new();
         rec.insert("name".to_string(), Value::Str(name.clone()));
         if output.status.success() {
@@ -24180,21 +24289,24 @@ fn bi_svc_start(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 "-Command",
                 &crate::ps_script!("Start-Service {}", crate::safety::ps_quote(&name)),
             ])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("svc_start", "powershell", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("systemctl")
             .args(["start", &name])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("svc_start", "systemctl", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
     #[cfg(target_os = "macos")]
     {
         let output = std::process::Command::new("launchctl")
             .args(["start", &name])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("svc_start", "launchctl", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
     #[allow(unreachable_code)]
@@ -24217,21 +24329,24 @@ fn bi_svc_stop(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 "-Command",
                 &crate::ps_script!("Stop-Service {}", crate::safety::ps_quote(&name)),
             ])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("svc_stop", "powershell", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("systemctl")
             .args(["stop", &name])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("svc_stop", "systemctl", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
     #[cfg(target_os = "macos")]
     {
         let output = std::process::Command::new("launchctl")
             .args(["stop", &name])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("svc_stop", "launchctl", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
     #[allow(unreachable_code)]
@@ -24254,14 +24369,16 @@ fn bi_svc_restart(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 "-Command",
                 &crate::ps_script!("Restart-Service {}", crate::safety::ps_quote(&name)),
             ])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("svc_restart", "powershell", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("systemctl")
             .args(["restart", &name])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("svc_restart", "systemctl", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
     #[cfg(target_os = "macos")]
@@ -24271,7 +24388,8 @@ fn bi_svc_restart(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .output();
         let output = std::process::Command::new("launchctl")
             .args(["start", &name])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("svc_restart", "launchctl", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
     #[allow(unreachable_code)]
@@ -24297,21 +24415,24 @@ fn bi_svc_enable(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     crate::safety::ps_quote(&name)
                 ),
             ])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("svc_enable", "powershell", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("systemctl")
             .args(["enable", &name])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("svc_enable", "systemctl", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
     #[cfg(target_os = "macos")]
     {
         let output = std::process::Command::new("launchctl")
             .args(["enable", &format!("system/{}", name)])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("svc_enable", "launchctl", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
     #[allow(unreachable_code)]
@@ -24337,21 +24458,24 @@ fn bi_svc_disable(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     crate::safety::ps_quote(&name)
                 ),
             ])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("svc_disable", "powershell", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("systemctl")
             .args(["disable", &name])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("svc_disable", "systemctl", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
     #[cfg(target_os = "macos")]
     {
         let output = std::process::Command::new("launchctl")
             .args(["disable", &format!("system/{}", name)])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("svc_disable", "launchctl", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
     #[allow(unreachable_code)]
@@ -24384,7 +24508,8 @@ fn bi_svc_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     crate::safety::ps_quote(&name), lines
                 ),
             ])
-            .output()?;
+            .output()
+        .map_err(|e| crate::safety::spawn_error("svc_logs", "powershell", &e))?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -24427,7 +24552,8 @@ fn bi_svc_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 "-o",
                 "json",
             ])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("svc_logs", "journalctl", &e))?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
             let entries: Vec<Value> = text
@@ -24459,7 +24585,8 @@ fn bi_svc_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         // Fallback: text parsing
         let output = std::process::Command::new("journalctl")
             .args(["-u", &name, "-n", &lines.to_string(), "--no-pager"])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("svc_logs", "journalctl", &e))?;
         let text = String::from_utf8_lossy(&output.stdout);
         let entries: Vec<Value> = text
             .lines()
@@ -24484,7 +24611,8 @@ fn bi_svc_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 "--style",
                 "compact",
             ])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("svc_logs", "log", &e))?;
         let text = String::from_utf8_lossy(&output.stdout);
         let entries: Vec<Value> = text
             .lines()
@@ -24541,7 +24669,8 @@ fn bi_cron_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 "-Command",
                 "Get-ScheduledTask | Select-Object TaskName,State,TaskPath | ConvertTo-Json",
             ])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("cron_list", "powershell", &e))?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -24576,7 +24705,8 @@ fn bi_cron_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("crontab")
             .args(["-l"])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("cron_list", "crontab", &e))?;
         let text = String::from_utf8_lossy(&output.stdout);
         let entries: Vec<Value> = text
             .lines()
@@ -24627,7 +24757,9 @@ fn bi_at_schedule(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_at_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(not(target_os = "windows"))]
     {
-        let output = std::process::Command::new("atq").output()?;
+        let output = std::process::Command::new("atq")
+            .output()
+            .map_err(|e| crate::safety::spawn_error("at_list", "atq", &e))?;
         let text = String::from_utf8_lossy(&output.stdout).to_string();
         let jobs: Vec<Value> = text
             .lines()
@@ -24666,7 +24798,8 @@ fn bi_startup_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("powershell")
             .args(["-Command", "Get-CimInstance Win32_StartupCommand | Select-Object Name,Command,Location | ConvertTo-Json"])
-            .output()?;
+            .output()
+        .map_err(|e| crate::safety::spawn_error("startup_list", "powershell", &e))?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -24706,7 +24839,8 @@ fn bi_startup_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 "--no-pager",
                 "--no-legend",
             ])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("startup_list", "systemctl", &e))?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
             let services: Vec<Value> = text
@@ -24733,7 +24867,8 @@ fn bi_startup_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("launchctl")
             .args(["list"])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("startup_list", "launchctl", &e))?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
             let services: Vec<Value> = text
@@ -24791,7 +24926,8 @@ fn bi_zip_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &cmd])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("zip_create", "powershell", &e))?;
         Ok(Value::Bool(output.status.success()))
     }
     #[cfg(not(target_os = "windows"))]
@@ -24801,7 +24937,8 @@ fn bi_zip_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let output = std::process::Command::new("zip")
             .arg(&archive)
             .args(&files)
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("zip_create", "zip", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
 }
@@ -24829,7 +24966,8 @@ fn bi_zip_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &cmd])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("zip_extract", "powershell", &e))?;
         Ok(Value::Bool(output.status.success()))
     }
     #[cfg(not(target_os = "windows"))]
@@ -24839,7 +24977,8 @@ fn bi_zip_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let dest = guard_local_write("zip_extract", &dest)?;
         let output = std::process::Command::new("unzip")
             .args([&archive, "-d", &dest])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("zip_extract", "unzip", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
 }
@@ -24854,7 +24993,8 @@ fn bi_zip_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("powershell")
             .args(["-Command", &crate::ps_script!("Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::OpenRead({}).Entries | Select-Object FullName,Length | ConvertTo-Json", crate::safety::ps_quote(&archive))])
-            .output()?;
+            .output()
+        .map_err(|e| crate::safety::spawn_error("zip_list", "powershell", &e))?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -24886,7 +25026,8 @@ fn bi_zip_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         crate::safety::reject_option_like("zip_list", std::slice::from_ref(&archive))?;
         let output = std::process::Command::new("unzip")
             .args(["-l", &archive])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("zip_list", "unzip", &e))?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
             // Parse unzip -l output: "  Length  Date  Time  Name" format
@@ -24942,7 +25083,8 @@ fn bi_zip_add(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .arg("-u")
             .arg(&archive)
             .args(&files)
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("zip_add", "zip", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
     #[cfg(target_os = "windows")]
@@ -24954,7 +25096,8 @@ fn bi_zip_add(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &cmd])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("zip_add", "powershell", &e))?;
         Ok(Value::Bool(output.status.success()))
     }
 }
@@ -24981,7 +25124,8 @@ fn bi_tar_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         // the belt to this braces, since not every tar honours it identically.
         .arg("--")
         .args(&files)
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("tar_create", "tar", &e))?;
     Ok(Value::Bool(output.status.success()))
 }
 
@@ -25006,7 +25150,9 @@ fn bi_tar_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let d = guard_local_write("tar_extract", &d)?;
         cmd.args(["-C", &d]);
     }
-    let output = cmd.output()?;
+    let output = cmd
+        .output()
+        .map_err(|e| crate::safety::spawn_error("tar_extract", "tar", &e))?;
     Ok(Value::Bool(output.status.success()))
 }
 
@@ -25019,7 +25165,8 @@ fn bi_tar_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     crate::safety::reject_option_like("tar_list", std::slice::from_ref(&archive))?;
     let output = std::process::Command::new("tar")
         .args(["-tvf", &archive])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("tar_list", "tar", &e))?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).to_string(),
     ))
@@ -25033,7 +25180,8 @@ fn bi_gzip_compress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     let output = std::process::Command::new("gzip")
         .args(["-k", &file])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("gzip_compress", "gzip", &e))?;
     Ok(Value::Bool(output.status.success()))
 }
 
@@ -25045,7 +25193,8 @@ fn bi_gzip_decompress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 
     let output = std::process::Command::new("gzip")
         .args(["-dk", &file])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("gzip_decompress", "gzip", &e))?;
     Ok(Value::Bool(output.status.success()))
 }
 
@@ -25057,7 +25206,8 @@ fn bi_bzip2_compress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     let output = std::process::Command::new("bzip2")
         .args(["-k", &file])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("bzip2_compress", "bzip2", &e))?;
     Ok(Value::Bool(output.status.success()))
 }
 
@@ -25069,7 +25219,8 @@ fn bi_bzip2_decompress(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 
     let output = std::process::Command::new("bzip2")
         .args(["-dk", &file])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("bzip2_decompress", "bzip2", &e))?;
     Ok(Value::Bool(output.status.success()))
 }
 
@@ -25081,7 +25232,8 @@ fn bi_xz_compress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     let output = std::process::Command::new("xz")
         .args(["-k", &file])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("xz_compress", "xz", &e))?;
     Ok(Value::Bool(output.status.success()))
 }
 
@@ -25093,7 +25245,8 @@ fn bi_xz_decompress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     let output = std::process::Command::new("xz")
         .args(["-dk", &file])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("xz_decompress", "xz", &e))?;
     Ok(Value::Bool(output.status.success()))
 }
 
@@ -25105,7 +25258,8 @@ fn bi_zstd_compress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     let output = std::process::Command::new("zstd")
         .args(["-k", &file])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("zstd_compress", "zstd", &e))?;
     Ok(Value::Bool(output.status.success()))
 }
 
@@ -25117,7 +25271,8 @@ fn bi_zstd_decompress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 
     let output = std::process::Command::new("zstd")
         .args(["-dk", &file])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("zstd_decompress", "zstd", &e))?;
     Ok(Value::Bool(output.status.success()))
 }
 
@@ -25163,14 +25318,16 @@ fn bi_archive_test(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             crate::safety::reject_option_like("archive_test", std::slice::from_ref(&file))?;
             let output = std::process::Command::new("unzip")
                 .args(["-t", &file])
-                .output()?;
+                .output()
+                .map_err(|e| crate::safety::spawn_error("archive_test", "unzip", &e))?;
             return Ok(Value::Bool(output.status.success()));
         }
     } else if file.ends_with(".tar") || file.ends_with(".tar.gz") || file.ends_with(".tgz") {
         crate::safety::reject_option_like("archive_test", std::slice::from_ref(&file))?;
         let output = std::process::Command::new("tar")
             .args(["-tf", &file])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("archive_test", "tar", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
 
@@ -25255,7 +25412,8 @@ fn bi_group_members(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     crate::safety::ps_quote(&group)
                 ),
             ])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("group_members", "powershell", &e))?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -25281,7 +25439,8 @@ fn bi_group_members(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("getent")
             .args(["group", &group])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("group_members", "getent", &e))?;
         if output.status.success() {
             let line = String::from_utf8_lossy(&output.stdout);
             if let Some(members) = line.split(':').nth(3) {
@@ -25377,7 +25536,8 @@ fn bi_sudo_check(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("powershell")
             .args(["-Command", "([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)"])
-            .output()?;
+            .output()
+        .map_err(|e| crate::safety::spawn_error("sudo_check", "powershell", &e))?;
         let is_admin = String::from_utf8_lossy(&output.stdout)
             .trim()
             .to_lowercase()
@@ -25386,7 +25546,10 @@ fn bi_sudo_check(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let output = std::process::Command::new("id").args(["-u"]).output()?;
+        let output = std::process::Command::new("id")
+            .args(["-u"])
+            .output()
+            .map_err(|e| crate::safety::spawn_error("sudo_check", "id", &e))?;
         let uid: u32 = String::from_utf8_lossy(&output.stdout)
             .trim()
             .parse()
@@ -25406,7 +25569,8 @@ fn bi_capabilities(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("capsh")
             .args(["--print"])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("capabilities", "capsh", &e))?;
         let text = String::from_utf8_lossy(&output.stdout).to_string();
         let mut rec = std::collections::BTreeMap::new();
         for line in text.lines() {
@@ -25521,17 +25685,26 @@ fn bi_pkg_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let pm = detect_package_manager();
 
     let output = match pm {
-        "apt" => std::process::Command::new("dpkg").args(["-l"]).output()?,
+        "apt" => std::process::Command::new("dpkg")
+            .args(["-l"])
+            .output()
+            .map_err(|e| crate::safety::spawn_error("pkg_list", "dpkg", &e))?,
         "dnf" | "yum" => std::process::Command::new(pm)
             .args(["list", "installed"])
-            .output()?,
-        "pacman" => std::process::Command::new("pacman").args(["-Q"]).output()?,
+            .output()
+            .map_err(|e| crate::safety::spawn_error("pkg_list", pm, &e))?,
+        "pacman" => std::process::Command::new("pacman")
+            .args(["-Q"])
+            .output()
+            .map_err(|e| crate::safety::spawn_error("pkg_list", "pacman", &e))?,
         "brew" => std::process::Command::new("brew")
             .args(["list", "--versions"])
-            .output()?,
+            .output()
+            .map_err(|e| crate::safety::spawn_error("pkg_list", "brew", &e))?,
         "winget" => std::process::Command::new("winget")
             .args(["list"])
-            .output()?,
+            .output()
+            .map_err(|e| crate::safety::spawn_error("pkg_list", "winget", &e))?,
         _ => return Ok(Value::Array(vec![])),
     };
 
@@ -25622,19 +25795,24 @@ fn bi_pkg_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = match pm {
         "apt" => std::process::Command::new("apt-cache")
             .args(["search", &query])
-            .output()?,
+            .output()
+            .map_err(|e| crate::safety::spawn_error("pkg_search", "apt-cache", &e))?,
         "dnf" | "yum" => std::process::Command::new(pm)
             .args(["search", &query])
-            .output()?,
+            .output()
+            .map_err(|e| crate::safety::spawn_error("pkg_search", pm, &e))?,
         "pacman" => std::process::Command::new("pacman")
             .args(["-Ss", &query])
-            .output()?,
+            .output()
+            .map_err(|e| crate::safety::spawn_error("pkg_search", "pacman", &e))?,
         "brew" => std::process::Command::new("brew")
             .args(["search", &query])
-            .output()?,
+            .output()
+            .map_err(|e| crate::safety::spawn_error("pkg_search", "brew", &e))?,
         "winget" => std::process::Command::new("winget")
             .args(["search", &query])
-            .output()?,
+            .output()
+            .map_err(|e| crate::safety::spawn_error("pkg_search", "winget", &e))?,
         _ => return Ok(Value::Array(vec![])),
     };
 
@@ -25694,19 +25872,24 @@ fn bi_pkg_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = match pm {
         "apt" => std::process::Command::new("apt-cache")
             .args(["show", &package])
-            .output()?,
+            .output()
+            .map_err(|e| crate::safety::spawn_error("pkg_info", "apt-cache", &e))?,
         "dnf" | "yum" => std::process::Command::new(pm)
             .args(["info", &package])
-            .output()?,
+            .output()
+            .map_err(|e| crate::safety::spawn_error("pkg_info", pm, &e))?,
         "pacman" => std::process::Command::new("pacman")
             .args(["-Qi", &package])
-            .output()?,
+            .output()
+            .map_err(|e| crate::safety::spawn_error("pkg_info", "pacman", &e))?,
         "brew" => std::process::Command::new("brew")
             .args(["info", &package])
-            .output()?,
+            .output()
+            .map_err(|e| crate::safety::spawn_error("pkg_info", "brew", &e))?,
         "winget" => std::process::Command::new("winget")
             .args(["show", &package])
-            .output()?,
+            .output()
+            .map_err(|e| crate::safety::spawn_error("pkg_info", "winget", &e))?,
         _ => return Ok(Value::Null),
     };
 
@@ -25821,10 +26004,12 @@ fn bi_pkg_files(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = match pm {
         "apt" => std::process::Command::new("dpkg")
             .args(["-L", &package])
-            .output()?,
+            .output()
+            .map_err(|e| crate::safety::spawn_error("pkg_files", "dpkg", &e))?,
         "pacman" => std::process::Command::new("pacman")
             .args(["-Ql", &package])
-            .output()?,
+            .output()
+            .map_err(|e| crate::safety::spawn_error("pkg_files", "pacman", &e))?,
         _ => return Ok(Value::Array(vec![])),
     };
 
@@ -25854,10 +26039,12 @@ fn bi_pkg_owner(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = match pm {
         "apt" => std::process::Command::new("dpkg")
             .args(["-S", &file])
-            .output()?,
+            .output()
+            .map_err(|e| crate::safety::spawn_error("pkg_owner", "dpkg", &e))?,
         "pacman" => std::process::Command::new("pacman")
             .args(["-Qo", &file])
-            .output()?,
+            .output()
+            .map_err(|e| crate::safety::spawn_error("pkg_owner", "pacman", &e))?,
         _ => return Ok(Value::Null),
     };
 
@@ -25907,7 +26094,8 @@ fn bi_pkg_verify(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = match pm {
         "apt" => std::process::Command::new("dpkg")
             .args(["-V", &package])
-            .output()?,
+            .output()
+            .map_err(|e| crate::safety::spawn_error("pkg_verify", "dpkg", &e))?,
         _ => return Ok(Value::Bool(true)),
     };
 
@@ -25924,10 +26112,12 @@ fn bi_pkg_deps(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = match pm {
         "apt" => std::process::Command::new("apt-cache")
             .args(["depends", &package])
-            .output()?,
+            .output()
+            .map_err(|e| crate::safety::spawn_error("pkg_deps", "apt-cache", &e))?,
         "pacman" => std::process::Command::new("pacman")
             .args(["-Si", &package])
-            .output()?,
+            .output()
+            .map_err(|e| crate::safety::spawn_error("pkg_deps", "pacman", &e))?,
         _ => return Ok(Value::Array(vec![])),
     };
 
@@ -25946,10 +26136,12 @@ fn bi_pkg_rdeps(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = match pm {
         "apt" => std::process::Command::new("apt-cache")
             .args(["rdepends", &package])
-            .output()?,
+            .output()
+            .map_err(|e| crate::safety::spawn_error("pkg_rdeps", "apt-cache", &e))?,
         "pacman" => std::process::Command::new("pacman")
             .args(["-Sii", &package])
-            .output()?,
+            .output()
+            .map_err(|e| crate::safety::spawn_error("pkg_rdeps", "pacman", &e))?,
         _ => return Ok(Value::Array(vec![])),
     };
 
@@ -25968,7 +26160,8 @@ fn bi_pkg_changelog(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = match pm {
         "apt" => std::process::Command::new("apt-get")
             .args(["changelog", &package])
-            .output()?,
+            .output()
+            .map_err(|e| crate::safety::spawn_error("pkg_changelog", "apt-get", &e))?,
         _ => return Ok(Value::Null),
     };
 
@@ -26082,7 +26275,8 @@ fn bi_hw_gpu(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("powershell")
             .args(["-Command", "Get-CimInstance Win32_VideoController | Select-Object Name,AdapterRAM,DriverVersion | ConvertTo-Json"])
-            .output()?;
+            .output()
+        .map_err(|e| crate::safety::spawn_error("hw_gpu", "powershell", &e))?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -26117,7 +26311,8 @@ fn bi_hw_gpu(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         // Use sh -c for proper shell pipeline expansion
         let output = std::process::Command::new("sh")
             .args(["-c", "lspci | grep -iE 'vga|3d|display'"])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("hw_gpu", "sh", &e))?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
             let gpus: Vec<Value> = text
@@ -26143,7 +26338,8 @@ fn bi_hw_gpu(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("system_profiler")
             .args(["SPDisplaysDataType", "-json"])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("hw_gpu", "system_profiler", &e))?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -26185,7 +26381,8 @@ fn bi_hw_usb(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 "-Command",
                 "Get-PnpDevice -Class USB | Select-Object FriendlyName,Status | ConvertTo-Json",
             ])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("hw_usb", "powershell", &e))?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -26214,7 +26411,9 @@ fn bi_hw_usb(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "linux")]
     {
-        let output = std::process::Command::new("lsusb").output()?;
+        let output = std::process::Command::new("lsusb")
+            .output()
+            .map_err(|e| crate::safety::spawn_error("hw_usb", "lsusb", &e))?;
         if output.status.success() {
             let devices: Vec<Value> = String::from_utf8_lossy(&output.stdout)
                 .lines()
@@ -26231,7 +26430,8 @@ fn bi_hw_usb(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("system_profiler")
             .args(["SPUSBDataType", "-json"])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("hw_usb", "system_profiler", &e))?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -26261,7 +26461,9 @@ fn bi_hw_usb(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_hw_pci(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "linux")]
     {
-        let output = std::process::Command::new("lspci").output()?;
+        let output = std::process::Command::new("lspci")
+            .output()
+            .map_err(|e| crate::safety::spawn_error("hw_pci", "lspci", &e))?;
         if output.status.success() {
             let devices: Vec<Value> = String::from_utf8_lossy(&output.stdout)
                 .lines()
@@ -26286,7 +26488,8 @@ fn bi_hw_pci(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 "-Command",
                 "Get-PnpDevice | Select-Object FriendlyName,Class | ConvertTo-Json",
             ])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("hw_pci", "powershell", &e))?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -26317,7 +26520,8 @@ fn bi_hw_pci(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("system_profiler")
             .args(["SPPCIDataType", "-json"])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("hw_pci", "system_profiler", &e))?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -26352,7 +26556,8 @@ fn bi_hw_audio(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 "-Command",
                 "Get-CimInstance Win32_SoundDevice | Select-Object Name,Status | ConvertTo-Json",
             ])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("hw_audio", "powershell", &e))?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -26381,7 +26586,10 @@ fn bi_hw_audio(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "linux")]
     {
-        let output = std::process::Command::new("aplay").args(["-l"]).output()?;
+        let output = std::process::Command::new("aplay")
+            .args(["-l"])
+            .output()
+            .map_err(|e| crate::safety::spawn_error("hw_audio", "aplay", &e))?;
         if output.status.success() {
             let devices: Vec<Value> = String::from_utf8_lossy(&output.stdout)
                 .lines()
@@ -26399,7 +26607,8 @@ fn bi_hw_audio(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("system_profiler")
             .args(["SPAudioDataType", "-json"])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("hw_audio", "system_profiler", &e))?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -26432,7 +26641,8 @@ fn bi_hw_battery(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("powershell")
             .args(["-Command", "Get-CimInstance Win32_Battery | Select-Object EstimatedChargeRemaining,BatteryStatus | ConvertTo-Json"])
-            .output()?;
+            .output()
+        .map_err(|e| crate::safety::spawn_error("hw_battery", "powershell", &e))?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -26483,7 +26693,8 @@ fn bi_hw_battery(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("pmset")
             .args(["-g", "batt"])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("hw_battery", "pmset", &e))?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
             let mut rec = std::collections::BTreeMap::new();
@@ -26538,7 +26749,8 @@ fn bi_hw_sensors(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("powershell")
             .args(["-Command", "Get-CimInstance MSAcpi_ThermalZoneTemperature -Namespace root/wmi 2>$null | Select-Object InstanceName,CurrentTemperature | ConvertTo-Json"])
-            .output()?;
+            .output()
+        .map_err(|e| crate::safety::spawn_error("hw_sensors", "powershell", &e))?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -26667,7 +26879,8 @@ public class WindowHelper {
 "#;
         let output = std::process::Command::new("powershell")
             .args(["-Command", ps_script])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_list_windows", "powershell", &e))?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -26677,7 +26890,10 @@ public class WindowHelper {
     }
     #[cfg(target_os = "linux")]
     {
-        let output = std::process::Command::new("wmctrl").args(["-l"]).output()?;
+        let output = std::process::Command::new("wmctrl")
+            .args(["-l"])
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_list_windows", "wmctrl", &e))?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
             let mut windows = Vec::new();
@@ -26725,14 +26941,16 @@ if ($hwnd -eq [IntPtr]::Zero) {{ $hwnd = [IntPtr]::new({}) }}
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_focus_window", "powershell", &e))?;
         Ok(Value::Bool(output.status.success()))
     }
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("wmctrl")
             .args(["-a", &title_or_hwnd])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_focus_window", "wmctrl", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
     // No implementation on this platform (macOS, BSD, ...). An explicit
@@ -26772,14 +26990,16 @@ $hwnd = [WindowMin]::FindWindow($null, {})
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_minimize_window", "powershell", &e))?;
         Ok(Value::Bool(output.status.success()))
     }
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("xdotool")
             .args(["search", "--name", &title, "windowminimize"])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_minimize_window", "xdotool", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
     // No implementation on this platform (macOS, BSD, ...). An explicit
@@ -26819,14 +27039,16 @@ $hwnd = [WindowMax]::FindWindow($null, {})
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_maximize_window", "powershell", &e))?;
         Ok(Value::Bool(output.status.success()))
     }
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("wmctrl")
             .args(["-r", &title, "-b", "add,maximized_vert,maximized_horz"])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_maximize_window", "wmctrl", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
     // No implementation on this platform (macOS, BSD, ...). An explicit
@@ -26866,14 +27088,16 @@ $hwnd = [WindowClose]::FindWindow($null, {})
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_close_window", "powershell", &e))?;
         Ok(Value::Bool(output.status.success()))
     }
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("wmctrl")
             .args(["-c", &title])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_close_window", "wmctrl", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
     // No implementation on this platform (macOS, BSD, ...). An explicit
@@ -26923,14 +27147,16 @@ $hwnd = [WindowMove]::FindWindow($null, {})
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_move_window", "powershell", &e))?;
         Ok(Value::Bool(output.status.success()))
     }
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("wmctrl")
             .args(["-r", &title, "-e", &format!("0,{},{},−1,−1", x, y)])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_move_window", "wmctrl", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
     // No implementation on this platform (macOS, BSD, ...). An explicit
@@ -26980,14 +27206,16 @@ $hwnd = [WindowResize]::FindWindow($null, {})
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_resize_window", "powershell", &e))?;
         Ok(Value::Bool(output.status.success()))
     }
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("wmctrl")
             .args(["-r", &title, "-e", &format!("0,−1,−1,{},{}", w, h)])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_resize_window", "wmctrl", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
     // No implementation on this platform (macOS, BSD, ...). An explicit
@@ -27031,14 +27259,18 @@ $bitmap.Save({})
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_screenshot", "powershell", &e))?;
         if output.status.success() {
             return Ok(Value::Str(path));
         }
     }
     #[cfg(target_os = "linux")]
     {
-        let output = std::process::Command::new("scrot").arg(&path).output()?;
+        let output = std::process::Command::new("scrot")
+            .arg(&path)
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_screenshot", "scrot", &e))?;
         if output.status.success() {
             return Ok(Value::Str(path));
         }
@@ -27047,7 +27279,8 @@ $bitmap.Save({})
     {
         let output = std::process::Command::new("screencapture")
             .args(["-x", &path])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_screenshot", "screencapture", &e))?;
         if output.status.success() {
             return Ok(Value::Str(path));
         }
@@ -27080,7 +27313,8 @@ fn bi_gui_screenshot_window(args: Vec<Value>, _input: Option<Value>) -> Result<V
     {
         let output = std::process::Command::new("scrot")
             .args(["-u", &path])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_screenshot_window", "scrot", &e))?;
         if output.status.success() {
             return Ok(Value::Str(path));
         }
@@ -27118,14 +27352,16 @@ public class MouseMove {{
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_mouse_move", "powershell", &e))?;
         Ok(Value::Bool(output.status.success()))
     }
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("xdotool")
             .args(["mousemove", &x.to_string(), &y.to_string()])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_mouse_move", "xdotool", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
     // No implementation on this platform (macOS, BSD, ...). An explicit
@@ -27176,7 +27412,8 @@ public class MouseClick {{
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_mouse_click", "powershell", &e))?;
         Ok(Value::Bool(output.status.success()))
     }
     #[cfg(target_os = "linux")]
@@ -27188,7 +27425,8 @@ public class MouseClick {{
         };
         let output = std::process::Command::new("xdotool")
             .args(["click", btn])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_mouse_click", "xdotool", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
     // No implementation on this platform (macOS, BSD, ...). An explicit
@@ -27241,7 +27479,8 @@ fn bi_gui_mouse_drag(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 "mouseup",
                 "1",
             ])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_mouse_drag", "xdotool", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
     #[cfg(not(target_os = "linux"))]
@@ -27275,7 +27514,8 @@ public class MouseScroll {{
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_mouse_scroll", "powershell", &e))?;
         Ok(Value::Bool(output.status.success()))
     }
     #[cfg(target_os = "linux")]
@@ -27283,7 +27523,8 @@ public class MouseScroll {{
         let dir = if amount > 0 { "4" } else { "5" };
         let output = std::process::Command::new("xdotool")
             .args(["click", "--repeat", &amount.abs().to_string(), dir])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_mouse_scroll", "xdotool", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
     // No implementation on this platform (macOS, BSD, ...). An explicit
@@ -27315,7 +27556,8 @@ $point = New-Object MousePos+POINT
 "#;
         let output = std::process::Command::new("powershell")
             .args(["-Command", ps_script])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_mouse_position", "powershell", &e))?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -27327,7 +27569,8 @@ $point = New-Object MousePos+POINT
     {
         let output = std::process::Command::new("xdotool")
             .args(["getmouselocation"])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_mouse_position", "xdotool", &e))?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
             let mut rec = std::collections::BTreeMap::new();
@@ -27364,14 +27607,16 @@ Add-Type -AssemblyName System.Windows.Forms
                     crate::safety::ps_quote(&key)
                 ),
             ])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_key_press", "powershell", &e))?;
         Ok(Value::Bool(output.status.success()))
     }
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("xdotool")
             .args(["key", &key])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_key_press", "xdotool", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
     // No implementation on this platform (macOS, BSD, ...). An explicit
@@ -27400,7 +27645,8 @@ fn bi_gui_key_combo(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let combo = keys.join("+");
         let output = std::process::Command::new("xdotool")
             .args(["key", &combo])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_key_combo", "xdotool", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
     #[cfg(target_os = "windows")]
@@ -27417,7 +27663,8 @@ Add-Type -AssemblyName System.Windows.Forms
                     crate::safety::ps_quote(&combo)
                 ),
             ])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_key_combo", "powershell", &e))?;
         Ok(Value::Bool(output.status.success()))
     }
     // No implementation on this platform (macOS, BSD, ...). An explicit
@@ -27457,14 +27704,16 @@ Add-Type -AssemblyName System.Windows.Forms
                     crate::safety::ps_quote(&escaped)
                 ),
             ])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_type_text", "powershell", &e))?;
         Ok(Value::Bool(output.status.success()))
     }
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("xdotool")
             .args(["type", "--", &text])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_type_text", "xdotool", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
     // No implementation on this platform (macOS, BSD, ...). An explicit
@@ -27498,7 +27747,8 @@ $title = New-Object System.Text.StringBuilder 256
 "#;
         let output = std::process::Command::new("powershell")
             .args(["-Command", ps_script])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_get_active_window", "powershell", &e))?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -27510,7 +27760,8 @@ $title = New-Object System.Text.StringBuilder 256
     {
         let output = std::process::Command::new("xdotool")
             .args(["getactivewindow", "getwindowname"])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_get_active_window", "xdotool", &e))?;
         if output.status.success() {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&output.stdout).trim().to_string(),
@@ -27530,7 +27781,8 @@ $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
 "#;
         let output = std::process::Command::new("powershell")
             .args(["-Command", ps_script])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_screen_size", "powershell", &e))?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -27540,7 +27792,9 @@ $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
     }
     #[cfg(target_os = "linux")]
     {
-        let output = std::process::Command::new("xdpyinfo").output()?;
+        let output = std::process::Command::new("xdpyinfo")
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_screen_size", "xdpyinfo", &e))?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
             for line in text.lines() {
@@ -27614,14 +27868,16 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_notify", "powershell", &e))?;
         Ok(Value::Bool(output.status.success()))
     }
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("notify-send")
             .args([&title, &message])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_notify", "notify-send", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
     #[cfg(target_os = "macos")]
@@ -27635,7 +27891,8 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
                     crate::safety::applescript_quote(&title)
                 ),
             ])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_notify", "osascript", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
 }
@@ -27666,14 +27923,16 @@ Add-Type -AssemblyName System.Windows.Forms
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_dialog_message", "powershell", &e))?;
         Ok(Value::Bool(output.status.success()))
     }
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("zenity")
             .args(["--info", "--title", &title, "--text", &message])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_dialog_message", "zenity", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
     #[cfg(target_os = "macos")]
@@ -27687,7 +27946,8 @@ Add-Type -AssemblyName System.Windows.Forms
                     crate::safety::applescript_quote(&title)
                 ),
             ])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_dialog_message", "osascript", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
 }
@@ -27710,7 +27970,8 @@ fn bi_gui_dialog_input(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     {
         let output = std::process::Command::new("zenity")
             .args(["--entry", "--title", &title, "--text", &prompt])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_dialog_input", "zenity", &e))?;
         if output.status.success() {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&output.stdout).trim().to_string(),
@@ -27743,7 +28004,8 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{ $dialog
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_dialog_file_open", "powershell", &e))?;
         if output.status.success() {
             let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if !path.is_empty() {
@@ -27755,7 +28017,8 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{ $dialog
     {
         let output = std::process::Command::new("zenity")
             .args(["--file-selection", "--title", &title])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_dialog_file_open", "zenity", &e))?;
         if output.status.success() {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&output.stdout).trim().to_string(),
@@ -27788,7 +28051,8 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{ $dialog
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_dialog_file_save", "powershell", &e))?;
         if output.status.success() {
             let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if !path.is_empty() {
@@ -27800,7 +28064,8 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{ $dialog
     {
         let output = std::process::Command::new("zenity")
             .args(["--file-selection", "--save", "--title", &title])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_dialog_file_save", "zenity", &e))?;
         if output.status.success() {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&output.stdout).trim().to_string(),
@@ -27833,7 +28098,8 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{ $dialog
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_dialog_folder", "powershell", &e))?;
         if output.status.success() {
             let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if !path.is_empty() {
@@ -27845,7 +28111,8 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{ $dialog
     {
         let output = std::process::Command::new("zenity")
             .args(["--file-selection", "--directory", "--title", &title])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_dialog_folder", "zenity", &e))?;
         if output.status.success() {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&output.stdout).trim().to_string(),
@@ -27878,7 +28145,8 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
 "#;
         let output = std::process::Command::new("powershell")
             .args(["-Command", ps_script])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_color_picker", "powershell", &e))?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -27890,7 +28158,8 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
     {
         let output = std::process::Command::new("zenity")
             .args(["--color-selection"])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("gui_color_picker", "zenity", &e))?;
         if output.status.success() {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&output.stdout).trim().to_string(),
@@ -27936,12 +28205,18 @@ fn bi_web_open_url(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "macos")]
     {
-        let output = std::process::Command::new("open").arg(&url).output()?;
+        let output = std::process::Command::new("open")
+            .arg(&url)
+            .output()
+            .map_err(|e| crate::safety::spawn_error("web_open_url", "open", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
     #[cfg(target_os = "linux")]
     {
-        let output = std::process::Command::new("xdg-open").arg(&url).output()?;
+        let output = std::process::Command::new("xdg-open")
+            .arg(&url)
+            .output()
+            .map_err(|e| crate::safety::spawn_error("web_open_url", "xdg-open", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
 }
@@ -27955,7 +28230,8 @@ fn bi_web_fetch(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     let output = std::process::Command::new("curl")
         .args(["-sS", "-L", &url])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("web_fetch", "curl", &e))?;
 
     if output.status.success() {
         Ok(Value::Str(
@@ -27984,7 +28260,8 @@ fn bi_web_post(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     let output = std::process::Command::new("curl")
         .args(["-sS", "-X", "POST", "-d", &data, &url])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("web_post", "curl", &e))?;
 
     if output.status.success() {
         Ok(Value::Str(
@@ -28004,7 +28281,8 @@ fn bi_web_json_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     let output = std::process::Command::new("curl")
         .args(["-sS", "-L", "-H", "Accept: application/json", &url])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("web_json_get", "curl", &e))?;
 
     if output.status.success() {
         let json_str = String::from_utf8_lossy(&output.stdout);
@@ -28039,7 +28317,8 @@ fn bi_web_json_post(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             &data,
             &url,
         ])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("web_json_post", "curl", &e))?;
 
     if output.status.success() {
         let json_str = String::from_utf8_lossy(&output.stdout);
@@ -28063,7 +28342,8 @@ fn bi_web_scrape(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     let output = std::process::Command::new("curl")
         .args(["-sS", "-L", &url])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("web_scrape", "curl", &e))?;
 
     if output.status.success() {
         let html = String::from_utf8_lossy(&output.stdout).to_string();
@@ -28113,7 +28393,8 @@ fn bi_web_download(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     let output = std::process::Command::new("curl")
         .args(["-sS", "-L", "-o", &path, &url])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("web_download", "curl", &e))?;
 
     Ok(Value::Bool(output.status.success()))
 }
@@ -28284,7 +28565,8 @@ fn bi_web_headers(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     let output = std::process::Command::new("curl")
         .args(["-sS", "-I", "-L", &url])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("web_headers", "curl", &e))?;
 
     if output.status.success() {
         let text = String::from_utf8_lossy(&output.stdout);
@@ -28308,7 +28590,8 @@ fn bi_web_cookies(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     let output = std::process::Command::new("curl")
         .args(["-sS", "-I", "-L", &url])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("web_cookies", "curl", &e))?;
 
     if output.status.success() {
         let text = String::from_utf8_lossy(&output.stdout);
@@ -28349,7 +28632,8 @@ fn bi_web_form_submit(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 
     let output = std::process::Command::new("curl")
         .args(["-sS", "-X", "POST", "-d", &form_data, &url])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("web_form_submit", "curl", &e))?;
 
     if output.status.success() {
         Ok(Value::Str(
@@ -28387,7 +28671,8 @@ fn bi_web_upload_file(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
             &format!("{}=@{}", field_name, file_path),
             &url,
         ])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("web_upload_file", "curl", &e))?;
 
     Ok(Value::Bool(output.status.success()))
 }
@@ -28429,7 +28714,9 @@ fn bi_web_rest_api(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     cmd.arg(&url);
 
-    let output = cmd.output()?;
+    let output = cmd
+        .output()
+        .map_err(|e| crate::safety::spawn_error("web_rest_api", "curl", &e))?;
     if output.status.success() {
         let json_str = String::from_utf8_lossy(&output.stdout);
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -28474,7 +28761,8 @@ fn bi_web_graphql(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             &body.to_string(),
             &url,
         ])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("web_graphql", "curl", &e))?;
 
     if output.status.success() {
         let json_str = String::from_utf8_lossy(&output.stdout);
@@ -28494,7 +28782,8 @@ fn bi_web_check_url(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     let output = std::process::Command::new("curl")
         .args(["-sS", "-o", "/dev/null", "-w", "%{http_code}", "-L", &url])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("web_check_url", "curl", &e))?;
 
     if output.status.success() {
         let code: u16 = String::from_utf8_lossy(&output.stdout)
@@ -28726,7 +29015,8 @@ fn bi_clipboard_get(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("powershell")
             .args(["-Command", "Get-Clipboard"])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("clipboard_get", "powershell", &e))?;
         if output.status.success() {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&output.stdout)
@@ -28737,7 +29027,9 @@ fn bi_clipboard_get(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "macos")]
     {
-        let output = std::process::Command::new("pbpaste").output()?;
+        let output = std::process::Command::new("pbpaste")
+            .output()
+            .map_err(|e| crate::safety::spawn_error("clipboard_get", "pbpaste", &e))?;
         if output.status.success() {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&output.stdout).to_string(),
@@ -28757,7 +29049,8 @@ fn bi_clipboard_get(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         // Try xsel as fallback
         let output = std::process::Command::new("xsel")
             .args(["--clipboard", "--output"])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("clipboard_get", "xsel", &e))?;
         if output.status.success() {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&output.stdout).to_string(),
@@ -28784,14 +29077,16 @@ fn bi_clipboard_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                 "-Command",
                 &crate::ps_script!("Set-Clipboard -Value {}", crate::safety::ps_quote(&text)),
             ])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("clipboard_set", "powershell", &e))?;
         Ok(Value::Bool(output.status.success()))
     }
     #[cfg(target_os = "macos")]
     {
         let mut child = std::process::Command::new("pbcopy")
             .stdin(std::process::Stdio::piped())
-            .spawn()?;
+            .spawn()
+            .map_err(|e| crate::safety::spawn_error("clipboard_set", "pbcopy", &e))?;
         if let Some(stdin) = child.stdin.as_mut() {
             use std::io::Write;
             stdin.write_all(text.as_bytes())?;
@@ -28820,7 +29115,8 @@ fn bi_clipboard_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         let mut child = std::process::Command::new("xsel")
             .args(["--clipboard", "--input"])
             .stdin(std::process::Stdio::piped())
-            .spawn()?;
+            .spawn()
+            .map_err(|e| crate::safety::spawn_error("clipboard_set", "xsel", &e))?;
         if let Some(stdin) = child.stdin.as_mut() {
             use std::io::Write;
             stdin.write_all(text.as_bytes())?;
@@ -28846,7 +29142,8 @@ fn bi_clipboard_types(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     {
         let output = std::process::Command::new("powershell")
             .args(["-Command", "(Get-Clipboard -Format FileDropList) -ne $null"])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("clipboard_types", "powershell", &e))?;
         let has_files = String::from_utf8_lossy(&output.stdout).trim() == "True";
 
         let mut types = vec![Value::Str("text".to_string())];
@@ -28905,7 +29202,8 @@ $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($password)
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("input_read_password", "powershell", &e))?;
         if output.status.success() {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&output.stdout).trim().to_string(),
@@ -29059,7 +29357,8 @@ fn bi_input_editor(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // Open editor
     let status = std::process::Command::new(&editor)
         .arg(&temp_path)
-        .status()?;
+        .status()
+        .map_err(|e| crate::safety::spawn_error("input_editor", &editor, &e))?;
 
     if status.success() {
         let content = std::fs::read_to_string(&temp_path)?;
@@ -29148,7 +29447,8 @@ $hashBytes = $hash.ComputeHash($bytes)
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("crypto_hash", "powershell", &e))?;
         if output.status.success() {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&output.stdout).trim().to_string(),
@@ -29160,7 +29460,8 @@ $hashBytes = $hash.ComputeHash($bytes)
         let mut child = std::process::Command::new(hash_cmd)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
-            .spawn()?;
+            .spawn()
+            .map_err(|e| crate::safety::spawn_error("crypto_hash", hash_cmd, &e))?;
         if let Some(stdin) = child.stdin.as_mut() {
             use std::io::Write;
             stdin.write_all(data.as_bytes())?;
@@ -29210,7 +29511,8 @@ fn bi_crypto_hash_file(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
                     ps_algo
                 ),
             ])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("crypto_hash_file", "powershell", &e))?;
         if output.status.success() {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&output.stdout).trim().to_string(),
@@ -29226,7 +29528,10 @@ fn bi_crypto_hash_file(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
             "sha512" | "sha-512" => "sha512sum",
             _ => "sha256sum",
         };
-        let output = std::process::Command::new(hash_cmd).arg(&path).output()?;
+        let output = std::process::Command::new(hash_cmd)
+            .arg(&path)
+            .output()
+            .map_err(|e| crate::safety::spawn_error("crypto_hash_file", hash_cmd, &e))?;
         if output.status.success() {
             let hash = String::from_utf8_lossy(&output.stdout)
                 .split_whitespace()
@@ -29281,7 +29586,8 @@ $hash = $hmac.ComputeHash($data)
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("crypto_hmac", "powershell", &e))?;
         if output.status.success() {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&output.stdout).trim().to_string(),
@@ -29317,7 +29623,8 @@ fn bi_crypto_uuid(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let output = std::process::Command::new("powershell")
             .args(["-Command", "[guid]::NewGuid().ToString()"])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("crypto_uuid", "powershell", &e))?;
         if output.status.success() {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&output.stdout).trim().to_string(),
@@ -29382,7 +29689,8 @@ $rng.GetBytes($bytes)
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("crypto_random_bytes", "powershell", &e))?;
         if output.status.success() {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&output.stdout).trim().to_string(),
@@ -29393,7 +29701,8 @@ $rng.GetBytes($bytes)
     {
         let output = std::process::Command::new("head")
             .args(["-c", &count.to_string(), "/dev/urandom"])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("crypto_random_bytes", "head", &e))?;
         if output.status.success() {
             let hex: String = output.stdout.iter().map(|b| format!("{:02x}", b)).collect();
             return Ok(Value::Str(hex));
@@ -29436,7 +29745,8 @@ $result
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("crypto_random_string", "powershell", &e))?;
         if output.status.success() {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&output.stdout).trim().to_string(),
@@ -29448,7 +29758,8 @@ $result
         // Use /dev/urandom
         let output = std::process::Command::new("head")
             .args(["-c", &(length * 2).to_string(), "/dev/urandom"])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("crypto_random_string", "head", &e))?;
         if output.status.success() {
             // Rejection sampling, not `% len` (AS-2026-06).
             //
@@ -29496,7 +29807,8 @@ fn bi_crypto_base64_encode(args: Vec<Value>, input: Option<Value>) -> Result<Val
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("crypto_base64_encode", "powershell", &e))?;
         if output.status.success() {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&output.stdout).trim().to_string(),
@@ -29508,7 +29820,8 @@ fn bi_crypto_base64_encode(args: Vec<Value>, input: Option<Value>) -> Result<Val
         let mut child = std::process::Command::new("base64")
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
-            .spawn()?;
+            .spawn()
+            .map_err(|e| crate::safety::spawn_error("crypto_base64_encode", "base64", &e))?;
         if let Some(stdin) = child.stdin.as_mut() {
             use std::io::Write;
             stdin.write_all(data.as_bytes())?;
@@ -29542,7 +29855,8 @@ fn bi_crypto_base64_decode(args: Vec<Value>, input: Option<Value>) -> Result<Val
         );
         let output = std::process::Command::new("powershell")
             .args(["-Command", &ps_script])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("crypto_base64_decode", "powershell", &e))?;
         if output.status.success() {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&output.stdout).to_string(),
@@ -29555,7 +29869,8 @@ fn bi_crypto_base64_decode(args: Vec<Value>, input: Option<Value>) -> Result<Val
             .args(["-d"])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
-            .spawn()?;
+            .spawn()
+            .map_err(|e| crate::safety::spawn_error("crypto_base64_decode", "base64", &e))?;
         if let Some(stdin) = child.stdin.as_mut() {
             use std::io::Write;
             stdin.write_all(data.as_bytes())?;
@@ -29781,7 +30096,8 @@ fn crypto_decrypt_legacy_cbc(data: &str, password: &str) -> Result<Value> {
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
-        .spawn()?;
+        .spawn()
+        .map_err(|e| crate::safety::spawn_error("crypto_encrypt", "openssl", &e))?;
     if let Some(stdin) = child.stdin.as_mut() {
         use std::io::Write;
         stdin.write_all(data.as_bytes())?;
@@ -29932,10 +30248,12 @@ fn bi_crypto_key_generate(args: Vec<Value>, _input: Option<Value>) -> Result<Val
         let output = match key_type.as_str() {
             "rsa" => std::process::Command::new("openssl")
                 .args(["genrsa", &bits.to_string()])
-                .output()?,
+                .output()
+                .map_err(|e| crate::safety::spawn_error("crypto_key_generate", "openssl", &e))?,
             "ec" | "ecdsa" => std::process::Command::new("openssl")
                 .args(["ecparam", "-genkey", "-name", "prime256v1"])
-                .output()?,
+                .output()
+                .map_err(|e| crate::safety::spawn_error("crypto_key_generate", "openssl", &e))?,
             _ => return Ok(Value::Str("Unsupported key type".to_string())),
         };
         if output.status.success() {
@@ -29963,7 +30281,8 @@ fn bi_crypto_password_hash(args: Vec<Value>, _input: Option<Value>) -> Result<Va
             .args(["passwd", "-6", "-stdin"])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
-            .spawn()?;
+            .spawn()
+            .map_err(|e| crate::safety::spawn_error("crypto_password_hash", "openssl", &e))?;
         if let Some(stdin) = child.stdin.as_mut() {
             writeln!(stdin, "{}", password)?;
         }
@@ -30013,7 +30332,8 @@ fn bi_crypto_cert_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         crate::safety::reject_option_like("crypto_cert_info", std::slice::from_ref(&path))?;
         let output = std::process::Command::new("openssl")
             .args(["x509", "-in", &path, "-text", "-noout"])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("crypto_cert_info", "openssl", &e))?;
         if output.status.success() {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&output.stdout).to_string(),
@@ -30046,7 +30366,8 @@ fn bi_db_sqlite_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 
     let output = std::process::Command::new("sqlite3")
         .args(["-json", &db_path, &query])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("db_sqlite_query", "sqlite3", &e))?;
 
     if output.status.success() {
         let json_str = String::from_utf8_lossy(&output.stdout);
@@ -30057,7 +30378,8 @@ fn bi_db_sqlite_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
         // Already validated at the top of this function.
         let output = std::process::Command::new("sqlite3")
             .args(["-header", "-csv", &db_path, &query])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("db_sqlite_query", "sqlite3", &e))?;
         if output.status.success() {
             let csv = String::from_utf8_lossy(&output.stdout);
             let lines: Vec<&str> = csv.lines().collect();
@@ -30105,7 +30427,8 @@ fn bi_db_sqlite_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     let output = std::process::Command::new("sqlite3")
         .args([&db_path, &sql])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("db_sqlite_exec", "sqlite3", &e))?;
 
     Ok(Value::Bool(output.status.success()))
 }
@@ -30156,7 +30479,8 @@ fn bi_db_sqlite_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     // Just touch the file to create empty database
     let output = std::process::Command::new("sqlite3")
         .args([&db_path, "SELECT 1"])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("db_sqlite_create", "sqlite3", &e))?;
 
     Ok(Value::Bool(output.status.success()))
 }
@@ -30190,7 +30514,8 @@ fn bi_db_sqlite_backup(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     }
     let output = std::process::Command::new("sqlite3")
         .args([&db_path, &format!(".backup '{}'", backup_path)])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("db_sqlite_backup", "sqlite3", &e))?;
 
     Ok(Value::Bool(output.status.success()))
 }
@@ -30218,7 +30543,8 @@ fn bi_db_sqlite_import_csv(args: Vec<Value>, _input: Option<Value>) -> Result<Va
             &db_path,
             &format!(".mode csv\n.import {} {}", csv_path, table_name),
         ])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("db_sqlite_import_csv", "sqlite3", &e))?;
 
     Ok(Value::Bool(output.status.success()))
 }
@@ -30255,7 +30581,8 @@ fn bi_db_sqlite_export_csv(args: Vec<Value>, _input: Option<Value>) -> Result<Va
     crate::safety::reject_option_like("db_sqlite_export_csv", std::slice::from_ref(&db_path))?;
     let output = std::process::Command::new("sqlite3")
         .args(["-header", "-csv", &db_path, &query])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("db_sqlite_export_csv", "sqlite3", &e))?;
 
     if output.status.success() {
         let csv = String::from_utf8_lossy(&output.stdout).to_string();
@@ -30409,7 +30736,8 @@ fn bi_db_json_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     let output = std::process::Command::new("jq")
         .args([&jq_filter, &json_path])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("db_json_query", "jq", &e))?;
 
     if output.status.success() {
         let json_str = String::from_utf8_lossy(&output.stdout);
@@ -30540,7 +30868,8 @@ fn bi_clipboard_history(_args: Vec<Value>, _input: Option<Value>) -> Result<Valu
                 "-Command",
                 "Get-ClipboardHistory | Select-Object -First 10 | ForEach-Object { $_.Text }",
             ])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("clipboard_history", "powershell", &e))?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
             let items: Vec<Value> = text.lines().map(|l| Value::Str(l.to_string())).collect();
@@ -30605,7 +30934,8 @@ fn bi_crypto_cert_verify(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
         crate::safety::reject_option_like("crypto_cert_verify", std::slice::from_ref(&cert_path))?;
         let output = std::process::Command::new("openssl")
             .args(["verify", &cert_path])
-            .output()?;
+            .output()
+            .map_err(|e| crate::safety::spawn_error("crypto_cert_verify", "openssl", &e))?;
         return Ok(Value::Bool(output.status.success()));
     }
     #[cfg(not(unix))]
@@ -30665,7 +30995,8 @@ fn bi_crypto_jwt_decode(args: Vec<Value>, _input: Option<Value>) -> Result<Value
             );
             let output = std::process::Command::new("powershell")
                 .args(["-Command", &ps_script])
-                .output()?;
+                .output()
+                .map_err(|e| crate::safety::spawn_error("crypto_jwt_decode", "powershell", &e))?;
             if output.status.success() {
                 let json_str = String::from_utf8_lossy(&output.stdout);
                 if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -30679,7 +31010,8 @@ fn bi_crypto_jwt_decode(args: Vec<Value>, _input: Option<Value>) -> Result<Value
                 .args(["-d"])
                 .stdin(std::process::Stdio::piped())
                 .stdout(std::process::Stdio::piped())
-                .spawn()?;
+                .spawn()
+                .map_err(|e| crate::safety::spawn_error("crypto_jwt_decode", "base64", &e))?;
             if let Some(stdin) = child.stdin.as_mut() {
                 use std::io::Write;
                 stdin.write_all(padded.replace('-', "+").replace('_', "/").as_bytes())?;
@@ -30981,7 +31313,8 @@ fn bi_db_sqlite_dump(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     crate::safety::reject_option_like("db_sqlite_dump", std::slice::from_ref(&db_path))?;
     let output = std::process::Command::new("sqlite3")
         .args([&db_path, ".dump"])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("db_sqlite_dump", "sqlite3", &e))?;
 
     if output.status.success() {
         return Ok(Value::Str(
@@ -32747,7 +33080,8 @@ fn bi_git_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("git")
         .args(["status", "--porcelain", "-b"])
         .current_dir(&path)
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("git_status", "git", &e))?;
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let lines: Vec<Value> = stdout.lines().map(|l| Value::Str(l.to_string())).collect();
     Ok(Value::Array(lines))
@@ -32762,7 +33096,8 @@ fn bi_git_diff(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("git")
         .args(["diff"])
         .current_dir(&path)
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("git_diff", "git", &e))?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).to_string(),
     ))
@@ -32777,7 +33112,8 @@ fn bi_git_diff_staged(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
     let output = std::process::Command::new("git")
         .args(["diff", "--staged"])
         .current_dir(&path)
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("git_diff_staged", "git", &e))?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).to_string(),
     ))
@@ -32787,7 +33123,8 @@ fn bi_git_log(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let count = args.first().and_then(|v| v.as_int().ok()).unwrap_or(10);
     let output = std::process::Command::new("git")
         .args(["log", &format!("-{}", count), "--oneline"])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("git_log", "git", &e))?;
     let lines: Vec<Value> = String::from_utf8_lossy(&output.stdout)
         .lines()
         .map(|l| Value::Str(l.to_string()))
@@ -32804,7 +33141,8 @@ fn bi_git_blame(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     crate::safety::reject_option_like("git_blame", std::slice::from_ref(&file))?;
     let output = std::process::Command::new("git")
         .args(["blame", &file])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("git_blame", "git", &e))?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).to_string(),
     ))
@@ -32813,7 +33151,8 @@ fn bi_git_blame(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_git_branch(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("git")
         .args(["branch", "--show-current"])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("git_branch", "git", &e))?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).trim().to_string(),
     ))
@@ -32822,7 +33161,8 @@ fn bi_git_branch(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_git_branches(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("git")
         .args(["branch", "-a"])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("git_branches", "git", &e))?;
     let branches: Vec<Value> = String::from_utf8_lossy(&output.stdout)
         .lines()
         .map(|l| Value::Str(l.trim().trim_start_matches("* ").to_string()))
@@ -32839,7 +33179,8 @@ fn bi_git_checkout(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     crate::safety::reject_option_like("git_checkout", std::slice::from_ref(&branch))?;
     let output = std::process::Command::new("git")
         .args(["checkout", &branch])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("git_checkout", "git", &e))?;
     Ok(Value::Bool(output.status.success()))
 }
 
@@ -32851,7 +33192,8 @@ fn bi_git_commit(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .ok_or_else(|| crate::safety::arg_err("commit message required"))?;
     let output = std::process::Command::new("git")
         .args(["commit", "-m", &msg])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("git_commit", "git", &e))?;
     Ok(Value::Bool(output.status.success()))
 }
 
@@ -32867,7 +33209,9 @@ fn bi_git_add(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     for f in &files {
         cmd.arg(f);
     }
-    let output = cmd.output()?;
+    let output = cmd
+        .output()
+        .map_err(|e| crate::safety::spawn_error("git_add", "git", &e))?;
     Ok(Value::Bool(output.status.success()))
 }
 
@@ -32879,26 +33223,32 @@ fn bi_git_reset(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .unwrap_or("--mixed".to_string());
     let output = std::process::Command::new("git")
         .args(["reset", &mode])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("git_reset", "git", &e))?;
     Ok(Value::Bool(output.status.success()))
 }
 
 fn bi_git_stash(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("git").args(["stash"]).output()?;
+    let output = std::process::Command::new("git")
+        .args(["stash"])
+        .output()
+        .map_err(|e| crate::safety::spawn_error("git_stash", "git", &e))?;
     Ok(Value::Bool(output.status.success()))
 }
 
 fn bi_git_stash_pop(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("git")
         .args(["stash", "pop"])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("git_stash_pop", "git", &e))?;
     Ok(Value::Bool(output.status.success()))
 }
 
 fn bi_git_stash_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("git")
         .args(["stash", "list"])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("git_stash_list", "git", &e))?;
     let stashes: Vec<Value> = String::from_utf8_lossy(&output.stdout)
         .lines()
         .map(|l| Value::Str(l.to_string()))
@@ -32909,24 +33259,34 @@ fn bi_git_stash_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 fn bi_git_remote(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("git")
         .args(["remote", "-v"])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("git_remote", "git", &e))?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).to_string(),
     ))
 }
 
 fn bi_git_fetch(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("git").args(["fetch"]).output()?;
+    let output = std::process::Command::new("git")
+        .args(["fetch"])
+        .output()
+        .map_err(|e| crate::safety::spawn_error("git_fetch", "git", &e))?;
     Ok(Value::Bool(output.status.success()))
 }
 
 fn bi_git_pull(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("git").args(["pull"]).output()?;
+    let output = std::process::Command::new("git")
+        .args(["pull"])
+        .output()
+        .map_err(|e| crate::safety::spawn_error("git_pull", "git", &e))?;
     Ok(Value::Bool(output.status.success()))
 }
 
 fn bi_git_push(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("git").args(["push"]).output()?;
+    let output = std::process::Command::new("git")
+        .args(["push"])
+        .output()
+        .map_err(|e| crate::safety::spawn_error("git_push", "git", &e))?;
     Ok(Value::Bool(output.status.success()))
 }
 
@@ -32939,7 +33299,8 @@ fn bi_git_merge(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     crate::safety::reject_option_like("git_merge", std::slice::from_ref(&branch))?;
     let output = std::process::Command::new("git")
         .args(["merge", &branch])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("git_merge", "git", &e))?;
     Ok(Value::Bool(output.status.success()))
 }
 
@@ -32952,7 +33313,8 @@ fn bi_git_rebase(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     crate::safety::reject_option_like("git_rebase", std::slice::from_ref(&branch))?;
     let output = std::process::Command::new("git")
         .args(["rebase", &branch])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("git_rebase", "git", &e))?;
     Ok(Value::Bool(output.status.success()))
 }
 
@@ -32965,14 +33327,16 @@ fn bi_git_cherry_pick(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
     crate::safety::reject_option_like("git_cherry_pick", std::slice::from_ref(&commit))?;
     let output = std::process::Command::new("git")
         .args(["cherry-pick", &commit])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("git_cherry_pick", "git", &e))?;
     Ok(Value::Bool(output.status.success()))
 }
 
 fn bi_git_tags(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("git")
         .args(["tag", "-l"])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("git_tags", "git", &e))?;
     let tags: Vec<Value> = String::from_utf8_lossy(&output.stdout)
         .lines()
         .map(|l| Value::Str(l.to_string()))
@@ -32989,7 +33353,8 @@ fn bi_git_show(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     crate::safety::reject_option_like("git_show", std::slice::from_ref(&commit))?;
     let output = std::process::Command::new("git")
         .args(["show", &commit])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("git_show", "git", &e))?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).to_string(),
     ))
@@ -33004,7 +33369,8 @@ fn bi_git_rev_parse(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     crate::safety::reject_option_like("git_rev_parse", std::slice::from_ref(&rev))?;
     let output = std::process::Command::new("git")
         .args(["rev-parse", &rev])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("git_rev_parse", "git", &e))?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).trim().to_string(),
     ))
@@ -33013,7 +33379,8 @@ fn bi_git_rev_parse(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_git_root(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("git")
         .args(["rev-parse", "--show-toplevel"])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("git_root", "git", &e))?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).trim().to_string(),
     ))
@@ -33039,7 +33406,8 @@ fn bi_git_clean(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let flag = if dry_run { "-n" } else { "-f" };
     let output = std::process::Command::new("git")
         .args(["clean", "-d", flag])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("git_clean", "git", &e))?;
     let files: Vec<Value> = String::from_utf8_lossy(&output.stdout)
         .lines()
         .map(|l| Value::Str(l.to_string()))
@@ -33583,7 +33951,8 @@ fn bi_search_code(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .ok_or_else(|| crate::safety::arg_err("pattern required"))?;
     let output = std::process::Command::new("grep")
         .args(["-rn", &pattern, "."])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("search_code", "grep", &e))?;
     let matches: Vec<Value> = String::from_utf8_lossy(&output.stdout)
         .lines()
         .take(100)
@@ -33615,7 +33984,8 @@ fn bi_search_symbols(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             ),
             ".",
         ])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("search_symbols", "grep", &e))?;
     let matches: Vec<Value> = String::from_utf8_lossy(&output.stdout)
         .lines()
         .take(50)
@@ -33632,7 +34002,8 @@ fn bi_search_files(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .ok_or_else(|| crate::safety::arg_err("pattern required"))?;
     let output = std::process::Command::new("find")
         .args([".", "-name", &pattern])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("search_files", "find", &e))?;
     let files: Vec<Value> = String::from_utf8_lossy(&output.stdout)
         .lines()
         .map(|l| Value::Str(l.to_string()))
@@ -33643,7 +34014,8 @@ fn bi_search_files(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_search_recent(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("find")
         .args([".", "-type", "f", "-mtime", "-1"])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("search_recent", "find", &e))?;
     let files: Vec<Value> = String::from_utf8_lossy(&output.stdout)
         .lines()
         .take(50)
@@ -33656,7 +34028,8 @@ fn bi_search_modified(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
     let days = args.first().and_then(|v| v.as_int().ok()).unwrap_or(7);
     let output = std::process::Command::new("find")
         .args([".", "-type", "f", "-mtime", &format!("-{}", days)])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("search_modified", "find", &e))?;
     let files: Vec<Value> = String::from_utf8_lossy(&output.stdout)
         .lines()
         .take(100)
@@ -33673,7 +34046,8 @@ fn bi_search_by_type(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .ok_or_else(|| crate::safety::arg_err("extension required"))?;
     let output = std::process::Command::new("find")
         .args([".", "-name", &format!("*.{}", ext)])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("search_by_type", "find", &e))?;
     let files: Vec<Value> = String::from_utf8_lossy(&output.stdout)
         .lines()
         .map(|l| Value::Str(l.to_string()))
@@ -33689,7 +34063,8 @@ fn bi_search_by_size(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .unwrap_or("+1M".to_string());
     let output = std::process::Command::new("find")
         .args([".", "-type", "f", "-size", &size])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("search_by_size", "find", &e))?;
     let files: Vec<Value> = String::from_utf8_lossy(&output.stdout)
         .lines()
         .map(|l| Value::Str(l.to_string()))
@@ -33704,7 +34079,8 @@ fn bi_search_duplicates(_args: Vec<Value>, _input: Option<Value>) -> Result<Valu
 fn bi_search_todos(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("grep")
         .args(["-rn", "TODO", "."])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("search_todos", "grep", &e))?;
     let todos: Vec<Value> = String::from_utf8_lossy(&output.stdout)
         .lines()
         .take(100)
@@ -33716,7 +34092,8 @@ fn bi_search_todos(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_search_fixmes(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("grep")
         .args(["-rn", "FIXME", "."])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("search_fixmes", "grep", &e))?;
     let fixmes: Vec<Value> = String::from_utf8_lossy(&output.stdout)
         .lines()
         .take(100)
@@ -33737,7 +34114,8 @@ fn bi_search_similar(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 fn bi_test_run(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("cargo")
         .args(["test"])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("test_run", "cargo", &e))?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).to_string(),
     ))
@@ -33751,7 +34129,8 @@ fn bi_test_run_file(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .ok_or_else(|| crate::safety::arg_err("file required"))?;
     let output = std::process::Command::new("cargo")
         .args(["test", "--test", &file])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("test_run_file", "cargo", &e))?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).to_string(),
     ))
@@ -33765,7 +34144,8 @@ fn bi_test_run_function(args: Vec<Value>, _input: Option<Value>) -> Result<Value
         .ok_or_else(|| crate::safety::arg_err("function name required"))?;
     let output = std::process::Command::new("cargo")
         .args(["test", &func])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("test_run_function", "cargo", &e))?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).to_string(),
     ))
@@ -33774,7 +34154,8 @@ fn bi_test_run_function(args: Vec<Value>, _input: Option<Value>) -> Result<Value
 fn bi_test_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("cargo")
         .args(["test", "--", "--list"])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("test_list", "cargo", &e))?;
     let tests: Vec<Value> = String::from_utf8_lossy(&output.stdout)
         .lines()
         .filter(|l| l.contains(": test"))
@@ -33806,7 +34187,8 @@ fn bi_test_watch(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_test_bench(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("cargo")
         .args(["bench"])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("test_bench", "cargo", &e))?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).to_string(),
     ))
@@ -33824,7 +34206,8 @@ fn bi_test_generate(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_diag_check(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("cargo")
         .args(["check", "--message-format=short"])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("diag_check", "cargo", &e))?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stderr).to_string(),
     ))
@@ -33833,7 +34216,8 @@ fn bi_diag_check(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_diag_lint(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("cargo")
         .args(["clippy", "--message-format=short"])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("diag_lint", "cargo", &e))?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stderr).to_string(),
     ))
@@ -33842,7 +34226,8 @@ fn bi_diag_lint(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_diag_errors(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("cargo")
         .args(["check", "--message-format=short"])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("diag_errors", "cargo", &e))?;
     let errors: Vec<Value> = String::from_utf8_lossy(&output.stderr)
         .lines()
         .filter(|l| l.contains("error"))
@@ -33854,7 +34239,8 @@ fn bi_diag_errors(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_diag_warnings(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("cargo")
         .args(["check", "--message-format=short"])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("diag_warnings", "cargo", &e))?;
     let warnings: Vec<Value> = String::from_utf8_lossy(&output.stderr)
         .lines()
         .filter(|l| l.contains("warning"))
@@ -33870,7 +34256,8 @@ fn bi_diag_all(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_diag_fix(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("cargo")
         .args(["fix", "--allow-dirty"])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("diag_fix", "cargo", &e))?;
     Ok(Value::Bool(output.status.success()))
 }
 
@@ -33882,7 +34269,8 @@ fn bi_diag_explain(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .ok_or_else(|| crate::safety::arg_err("error code required"))?;
     let output = std::process::Command::new("rustc")
         .args(["--explain", &code])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("diag_explain", "rustc", &e))?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).to_string(),
     ))
@@ -33969,7 +34357,8 @@ fn bi_refactor_organize_imports(args: Vec<Value>, _input: Option<Value>) -> Resu
 fn bi_refactor_remove_unused(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("cargo")
         .args(["fix", "--allow-dirty", "--edition"])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("refactor_remove_unused", "cargo", &e))?;
     Ok(Value::Bool(output.status.success()))
 }
 
@@ -34010,7 +34399,8 @@ fn bi_session_checkpoint(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
         .unwrap_or("checkpoint".to_string());
     let output = std::process::Command::new("git")
         .args(["stash", "push", "-m", &name])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("session_checkpoint", "git", &e))?;
     Ok(Value::Bool(output.status.success()))
 }
 
@@ -34018,7 +34408,8 @@ fn bi_session_restore(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
     let index = args.first().and_then(|v| v.as_int().ok()).unwrap_or(0);
     let output = std::process::Command::new("git")
         .args(["stash", "apply", &format!("stash@{{{}}}", index)])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("session_restore", "git", &e))?;
     Ok(Value::Bool(output.status.success()))
 }
 
@@ -34035,7 +34426,8 @@ fn bi_session_diff_since(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
     crate::safety::reject_option_like("session_diff_since", std::slice::from_ref(&commit))?;
     let output = std::process::Command::new("git")
         .args(["diff", &commit])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("session_diff_since", "git", &e))?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).to_string(),
     ))
@@ -34054,7 +34446,8 @@ fn bi_session_rollback(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     crate::safety::reject_option_like("session_rollback", std::slice::from_ref(&commit))?;
     let output = std::process::Command::new("git")
         .args(["reset", "--hard", &commit])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("session_rollback", "git", &e))?;
     Ok(Value::Bool(output.status.success()))
 }
 
@@ -34066,7 +34459,10 @@ fn bi_session_export(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .unwrap_or("session.patch".to_string());
     // Same again: labelled `ReadLocal`, writes an arbitrary path.
     let file = guard_local_write("session_export", &file)?;
-    let output = std::process::Command::new("git").args(["diff"]).output()?;
+    let output = std::process::Command::new("git")
+        .args(["diff"])
+        .output()
+        .map_err(|e| crate::safety::spawn_error("session_export", "git", &e))?;
     std::fs::write(&file, &output.stdout)?;
     Ok(Value::Str(file))
 }
@@ -34075,7 +34471,8 @@ fn bi_session_export(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_docs_generate(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("cargo")
         .args(["doc", "--no-deps"])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("docs_generate", "cargo", &e))?;
     Ok(Value::Bool(output.status.success()))
 }
 
@@ -34087,7 +34484,8 @@ fn bi_docs_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .ok_or_else(|| crate::safety::arg_err("query required"))?;
     let output = std::process::Command::new("grep")
         .args(["-rn", &query, "target/doc"])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("docs_search", "grep", &e))?;
     let matches: Vec<Value> = String::from_utf8_lossy(&output.stdout)
         .lines()
         .take(20)
@@ -34154,7 +34552,8 @@ fn bi_env_detect(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_env_python(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("python")
         .args(["--version"])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("env_python", "python", &e))?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).trim().to_string(),
     ))
@@ -34163,7 +34562,8 @@ fn bi_env_python(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_env_node(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("node")
         .args(["--version"])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("env_node", "node", &e))?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).trim().to_string(),
     ))
@@ -34172,7 +34572,8 @@ fn bi_env_node(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_env_rust(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("rustc")
         .args(["--version"])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("env_rust", "rustc", &e))?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).trim().to_string(),
     ))
@@ -34181,7 +34582,8 @@ fn bi_env_rust(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_env_go(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("go")
         .args(["version"])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("env_go", "go", &e))?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).trim().to_string(),
     ))
@@ -34190,7 +34592,8 @@ fn bi_env_go(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_env_java(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("java")
         .args(["--version"])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("env_java", "java", &e))?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout)
             .lines()
@@ -34203,7 +34606,8 @@ fn bi_env_java(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_env_dotnet(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("dotnet")
         .args(["--version"])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("env_dotnet", "dotnet", &e))?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).trim().to_string(),
     ))
@@ -34212,7 +34616,8 @@ fn bi_env_dotnet(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_env_ruby(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("ruby")
         .args(["--version"])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("env_ruby", "ruby", &e))?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).trim().to_string(),
     ))
@@ -34278,7 +34683,8 @@ fn bi_env_unset(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_env_docker(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("docker")
         .args(["--version"])
-        .output()?;
+        .output()
+        .map_err(|e| crate::safety::spawn_error("env_docker", "docker", &e))?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).trim().to_string(),
     ))
@@ -37302,7 +37708,9 @@ fn bi_docker_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
     }
 
-    let output = cmd.output()?;
+    let output = cmd
+        .output()
+        .map_err(|e| crate::safety::spawn_error("docker_run", "docker", &e))?;
     if !output.status.success() {
         return Err(anyhow!(
             "docker run failed: {}",
@@ -37342,7 +37750,9 @@ fn bi_docker_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     for part in command.split_whitespace() {
         cmd.arg(part);
     }
-    let output = cmd.output()?;
+    let output = cmd
+        .output()
+        .map_err(|e| crate::safety::spawn_error("docker_exec", "docker", &e))?;
     if !output.status.success() {
         return Err(anyhow!(
             "docker exec failed: {}",
@@ -37789,7 +38199,9 @@ fn bi_podman_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
     }
 
-    let output = cmd.output()?;
+    let output = cmd
+        .output()
+        .map_err(|e| crate::safety::spawn_error("podman_run", "podman", &e))?;
     if !output.status.success() {
         return Err(anyhow!(
             "podman run failed: {}",
@@ -37829,7 +38241,9 @@ fn bi_podman_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     for part in command.split_whitespace() {
         cmd.arg(part);
     }
-    let output = cmd.output()?;
+    let output = cmd
+        .output()
+        .map_err(|e| crate::safety::spawn_error("podman_exec", "podman", &e))?;
     if !output.status.success() {
         return Err(anyhow!(
             "podman exec failed: {}",
@@ -39834,7 +40248,7 @@ fn bi_ssh_config(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
     };
     let content = std::fs::read_to_string(&config_path)
-        .map_err(|e| anyhow!("ssh_config: cannot read {}: {}", config_path, e))?;
+        .map_err(|_| crate::safety::not_found("ssh_config", "ssh config file", &config_path))?;
     let mut hosts: Vec<Value> = Vec::new();
     let mut current: Option<BTreeMap<String, Value>> = None;
     for line in content.lines() {
@@ -41745,7 +42159,7 @@ fn bi_last_logins(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let output = Command::new("last")
             .args(["-n", &count.to_string()])
             .output()
-            .map_err(|e| anyhow!("last_logins: failed to run last: {}", e))?;
+            .map_err(|e| crate::safety::spawn_error("monitor_logins", "last", &e))?;
         let stdout = String::from_utf8_lossy(&output.stdout);
         let mut records = Vec::new();
         for line in stdout.lines() {
@@ -45159,7 +45573,7 @@ fn bi_make_targets(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         _ => "Makefile".to_string(),
     };
     let content = std::fs::read_to_string(&makefile)
-        .map_err(|e| anyhow!("Cannot read '{}': {}", makefile, e))?;
+        .map_err(|_| crate::safety::not_found("make_targets", "makefile", &makefile))?;
     let re = regex::Regex::new(r"^([a-zA-Z_][a-zA-Z0-9_.-]*)\s*:").unwrap();
     let targets: Vec<Value> = content
         .lines()
@@ -45302,7 +45716,7 @@ fn bi_netstat_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let out = std::process::Command::new("netstat")
         .args(&flags)
         .output()
-        .map_err(|e| anyhow!("netstat not available: {}", e))?;
+        .map_err(|e| crate::safety::spawn_error("netstat", "netstat", &e))?;
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     // Parse netstat output into structured records
     let filter_proto = match args.first() {

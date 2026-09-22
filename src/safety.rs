@@ -1428,6 +1428,38 @@ pub fn not_found(builtin: &str, kind: &str, name: &str) -> anyhow::Error {
     })
 }
 
+/// Classify a failure to *start* an external process.
+///
+/// `Command::new(prog).output()?` propagates a bare `io::Error`, and what
+/// reaches an agent is `No such file or directory (os error 2)` -- no code, no
+/// builtin, not even the name of the program that was missing. Thirteen
+/// builtins were still answering exactly that after `E_TOOL_MISSING` existed,
+/// because the code was added at the sites that *named* their tool and these
+/// never did.
+///
+/// `NotFound` is the overwhelmingly common case and is what `ToolMissing` is
+/// for. Anything else -- a permission denial, a broken interpreter line -- is
+/// the tool being unusable rather than absent, and saying "install it" there
+/// would be advice that cannot work.
+pub fn spawn_error(builtin: &str, tool: &str, e: &std::io::Error) -> anyhow::Error {
+    if e.kind() == std::io::ErrorKind::NotFound {
+        return tool_missing(builtin, tool, &e.to_string());
+    }
+    anyhow::Error::new(SafetyError {
+        code: ErrorCode::ToolFailed,
+        message: format!("{builtin}: could not start `{tool}`: {e}"),
+        builtin: builtin.to_string(),
+        hint: format!(
+            "`{tool}` exists but could not be run; check its permissions and \
+             that it is executable on this host"
+        ),
+        approval: None,
+        did_you_mean: Vec::new(),
+        expected: format!("`{tool}` to start"),
+        got: e.kind().to_string(),
+    })
+}
+
 pub fn bad_arg(builtin: &str, expected: &str, got: &str) -> anyhow::Error {
     anyhow::Error::new(SafetyError {
         code: ErrorCode::BadArg,
