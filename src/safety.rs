@@ -1093,6 +1093,16 @@ pub enum ErrorCode {
     /// A record field (which is how module functions like `file.read` resolve)
     /// does not exist. Like `UnknownBuiltin`, carries `did_you_mean`.
     UnknownField,
+    /// An external tool the builtin shells out to is not installed.
+    ///
+    /// Distinct from every other code here because the fix is neither a
+    /// corrected call nor an approval: it is installing something. Reported as
+    /// `Unknown` until now, which told an agent the fault was unidentifiable
+    /// when it is one of the most identifiable failures the shell has --
+    /// `benches/agentic/uncoded.mjs` found 57 builtins in that state, and
+    /// counting them alongside genuine type errors inflated a claim about the
+    /// shell with a fact about the machine it ran on.
+    ToolMissing,
     /// A failure that reached the boundary without a specific code. The message
     /// is whatever the builtin produced; treat it as opaque and **not**
     /// retryable — an agent that cannot identify the fault should stop rather
@@ -1111,6 +1121,7 @@ impl ErrorCode {
             ErrorCode::BudgetExceeded => "E_BUDGET_EXCEEDED",
             ErrorCode::UnknownBuiltin => "E_UNKNOWN_BUILTIN",
             ErrorCode::UnknownField => "E_UNKNOWN_FIELD",
+            ErrorCode::ToolMissing => "E_TOOL_MISSING",
             ErrorCode::Unknown => "E_UNKNOWN",
         }
     }
@@ -1125,6 +1136,9 @@ impl ErrorCode {
         match self {
             ErrorCode::BadArg | ErrorCode::UnknownBuiltin | ErrorCode::UnknownField => true,
             ErrorCode::NeedsApproval | ErrorCode::OutsideWorkspace => true,
+            // Not retryable: the same call fails identically until someone
+            // installs the tool, which is an action outside this process.
+            ErrorCode::ToolMissing => false,
             ErrorCode::PolicyDeny | ErrorCode::BudgetExceeded | ErrorCode::Unknown => false,
         }
     }
@@ -1148,8 +1162,10 @@ impl ErrorCode {
     /// failure it is, not claim a precision the shell does not have.
     pub fn exit_code(&self) -> i32 {
         match self {
-            // bash: "command not found".
-            ErrorCode::UnknownBuiltin => 127,
+            // bash: "command not found". A missing external tool is the same
+            // condition one level out, and an agent that knows shell reads 127
+            // without being told.
+            ErrorCode::UnknownBuiltin | ErrorCode::ToolMissing => 127,
             // EX_USAGE — the call was malformed.
             ErrorCode::BadArg | ErrorCode::UnknownField => 64,
             // EX_NOPERM — refused, and retrying unchanged will refuse again.
@@ -1169,6 +1185,25 @@ impl ErrorCode {
 /// record, so an agent can branch on `e.error.code` and read the expected
 /// signature instead of parsing prose. `got` is the offending value's type name
 /// (e.g. `value.type_name()`), or `"nothing"` when an argument is missing.
+/// Build a structured "external tool is not installed" error
+/// (`E_TOOL_MISSING`).
+///
+/// `tool` is the executable that could not be started, `builtin` the thing the
+/// caller invoked, and `cause` the underlying OS error. The hint names the tool
+/// rather than the builtin, because installing it is the only thing that helps.
+pub fn tool_missing(builtin: &str, tool: &str, cause: &str) -> anyhow::Error {
+    anyhow::Error::new(SafetyError {
+        code: ErrorCode::ToolMissing,
+        message: format!("{builtin}: `{tool}` is not installed ({cause})"),
+        builtin: builtin.to_string(),
+        hint: format!("install `{tool}` and run this again; no change to the call will help"),
+        approval: None,
+        did_you_mean: Vec::new(),
+        expected: format!("`{tool}` on PATH"),
+        got: "not installed".to_string(),
+    })
+}
+
 pub fn bad_arg(builtin: &str, expected: &str, got: &str) -> anyhow::Error {
     anyhow::Error::new(SafetyError {
         code: ErrorCode::BadArg,

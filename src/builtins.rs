@@ -36961,7 +36961,7 @@ fn container_json_lines(program: &str, args: &[&str]) -> Result<Vec<Value>> {
     let output = std::process::Command::new(program)
         .args(args)
         .output()
-        .map_err(|e| anyhow!("{} not found or failed to start: {}", program, e))?;
+        .map_err(|e| crate::safety::tool_missing(program, program, &e.to_string()))?;
     if !output.status.success() {
         return Err(anyhow!(
             "{} {} failed: {}",
@@ -36989,7 +36989,7 @@ fn container_run_cmd(program: &str, args: &[&str]) -> Result<String> {
     let output = std::process::Command::new(program)
         .args(args)
         .output()
-        .map_err(|e| anyhow!("{} not found or failed to start: {}", program, e))?;
+        .map_err(|e| crate::safety::tool_missing(program, program, &e.to_string()))?;
     if !output.status.success() {
         return Err(anyhow!(
             "{} {} failed: {}",
@@ -37746,7 +37746,7 @@ fn kubectl_json(args: &[&str]) -> Result<Value> {
     let output = std::process::Command::new("kubectl")
         .args(args)
         .output()
-        .map_err(|e| anyhow!("kubectl not found or failed to start: {}", e))?;
+        .map_err(|e| crate::safety::tool_missing("kubectl", "kubectl", &e.to_string()))?;
     if !output.status.success() {
         return Err(anyhow!(
             "kubectl {} failed: {}",
@@ -37767,7 +37767,7 @@ fn kubectl_text(args: &[&str]) -> Result<String> {
     let output = std::process::Command::new("kubectl")
         .args(args)
         .output()
-        .map_err(|e| anyhow!("kubectl not found or failed to start: {}", e))?;
+        .map_err(|e| crate::safety::tool_missing("kubectl", "kubectl", &e.to_string()))?;
     if !output.status.success() {
         return Err(anyhow!(
             "kubectl {} failed: {}",
@@ -37783,7 +37783,7 @@ fn helm_json(args: &[&str]) -> Result<Value> {
     let output = std::process::Command::new("helm")
         .args(args)
         .output()
-        .map_err(|e| anyhow!("helm not found or failed to start: {}", e))?;
+        .map_err(|e| crate::safety::tool_missing("helm", "helm", &e.to_string()))?;
     if !output.status.success() {
         return Err(anyhow!(
             "helm {} failed: {}",
@@ -37804,7 +37804,7 @@ fn helm_text(args: &[&str]) -> Result<String> {
     let output = std::process::Command::new("helm")
         .args(args)
         .output()
-        .map_err(|e| anyhow!("helm not found or failed to start: {}", e))?;
+        .map_err(|e| crate::safety::tool_missing("helm", "helm", &e.to_string()))?;
     if !output.status.success() {
         return Err(anyhow!(
             "helm {} failed: {}",
@@ -38461,7 +38461,7 @@ fn vm_run_cmd(program: &str, args: &[&str]) -> Result<String> {
     let output = std::process::Command::new(program)
         .args(args)
         .output()
-        .map_err(|e| anyhow!("{} not found or failed to start: {}", program, e))?;
+        .map_err(|e| crate::safety::tool_missing(program, program, &e.to_string()))?;
     if !output.status.success() {
         return Err(anyhow!(
             "{} {} failed: {}",
@@ -44100,7 +44100,7 @@ fn bi_age_decrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let out = std::process::Command::new("age")
         .args(["-d", "-i", &identity, "-o", &output_file, &input_file])
         .output()
-        .map_err(|e| anyhow!("age not found: {}", e))?;
+        .map_err(|e| crate::safety::tool_missing("age", "age", &e.to_string()))?;
     if !out.status.success() {
         return Err(anyhow!(
             "age decrypt failed: {}",
@@ -44127,7 +44127,7 @@ fn bi_age_keygen(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     let out = cmd
         .output()
-        .map_err(|e| anyhow!("age-keygen not found: {}", e))?;
+        .map_err(|e| crate::safety::tool_missing("age-keygen", "age-keygen", &e.to_string()))?;
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     let stderr = String::from_utf8_lossy(&out.stderr).to_string();
     // age-keygen outputs public key to stderr and private key to stdout
@@ -44880,7 +44880,9 @@ fn bi_make_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if let Some(t) = &target {
         cmd.arg(t);
     }
-    let out = cmd.output().map_err(|e| anyhow!("make not found: {}", e))?;
+    let out = cmd
+        .output()
+        .map_err(|e| crate::safety::tool_missing("make", "make", &e.to_string()))?;
     let mut rec = BTreeMap::new();
     rec.insert(
         "exit_code".to_string(),
@@ -44947,7 +44949,7 @@ fn bi_cmake_configure(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
     }
     let out = cmd
         .output()
-        .map_err(|e| anyhow!("cmake not found: {}", e))?;
+        .map_err(|e| crate::safety::tool_missing("cmake", "cmake", &e.to_string()))?;
     let mut rec = BTreeMap::new();
     rec.insert("source_dir".to_string(), Value::Str(source_dir));
     rec.insert("build_dir".to_string(), Value::Str(build_dir));
@@ -44987,7 +44989,7 @@ fn bi_cmake_build(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     let out = cmd
         .output()
-        .map_err(|e| anyhow!("cmake not found: {}", e))?;
+        .map_err(|e| crate::safety::tool_missing("cmake", "cmake", &e.to_string()))?;
     let mut rec = BTreeMap::new();
     rec.insert("build_dir".to_string(), Value::Str(build_dir));
     rec.insert("success".to_string(), Value::Bool(out.status.success()));
@@ -45023,7 +45025,7 @@ fn bi_ninja_build(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     let out = cmd
         .output()
-        .map_err(|e| anyhow!("ninja not found: {}", e))?;
+        .map_err(|e| crate::safety::tool_missing("ninja", "ninja", &e.to_string()))?;
     let mut rec = BTreeMap::new();
     rec.insert("success".to_string(), Value::Bool(out.status.success()));
     rec.insert(
@@ -45225,7 +45227,7 @@ fn bi_nmap_quick(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let out = std::process::Command::new("nmap")
         .args(["-F", "--open", &host])
         .output()
-        .map_err(|e| anyhow!("nmap not found: {}", e))?;
+        .map_err(|e| crate::safety::tool_missing("nmap", "nmap", &e.to_string()))?;
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     // Parse text output
     let mut ports = Vec::new();
@@ -45317,7 +45319,7 @@ fn bi_tmux_new(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             }
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("tmux not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("tmux", "tmux", &e.to_string())),
     }
 }
 
@@ -45359,7 +45361,7 @@ fn bi_tmux_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Ok(o) => Ok(Value::Str(
             String::from_utf8_lossy(&o.stderr).trim().to_string(),
         )),
-        Err(e) => Err(anyhow!("tmux not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("tmux", "tmux", &e.to_string())),
     }
 }
 
@@ -45383,7 +45385,7 @@ fn bi_tmux_attach(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             rec.insert("success".to_string(), Value::Bool(o.status.success()));
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("tmux not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("tmux", "tmux", &e.to_string())),
     }
 }
 
@@ -45417,7 +45419,7 @@ fn bi_tmux_send(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             rec.insert("success".to_string(), Value::Bool(o.status.success()));
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("tmux not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("tmux", "tmux", &e.to_string())),
     }
 }
 
@@ -45439,7 +45441,11 @@ fn bi_screen_new(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             rec.insert("success".to_string(), Value::Bool(o.status.success()));
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("screen not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "screen",
+            "screen",
+            &e.to_string(),
+        )),
     }
 }
 
@@ -45464,7 +45470,11 @@ fn bi_screen_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 .collect();
             Ok(Value::Array(sessions))
         }
-        Err(e) => Err(anyhow!("screen not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "screen",
+            "screen",
+            &e.to_string(),
+        )),
     }
 }
 
@@ -45488,7 +45498,11 @@ fn bi_screen_attach(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             rec.insert("success".to_string(), Value::Bool(o.status.success()));
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("screen not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "screen",
+            "screen",
+            &e.to_string(),
+        )),
     }
 }
 
@@ -45588,7 +45602,11 @@ fn bi_pkill(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 rec.insert("success".to_string(), Value::Bool(o.status.success()));
                 Ok(Value::Record(rec))
             }
-            Err(e) => Err(anyhow!("pkill not found: {}", e)),
+            Err(e) => Err(crate::safety::tool_missing(
+                "pkill",
+                "pkill",
+                &e.to_string(),
+            )),
         }
     }
 }
@@ -45667,7 +45685,11 @@ fn bi_pgrep(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 Ok(Value::Array(procs))
             }
             Ok(_) => Ok(Value::Array(vec![])),
-            Err(e) => Err(anyhow!("pgrep not found: {}", e)),
+            Err(e) => Err(crate::safety::tool_missing(
+                "pgrep",
+                "pgrep",
+                &e.to_string(),
+            )),
         }
     }
 }
@@ -45692,7 +45714,7 @@ fn bi_lnav_open(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("lnav not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("lnav", "lnav", &e.to_string())),
     }
 }
 
@@ -45725,7 +45747,11 @@ fn bi_multitail_open(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             rec.insert("success".to_string(), Value::Bool(o.status.success()));
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("multitail not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "multitail",
+            "multitail",
+            &e.to_string(),
+        )),
     }
 }
 
@@ -45766,7 +45792,11 @@ fn bi_logrotate_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("logrotate not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "logrotate",
+            "logrotate",
+            &e.to_string(),
+        )),
     }
 }
 
@@ -45800,7 +45830,11 @@ fn bi_ltrace_cmd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("ltrace not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "ltrace",
+            "ltrace",
+            &e.to_string(),
+        )),
     }
 }
 
@@ -45833,7 +45867,11 @@ fn bi_valgrind_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("valgrind not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "valgrind",
+            "valgrind",
+            &e.to_string(),
+        )),
     }
 }
 
@@ -45873,7 +45911,11 @@ fn bi_valgrind_memcheck(args: Vec<Value>, _input: Option<Value>) -> Result<Value
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("valgrind not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "valgrind",
+            "valgrind",
+            &e.to_string(),
+        )),
     }
 }
 
@@ -45913,7 +45955,7 @@ fn bi_gdb_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("gdb not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("gdb", "gdb", &e.to_string())),
     }
 }
 
@@ -45941,7 +45983,7 @@ fn bi_gdb_bt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("gdb not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("gdb", "gdb", &e.to_string())),
     }
 }
 
@@ -45970,7 +46012,7 @@ fn bi_lldb_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("lldb not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("lldb", "lldb", &e.to_string())),
     }
 }
 
@@ -46000,7 +46042,11 @@ fn bi_objdump_disasm(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("objdump not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "objdump",
+            "objdump",
+            &e.to_string(),
+        )),
     }
 }
 
@@ -46028,7 +46074,11 @@ fn bi_objdump_headers(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("objdump not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "objdump",
+            "objdump",
+            &e.to_string(),
+        )),
     }
 }
 
@@ -46069,7 +46119,7 @@ fn bi_nm_symbols(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             Ok(Value::Array(symbols))
         }
         Ok(o) => Err(anyhow!("nm failed: {}", String::from_utf8_lossy(&o.stderr))),
-        Err(e) => Err(anyhow!("nm not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("nm", "nm", &e.to_string())),
     }
 }
 
@@ -46099,7 +46149,11 @@ fn bi_readelf_headers(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("readelf not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "readelf",
+            "readelf",
+            &e.to_string(),
+        )),
     }
 }
 
@@ -46127,7 +46181,11 @@ fn bi_readelf_sections(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("readelf not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "readelf",
+            "readelf",
+            &e.to_string(),
+        )),
     }
 }
 
@@ -46232,7 +46290,7 @@ fn bi_mtr_trace(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("mtr not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("mtr", "mtr", &e.to_string())),
     }
 }
 
@@ -46349,7 +46407,11 @@ fn bi_socat_relay(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("socat not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "socat",
+            "socat",
+            &e.to_string(),
+        )),
     }
 }
 
@@ -46404,7 +46466,11 @@ fn bi_iperf3_client(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             "iperf3 failed: {}",
             String::from_utf8_lossy(&o.stderr)
         )),
-        Err(e) => Err(anyhow!("iperf3 not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "iperf3",
+            "iperf3",
+            &e.to_string(),
+        )),
     }
 }
 
@@ -46478,7 +46544,11 @@ fn bi_zoxide_add(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             rec.insert("success".to_string(), Value::Bool(o.status.success()));
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("zoxide not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "zoxide",
+            "zoxide",
+            &e.to_string(),
+        )),
     }
 }
 
@@ -46503,7 +46573,11 @@ fn bi_zoxide_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             "No match found: {}",
             String::from_utf8_lossy(&o.stderr)
         )),
-        Err(e) => Err(anyhow!("zoxide not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "zoxide",
+            "zoxide",
+            &e.to_string(),
+        )),
     }
 }
 
@@ -46534,7 +46608,11 @@ fn bi_delta_diff(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             rec.insert("success".to_string(), Value::Bool(o.status.success()));
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("delta not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "delta",
+            "delta",
+            &e.to_string(),
+        )),
     }
 }
 
@@ -46584,7 +46662,7 @@ fn bi_fzf_select(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                     stdout.lines().map(|l| Value::Str(l.to_string())).collect();
                 Ok(Value::Array(results))
             }
-            Err(e) => Err(anyhow!("fzf not found: {}", e)),
+            Err(e) => Err(crate::safety::tool_missing("fzf", "fzf", &e.to_string())),
         }
     } else {
         // Filter items with the query
@@ -46744,7 +46822,11 @@ fn bi_hyperfine_bench(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("hyperfine not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "hyperfine",
+            "hyperfine",
+            &e.to_string(),
+        )),
     }
 }
 
@@ -46770,7 +46852,11 @@ fn bi_tokei_count(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Ok(o) => Ok(Value::Str(
             String::from_utf8_lossy(&o.stdout).trim().to_string(),
         )),
-        Err(e) => Err(anyhow!("tokei not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "tokei",
+            "tokei",
+            &e.to_string(),
+        )),
     }
 }
 
@@ -46854,7 +46940,7 @@ fn bi_just_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("just not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("just", "just", &e.to_string())),
     }
 }
 
@@ -46886,7 +46972,7 @@ fn bi_just_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Ok(o) => Ok(Value::Str(
             String::from_utf8_lossy(&o.stderr).trim().to_string(),
         )),
-        Err(e) => Err(anyhow!("just not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("just", "just", &e.to_string())),
     }
 }
 
@@ -46917,7 +47003,7 @@ fn bi_task_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("task not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("task", "task", &e.to_string())),
     }
 }
 
@@ -46931,7 +47017,7 @@ fn bi_task_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Ok(o) => Ok(Value::Str(
             String::from_utf8_lossy(&o.stderr).trim().to_string(),
         )),
-        Err(e) => Err(anyhow!("task not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("task", "task", &e.to_string())),
     }
 }
 
@@ -46957,7 +47043,11 @@ fn bi_direnv_allow(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("direnv not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "direnv",
+            "direnv",
+            &e.to_string(),
+        )),
     }
 }
 
@@ -46974,7 +47064,11 @@ fn bi_direnv_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("direnv not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "direnv",
+            "direnv",
+            &e.to_string(),
+        )),
     }
 }
 
@@ -47001,7 +47095,7 @@ fn bi_asdf_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Ok(o) => Ok(Value::Str(
             String::from_utf8_lossy(&o.stderr).trim().to_string(),
         )),
-        Err(e) => Err(anyhow!("asdf not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("asdf", "asdf", &e.to_string())),
     }
 }
 
@@ -47034,7 +47128,7 @@ fn bi_asdf_install(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("asdf not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("asdf", "asdf", &e.to_string())),
     }
 }
 
@@ -47060,7 +47154,7 @@ fn bi_mise_use(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("mise not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("mise", "mise", &e.to_string())),
     }
 }
 
@@ -47080,7 +47174,7 @@ fn bi_mise_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Ok(o) => Ok(Value::Str(
             String::from_utf8_lossy(&o.stderr).trim().to_string(),
         )),
-        Err(e) => Err(anyhow!("mise not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("mise", "mise", &e.to_string())),
     }
 }
 
@@ -47127,7 +47221,7 @@ fn bi_uv_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("uv not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("uv", "uv", &e.to_string())),
     }
 }
 
@@ -47169,7 +47263,7 @@ fn bi_uv_pip(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("uv not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("uv", "uv", &e.to_string())),
     }
 }
 
@@ -47193,7 +47287,7 @@ fn bi_uv_venv(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("uv not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("uv", "uv", &e.to_string())),
     }
 }
 
@@ -47223,7 +47317,7 @@ fn bi_pipx_install(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("pipx not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("pipx", "pipx", &e.to_string())),
     }
 }
 
@@ -47237,7 +47331,7 @@ fn bi_pipx_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Ok(o) => Ok(Value::Str(
             String::from_utf8_lossy(&o.stderr).trim().to_string(),
         )),
-        Err(e) => Err(anyhow!("pipx not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("pipx", "pipx", &e.to_string())),
     }
 }
 
@@ -47280,7 +47374,11 @@ fn bi_poetry_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("poetry not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "poetry",
+            "poetry",
+            &e.to_string(),
+        )),
     }
 }
 
@@ -47301,7 +47399,11 @@ fn bi_poetry_install(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("poetry not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "poetry",
+            "poetry",
+            &e.to_string(),
+        )),
     }
 }
 
@@ -47341,7 +47443,7 @@ fn bi_node_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("node not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("node", "node", &e.to_string())),
     }
 }
 
@@ -47374,7 +47476,7 @@ fn bi_npm_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("npm not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("npm", "npm", &e.to_string())),
     }
 }
 
@@ -47407,7 +47509,7 @@ fn bi_npm_install(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("npm not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("npm", "npm", &e.to_string())),
     }
 }
 
@@ -47440,7 +47542,7 @@ fn bi_pnpm_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("pnpm not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("pnpm", "pnpm", &e.to_string())),
     }
 }
 
@@ -47473,7 +47575,7 @@ fn bi_pnpm_install(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("pnpm not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("pnpm", "pnpm", &e.to_string())),
     }
 }
 
@@ -47506,7 +47608,7 @@ fn bi_yarn_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("yarn not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("yarn", "yarn", &e.to_string())),
     }
 }
 
@@ -47543,7 +47645,7 @@ fn bi_yarn_install(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("yarn not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("yarn", "yarn", &e.to_string())),
     }
 }
 
@@ -47581,7 +47683,11 @@ fn bi_cargo_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("cargo not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "cargo",
+            "cargo",
+            &e.to_string(),
+        )),
     }
 }
 
@@ -47610,7 +47716,11 @@ fn bi_cargo_build_cmd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("cargo not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "cargo",
+            "cargo",
+            &e.to_string(),
+        )),
     }
 }
 
@@ -47647,7 +47757,11 @@ fn bi_cargo_test_cmd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("cargo not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "cargo",
+            "cargo",
+            &e.to_string(),
+        )),
     }
 }
 
@@ -47663,7 +47777,11 @@ fn bi_rustup_show(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Ok(o) => Ok(Value::Str(
             String::from_utf8_lossy(&o.stderr).trim().to_string(),
         )),
-        Err(e) => Err(anyhow!("rustup not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "rustup",
+            "rustup",
+            &e.to_string(),
+        )),
     }
 }
 
@@ -47684,7 +47802,11 @@ fn bi_rustup_update(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("rustup not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "rustup",
+            "rustup",
+            &e.to_string(),
+        )),
     }
 }
 
@@ -47716,7 +47838,7 @@ fn bi_go_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("go not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("go", "go", &e.to_string())),
     }
 }
 
@@ -47749,7 +47871,7 @@ fn bi_go_build(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("go not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("go", "go", &e.to_string())),
     }
 }
 
@@ -47780,7 +47902,7 @@ fn bi_go_test(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("go not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("go", "go", &e.to_string())),
     }
 }
 
@@ -47811,7 +47933,7 @@ fn bi_mage_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("mage not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("mage", "mage", &e.to_string())),
     }
 }
 
@@ -47847,7 +47969,7 @@ fn bi_bun_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("bun not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("bun", "bun", &e.to_string())),
     }
 }
 
@@ -47884,7 +48006,7 @@ fn bi_bun_install(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("bun not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("bun", "bun", &e.to_string())),
     }
 }
 
@@ -47916,7 +48038,7 @@ fn bi_deno_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("deno not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("deno", "deno", &e.to_string())),
     }
 }
 
@@ -47947,7 +48069,7 @@ fn bi_deno_task(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("deno not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("deno", "deno", &e.to_string())),
     }
 }
 
@@ -47991,7 +48113,7 @@ fn bi_gh_pr(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("gh not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("gh", "gh", &e.to_string())),
     }
 }
 
@@ -48033,7 +48155,7 @@ fn bi_gh_issue(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("gh not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("gh", "gh", &e.to_string())),
     }
 }
 
@@ -48075,7 +48197,7 @@ fn bi_gh_repo_cmd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("gh not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("gh", "gh", &e.to_string())),
     }
 }
 
@@ -48119,7 +48241,7 @@ fn bi_glab_mr(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("glab not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("glab", "glab", &e.to_string())),
     }
 }
 
@@ -48161,7 +48283,7 @@ fn bi_glab_issue(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("glab not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("glab", "glab", &e.to_string())),
     }
 }
 
@@ -48195,7 +48317,7 @@ fn bi_act_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("act not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("act", "act", &e.to_string())),
     }
 }
 
@@ -48232,7 +48354,11 @@ fn bi_pre_commit_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("pre-commit not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "pre-commit",
+            "pre-commit",
+            &e.to_string(),
+        )),
     }
 }
 
@@ -48251,7 +48377,11 @@ fn bi_pre_commit_install(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("pre-commit not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "pre-commit",
+            "pre-commit",
+            &e.to_string(),
+        )),
     }
 }
 
@@ -48289,7 +48419,11 @@ fn bi_buildah_build(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("buildah not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "buildah",
+            "buildah",
+            &e.to_string(),
+        )),
     }
 }
 
@@ -48309,7 +48443,11 @@ fn bi_buildah_images(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Ok(o) => Ok(Value::Str(
             String::from_utf8_lossy(&o.stderr).trim().to_string(),
         )),
-        Err(e) => Err(anyhow!("buildah not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "buildah",
+            "buildah",
+            &e.to_string(),
+        )),
     }
 }
 
@@ -48344,7 +48482,11 @@ fn bi_skopeo_copy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("skopeo not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "skopeo",
+            "skopeo",
+            &e.to_string(),
+        )),
     }
 }
 
@@ -48373,7 +48515,11 @@ fn bi_skopeo_inspect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             "skopeo inspect failed: {}",
             String::from_utf8_lossy(&o.stderr)
         )),
-        Err(e) => Err(anyhow!("skopeo not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "skopeo",
+            "skopeo",
+            &e.to_string(),
+        )),
     }
 }
 
@@ -48408,7 +48554,11 @@ fn bi_trivy_scan(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("trivy not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "trivy",
+            "trivy",
+            &e.to_string(),
+        )),
     }
 }
 
@@ -48441,7 +48591,11 @@ fn bi_trivy_image(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("trivy not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "trivy",
+            "trivy",
+            &e.to_string(),
+        )),
     }
 }
 
@@ -48469,7 +48623,11 @@ fn bi_hadolint_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 }
             }
         }
-        Err(e) => Err(anyhow!("hadolint not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "hadolint",
+            "hadolint",
+            &e.to_string(),
+        )),
     }
 }
 
@@ -48497,7 +48655,11 @@ fn bi_shellcheck_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
                 }
             }
         }
-        Err(e) => Err(anyhow!("shellcheck not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "shellcheck",
+            "shellcheck",
+            &e.to_string(),
+        )),
     }
 }
 
@@ -48518,7 +48680,11 @@ fn bi_shfmt_format(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             "shfmt error: {}",
             String::from_utf8_lossy(&o.stderr)
         )),
-        Err(e) => Err(anyhow!("shfmt not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "shfmt",
+            "shfmt",
+            &e.to_string(),
+        )),
     }
 }
 
@@ -48546,7 +48712,11 @@ fn bi_yamllint_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             rec.insert("issues".to_string(), Value::Array(issues));
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("yamllint not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "yamllint",
+            "yamllint",
+            &e.to_string(),
+        )),
     }
 }
 
@@ -48578,7 +48748,11 @@ fn bi_prettier_format(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("prettier not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "prettier",
+            "prettier",
+            &e.to_string(),
+        )),
     }
 }
 
@@ -48606,7 +48780,11 @@ fn bi_eslint_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 }
             }
         }
-        Err(e) => Err(anyhow!("eslint not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "eslint",
+            "eslint",
+            &e.to_string(),
+        )),
     }
 }
 
@@ -48634,7 +48812,7 @@ fn bi_ruff_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 }
             }
         }
-        Err(e) => Err(anyhow!("ruff not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("ruff", "ruff", &e.to_string())),
     }
 }
 
@@ -48662,7 +48840,7 @@ fn bi_ruff_format(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("ruff not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("ruff", "ruff", &e.to_string())),
     }
 }
 
@@ -48686,7 +48864,11 @@ fn bi_black_format(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("black not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "black",
+            "black",
+            &e.to_string(),
+        )),
     }
 }
 
@@ -48712,7 +48894,7 @@ fn bi_mypy_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             rec.insert("issues".to_string(), Value::Array(issues));
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("mypy not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing("mypy", "mypy", &e.to_string())),
     }
 }
 
@@ -48751,7 +48933,11 @@ fn bi_pytest_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             );
             Ok(Value::Record(rec))
         }
-        Err(e) => Err(anyhow!("pytest not found: {}", e)),
+        Err(e) => Err(crate::safety::tool_missing(
+            "pytest",
+            "pytest",
+            &e.to_string(),
+        )),
     }
 }
 

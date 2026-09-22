@@ -376,17 +376,34 @@ denial, an index past the end — expressed in each shell.
 > | --- | ---: |
 > | accepted it and answered | 507 |
 > | `E_BAD_ARG` | 243 |
-> | **`E_UNKNOWN`** | **140** |
 > | `E_NEEDS_APPROVAL` (the gate, correctly) | 142 |
+> | **`E_UNKNOWN`** | **98** |
+> | `E_TOOL_MISSING` | 42 |
 > | other coded | 20 |
 >
-> **The 140 split two ways, and the split is the point.** 57 of them are an
-> external tool absent on the measuring machine (`black not found`), where the
-> probe never reached argument handling at all — that is a fact about the
-> laptop, not about the shell, and counting it in would be the same error this
-> document criticises elsewhere. The other **83 — 7.9% of the catalogue — are
-> the shell's own argument and type errors**, reported with the one code an
-> agent is told not to reason about:
+> **Two findings, and the second one corrected the first.** The sweep began at
+> 157 uncoded. Of those, 57 turned out not to be argument-handling defects at
+> all: the external tool the builtin shells out to was absent on the measuring
+> machine, so the probe never reached argument handling. Counting those as
+> shell defects would have inflated a claim about AetherShell with a fact about
+> one laptop — the same error this document criticises elsewhere, pointed the
+> other way.
+>
+> They were still a defect, just a different one: "the tool is not installed"
+> is among the most *identifiable* failures a shell has, and it was being
+> reported with the code that means unidentifiable. `E_TOOL_MISSING` now says
+> it, exits **127** (bash's "command not found", one level out), reports
+> `retryable: false` because no correction to the call will help, and names the
+> tool rather than the builtin:
+>
+> ```
+> error[E_TOOL_MISSING]: black: `black` is not installed (No such file or directory)
+>   hint: install `black` and run this again; no change to the call will help
+> ```
+>
+> That leaves **83 — 7.9% of the catalogue — which are the shell's own argument
+> and type errors**, built ad hoc instead of through the shared `expect_*`
+> helpers:
 >
 > ```
 > a2a_register   E_UNKNOWN  a2a.register: name must be a string
@@ -394,17 +411,18 @@ denial, an index past the end — expressed in each shell.
 > add_node       E_UNKNOWN  cluster_add_node: requires id and address arguments
 > ```
 >
-> They are built ad hoc instead of through the shared `expect_*` helpers, which
-> produce `E_BAD_ARG`. The count came down from 157 in the course of finding
-> it: declaring `cat` — which appears in every E1 query — moved one, and
-> converting 54 ad-hoc type errors to the coded helper moved fifteen more. That
-> conversion is worth a line: 54 edits moved 16 builtins, because most
-> converted sites sit behind an earlier failure path the probe never reaches.
-> The number to quote is the one the sweep reports, not the edit count.
+> The count came down 157 -> 156 -> 140 -> 98 across three passes. Worth one
+> line on method: **108 edits moved 42 builtins**, because most converted sites
+> sit behind an earlier failure path the probe never reaches. The number to
+> quote is the one the sweep reports, not the edit count.
 >
 > So the honest claim is narrower than the row above: on ten representative
-> failures AetherShell codes all ten, and across the catalogue it codes about
-> 92% of them. Both numbers are ours and both are reproducible
+> failures AetherShell codes all ten; across the catalogue it codes **90.7%**
+> of them (98 of 1,052 uncoded), or 92.1% counting only failures that are the
+> shell's own rather than a missing tool on the measuring machine. Quoting one
+> number without the other would be picking whichever flatters.
+>
+> Both numbers are ours and both are reproducible
 > (`tests/uncoded_failure_census.rs` holds the line for the core;
 > `benches/agentic/` has the sweep). A benchmark of ten hand-picked cases is
 > exactly the kind of thing that flatters the party running it, which is the
