@@ -588,6 +588,31 @@ probe was the `AETHER_MAX_NET` request-count governor set to zero. A quota
 bounds how *many* requests leave, not where they go. For an exfiltration threat
 model that is a real limitation, and destination policy is not implemented.
 
+> **And until 2026-09-22 the quota bounded far less than this paragraph
+> implied.** `Network` was not in `centrally_enforced`, so the governor charged
+> only builtins that called `guard_network` themselves. Of 57 classified
+> `Network`, **53 were never charged**. Under `--agent --policy strict` with
+> `AETHER_MAX_NET=0`, `scp_upload` invoked `scp` — failing only because the
+> local file was absent — while `git_fetch` and `host_lookup` ran. The list
+> also held `git_push`, `rsync_sync`, `ssh_tunnel`, `socat_relay` and the whole
+> `k8s_*` family: the exfiltration-shaped ones.
+>
+> The hole was invisible for a reason worth naming: the builtin anyone reaches
+> for first is `http_get`, and `http_get` self-guards. The single case a
+> reviewer would test was the one that worked. It surfaced only because a
+> catalogue-wide sweep flagged `marketplace_search` as never returning, and
+> chasing that led here.
+>
+> `Network` is now centrally enforced — one line — which is safe because
+> `Network` decides `Allow` in agent mode, so it adds metering without new
+> refusals, and all 19 self-guarding builtins sit in `SELF_GUARDED`, which
+> `guard_dispatch` consults first. Verified that it meters rather than
+> blanket-denies: at `AETHER_MAX_NET=1` the first call passes and the second is
+> refused; at 3, the second passes.
+>
+> E4's 6/6 stands — its egress probe used `http_get`, which was always charged
+> — but it would have missed all 53.
+
 *This is not a substitute for a sandbox.* These are language-level effect gates
 in the interpreter's own process. They stop a shell *program* from exceeding
 its declared blast radius; they do not stop a native binary the shell launched,

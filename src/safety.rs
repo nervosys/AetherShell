@@ -3576,7 +3576,26 @@ pub const SELF_GUARDED: &[&str] = &[
 fn centrally_enforced(effect: Effect) -> bool {
     matches!(
         effect,
-        Effect::Process | Effect::Destructive | Effect::Exec | Effect::Privileged
+        Effect::Process
+            | Effect::Destructive
+            | Effect::Exec
+            | Effect::Privileged
+            // `Network` was not here, and `AETHER_MAX_NET` therefore governed
+            // only the builtins that happened to call `guard_network`
+            // themselves. Measured on 2026-09-22: of 57 builtins classified
+            // `Network`, 53 were never charged. Under `--agent --policy strict`
+            // with `AETHER_MAX_NET=0`, `scp_upload` invoked `scp` (it failed
+            // only because the local file was absent), `git_fetch` ran, and
+            // `host_lookup` resolved. `http_get` was refused, which is why the
+            // hole was invisible: the builtin everyone tests was the one that
+            // worked.
+            //
+            // Safe to add because `Network` decides `Allow` in agent mode, so
+            // this changes no policy outcome -- it only routes the call through
+            // `guard`, which charges the governor and audits. The 19 builtins
+            // that call `guard_network` are all in `SELF_GUARDED`, which
+            // `guard_dispatch` checks *first*, so none is charged twice.
+            | Effect::Network
     )
 }
 

@@ -58,16 +58,47 @@ fn every_builtin_that_reaches_the_registry_is_classified_network() {
 }
 
 #[test]
-fn the_network_class_is_not_centrally_enforced_so_call_sites_must_meter() {
-    // This is the fact that made step 1 insufficient, and it is worth pinning:
-    // if `Network` ever becomes centrally enforced, the `guard_network` calls
-    // in the marketplace builtins become a double charge and should go.
+fn every_network_builtin_is_metered_not_just_the_ones_that_opted_in() {
+    // `Network` used not to be centrally enforced, so `AETHER_MAX_NET`
+    // governed only the builtins that happened to call `guard_network`
+    // themselves. Of 57 classified `Network`, 53 were never charged.
     //
-    // Asserted through observable behaviour rather than the private predicate:
-    // a Destructive builtin is refused by the dispatcher without guarding
-    // itself, and that is what "centrally enforced" means.
-    assert_eq!(effect_of("marketplace_search"), Effect::Network);
-    assert_eq!(effect_of("http_get"), Effect::Network);
+    // The hole was invisible because the builtin everyone reaches for was the
+    // one that worked: `http_get` self-guards. `scp_upload` did not -- under
+    // `--agent --policy strict` with `AETHER_MAX_NET=0` it invoked `scp`, and
+    // failed only because the local file was absent.
+    //
+    // These are builtins that do *not* call `guard_network`, so they are
+    // metered only by the central path. If that regresses, they stop being
+    // charged and nothing else here would notice.
+    const NOT_SELF_GUARDED: &[&str] = &["scp_upload", "git_fetch", "host_lookup", "k8s_pods"];
+
+    let jail = std::env::temp_dir().join(format!("ae_netall_{}", std::process::id()));
+    std::fs::create_dir_all(&jail).expect("jail");
+    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("AETHER_POLICY", "strict");
+    std::env::set_var("AETHER_WORKSPACE", &jail);
+    std::env::set_var("AETHER_MAX_NET", "0");
+
+    for name in NOT_SELF_GUARDED {
+        assert_eq!(
+            effect_of(name),
+            Effect::Network,
+            "{name} must be classified Network for the central path to charge it"
+        );
+        let mut env = aethershell::env::Env::new();
+        let out = aethershell::builtins::call(name, vec![], &mut env);
+        let msg = match out {
+            Ok(v) => panic!("{name} ran with a zero network budget and answered {v:?}"),
+            Err(e) => e.to_string(),
+        };
+        assert!(
+            msg.contains("E_BUDGET_EXCEEDED"),
+            "{name} was not charged against the network budget: {msg}"
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(&jail);
 }
 
 #[test]
