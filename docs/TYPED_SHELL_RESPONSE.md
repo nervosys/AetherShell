@@ -375,9 +375,9 @@ denial, an index past the end — expressed in each shell.
 > | Response to a nonsense argument | Builtins |
 > | --- | ---: |
 > | accepted it and answered | 507 |
-> | `E_BAD_ARG` | 243 |
+> | `E_BAD_ARG` | 285 |
 > | `E_NEEDS_APPROVAL` (the gate, correctly) | 142 |
-> | **`E_UNKNOWN`** | **98** |
+> | **`E_UNKNOWN`** | **56** |
 > | `E_TOOL_MISSING` | 42 |
 > | other coded | 20 |
 >
@@ -401,9 +401,8 @@ denial, an index past the end — expressed in each shell.
 >   hint: install `black` and run this again; no change to the call will help
 > ```
 >
-> That leaves **83 — 7.9% of the catalogue — which are the shell's own argument
-> and type errors**, built ad hoc instead of through the shared `expect_*`
-> helpers:
+> That leaves **41 — 3.9% of the catalogue — which are the shell's own argument
+> and type errors**, built ad hoc instead of through the shared helpers:
 >
 > ```
 > a2a_register   E_UNKNOWN  a2a.register: name must be a string
@@ -411,14 +410,24 @@ denial, an index past the end — expressed in each shell.
 > add_node       E_UNKNOWN  cluster_add_node: requires id and address arguments
 > ```
 >
-> The count came down 157 -> 156 -> 140 -> 98 across three passes. Worth one
-> line on method: **108 edits moved 42 builtins**, because most converted sites
-> sit behind an earlier failure path the probe never reaches. The number to
-> quote is the one the sweep reports, not the edit count.
+> The count came down 157 -> 156 -> 140 -> 98 -> 56 across four passes. Two
+> lines on method, both unflattering to the method:
+>
+> **334 edits moved 101 builtins** — about 30%, consistently — because most
+> converted sites sit behind an earlier failure path the probe never reaches.
+> Quote what the sweep reports, not the diff.
+>
+> And every regex pass was quietly incomplete, in a way invisible from the edit
+> side: a dot in `a2a.register`, a missing article in `must be integer`, and a
+> multi-line `anyhow!` that rustfmt had wrapped — that last one hid 74 sites,
+> nearly as many as the pass that found it. Each surfaced only by asking the
+> running shell about a builtin that was supposed to be fixed and was not. A
+> regex over source is itself the name-based reasoning this work exists to
+> remove.
 >
 > So the honest claim is narrower than the row above: on ten representative
-> failures AetherShell codes all ten; across the catalogue it codes **90.7%**
-> of them (98 of 1,052 uncoded), or 92.1% counting only failures that are the
+> failures AetherShell codes all ten; across the catalogue it codes **94.7%**
+> of them (56 of 1,052 uncoded), or 96.1% counting only failures that are the
 > shell's own rather than a missing tool on the measuring machine. Quoting one
 > number without the other would be picking whichever flatters.
 >

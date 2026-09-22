@@ -19,12 +19,12 @@
 // construction and is counted separately: the question is which builtins ran
 // and *then* failed badly.
 //
-// Result on 2026-09-21 (1,052 builtins across 54 categories):
+// Result on 2026-09-22 (1,052 builtins across 54 categories):
 //
 //     507  accepted it and answered
-//     243  E_BAD_ARG
+//     285  E_BAD_ARG
 //     142  E_NEEDS_APPROVAL   (the gate, correctly)
-//      98  E_UNKNOWN
+//      56  E_UNKNOWN
 //      42  E_TOOL_MISSING
 //      12  E_UNKNOWN_BUILTIN
 //       4  E_POLICY_DENY
@@ -33,28 +33,36 @@
 //            or the filesystem. Worth knowing before reading a one-builtin
 //            change as signal.
 //
-// The 98 still-uncoded split two ways, and the split is the point:
+// The 56 still-uncoded split two ways, and the split is the point:
 //
-//      83  the shell's own argument and type errors -- 7.9% of the catalogue
-//      15  an external tool absent on THIS host, still reported as E_UNKNOWN
-//            because the builtin builds that error in a shape the conversion
-//            did not reach (several propagate a bare io::Error with no
-//            context at all, so not even the tool's name survives).
+//      41  the shell's own argument and type errors -- 3.9% of the catalogue
+//      15  an external tool absent on THIS host, still uncoded because the
+//            builtin propagates a bare io::Error with no context -- not even
+//            the tool's name survives, so there is nothing to convert.
 //
 // How it got here, and why the edit count is the wrong number to quote:
 //
 //   157  before any of this
-//   156  declaring `cat`                          1 builtin moved
-//   140  54 ad-hoc type errors -> bad_arg        16 builtins moved
-//    98  108 tool-not-found sites -> E_TOOL_MISSING, 42 builtins moved
+//   156  declaring `cat`                              1 builtin moved
+//   140   54 ad-hoc type errors -> bad_arg           16 builtins moved
+//    98  108 tool-not-found sites -> E_TOOL_MISSING  42 builtins moved
+//    56  171 argument errors -> arg_err              42 builtins moved
 //
-// 108 edits moved 42 builtins: most converted sites sit behind an earlier
-// failure path this probe never reaches. Quote what the sweep reports.
+// 334 edits, 101 builtins moved: about 30%, consistently, because most
+// converted sites sit behind an earlier failure path this probe never
+// reaches. Quote what the sweep reports.
 //
-// What remains of the 83 is a long tail: mostly *missing argument* errors
-// (`requires path`, `requires id and address arguments`) rather than the
-// uniform type errors, so the next pass is not more of the same regex.
-//// `tests/uncoded_failure_census.rs` holds the line at zero for the
+// Three regex passes were each quietly incomplete, and none of the gaps was
+// visible from the edit side:
+//   * `a2a.register` -- a dot in the builtin label
+//   * `must be integer` -- no article, where the pattern assumed one
+//   * a multi-line `anyhow!` call -- rustfmt had wrapped the message onto its
+//     own line, which hid 74 sites, nearly as many as the single-line pass
+//     had found
+// Each surfaced only by asking the running shell about a builtin that was
+// supposed to be fixed and was not.
+//
+// `tests/uncoded_failure_census.rs` holds the line at zero for the
 // data-transformation categories, in-process and fast enough for CI. This
 // sweep is the wide, slow version: 1,052 subprocesses, far too slow for the
 // suite, and the way to check whether the number is falling.
