@@ -230,6 +230,17 @@ fn test_reverse_string() {
     assert_eq!(result, Value::Str("olleh".to_string()));
 }
 
+#[test]
+fn test_reverse_string_pipeline() {
+    // The form nothing covered. `test_reverse_pipeline` pipes an *array*
+    // and `test_reverse_string` calls with a *string*, so a change that
+    // accepted arrays through the pipe and strings by argument passed
+    // both while refusing this one -- which is exactly what declaring
+    // `reverse` with an Array subject did, and it shipped.
+    let result = run(r#""hello" | reverse"#);
+    assert_eq!(result, Value::Str("olleh".to_string()));
+}
+
 // ============================================================================
 // Combined usage
 // ============================================================================

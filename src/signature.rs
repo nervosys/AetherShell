@@ -707,15 +707,23 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[(r#"values({a: 1, b: 2}) | sum"#, "3")],
     },
     Signature {
+        // `Any`, not `Array`: it reverses strings too, and declaring it
+        // `Array` refused `"abc" | reverse`. That shipped in 5a54fc3 and
+        // survived because the only string test used the function-call
+        // form, which was not type-checked at the time.
         name: "reverse",
-        category: None,
+        category: Some("Array"),
         subject_required: false,
         aliases: &[],
-        subject: Some(Ty::Array),
+        subject: Some(Ty::Any),
         params: &[],
-        returns: "Array",
-        doc: "Reverse the order of an array.",
-        examples: &[("[1, 2, 3] | reverse", r#"[3, 2, 1]"#)],
+        returns: "Any",
+        doc: "Reverse an array or a string.",
+        examples: &[
+            ("[1, 2, 3] | reverse", r#"[3, 2, 1]"#),
+            (r#""abc" | reverse"#, r#""cba""#),
+            (r#"reverse("abc")"#, r#""cba""#),
+        ],
     },
     Signature {
         name: "take",
@@ -965,6 +973,26 @@ pub static SIGNATURES: &[Signature] = &[
             (r#"sql(":memory:", "SELECT 2 AS n") | len"#, "1"),
         ],
     },
+    Signature {
+        // Works on arrays and on strings, so the subject is `Any` -- narrowing
+        // it to Array would have deleted `"abcdef" | slice(1, 3)`.
+        name: "slice",
+        category: Some("Array"),
+        subject_required: false,
+        aliases: &[],
+        subject: Some(Ty::Any),
+        params: &[
+            req("start", Ty::Int, "first index to keep, counting from zero"),
+            opt("end", Ty::Int, "index to stop before; omit to run to the end"),
+        ],
+        returns: "Any",
+        doc: "A sub-range of an array or a string.",
+        examples: &[
+            ("[1, 2, 3, 4, 5] | slice(1, 3) | len", "2"),
+            ("[1, 2, 3, 4, 5] | slice(2) | len", "3"),
+            (r#""abcdef" | slice(1, 3)"#, r#""bc""#),
+        ],
+    },
 ];
 
 /// The declaration for `name`, if it has one.
@@ -1013,6 +1041,33 @@ pub fn validate(name: &str, args: &[Value], input: Option<&Value>) -> anyhow::Re
     // subject as its first argument instead, and the parameters shift by one.
     let params_start = usize::from(input.is_none() && sig.subject.is_some() && !args.is_empty());
     let supplied = args.len().saturating_sub(params_start);
+
+    // When the subject arrives as the first argument rather than through the
+    // pipe, it still has a declared type and still has to match. Checking it
+    // only in pipeline position left `unique({unexpected: true})` to fail in
+    // the body with an uncoded `E_UNKNOWN`, which
+    // `tests/uncoded_failure_census.rs` found by sweeping rather than by
+    // someone happening to try it.
+    //
+    // Restricted to builtins that declare no parameters, where the first
+    // argument can only be the subject. With parameters present it is
+    // genuinely ambiguous: `max(2, 9)` takes two numbers and `[1, 5] | max`
+    // takes an array, so `2` is a parameter there, not a malformed subject.
+    // Checking it unconditionally refused `max(2, 9)` -- caught immediately by
+    // the declaration tests, which is the argument for having written them.
+    // Resolving that ambiguity properly is overload resolution, and this is
+    // not the place for it.
+    if params_start == 1 && sig.params.is_empty() {
+        if let (Some(want), Some(got)) = (sig.subject, args.first()) {
+            if !want.accepts(got) {
+                return Err(crate::safety::bad_arg(
+                    name,
+                    &format!("{} as the subject: {}", want.as_str(), sig.render()),
+                    got.type_name(),
+                ));
+            }
+        }
+    }
 
     let required = sig.params.iter().filter(|p| p.required).count();
     if supplied < required {

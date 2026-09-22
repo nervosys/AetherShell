@@ -67,14 +67,25 @@ fn shared_extraction_helpers_emit_structured_bad_arg() {
     // The same upgrade covers the ~90 call sites of
     // expect_string/expect_int/expect_array/need_lambda.
     //
-    // This used to exercise `env(123)`. `env` now carries a declared signature
-    // (`src/signature.rs`), so it is refused at dispatch and never reaches the
-    // shared helper — a better error, naming the parameter as well as the
-    // type, but a different code path. Relaxing this assertion would have left
-    // the test passing while silently covering nothing. `upper` is undeclared
-    // and still goes through `expect_string`, which is what this test is for;
+    // This has been repointed twice -- `env(123)`, then `upper(123)` -- because
+    // each builtin it named was later given a declared signature, which is
+    // refused at dispatch and never reaches the shared helper. Relaxing the
+    // assertion would leave the test passing while covering nothing, so it now
+    // finds a still-undeclared builtin using `expect_string` at run time.
     // `tests/declared_signatures.rs` covers the declared path.
-    let src = r#"try { upper(123) } catch e { e }"#;
+    let name = ["json_parse", "syntax_search", "lower", "trim", "upper"]
+        .into_iter()
+        .find(|n| {
+            aethershell::signature::signature_of(n).is_none()
+                && aethershell::builtins::is_dispatched(n)
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "every candidate is now declared; name another undeclared builtin that uses expect_string, or delete this test and rely on declared_signatures.rs"
+            )
+        });
+    let src = format!("try {{ {name}(123) }} catch e {{ e }}");
+    let src = src.as_str();
     let stmts = aethershell::parser::parse_program(src).expect("parse");
     let mut env = aethershell::env::Env::new();
     let result = aethershell::eval::eval_program(&stmts, &mut env).expect("eval");
