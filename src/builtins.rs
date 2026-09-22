@@ -4796,10 +4796,10 @@ fn bi_call(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Valu
     let name = match name_val {
         Value::Str(s) | Value::Uri(s) => s,
         other => {
-            return Err(anyhow!(
+            return Err(crate::safety::arg_err(format!(
                 "call: expected String builtin name, got {:?}",
                 other
-            ));
+            )));
         }
     };
     // remaining args (after name)
@@ -7218,7 +7218,12 @@ fn bi_agent(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Val
     // positional
     let goal_str = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        Some(other) => return Err(anyhow!("agent: expected String goal, got {:?}", other)),
+        Some(other) => {
+            return Err(crate::safety::arg_err(format!(
+                "agent: expected String goal, got {:?}",
+                other
+            )))
+        }
         None => return Err(crate::safety::bad_arg("agent", "a goal string", "nothing")),
     };
 
@@ -7338,7 +7343,12 @@ fn bi_swarm(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Val
     // positional like agent()
     let goal = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        Some(other) => return Err(anyhow!("swarm: expected String goal, got {:?}", other)),
+        Some(other) => {
+            return Err(crate::safety::arg_err(format!(
+                "swarm: expected String goal, got {:?}",
+                other
+            )))
+        }
         None => return Err(crate::safety::bad_arg("swarm", "a goal string", "nothing")),
     };
     let mut tools: Vec<String> = Vec::new();
@@ -7607,7 +7617,13 @@ fn bi_head(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     } else {
         // No pipeline input, read from file
         match args.len() {
-            0 => return Err(anyhow!("head: no input provided")),
+            0 => {
+                return Err(crate::safety::bad_arg(
+                    "head",
+                    "a piped String, or a file path as the first argument",
+                    "nothing",
+                ))
+            }
             1 => {
                 // Single argument: could be file path or line count
                 match &args[0] {
@@ -7620,8 +7636,20 @@ fn bi_head(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                         })?;
                         (10, content)
                     }
-                    Value::Int(_) => return Err(anyhow!("head: no file specified")),
-                    _ => return Err(anyhow!("head: invalid argument")),
+                    Value::Int(_) => {
+                        return Err(crate::safety::bad_arg(
+                            "head",
+                            "a file path before the line count, or a piped String",
+                            "an Int with no file",
+                        ))
+                    }
+                    other => {
+                        return Err(crate::safety::bad_arg(
+                            "head",
+                            "a file path (String), or a piped String",
+                            other.type_name(),
+                        ))
+                    }
                 }
             }
             2 => {
@@ -7647,8 +7675,8 @@ fn bi_head(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                         (*n as usize, content)
                     }
                     _ => {
-                        return Err(anyhow!(
-                            "head: invalid arguments - need file path and line count"
+                        return Err(crate::safety::arg_err(
+                            "head: invalid arguments - need file path and line count",
                         ));
                     }
                 }
@@ -7687,7 +7715,13 @@ fn bi_tail(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     } else {
         // No pipeline input, read from file
         match args.len() {
-            0 => return Err(anyhow!("tail: no input provided")),
+            0 => {
+                return Err(crate::safety::bad_arg(
+                    "tail",
+                    "a piped String, or a file path as the first argument",
+                    "nothing",
+                ))
+            }
             1 => {
                 // Single argument: could be file path or line count
                 match &args[0] {
@@ -7700,8 +7734,20 @@ fn bi_tail(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                         })?;
                         (10, content)
                     }
-                    Value::Int(_) => return Err(anyhow!("tail: no file specified")),
-                    _ => return Err(anyhow!("tail: invalid argument")),
+                    Value::Int(_) => {
+                        return Err(crate::safety::bad_arg(
+                            "tail",
+                            "a file path before the line count, or a piped String",
+                            "an Int with no file",
+                        ))
+                    }
+                    other => {
+                        return Err(crate::safety::bad_arg(
+                            "tail",
+                            "a file path (String), or a piped String",
+                            other.type_name(),
+                        ))
+                    }
                 }
             }
             2 => {
@@ -7726,8 +7772,8 @@ fn bi_tail(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                         (*n as usize, content)
                     }
                     _ => {
-                        return Err(anyhow!(
-                            "tail: invalid arguments - need file path and line count"
+                        return Err(crate::safety::arg_err(
+                            "tail: invalid arguments - need file path and line count",
                         ));
                     }
                 }
@@ -7918,7 +7964,13 @@ fn bi_wc(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     } else if !args.is_empty() {
         let path = match &args[0] {
             Value::Str(s) if !s.starts_with('-') => s,
-            _ => return Err(anyhow!("wc: no input provided")),
+            other => {
+                return Err(crate::safety::bad_arg(
+                    "wc",
+                    "a piped String, or a file path as the first argument",
+                    other.type_name(),
+                ))
+            }
         };
         fs::read_to_string(path)?
     } else {
@@ -8425,8 +8477,8 @@ fn bi_where_object(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Res
             if args.len() >= 3 {
                 filter_by_property(&input, property, &args[1], &args[2])
             } else {
-                Err(anyhow!(
-                    "Where-Object: property filtering requires property, operator, and value"
+                Err(crate::safety::arg_err(
+                    "Where-Object: property filtering requires property, operator, and value",
                 ))
             }
         }
@@ -13807,7 +13859,9 @@ fn bi_evolution_stats(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         }
     }
 
-    Err(anyhow!("Could not extract stats from population"))
+    Err(crate::safety::arg_err(
+        "Could not extract stats from population",
+    ))
 }
 
 /// selection_strategy(name, [param])
@@ -14054,7 +14108,7 @@ fn value_to_nn(v: &Value) -> Result<NeuralNetwork> {
             return serde_json::from_str(data).context("Failed to deserialize network");
         }
     }
-    Err(anyhow!("Invalid neural network value"))
+    Err(crate::safety::arg_err("Invalid neural network value"))
 }
 
 fn consensus_net_to_value(network: &ConsensusNetwork) -> Result<Value> {
@@ -14080,7 +14134,7 @@ fn value_to_consensus_net(v: &Value) -> Result<ConsensusNetwork> {
             return serde_json::from_str(data).context("Failed to deserialize consensus network");
         }
     }
-    Err(anyhow!("Invalid consensus network value"))
+    Err(crate::safety::arg_err("Invalid consensus network value"))
 }
 
 fn get_population_genome_type(v: &Value) -> Result<String> {
@@ -14089,7 +14143,9 @@ fn get_population_genome_type(v: &Value) -> Result<String> {
             return Ok(gt.clone());
         }
     }
-    Err(anyhow!("Could not determine genome type from population"))
+    Err(crate::safety::arg_err(
+        "Could not determine genome type from population",
+    ))
 }
 
 fn population_to_value<G: crate::evolution::Evolvable + serde::Serialize>(
@@ -18581,8 +18637,8 @@ fn bi_rbac_principal(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         None | Some(Value::Null) => Ok(crate::safety::current_principal()
             .map(Value::Str)
             .unwrap_or(Value::Null)),
-        _ => Err(anyhow!(
-            "rbac_principal: expected a user id string or no argument"
+        _ => Err(crate::safety::arg_err(
+            "rbac_principal: expected a user id string or no argument",
         )),
     }
 }
@@ -19692,7 +19748,11 @@ fn bi_sso_auth(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     let config = SSO_CONFIG.read().unwrap();
     if config.is_none() {
-        return Err(anyhow!("sso_auth: SSO not initialized"));
+        return Err(crate::safety::bad_state(
+            "sso_auth",
+            "SSO is not initialised",
+            "sso.init",
+        ));
     }
 
     let token = format!(
@@ -19798,10 +19858,10 @@ fn bi_compliance_check(args: Vec<Value>, input: Option<Value>) -> Result<Value> 
         .ok_or_else(|| crate::safety::arg_err("compliance_check: missing 'standard'"))?;
 
     let standard = ComplianceStandard::from_str(&standard_str).ok_or_else(|| {
-        anyhow!(
+        crate::safety::arg_err(format!(
             "compliance_check: invalid standard '{}' (use GDPR, HIPAA, SOC2, or PCI)",
             standard_str
-        )
+        ))
     })?;
 
     let scope = args
@@ -19849,8 +19909,12 @@ fn bi_compliance_report(args: Vec<Value>, input: Option<Value>) -> Result<Value>
         .map(|v| v.to_display_string())
         .ok_or_else(|| crate::safety::arg_err("compliance_report: missing 'standard'"))?;
 
-    let standard = ComplianceStandard::from_str(&standard_str)
-        .ok_or_else(|| anyhow!("compliance_report: invalid standard '{}'", standard_str))?;
+    let standard = ComplianceStandard::from_str(&standard_str).ok_or_else(|| {
+        crate::safety::arg_err(format!(
+            "compliance_report: invalid standard '{}'",
+            standard_str
+        ))
+    })?;
 
     let audit_count = AUDIT_LOG.read().unwrap().len();
     let role_count = RBAC_ROLES.read().unwrap().len();
@@ -19932,7 +19996,7 @@ fn bi_finetune_status(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let jobs = FINETUNE_JOBS.read().unwrap();
     let job = jobs
         .get(&job_id)
-        .ok_or_else(|| anyhow!("finetune_status: job '{}' not found", job_id))?;
+        .ok_or_else(|| crate::safety::not_found("finetune_status", "job", &job_id))?;
 
     let mut result = BTreeMap::new();
     result.insert("job_id".to_string(), Value::Str(job.id.clone()));
@@ -19992,7 +20056,7 @@ fn bi_finetune_cancel(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             )),
         }
     } else {
-        Err(anyhow!("finetune_cancel: job '{}' not found", job_id))
+        Err(crate::safety::not_found("finetune_cancel", "job", &job_id))
     }
 }
 
@@ -20145,7 +20209,7 @@ fn bi_a2ui_progress_complete(args: Vec<Value>, input: Option<Value>) -> Result<V
         .ok_or_else(|| crate::safety::arg_err("a2ui_progress_complete: missing progress_id"))?;
 
     let progress_id = uuid::Uuid::parse_str(&id_str)
-        .map_err(|_| anyhow!("a2ui_progress_complete: invalid progress_id"))?;
+        .map_err(|_| crate::safety::arg_err("a2ui_progress_complete: invalid progress_id"))?;
 
     A2UI_CHANNEL.progress_complete("builtin", progress_id)?;
 
@@ -27577,6 +27641,7 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
 }
 
 fn bi_gui_dialog_message(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    crate::safety::refuse_if_headless("gui_dialog_message")?;
     let message = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => return Ok(Value::Null),
@@ -27628,6 +27693,7 @@ Add-Type -AssemblyName System.Windows.Forms
 }
 
 fn bi_gui_dialog_input(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    crate::safety::refuse_if_headless("gui_dialog_input")?;
     let prompt = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => "Enter value:".to_string(),
@@ -27655,6 +27721,7 @@ fn bi_gui_dialog_input(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 }
 
 fn bi_gui_dialog_file_open(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    crate::safety::refuse_if_headless("gui_dialog_file_open")?;
     let title = args
         .first()
         .and_then(|v| match v {
@@ -27699,6 +27766,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{ $dialog
 }
 
 fn bi_gui_dialog_file_save(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    crate::safety::refuse_if_headless("gui_dialog_file_save")?;
     let title = args
         .first()
         .and_then(|v| match v {
@@ -27743,6 +27811,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{ $dialog
 }
 
 fn bi_gui_dialog_folder(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    crate::safety::refuse_if_headless("gui_dialog_folder")?;
     let title = args
         .first()
         .and_then(|v| match v {
@@ -27797,6 +27866,7 @@ fn bi_gui_wait(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_gui_color_picker(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    crate::safety::refuse_if_headless("gui_color_picker")?;
     #[cfg(target_os = "windows")]
     {
         let ps_script = r#"
@@ -29653,9 +29723,9 @@ fn bi_crypto_encrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         _ => return Ok(Value::Null),
     };
     if password.is_empty() {
-        return Err(anyhow::anyhow!(
+        return Err(crate::safety::arg_err(
             "E_CRYPTO_BAD_INPUT: crypto.encrypt requires a non-empty password; \
-             nothing was encrypted"
+             nothing was encrypted",
         ));
     }
 
@@ -29773,9 +29843,11 @@ fn bi_crypto_decrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             return crypto_decrypt_legacy_cbc(trimmed, &password);
         }
         #[allow(unreachable_code)]
-        return Err(anyhow::anyhow!(
-            "E_UNIMPLEMENTED: legacy ciphertext needs the openssl CLI (Unix only); \
-             nothing was decrypted"
+        return Err(crate::safety::unimplemented(
+            "crypto.decrypt",
+            "legacy ciphertext needs the openssl CLI, which is Unix-only; \
+             NOTHING WAS DECRYPTED",
+            "run `openssl enc -d` yourself, or re-encrypt with crypto.encrypt",
         ));
     }
 
@@ -29831,9 +29903,11 @@ fn bi_crypto_decrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_crypto_sign(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Err(anyhow::anyhow!(
-        "E_UNIMPLEMENTED: crypto.sign needs key management that AetherShell does not \
-         provide; use the openssl CLI directly. No signature was produced"
+    Err(crate::safety::unimplemented(
+        "crypto.sign",
+        "signing needs key management AetherShell does not provide; \
+         NO SIGNATURE WAS PRODUCED",
+        "use the openssl CLI directly",
     ))
 }
 
@@ -29946,8 +30020,10 @@ fn bi_crypto_cert_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
             ));
         }
     }
-    Err(anyhow::anyhow!(
-        "E_UNIMPLEMENTED: crypto.cert_parse requires the openssl CLI (Unix only)"
+    Err(crate::safety::unimplemented(
+        "crypto.cert_parse",
+        "certificate parsing requires the openssl CLI, which is Unix-only",
+        "run `openssl x509 -text` yourself",
     ))
 }
 
@@ -30538,9 +30614,11 @@ fn bi_crypto_cert_verify(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
         // The Unix arm above returns Value::Bool from openssl's exit status. A
         // string here would be truthy, so certificate verification would appear
         // to *succeed* on every non-Unix platform.
-        Err(anyhow::anyhow!(
-            "E_UNIMPLEMENTED: crypto.verify_cert requires the openssl CLI (Unix only); \
-             the certificate was NOT verified"
+        Err(crate::safety::unimplemented(
+            "crypto.verify_cert",
+            "certificate verification requires the openssl CLI, which is \
+             Unix-only; THE CERTIFICATE WAS NOT VERIFIED",
+            "run `openssl verify` yourself",
         ))
     }
 }
@@ -30551,9 +30629,11 @@ fn bi_crypto_generate_key(args: Vec<Value>, _input: Option<Value>) -> Result<Val
 
 /// See [`bi_crypto_verify`] — same fail-open hazard, same resolution.
 fn bi_crypto_verify_signature(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Err(anyhow::anyhow!(
-        "E_UNIMPLEMENTED: crypto.verify_signature needs key management that AetherShell \
-         does not provide; use the openssl CLI directly. NOTHING WAS VERIFIED"
+    Err(crate::safety::unimplemented(
+        "crypto.verify_signature",
+        "verification needs key management AetherShell does not provide; \
+         NOTHING WAS VERIFIED",
+        "use the openssl CLI directly",
     ))
 }
 
@@ -32275,7 +32355,7 @@ fn bi_a2a_send(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     let target = args[0]
         .as_str()
-        .context("a2a.send: target must be a string")?;
+        .map_err(|_| crate::safety::arg_err("a2a.send: target must be a string"))?;
     let message = args[1].clone();
 
     let registry = A2A_REGISTRY.read().unwrap();
@@ -32354,7 +32434,7 @@ fn bi_a2a_register(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     let name = args[0]
         .as_str()
-        .context("a2a.register: name must be a string")?;
+        .map_err(|_| crate::safety::arg_err("a2a.register: name must be a string"))?;
     let info = args
         .get(1)
         .and_then(|v| v.as_record().ok())
@@ -32377,7 +32457,7 @@ fn bi_a2a_unregister(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     let name = args[0]
         .as_str()
-        .context("a2a.unregister: name must be a string")?;
+        .map_err(|_| crate::safety::arg_err("a2a.unregister: name must be a string"))?;
     let mut registry = A2A_REGISTRY.write().unwrap();
     let removed = registry.remove(name).is_some();
     let mut messages = A2A_MESSAGES.write().unwrap();
@@ -32449,10 +32529,10 @@ fn bi_nanda_propose(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     let name = args[0]
         .as_str()
-        .context("nanda.propose: name must be a string")?;
+        .map_err(|_| crate::safety::arg_err("nanda.propose: name must be a string"))?;
     let data = args[1]
         .as_record()
-        .context("nanda.propose: data must be a record")?;
+        .map_err(|_| crate::safety::arg_err("nanda.propose: data must be a record"))?;
     let proposal_id = format!("prop_{}", nanda_uuid());
     let threshold = data
         .get("threshold")
@@ -32477,10 +32557,10 @@ fn bi_nanda_vote(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     let proposal_id = args[0]
         .as_str()
-        .context("nanda.vote: proposal_id must be a string")?;
+        .map_err(|_| crate::safety::arg_err("nanda.vote: proposal_id must be a string"))?;
     let approve = args[1]
         .as_bool()
-        .context("nanda.vote: approve must be a boolean")?;
+        .map_err(|_| crate::safety::arg_err("nanda.vote: approve must be a boolean"))?;
     let proposals = NANDA_PROPOSALS.read().unwrap();
     if !proposals.contains_key(proposal_id) {
         return Err(anyhow!("nanda.vote: proposal '{}' not found", proposal_id));
@@ -32510,7 +32590,7 @@ fn bi_nanda_commit(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     let proposal_id = args[0]
         .as_str()
-        .context("nanda.commit: proposal_id must be a string")?;
+        .map_err(|_| crate::safety::arg_err("nanda.commit: proposal_id must be a string"))?;
     let mut proposals = NANDA_PROPOSALS.write().unwrap();
     let proposal = proposals
         .get_mut(proposal_id)
@@ -32554,7 +32634,7 @@ fn bi_nanda_abort(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     let proposal_id = args[0]
         .as_str()
-        .context("nanda.abort: proposal_id must be a string")?;
+        .map_err(|_| crate::safety::arg_err("nanda.abort: proposal_id must be a string"))?;
     let mut proposals = NANDA_PROPOSALS.write().unwrap();
     let proposal = proposals
         .get_mut(proposal_id)
@@ -32596,7 +32676,7 @@ fn bi_nanda_consensus(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
     }
     let proposal_id = args[0]
         .as_str()
-        .context("nanda.consensus: proposal_id must be a string")?;
+        .map_err(|_| crate::safety::arg_err("nanda.consensus: proposal_id must be a string"))?;
     let proposals = NANDA_PROPOSALS.read().unwrap();
     let proposal = proposals
         .get(proposal_id)
@@ -32633,7 +32713,7 @@ fn bi_nanda_quorum(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     let proposal_id = args[0]
         .as_str()
-        .context("nanda.quorum: proposal_id must be a string")?;
+        .map_err(|_| crate::safety::arg_err("nanda.quorum: proposal_id must be a string"))?;
     let proposals = NANDA_PROPOSALS.read().unwrap();
     if !proposals.contains_key(proposal_id) {
         return Err(anyhow!(
@@ -37081,11 +37161,11 @@ fn container_json_lines(program: &str, args: &[&str]) -> Result<Vec<Value>> {
         .output()
         .map_err(|e| crate::safety::tool_missing(program, program, &e.to_string()))?;
     if !output.status.success() {
-        return Err(anyhow!(
-            "{} {} failed: {}",
+        return Err(crate::safety::tool_failed(
             program,
-            args.join(" "),
-            String::from_utf8_lossy(&output.stderr)
+            &format!("{} {}", program, args.join(" ")),
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
         ));
     }
     let text = String::from_utf8_lossy(&output.stdout);
@@ -37109,11 +37189,11 @@ fn container_run_cmd(program: &str, args: &[&str]) -> Result<String> {
         .output()
         .map_err(|e| crate::safety::tool_missing(program, program, &e.to_string()))?;
     if !output.status.success() {
-        return Err(anyhow!(
-            "{} {} failed: {}",
+        return Err(crate::safety::tool_failed(
             program,
-            args.join(" "),
-            String::from_utf8_lossy(&output.stderr)
+            &format!("{} {}", program, args.join(" ")),
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
         ));
     }
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
@@ -38581,11 +38661,11 @@ fn vm_run_cmd(program: &str, args: &[&str]) -> Result<String> {
         .output()
         .map_err(|e| crate::safety::tool_missing(program, program, &e.to_string()))?;
     if !output.status.success() {
-        return Err(anyhow!(
-            "{} {} failed: {}",
+        return Err(crate::safety::tool_failed(
             program,
-            args.join(" "),
-            String::from_utf8_lossy(&output.stderr)
+            &format!("{} {}", program, args.join(" ")),
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
         ));
     }
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
@@ -40017,10 +40097,10 @@ fn bi_openssl_cert_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value
     let file_path = match &args[0] {
         Value::Str(s) => s.clone(),
         other => {
-            return Err(anyhow!(
+            return Err(crate::safety::arg_err(format!(
                 "openssl_cert_info: expected String file path, got {:?}",
                 other
-            ))
+            )))
         }
     };
 
@@ -40091,10 +40171,10 @@ fn bi_openssl_genrsa(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let file_path = match &args[0] {
         Value::Str(s) => s.clone(),
         other => {
-            return Err(anyhow!(
+            return Err(crate::safety::arg_err(format!(
                 "openssl_genrsa: expected String file path, got {:?}",
                 other
-            ))
+            )))
         }
     };
     let bits = if args.len() > 1 {
@@ -40223,19 +40303,19 @@ fn bi_gpg_encrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let file_path = match &args[0] {
         Value::Str(s) => s.clone(),
         other => {
-            return Err(anyhow!(
+            return Err(crate::safety::arg_err(format!(
                 "gpg_encrypt: expected String file path, got {:?}",
                 other
-            ))
+            )))
         }
     };
     let recipient = match &args[1] {
         Value::Str(s) => s.clone(),
         other => {
-            return Err(anyhow!(
+            return Err(crate::safety::arg_err(format!(
                 "gpg_encrypt: expected String recipient, got {:?}",
                 other
-            ))
+            )))
         }
     };
 
@@ -40272,10 +40352,10 @@ fn bi_gpg_decrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let file_path = match &args[0] {
         Value::Str(s) => s.clone(),
         other => {
-            return Err(anyhow!(
+            return Err(crate::safety::arg_err(format!(
                 "gpg_decrypt: expected String file path, got {:?}",
                 other
-            ))
+            )))
         }
     };
 
@@ -41271,8 +41351,8 @@ fn bi_ethtool_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         match &args[0] {
             Value::Str(s) => s.clone(),
             _ => {
-                return Err(anyhow!(
-                    "ethtool_info: device name required as string argument"
+                return Err(crate::safety::arg_err(
+                    "ethtool_info: device name required as string argument",
                 ))
             }
         }
@@ -42966,7 +43046,7 @@ fn bi_repl_connect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
         _ => {
             return Err(crate::safety::arg_err(
-                "repl.connect requires URL or {{host, port}}",
+                "repl.connect requires URL or {host, port}",
             ))
         }
     };
@@ -46685,10 +46765,17 @@ fn bi_eza_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 .collect();
             Ok(Value::Array(entries))
         }
-        _ => {
-            // Fallback: use native ls builtin behavior
-            Err(anyhow!("eza not found; use ls() instead"))
-        }
+        // These were one `_` arm reporting "eza not found", which is right
+        // for only one of them: a non-zero exit means eza IS installed and
+        // rejected the call, so advising an install is advice that cannot
+        // work.
+        Ok(o) => Err(crate::safety::tool_failed(
+            "eza",
+            "eza -la --git",
+            o.status.code(),
+            &String::from_utf8_lossy(&o.stderr),
+        )),
+        Err(e) => Err(crate::safety::tool_missing("eza", "eza", &e.to_string())),
     }
 }
 

@@ -75,12 +75,37 @@ const CODE = /\b(E_[A-Z][A-Z0-9_]+|nu::[a-z_:]+|[A-Za-z]+Exception|CommandNotFou
 // A repair hint names a next action or a candidate spelling.
 const HINT = /\b(hint|did you mean|help|suggestion|try |instead|expected|Suggestion)\b/i;
 
+// An engine that is not installed must be SKIPPED, not scored.
+//
+// spawnSync on a missing binary returns `status: null`, and both derived
+// columns read that as good news: `failed` is `null !== 0` and so is
+// `distinct_exit`. On a host without pwsh or nu this table awarded them
+// **10/10 for exit-status granularity** and a mean of 0 bytes -- perfect
+// scores, for interpreters that do not exist. That is the same defect the E7
+// harness was fixed for, pointed at our own comparison table, and it is the
+// direction that matters least to us and most to a reader: a benchmark whose
+// failure mode is flattering the competition is still a benchmark nobody
+// should trust.
+const installed = (spec) =>
+    spawnSync(spec.bin, ['--version'], { encoding: 'utf8' }).error === undefined;
+const absent = [];
+
 const rows = [];
 for (const [engine, spec] of Object.entries(ENGINES)) {
+    if (!installed(spec)) {
+        absent.push(engine);
+        continue;
+    }
     for (const c of CASES) {
         const cmd = c[engine];
         if (!cmd) continue;
         const r = spawnSync(spec.bin, spec.argv(cmd), { cwd, encoding: 'utf8', timeout: 30000 });
+        // Belt and braces: an engine can vanish between the probe and here,
+        // and a spawn that never ran is not a measurement of anything.
+        if (r.error) {
+            console.error(`! ${engine} could not run ${c.id}: ${r.error.message}`);
+            continue;
+        }
         const text = ((r.stdout ?? '') + (r.stderr ?? '')).trim();
         rows.push({
             engine, case: c.id, command: cmd,
@@ -104,11 +129,24 @@ console.log(pad('engine', 14) + pad('failed', 9) + pad('machine code', 15) +
 for (const e of Object.keys(ENGINES)) {
     const rs = rows.filter((r) => r.engine === e);
     const n = rs.length;
+    if (n === 0) continue;
     const mean = Math.round(rs.reduce((a, r) => a + r.bytes, 0) / n);
     console.log(pad(e, 14) + pad(`${rs.filter((r) => r.failed).length}/${n}`, 9) +
         pad(`${rs.filter((r) => r.machine_code).length}/${n}`, 15) +
         pad(`${rs.filter((r) => r.repair_hint).length}/${n}`, 14) +
         pad(`${rs.filter((r) => r.distinct_exit).length}/${n}`, 15) + mean);
+}
+
+if (absent.length) {
+    console.log(`\nnot installed on this host, so not scored: ${absent.join(', ')}`);
+    console.log('  A row here would be an unearned score, not a missing one.');
+}
+
+// Non-vacuity: a comparison of one engine against nothing is not a comparison.
+// It is still worth running -- the AetherShell row is a real measurement of
+// AetherShell -- but it must not be quoted as a comparison table.
+if (Object.keys(ENGINES).length - absent.length < 2) {
+    console.log('\n! only one engine ran; this is a self-measurement, not a comparison.');
 }
 
 const silent = rows.filter((r) => !r.failed);

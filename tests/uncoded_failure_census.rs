@@ -156,15 +156,16 @@ fn the_uncoded_failure_count_does_not_grow() {
          ({gated} gated, {answered} answered)"
     );
 
-    // A ratchet over the whole catalogue. It exists because 334 error-handling
-    // fixes brought this from 157 to 41, and nothing was stopping that from
-    // silently coming back.
+    // A ratchet over the whole catalogue. It exists because ~390 error-handling
+    // fixes brought this from 157 to 13 -- and all 13 that remain are an
+    // external tool absent from the measuring machine, so the shell's own
+    // uncoded failures are at zero. Nothing was stopping that coming back.
     //
     // It may fall -- each fall should be recorded here -- and must never rise.
     // `benches/agentic/uncoded.mjs` is the slow subprocess version that also
     // reports the split.
-    // Zero within this scope. The catalogue-wide figure is 41, tracked by
-    // `benches/agentic/uncoded.mjs`.
+    // Zero within this scope. The catalogue-wide figure is 13, none of them
+    // the shell's own, tracked by `benches/agentic/uncoded.mjs`.
     // `is_empty` rather than `len() <= 0`: against a baseline of zero a `<=`
     // on a `usize` can only ever be an equality, which clippy's
     // `absurd_extreme_comparisons` denies and is right to. This was fixed once

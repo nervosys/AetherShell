@@ -366,6 +366,22 @@ denial, an index past the end — expressed in each shell.
 | bash | 10/10 | 0/10 | 1/10 | **5/10** | **42** |
 | PowerShell | 8/10 | 0/10 | 1/10 | 0/10 | 114 |
 
+**Correction to this harness, found while re-running it.** `benches/agentic/errors.mjs`
+scored an engine that was not installed. `spawnSync` on a missing binary returns
+`status: null`, and both derived columns read that as good news — `failed` is
+`null !== 0`, and so is `distinct_exit`. Run on a host without PowerShell or
+nushell, the table awarded **both of them 10/10 for exit-status granularity**
+on a mean of 0 bytes. The row above was measured on a host that had all four,
+so it stands; but the harness now probes each engine and skips the absent ones
+rather than scoring them. It is worth being plain about the direction of that
+bug: it flattered the competition, not us, which is exactly why it survived a
+reading of the output. A benchmark is not trustworthy because its numbers
+favour the party who wrote it — it is trustworthy because its failure modes
+have been looked for in both directions.
+
+(AetherShell's own mean grew from 141 to 147 bytes over this work, as four
+more codes carried more of the diagnosis in the message.)
+
 > **The 10/10 is real and does not generalise, and we measured that too.**
 > Those are ten failures chosen to be representative. Sweeping the *whole*
 > catalogue — 1,052 builtins, each handed an argument no builtin can accept,
@@ -374,12 +390,13 @@ denial, an index past the end — expressed in each shell.
 >
 > | Response to a nonsense argument | Builtins |
 > | --- | ---: |
-> | accepted it and answered | 507 |
+> | accepted it and answered | 461 |
 > | `E_BAD_ARG` | 285 |
 > | `E_NEEDS_APPROVAL` (the gate, correctly) | 142 |
-> | **`E_UNKNOWN`** | **56** |
-> | `E_TOOL_MISSING` | 42 |
-> | other coded | 20 |
+> | `E_BUDGET_EXCEEDED` (`AETHER_MAX_NET=0`, correctly) | 96 |
+> | `E_TOOL_MISSING` | 20 |
+> | **`E_UNKNOWN`** | **13** |
+> | other coded (8 kinds) | 35 |
 >
 > **Two findings, and the second one corrected the first.** The sweep began at
 > 157 uncoded. Of those, 57 turned out not to be argument-handling defects at
@@ -401,21 +418,57 @@ denial, an index past the end — expressed in each shell.
 >   hint: install `black` and run this again; no change to the call will help
 > ```
 >
-> That leaves **41 — 3.9% of the catalogue — which are the shell's own argument
-> and type errors**, built ad hoc instead of through the shared helpers:
+> That left sixteen, and **the label on them was wrong**. Five passes of
+> mechanical conversion had reduced 157 to 16, and the residue was still being
+> described as "the shell's own argument and type errors" because that is what
+> the previous 141 had been. Read one at a time — which is the only thing a
+> sweep is ultimately for — they were six different conditions:
+>
+> | builtin | reported | actually |
+> | --- | --- | --- |
+> | `crypto.verify_signature` | `E_UNKNOWN` | the shell does not implement it |
+> | `tx_commit` | `E_UNKNOWN` | no transaction is open |
+> | `finetune_status` | `E_UNKNOWN` | that job does not exist |
+> | `docker_ps` | `E_UNKNOWN` | docker ran and exited non-zero |
+> | `eza` | `E_UNKNOWN` | absent and failed, conflated |
+> | `head`, `tail`, `wc` | `E_UNKNOWN` | a genuine argument error |
+>
+> One of the six was the argument error the label claimed. Two were **worse
+> than uncoded**: `crypto.cert_parse` and `crypto.verify_cert` reported
+> `E_BAD_ARG`, which tells an agent to retry with different arguments when no
+> arguments will ever work — a wrong code is a wrong instruction, where a
+> missing one is merely silence.
+>
+> So the taxonomy grew from ten codes to fourteen: `E_UNIMPLEMENTED`,
+> `E_BAD_STATE`, `E_NOT_FOUND`, `E_TOOL_FAILED`. Not from a design review —
+> from the sweep repeatedly naming conditions the shell could identify
+> perfectly well and was declining to. `E_BAD_STATE` is the interesting one:
+> it is the only *retryable* code whose repair is a **different builtin**
+> (`tx_begin`, `sso.init`), so its hint names the prerequisite rather than a
+> corrected argument.
+>
+> **The shell's own uncoded failures are now zero.**
 >
 > ```
-> a2a_register   E_UNKNOWN  a2a.register: name must be a string
-> ab_encode      E_UNKNOWN  ab_encode requires 3 arguments: msg_type, opcode, payload
-> add_node       E_UNKNOWN  cluster_add_node: requires id and address arguments
+> uncoded: 13 of 1052
+>       0  the shell's own: argument and type errors (0.0%)
+>      13  external tool absent on this host
 > ```
 >
-> The count came down 157 -> 156 -> 140 -> 98 -> 56 across four passes. Two
-> lines on method, both unflattering to the method:
+> A seventh finding came from the sweep's own conduct rather than its results.
+> One run was made against an `ae` binary five days older than `src/`, and it
+> dutifully reported `head` and `uniq` — both long since fixed — as still
+> broken. Nothing in the harness had objected. It now refuses to run against a
+> binary older than the sources, because a number measured from the wrong
+> build is worse than no number: it is the same error as quoting the edit count
+> instead of the sweep, one level further out.
 >
-> **334 edits moved 101 builtins** — about 30%, consistently — because most
-> converted sites sit behind an earlier failure path the probe never reaches.
-> Quote what the sweep reports, not the diff.
+> The count came down 157 -> 156 -> 140 -> 98 -> 56 -> 29 -> 13 across six
+> passes. Two lines on method, both unflattering to the method:
+>
+> **~390 edits moved ~144 builtins** — about 30%, five times running — because
+> most converted sites sit behind an earlier failure path the probe never
+> reaches. Quote what the sweep reports, not the diff.
 >
 > And every regex pass was quietly incomplete, in a way invisible from the edit
 > side: a dot in `a2a.register`, a missing article in `must be integer`, and a
@@ -426,10 +479,11 @@ denial, an index past the end — expressed in each shell.
 > remove.
 >
 > So the honest claim is narrower than the row above: on ten representative
-> failures AetherShell codes all ten; across the catalogue it codes **94.7%**
-> of them (56 of 1,052 uncoded), or 96.1% counting only failures that are the
-> shell's own rather than a missing tool on the measuring machine. Quoting one
-> number without the other would be picking whichever flatters.
+> failures AetherShell codes all ten; across the catalogue it codes **98.8%**
+> of them (13 of 1,052 uncoded), and **100% of the failures that are its own**
+> — every remaining one is an external tool missing from the measuring
+> machine, which is a fact about this laptop and not about the shell. Quoting
+> either number without the other would be picking whichever flatters.
 >
 > Both numbers are ours and both are reproducible
 > (`tests/uncoded_failure_census.rs` holds the line for the core;

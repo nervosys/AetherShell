@@ -241,13 +241,12 @@ pub fn snapshot(path: &str) {
 /// recorded in the committed frame.
 pub fn commit() -> Result<usize> {
     let mut g = TX.lock().map_err(|_| anyhow!("tx lock poisoned"))?;
-    let tx = g
-        .as_mut()
-        .ok_or_else(|| anyhow!("tx_commit: no active transaction"))?;
-    let frame = tx
-        .frames
-        .pop()
-        .ok_or_else(|| anyhow!("tx_commit: no active transaction"))?;
+    let tx = g.as_mut().ok_or_else(|| {
+        crate::safety::bad_state("tx_commit", "no active transaction", "tx_begin")
+    })?;
+    let frame = tx.frames.pop().ok_or_else(|| {
+        crate::safety::bad_state("tx_commit", "no active transaction", "tx_begin")
+    })?;
     let ops = tx.undos.len().saturating_sub(frame.start);
     if tx.frames.is_empty() {
         // Outermost commit: changes become durable, journal discarded.
@@ -265,13 +264,12 @@ pub fn commit() -> Result<usize> {
 /// frame, the journal is discarded. Returns the number of paths restored.
 pub fn rollback() -> Result<usize> {
     let mut g = TX.lock().map_err(|_| anyhow!("tx lock poisoned"))?;
-    let tx = g
-        .as_mut()
-        .ok_or_else(|| anyhow!("tx_rollback: no active transaction"))?;
-    let frame = tx
-        .frames
-        .pop()
-        .ok_or_else(|| anyhow!("tx_rollback: no active transaction"))?;
+    let tx = g.as_mut().ok_or_else(|| {
+        crate::safety::bad_state("tx_rollback", "no active transaction", "tx_begin")
+    })?;
+    let frame = tx.frames.pop().ok_or_else(|| {
+        crate::safety::bad_state("tx_rollback", "no active transaction", "tx_begin")
+    })?;
     let tail: Vec<Undo> = tx.undos.drain(frame.start..).collect();
     let mut restored = 0usize;
     for u in tail.iter().rev() {
@@ -293,14 +291,13 @@ pub fn rollback() -> Result<usize> {
 /// targets the most recent one with that name (SQL semantics).
 pub fn savepoint(name: &str) -> Result<()> {
     let mut g = TX.lock().map_err(|_| anyhow!("tx lock poisoned"))?;
-    let tx = g
-        .as_mut()
-        .ok_or_else(|| anyhow!("tx_savepoint: no active transaction"))?;
+    let tx = g.as_mut().ok_or_else(|| {
+        crate::safety::bad_state("tx_savepoint", "no active transaction", "tx_begin")
+    })?;
     let idx = tx.undos.len();
-    let frame = tx
-        .frames
-        .last_mut()
-        .ok_or_else(|| anyhow!("tx_savepoint: no active transaction"))?;
+    let frame = tx.frames.last_mut().ok_or_else(|| {
+        crate::safety::bad_state("tx_savepoint", "no active transaction", "tx_begin")
+    })?;
     frame.savepoints.push((name.to_string(), idx));
     Ok(())
 }
@@ -312,14 +309,13 @@ pub fn savepoint(name: &str) -> Result<()> {
 /// transaction is active or the savepoint is unknown.
 pub fn rollback_to(name: &str) -> Result<usize> {
     let mut g = TX.lock().map_err(|_| anyhow!("tx lock poisoned"))?;
-    let tx = g
-        .as_mut()
-        .ok_or_else(|| anyhow!("tx_rollback_to: no active transaction"))?;
+    let tx = g.as_mut().ok_or_else(|| {
+        crate::safety::bad_state("tx_rollback_to", "no active transaction", "tx_begin")
+    })?;
     let (idx, pos) = {
-        let frame = tx
-            .frames
-            .last()
-            .ok_or_else(|| anyhow!("tx_rollback_to: no active transaction"))?;
+        let frame = tx.frames.last().ok_or_else(|| {
+            crate::safety::bad_state("tx_rollback_to", "no active transaction", "tx_begin")
+        })?;
         let pos = frame
             .savepoints
             .iter()

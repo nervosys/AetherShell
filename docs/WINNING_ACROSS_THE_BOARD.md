@@ -131,8 +131,21 @@ step can branch on it without reading stderr at all.
 | `E_BAD_ARG`, `E_UNKNOWN_FIELD` | 64 | `EX_USAGE` from sysexits.h |
 | `E_POLICY_DENY`, `E_OUTSIDE_WORKSPACE` | 77 | `EX_NOPERM` |
 | `E_NEEDS_APPROVAL` | 75 | `EX_TEMPFAIL` — retry after approval |
-| `E_BUDGET_EXCEEDED` | 69 | `EX_UNAVAILABLE` |
+| `E_TOOL_MISSING` | 127 | command-not-found, one level out |
+| `E_BUDGET_EXCEEDED`, `E_NO_UI`, `E_TOOL_FAILED` | 69 | `EX_UNAVAILABLE` |
+| `E_UNIMPLEMENTED` | 70 | `EX_SOFTWARE` |
+| `E_NOT_FOUND` | 66 | `EX_NOINPUT` |
+| `E_BAD_STATE` | 76 | `EX_PROTOCOL` -- issued out of sequence |
 | `E_UNKNOWN` | 1 | unchanged |
+
+The last six were not in the original design. Each was found the same way, by
+sweeping the whole catalogue rather than by reasoning about it: every builtin
+handed one nonsense argument, and every `E_UNKNOWN` read individually. The
+taxonomy grew from eight codes to fourteen because six conditions the shell
+could name perfectly well were being reported as unidentifiable -- and two of
+them (`crypto.cert_parse`, `crypto.verify_cert`) were reporting `E_BAD_ARG`,
+which is worse than uncoded: it tells an agent to retry with different
+arguments when no arguments will ever work.
 
 Borrowing bash's 127 and 2 is the point: an agent that already knows shell
 conventions gets them for free. The rest follow `sysexits.h` rather than being

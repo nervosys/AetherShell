@@ -1045,6 +1045,24 @@ lazy_static! {
     pub(crate) static ref ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 }
 
+/// Refuse an interactive desktop dialog when nobody is there to dismiss it.
+///
+/// `gui_dialog_*` and `gui_color_picker` shell out to zenity, osascript or a
+/// WinForms MessageBox and then *block on `.output()`* until a human clicks
+/// something. In agent mode there is no human, so the call never returns:
+/// `benches/agentic/uncoded.mjs` had `gui_dialog_file_save` killed at the
+/// ten-second timeout, and a call that hangs is worse for an agent than any
+/// error, because a failure can be branched on and a hang cannot.
+///
+/// Same resolution as `a2ui_confirm`, which waited 300 seconds and then
+/// fabricated a decline: say `E_NO_UI` immediately, before spawning anything.
+pub fn refuse_if_headless(builtin: &str) -> anyhow::Result<()> {
+    if current_mode() == Mode::Agent {
+        return Err(no_ui(builtin));
+    }
+    Ok(())
+}
+
 /// The active execution mode, derived from the environment.
 pub fn current_mode() -> Mode {
     if std::env::var("AETHER_MODE").ok().as_deref() == Some("agent") || truthy_env("AETHER_AGENT") {
@@ -1132,6 +1150,40 @@ pub enum ErrorCode {
     /// *can* be asked. This means nobody is reachable, so retrying is futile
     /// until a UI is attached.
     NoUi,
+    /// The builtin exists and the call was well-formed, but AetherShell does
+    /// not implement the operation and never will by this route.
+    ///
+    /// `crypto.sign` is the case that named it: it returned prose beginning
+    /// `E_UNIMPLEMENTED:` -- a code that did not exist -- so the boundary
+    /// stamped it `Unknown` and the real message said `NOTHING WAS VERIFIED`.
+    /// An agent told a signature check is *unidentifiably broken* may retry or
+    /// route around it; one told the shell does not do signatures must go
+    /// elsewhere. The distinction is the whole point of the taxonomy.
+    Unimplemented,
+    /// A precondition on *session state* was not met: no transaction is open,
+    /// SSO was never initialised, no connection has been made.
+    ///
+    /// Retryable, unlike every other refusal here, but not by correcting the
+    /// call -- by making the call that establishes the state first. The hint
+    /// names that prerequisite, so this is the one code whose repair is
+    /// *another builtin*.
+    BadState,
+    /// A named thing -- a job, a key, a record -- does not exist.
+    ///
+    /// Distinct from `UnknownBuiltin` (the *name of a builtin* is wrong) and
+    /// from `BadArg` (the argument is the wrong shape). Here the call is
+    /// well-formed and the shell understood it; the thing it names is absent.
+    NotFound,
+    /// An external tool was found and ran, and exited non-zero.
+    ///
+    /// The opposite end of `ToolMissing`, and the commonest shell-out failure
+    /// there is. `docker_ps` named it: on a host where the docker CLI is
+    /// installed but the daemon is not running, the builtin reported
+    /// `docker ps --format {{json .}} failed: ` -- the tool's stderr was empty,
+    /// so the message ended in a colon and said nothing at all, under the code
+    /// that means unidentifiable. The status is now carried, and an empty
+    /// stderr is stated rather than rendered as silence.
+    ToolFailed,
     /// A failure that reached the boundary without a specific code. The message
     /// is whatever the builtin produced; treat it as opaque and **not**
     /// retryable — an agent that cannot identify the fault should stop rather
@@ -1152,6 +1204,10 @@ impl ErrorCode {
             ErrorCode::UnknownField => "E_UNKNOWN_FIELD",
             ErrorCode::ToolMissing => "E_TOOL_MISSING",
             ErrorCode::NoUi => "E_NO_UI",
+            ErrorCode::Unimplemented => "E_UNIMPLEMENTED",
+            ErrorCode::BadState => "E_BAD_STATE",
+            ErrorCode::NotFound => "E_NOT_FOUND",
+            ErrorCode::ToolFailed => "E_TOOL_FAILED",
             ErrorCode::Unknown => "E_UNKNOWN",
         }
     }
@@ -1165,12 +1221,24 @@ impl ErrorCode {
     pub fn retryable(&self) -> bool {
         match self {
             ErrorCode::BadArg | ErrorCode::UnknownBuiltin | ErrorCode::UnknownField => true,
+            // Retryable by naming something that exists...
+            ErrorCode::NotFound => true,
+            // ...and this one by running the prerequisite the hint names, not
+            // by changing anything about this call.
+            ErrorCode::BadState => true,
             ErrorCode::NeedsApproval | ErrorCode::OutsideWorkspace => true,
             // Not retryable: the same call fails identically until someone
             // installs the tool, which is an action outside this process.
             ErrorCode::ToolMissing => false,
             // Nor this one: no correction to the call attaches a UI.
             ErrorCode::NoUi => false,
+            // Nor this one: the operation is absent from the shell, so there
+            // is no call that would have worked.
+            ErrorCode::Unimplemented => false,
+            // The tool ran and rejected the work. Conservative, per this
+            // method's contract: an agent that wants to retry after fixing
+            // the environment can, but nothing here promises it will help.
+            ErrorCode::ToolFailed => false,
             ErrorCode::PolicyDeny | ErrorCode::BudgetExceeded | ErrorCode::Unknown => false,
         }
     }
@@ -1206,7 +1274,14 @@ impl ErrorCode {
             ErrorCode::NeedsApproval => 75,
             // EX_UNAVAILABLE — the envelope is spent, or the UI that would
             // have answered is not there.
-            ErrorCode::BudgetExceeded | ErrorCode::NoUi => 69,
+            ErrorCode::BudgetExceeded | ErrorCode::NoUi | ErrorCode::ToolFailed => 69,
+            // EX_SOFTWARE -- the fault is in what the shell offers, not in
+            // the call or the environment.
+            ErrorCode::Unimplemented => 70,
+            // EX_NOINPUT -- the thing named could not be opened.
+            ErrorCode::NotFound => 66,
+            // EX_PROTOCOL -- issued out of sequence.
+            ErrorCode::BadState => 76,
             ErrorCode::Unknown => 1,
         }
     }
@@ -1252,6 +1327,104 @@ pub fn tool_missing(builtin: &str, tool: &str, cause: &str) -> anyhow::Error {
         did_you_mean: Vec::new(),
         expected: format!("`{tool}` on PATH"),
         got: "not installed".to_string(),
+    })
+}
+
+/// Build a structured "AetherShell does not implement this" error
+/// (`E_UNIMPLEMENTED`).
+///
+/// `what` states the operation *and any safety consequence*:
+/// `crypto.verify_signature` must be able to say NOTHING WAS VERIFIED in the
+/// message rather than bury it in a hint. `instead` names the route that does
+/// work, which is the only useful thing to add, because no correction to the
+/// call will help.
+/// Callers that previously wrote `E_UNIMPLEMENTED:` into the message text
+/// were describing a code the taxonomy did not have; the boundary stamped
+/// those `E_UNKNOWN`, so the prose said one thing and the field said another.
+pub fn unimplemented(builtin: &str, what: &str, instead: &str) -> anyhow::Error {
+    anyhow::Error::new(SafetyError {
+        code: ErrorCode::Unimplemented,
+        message: format!("{builtin}: {what}"),
+        builtin: builtin.to_string(),
+        hint: format!("{instead}; no change to this call will make it work"),
+        approval: None,
+        did_you_mean: Vec::new(),
+        expected: "an operation AetherShell implements".to_string(),
+        got: "one it does not".to_string(),
+    })
+}
+
+/// Build a structured "the external tool ran and failed" error
+/// (`E_TOOL_FAILED`).
+///
+/// Carries the tool's own exit status, which is the part an agent can act on
+/// and which the old `"{prog} {args} failed: {stderr}"` prose discarded. When
+/// stderr is empty the message says so: a message that trails off after a
+/// colon reads as a truncation bug, and on the host that found this the
+/// silence *was* the whole diagnosis -- the daemon was not running.
+pub fn tool_failed(
+    builtin: &str,
+    command: &str,
+    status: Option<i32>,
+    stderr: &str,
+) -> anyhow::Error {
+    let stderr = stderr.trim();
+    let said = if stderr.is_empty() {
+        "and printed nothing to stderr".to_string()
+    } else {
+        format!("saying: {stderr}")
+    };
+    let status_text = match status {
+        Some(c) => format!("exited {c}"),
+        None => "was killed by a signal".to_string(),
+    };
+    anyhow::Error::new(SafetyError {
+        code: ErrorCode::ToolFailed,
+        message: format!("{builtin}: `{command}` {status_text} {said}"),
+        builtin: builtin.to_string(),
+        hint: format!(
+            "`{command}` is installed but rejected this work; check that its \
+             service is running and that the arguments are valid for this host"
+        ),
+        approval: None,
+        did_you_mean: Vec::new(),
+        expected: format!("`{command}` to exit 0"),
+        got: status_text,
+    })
+}
+
+/// Build a structured "precondition not met" error (`E_BAD_STATE`).
+///
+/// `needs` names the call that establishes the state, so a self-healing loop
+/// has somewhere to go: this is the one retryable code whose repair is a
+/// *different builtin* rather than a corrected argument.
+pub fn bad_state(builtin: &str, state: &str, needs: &str) -> anyhow::Error {
+    anyhow::Error::new(SafetyError {
+        code: ErrorCode::BadState,
+        message: format!("{builtin}: {state}"),
+        builtin: builtin.to_string(),
+        hint: format!("call `{needs}` first, then retry this unchanged"),
+        approval: None,
+        did_you_mean: Vec::new(),
+        expected: format!("the state left by `{needs}`"),
+        got: state.to_string(),
+    })
+}
+
+/// Build a structured "no such thing" error (`E_NOT_FOUND`).
+///
+/// `kind` is what was being looked up ("job", "key"), `name` the identifier
+/// that missed. Retryable, because a different identifier may well exist.
+pub fn not_found(builtin: &str, kind: &str, name: &str) -> anyhow::Error {
+    anyhow::Error::new(SafetyError {
+        code: ErrorCode::NotFound,
+        message: format!("{builtin}: no {kind} named '{name}'"),
+        builtin: builtin.to_string(),
+        hint: format!("list the available {kind}s and use an identifier from it"),
+        approval: None,
+        did_you_mean: Vec::new(),
+        expected: format!("an existing {kind}"),
+        got: name.to_string(),
     })
 }
 

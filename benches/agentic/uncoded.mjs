@@ -21,24 +21,25 @@
 //
 // Result on 2026-09-22 (1,052 builtins across 54 categories):
 //
-//     507  accepted it and answered
+//     461  accepted it and answered
 //     285  E_BAD_ARG
 //     142  E_NEEDS_APPROVAL   (the gate, correctly)
-//      56  E_UNKNOWN
-//      42  E_TOOL_MISSING
+//      96  E_BUDGET_EXCEEDED  (AETHER_MAX_NET=0, correctly)
+//      20  E_TOOL_MISSING
+//      13  E_UNKNOWN
 //      12  E_UNKNOWN_BUILTIN
+//       5  E_TOOL_FAILED
+//       4  E_NO_UI
 //       4  E_POLICY_DENY
 //       3  E_PARSE
-//       1  varies between runs -- a builtin whose answer depends on the clock
-//            or the filesystem. Worth knowing before reading a one-builtin
-//            change as signal.
+//       3  E_BAD_STATE
+//       2  E_NOT_FOUND
+//       2  E_UNIMPLEMENTED
 //
-// The 56 still-uncoded split two ways, and the split is the point:
-//
-//      41  the shell's own argument and type errors -- 3.9% of the catalogue
-//      15  an external tool absent on THIS host, still uncoded because the
-//            builtin propagates a bare io::Error with no context -- not even
-//            the tool's name survives, so there is nothing to convert.
+// All 13 remaining E_UNKNOWNs are an external tool absent on THIS host,
+// propagating a bare io::Error with no context -- not even the tool's name
+// survives, so there is nothing to convert without reading each one. The
+// shell's own uncoded failures are at ZERO.
 //
 // How it got here, and why the edit count is the wrong number to quote:
 //
@@ -47,22 +48,51 @@
 //   140   54 ad-hoc type errors -> bad_arg           16 builtins moved
 //    98  108 tool-not-found sites -> E_TOOL_MISSING  42 builtins moved
 //    56  171 argument errors -> arg_err              42 builtins moved
+//    29   38 tail sites + a census false positive    27 builtins moved
+//    13   the last 16, read one at a time            16 builtins moved
 //
-// 334 edits, 101 builtins moved: about 30%, consistently, because most
-// converted sites sit behind an earlier failure path this probe never
-// reaches. Quote what the sweep reports.
+// ~390 edits, ~144 builtins moved: about 30% each time, five times running,
+// because most converted sites sit behind an earlier failure path this probe
+// never reaches. Quote what the sweep reports.
 //
-// Three regex passes were each quietly incomplete, and none of the gaps was
-// visible from the edit side:
-//   * `a2a.register` -- a dot in the builtin label
-//   * `must be integer` -- no article, where the pattern assumed one
-//   * a multi-line `anyhow!` call -- rustfmt had wrapped the message onto its
-//     own line, which hid 74 sites, nearly as many as the single-line pass
-//     had found
-// Each surfaced only by asking the running shell about a builtin that was
-// supposed to be fixed and was not.
+// **The last sixteen were not what the label said.** Five passes of regex
+// conversion had left a residue described as "the shell's own argument and
+// type errors". Read individually -- which is what a sweep is for -- they
+// were six different conditions:
 //
-// `tests/uncoded_failure_census.rs` holds the line at zero for the
+//   crypto.verify_signature  the shell does not implement this  E_UNIMPLEMENTED
+//   tx_commit                no transaction is open             E_BAD_STATE
+//   finetune_status          that job does not exist            E_NOT_FOUND
+//   docker_ps                docker ran and exited non-zero     E_TOOL_FAILED
+//   eza                      conflated absent with failed       split in two
+//   head/tail/wc             a genuine argument error           E_BAD_ARG
+//
+// One of six was the argument error the label claimed. Two were worse than
+// uncoded: crypto.cert_parse and crypto.verify_cert reported E_BAD_ARG, which
+// tells an agent to retry with different arguments when no arguments will
+// ever work. The taxonomy went from ten codes to fourteen -- not by design
+// review, but because the sweep kept naming conditions the shell could
+// identify perfectly well and was declining to.
+//
+// Six error shapes had to be found, and each was invisible from the edit
+// side until a builtin that was supposed to be fixed still was not:
+//   * a dot in the builtin label (`a2a.register`)
+//   * no article (`must be integer`)
+//   * a multi-line `anyhow!` rustfmt had wrapped -- 74 sites, nearly as many
+//     as the single-line pass that preceded it
+//   * `.context("...")?` on an Option, which anyhow leaves uncoded
+//   * a multi-line `anyhow!` with no format args at all
+//   * prose that named a code the taxonomy did not have (`E_UNIMPLEMENTED:`),
+//     so the message said one thing and the `code` field said another
+//
+// And two false positives of its own. `diagnose({unexpected: true})` SUCCEEDS,
+// returning `{code: E_UNKNOWN}` about the record it was handed; grepping the
+// output for a code without checking that the call failed counted the shell's
+// own diagnostic machinery as a defect. And the sweep was once run against a
+// `release/ae` five days older than `src/`, which reported `head` and `uniq`
+// -- both long fixed -- as still broken. The staleness guard below exists
+// because of that: a number from the wrong binary is worse than no number.
+//// `tests/uncoded_failure_census.rs` holds the line at zero for the
 // data-transformation categories, in-process and fast enough for CI. This
 // sweep is the wide, slow version: 1,052 subprocesses, far too slow for the
 // suite, and the way to check whether the number is falling.
@@ -96,6 +126,33 @@ const probe = run('1 + 1');
 if (probe !== '2') {
     console.error(`! \`ae\` is not answering (got ${JSON.stringify(probe)}); is it on PATH?`);
     process.exit(2);
+}
+
+// The `ae` on PATH must be newer than the sources, or this measures a shell
+// that no longer exists. Found the hard way: a stale `release/ae` five days
+// behind `src/` reported `head` and `uniq` -- the two the census docstring
+// cites as fixed -- still uncoded, and would have restated a solved problem
+// as an open one. Quoting a number from the wrong binary is the same error
+// as quoting the edit count instead of the sweep, one level further out.
+const AE = spawnSync(process.platform === 'win32' ? 'where' : 'which', ['ae'], {
+    encoding: 'utf8',
+})
+    .stdout?.split('\n')[0]
+    ?.trim();
+const SRC = new URL('../../src/builtins.rs', import.meta.url);
+try {
+    const bin = fs.statSync(AE).mtimeMs;
+    const src = fs.statSync(SRC).mtimeMs;
+    if (bin < src) {
+        const days = ((src - bin) / 86400000).toFixed(1);
+        console.error(`! \`${AE}\` is ${days} day(s) older than src/builtins.rs.`);
+        console.error('  Rebuild before sweeping; a stale binary reports fixed defects as open.');
+        process.exit(2);
+    }
+} catch (e) {
+    // Not being able to check is not the same as being stale, but say so.
+    console.error(`! could not compare \`ae\` against the sources (${e.message});`);
+    console.error('  the numbers below are only as fresh as whatever is on PATH.');
 }
 
 // Walk the catalogue the way an agent would: manifest, then each category.
@@ -135,7 +192,12 @@ const hung = [];
 let done = 0;
 for (const name of [...names].sort()) {
     const out = run(`${name}({unexpected: true})`);
-    const m = out.match(/E_[A-Z_0-9]+/);
+    // Only a *failed* call can be uncoded. `diagnose({unexpected: true})`
+    // succeeds and returns `{code: E_UNKNOWN}` describing the record it was
+    // handed -- grepping the output for a code without checking that the call
+    // failed counted the shell's own diagnostic machinery as a defect.
+    const failed = out.startsWith('error') || out.startsWith('{"error"');
+    const m = failed ? out.match(/E_[A-Z_0-9]+/) : null;
     const code =
         out === '\u0000TIMEOUT'
             ? 'HUNG'

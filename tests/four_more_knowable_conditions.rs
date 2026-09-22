@@ -1,0 +1,144 @@
+//! Four conditions the taxonomy was reporting as unidentifiable.
+//!
+//! The catalogue sweep (`benches/agentic/uncoded.mjs`) got the shell's own
+//! uncoded failures down to sixteen and then stalled, because the remaining
+//! sixteen were described as "argument and type errors" and were nothing of
+//! the kind. Reading them one at a time -- which is what the sweep is for --
+//! they were six distinct conditions wearing one label:
+//!
+//! | builtin | said | actually |
+//! | --- | --- | --- |
+//! | `crypto.verify_signature` | `E_UNKNOWN` | the shell does not do this |
+//! | `tx_commit` | `E_UNKNOWN` | no transaction is open |
+//! | `finetune_status` | `E_UNKNOWN` | that job does not exist |
+//! | `docker_ps` | `E_UNKNOWN` | docker ran and failed |
+//! | `head` | `E_UNKNOWN` | a genuine argument error |
+//! | `gui_dialog_file_save` | *nothing, ever* | nobody is there to answer |
+//!
+//! Only one of the six was the argument error the label claimed. Two of them
+//! -- `crypto.cert_parse` and `crypto.verify_cert` -- were worse than uncoded:
+//! they reported `E_BAD_ARG`, telling an agent to retry with different
+//! arguments when no arguments would ever work.
+
+use aethershell::safety::ErrorCode;
+
+/// Every code's exit status and retryability, asserted together so that a
+/// taxonomy that quietly collapsed two variants into one would fail here
+/// rather than in a benchmark six months later.
+#[test]
+fn the_four_codes_carry_distinct_contracts() {
+    for (code, text, exit, retryable) in [
+        (ErrorCode::Unimplemented, "E_UNIMPLEMENTED", 70, false),
+        (ErrorCode::BadState, "E_BAD_STATE", 76, true),
+        (ErrorCode::NotFound, "E_NOT_FOUND", 66, true),
+        (ErrorCode::ToolFailed, "E_TOOL_FAILED", 69, false),
+    ] {
+        assert_eq!(code.as_str(), text);
+        assert_eq!(code.exit_code(), exit, "{text} exit status");
+        assert_eq!(code.retryable(), retryable, "{text} retryability");
+    }
+
+    // `BadState` is the odd one: retryable, but not by correcting this call.
+    // The hint has to name the call that establishes the state, or "retry"
+    // means "run the identical thing again", which is exactly the loop the
+    // `retryable` flag exists to prevent.
+    let e = aethershell::safety::bad_state("tx_commit", "no active transaction", "tx_begin");
+    let rendered = e.to_string();
+    assert!(
+        rendered.contains("tx_begin"),
+        "a retryable state error must name the prerequisite; got: {rendered}"
+    );
+
+    // Non-vacuity: four codes, four distinct strings. A copy-paste that left
+    // two variants sharing an `as_str` would satisfy every assertion above.
+    let names = [
+        ErrorCode::Unimplemented.as_str(),
+        ErrorCode::BadState.as_str(),
+        ErrorCode::NotFound.as_str(),
+        ErrorCode::ToolFailed.as_str(),
+        ErrorCode::ToolMissing.as_str(),
+        ErrorCode::Unknown.as_str(),
+    ];
+    let mut seen = names.to_vec();
+    seen.sort_unstable();
+    seen.dedup();
+    assert_eq!(
+        seen.len(),
+        names.len(),
+        "two codes share a string: {names:?}"
+    );
+}
+
+/// `ToolMissing` and `ToolFailed` are opposite ends of the same call, and the
+/// advice that fits one is actively wrong for the other.
+#[test]
+fn a_tool_that_ran_is_not_a_tool_that_is_absent() {
+    let missing = aethershell::safety::tool_missing("eza", "eza", "No such file or directory");
+    let failed = aethershell::safety::tool_failed("eza", "eza -la", Some(2), "bad flag");
+
+    assert!(missing.to_string().contains("not installed"));
+    assert!(
+        !failed.to_string().contains("not installed"),
+        "eza IS installed here; telling an agent to install it is advice that \
+         cannot work: {failed}"
+    );
+    assert!(
+        failed.to_string().contains("exited 2"),
+        "the tool's own exit status is the actionable part: {failed}"
+    );
+}
+
+/// The empty-stderr case, which is what made `docker_ps` unreadable.
+///
+/// The old message was `"docker ps --format {{json .}} failed: "` -- it ended
+/// in a colon and said nothing, because the daemon was not running and docker
+/// printed nothing. A message that trails off reads as a truncation bug; the
+/// silence was the entire diagnosis.
+#[test]
+fn an_empty_stderr_is_stated_not_rendered_as_silence() {
+    let e = aethershell::safety::tool_failed("docker_ps", "docker ps", Some(1), "   ");
+    let s = e.to_string();
+    assert!(
+        s.contains("printed nothing to stderr"),
+        "an empty stderr must be said out loud; got: {s}"
+    );
+    assert!(
+        !s.trim_end().ends_with(':'),
+        "a message ending in a colon looks truncated: {s}"
+    );
+
+    // And a signal kill is not an exit code.
+    let killed = aethershell::safety::tool_failed("docker_ps", "docker ps", None, "");
+    assert!(
+        killed.to_string().contains("killed by a signal"),
+        "None is not exit 0: {killed}"
+    );
+}
+
+/// An interactive desktop dialog must refuse in agent mode rather than block.
+///
+/// This is the one defect here that a test could never have found by reading
+/// the code: the failure mode is *not returning*, so a suite that called it
+/// would hang rather than fail. It took a sweep with a per-call timeout --
+/// `gui_dialog_file_save` was killed at ten seconds -- to see it at all.
+#[test]
+fn an_interactive_dialog_refuses_rather_than_blocks() {
+    // The only test in this binary that touches the environment.
+    std::env::set_var("AETHER_MODE", "agent");
+
+    let e = aethershell::safety::refuse_if_headless("gui_dialog_file_save")
+        .expect_err("agent mode has no human to dismiss a dialog");
+    assert!(
+        e.to_string().contains("no UI"),
+        "expected E_NO_UI, got: {e}"
+    );
+
+    // Non-vacuity: it must NOT refuse for a human at a terminal, or this is a
+    // test that GUI dialogs are simply disabled.
+    std::env::remove_var("AETHER_MODE");
+    std::env::remove_var("AETHER_AGENT");
+    assert!(
+        aethershell::safety::refuse_if_headless("gui_dialog_file_save").is_ok(),
+        "human mode still has a desktop; the guard is for agent mode only"
+    );
+}
