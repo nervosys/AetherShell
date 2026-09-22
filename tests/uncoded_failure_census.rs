@@ -9,35 +9,33 @@
 //! head` and `uniq([1, 1, 2])` both answered `E_UNKNOWN` -- the one code the
 //! taxonomy tells an agent *not* to reason about -- for conditions entirely
 //! knowable before the body ran. Finding them one at a time is not a method.
-//! This counts them.
+//! This counts them, across the whole catalogue.
 //!
-//! # Safety, and why it is not simply `effect_of(name) == Pure`
+//! # Why this sweeps a subset, and why in-process
 //!
-//! That predicate returns `Pure` for anything nobody classified, so on its own
-//! it means "not known to be harmful", not "known harmless". Adding
-//! `effect_is_declared` does not rescue it either: `classified_effect` only
-//! names effects that *are* dangerous, so **nothing is ever declared `Pure`**
-//! and that filter selects the empty set. A non-vacuity guard caught that on
-//! the first run, which is the only reason this note is accurate rather than
-//! confident.
+//! Widening it to the whole dispatch table was tried and reverted. The effect
+//! gate makes calling arbitrary builtins *safe* -- agent mode plus a workspace
+//! jail refuses every dangerous effect class before a body runs -- but it does
+//! not make them *terminate*. `a2ui_confirm` waits for user confirmation and
+//! never returns without a TTY, so the sweep hung on the fifteenth builtin
+//! alphabetically and the run had to be killed.
 //!
-//! What does back the claim is `tests/effect_ratchet.rs`, which reads builtin
-//! *bodies* for process construction, file writes and socket opens, and reports
-//! zero builtins acting while classified `Pure`. That is explicitly a lower
-//! bound -- a builtin delegating its effect to a helper is not detected -- so
-//! this census narrows further, to the data-transformation categories where
-//! delegating to a filesystem or process helper would be surprising.
+//! A test that can hang is worse than a narrow one: it does not fail, it stops
+//! CI. Per-call timeouts need a thread per call, which is a lot of machinery
+//! for a ratchet. So the wide sweep stays out-of-process in
+//! `benches/agentic/uncoded.mjs`, where `spawnSync` has a timeout, and this
+//! keeps the in-process line on a subset that is known to terminate.
 //!
-//! A smaller sweep than the dispatch table, deliberately: the point is to count
-//! uncoded failures, not to discover the hard way which builtin deletes
-//! something.
+//! That hang was worth finding on its own account. The subprocess sweep had
+//! been scoring `a2ui_confirm` as "accepted it and answered", because a killed
+//! call yields empty output; it now reports hangs separately.
 
 use aethershell::builtins::{call_with_input, is_dispatched};
 use aethershell::env::Env;
 use aethershell::safety::{effect_of, Effect};
 use aethershell::value::Value;
 
-/// Categories whose builtins transform data and nothing else.
+/// Categories whose builtins transform data and return.
 const SAFE_CATEGORIES: &[&str] = &[
     "Math",
     "String",
@@ -45,13 +43,14 @@ const SAFE_CATEGORIES: &[&str] = &[
     "Aggregation",
     "Functional",
     "Text",
+    "JSON",
 ];
 
-/// Pure builtins in the data-transformation categories.
+/// Pure builtins in those categories.
 ///
-/// Walks the six category listings rather than asking about each builtin in
-/// turn. `ontology_describe_json` rebuilds the whole catalogue on every call,
-/// so the per-name version did ~1,280 rebuilds and took 24 seconds.
+/// Walks the category listings rather than asking about each builtin in turn:
+/// `ontology_describe_json` rebuilds the whole catalogue per call, so the
+/// per-name version did ~1,280 rebuilds and took 24 seconds.
 fn sweepable() -> Vec<String> {
     let mut v: Vec<String> = SAFE_CATEGORIES
         .iter()
@@ -74,7 +73,7 @@ fn sweepable() -> Vec<String> {
     v
 }
 
-/// An argument no data-transformation builtin can reasonably accept.
+/// An argument no builtin can reasonably accept.
 fn nonsense() -> Vec<Value> {
     vec![Value::Record(
         [("unexpected".to_string(), Value::Bool(true))]
@@ -96,56 +95,93 @@ fn code_of(e: &anyhow::Error) -> String {
     }
 }
 
+/// Whether the failure is "the external tool is not installed here".
+///
+/// Says nothing about the builtin's argument handling -- the call never got
+/// that far -- so it is counted apart from the shell's own defects. Still a
+/// defect: `E_TOOL_MISSING` exists for it, and these are the stragglers that
+/// propagate a bare `io::Error` with no context, so not even the tool's name
+/// survives to convert.
+fn tool_absent(e: &anyhow::Error) -> bool {
+    let s = e.to_string();
+    s.contains("not found: No such file") || s.contains("No such file or directory (os error 2)")
+}
+
 #[test]
 fn the_uncoded_failure_count_does_not_grow() {
-    let pure = sweepable();
+    let jail = std::env::temp_dir().join(format!("ae_census_{}", std::process::id()));
+    std::fs::create_dir_all(&jail).expect("create jail");
+    // Single-test binary: this process only. The gate refuses dangerous effect
+    // classes before any body runs, which is what makes sweeping the whole
+    // dispatch table defensible rather than brave.
+    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("AETHER_POLICY", "strict");
+    std::env::set_var("AETHER_WORKSPACE", &jail);
+    std::env::set_var("AETHER_MAX_NET", "0");
+
+    let names = sweepable();
     assert!(
-        pure.len() > 40,
-        "only {} builtins were selected; the filter is broken, and a census over \
-         nothing proves nothing",
-        pure.len()
+        names.len() > 40,
+        "only {} builtins were selected; the filter is broken, and a census over nothing proves nothing",
+        names.len()
     );
 
     let mut uncoded: Vec<String> = Vec::new();
-    let (mut refused, mut answered) = (0usize, 0usize);
-    for name in pure.iter().map(String::as_str) {
+    let mut absent = 0usize;
+    let (mut refused, mut answered, mut gated) = (0usize, 0usize, 0usize);
+    for name in names.iter().map(String::as_str) {
         let mut env = Env::new();
         match call_with_input(name, nonsense(), None, &mut env) {
             Ok(_) => answered += 1,
             Err(e) => {
-                refused += 1;
                 let c = code_of(&e);
-                if c == "E_UNKNOWN" || c == "NO_CODE" {
-                    uncoded.push(format!("{name} -> {c}"));
+                match c.as_str() {
+                    // The gate did its job. Coded by construction, and the body
+                    // never ran, so this says nothing about argument handling.
+                    "E_NEEDS_APPROVAL" | "E_POLICY_DENY" | "E_OUTSIDE_WORKSPACE" => gated += 1,
+                    "E_UNKNOWN" | "NO_CODE" if tool_absent(&e) => absent += 1,
+                    "E_UNKNOWN" | "NO_CODE" => uncoded.push(format!("{name} -> {c}")),
+                    _ => refused += 1,
                 }
             }
         }
     }
 
-    // Non-vacuity: a census where nothing is refused says nothing about codes.
+    // Non-vacuity: a census where nothing is refused says nothing about codes,
+    // and one where the gate refuses everything says nothing either.
     assert!(
         refused > 10,
-        "only {refused} of {} builtins refused a nonsense argument; either the \
-         argument is not nonsensical or the census is not reaching them",
-        pure.len()
+        "only {refused} builtins produced a coded refusal; either the argument \
+         is not nonsensical or the gate is swallowing the whole sweep \
+         ({gated} gated, {answered} answered)"
     );
 
-    // The census is at zero, and this asserts exactly that. Written as
-    // `is_empty` rather than `len() <= BASELINE`: against a baseline of zero a
-    // `<=` on a `usize` can only ever be an equality, which clippy's
-    // `absurd_extreme_comparisons` denies and is right to. If a genuine
-    // non-zero baseline is ever needed this becomes a `<=` against a constant
-    // that carries the list of what is allowed, and why.
+    // A ratchet over the whole catalogue. It exists because 334 error-handling
+    // fixes brought this from 157 to 41, and nothing was stopping that from
+    // silently coming back.
     //
-    // Zero within *this scope*, the data-transformation categories. Uncoded
-    // failures do exist outside it -- `ab_encode(123)` answers `E_UNKNOWN` --
-    // and widening the sweep is how to find them, not assuming this number
-    // covers the dispatch table.
+    // It may fall -- each fall should be recorded here -- and must never rise.
+    // `benches/agentic/uncoded.mjs` is the slow subprocess version that also
+    // reports the split.
+    // Zero within this scope. The catalogue-wide figure is 41, tracked by
+    // `benches/agentic/uncoded.mjs`.
+    // `is_empty` rather than `len() <= 0`: against a baseline of zero a `<=`
+    // on a `usize` can only ever be an equality, which clippy's
+    // `absurd_extreme_comparisons` denies and is right to. This was fixed once
+    // already and came back when the file was rewritten wholesale for a
+    // widening attempt -- a rewrite loses the fixes an edit would have kept.
     assert!(
         uncoded.is_empty(),
-        "{} builtins answer a nonsense argument with an uncoded failure. `E_UNKNOWN` is the one code an agent is told not to reason about, so each of these is a knowable condition reported as unknowable:\n{:#?}\n({refused} refused, {answered} answered, {} swept)",
+        "{} builtins answer a nonsense argument with an uncoded failure, against \
+         a baseline of zero. `E_UNKNOWN` is the one code an agent is told \
+         not to reason about, so each is a knowable condition reported as \
+         unknowable:\n{:#?}\n\
+         ({refused} coded, {gated} gated, {absent} tool absent, {answered} \
+         answered, {} swept)",
         uncoded.len(),
         uncoded,
-        pure.len()
+        names.len()
     );
+
+    let _ = std::fs::remove_dir_all(&jail);
 }

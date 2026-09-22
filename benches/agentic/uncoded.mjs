@@ -75,6 +75,11 @@ import path from 'node:path';
 const JAIL = fs.mkdtempSync(path.join(os.tmpdir(), 'ae-uncoded-'));
 process.on('exit', () => fs.rmSync(JAIL, { recursive: true, force: true }));
 
+// A call that times out must not look like a call that succeeded.
+// `a2ui_confirm` waits for user confirmation and never returns without a TTY;
+// spawnSync then yields empty output, which the classifier below read as
+// "accepted it and answered". Found by sweeping the same table in-process,
+// where there is no timeout and the run simply hung on the 15th builtin.
 const run = (code) => {
     const r = spawnSync('ae', ['--agent', '--policy', 'strict', '--workspace', JAIL, '-c', code], {
         cwd: JAIL,
@@ -82,7 +87,9 @@ const run = (code) => {
         timeout: 10000,
         env: { ...process.env, AETHER_MAX_NET: '0' },
     });
-    return ((r.stdout ?? '') + (r.stderr ?? '')).trim();
+    const out = ((r.stdout ?? '') + (r.stderr ?? '')).trim();
+    // Node reports a timeout kill as SIGTERM with a null status.
+    return r.signal === 'SIGTERM' && r.status === null ? '\u0000TIMEOUT' : out;
 };
 
 const probe = run('1 + 1');
@@ -124,12 +131,21 @@ const TOOL_ABSENT = /not found: No such file|No such file or directory \(os erro
 const tally = new Map();
 const uncoded = [];
 const toolAbsent = [];
+const hung = [];
 let done = 0;
 for (const name of [...names].sort()) {
     const out = run(`${name}({unexpected: true})`);
     const m = out.match(/E_[A-Z_0-9]+/);
-    const code = m ? m[0] : out.startsWith('error') ? 'NO_CODE' : 'OK';
+    const code =
+        out === '\u0000TIMEOUT'
+            ? 'HUNG'
+            : m
+              ? m[0]
+              : out.startsWith('error')
+                ? 'NO_CODE'
+                : 'OK';
     tally.set(code, (tally.get(code) ?? 0) + 1);
+    if (code === 'HUNG') hung.push(name);
     if (code === 'E_UNKNOWN' || code === 'NO_CODE') {
         (TOOL_ABSENT.test(out) ? toolAbsent : uncoded).push(name);
     }
@@ -150,4 +166,9 @@ console.log('           "tool not found" is itself a knowable condition');
 console.log('           currently reported as E_UNKNOWN');
 fs.writeFileSync('uncoded.txt', `${uncoded.join('\n')}\n`);
 fs.writeFileSync('uncoded-tool-absent.txt', `${toolAbsent.join('\n')}\n`);
+if (hung.length) {
+    console.log(`\n${hung.length} builtin(s) never returned and were killed at the timeout.`);
+    console.log('A call that hangs is worse for an agent than one that fails:');
+    console.log(`  ${hung.join(', ')}`);
+}
 console.log('\nlists written to uncoded.txt and uncoded-tool-absent.txt');
