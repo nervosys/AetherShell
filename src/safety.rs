@@ -403,6 +403,21 @@ fn classified_effect(name: &str) -> Option<Effect> {
         // `marketplace_publish` case sends a package somewhere it cannot be
         // recalled from.
         "scp_upload" | "scp_download" | "wget_download" | "marketplace_publish" => Some(Effect::Network),
+        // The rest of the marketplace family reaches the same registry over
+        // HTTPS via `packages::RegistryClient`, and all three were `Pure` by
+        // fall-through. Measured, not assumed: in agent mode with
+        // `--policy strict` and `AETHER_MAX_NET=0`, `marketplace_search("x")`
+        // exited 0 after a 20-second round trip to packages.nervosys.ai. An
+        // agent with networking budgeted to zero could still make an outbound
+        // request.
+        //
+        // `effect_ratchet.rs` could not catch it: it reads builtin *bodies*
+        // for socket construction, and the socket here is opened inside
+        // `RegistryClient`. That is the false negative its own documentation
+        // names as a lower bound, and this is a concrete instance of it.
+        // `marketplace_publish` being classified already is why the omission
+        // reads as an oversight rather than a decision.
+        "marketplace_search" | "marketplace_info" | "marketplace_update" => Some(Effect::Network),
 
         // The NERVOSYS stack. `ai_gateway` probes IronGate over HTTP; it reads
         // and reports, so Network rather than Exec.
@@ -1103,6 +1118,20 @@ pub enum ErrorCode {
     /// counting them alongside genuine type errors inflated a claim about the
     /// shell with a fact about the machine it ran on.
     ToolMissing,
+    /// An interactive prompt was made with no UI attached to answer it.
+    ///
+    /// `A2UIChannel` is a buffer: `send` queues an event and nothing tracks
+    /// whether a UI ever drains it, so `wait_for_response` waited its full
+    /// 300-second timeout and then returned `Cancelled` -- which
+    /// `prompt_confirm` maps to `Ok(false)`. An agent asking `a2ui_confirm`
+    /// with no UI stalled five minutes and received a value indistinguishable
+    /// from the user having declined. The fabricated answer is a *decision*,
+    /// which is the worst thing to invent.
+    ///
+    /// Distinct from `NeedsApproval`, which means a human must decide and
+    /// *can* be asked. This means nobody is reachable, so retrying is futile
+    /// until a UI is attached.
+    NoUi,
     /// A failure that reached the boundary without a specific code. The message
     /// is whatever the builtin produced; treat it as opaque and **not**
     /// retryable — an agent that cannot identify the fault should stop rather
@@ -1122,6 +1151,7 @@ impl ErrorCode {
             ErrorCode::UnknownBuiltin => "E_UNKNOWN_BUILTIN",
             ErrorCode::UnknownField => "E_UNKNOWN_FIELD",
             ErrorCode::ToolMissing => "E_TOOL_MISSING",
+            ErrorCode::NoUi => "E_NO_UI",
             ErrorCode::Unknown => "E_UNKNOWN",
         }
     }
@@ -1139,6 +1169,8 @@ impl ErrorCode {
             // Not retryable: the same call fails identically until someone
             // installs the tool, which is an action outside this process.
             ErrorCode::ToolMissing => false,
+            // Nor this one: no correction to the call attaches a UI.
+            ErrorCode::NoUi => false,
             ErrorCode::PolicyDeny | ErrorCode::BudgetExceeded | ErrorCode::Unknown => false,
         }
     }
@@ -1172,8 +1204,9 @@ impl ErrorCode {
             ErrorCode::PolicyDeny | ErrorCode::OutsideWorkspace => 77,
             // EX_TEMPFAIL — the same call may succeed once approved.
             ErrorCode::NeedsApproval => 75,
-            // EX_UNAVAILABLE — the envelope is spent.
-            ErrorCode::BudgetExceeded => 69,
+            // EX_UNAVAILABLE — the envelope is spent, or the UI that would
+            // have answered is not there.
+            ErrorCode::BudgetExceeded | ErrorCode::NoUi => 69,
             ErrorCode::Unknown => 1,
         }
     }
@@ -1191,6 +1224,24 @@ impl ErrorCode {
 /// `tool` is the executable that could not be started, `builtin` the thing the
 /// caller invoked, and `cause` the underlying OS error. The hint names the tool
 /// rather than the builtin, because installing it is the only thing that helps.
+/// Build a structured "no UI is attached" error (`E_NO_UI`).
+///
+/// For an interactive prompt made when nothing is listening. The alternative
+/// was waiting five minutes and returning `false`, which an agent cannot tell
+/// from the user declining.
+pub fn no_ui(builtin: &str) -> anyhow::Error {
+    anyhow::Error::new(SafetyError {
+        code: ErrorCode::NoUi,
+        message: format!("{builtin}: no UI is attached to answer this prompt"),
+        builtin: builtin.to_string(),
+        hint: "attach a UI (`ae --tui`) or avoid interactive builtins in agent mode".to_string(),
+        approval: None,
+        did_you_mean: Vec::new(),
+        expected: "a UI listening for prompts".to_string(),
+        got: "nothing attached".to_string(),
+    })
+}
+
 pub fn tool_missing(builtin: &str, tool: &str, cause: &str) -> anyhow::Error {
     anyhow::Error::new(SafetyError {
         code: ErrorCode::ToolMissing,
@@ -3474,6 +3525,9 @@ pub const SELF_GUARDED: &[&str] = &[
     "k8s_delete",
     "k8s_exec",
     "ltrace_cmd",
+    "marketplace_info",
+    "marketplace_search",
+    "marketplace_update",
     "perf_record",
     "perf_stat",
     "platform_db_delete",

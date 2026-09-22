@@ -454,6 +454,19 @@ pub struct A2UIChannel {
     response_signal: Arc<(Mutex<bool>, Condvar)>,
     /// Max events to buffer
     max_events: usize,
+    /// Whether a UI has ever drained this channel.
+    ///
+    /// The channel is a buffer: `send` queues an event whether or not anyone
+    /// is listening, so a blocking prompt could not tell "waiting" from
+    /// "nobody is there". It waited the full 300s and returned `Cancelled`,
+    /// which `prompt_confirm` maps to `Ok(false)` -- a fabricated decision an
+    /// agent cannot distinguish from the user declining.
+    ///
+    /// Set on the UI-side receive calls. Once true it stays true: a UI that
+    /// has attached and gone quiet is a UI that may answer, which is what the
+    /// timeout is for. False means nothing has *ever* read, and no wait can
+    /// help.
+    ui_attached: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl A2UIChannel {
@@ -463,6 +476,7 @@ impl A2UIChannel {
             responses: Arc::new(RwLock::new(std::collections::HashMap::new())),
             response_signal: Arc::new((Mutex::new(false), Condvar::new())),
             max_events: 1000,
+            ui_attached: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 
@@ -472,6 +486,7 @@ impl A2UIChannel {
             responses: Arc::new(RwLock::new(std::collections::HashMap::new())),
             response_signal: Arc::new((Mutex::new(false), Condvar::new())),
             max_events,
+            ui_attached: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 
@@ -581,8 +596,15 @@ impl A2UIChannel {
 
     // ---- UI-side API ----
 
+    /// Whether a UI has ever drained this channel.
+    pub fn ui_attached(&self) -> bool {
+        self.ui_attached.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     /// Receive all pending events (non-blocking)
     pub fn receive_all(&self) -> Result<Vec<A2UIEvent>> {
+        self.ui_attached
+            .store(true, std::sync::atomic::Ordering::Relaxed);
         let mut events = self
             .events
             .lock()
@@ -592,6 +614,8 @@ impl A2UIChannel {
 
     /// Receive events up to a limit
     pub fn receive(&self, max_count: usize) -> Result<Vec<A2UIEvent>> {
+        self.ui_attached
+            .store(true, std::sync::atomic::Ordering::Relaxed);
         let mut events = self
             .events
             .lock()
@@ -660,6 +684,12 @@ impl A2UIChannel {
 
     /// Wait for a response to a prompt (with timeout)
     fn wait_for_response(&self, prompt_id: Uuid) -> Result<PromptResponse> {
+        // Nothing has ever read this channel, so no amount of waiting will
+        // produce an answer. Refuse now rather than stall 300s and return a
+        // `Cancelled` the caller reads as "the user declined".
+        if !self.ui_attached() {
+            return Err(crate::safety::no_ui("a2ui"));
+        }
         let timeout = std::time::Duration::from_secs(300); // 5 minute timeout
         let start = std::time::Instant::now();
 

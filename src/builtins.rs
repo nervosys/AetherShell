@@ -43569,6 +43569,14 @@ fn bi_marketplace_search(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
     };
 
     // Try remote registry first
+    // Meter + audit network egress (governor: AETHER_MAX_NET), exactly as
+    // `http_get` does. Classifying the effect is not enough on its own:
+    // `centrally_enforced` covers Process/Destructive/Exec/Privileged, so a
+    // Network builtin is charged only if it guards itself. Without this,
+    // `marketplace_search` reached packages.nervosys.ai under
+    // `--agent --policy strict` with `AETHER_MAX_NET=0`.
+    guard_network("marketplace_search", "https://packages.nervosys.ai")?;
+
     let client = crate::packages::RegistryClient::default();
     if let Ok(remote_pkgs) = client.search(&query, category.as_deref()) {
         if !remote_pkgs.is_empty() {
@@ -43784,6 +43792,14 @@ fn bi_marketplace_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     };
 
     // Try remote registry first
+    // Meter + audit network egress (governor: AETHER_MAX_NET), exactly as
+    // `http_get` does. Classifying the effect is not enough on its own:
+    // `centrally_enforced` covers Process/Destructive/Exec/Privileged, so a
+    // Network builtin is charged only if it guards itself. Without this,
+    // `marketplace_search` reached packages.nervosys.ai under
+    // `--agent --policy strict` with `AETHER_MAX_NET=0`.
+    guard_network("marketplace_info", "https://packages.nervosys.ai")?;
+
     let client = crate::packages::RegistryClient::default();
     if let Ok(pkg) = client.get_package(&name) {
         return Ok(crate::packages::RegistryClient::package_to_value(&pkg));
@@ -43849,6 +43865,14 @@ fn bi_marketplace_rate(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 /// Checks the remote registry for newer versions.
 /// Usage: marketplace.update(name) or marketplace.update() for all
 fn bi_marketplace_update(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    // Meter + audit network egress (governor: AETHER_MAX_NET), exactly as
+    // `http_get` does. Classifying the effect is not enough on its own:
+    // `centrally_enforced` covers Process/Destructive/Exec/Privileged, so a
+    // Network builtin is charged only if it guards itself. Without this,
+    // `marketplace_search` reached packages.nervosys.ai under
+    // `--agent --policy strict` with `AETHER_MAX_NET=0`.
+    guard_network("marketplace_update", "https://packages.nervosys.ai")?;
+
     let client = crate::packages::RegistryClient::default();
     let packages = MARKETPLACE_PACKAGES
         .read()

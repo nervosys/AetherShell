@@ -691,14 +691,14 @@ mage_run	Exec
 make_run	Exec
 make_targets	ReadLocal
 map	Pure
-marketplace_info	Pure
+marketplace_info	Network
 marketplace_install	Exec
 marketplace_list	Pure
 marketplace_publish	Network
 marketplace_rate	Pure
-marketplace_search	Pure
+marketplace_search	Network
 marketplace_uninstall	Destructive
-marketplace_update	Pure
+marketplace_update	Network
 max	Pure
 mcp-cache-clear	Pure
 mcp-cache-status	Pure
