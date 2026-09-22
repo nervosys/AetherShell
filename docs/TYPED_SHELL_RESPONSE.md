@@ -375,24 +375,36 @@ denial, an index past the end — expressed in each shell.
 > | Response to a nonsense argument | Builtins |
 > | --- | ---: |
 > | accepted it and answered | 507 |
-> | `E_BAD_ARG` | 227 |
-> | **`E_UNKNOWN`** | **156** |
+> | `E_BAD_ARG` | 243 |
+> | **`E_UNKNOWN`** | **140** |
 > | `E_NEEDS_APPROVAL` (the gate, correctly) | 142 |
 > | other coded | 20 |
 >
-> **Nearly 15% of the catalogue reports a type error with the one code an
-> agent is told not to reason about** — `cat: path must be a string`,
-> `file_append: path must be a string` — built ad hoc instead of through the
-> shared `expect_*` helpers that produce `E_BAD_ARG`.
+> **The 140 split two ways, and the split is the point.** 57 of them are an
+> external tool absent on the measuring machine (`black not found`), where the
+> probe never reached argument handling at all — that is a fact about the
+> laptop, not about the shell, and counting it in would be the same error this
+> document criticises elsewhere. The other **83 — 7.9% of the catalogue — are
+> the shell's own argument and type errors**, reported with the one code an
+> agent is told not to reason about:
 >
-> `cat` was among them, and it appears in every E1 query. Declaring it moved it
-> across: the sweep read 157 before and 156 after, with `E_BAD_ARG` going
-> 226 -> 227. One builtin, one column, and the counts agree — which is also the
-> cheapest evidence that the sweep measures what it claims.
+> ```
+> a2a_register   E_UNKNOWN  a2a.register: name must be a string
+> ab_encode      E_UNKNOWN  ab_encode requires 3 arguments: msg_type, opcode, payload
+> add_node       E_UNKNOWN  cluster_add_node: requires id and address arguments
+> ```
+>
+> They are built ad hoc instead of through the shared `expect_*` helpers, which
+> produce `E_BAD_ARG`. The count came down from 157 in the course of finding
+> it: declaring `cat` — which appears in every E1 query — moved one, and
+> converting 54 ad-hoc type errors to the coded helper moved fifteen more. That
+> conversion is worth a line: 54 edits moved 16 builtins, because most
+> converted sites sit behind an earlier failure path the probe never reaches.
+> The number to quote is the one the sweep reports, not the edit count.
 >
 > So the honest claim is narrower than the row above: on ten representative
 > failures AetherShell codes all ten, and across the catalogue it codes about
-> 85% of them. Both numbers are ours and both are reproducible
+> 92% of them. Both numbers are ours and both are reproducible
 > (`tests/uncoded_failure_census.rs` holds the line for the core;
 > `benches/agentic/` has the sweep). A benchmark of ten hand-picked cases is
 > exactly the kind of thing that flatters the party running it, which is the

@@ -5060,7 +5060,13 @@ fn bi_unique(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     } else if !args.is_empty() {
         match &args[0] {
             Value::Array(arr) => arr.clone(),
-            _ => return Err(anyhow!("unique: argument must be an array")),
+            other => {
+                return Err(crate::safety::bad_arg(
+                    "unique",
+                    "argument: Array",
+                    other.type_name(),
+                ))
+            }
         }
     } else {
         return Err(anyhow!("unique: no input provided"));
@@ -5297,7 +5303,13 @@ fn bi_config_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     let path = match &args[0] {
         Value::Str(s) => s.clone(),
-        _ => return Err(anyhow!("config_get: path must be a string")),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "config_get",
+                "path: String",
+                other.type_name(),
+            ))
+        }
     };
 
     let config = get_config();
@@ -5357,7 +5369,13 @@ fn bi_config_set(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     let path = match &args[0] {
         Value::Str(s) => s.clone(),
-        _ => return Err(anyhow!("config_set: path must be a string")),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "config_set",
+                "path: String",
+                other.type_name(),
+            ))
+        }
     };
 
     // Load current config, modify it, and save
@@ -5828,14 +5846,26 @@ fn bi_type_assert(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         })?;
         let expected_str = match expected {
             Value::Str(s) => s.clone(),
-            _ => return Err(anyhow!("type_assert: expected type must be a string")),
+            other => {
+                return Err(crate::safety::bad_arg(
+                    "type_assert",
+                    "expected type: String",
+                    other.type_name(),
+                ))
+            }
         };
         (input_val, expected_str)
     } else if args.len() >= 2 {
         // Two args: value, expected_type
         let expected_str = match &args[1] {
             Value::Str(s) => s.clone(),
-            _ => return Err(anyhow!("type_assert: expected type must be a string")),
+            other => {
+                return Err(crate::safety::bad_arg(
+                    "type_assert",
+                    "expected type: String",
+                    other.type_name(),
+                ))
+            }
         };
         (args[0].clone(), expected_str)
     } else {
@@ -6105,12 +6135,24 @@ fn bi_platform_module(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let base_path = if let Some(input_val) = input {
         match input_val {
             Value::Str(s) => s,
-            _ => return Err(anyhow!("platform_module: base_path must be a string")),
+            other => {
+                return Err(crate::safety::bad_arg(
+                    "platform_module",
+                    "base_path: String",
+                    other.type_name(),
+                ))
+            }
         }
     } else if !args.is_empty() {
         match &args[0] {
             Value::Str(s) => s.clone(),
-            _ => return Err(anyhow!("platform_module: base_path must be a string")),
+            other => {
+                return Err(crate::safety::bad_arg(
+                    "platform_module",
+                    "base_path: String",
+                    other.type_name(),
+                ))
+            }
         }
     } else {
         return Err(crate::safety::arg_err(
@@ -6167,12 +6209,24 @@ fn bi_feature_enabled(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let name = if let Some(input_val) = input {
         match input_val {
             Value::Str(s) => s,
-            _ => return Err(anyhow!("feature_enabled: feature name must be a string")),
+            other => {
+                return Err(crate::safety::bad_arg(
+                    "feature_enabled",
+                    "feature name: String",
+                    other.type_name(),
+                ))
+            }
         }
     } else if !args.is_empty() {
         match &args[0] {
             Value::Str(s) => s.clone(),
-            _ => return Err(anyhow!("feature_enabled: feature name must be a string")),
+            other => {
+                return Err(crate::safety::bad_arg(
+                    "feature_enabled",
+                    "feature name: String",
+                    other.type_name(),
+                ))
+            }
         }
     } else {
         return Err(crate::safety::arg_err(
@@ -6197,12 +6251,24 @@ fn bi_feature_enable(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let name = if let Some(input_val) = input {
         match input_val {
             Value::Str(s) => s,
-            _ => return Err(anyhow!("feature_enable: feature name must be a string")),
+            other => {
+                return Err(crate::safety::bad_arg(
+                    "feature_enable",
+                    "feature name: String",
+                    other.type_name(),
+                ))
+            }
         }
     } else if !args.is_empty() {
         match &args[0] {
             Value::Str(s) => s.clone(),
-            _ => return Err(anyhow!("feature_enable: feature name must be a string")),
+            other => {
+                return Err(crate::safety::bad_arg(
+                    "feature_enable",
+                    "feature name: String",
+                    other.type_name(),
+                ))
+            }
         }
     } else {
         return Err(crate::safety::arg_err(
@@ -6228,12 +6294,24 @@ fn bi_feature_disable(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let name = if let Some(input_val) = input {
         match input_val {
             Value::Str(s) => s,
-            _ => return Err(anyhow!("feature_disable: feature name must be a string")),
+            other => {
+                return Err(crate::safety::bad_arg(
+                    "feature_disable",
+                    "feature name: String",
+                    other.type_name(),
+                ))
+            }
         }
     } else if !args.is_empty() {
         match &args[0] {
             Value::Str(s) => s.clone(),
-            _ => return Err(anyhow!("feature_disable: feature name must be a string")),
+            other => {
+                return Err(crate::safety::bad_arg(
+                    "feature_disable",
+                    "feature name: String",
+                    other.type_name(),
+                ))
+            }
         }
     } else {
         return Err(crate::safety::arg_err(
@@ -6262,25 +6340,49 @@ fn bi_feature_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         // Piped: input is name, arg 0 is enabled
         let name = match input_val {
             Value::Str(s) => s,
-            _ => return Err(anyhow!("feature_set: feature name must be a string")),
+            other => {
+                return Err(crate::safety::bad_arg(
+                    "feature_set",
+                    "feature name: String",
+                    other.type_name(),
+                ))
+            }
         };
         let enabled = args
             .first()
             .ok_or_else(|| crate::safety::arg_err("feature_set: requires enabled argument"))?;
         let enabled = match enabled {
             Value::Bool(b) => *b,
-            _ => return Err(anyhow!("feature_set: enabled must be a boolean")),
+            other => {
+                return Err(crate::safety::bad_arg(
+                    "feature_set",
+                    "enabled: Bool",
+                    other.type_name(),
+                ))
+            }
         };
         (name, enabled)
     } else if args.len() >= 2 {
         // Two args: name, enabled
         let name = match &args[0] {
             Value::Str(s) => s.clone(),
-            _ => return Err(anyhow!("feature_set: feature name must be a string")),
+            other => {
+                return Err(crate::safety::bad_arg(
+                    "feature_set",
+                    "feature name: String",
+                    other.type_name(),
+                ))
+            }
         };
         let enabled = match &args[1] {
             Value::Bool(b) => *b,
-            _ => return Err(anyhow!("feature_set: enabled must be a boolean")),
+            other => {
+                return Err(crate::safety::bad_arg(
+                    "feature_set",
+                    "enabled: Bool",
+                    other.type_name(),
+                ))
+            }
         };
         (name, enabled)
     } else {
@@ -6701,7 +6803,13 @@ fn bi_aggregate_results(args: Vec<Value>, input: Option<Value>) -> Result<Value>
 
     let results = match results {
         Value::Array(arr) => arr,
-        _ => return Err(anyhow!("aggregate_results: results must be an array")),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "aggregate_results",
+                "results: Array",
+                other.type_name(),
+            ))
+        }
     };
 
     let strategy = args
@@ -7332,7 +7440,13 @@ fn bi_ls(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     } else {
         match &args[0] {
             Value::Str(s) => s.clone(),
-            _ => return Err(anyhow!("ls: path must be a string")),
+            other => {
+                return Err(crate::safety::bad_arg(
+                    "ls",
+                    "path: String",
+                    other.type_name(),
+                ))
+            }
         }
     };
 
@@ -7402,7 +7516,13 @@ fn bi_cat(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     let path_str = match &args[0] {
         Value::Str(s) => s,
-        _ => return Err(anyhow!("cat: path must be a string")),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "cat",
+                "path: String",
+                other.type_name(),
+            ))
+        }
     };
 
     // SECURITY: Validate path to prevent traversal attacks (CVSS 8.2)
@@ -7425,7 +7545,13 @@ fn bi_read_text(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     let path_str = match &args[0] {
         Value::Str(s) => s,
-        _ => return Err(anyhow!("read_text: path must be a string")),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "read_text",
+                "path: String",
+                other.type_name(),
+            ))
+        }
     };
 
     // SECURITY: Validate path to prevent traversal attacks
@@ -7461,7 +7587,13 @@ fn bi_head(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         };
         let content = match input {
             Value::Str(s) => s,
-            _ => return Err(anyhow!("head: input must be a string")),
+            other => {
+                return Err(crate::safety::bad_arg(
+                    "head",
+                    "input: String",
+                    other.type_name(),
+                ))
+            }
         };
         (count, content)
     } else {
@@ -7535,7 +7667,13 @@ fn bi_tail(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         };
         let content = match input {
             Value::Str(s) => s,
-            _ => return Err(anyhow!("tail: input must be a string")),
+            other => {
+                return Err(crate::safety::bad_arg(
+                    "tail",
+                    "input: String",
+                    other.type_name(),
+                ))
+            }
         };
         (count, content)
     } else {
@@ -7609,7 +7747,13 @@ fn bi_find(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     } else if args.len() == 1 {
         match &args[0] {
             Value::Str(p) => (p.clone(), None),
-            _ => return Err(anyhow!("find: path must be a string")),
+            other => {
+                return Err(crate::safety::bad_arg(
+                    "find",
+                    "path: String",
+                    other.type_name(),
+                ))
+            }
         }
     } else {
         (".".to_string(), None)
@@ -7743,7 +7887,13 @@ fn bi_wc(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let content = if let Some(input) = input {
         match input {
             Value::Str(s) => s,
-            _ => return Err(anyhow!("wc: input must be a string")),
+            other => {
+                return Err(crate::safety::bad_arg(
+                    "wc",
+                    "input: String",
+                    other.type_name(),
+                ))
+            }
         }
     } else if !args.is_empty() {
         let path = match &args[0] {
@@ -7783,7 +7933,13 @@ fn bi_grep(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     let pattern = match &args[0] {
         Value::Str(s) => s,
-        _ => return Err(anyhow!("grep: pattern must be a string")),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "grep",
+                "pattern: String",
+                other.type_name(),
+            ))
+        }
     };
 
     let case_insensitive = args
@@ -8787,7 +8943,13 @@ fn bi_ai(args: Vec<Value>, input: Option<Value>, _env: &mut Env) -> Result<Value
     } else if !args.is_empty() {
         match &args[0] {
             Value::Str(s) => s.clone(),
-            _ => return Err(anyhow!("ai: prompt must be a string")),
+            other => {
+                return Err(crate::safety::bad_arg(
+                    "ai",
+                    "prompt: String",
+                    other.type_name(),
+                ))
+            }
         }
     } else {
         return Err(crate::safety::arg_err("ai: requires a prompt string"));
@@ -8980,7 +9142,13 @@ fn bi_ai_suggest(args: Vec<Value>, input: Option<Value>, _env: &mut Env) -> Resu
     } else if !args.is_empty() {
         match &args[0] {
             Value::Str(s) => s.clone(),
-            _ => return Err(anyhow!("ai-suggest: query must be a string")),
+            other => {
+                return Err(crate::safety::bad_arg(
+                    "ai-suggest",
+                    "query: String",
+                    other.type_name(),
+                ))
+            }
         }
     } else {
         return Err(crate::safety::arg_err("ai-suggest: requires query"));
@@ -9051,7 +9219,13 @@ fn bi_ai_explain(args: Vec<Value>, input: Option<Value>, _env: &mut Env) -> Resu
     } else if !args.is_empty() {
         match &args[0] {
             Value::Str(s) => s.clone(),
-            _ => return Err(anyhow!("ai-explain: subject must be a string")),
+            other => {
+                return Err(crate::safety::bad_arg(
+                    "ai-explain",
+                    "subject: String",
+                    other.type_name(),
+                ))
+            }
         }
     } else {
         return Err(crate::safety::arg_err(
@@ -9125,7 +9299,13 @@ fn bi_ai_complete(args: Vec<Value>, input: Option<Value>, _env: &mut Env) -> Res
     } else if !args.is_empty() {
         match &args[0] {
             Value::Str(s) => s.clone(),
-            _ => return Err(anyhow!("ai-complete: partial command must be a string")),
+            other => {
+                return Err(crate::safety::bad_arg(
+                    "ai-complete",
+                    "partial command: String",
+                    other.type_name(),
+                ))
+            }
         }
     } else {
         return Err(crate::safety::arg_err(
@@ -9208,7 +9388,13 @@ fn bi_ai_fix(args: Vec<Value>, input: Option<Value>, _env: &mut Env) -> Result<V
     } else if !args.is_empty() {
         match &args[0] {
             Value::Str(s) => s.clone(),
-            _ => return Err(anyhow!("ai-fix: error message must be a string")),
+            other => {
+                return Err(crate::safety::bad_arg(
+                    "ai-fix",
+                    "error message: String",
+                    other.type_name(),
+                ))
+            }
         }
     } else {
         return Err(crate::safety::arg_err("ai-fix: requires error message"));
@@ -10621,7 +10807,13 @@ fn bi_is_type(args: Vec<Value>) -> Result<Value> {
     }
     let type_name = match &args[1] {
         Value::Str(s) => s.to_lowercase(),
-        _ => return Err(anyhow!("is_type: type_name must be a string")),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "is_type",
+                "type_name: String",
+                other.type_name(),
+            ))
+        }
     };
 
     let matches = match (&args[0], type_name.as_str()) {
@@ -13955,17 +14147,35 @@ fn bi_rl_agent(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     let name = match &args[0] {
         Value::Str(s) => s.clone(),
-        _ => return Err(anyhow!("rl_agent: name must be a string")),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "rl_agent",
+                "name: String",
+                other.type_name(),
+            ))
+        }
     };
 
     let state_size = match args.get(1) {
         Some(Value::Int(n)) => *n as usize,
-        _ => return Err(anyhow!("rl_agent: state_size must be an integer")),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "rl_agent",
+                "state_size: Int",
+                other.map_or("nothing", |v| v.type_name()),
+            ))
+        }
     };
 
     let action_size = match args.get(2) {
         Some(Value::Int(n)) => *n as usize,
-        _ => return Err(anyhow!("rl_agent: action_size must be an integer")),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "rl_agent",
+                "action_size: Int",
+                other.map_or("nothing", |v| v.type_name()),
+            ))
+        }
     };
 
     // Parse optional config
@@ -14025,7 +14235,13 @@ fn bi_rl_action(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     let state = match &args[1] {
         Value::Int(s) => *s as usize,
-        _ => return Err(anyhow!("rl_action: state must be an integer")),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "rl_action",
+                "state: Int",
+                other.type_name(),
+            ))
+        }
     };
 
     let action = agent.select_action(state);
@@ -18703,7 +18919,13 @@ fn bi_save_json(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     let path = match &args[0] {
         Value::Str(s) => s.clone(),
-        _ => return Err(anyhow!("save_json: path must be a string")),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "save_json",
+                "path: String",
+                other.type_name(),
+            ))
+        }
     };
 
     let value = if args.len() > 1 {
@@ -18740,7 +18962,13 @@ fn bi_mcp_server_start(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 
     let config = match &args[0] {
         Value::Record(r) => r,
-        _ => return Err(anyhow!("mcp_server_start: config must be a record")),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "mcp_server_start",
+                "config: Record",
+                other.type_name(),
+            ))
+        }
     };
 
     let name = config
@@ -18794,7 +19022,13 @@ fn bi_agent_with_mcp(args: Vec<Value>, _input: Option<Value>, env: &mut Env) -> 
 
     let goal = match &args[0] {
         Value::Str(s) => s.clone(),
-        _ => return Err(anyhow!("agent_with_mcp: goal must be a string")),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "agent_with_mcp",
+                "goal: String",
+                other.type_name(),
+            ))
+        }
     };
 
     let tools: Vec<String> = match &args[1] {
@@ -30760,7 +30994,13 @@ fn bi_file_write(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     let path = match &args[0] {
         Value::Str(s) => s.clone(),
-        _ => return Err(anyhow!("file_write: path must be a string")),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "file_write",
+                "path: String",
+                other.type_name(),
+            ))
+        }
     };
     // In a jailed context, a relative path is workspace-relative (not CWD-relative)
     // so the write lands inside the jail and matches the transaction journal.
@@ -30861,7 +31101,13 @@ fn bi_file_append(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     let path = match &args[0] {
         Value::Str(s) => s.clone(),
-        _ => return Err(anyhow!("file_append: path must be a string")),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "file_append",
+                "path: String",
+                other.type_name(),
+            ))
+        }
     };
     // Jailed: relative paths are workspace-relative (see file_write).
     let path = crate::safety::resolve_path_str(&path);
@@ -30944,7 +31190,13 @@ fn bi_file_patch(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     let path = match &args[0] {
         Value::Str(s) => s.clone(),
-        _ => return Err(anyhow!("file_patch: path must be a string")),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "file_patch",
+                "path: String",
+                other.type_name(),
+            ))
+        }
     };
     // Classified `ReadLocal` while the body wrote the file back in place.
     // `WriteLocal` is what the jail keys on, so this path went uncontained.
@@ -31059,17 +31311,35 @@ fn bi_file_replace(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     let path = match &args[0] {
         Value::Str(s) => s.clone(),
-        _ => return Err(anyhow!("file_replace: path must be a string")),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "file_replace",
+                "path: String",
+                other.type_name(),
+            ))
+        }
     };
 
     let old_text = match &args[1] {
         Value::Str(s) => s.clone(),
-        _ => return Err(anyhow!("file_replace: old_text must be a string")),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "file_replace",
+                "old_text: String",
+                other.type_name(),
+            ))
+        }
     };
 
     let new_text = match &args[2] {
         Value::Str(s) => s.clone(),
-        _ => return Err(anyhow!("file_replace: new_text must be a string")),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "file_replace",
+                "new_text: String",
+                other.type_name(),
+            ))
+        }
     };
 
     let mut patch = BTreeMap::new();
@@ -31092,7 +31362,13 @@ fn bi_file_insert(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     let path = match &args[0] {
         Value::Str(s) => s.clone(),
-        _ => return Err(anyhow!("file_insert: path must be a string")),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "file_insert",
+                "path: String",
+                other.type_name(),
+            ))
+        }
     };
     // Classified `ReadLocal` while the body wrote the file back in place.
     // `WriteLocal` is what the jail keys on, so this path went uncontained.
@@ -31222,7 +31498,13 @@ fn bi_file_delete_lines(args: Vec<Value>, _input: Option<Value>) -> Result<Value
 
     let path = match &args[0] {
         Value::Str(s) => s.clone(),
-        _ => return Err(anyhow!("file_delete_lines: path must be a string")),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "file_delete_lines",
+                "path: String",
+                other.type_name(),
+            ))
+        }
     };
 
     crate::safety::guard(crate::safety::GuardCtx {
@@ -31326,7 +31608,13 @@ fn bi_file_edit(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     let path = match &args[0] {
         Value::Str(s) => s.clone(),
-        _ => return Err(anyhow!("file_edit: path must be a string")),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "file_edit",
+                "path: String",
+                other.type_name(),
+            ))
+        }
     };
     // Classified `ReadLocal` while the body wrote the file back in place.
     // `WriteLocal` is what the jail keys on, so this path went uncontained.
@@ -31545,12 +31833,24 @@ fn bi_file_diff(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     let path1 = match &args[0] {
         Value::Str(s) => s.clone(),
-        _ => return Err(anyhow!("file_diff: first path must be a string")),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "file_diff",
+                "first path: String",
+                other.type_name(),
+            ))
+        }
     };
 
     let path2 = match &args[1] {
         Value::Str(s) => s.clone(),
-        _ => return Err(anyhow!("file_diff: second path must be a string")),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "file_diff",
+                "second path: String",
+                other.type_name(),
+            ))
+        }
     };
 
     let content1 = fs::read_to_string(&path1)
@@ -31659,12 +31959,24 @@ fn bi_file_copy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     let source = match &args[0] {
         Value::Str(s) => s.clone(),
-        _ => return Err(anyhow!("file_copy: source must be a string")),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "file_copy",
+                "source: String",
+                other.type_name(),
+            ))
+        }
     };
 
     let dest = match &args[1] {
         Value::Str(s) => s.clone(),
-        _ => return Err(anyhow!("file_copy: destination must be a string")),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "file_copy",
+                "destination: String",
+                other.type_name(),
+            ))
+        }
     };
 
     // The destination only. Reading from outside the workspace is allowed by
@@ -31733,12 +32045,24 @@ fn bi_file_move(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     let source = match &args[0] {
         Value::Str(s) => s.clone(),
-        _ => return Err(anyhow!("file_move: source must be a string")),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "file_move",
+                "source: String",
+                other.type_name(),
+            ))
+        }
     };
 
     let dest = match &args[1] {
         Value::Str(s) => s.clone(),
-        _ => return Err(anyhow!("file_move: destination must be a string")),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "file_move",
+                "destination: String",
+                other.type_name(),
+            ))
+        }
     };
 
     if !std::path::Path::new(&source).exists() {
