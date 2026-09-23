@@ -34651,11 +34651,29 @@ fn bi_code_outline(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_code_references(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Array(vec![]))
+    // Returned an empty result for every call, ignoring its
+    // arguments: `code_references("anything")` answered "there are none",
+    // which is a confident negative rather than a refusal. An empty
+    // list is worse than `false` here -- it reads as a definitive
+    // answer, so an agent stops looking.
+    Err(crate::safety::unimplemented(
+        "code_references",
+        "finding references to a symbol is not implemented; NO ANALYSIS WAS PERFORMED",
+        "use grep",
+    ))
 }
 
 fn bi_code_definition(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Null)
+    // Returned an empty result for every call, ignoring its
+    // arguments: `code_definition("anything")` answered "there are none",
+    // which is a confident negative rather than a refusal. An empty
+    // list is worse than `false` here -- it reads as a definitive
+    // answer, so an agent stops looking.
+    Err(crate::safety::unimplemented(
+        "code_definition",
+        "locating a symbol's definition is not implemented; NO ANALYSIS WAS PERFORMED",
+        "use grep",
+    ))
 }
 
 fn bi_code_imports(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -34700,23 +34718,68 @@ fn bi_code_dependencies(args: Vec<Value>, _input: Option<Value>) -> Result<Value
 }
 
 fn bi_code_callers(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Array(vec![]))
+    // Returned an empty result for every call, ignoring its
+    // arguments: `code_callers("anything")` answered "there are none",
+    // which is a confident negative rather than a refusal. An empty
+    // list is worse than `false` here -- it reads as a definitive
+    // answer, so an agent stops looking.
+    Err(crate::safety::unimplemented(
+        "code_callers",
+        "listing the callers of a symbol is not implemented; NO ANALYSIS WAS PERFORMED",
+        "use grep",
+    ))
 }
 
 fn bi_code_callees(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Array(vec![]))
+    // Returned an empty result for every call, ignoring its
+    // arguments: `code_callees("anything")` answered "there are none",
+    // which is a confident negative rather than a refusal. An empty
+    // list is worse than `false` here -- it reads as a definitive
+    // answer, so an agent stops looking.
+    Err(crate::safety::unimplemented(
+        "code_callees",
+        "listing the functions a symbol calls is not implemented; NO ANALYSIS WAS PERFORMED",
+        "use grep",
+    ))
 }
 
 fn bi_code_hover(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Null)
+    // Returned an empty result for every call, ignoring its
+    // arguments: `code_hover("anything")` answered "there are none",
+    // which is a confident negative rather than a refusal. An empty
+    // list is worse than `false` here -- it reads as a definitive
+    // answer, so an agent stops looking.
+    Err(crate::safety::unimplemented(
+        "code_hover",
+        "describing the symbol under a position is not implemented; NO ANALYSIS WAS PERFORMED",
+        "use an editor language server",
+    ))
 }
 
 fn bi_code_signature(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Null)
+    // Returned an empty result for every call, ignoring its
+    // arguments: `code_signature("anything")` answered "there are none",
+    // which is a confident negative rather than a refusal. An empty
+    // list is worse than `false` here -- it reads as a definitive
+    // answer, so an agent stops looking.
+    Err(crate::safety::unimplemented(
+        "code_signature",
+        "reporting a call signature is not implemented; NO ANALYSIS WAS PERFORMED",
+        "use ontology_describe for AetherShell builtins",
+    ))
 }
 
 fn bi_code_completions(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Array(vec![]))
+    // Returned an empty result for every call, ignoring its
+    // arguments: `code_completions("anything")` answered "there are none",
+    // which is a confident negative rather than a refusal. An empty
+    // list is worse than `false` here -- it reads as a definitive
+    // answer, so an agent stops looking.
+    Err(crate::safety::unimplemented(
+        "code_completions",
+        "offering completions at a position is not implemented; NO ANALYSIS WAS PERFORMED",
+        "use an editor language server",
+    ))
 }
 
 fn bi_code_format(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -35082,21 +35145,81 @@ fn bi_project_languages(_args: Vec<Value>, _input: Option<Value>) -> Result<Valu
     Ok(Value::Array(langs.into_iter().map(Value::Str).collect()))
 }
 
+/// Source lines under the working directory.
+///
+/// This ran `wc -l src/*.rs`. There is no shell between `Command::new` and
+/// `wc`, so nothing expanded the glob: `wc` was handed a file literally named
+/// `src/*.rs`, failed, and the function fell through to `Ok(Value::Int(0))`.
+/// It reported 0 lines for every project on every platform, and reported it as
+/// a fact rather than a failure. Counting in Rust removes both the glob and
+/// the subprocess.
 fn bi_project_loc(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("wc")
-        .args(["-l", "src/*.rs"])
-        .output();
-    if let Ok(o) = output {
-        let out = String::from_utf8_lossy(&o.stdout);
-        if let Some(total) = out.lines().last() {
-            if let Some(count) = total.split_whitespace().next() {
-                if let Ok(n) = count.parse::<i64>() {
-                    return Ok(Value::Int(n));
+    const SOURCE_EXT: &[&str] = &[
+        "rs", "py", "js", "ts", "tsx", "jsx", "go", "java", "c", "h", "cc", "cpp", "hpp", "cs",
+        "rb", "sh", "ae", "lua", "kt", "swift", "php", "scala",
+    ];
+    // Directories that are build output or vendored code: counting them
+    // measures someone else's project, and on a Rust tree `target/` alone
+    // dwarfs the source.
+    const SKIP: &[&str] = &[
+        "target",
+        "node_modules",
+        ".git",
+        "dist",
+        "build",
+        "vendor",
+        ".venv",
+        "__pycache__",
+    ];
+
+    fn count(dir: &std::path::Path, total: &mut i64, budget: &mut u32) {
+        // A budget rather than unbounded recursion: this is called from an
+        // agent loop, and a symlinked or pathological tree must not cost the
+        // whole turn. Exhausting it is reported as E_BUDGET_EXCEEDED, never as
+        // a number -- a partial count returned as an Int is indistinguishable
+        // from a small project, which is the defect this replaced.
+        if *budget == 0 {
+            return;
+        }
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            *budget = budget.saturating_sub(1);
+            if *budget == 0 {
+                return;
+            }
+            let path = entry.path();
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if path.is_dir() {
+                if !SKIP.contains(&name.as_ref()) && !name.starts_with('.') {
+                    count(&path, total, budget);
+                }
+            } else if path
+                .extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| SOURCE_EXT.contains(&e))
+            {
+                if let Ok(text) = std::fs::read_to_string(&path) {
+                    *total += text.lines().count() as i64;
                 }
             }
         }
     }
-    Ok(Value::Int(0))
+
+    let mut total = 0i64;
+    const BUDGET: u32 = 200_000;
+    let mut budget = BUDGET;
+    count(std::path::Path::new("."), &mut total, &mut budget);
+    if budget == 0 {
+        return Err(crate::safety::budget_exceeded(
+            "project_loc",
+            format!("stopped after {BUDGET} directory entries; the count is partial"),
+            "run it against a subdirectory, or exclude generated trees",
+        ));
+    }
+    Ok(Value::Int(total))
 }
 
 fn bi_project_size(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -51082,7 +51205,24 @@ mod declaration_narrowness {
                         call_with_input_inner(sig.name, args.clone(), input.clone(), &mut env)
                     }));
                     if let Ok(Ok(out)) = body {
-                        if meaningful(&out) {
+                        // Did the argument make any difference? A body that
+                        // ignores its arguments succeeds for every input by
+                        // construction, so its success is no evidence that the
+                        // form is supported -- and refusing that argument is
+                        // the whole point of declaring the builtin
+                        // parameterless. Comparing against the bare call is
+                        // what separates "the declaration is too narrow" from
+                        // "the body was answering calls it should not".
+                        //
+                        // Without this the harness reported all 17
+                        // `project_*` declarations as regressions at the
+                        // moment they fixed the defect they were written for.
+                        let mut bare_env = crate::env::Env::new();
+                        let bare = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            call_with_input_inner(sig.name, Vec::new(), None, &mut bare_env)
+                        }));
+                        let ignored = matches!(bare, Ok(Ok(ref b)) if *b == out);
+                        if meaningful(&out) && !ignored {
                             let position = if piped { "piped" } else { "direct" };
                             too_narrow.push(format!(
                                 "{}({label}, {position}) -> declaration refuses, body returns {}",

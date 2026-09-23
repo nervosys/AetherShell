@@ -2847,6 +2847,17 @@ fn env_u64(name: &str) -> Option<u64> {
         .and_then(|v| v.trim().parse::<u64>().ok())
 }
 
+/// `budget_error` as an `anyhow::Error`, for builtins that govern their own
+/// work rather than going through the central op counter.
+///
+/// A walk that gives up partway has a partial answer, and returning that as
+/// though it were the whole one is the silent-wrong-answer defect this
+/// taxonomy exists to remove -- `project_loc` counting half a tree and
+/// reporting an Int is indistinguishable from a small project.
+pub fn budget_exceeded(builtin: &str, message: String, hint: &str) -> anyhow::Error {
+    anyhow::Error::new(budget_error(builtin, message, hint))
+}
+
 fn budget_error(builtin: &str, message: String, hint: &str) -> SafetyError {
     SafetyError {
         code: ErrorCode::BudgetExceeded,
