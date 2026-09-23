@@ -23686,7 +23686,30 @@ fn bi_sys_boot_time(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             ));
         }
     }
-    #[cfg(not(target_os = "windows"))]
+    // `uptime -s` is a procps/GNU flag. macOS `uptime` does not have it, so
+    // this exited non-zero there and fell through to `Ok(Value::Null)` -- a
+    // silent failure on every Mac, which nothing noticed because nothing ran
+    // it. Declaring the signature made the example executable and CI failed on
+    // the first try.
+    #[cfg(target_os = "macos")]
+    {
+        let output = std::process::Command::new("sysctl")
+            .args(["-n", "kern.boottime"])
+            .output()
+            .map_err(|e| crate::safety::spawn_error("sys_boot_time", "sysctl", &e))?;
+        if output.status.success() {
+            return Ok(Value::Str(
+                String::from_utf8_lossy(&output.stdout).trim().to_string(),
+            ));
+        }
+        return Err(crate::safety::tool_failed(
+            "sys_boot_time",
+            "sysctl -n kern.boottime",
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
+    }
+    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
     {
         let output = std::process::Command::new("uptime")
             .args(["-s"])
@@ -23697,8 +23720,22 @@ fn bi_sys_boot_time(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 String::from_utf8_lossy(&output.stdout).trim().to_string(),
             ));
         }
+        return Err(crate::safety::tool_failed(
+            "sys_boot_time",
+            "uptime -s",
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
     }
-    Ok(Value::Null)
+    // Windows only: the powershell arm above returns on success. A `Null`
+    // here would be the same silent failure this commit removes.
+    #[allow(unreachable_code)]
+    Err(crate::safety::tool_failed(
+        "sys_boot_time",
+        "powershell Get-CimInstance Win32_OperatingSystem",
+        None,
+        "",
+    ))
 }
 
 fn bi_sys_cpu_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -24387,6 +24424,20 @@ fn bi_sys_timezone(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
         if let Ok(tz) = std::fs::read_to_string("/etc/timezone") {
             return Ok(Value::Str(tz.trim().to_string()));
+        }
+        // macOS has no /etc/timezone, so this fell through to the "UTC"
+        // default below: a Mac in Los Angeles reported UTC, confidently and
+        // wrongly. The zone name is the tail of what /etc/localtime points
+        // at, which is also how Linux distros that ship no /etc/timezone
+        // record it.
+        if let Ok(target) = std::fs::read_link("/etc/localtime") {
+            let path = target.to_string_lossy();
+            if let Some(i) = path.find("zoneinfo/") {
+                let zone = &path[i + "zoneinfo/".len()..];
+                if !zone.is_empty() {
+                    return Ok(Value::Str(zone.to_string()));
+                }
+            }
         }
     }
     Ok(Value::Str("UTC".to_string()))
