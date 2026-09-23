@@ -567,6 +567,41 @@ it came out of fixing errors rather than out of trying to move the score.)
 > and every hit needs reading. A count of suspects is not a count of bugs,
 > and saying otherwise would be the same error as quoting the edit count.
 >
+> **And a fourth probe, with a real oracle this time.** The table at the top of
+> `src/signature.rs` opens with `round(4.966, 2) -> 5` — the digits argument
+> accepted and discarded. Declaring a signature fixes that, because `validate`
+> checks arity before the body runs. **53 of 1,052 builtins are declared.**
+> Nothing had ever checked the other 999.
+>
+> `benches/agentic/discarded-args.mjs` is differential, so it reports defects
+> rather than suspects: if `f(x)` and `f(x, junk, junk, junk)` return the same
+> bytes, the extra arguments changed nothing. Nondeterministic builtins are
+> excluded by running each twice with identical arguments first, and the
+> exclusions are counted — a sweep that silently dropped half the catalogue
+> would otherwise look like a clean result.
+>
+> **369 of 393 comparable builtins (93.9%) returned the same value with three
+> extra arguments as without them.** That is the founding defect of this whole
+> effort, measured catalogue-wide for the first time, and it is not 53
+> builtins' worth of work to fix — it is the migration.
+>
+> We are reporting that number without having fixed it. The declaration
+> mechanism exists and is enforced; extending it to 999 builtins is a body of
+> work, and **generating those declarations from this probe would be exactly
+> the wrong move** — a builtin may use its third argument only on a branch the
+> probe did not take, and declaring it away would delete working calls at
+> scale. That failure mode has already happened twice here by hand.
+>
+> **The probe found something it was not looking for.** Excluding
+> nondeterministic builtins meant listing them, and `tools()` was on the list:
+> it collected from a `HashMap`, whose iteration order Rust randomises per
+> process, so the agent-facing tool catalogue came back in a different order
+> every call. It could not be cached, diffed or hashed. Determinism is one of
+> the four axes this document argues on, and E1 measured it over *data
+> queries* — nobody had pointed it at the discovery surface itself. It is
+> sorted now, with a test that checks five rounds and that the order is
+> actually sorted, because two unsorted runs can agree by chance.
+>
 > A further finding came from the sweep's own conduct rather than its results.
 > One run was made against an `ae` binary five days older than `src/`, and it
 > dutifully reported `head` and `uniq` — both long since fixed — as still

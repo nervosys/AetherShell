@@ -15225,6 +15225,16 @@ fn bi_tools(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         db.tools.values().collect()
     };
 
+    // Sorted, because `db.tools` is a `HashMap` and Rust randomises its
+    // iteration order per process: `tools()` returned the same set in a
+    // different order on every call. This is the agent-facing tool catalogue,
+    // the thing an agent is supposed to fetch once and cache, and it could not
+    // be diffed, cached or hashed. Determinism is one of the four axes
+    // `docs/TYPED_SHELL_RESPONSE.md` argues on, and E1 measured it only over
+    // data queries -- never over the discovery surface itself.
+    let mut tools = tools;
+    tools.sort_by(|a, b| a.name.cmp(&b.name));
+
     // Convert to Value::Array of Records
     let tool_values: Vec<Value> = tools
         .iter()

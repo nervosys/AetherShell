@@ -331,3 +331,68 @@ fn an_unimplemented_builtin_says_so_rather_than_returning_false() {
 
     let _ = std::fs::remove_dir_all(&jail);
 }
+
+/// The discovery surface must be byte-stable, or an agent cannot cache it.
+///
+/// `tools()` collected from a `HashMap`, whose iteration order Rust randomises
+/// per process, so it returned the same set in a different order on every
+/// call. That is the agent-facing tool catalogue — the thing an agent fetches
+/// once and caches — and it could not be diffed, cached or hashed.
+///
+/// Determinism is one of the four axes `docs/TYPED_SHELL_RESPONSE.md` argues
+/// on, and E1 measured it over *data queries* only. Nobody had pointed it at
+/// the discovery surface itself. It was found by a differential probe for a
+/// different defect, which had to exclude nondeterministic builtins and so
+/// listed them.
+#[test]
+fn the_tool_catalogue_is_byte_stable() {
+    use aethershell::value::Value;
+
+    let call = || {
+        let mut env = aethershell::env::Env::new();
+        aethershell::builtins::call_with_input("tools", vec![], None, &mut env)
+            .expect("tools() should answer")
+    };
+
+    let first = call();
+
+    // Names in order, which is what an order bug actually perturbs.
+    let names_of = |v: &Value| -> Vec<String> {
+        match v {
+            Value::Array(items) => items
+                .iter()
+                .filter_map(|it| match it {
+                    Value::Record(r) => match r.get("name") {
+                        Some(Value::Str(s)) => Some(s.clone()),
+                        _ => None,
+                    },
+                    _ => None,
+                })
+                .collect(),
+            _ => Vec::new(),
+        }
+    };
+
+    let baseline = names_of(&first);
+    assert!(
+        baseline.len() > 20,
+        "only {} tools listed; this asserts stability over nothing",
+        baseline.len()
+    );
+
+    // Five rounds: a HashMap order clash can repeat by chance, and a single
+    // agreeing pair is exactly what let this ship.
+    for round in 0..5 {
+        assert_eq!(
+            names_of(&call()),
+            baseline,
+            "tools() changed order on round {round}; it cannot be cached"
+        );
+    }
+
+    // Non-vacuity: sorted order is the property being claimed, so check it
+    // rather than only that two runs agree — two unsorted runs can agree.
+    let mut sorted = baseline.clone();
+    sorted.sort();
+    assert_eq!(baseline, sorted, "tools() is stable but not sorted");
+}
