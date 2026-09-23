@@ -42264,17 +42264,21 @@ fn bi_syslog_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "linux")]
     {
         // Try journalctl first, fall back to grep in /var/log/syslog
-        let output = Command::new("journalctl")
-            .args([
-                "-g",
-                &keyword,
-                "-n",
-                &count.to_string(),
-                "--no-pager",
-                "-o",
-                "json",
-            ])
-            .output();
+        // Bounded: on a host with no running journal, `journalctl` blocks
+        // rather than failing, and the catalogue sweep had to kill this
+        // builtin at its own ten-second timeout. An agent gets nothing at all
+        // from a hang.
+        let mut jc = Command::new("journalctl");
+        jc.args([
+            "-g",
+            &keyword,
+            "-n",
+            &count.to_string(),
+            "--no-pager",
+            "-o",
+            "json",
+        ]);
+        let output = crate::safety::output_with_timeout(jc, 5);
 
         match output {
             Ok(out) if out.status.success() => {

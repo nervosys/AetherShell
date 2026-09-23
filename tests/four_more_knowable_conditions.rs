@@ -191,3 +191,85 @@ fn a_process_that_cannot_start_says_which_one_and_why() {
     // one message happens to contain two substrings.
     assert_ne!(s, u, "both spawn failures rendered identically");
 }
+
+/// A shell-out that never returns must be given up on.
+///
+/// `Command::output()` waits forever, which is right for an interactive shell
+/// and wrong for a builtin an agent calls: a hang burns the whole turn and
+/// returns nothing to reason about, where a failure can at least be branched
+/// on. Both hangs this found were invisible to the test suite, because a test
+/// that calls one does not fail -- it stops CI.
+#[test]
+fn a_shell_out_that_never_returns_is_given_up_on() {
+    // `sleep 30` is the cheapest reliable hang there is. Windows `timeout`
+    // is not a substitute: it reads the console and exits immediately when
+    // stdin is null, which this helper makes it. `ping -n 31` waits.
+    let mut cmd = if cfg!(windows) {
+        let mut c = std::process::Command::new("ping");
+        c.args(["-n", "31", "127.0.0.1"]);
+        c
+    } else {
+        let mut c = std::process::Command::new("sleep");
+        c.arg("30");
+        c
+    };
+    cmd.env("LC_ALL", "C");
+
+    let began = std::time::Instant::now();
+    let r = aethershell::safety::output_with_timeout(cmd, 1);
+    let took = began.elapsed();
+
+    match r {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // No `sleep` on this host; nothing was measured, so claim nothing.
+            eprintln!("skipped: no sleep/timeout binary here");
+            return;
+        }
+        Err(e) => assert_eq!(
+            e.kind(),
+            std::io::ErrorKind::TimedOut,
+            "expected a timeout: {e}"
+        ),
+        Ok(o) => panic!("a 30s sleep returned inside 1s: {o:?}"),
+    }
+
+    // Non-vacuity in the other direction: it must give up *near* the deadline,
+    // not merely eventually. A guard that returns after 30 seconds has not
+    // prevented the hang, it has renamed it.
+    assert!(
+        took < std::time::Duration::from_secs(10),
+        "gave up only after {took:?}; that is not a timeout"
+    );
+}
+
+/// ...and a command that finishes must still hand back its output intact.
+///
+/// The obvious way to write the guard above -- poll `try_wait` and read the
+/// pipes afterwards -- deadlocks as soon as a child writes more than a pipe
+/// buffer, which would turn a timeout into a new way to hang. This is the
+/// test for that, so it deliberately asks for more output than a pipe holds.
+#[test]
+fn a_bounded_shell_out_still_returns_everything_it_printed() {
+    let mut cmd = std::process::Command::new(if cfg!(windows) { "cmd" } else { "sh" });
+    if cfg!(windows) {
+        cmd.args(["/C", "echo hello"]);
+    } else {
+        // ~500 KB, comfortably past a 64 KB pipe buffer.
+        cmd.args(["-c", "yes hello | head -c 500000"]);
+    }
+
+    match aethershell::safety::output_with_timeout(cmd, 30) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!("skipped: no shell binary here");
+        }
+        Err(e) => panic!("a fast command timed out: {e}"),
+        Ok(o) => {
+            assert!(o.status.success(), "command failed: {o:?}");
+            assert!(
+                o.stdout.len() > 100_000 || cfg!(windows),
+                "only {} bytes came back; the pipe was not drained",
+                o.stdout.len()
+            );
+        }
+    }
+}

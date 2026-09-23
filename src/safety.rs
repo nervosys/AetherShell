@@ -1443,6 +1443,75 @@ pub fn not_found(builtin: &str, kind: &str, name: &str) -> anyhow::Error {
     })
 }
 
+/// Run a command and give up on it after `secs`.
+///
+/// `Command::output()` waits forever. For an interactive shell that is
+/// correct; for a builtin an agent calls, a hang is worse than any error,
+/// because a failure can be branched on and a hang cannot -- it burns the
+/// whole turn and returns nothing to reason about.
+///
+/// Two were found by sweeping rather than by reading: `gui_dialog_file_save`
+/// blocked on a desktop dialog nobody was there to dismiss, and
+/// `syslog_search` blocked in `journalctl` on a host with no running
+/// journal. Both looked like success to a harness without a timeout, which
+/// is how they survived.
+///
+/// stdout and stderr are drained on their own threads. Polling `try_wait`
+/// while the child writes to a pipe nobody reads deadlocks once the pipe
+/// buffer fills, which would turn a timeout guard into a new way to hang.
+pub fn output_with_timeout(
+    mut cmd: std::process::Command,
+    secs: u64,
+) -> std::io::Result<std::process::Output> {
+    use std::io::Read;
+    use std::process::Stdio;
+
+    let mut child = cmd
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .stdin(Stdio::null())
+        .spawn()?;
+
+    let mut out = child.stdout.take();
+    let mut err = child.stderr.take();
+    let out_h = std::thread::spawn(move || {
+        let mut b = Vec::new();
+        if let Some(h) = out.as_mut() {
+            let _ = h.read_to_end(&mut b);
+        }
+        b
+    });
+    let err_h = std::thread::spawn(move || {
+        let mut b = Vec::new();
+        if let Some(h) = err.as_mut() {
+            let _ = h.read_to_end(&mut b);
+        }
+        b
+    });
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(secs);
+    let status = loop {
+        match child.try_wait()? {
+            Some(st) => break st,
+            None if std::time::Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    format!("no response after {secs}s"),
+                ));
+            }
+            None => std::thread::sleep(std::time::Duration::from_millis(20)),
+        }
+    };
+
+    Ok(std::process::Output {
+        status,
+        stdout: out_h.join().unwrap_or_default(),
+        stderr: err_h.join().unwrap_or_default(),
+    })
+}
+
 /// Classify a failure to *start* an external process.
 ///
 /// `Command::new(prog).output()?` propagates a bare `io::Error`, and what
