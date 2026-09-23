@@ -382,11 +382,18 @@ have been looked for in both directions.
 (AetherShell's own mean grew from 141 to 147 bytes over this work, as four
 more codes carried more of the diagnosis in the message.)
 
-> **The 10/10 is real and does not generalise, and we measured that too.**
-> Those are ten failures chosen to be representative. Sweeping the *whole*
-> catalogue — 1,052 builtins, each handed an argument no builtin can accept,
-> every call through `--agent --policy strict` in a jail so the effect gate
-> refuses anything dangerous before it runs — gives a different picture:
+> **The 10/10 did not generalise when we first checked, and that is the part
+> worth reading.** Ten failures chosen to be representative prove something
+> about ten failures. A benchmark of hand-picked cases flattering the party
+> who picked them is the criticism this document makes of other people's
+> benchmarks, so we pointed it at ourselves: all 1,052 builtins, each handed
+> an argument none of them can accept, every call through `--agent --policy
+> strict` in a jail so the effect gate refuses anything dangerous before it
+> runs.
+>
+> **The first sweep found 157 uncoded failures** — 15% of the catalogue
+> answering `E_UNKNOWN`, the one code the taxonomy tells an agent *not* to
+> reason about. The 10/10 was real and local. Eight passes later:
 >
 > | Response to a nonsense argument | Builtins |
 > | --- | ---: |
@@ -398,7 +405,7 @@ more codes carried more of the diagnosis in the message.)
 > | other coded (7 kinds) | 37 |
 > | **`E_UNKNOWN`** | **0** |
 >
-> **Two findings, and the second one corrected the first.** The sweep began at
+> **The first two findings, and the second corrected the first.** The sweep began at
 > 157 uncoded. Of those, 57 turned out not to be argument-handling defects at
 > all: the external tool the builtin shells out to was absent on the measuring
 > machine, so the probe never reached argument handling. Counting those as
@@ -482,7 +489,7 @@ more codes carried more of the diagnosis in the message.)
 > `E_UNKNOWN` still exists — it is the boundary's guarantee that nothing
 > escapes as bare prose — but nothing in the catalogue reaches it.
 >
-> A seventh finding came from the sweep's own conduct rather than its results.
+> A further finding came from the sweep's own conduct rather than its results.
 > One run was made against an `ae` binary five days older than `src/`, and it
 > dutifully reported `head` and `uniq` — both long since fixed — as still
 > broken. Nothing in the harness had objected. It now refuses to run against a

@@ -108,6 +108,49 @@ jobs:
             - name: Clippy
               run: cargo clippy --workspace --all-targets --features native -- -D warnings
 
+    # `rust-version` in Cargo.toml is a promise to downstream users, and until
+    # now nothing checked it: every job above pins `@stable`, so the crate was
+    # only ever built on whatever stable happened to be. The claim was verified
+    # by hand on 2026-09-22 and held -- but a claim nothing enforces is one
+    # release away from being false, and the failure lands on a user who gets
+    # a compile error instead of a clear "upgrade your toolchain".
+    msrv:
+        name: MSRV (rust-version in Cargo.toml)
+        timeout-minutes: 25
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            # Read the floor from Cargo.toml rather than repeating it here.
+            # A hardcoded version drifts from the manifest silently, and then
+            # this job passes while testing the wrong thing.
+            - name: Read rust-version from Cargo.toml
+              id: msrv
+              run: |
+                  V=$(grep -m1 '^rust-version' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
+                  if [ -z "$V" ]; then
+                    echo 'no rust-version in Cargo.toml; nothing to enforce' >&2
+                    exit 1
+                  fi
+                  echo "version=$V" >> "$GITHUB_OUTPUT"
+                  echo "enforcing MSRV $V"
+
+            - uses: dtolnay/rust-toolchain@master
+              with:
+                  toolchain: ${{ steps.msrv.outputs.version }}
+
+            - uses: Swatinem/rust-cache@v2
+
+            - name: Install Linux dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y libasound2-dev libssl-dev pkg-config
+
+            # `check`, not `test`: this asks whether the crate COMPILES on the
+            # floor. Behaviour is covered by the test job on stable.
+            - name: Check on the declared MSRV
+              run: cargo check --workspace --features native
+
     vscode-extension:
         name: VS Code Extension
         timeout-minutes: 15
