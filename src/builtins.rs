@@ -21938,7 +21938,13 @@ fn bi_fs_watch(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_fs_unwatch(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Bool(true))
+    // Did no work and returned a value, so an agent could not tell
+    // this apart from a result. Nothing here was implemented.
+    Err(crate::safety::unimplemented(
+        "fs_unwatch",
+        "cancelling a filesystem watch is not implemented; NOTHING WAS DONE",
+        "use fs_watch, which returns a handle you can drop",
+    ))
 }
 
 fn bi_fs_glob(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -31920,19 +31926,43 @@ fn bi_input_multiselect(args: Vec<Value>, _input: Option<Value>) -> Result<Value
 }
 
 fn bi_input_spinner(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Spinner requires TUI mode".to_string()))
+    // Did no work and returned a value, so an agent could not tell
+    // this apart from a result. Nothing here was implemented.
+    Err(crate::safety::unimplemented(
+        "input_spinner",
+        "a spinner is not implemented; NOTHING WAS DONE",
+        "use `ae --tui`",
+    ))
 }
 
 fn bi_input_progress(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Progress bar requires TUI mode".to_string()))
+    // Did no work and returned a value, so an agent could not tell
+    // this apart from a result. Nothing here was implemented.
+    Err(crate::safety::unimplemented(
+        "input_progress",
+        "a progress bar is not implemented; NOTHING WAS DONE",
+        "use `ae --tui`",
+    ))
 }
 
 fn bi_input_table(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Table input requires TUI mode".to_string()))
+    // Did no work and returned a value, so an agent could not tell
+    // this apart from a result. Nothing here was implemented.
+    Err(crate::safety::unimplemented(
+        "input_table",
+        "an interactive table is not implemented; NOTHING WAS DONE",
+        "use `ae --tui`",
+    ))
 }
 
 fn bi_input_form(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Form input requires TUI mode".to_string()))
+    // Did no work and returned a value, so an agent could not tell
+    // this apart from a result. Nothing here was implemented.
+    Err(crate::safety::unimplemented(
+        "input_form",
+        "a multi-field input form is not implemented; NOTHING WAS DONE",
+        "use `ae --tui`",
+    ))
 }
 
 fn bi_input_date(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -35383,7 +35413,13 @@ fn bi_search_by_size(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_search_duplicates(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Array(vec![]))
+    // Did no work and returned a value, so an agent could not tell
+    // this apart from a result. Nothing here was implemented.
+    Err(crate::safety::unimplemented(
+        "search_duplicates",
+        "finding duplicated code is not implemented; NOTHING WAS DONE",
+        "use an external clone detector",
+    ))
 }
 
 fn bi_search_todos(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -35413,11 +35449,23 @@ fn bi_search_fixmes(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_search_semantic(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Array(vec![]))
+    // Did no work and returned a value, so an agent could not tell
+    // this apart from a result. Nothing here was implemented.
+    Err(crate::safety::unimplemented(
+        "search_semantic",
+        "semantic code search is not implemented; NOTHING WAS DONE",
+        "use grep, or search_regex",
+    ))
 }
 
 fn bi_search_similar(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Array(vec![]))
+    // Did no work and returned a value, so an agent could not tell
+    // this apart from a result. Nothing here was implemented.
+    Err(crate::safety::unimplemented(
+        "search_similar",
+        "finding similar code is not implemented; NOTHING WAS DONE",
+        "use grep, or search_regex",
+    ))
 }
 
 // Test module implementations
@@ -35475,23 +35523,53 @@ fn bi_test_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_test_coverage(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Null)
+    // Did no work and returned a value, so an agent could not tell
+    // this apart from a result. Nothing here was implemented.
+    Err(crate::safety::unimplemented(
+        "test_coverage",
+        "measuring test coverage is not implemented; NOTHING WAS DONE",
+        "use `cargo llvm-cov`, or your language's coverage tool",
+    ))
 }
 
 fn bi_test_failing(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Array(vec![]))
+    // Did no work and returned a value, so an agent could not tell
+    // this apart from a result. Nothing here was implemented.
+    Err(crate::safety::unimplemented(
+        "test_failing",
+        "listing failing tests is not implemented; NOTHING WAS DONE",
+        "use run the test command and read its output",
+    ))
 }
 
 fn bi_test_passing(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Array(vec![]))
+    // Did no work and returned a value, so an agent could not tell
+    // this apart from a result. Nothing here was implemented.
+    Err(crate::safety::unimplemented(
+        "test_passing",
+        "listing passing tests is not implemented; NOTHING WAS DONE",
+        "use run the test command and read its output",
+    ))
 }
 
 fn bi_test_skipped(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Array(vec![]))
+    // Did no work and returned a value, so an agent could not tell
+    // this apart from a result. Nothing here was implemented.
+    Err(crate::safety::unimplemented(
+        "test_skipped",
+        "listing skipped tests is not implemented; NOTHING WAS DONE",
+        "use run the test command and read its output",
+    ))
 }
 
 fn bi_test_watch(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Use: cargo watch -x test".to_string()))
+    // Did no work and returned a value, so an agent could not tell
+    // this apart from a result. Nothing here was implemented.
+    Err(crate::safety::unimplemented(
+        "test_watch",
+        "watching and re-running tests is not implemented; NOTHING WAS DONE",
+        "use `cargo watch -x test`",
+    ))
 }
 
 fn bi_test_bench(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -35505,11 +35583,23 @@ fn bi_test_bench(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_test_snapshot(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Null)
+    // Did no work and returned a value, so an agent could not tell
+    // this apart from a result. Nothing here was implemented.
+    Err(crate::safety::unimplemented(
+        "test_snapshot",
+        "snapshot testing is not implemented; NOTHING WAS DONE",
+        "use a snapshot testing library",
+    ))
 }
 
 fn bi_test_generate(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Null)
+    // Did no work and returned a value, so an agent could not tell
+    // this apart from a result. Nothing here was implemented.
+    Err(crate::safety::unimplemented(
+        "test_generate",
+        "generating tests is not implemented; NOTHING WAS DONE",
+        "use an AI query via ai(), or write them",
+    ))
 }
 
 // Diagnostics module implementations
@@ -35587,7 +35677,13 @@ fn bi_diag_explain(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_diag_suppress(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Null)
+    // Did no work and returned a value, so an agent could not tell
+    // this apart from a result. Nothing here was implemented.
+    Err(crate::safety::unimplemented(
+        "diag_suppress",
+        "suppressing a diagnostic is not implemented; NOTHING WAS DONE",
+        "use filter the output of diag_run yourself",
+    ))
 }
 
 fn bi_diag_config(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -35602,7 +35698,13 @@ fn bi_diag_config(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 // Refactor module implementations
 fn bi_refactor_rename(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Use IDE rename functionality".to_string()))
+    // Did no work and returned a value, so an agent could not tell
+    // this apart from a result. Nothing here was implemented.
+    Err(crate::safety::unimplemented(
+        "refactor_rename",
+        "renaming a symbol is not implemented; NOTHING WAS DONE",
+        "use an IDE refactoring, or file.replace for a literal rename",
+    ))
 }
 
 fn bi_refactor_rename_file(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -35616,35 +35718,83 @@ fn bi_refactor_rename_file(args: Vec<Value>, _input: Option<Value>) -> Result<Va
 }
 
 fn bi_refactor_extract_function(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Use IDE extract function".to_string()))
+    // Did no work and returned a value, so an agent could not tell
+    // this apart from a result. Nothing here was implemented.
+    Err(crate::safety::unimplemented(
+        "refactor_extract_function",
+        "extracting a function is not implemented; NOTHING WAS DONE",
+        "use an IDE refactoring",
+    ))
 }
 
 fn bi_refactor_extract_variable(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Use IDE extract variable".to_string()))
+    // Did no work and returned a value, so an agent could not tell
+    // this apart from a result. Nothing here was implemented.
+    Err(crate::safety::unimplemented(
+        "refactor_extract_variable",
+        "extracting a variable is not implemented; NOTHING WAS DONE",
+        "use an IDE refactoring",
+    ))
 }
 
 fn bi_refactor_extract_constant(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Use IDE extract constant".to_string()))
+    // Did no work and returned a value, so an agent could not tell
+    // this apart from a result. Nothing here was implemented.
+    Err(crate::safety::unimplemented(
+        "refactor_extract_constant",
+        "extracting a constant is not implemented; NOTHING WAS DONE",
+        "use an IDE refactoring",
+    ))
 }
 
 fn bi_refactor_inline(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Use IDE inline".to_string()))
+    // Did no work and returned a value, so an agent could not tell
+    // this apart from a result. Nothing here was implemented.
+    Err(crate::safety::unimplemented(
+        "refactor_inline",
+        "inlining a symbol is not implemented; NOTHING WAS DONE",
+        "use an IDE refactoring",
+    ))
 }
 
 fn bi_refactor_move_to_file(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Use IDE move to file".to_string()))
+    // Did no work and returned a value, so an agent could not tell
+    // this apart from a result. Nothing here was implemented.
+    Err(crate::safety::unimplemented(
+        "refactor_move_to_file",
+        "moving a symbol to another file is not implemented; NOTHING WAS DONE",
+        "use an IDE refactoring",
+    ))
 }
 
 fn bi_refactor_change_signature(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Use IDE change signature".to_string()))
+    // Did no work and returned a value, so an agent could not tell
+    // this apart from a result. Nothing here was implemented.
+    Err(crate::safety::unimplemented(
+        "refactor_change_signature",
+        "changing a function signature is not implemented; NOTHING WAS DONE",
+        "use an IDE refactoring",
+    ))
 }
 
 fn bi_refactor_add_parameter(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Use IDE add parameter".to_string()))
+    // Did no work and returned a value, so an agent could not tell
+    // this apart from a result. Nothing here was implemented.
+    Err(crate::safety::unimplemented(
+        "refactor_add_parameter",
+        "adding a parameter to a function is not implemented; NOTHING WAS DONE",
+        "use an IDE refactoring",
+    ))
 }
 
 fn bi_refactor_remove_parameter(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("Use IDE remove parameter".to_string()))
+    // Did no work and returned a value, so an agent could not tell
+    // this apart from a result. Nothing here was implemented.
+    Err(crate::safety::unimplemented(
+        "refactor_remove_parameter",
+        "removing a parameter from a function is not implemented; NOTHING WAS DONE",
+        "use an IDE refactoring",
+    ))
 }
 
 fn bi_refactor_organize_imports(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -35683,7 +35833,13 @@ fn bi_session_start(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_session_end(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Bool(true))
+    // Did no work and returned a value, so an agent could not tell
+    // this apart from a result. Nothing here was implemented.
+    Err(crate::safety::unimplemented(
+        "session_end",
+        "ending a session is not implemented; NOTHING WAS DONE",
+        "use sess_close, which is implemented",
+    ))
 }
 
 fn bi_session_id(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -35691,7 +35847,13 @@ fn bi_session_id(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_session_history(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Array(vec![]))
+    // Did no work and returned a value, so an agent could not tell
+    // this apart from a result. Nothing here was implemented.
+    Err(crate::safety::unimplemented(
+        "session_history",
+        "a session command history is not implemented; NOTHING WAS DONE",
+        "use sess_usage, which is implemented",
+    ))
 }
 
 fn bi_session_undo(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -35820,7 +35982,13 @@ fn bi_docs_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_docs_api(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("target/doc/index.html".to_string()))
+    // Did no work and returned a value, so an agent could not tell
+    // this apart from a result. Nothing here was implemented.
+    Err(crate::safety::unimplemented(
+        "docs_api",
+        "generating API documentation is not implemented; NOTHING WAS DONE",
+        "use `cargo doc`, or your language's doc tool",
+    ))
 }
 
 fn bi_docs_readme(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -35849,11 +36017,23 @@ fn bi_docs_examples(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_docs_types(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Array(vec![]))
+    // Did no work and returned a value, so an agent could not tell
+    // this apart from a result. Nothing here was implemented.
+    Err(crate::safety::unimplemented(
+        "docs_types",
+        "extracting type definitions from source is not implemented; NOTHING WAS DONE",
+        "use ontology_describe for AetherShell builtins",
+    ))
 }
 
 fn bi_docs_signatures(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Array(vec![]))
+    // Did no work and returned a value, so an agent could not tell
+    // this apart from a result. Nothing here was implemented.
+    Err(crate::safety::unimplemented(
+        "docs_signatures",
+        "extracting signatures from source is not implemented; NOTHING WAS DONE",
+        "use ontology_describe for AetherShell builtins",
+    ))
 }
 
 // Environment module implementations

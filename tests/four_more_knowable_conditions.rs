@@ -293,6 +293,7 @@ fn an_unimplemented_builtin_says_so_rather_than_returning_false() {
     std::fs::create_dir_all(&jail).expect("create jail");
 
     for name in [
+        // Answered `false`.
         "user_lock",
         "user_unlock",
         "cron_enable",
@@ -302,6 +303,23 @@ fn an_unimplemented_builtin_says_so_rather_than_returning_false() {
         "session_undo",
         "session_redo",
         "net_send",
+        // Answered an empty collection, which reads as a definitive result:
+        // `code_references("foo")` said there were none.
+        "code_references",
+        "code_callers",
+        "test_passing",
+        "test_failing",
+        "search_semantic",
+        "docs_signatures",
+        // Answered the ADVICE as the return value. `refactor_rename` handed
+        // back the String "Use IDE rename functionality" at exit 0, which an
+        // agent cannot tell from renamed code, and `docs_api` returned a
+        // documentation path as though it had generated the documentation.
+        "refactor_rename",
+        "refactor_extract_function",
+        "input_form",
+        "test_watch",
+        "docs_api",
     ] {
         let mut env = aethershell::env::Env::new();
         let r = aethershell::builtins::call_with_input(
@@ -321,9 +339,30 @@ fn an_unimplemented_builtin_says_so_rather_than_returning_false() {
                 // The safety consequence has to be in the message, not the
                 // hint: "nothing was changed" is the part that stops an agent
                 // assuming the effect happened.
+                // The consequence must be stated in the message, in capitals,
+                // because that is the part an agent reads first and the part
+                // that stops it assuming the effect happened. The wording
+                // differs on purpose: an effectful builtin changed nothing, a
+                // read-only one performed no analysis, and `crypto.verify_*`
+                // verified nothing -- collapsing those into one phrase would
+                // lose the consequence that actually matters in each case.
+                const SAID_NOTHING_HAPPENED: &[&str] = &[
+                    "NOTHING WAS CHANGED",
+                    "NOTHING WAS DONE",
+                    "NO ANALYSIS WAS PERFORMED",
+                    "NOTHING WAS VERIFIED",
+                ];
                 assert!(
-                    s.contains("NOTHING WAS CHANGED"),
+                    SAID_NOTHING_HAPPENED.iter().any(|p| s.contains(p)),
                     "{name} must say the effect did not happen: {s}"
+                );
+                // The specific pathology: advice must not come back as a
+                // value. `Err` already guarantees that here, but the point
+                // is worth asserting rather than assuming -- the whole
+                // failure was that this text looked like a result.
+                assert!(
+                    !s.starts_with("Use "),
+                    "{name} is still answering with instructions: {s}"
                 );
             }
         }
