@@ -1039,6 +1039,184 @@ pub static SIGNATURES: &[Signature] = &[
             (r#""passthrough" | cat"#, r#""passthrough""#),
         ],
     },
+    // ---- System information -------------------------------------------
+    //
+    // Fourteen builtins that take no arguments at all -- their bodies bind
+    // `_args`, so the compiler proves it -- and which therefore accepted and
+    // discarded anything they were handed. `sys_os("a", 1, false)` answered
+    // "linux" as happily as `sys_os()`. That is the `round(4.966, 2) -> 5`
+    // defect, and `benches/agentic/discarded-args.mjs` measured it across
+    // 369 of 393 comparable builtins.
+    //
+    // Declaring a parameterless builtin carries none of the risk that sank
+    // `last(5)` and `"abc" | reverse`: there is no type to get too narrow,
+    // because there is no argument. The declaration says only "none", which
+    // the body already enforces by ignoring them.
+    //
+    // Each `returns` and `doc` is read off what the builtin actually
+    // returned, never off its name -- `sys_cpu_count` says 24 where
+    // `sys_cpu_info` reports 12 cores, so one counts hyperthreads and the
+    // other does not, and only running them says which is which.
+    //
+    // The examples are `typeof(x())` rather than a pinned value, because a
+    // hostname is not the same on two machines. That keeps every example
+    // executable by `tests/declared_signatures.rs` instead of joining the
+    // two-name `NEEDS_THE_WORLD` exemption, and it checks the `returns`
+    // field rather than merely decorating it.
+    Signature {
+        name: "sys_arch",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[],
+        returns: "String",
+        doc: "The CPU architecture this shell is running on.",
+        examples: &[("typeof(sys_arch())", "String")],
+    },
+    Signature {
+        name: "sys_boot_time",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[],
+        returns: "String",
+        doc: "When the machine last booted.",
+        examples: &[("typeof(sys_boot_time())", "String")],
+    },
+    Signature {
+        name: "sys_cpu_count",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[],
+        returns: "Int",
+        doc: "The number of logical CPUs, hyperthreads included.",
+        examples: &[("typeof(sys_cpu_count())", "Int")],
+    },
+    Signature {
+        name: "sys_cpu_info",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[],
+        returns: "Record",
+        doc: "The CPU's model name, physical core count and clock speed in MHz.",
+        examples: &[("typeof(sys_cpu_info())", "Record")],
+    },
+    Signature {
+        name: "sys_disk_info",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[],
+        returns: "Array",
+        doc: "Every mounted filesystem: device, mount point and free space.",
+        examples: &[("typeof(sys_disk_info())", "Array")],
+    },
+    Signature {
+        name: "sys_groups",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[],
+        returns: "Array",
+        doc: "Every group on this system, with its gid and members.",
+        examples: &[("typeof(sys_groups())", "Array")],
+    },
+    Signature {
+        name: "sys_info",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[],
+        returns: "Record",
+        doc: "A summary of the host: OS, OS family, architecture and distribution name.",
+        examples: &[("typeof(sys_info())", "Record")],
+    },
+    Signature {
+        name: "sys_kernel",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[],
+        returns: "String",
+        doc: "The running kernel's release string.",
+        examples: &[("typeof(sys_kernel())", "String")],
+    },
+    Signature {
+        name: "sys_load_avg",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[],
+        returns: "Record",
+        doc: "The 1, 5 and 15 minute load averages.",
+        examples: &[("typeof(sys_load_avg())", "Record")],
+    },
+    Signature {
+        name: "sys_locale",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[],
+        returns: "String",
+        doc: "The active locale.",
+        examples: &[("typeof(sys_locale())", "String")],
+    },
+    Signature {
+        name: "sys_os",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[],
+        returns: "String",
+        doc: "The operating system name.",
+        examples: &[("typeof(sys_os())", "String")],
+    },
+    Signature {
+        name: "sys_swap_info",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[],
+        returns: "Record",
+        doc: "Swap totals in bytes: total, used and free.",
+        examples: &[("typeof(sys_swap_info())", "Record")],
+    },
+    Signature {
+        name: "sys_timezone",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[],
+        returns: "String",
+        doc: "The system's IANA time zone name.",
+        examples: &[("typeof(sys_timezone())", "String")],
+    },
+    Signature {
+        name: "sys_user_info",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[],
+        returns: "Record",
+        doc: "The current user's name, home directory, login shell and domain.",
+        examples: &[("typeof(sys_user_info())", "Record")],
+    },
 ];
 
 /// The declaration for `name`, if it has one.

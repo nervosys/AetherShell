@@ -23590,9 +23590,15 @@ fn bi_sys_arch(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_sys_kernel(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
-        let output = std::process::Command::new("ver")
+        // `ver` is a cmd.exe INTERNAL command: there is no ver.exe, so
+        // `Command::new("ver")` could never start and this builtin answered
+        // E_TOOL_MISSING on every Windows host. Nothing caught it because
+        // nothing ran it -- declaring the signature made its example
+        // executable, and the example failed on the first try.
+        let output = std::process::Command::new("cmd")
+            .args(["/C", "ver"])
             .output()
-            .map_err(|e| crate::safety::spawn_error("sys_kernel", "ver", &e))?;
+            .map_err(|e| crate::safety::spawn_error("sys_kernel", "cmd", &e))?;
         Ok(Value::Str(
             String::from_utf8_lossy(&output.stdout).trim().to_string(),
         ))
