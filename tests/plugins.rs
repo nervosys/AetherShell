@@ -142,9 +142,15 @@ fn test_plugin_unload_nonexistent() {
 #[test]
 fn test_plugin_load_nonexistent_path() {
     let result = run(r#"plugin_load("/nonexistent/path/plugin.toml")"#);
-    // Should error for nonexistent path
-    assert!(result.contains("ERROR"));
-    assert!(result.contains("not found"));
+    assert!(result.contains("ERROR"), "expected a failure: {result}");
+    // This asserted the prose contained "not found". It does not any more --
+    // the message is now "no plugin manifest named '...'" -- and asserting on
+    // wording is what made an improvement look like a regression. The code is
+    // the stable, branchable thing, and the reason the message changed.
+    assert!(
+        result.contains("E_NOT_FOUND"),
+        "a manifest that is not there is a knowable condition: {result}"
+    );
 }
 
 #[test]

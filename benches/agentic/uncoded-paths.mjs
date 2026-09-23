@@ -95,7 +95,23 @@ const tally = new Map();
 const uncoded = [];
 const hung = [];
 let done = 0;
+// The probe path must be ABSENT before every call, and one shared jail does
+// not guarantee that: `mkdir(ARG)` succeeds -- creating a missing directory
+// is what it is for -- and from that point on every builtin later in the
+// alphabet was handed a path that exists. The sweep was contaminating its own
+// precondition, and the builtins it mismeasured were exactly the ones whose
+// names sort after `mkdir`. Same family as the other three defects this
+// harness has had: it quietly moved cases out of the condition being tested.
+const clearProbePath = () => {
+    try {
+        fs.rmSync(path.join(JAIL, ARG), { recursive: true, force: true });
+    } catch {
+        // Nothing there is the state we want.
+    }
+};
+
 for (const name of [...names].sort()) {
+    clearProbePath();
     const out = run(`${name}(${JSON.stringify(ARG)})`);
     const failed = out.startsWith('error') || out.startsWith('{"error"');
     const m = failed ? out.match(/E_[A-Z_0-9]+/) : null;
@@ -109,7 +125,12 @@ for (const name of [...names].sort()) {
                 : 'OK';
     tally.set(code, (tally.get(code) ?? 0) + 1);
     if (code === 'HUNG') hung.push(name);
-    if (code === 'E_UNKNOWN' || code === 'NO_CODE') uncoded.push(`${name}\t${out.slice(0, 120)}`);
+    // 120 characters truncated before the `message` field, which is the only
+    // part that says what actually went wrong — the fields before it are the
+    // name and the generic hint. The list is for reading, so keep the message.
+    if (code === 'E_UNKNOWN' || code === 'NO_CODE') {
+        uncoded.push(`${name}\t${out.replace(/\s+/g, ' ').slice(0, 400)}`);
+    }
     if (++done % 200 === 0) process.stderr.write(`  ${done}/${names.size}\n`);
 }
 

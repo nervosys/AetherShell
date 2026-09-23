@@ -444,9 +444,10 @@ fn multimodal_backend_from_model(uri: String) -> Box<dyn MultiModalLlmBackend> {
 struct StubMultiModalBackend;
 impl MultiModalLlmBackend for StubMultiModalBackend {
     fn chat_multimodal(&self, _messages: &[MultiModalMessage]) -> Result<String> {
-        Err(anyhow!(
-            "No AI provider configured for multi-modal queries.\n\
-            Set AETHER_AI=openai and OPENAI_API_KEY for vision/audio support."
+        Err(crate::safety::bad_state(
+            "ai",
+            "no AI provider is configured for multi-modal queries",
+            "set AETHER_AI=openai and OPENAI_API_KEY for vision and audio",
         ))
     }
 }
@@ -793,7 +794,14 @@ pub fn complete_via_registry(prompt: &str, model_uri: Option<&str>) -> Result<St
     } else {
         let aether_ai = std::env::var("AETHER_AI").unwrap_or_default();
         if aether_ai.is_empty() {
-            return Err(anyhow!("No AI provider configured"));
+            // A prerequisite that has not been met, not an unidentified
+            // fault: the repair is a different action (set the variable),
+            // which is exactly what E_BAD_STATE is for.
+            return Err(crate::safety::bad_state(
+                "ai",
+                "no AI provider is configured",
+                "set AETHER_AI to irongate, openai, ollama or compat",
+            ));
         }
         // Build a URI from the AETHER_AI value
         if aether_ai.contains(':') {
@@ -1271,9 +1279,10 @@ pub trait LlmBackend: Send + Sync {
 struct StubBackend;
 impl LlmBackend for StubBackend {
     fn chat(&self, _messages: &[ChatMessage]) -> Result<String> {
-        Err(anyhow!(
-            "No AI provider configured.\n\
-            Set AETHER_AI environment variable to: irongate, openai, ollama, or compat"
+        Err(crate::safety::bad_state(
+            "ai",
+            "no AI provider is configured",
+            "set AETHER_AI to irongate, openai, ollama or compat",
         ))
     }
 }

@@ -5073,7 +5073,11 @@ fn bi_unique(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             }
         }
     } else {
-        return Err(anyhow!("unique: no input provided"));
+        return Err(crate::safety::bad_arg(
+            "unique",
+            "a piped Array or String",
+            "a direct call with no subject",
+        ));
     };
 
     // True unique - removes all duplicates (not just consecutive)
@@ -5358,7 +5362,7 @@ fn bi_config_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         ["history", "share"] => Ok(Value::Bool(config.history.share)),
         ["history", "timestamps"] => Ok(Value::Bool(config.history.timestamps)),
 
-        _ => Err(anyhow!("config_get: unknown config path: {}", path)),
+        _ => Err(crate::safety::not_found("config_get", "config path", &path)),
     }
 }
 
@@ -7480,7 +7484,7 @@ fn bi_ls(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let validated_path = validate_read_path(&path_str)?;
 
     let entries = fs::read_dir(&validated_path)
-        .with_context(|| format!("ls: failed to read directory: {:?}", validated_path))?;
+        .map_err(|e| crate::safety::fs_error("ls", &validated_path, &e))?;
     let mut files = Vec::new();
 
     for entry in entries {
@@ -7871,7 +7875,11 @@ fn bi_sort(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             }
         }
     } else {
-        return Err(anyhow!("sort: no input provided"));
+        return Err(crate::safety::bad_arg(
+            "sort",
+            "a piped Array or String",
+            "a direct call with no subject",
+        ));
     };
 
     let mut sorted = array;
@@ -7914,7 +7922,11 @@ fn bi_uniq(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             }
         }
     } else {
-        return Err(anyhow!("uniq: no input provided"));
+        return Err(crate::safety::bad_arg(
+            "uniq",
+            "a piped Array or String",
+            "a direct call with no subject",
+        ));
     };
 
     let mut unique = Vec::new();
@@ -7965,7 +7977,11 @@ fn bi_wc(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         };
         fs::read_to_string(path).map_err(|e| crate::safety::fs_error("wc", &path, &e))?
     } else {
-        return Err(anyhow!("wc: no input provided"));
+        return Err(crate::safety::bad_arg(
+            "wc",
+            "a piped String",
+            "a direct call with no subject",
+        ));
     };
 
     let line_count = content.lines().count();
@@ -8037,11 +8053,21 @@ fn bi_grep(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     } else if args.len() > 1 {
         let path = match &args[1] {
             Value::Str(s) if !s.starts_with('-') => s,
-            _ => return Err(anyhow!("grep: no input provided")),
+            _ => {
+                return Err(crate::safety::bad_arg(
+                    "grep",
+                    "a piped String, or a file path as the second argument",
+                    "nothing",
+                ))
+            }
         };
         fs::read_to_string(path).map_err(|e| crate::safety::fs_error("grep", &path, &e))?
     } else {
-        return Err(anyhow!("grep: no input provided"));
+        return Err(crate::safety::bad_arg(
+            "grep",
+            "a piped String, or a file path as the second argument",
+            "a direct call with no subject",
+        ));
     };
 
     let matching_lines: Vec<Value> = content
@@ -10836,9 +10862,10 @@ fn bi_type_fields(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                 .collect();
             Ok(Value::Array(result))
         }
-        _ => Err(anyhow!(
-            "type_fields: requires a Record or Table, got {}",
-            detailed_type_name(&val)
+        _ => Err(crate::safety::bad_arg(
+            "type_fields",
+            "a Record or Table",
+            &detailed_type_name(&val),
         )),
     }
 }
@@ -12811,8 +12838,8 @@ fn bi_json_parse(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         expect_string("json_parse", &args[0])?.to_string()
     };
 
-    let json_val: serde_json::Value =
-        serde_json::from_str(&json_str).context("Failed to parse JSON")?;
+    let json_val: serde_json::Value = serde_json::from_str(&json_str)
+        .map_err(|e| crate::safety::bad_arg("json_parse", "valid JSON", &e.to_string()))?;
 
     Ok(json_to_value(json_val))
 }
@@ -13560,8 +13587,13 @@ fn bi_activation(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         })
         .ok_or_else(|| crate::safety::arg_err("activation requires name string"))?;
 
-    let activation = Activation::from_str(name)
-        .ok_or_else(|| anyhow!("Unknown activation: {}. Valid: relu, sigmoid, tanh, softmax, linear, swish, leaky_relu", name))?;
+    let activation = Activation::from_str(name).ok_or_else(|| {
+        crate::safety::bad_arg(
+            "activation",
+            "one of: relu, sigmoid, tanh, softmax, linear, swish, leaky_relu",
+            name,
+        )
+    })?;
 
     let mut info = BTreeMap::new();
     info.insert("name".to_string(), Value::Str(format!("{:?}", activation)));
@@ -13896,7 +13928,13 @@ fn bi_selection_strategy(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
                 .unwrap_or(5) as usize;
             SelectionStrategy::Elite(n)
         }
-        _ => return Err(anyhow!("Unknown selection strategy: {}", name)),
+        _ => {
+            return Err(crate::safety::bad_arg(
+                "selection_strategy",
+                "one of: tournament, roulette, rank, truncation, elite",
+                name,
+            ))
+        }
     };
 
     let mut result = BTreeMap::new();
@@ -13937,7 +13975,13 @@ fn bi_crossover_strategy(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
             let eta = args.get(1).map(value_to_f64).transpose()?.unwrap_or(20.0);
             CrossoverStrategy::SBX(eta)
         }
-        _ => return Err(anyhow!("Unknown crossover strategy: {}", name)),
+        _ => {
+            return Err(crate::safety::bad_arg(
+                "crossover_strategy",
+                "one of: single_point, two_point, uniform, blend, sbx",
+                name,
+            ))
+        }
     };
 
     let mut result = BTreeMap::new();
@@ -14976,7 +15020,11 @@ fn value_to_pg_agent(v: &Value) -> Result<PolicyGradientAgent> {
             Err(crate::safety::arg_err("Invalid PG agent: missing _data"))
         }
     } else {
-        Err(anyhow!("Invalid PG agent value"))
+        Err(crate::safety::bad_arg(
+            "rl_pg_episode_end",
+            "a policy-gradient agent record",
+            "something else",
+        ))
     }
 }
 
@@ -18230,7 +18278,7 @@ fn bi_sess_eval(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .map_err(|_| anyhow!("session store poisoned"))?;
         match store.remove(&id) {
             Some(s) => s,
-            None => return Err(anyhow!("sess_eval: no such session '{}'", id)),
+            None => return Err(crate::safety::not_found("sess_eval", "session", &id)),
         }
     };
     let result = (|| -> Result<Value> {
@@ -18280,7 +18328,7 @@ fn bi_sess_usage(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             r.insert("evals".to_string(), Value::Int(s.evals as i64));
             Ok(Value::Record(r))
         }
-        None => Err(anyhow!("sess_usage: no such session '{}'", id)),
+        None => Err(crate::safety::not_found("sess_usage", "session", &id)),
     }
 }
 
@@ -32454,9 +32502,10 @@ fn bi_file_backup(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let backup_path = guard_local_write("file_backup", &backup_path)?;
 
     if !std::path::Path::new(&path).exists() {
-        return Err(anyhow!(
-            "file_backup: source file '{}' does not exist",
-            path
+        return Err(crate::safety::not_found(
+            "backup_file",
+            "source file",
+            &path,
         ));
     }
 
@@ -39265,7 +39314,7 @@ fn cloud_run_cmd(program: &str, args: &[&str], dir: Option<&str>) -> Result<Stri
     }
     let output = cmd
         .output()
-        .map_err(|e| anyhow!("failed to run `{}`: {}", program, e))?;
+        .map_err(|e| crate::safety::spawn_error(program, program, &e))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(anyhow!(
@@ -39544,7 +39593,7 @@ fn bi_cd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         reversible: true,
         fs_paths: true,
     })?;
-    std::env::set_current_dir(&path).map_err(|e| anyhow!("cd: {}: {}", path, e))?;
+    std::env::set_current_dir(&path).map_err(|e| crate::safety::fs_error("cd", &path, &e))?;
     let now = std::env::current_dir()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or(path);
@@ -40475,14 +40524,14 @@ fn sec_run_cmd(program: &str, args: &[&str]) -> Result<String> {
     let output = Command::new(program)
         .args(args)
         .output()
-        .map_err(|e| anyhow!("failed to run `{}`: {}", program, e))?;
+        .map_err(|e| crate::safety::spawn_error(program, program, &e))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(anyhow!(
-            "`{} {}` failed: {}",
+        return Err(crate::safety::tool_failed(
             program,
-            args.join(" "),
-            stderr.trim()
+            &format!("{} {}", program, args.join(" ")),
+            output.status.code(),
+            &stderr,
         ));
     }
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
@@ -41547,7 +41596,12 @@ fn bi_ip_addr(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .map_err(|e| anyhow!("ip_addr: failed to run ip: {}", e))?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(anyhow!("ip_addr: ip command failed: {}", stderr));
+            return Err(crate::safety::tool_failed(
+                "monitor_ip_addr",
+                "ip",
+                output.status.code(),
+                &stderr,
+            ));
         }
         let stdout = String::from_utf8_lossy(&output.stdout);
         let json_val: serde_json::Value = serde_json::from_str(stdout.trim())
@@ -41632,7 +41686,12 @@ fn bi_ip_route(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .map_err(|e| anyhow!("ip_route: failed to run ip: {}", e))?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(anyhow!("ip_route: ip command failed: {}", stderr));
+            return Err(crate::safety::tool_failed(
+                "monitor_ip_route",
+                "ip",
+                output.status.code(),
+                &stderr,
+            ));
         }
         let stdout = String::from_utf8_lossy(&output.stdout);
         let json_val: serde_json::Value = serde_json::from_str(stdout.trim())
@@ -41718,7 +41777,12 @@ fn bi_ip_link(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .map_err(|e| anyhow!("ip_link: failed to run ip: {}", e))?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(anyhow!("ip_link: ip command failed: {}", stderr));
+            return Err(crate::safety::tool_failed(
+                "monitor_ip_link",
+                "ip",
+                output.status.code(),
+                &stderr,
+            ));
         }
         let stdout = String::from_utf8_lossy(&output.stdout);
         let json_val: serde_json::Value = serde_json::from_str(stdout.trim())
@@ -42576,8 +42640,10 @@ pub fn bi_alert_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     let metric = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
         _ => {
-            return Err(anyhow!(
-                "alert_create: metric string required (cpu, memory, disk)"
+            return Err(crate::safety::bad_arg(
+                "monitor_alert_create",
+                "a metric name: cpu, memory or disk",
+                "nothing",
             ))
         }
     };
@@ -45023,7 +45089,7 @@ fn bi_sed_replace(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let re = regex::Regex::new(&pattern)
         .map_err(|e| anyhow!("Invalid regex pattern '{}': {}", pattern, e))?;
     let input_text = if file_mode {
-        std::fs::read_to_string(&text).map_err(|e| anyhow!("Cannot read file '{}': {}", text, e))?
+        std::fs::read_to_string(&text).map_err(|e| crate::safety::fs_error("", &text, &e))?
     } else {
         text.clone()
     };
@@ -45511,7 +45577,7 @@ fn bi_pager(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         _ => false,
     };
     let content = if is_file {
-        std::fs::read_to_string(&text).map_err(|e| anyhow!("Cannot read file '{}': {}", text, e))?
+        std::fs::read_to_string(&text).map_err(|e| crate::safety::fs_error("", &text, &e))?
     } else {
         text.clone()
     };
@@ -46840,7 +46906,12 @@ fn bi_nm_symbols(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 .collect();
             Ok(Value::Array(symbols))
         }
-        Ok(o) => Err(anyhow!("nm failed: {}", String::from_utf8_lossy(&o.stderr))),
+        Ok(o) => Err(crate::safety::tool_failed(
+            "nm",
+            "nm",
+            o.status.code(),
+            &String::from_utf8_lossy(&o.stderr),
+        )),
         Err(e) => Err(crate::safety::tool_missing("nm", "nm", &e.to_string())),
     }
 }
@@ -46935,7 +47006,8 @@ fn bi_strings_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
         }
         _ => {
             // Fallback: native Rust implementation
-            let data = std::fs::read(&path).map_err(|e| anyhow!("Cannot read file: {}", e))?;
+            let data =
+                std::fs::read(&path).map_err(|e| crate::safety::fs_error("bat", &path, &e))?;
             let mut result = Vec::new();
             let mut current = String::new();
             for &byte in &data {
@@ -47213,8 +47285,8 @@ fn bi_bat_view(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
         _ => {
             // Fallback to cat/native read
-            let content =
-                std::fs::read_to_string(&path).map_err(|e| anyhow!("Cannot read file: {}", e))?;
+            let content = std::fs::read_to_string(&path)
+                .map_err(|e| crate::safety::fs_error("", &path, &e))?;
             Ok(Value::Str(content))
         }
     }
@@ -47458,7 +47530,11 @@ fn bi_rga_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                         .collect();
                     Ok(Value::Array(lines))
                 }
-                Err(e) => Err(anyhow!("rga/rg not found: {}", e)),
+                Err(e) => Err(crate::safety::tool_missing(
+                    "rga",
+                    "rga (or rg)",
+                    &e.to_string(),
+                )),
             }
         }
     }

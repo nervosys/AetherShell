@@ -512,17 +512,25 @@ it came out of fixing errors rather than out of trying to move the score.)
 > | | first failure | second failure |
 > | --- | ---: | ---: |
 > | uncoded, before | 157 (14.9%) | 54 (5.1%) |
-> | uncoded, now | **0** | **27 (2.6%)** |
+> | uncoded, now | **0** | **0** |
 >
-> The remaining 27 are individual conditions, not one class — a plugin
-> manifest, a REPL session, an unknown activation function. `E_NOT_FOUND`
-> covers 28 of the ones that used to be unknown, `E_OUTSIDE_WORKSPACE`
-> finally has a constructor, and `E_IO` names the filesystem failures that
-> are neither absence nor refusal.
+> The second number came down 54 → 27 → 15 → 5 → 0, and it took four passes
+> for a reason worth stating: each one fixed *the site that produced the
+> message*, and the same message was produced from three or four other places.
+> `Cannot read file` was three sites, `Plugin not found` four, `no input
+> provided` four. Every pass looked complete from the diff and the sweep
+> disagreed.
 >
-> The honest statement is therefore two numbers, not one: **no builtin's
-> first failure is uncoded, and 2.6% of second failures still are.** A
-> benchmark that reported only the first would be measuring its own probe.
+> `E_NOT_FOUND` now covers 45 conditions that used to be unknown,
+> `E_OUTSIDE_WORKSPACE` finally has a constructor — it was in the taxonomy
+> from the start and the one place that detects the condition never used it —
+> and `E_IO` names the filesystem failures that are neither absence nor
+> refusal.
+>
+> **Both probes now report zero.** That is two independent questions answered,
+> not one answered twice, and there is no reason to think a third probe would
+> find nothing — only that we have not built it yet. A sweep measures the
+> failures it provokes.
 >
 > A further finding came from the sweep's own conduct rather than its results.
 > One run was made against an `ae` binary five days older than `src/`, and it

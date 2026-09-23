@@ -968,7 +968,10 @@ impl PluginRegistry {
 
     /// Reload a specific plugin
     pub fn reload_plugin(&mut self, plugin_id: &str) -> Result<()> {
-        let entry = self.plugins.get(plugin_id).context("Plugin not found")?;
+        let entry = self
+            .plugins
+            .get(plugin_id)
+            .ok_or_else(|| crate::safety::not_found("", "plugin", plugin_id))?;
 
         match &entry.source {
             PluginSource::DynamicLibrary(path) => {
@@ -999,7 +1002,10 @@ impl PluginRegistry {
 
     /// Unload a plugin
     pub fn unload_plugin(&mut self, plugin_id: &str) -> Result<()> {
-        let entry = self.plugins.get(plugin_id).context("Plugin not found")?;
+        let entry = self
+            .plugins
+            .get(plugin_id)
+            .ok_or_else(|| crate::safety::not_found("", "plugin", plugin_id))?;
 
         // Check if it's a builtin
         if matches!(entry.source, PluginSource::Builtin) {
@@ -1276,7 +1282,7 @@ impl PluginRegistry {
     pub fn enable_plugin(&mut self, plugin_id: &str) -> Result<()> {
         self.plugins
             .get_mut(plugin_id)
-            .context("Plugin not found")?
+            .ok_or_else(|| crate::safety::not_found("", "plugin", plugin_id))?
             .enabled = true;
         Ok(())
     }
@@ -1285,7 +1291,7 @@ impl PluginRegistry {
     pub fn disable_plugin(&mut self, plugin_id: &str) -> Result<()> {
         self.plugins
             .get_mut(plugin_id)
-            .context("Plugin not found")?
+            .ok_or_else(|| crate::safety::not_found("", "plugin", plugin_id))?
             .enabled = false;
         Ok(())
     }
@@ -1727,7 +1733,11 @@ pub fn load_plugin_from_manifest(path: &str) -> Result<Value> {
     let manifest_path = std::path::Path::new(path);
 
     if !manifest_path.exists() {
-        return Err(anyhow::anyhow!("Plugin manifest not found: {}", path));
+        return Err(crate::safety::not_found(
+            "plugin_load",
+            "plugin manifest",
+            path,
+        ));
     }
 
     let content =
@@ -1886,7 +1896,7 @@ pub fn unload_plugin(plugin_id: &str) -> Result<Value> {
         result.insert("status".to_string(), Value::Str("unloaded".to_string()));
         Ok(Value::Record(result))
     } else {
-        Err(anyhow::anyhow!("Plugin not found: {}", plugin_id))
+        Err(crate::safety::not_found("", "plugin", plugin_id))
     }
 }
 
