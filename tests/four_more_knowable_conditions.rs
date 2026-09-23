@@ -435,3 +435,69 @@ fn the_tool_catalogue_is_byte_stable() {
     sorted.sort();
     assert_eq!(baseline, sorted, "tools() is stable but not sorted");
 }
+
+/// No builtin may answer a call by returning advice about it.
+///
+/// Thirty-two did, and they were the most consequential names in the
+/// catalogue: `user_add("alice")` returned the String "User creation requires
+/// elevated privileges" at **exit 0**, and `pkg_install`, `svc_create`,
+/// `sudo_exec` and `user_passwd` behaved the same way. An agent provisioning
+/// an account sees a String and a success status; nothing distinguishes that
+/// from the account existing. `net_connect` returned the literal placeholder
+/// "socket_stub".
+///
+/// The advice itself was right. It belongs in the hint of a refusal, not in
+/// the return value, and this is the ratchet that keeps it there.
+///
+/// Scanning source rather than calling each builtin, because calling
+/// `user_add` is not something a test should do even when it is a no-op
+/// today — the whole point is that it might stop being one.
+#[test]
+fn no_builtin_returns_advice_instead_of_doing_the_work() {
+    let src = include_str!("../src/builtins.rs");
+
+    // Phrases that only ever appear in an instruction to the caller. A
+    // builtin's *result* does not tell you to go and use something else.
+    const ADVICE: &[&str] = &[
+        "requires elevated privileges",
+        "Use your package manager",
+        "use external tools",
+        "requires platform-specific",
+        "requires readline",
+        "requires raw terminal mode",
+        "requires async runtime",
+        "socket_stub",
+    ];
+
+    let lines: Vec<&str> = src.lines().collect();
+    let mut offenders = Vec::new();
+    for (i, line) in lines.iter().enumerate() {
+        let t = line.trim();
+        // Only a *returned* literal counts. The same words inside a
+        // `safety::unimplemented(...)` hint are exactly where they belong,
+        // and this test would be self-defeating if it flagged those.
+        if !t.starts_with('"') {
+            continue;
+        }
+        if !ADVICE.iter().any(|a| t.contains(a)) {
+            continue;
+        }
+        // Walk back to the nearest non-trivial line: a hint sits under a
+        // `unimplemented(`/`tool_missing(` call, a return value under `Ok(`.
+        let context = lines[i.saturating_sub(6)..i].join(" ");
+        if context.contains("unimplemented(") || context.contains("policy_deny(") {
+            continue;
+        }
+        if context.contains("Ok(Value::Str") || context.contains("Ok(Value::Str(") {
+            offenders.push(format!("builtins.rs:{}: {t}", i + 1));
+        }
+    }
+
+    assert!(
+        offenders.is_empty(),
+        "{} builtin(s) return advice as their result. An agent cannot tell that \
+         String from a successful outcome:\n{:#?}",
+        offenders.len(),
+        offenders
+    );
+}

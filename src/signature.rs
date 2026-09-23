@@ -1351,17 +1351,6 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[("typeof(project_root())", "String")],
     },
     Signature {
-        name: "project_scripts",
-        category: None,
-        subject_required: false,
-        aliases: &[],
-        subject: None,
-        params: &[],
-        returns: "Array",
-        doc: "The runnable scripts the manifest declares.",
-        examples: &[("typeof(project_scripts())", "Array")],
-    },
-    Signature {
         name: "project_size",
         category: None,
         subject_required: false,

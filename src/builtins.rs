@@ -22207,8 +22207,15 @@ fn bi_fs_mount(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_fs_unmount(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str(
-        "unmount requires elevated privileges".to_string(),
+    // Did no work and returned a value. An agent could not tell this
+    // apart from a result -- and for this family that matters more
+    // than most, because "it needs privileges" read as a String at
+    // exit 0 looks exactly like the account, package or service
+    // operation having succeeded.
+    Err(crate::safety::unimplemented(
+        "fs_unmount",
+        "unmounting a filesystem is not implemented; NOTHING WAS DONE",
+        "use `umount`, which needs elevated privileges",
     ))
 }
 
@@ -22982,7 +22989,16 @@ fn bi_net_listen(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_net_connect(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str("socket_stub".to_string()))
+    // Did no work and returned a value. An agent could not tell this
+    // apart from a result -- and for this family that matters more
+    // than most, because "it needs privileges" read as a String at
+    // exit 0 looks exactly like the account, package or service
+    // operation having succeeded.
+    Err(crate::safety::unimplemented(
+        "net_connect",
+        "opening a socket is not implemented; NOTHING WAS DONE",
+        "use nc.connect, or http.get for HTTP",
+    ))
 }
 
 fn bi_net_send(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -22997,11 +23013,29 @@ fn bi_net_send(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_net_recv(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Null)
+    // Did no work and returned a value. An agent could not tell this
+    // apart from a result -- and for this family that matters more
+    // than most, because "it needs privileges" read as a String at
+    // exit 0 looks exactly like the account, package or service
+    // operation having succeeded.
+    Err(crate::safety::unimplemented(
+        "net_recv",
+        "receiving from a socket is not implemented; NOTHING WAS DONE",
+        "use nc.connect, or http.get for HTTP",
+    ))
 }
 
 fn bi_net_close(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Bool(true))
+    // Did no work and returned a value. An agent could not tell this
+    // apart from a result -- and for this family that matters more
+    // than most, because "it needs privileges" read as a String at
+    // exit 0 looks exactly like the account, package or service
+    // operation having succeeded.
+    Err(crate::safety::unimplemented(
+        "net_close",
+        "closing a socket is not implemented; NOTHING WAS DONE",
+        "use nc.connect, or http.get for HTTP",
+    ))
 }
 
 fn bi_net_ports(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -25034,14 +25068,28 @@ fn bi_svc_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_svc_create(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str(
-        "Service creation requires elevated privileges".to_string(),
+    // Did no work and returned a value. An agent could not tell this
+    // apart from a result -- and for this family that matters more
+    // than most, because "it needs privileges" read as a String at
+    // exit 0 looks exactly like the account, package or service
+    // operation having succeeded.
+    Err(crate::safety::unimplemented(
+        "svc_create",
+        "creating a service is not implemented; NOTHING WAS DONE",
+        "use `systemctl`/`sc.exe`, which needs elevated privileges",
     ))
 }
 
 fn bi_svc_delete(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str(
-        "Service deletion requires elevated privileges".to_string(),
+    // Did no work and returned a value. An agent could not tell this
+    // apart from a result -- and for this family that matters more
+    // than most, because "it needs privileges" read as a String at
+    // exit 0 looks exactly like the account, package or service
+    // operation having succeeded.
+    Err(crate::safety::unimplemented(
+        "svc_delete",
+        "deleting a service is not implemented; NOTHING WAS DONE",
+        "use `systemctl`/`sc.exe`, which needs elevated privileges",
     ))
 }
 
@@ -25113,14 +25161,28 @@ fn bi_cron_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_cron_add(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str(
-        "Use crontab -e or schtasks to add scheduled tasks".to_string(),
+    // Did no work and returned a value. An agent could not tell this
+    // apart from a result -- and for this family that matters more
+    // than most, because "it needs privileges" read as a String at
+    // exit 0 looks exactly like the account, package or service
+    // operation having succeeded.
+    Err(crate::safety::unimplemented(
+        "cron_add",
+        "adding a scheduled job is not implemented; NOTHING WAS DONE",
+        "use `crontab -e`, or `schtasks` on Windows",
     ))
 }
 
 fn bi_cron_remove(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str(
-        "Use crontab -e or schtasks to remove scheduled tasks".to_string(),
+    // Did no work and returned a value. An agent could not tell this
+    // apart from a result -- and for this family that matters more
+    // than most, because "it needs privileges" read as a String at
+    // exit 0 looks exactly like the account, package or service
+    // operation having succeeded.
+    Err(crate::safety::unimplemented(
+        "cron_remove",
+        "removing a scheduled job is not implemented; NOTHING WAS DONE",
+        "use `crontab -e`, or `schtasks` on Windows",
     ))
 }
 
@@ -25147,8 +25209,15 @@ fn bi_cron_disable(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_at_schedule(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str(
-        "Use 'at' command for one-time scheduling".to_string(),
+    // Did no work and returned a value. An agent could not tell this
+    // apart from a result -- and for this family that matters more
+    // than most, because "it needs privileges" read as a String at
+    // exit 0 looks exactly like the account, package or service
+    // operation having succeeded.
+    Err(crate::safety::unimplemented(
+        "at_schedule",
+        "scheduling a one-time job is not implemented; NOTHING WAS DONE",
+        "use `at`",
     ))
 }
 
@@ -25850,26 +25919,54 @@ fn bi_user_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_user_add(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str(
-        "User creation requires elevated privileges".to_string(),
+    // Did no work and returned a value. An agent could not tell this
+    // apart from a result -- and for this family that matters more
+    // than most, because "it needs privileges" read as a String at
+    // exit 0 looks exactly like the account, package or service
+    // operation having succeeded.
+    Err(crate::safety::unimplemented(
+        "user_add",
+        "creating a user account is not implemented; NOTHING WAS DONE",
+        "use `useradd`, which needs elevated privileges",
     ))
 }
 
 fn bi_user_del(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str(
-        "User deletion requires elevated privileges".to_string(),
+    // Did no work and returned a value. An agent could not tell this
+    // apart from a result -- and for this family that matters more
+    // than most, because "it needs privileges" read as a String at
+    // exit 0 looks exactly like the account, package or service
+    // operation having succeeded.
+    Err(crate::safety::unimplemented(
+        "user_del",
+        "deleting a user account is not implemented; NOTHING WAS DONE",
+        "use `userdel`, which needs elevated privileges",
     ))
 }
 
 fn bi_user_mod(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str(
-        "User modification requires elevated privileges".to_string(),
+    // Did no work and returned a value. An agent could not tell this
+    // apart from a result -- and for this family that matters more
+    // than most, because "it needs privileges" read as a String at
+    // exit 0 looks exactly like the account, package or service
+    // operation having succeeded.
+    Err(crate::safety::unimplemented(
+        "user_mod",
+        "modifying a user account is not implemented; NOTHING WAS DONE",
+        "use `usermod`, which needs elevated privileges",
     ))
 }
 
 fn bi_user_passwd(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str(
-        "Password change requires elevated privileges".to_string(),
+    // Did no work and returned a value. An agent could not tell this
+    // apart from a result -- and for this family that matters more
+    // than most, because "it needs privileges" read as a String at
+    // exit 0 looks exactly like the account, package or service
+    // operation having succeeded.
+    Err(crate::safety::unimplemented(
+        "user_passwd",
+        "changing a password is not implemented; NOTHING WAS DONE",
+        "use `passwd`, which needs elevated privileges",
     ))
 }
 
@@ -25900,20 +25997,41 @@ fn bi_group_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_group_add(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str(
-        "Group creation requires elevated privileges".to_string(),
+    // Did no work and returned a value. An agent could not tell this
+    // apart from a result -- and for this family that matters more
+    // than most, because "it needs privileges" read as a String at
+    // exit 0 looks exactly like the account, package or service
+    // operation having succeeded.
+    Err(crate::safety::unimplemented(
+        "group_add",
+        "creating a group is not implemented; NOTHING WAS DONE",
+        "use `groupadd`, which needs elevated privileges",
     ))
 }
 
 fn bi_group_del(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str(
-        "Group deletion requires elevated privileges".to_string(),
+    // Did no work and returned a value. An agent could not tell this
+    // apart from a result -- and for this family that matters more
+    // than most, because "it needs privileges" read as a String at
+    // exit 0 looks exactly like the account, package or service
+    // operation having succeeded.
+    Err(crate::safety::unimplemented(
+        "group_del",
+        "deleting a group is not implemented; NOTHING WAS DONE",
+        "use `groupdel`, which needs elevated privileges",
     ))
 }
 
 fn bi_group_mod(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str(
-        "Group modification requires elevated privileges".to_string(),
+    // Did no work and returned a value. An agent could not tell this
+    // apart from a result -- and for this family that matters more
+    // than most, because "it needs privileges" read as a String at
+    // exit 0 looks exactly like the account, package or service
+    // operation having succeeded.
+    Err(crate::safety::unimplemented(
+        "group_mod",
+        "modifying a group is not implemented; NOTHING WAS DONE",
+        "use `groupmod`, which needs elevated privileges",
     ))
 }
 
@@ -26061,8 +26179,15 @@ fn bi_perm_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_acl_get(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str(
-        "ACL operations require platform-specific tools".to_string(),
+    // Did no work and returned a value. An agent could not tell this
+    // apart from a result -- and for this family that matters more
+    // than most, because "it needs privileges" read as a String at
+    // exit 0 looks exactly like the account, package or service
+    // operation having succeeded.
+    Err(crate::safety::unimplemented(
+        "acl_get",
+        "reading a POSIX ACL is not implemented; NOTHING WAS DONE",
+        "use `getfacl`",
     ))
 }
 
@@ -26105,8 +26230,15 @@ fn bi_sudo_check(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_sudo_exec(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str(
-        "Use sudo directly in terminal for elevated commands".to_string(),
+    // Did no work and returned a value. An agent could not tell this
+    // apart from a result -- and for this family that matters more
+    // than most, because "it needs privileges" read as a String at
+    // exit 0 looks exactly like the account, package or service
+    // operation having succeeded.
+    Err(crate::safety::unimplemented(
+        "sudo_exec",
+        "running a command with elevated privileges is not implemented; NOTHING WAS DONE",
+        "use `sudo` directly in a terminal",
     ))
 }
 
@@ -26474,36 +26606,67 @@ fn bi_pkg_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_pkg_install(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str(
-        "Package installation requires elevated privileges. Use your package manager directly."
-            .to_string(),
+    // Did no work and returned a value. An agent could not tell this
+    // apart from a result -- and for this family that matters more
+    // than most, because "it needs privileges" read as a String at
+    // exit 0 looks exactly like the account, package or service
+    // operation having succeeded.
+    Err(crate::safety::unimplemented(
+        "pkg_install",
+        "installing a package is not implemented; NOTHING WAS DONE",
+        "use your package manager, which needs elevated privileges",
     ))
 }
 
 fn bi_pkg_remove(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str(
-        "Package removal requires elevated privileges. Use your package manager directly."
-            .to_string(),
+    // Did no work and returned a value. An agent could not tell this
+    // apart from a result -- and for this family that matters more
+    // than most, because "it needs privileges" read as a String at
+    // exit 0 looks exactly like the account, package or service
+    // operation having succeeded.
+    Err(crate::safety::unimplemented(
+        "pkg_remove",
+        "removing a package is not implemented; NOTHING WAS DONE",
+        "use your package manager, which needs elevated privileges",
     ))
 }
 
 fn bi_pkg_update(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str(
-        "Package update requires elevated privileges. Use your package manager directly."
-            .to_string(),
+    // Did no work and returned a value. An agent could not tell this
+    // apart from a result -- and for this family that matters more
+    // than most, because "it needs privileges" read as a String at
+    // exit 0 looks exactly like the account, package or service
+    // operation having succeeded.
+    Err(crate::safety::unimplemented(
+        "pkg_update",
+        "refreshing the package index is not implemented; NOTHING WAS DONE",
+        "use your package manager, which needs elevated privileges",
     ))
 }
 
 fn bi_pkg_upgrade(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str(
-        "Package upgrade requires elevated privileges. Use your package manager directly."
-            .to_string(),
+    // Did no work and returned a value. An agent could not tell this
+    // apart from a result -- and for this family that matters more
+    // than most, because "it needs privileges" read as a String at
+    // exit 0 looks exactly like the account, package or service
+    // operation having succeeded.
+    Err(crate::safety::unimplemented(
+        "pkg_upgrade",
+        "upgrading packages is not implemented; NOTHING WAS DONE",
+        "use your package manager, which needs elevated privileges",
     ))
 }
 
 fn bi_pkg_clean(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str(
-        "Package cleanup requires elevated privileges.".to_string(),
+    // Did no work and returned a value. An agent could not tell this
+    // apart from a result -- and for this family that matters more
+    // than most, because "it needs privileges" read as a String at
+    // exit 0 looks exactly like the account, package or service
+    // operation having succeeded.
+    Err(crate::safety::unimplemented(
+        "pkg_clean",
+        "cleaning the package cache is not implemented; NOTHING WAS DONE",
+        "use your package manager, which needs elevated privileges",
     ))
 }
 
@@ -26547,8 +26710,15 @@ fn bi_pkg_sources(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_pkg_add_source(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str(
-        "Adding package sources requires elevated privileges.".to_string(),
+    // Did no work and returned a value. An agent could not tell this
+    // apart from a result -- and for this family that matters more
+    // than most, because "it needs privileges" read as a String at
+    // exit 0 looks exactly like the account, package or service
+    // operation having succeeded.
+    Err(crate::safety::unimplemented(
+        "pkg_add_source",
+        "adding a package source is not implemented; NOTHING WAS DONE",
+        "use your package manager, which needs elevated privileges",
     ))
 }
 
@@ -26765,20 +26935,41 @@ fn bi_pkg_changelog(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_pkg_hold(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str(
-        "Package hold requires elevated privileges.".to_string(),
+    // Did no work and returned a value. An agent could not tell this
+    // apart from a result -- and for this family that matters more
+    // than most, because "it needs privileges" read as a String at
+    // exit 0 looks exactly like the account, package or service
+    // operation having succeeded.
+    Err(crate::safety::unimplemented(
+        "pkg_hold",
+        "holding a package at its version is not implemented; NOTHING WAS DONE",
+        "use your package manager, which needs elevated privileges",
     ))
 }
 
 fn bi_pkg_unhold(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str(
-        "Package unhold requires elevated privileges.".to_string(),
+    // Did no work and returned a value. An agent could not tell this
+    // apart from a result -- and for this family that matters more
+    // than most, because "it needs privileges" read as a String at
+    // exit 0 looks exactly like the account, package or service
+    // operation having succeeded.
+    Err(crate::safety::unimplemented(
+        "pkg_unhold",
+        "releasing a held package is not implemented; NOTHING WAS DONE",
+        "use your package manager, which needs elevated privileges",
     ))
 }
 
 fn bi_pkg_autoremove(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str(
-        "Package autoremove requires elevated privileges.".to_string(),
+    // Did no work and returned a value. An agent could not tell this
+    // apart from a result -- and for this family that matters more
+    // than most, because "it needs privileges" read as a String at
+    // exit 0 looks exactly like the account, package or service
+    // operation having succeeded.
+    Err(crate::safety::unimplemented(
+        "pkg_autoremove",
+        "removing unused packages is not implemented; NOTHING WAS DONE",
+        "use your package manager, which needs elevated privileges",
     ))
 }
 
@@ -28523,8 +28714,15 @@ $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
 }
 
 fn bi_gui_find_image(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str(
-        "Image finding requires OpenCV or similar - not implemented".to_string(),
+    // Did no work and returned a value. An agent could not tell this
+    // apart from a result -- and for this family that matters more
+    // than most, because "it needs privileges" read as a String at
+    // exit 0 looks exactly like the account, package or service
+    // operation having succeeded.
+    Err(crate::safety::unimplemented(
+        "gui_find_image",
+        "locating an image on screen is not implemented; NOTHING WAS DONE",
+        "use an image-matching library such as OpenCV",
     ))
 }
 
@@ -29532,8 +29730,15 @@ fn bi_web_rest_api(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_web_websocket(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str(
-        "WebSocket requires async runtime - use external tools".to_string(),
+    // Did no work and returned a value. An agent could not tell this
+    // apart from a result -- and for this family that matters more
+    // than most, because "it needs privileges" read as a String at
+    // exit 0 looks exactly like the account, package or service
+    // operation having succeeded.
+    Err(crate::safety::unimplemented(
+        "web_websocket",
+        "opening a WebSocket is not implemented; NOTHING WAS DONE",
+        "use an external WebSocket client",
     ))
 }
 
@@ -29828,8 +30033,15 @@ fn bi_web_json_path(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_web_xpath(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str(
-        "XPath requires XML parser - use web_scrape for simple extraction".to_string(),
+    // Did no work and returned a value. An agent could not tell this
+    // apart from a result -- and for this family that matters more
+    // than most, because "it needs privileges" read as a String at
+    // exit 0 looks exactly like the account, package or service
+    // operation having succeeded.
+    Err(crate::safety::unimplemented(
+        "web_xpath",
+        "querying with XPath is not implemented; NOTHING WAS DONE",
+        "use web_scrape for simple extraction",
     ))
 }
 
@@ -30250,8 +30462,15 @@ fn bi_input_timeout(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_input_autocomplete(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str(
-        "Autocomplete requires readline integration".to_string(),
+    // Did no work and returned a value. An agent could not tell this
+    // apart from a result -- and for this family that matters more
+    // than most, because "it needs privileges" read as a String at
+    // exit 0 looks exactly like the account, package or service
+    // operation having succeeded.
+    Err(crate::safety::unimplemented(
+        "input_autocomplete",
+        "autocompleting input is not implemented; NOTHING WAS DONE",
+        "use `ae --tui`",
     ))
 }
 
@@ -31883,14 +32102,28 @@ fn bi_db_csv_to_json(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // ============================================================================
 
 fn bi_clipboard_get_image(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str(
-        "Image clipboard access requires platform-specific APIs".to_string(),
+    // Did no work and returned a value. An agent could not tell this
+    // apart from a result -- and for this family that matters more
+    // than most, because "it needs privileges" read as a String at
+    // exit 0 looks exactly like the account, package or service
+    // operation having succeeded.
+    Err(crate::safety::unimplemented(
+        "clipboard_get_image",
+        "reading an image from the clipboard is not implemented; NOTHING WAS DONE",
+        "use a platform clipboard tool",
     ))
 }
 
 fn bi_clipboard_set_image(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str(
-        "Image clipboard access requires platform-specific APIs".to_string(),
+    // Did no work and returned a value. An agent could not tell this
+    // apart from a result -- and for this family that matters more
+    // than most, because "it needs privileges" read as a String at
+    // exit 0 looks exactly like the account, package or service
+    // operation having succeeded.
+    Err(crate::safety::unimplemented(
+        "clipboard_set_image",
+        "writing an image to the clipboard is not implemented; NOTHING WAS DONE",
+        "use a platform clipboard tool",
     ))
 }
 
@@ -31916,8 +32149,15 @@ fn bi_clipboard_history(_args: Vec<Value>, _input: Option<Value>) -> Result<Valu
 }
 
 fn bi_input_read_char(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str(
-        "Single character input requires raw terminal mode".to_string(),
+    // Did no work and returned a value. An agent could not tell this
+    // apart from a result -- and for this family that matters more
+    // than most, because "it needs privileges" read as a String at
+    // exit 0 looks exactly like the account, package or service
+    // operation having succeeded.
+    Err(crate::safety::unimplemented(
+        "input_read_char",
+        "reading a single keypress is not implemented; NOTHING WAS DONE",
+        "use `ae --tui`",
     ))
 }
 
@@ -35028,7 +35268,16 @@ fn bi_project_dev_dependencies(_args: Vec<Value>, _input: Option<Value>) -> Resu
 }
 
 fn bi_project_scripts(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Array(vec![]))
+    // Did no work and returned a value. An agent could not tell this
+    // apart from a result -- and for this family that matters more
+    // than most, because "it needs privileges" read as a String at
+    // exit 0 looks exactly like the account, package or service
+    // operation having succeeded.
+    Err(crate::safety::unimplemented(
+        "project_scripts",
+        "listing the scripts a manifest declares is not implemented; NOTHING WAS DONE",
+        "use read the manifest with file.read and parse it",
+    ))
 }
 
 fn bi_project_structure(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
