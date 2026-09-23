@@ -61,6 +61,16 @@ pub enum Ty {
     Array,
     Record,
     Lambda,
+    /// An array, or a string treated as its lines.
+    ///
+    /// `Numeric` is the precedent: a union in the lattice because the
+    /// builtins genuinely accept either. `sort`, `unique` and `uniq` all
+    /// split a piped string on newlines on purpose -- `cat f | sort` is
+    /// the oldest idiom in the shell -- and their own error text already
+    /// said "input must be an array or string". Declaring them `Array`
+    /// deleted the text form, and it took a harness comparing every
+    /// declaration against its own body to notice.
+    Sequence,
 }
 
 impl Ty {
@@ -75,6 +85,7 @@ impl Ty {
             Ty::Array => "Array",
             Ty::Record => "Record",
             Ty::Lambda => "Lambda",
+            Ty::Sequence => "Array | String",
         }
     }
 
@@ -88,6 +99,7 @@ impl Ty {
             Ty::Array => matches!(v, Value::Array(_)),
             Ty::Record => matches!(v, Value::Record(_) | Value::Table(_)),
             Ty::Lambda => matches!(v, Value::Lambda(_) | Value::AsyncLambda(_)),
+            Ty::Sequence => matches!(v, Value::Array(_) | Value::Str(_) | Value::Uri(_)),
         }
     }
 }
@@ -473,7 +485,7 @@ pub static SIGNATURES: &[Signature] = &[
         category: None,
         subject_required: false,
         aliases: &[],
-        subject: Some(Ty::Array),
+        subject: Some(Ty::Sequence),
         params: &[],
         returns: "Array",
         doc: "Sort an array ascending by natural ordering.",
@@ -529,7 +541,7 @@ pub static SIGNATURES: &[Signature] = &[
         category: None,
         subject_required: false,
         aliases: &[],
-        subject: Some(Ty::Array),
+        subject: Some(Ty::Sequence),
         params: &[],
         returns: "Array",
         doc: "Remove duplicate elements, preserving first-seen order.",
@@ -829,7 +841,7 @@ pub static SIGNATURES: &[Signature] = &[
         category: Some("Array"),
         subject_required: true,
         aliases: &[],
-        subject: Some(Ty::Array),
+        subject: Some(Ty::Sequence),
         params: &[],
         returns: "Array",
         doc: "Remove duplicate elements. Pipeline only.",

@@ -315,17 +315,27 @@ fn path_matches_blocked_pattern(path: &str, pattern: &str) -> bool {
 pub fn validate_safe_path(path: &str) -> Result<PathBuf> {
     // Basic validation
     if path.is_empty() {
-        return Err(anyhow!("Empty path not allowed"));
+        return Err(crate::safety::bad_arg(
+            "",
+            "a non-empty path",
+            "an empty string",
+        ));
     }
 
     if path.len() > 4096 {
-        return Err(anyhow!("Path too long (max 4096 characters)"));
+        return Err(crate::safety::bad_arg(
+            "",
+            "a path of at most 4096 characters",
+            "a longer one",
+        ));
     }
 
     // Check for null bytes (common attack vector)
     if path.contains('\0') {
-        return Err(anyhow!(
-            "Path contains null byte - potential security attack"
+        return Err(crate::safety::bad_arg(
+            "",
+            "a path without a null byte",
+            "one containing U+0000",
         ));
     }
 
@@ -338,10 +348,11 @@ pub fn validate_safe_path(path: &str) -> Result<PathBuf> {
     // Rejected rather than stripped on purpose: silently rewriting a path
     // means the caller acts on a different file than the one it named.
     if let Some(c) = path.chars().find(|c| is_deceptive_char(*c)) {
-        return Err(anyhow!(
-            "Path contains invisible or bidi-override character U+{:04X} - \
-             potential spoofing attack (CWE-1007)",
-            c as u32
+        return Err(crate::safety::bad_arg(
+            "",
+            "a path with no invisible or bidi-override characters \
+             (CWE-1007 spoofing)",
+            &format!("one containing U+{:04X}", c as u32),
         ));
     }
 
@@ -355,9 +366,10 @@ pub fn validate_safe_path(path: &str) -> Result<PathBuf> {
     // Check for dangerous patterns BEFORE canonicalization
     for pattern in &config.blocked_patterns {
         if path_matches_blocked_pattern(path, pattern) {
-            return Err(anyhow!(
-                "Access denied: path matches blocked pattern '{}' (security policy)",
-                pattern
+            return Err(crate::safety::policy_deny(
+                "",
+                format!("access denied: the path matches the blocked pattern `{pattern}`"),
+                "this is a security policy, not a malformed call; no other spelling of the same path will pass",
             ));
         }
     }
@@ -367,7 +379,11 @@ pub fn validate_safe_path(path: &str) -> Result<PathBuf> {
         let metadata =
             fs::symlink_metadata(requested_path).context("Failed to read path metadata")?;
         if metadata.file_type().is_symlink() {
-            return Err(anyhow!("Symlinks are not allowed by security policy"));
+            return Err(crate::safety::policy_deny(
+                "",
+                "symlinks are not allowed by security policy",
+                "pass the link target directly",
+            ));
         }
     }
 
@@ -390,8 +406,10 @@ pub fn validate_safe_path(path: &str) -> Result<PathBuf> {
             .ok_or_else(|| anyhow!("Invalid UTF-8 in filename"))?;
         if filename_str.contains('/') || filename_str.contains('\\') || filename_str.contains("..")
         {
-            return Err(anyhow!(
-                "Invalid filename: contains path separators or traversal sequences"
+            return Err(crate::safety::bad_arg(
+                "",
+                "a filename with no path separators or `..`",
+                "one containing them",
             ));
         }
 
@@ -406,7 +424,11 @@ pub fn validate_safe_path(path: &str) -> Result<PathBuf> {
 
         // Verify the joined path would still be within canonical_parent
         if !joined.starts_with(&canonical_parent) {
-            return Err(anyhow!("Path traversal detected in filename"));
+            return Err(crate::safety::bad_arg(
+                "",
+                "a filename that stays in its directory",
+                "a traversal",
+            ));
         }
 
         joined

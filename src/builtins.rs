@@ -7469,7 +7469,7 @@ fn bi_ls(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     };
 
     // SECURITY: Validate path to prevent traversal attacks (CVSS 8.2)
-    let validated_path = validate_read_path(&path_str).context("ls: path validation failed")?;
+    let validated_path = validate_read_path(&path_str)?;
 
     let entries = fs::read_dir(&validated_path)
         .with_context(|| format!("ls: failed to read directory: {:?}", validated_path))?;
@@ -7544,7 +7544,7 @@ fn bi_cat(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     };
 
     // SECURITY: Validate path to prevent traversal attacks (CVSS 8.2)
-    let validated_path = validate_read_path(path_str).context("cat: path validation failed")?;
+    let validated_path = validate_read_path(path_str)?;
 
     // SECURITY FIX (MED-001): Check file size before reading
     let metadata = fs::metadata(&validated_path)
@@ -7573,8 +7573,7 @@ fn bi_read_text(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     };
 
     // SECURITY: Validate path to prevent traversal attacks
-    let validated_path =
-        validate_read_path(path_str).context("read_text: path validation failed")?;
+    let validated_path = validate_read_path(path_str)?;
 
     // SECURITY FIX (MED-001): Check file size before reading
     let metadata = fs::metadata(&validated_path).with_context(|| {
@@ -7629,8 +7628,7 @@ fn bi_head(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                 match &args[0] {
                     Value::Str(path_str) => {
                         // SECURITY: Validate path to prevent traversal attacks (CVSS 8.2)
-                        let validated_path =
-                            validate_read_path(path_str).context("head: path validation failed")?;
+                        let validated_path = validate_read_path(path_str)?;
                         let content = fs::read_to_string(&validated_path).with_context(|| {
                             format!("head: failed to read file: {:?}", validated_path)
                         })?;
@@ -7658,8 +7656,7 @@ fn bi_head(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                 match (&args[0], &args[1]) {
                     (Value::Str(path_str), Value::Int(n)) => {
                         // SECURITY: Validate path to prevent traversal attacks
-                        let validated_path =
-                            validate_read_path(path_str).context("head: path validation failed")?;
+                        let validated_path = validate_read_path(path_str)?;
                         let content = fs::read_to_string(&validated_path).with_context(|| {
                             format!("head: failed to read file: {:?}", validated_path)
                         })?;
@@ -7667,8 +7664,7 @@ fn bi_head(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                     }
                     (Value::Int(n), Value::Str(path_str)) => {
                         // SECURITY: Validate path to prevent traversal attacks
-                        let validated_path =
-                            validate_read_path(path_str).context("head: path validation failed")?;
+                        let validated_path = validate_read_path(path_str)?;
                         let content = fs::read_to_string(&validated_path).with_context(|| {
                             format!("head: failed to read file: {:?}", validated_path)
                         })?;
@@ -7727,8 +7723,7 @@ fn bi_tail(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                 match &args[0] {
                     Value::Str(path_str) => {
                         // SECURITY: Validate path to prevent traversal attacks (CVSS 8.2)
-                        let validated_path =
-                            validate_read_path(path_str).context("tail: path validation failed")?;
+                        let validated_path = validate_read_path(path_str)?;
                         let content = fs::read_to_string(&validated_path).with_context(|| {
                             format!("tail: failed to read file: {:?}", validated_path)
                         })?;
@@ -7755,8 +7750,7 @@ fn bi_tail(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                 match (&args[0], &args[1]) {
                     (Value::Str(path_str), Value::Int(n)) => {
                         // SECURITY: Validate path to prevent traversal attacks
-                        let validated_path =
-                            validate_read_path(path_str).context("tail: path validation failed")?;
+                        let validated_path = validate_read_path(path_str)?;
                         let content = fs::read_to_string(&validated_path).with_context(|| {
                             format!("tail: failed to read file: {:?}", validated_path)
                         })?;
@@ -7764,8 +7758,7 @@ fn bi_tail(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                     }
                     (Value::Int(n), Value::Str(path_str)) => {
                         // SECURITY: Validate path to prevent traversal attacks
-                        let validated_path =
-                            validate_read_path(path_str).context("tail: path validation failed")?;
+                        let validated_path = validate_read_path(path_str)?;
                         let content = fs::read_to_string(&validated_path).with_context(|| {
                             format!("tail: failed to read file: {:?}", validated_path)
                         })?;
@@ -7818,7 +7811,7 @@ fn bi_find(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     };
 
     // SECURITY: Validate path to prevent traversal attacks (CVSS 8.2)
-    let validated_path = validate_read_path(&path_str).context("find: path validation failed")?;
+    let validated_path = validate_read_path(&path_str)?;
 
     let mut results = Vec::new();
 
@@ -49678,5 +49671,142 @@ mod fips_tests {
 
         std::env::remove_var("AETHER_FIPS");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod declaration_narrowness {
+    use super::*;
+    use crate::signature::SIGNATURES;
+
+    /// A declaration is enforced *before* the body runs, so it is not
+    /// documentation -- it is the contract. Five of the first fifty-two were
+    /// narrower than the language and each silently deleted a form that
+    /// worked; two of them shipped. `reverse` declared `subject: Array`
+    /// refused `"abc" | reverse` from 5a54fc3 onward and passed a full green
+    /// gate, because one test pipes an array and another passes a string *by
+    /// argument* -- the broken combination was covered by neither.
+    ///
+    /// None was found by review. They were found one at a time, by a corpus
+    /// happening to contain the right call. This asks the question directly:
+    /// for every declaration, every shape of value, in both calling positions,
+    /// does the declaration refuse something the body would have honoured?
+    ///
+    /// The oracle is the body itself, via `call_with_input_inner`, which is
+    /// the same dispatch minus validation. That is the only oracle available:
+    /// there is no independent record of which forms are "meant" to work, and
+    /// a regex over `src/` is the name-based reasoning this whole effort
+    /// exists to remove.
+    fn probe_values() -> Vec<(&'static str, Value)> {
+        vec![
+            ("Int", Value::Int(3)),
+            ("Float", Value::Float(1.5)),
+            ("Str", Value::Str("abc".to_string())),
+            ("Bool", Value::Bool(true)),
+            ("Array", Value::Array(vec![Value::Int(1), Value::Int(2)])),
+            (
+                "Record",
+                Value::Record(
+                    [("a".to_string(), Value::Int(1))]
+                        .into_iter()
+                        .collect::<std::collections::BTreeMap<_, _>>(),
+                ),
+            ),
+        ]
+    }
+
+    /// Whether the body produced something worth preserving.
+    ///
+    /// A body that answers `Ok(Value::Null)` for nonsense is being sloppy, not
+    /// supporting a form -- several do exactly that (`crypto_jwt_decode`
+    /// returns `Ok(Null)` for a non-string). Counting those as "the
+    /// declaration is too narrow" would argue for keeping bugs.
+    fn meaningful(v: &Value) -> bool {
+        !matches!(v, Value::Null | Value::Error(_))
+    }
+
+    #[test]
+    fn no_declaration_refuses_a_call_its_body_would_have_honoured() {
+        let _env_lock = crate::safety::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+
+        let jail = std::env::temp_dir().join(format!("ae_narrow_{}", std::process::id()));
+        std::fs::create_dir_all(&jail).expect("create jail");
+        std::env::set_var("AETHER_MODE", "agent");
+        std::env::set_var("AETHER_POLICY", "strict");
+        std::env::set_var("AETHER_WORKSPACE", &jail);
+        std::env::set_var("AETHER_MAX_NET", "0");
+
+        let mut too_narrow: Vec<String> = Vec::new();
+        let (mut checked, mut refused) = (0usize, 0usize);
+
+        for sig in SIGNATURES {
+            // Only builtins that transform data and return. The effect gate
+            // would refuse the rest before the body ran, which tells us
+            // nothing about the declaration.
+            if crate::safety::effect_of(sig.name) != crate::safety::Effect::Pure {
+                continue;
+            }
+            for (label, v) in probe_values() {
+                for piped in [true, false] {
+                    let (args, input) = if piped {
+                        (Vec::new(), Some(v.clone()))
+                    } else {
+                        (vec![v.clone()], None)
+                    };
+                    checked += 1;
+
+                    // What the declaration says.
+                    if crate::signature::validate(sig.name, &args, input.as_ref()).is_ok() {
+                        continue;
+                    }
+                    refused += 1;
+
+                    // What the body would have done.
+                    let mut env = crate::env::Env::new();
+                    let body = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        call_with_input_inner(sig.name, args.clone(), input.clone(), &mut env)
+                    }));
+                    if let Ok(Ok(out)) = body {
+                        if meaningful(&out) {
+                            let position = if piped { "piped" } else { "direct" };
+                            too_narrow.push(format!(
+                                "{}({label}, {position}) -> declaration refuses, body returns {}",
+                                sig.name,
+                                out.type_name()
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+
+        let _ = std::fs::remove_dir_all(&jail);
+
+        // Non-vacuity, both directions. A run where nothing was refused proves
+        // the declarations accept everything; a run where nothing was checked
+        // proves the filter is broken.
+        assert!(
+            checked > 200,
+            "only {checked} (builtin, value, position) combinations probed; \
+             the filter is broken and a sweep over nothing proves nothing"
+        );
+        assert!(
+            refused > 20,
+            "only {refused} of {checked} combinations were refused by a \
+             declaration; either the probes are too weak or validation is not \
+             running, and in both cases this test cannot fail"
+        );
+
+        assert!(
+            too_narrow.is_empty(),
+            "{} declared signature(s) refuse a call the body would have \
+             honoured. A declaration is enforced before the body runs, so each \
+             of these deletes a form of the language:\n{:#?}\n\
+             ({checked} combinations probed, {refused} refused)",
+            too_narrow.len(),
+            too_narrow
+        );
     }
 }

@@ -379,8 +379,12 @@ reading of the output. A benchmark is not trustworthy because its numbers
 favour the party who wrote it — it is trustworthy because its failure modes
 have been looked for in both directions.
 
-(AetherShell's own mean grew from 141 to 147 bytes over this work, as four
-more codes carried more of the diagnosis in the message.)
+(AetherShell's own row moved over this work: the mean grew from 141 to 151
+bytes as four new codes carried more of the diagnosis in the message, and
+**distinct exit statuses went 7/10 to 8/10** -- a path refused for traversal
+now exits `EX_NOPERM` rather than a generic 1, because `validate_safe_path`
+stopped returning bare prose. That is the free pre-parse signal this document
+argues for, earned rather than asserted.)
 
 > **The 10/10 did not generalise when we first checked, and that is the part
 > worth reading.** Ten failures chosen to be representative prove something
