@@ -2067,10 +2067,10 @@ impl KnowledgeGraph {
         properties: HashMap<String, String>,
     ) -> Result<String> {
         if !self.entities.contains_key(source_id) {
-            return Err(anyhow!("Source entity '{}' not found", source_id));
+            return Err(crate::safety::not_found("", "source entity", source_id));
         }
         if !self.entities.contains_key(target_id) {
-            return Err(anyhow!("Target entity '{}' not found", target_id));
+            return Err(crate::safety::not_found("", "target entity", target_id));
         }
 
         let id = format!("r_{}", self.next_relation_id);
@@ -6660,7 +6660,7 @@ fn bi_job_status(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     let job = jobs
         .get(&job_id)
-        .ok_or_else(|| anyhow!("job_status: job '{}' not found", job_id))?;
+        .ok_or_else(|| crate::safety::not_found("job_status", "job", &job_id.to_string()))?;
 
     let mut record = BTreeMap::new();
     record.insert("job_id".to_string(), Value::Str(job.id.clone()));
@@ -6697,7 +6697,11 @@ fn bi_job_cancel(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             _ => Ok(Value::Bool(false)),
         }
     } else {
-        Err(anyhow!("job_cancel: job '{}' not found", job_id))
+        Err(crate::safety::not_found(
+            "job_cancel",
+            "job",
+            &job_id.to_string(),
+        ))
     }
 }
 
@@ -6773,7 +6777,11 @@ fn bi_remote_exec(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         .map_err(|e| anyhow!("remote_exec: lock error: {}", e))?;
 
     if !nodes.contains_key(&node_id) {
-        return Err(anyhow!("remote_exec: node '{}' not found", node_id));
+        return Err(crate::safety::not_found(
+            "remote_exec",
+            "node",
+            &node_id.to_string(),
+        ));
     }
 
     // This does NOT execute anything — there is no SSH/RPC transport behind it.
@@ -7548,11 +7556,11 @@ fn bi_cat(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     // SECURITY FIX (MED-001): Check file size before reading
     let metadata = fs::metadata(&validated_path)
-        .with_context(|| format!("cat: failed to read file metadata: {:?}", validated_path))?;
+        .map_err(|e| crate::safety::fs_error("cat", &validated_path, &e))?;
     check_file_size_limit(metadata.len()).context("cat: file too large")?;
 
     let content = fs::read_to_string(&validated_path)
-        .with_context(|| format!("cat: failed to read file: {:?}", validated_path))?;
+        .map_err(|e| crate::safety::fs_error("cat", &validated_path, &e))?;
     Ok(Value::Str(content))
 }
 
@@ -7576,16 +7584,12 @@ fn bi_read_text(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let validated_path = validate_read_path(path_str)?;
 
     // SECURITY FIX (MED-001): Check file size before reading
-    let metadata = fs::metadata(&validated_path).with_context(|| {
-        format!(
-            "read_text: failed to read file metadata: {:?}",
-            validated_path
-        )
-    })?;
+    let metadata = fs::metadata(&validated_path)
+        .map_err(|e| crate::safety::fs_error("read_text", &validated_path, &e))?;
     check_file_size_limit(metadata.len()).context("read_text: file too large")?;
 
     let content = fs::read_to_string(&validated_path)
-        .with_context(|| format!("read_text: failed to read file: {:?}", validated_path))?;
+        .map_err(|e| crate::safety::fs_error("read_text", &validated_path, &e))?;
 
     Ok(Value::Str(content))
 }
@@ -7629,9 +7633,8 @@ fn bi_head(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                     Value::Str(path_str) => {
                         // SECURITY: Validate path to prevent traversal attacks (CVSS 8.2)
                         let validated_path = validate_read_path(path_str)?;
-                        let content = fs::read_to_string(&validated_path).with_context(|| {
-                            format!("head: failed to read file: {:?}", validated_path)
-                        })?;
+                        let content = fs::read_to_string(&validated_path)
+                            .map_err(|e| crate::safety::fs_error("head", &validated_path, &e))?;
                         (10, content)
                     }
                     Value::Int(_) => {
@@ -7657,17 +7660,15 @@ fn bi_head(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                     (Value::Str(path_str), Value::Int(n)) => {
                         // SECURITY: Validate path to prevent traversal attacks
                         let validated_path = validate_read_path(path_str)?;
-                        let content = fs::read_to_string(&validated_path).with_context(|| {
-                            format!("head: failed to read file: {:?}", validated_path)
-                        })?;
+                        let content = fs::read_to_string(&validated_path)
+                            .map_err(|e| crate::safety::fs_error("head", &validated_path, &e))?;
                         (*n as usize, content)
                     }
                     (Value::Int(n), Value::Str(path_str)) => {
                         // SECURITY: Validate path to prevent traversal attacks
                         let validated_path = validate_read_path(path_str)?;
-                        let content = fs::read_to_string(&validated_path).with_context(|| {
-                            format!("head: failed to read file: {:?}", validated_path)
-                        })?;
+                        let content = fs::read_to_string(&validated_path)
+                            .map_err(|e| crate::safety::fs_error("head", &validated_path, &e))?;
                         (*n as usize, content)
                     }
                     _ => {
@@ -7724,9 +7725,8 @@ fn bi_tail(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                     Value::Str(path_str) => {
                         // SECURITY: Validate path to prevent traversal attacks (CVSS 8.2)
                         let validated_path = validate_read_path(path_str)?;
-                        let content = fs::read_to_string(&validated_path).with_context(|| {
-                            format!("tail: failed to read file: {:?}", validated_path)
-                        })?;
+                        let content = fs::read_to_string(&validated_path)
+                            .map_err(|e| crate::safety::fs_error("tail", &validated_path, &e))?;
                         (10, content)
                     }
                     Value::Int(_) => {
@@ -7751,17 +7751,15 @@ fn bi_tail(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                     (Value::Str(path_str), Value::Int(n)) => {
                         // SECURITY: Validate path to prevent traversal attacks
                         let validated_path = validate_read_path(path_str)?;
-                        let content = fs::read_to_string(&validated_path).with_context(|| {
-                            format!("tail: failed to read file: {:?}", validated_path)
-                        })?;
+                        let content = fs::read_to_string(&validated_path)
+                            .map_err(|e| crate::safety::fs_error("tail", &validated_path, &e))?;
                         (*n as usize, content)
                     }
                     (Value::Int(n), Value::Str(path_str)) => {
                         // SECURITY: Validate path to prevent traversal attacks
                         let validated_path = validate_read_path(path_str)?;
-                        let content = fs::read_to_string(&validated_path).with_context(|| {
-                            format!("tail: failed to read file: {:?}", validated_path)
-                        })?;
+                        let content = fs::read_to_string(&validated_path)
+                            .map_err(|e| crate::safety::fs_error("tail", &validated_path, &e))?;
                         (*n as usize, content)
                     }
                     _ => {
@@ -7965,7 +7963,7 @@ fn bi_wc(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                 ))
             }
         };
-        fs::read_to_string(path)?
+        fs::read_to_string(path).map_err(|e| crate::safety::fs_error("wc", &path, &e))?
     } else {
         return Err(anyhow!("wc: no input provided"));
     };
@@ -8041,7 +8039,7 @@ fn bi_grep(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             Value::Str(s) if !s.starts_with('-') => s,
             _ => return Err(anyhow!("grep: no input provided")),
         };
-        fs::read_to_string(path)?
+        fs::read_to_string(path).map_err(|e| crate::safety::fs_error("grep", &path, &e))?
     } else {
         return Err(anyhow!("grep: no input provided"));
     };
@@ -8399,7 +8397,8 @@ fn bi_get_content(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         return Err(anyhow!("Get-Content: no path provided"));
     };
 
-    let content = fs::read_to_string(&path)?;
+    let content =
+        fs::read_to_string(&path).map_err(|e| crate::safety::fs_error("get_content", &path, &e))?;
 
     // Return as array of lines (PowerShell style)
     let lines: Vec<Value> = content
@@ -12882,7 +12881,7 @@ fn bi_syntax_get(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let kb = get_syntax_kb().lock().unwrap();
     let entry = kb
         .get(id)
-        .ok_or_else(|| anyhow!("Syntax '{}' not found", id))?;
+        .ok_or_else(|| crate::safety::not_found("", "syntax", id))?;
 
     // Convert to Value::Record
     let mut fields = std::collections::BTreeMap::new();
@@ -15228,7 +15227,7 @@ fn bi_tool_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let db = OSToolsDatabase::new();
     let tool = db
         .get_tool(&tool_name)
-        .ok_or_else(|| anyhow!("Tool '{}' not found", tool_name))?;
+        .ok_or_else(|| crate::safety::not_found("", "tool", &tool_name.to_string()))?;
 
     let mut rec = BTreeMap::new();
     rec.insert("name".to_string(), Value::Str(tool.name.clone()));
@@ -29354,7 +29353,8 @@ fn bi_input_editor(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .map_err(|e| crate::safety::spawn_error("input_editor", &editor, &e))?;
 
     if status.success() {
-        let content = std::fs::read_to_string(&temp_path)?;
+        let content = std::fs::read_to_string(&temp_path)
+            .map_err(|e| crate::safety::fs_error("input_editor", &temp_path, &e))?;
         let _ = std::fs::remove_file(&temp_path);
         return Ok(Value::Str(content));
     }
@@ -30755,7 +30755,8 @@ fn bi_db_csv_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         _ => return Ok(Value::Array(vec![])),
     };
 
-    let content = std::fs::read_to_string(&csv_path)?;
+    let content = std::fs::read_to_string(&csv_path)
+        .map_err(|e| crate::safety::fs_error("db_csv_query", &csv_path, &e))?;
     let lines: Vec<&str> = content.lines().collect();
 
     if lines.is_empty() {
@@ -31327,7 +31328,8 @@ fn bi_db_sqlite_import(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         _ => return Ok(Value::Bool(false)),
     };
 
-    let sql = std::fs::read_to_string(&sql_file)?;
+    let sql = std::fs::read_to_string(&sql_file)
+        .map_err(|e| crate::safety::fs_error("db_sqlite_import", &sql_file, &e))?;
     bi_db_sqlite_exec(vec![Value::Str(db_path), Value::Str(sql)], None)
 }
 
@@ -31373,7 +31375,8 @@ fn bi_db_json_to_sqlite(args: Vec<Value>, _input: Option<Value>) -> Result<Value
     };
 
     // Read JSON
-    let content = std::fs::read_to_string(&json_path)?;
+    let content = std::fs::read_to_string(&json_path)
+        .map_err(|e| crate::safety::fs_error("db_json_to_sqlite", &json_path, &e))?;
     if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
         if let serde_json::Value::Array(arr) = json {
             if let Some(first) = arr.first() {
@@ -31741,8 +31744,8 @@ fn bi_file_patch(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     };
 
     // Read current content
-    let mut content = fs::read_to_string(&path)
-        .with_context(|| format!("file_patch: failed to read '{}'", path))?;
+    let mut content =
+        fs::read_to_string(&path).map_err(|e| crate::safety::fs_error("file_patch", &path, &e))?;
 
     let mut applied = Vec::new();
     let mut failed = Vec::new();
@@ -31931,8 +31934,8 @@ fn bi_file_insert(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         }
     };
 
-    let mut file_content = fs::read_to_string(&path)
-        .with_context(|| format!("file_insert: failed to read '{}'", path))?;
+    let mut file_content =
+        fs::read_to_string(&path).map_err(|e| crate::safety::fs_error("file_insert", &path, &e))?;
 
     let mut lines: Vec<String> = file_content.lines().map(|s| s.to_string()).collect();
     let insert_lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
@@ -32042,7 +32045,7 @@ fn bi_file_delete_lines(args: Vec<Value>, _input: Option<Value>) -> Result<Value
     })?;
 
     let content = fs::read_to_string(&path)
-        .with_context(|| format!("file_delete_lines: failed to read '{}'", path))?;
+        .map_err(|e| crate::safety::fs_error("file_delete_lines", &path, &e))?;
 
     let lines: Vec<&str> = content.lines().collect();
     let original_count = lines.len();
@@ -32162,8 +32165,8 @@ fn bi_file_edit(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         }
     };
 
-    let content = fs::read_to_string(&path)
-        .with_context(|| format!("file_edit: failed to read '{}'", path))?;
+    let content =
+        fs::read_to_string(&path).map_err(|e| crate::safety::fs_error("file_edit", &path, &e))?;
 
     let mut lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
     let mut applied = Vec::new();
@@ -32377,10 +32380,10 @@ fn bi_file_diff(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
     };
 
-    let content1 = fs::read_to_string(&path1)
-        .with_context(|| format!("file_diff: failed to read '{}'", path1))?;
-    let content2 = fs::read_to_string(&path2)
-        .with_context(|| format!("file_diff: failed to read '{}'", path2))?;
+    let content1 =
+        fs::read_to_string(&path1).map_err(|e| crate::safety::fs_error("file_diff", &path1, &e))?;
+    let content2 =
+        fs::read_to_string(&path2).map_err(|e| crate::safety::fs_error("file_diff", &path2, &e))?;
 
     let lines1: Vec<&str> = content1.lines().collect();
     let lines2: Vec<&str> = content2.lines().collect();
@@ -32599,7 +32602,8 @@ fn bi_file_move(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let source = guard_local_move("file_move", &source)?;
     let dest = guard_local_move("file_move", &dest)?;
 
-    let metadata = fs::metadata(&source)?;
+    let metadata =
+        fs::metadata(&source).map_err(|e| crate::safety::fs_error("file_move", &source, &e))?;
     let bytes = metadata.len();
 
     fs::rename(&source, &dest)
@@ -32889,7 +32893,11 @@ fn bi_nanda_vote(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .map_err(|_| crate::safety::arg_err("nanda.vote: approve must be a boolean"))?;
     let proposals = NANDA_PROPOSALS.read().unwrap();
     if !proposals.contains_key(proposal_id) {
-        return Err(anyhow!("nanda.vote: proposal '{}' not found", proposal_id));
+        return Err(crate::safety::not_found(
+            "nanda.vote",
+            "proposal",
+            proposal_id,
+        ));
     }
     drop(proposals);
     let voter = format!("voter_{}", rand::random::<u32>() % 1000);
@@ -32920,7 +32928,7 @@ fn bi_nanda_commit(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut proposals = NANDA_PROPOSALS.write().unwrap();
     let proposal = proposals
         .get_mut(proposal_id)
-        .ok_or_else(|| anyhow!("nanda.commit: proposal '{}' not found", proposal_id))?;
+        .ok_or_else(|| crate::safety::not_found("nanda.commit", "proposal", proposal_id))?;
     let threshold = proposal
         .get("threshold")
         .and_then(|v| v.as_float().ok())
@@ -32964,7 +32972,7 @@ fn bi_nanda_abort(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut proposals = NANDA_PROPOSALS.write().unwrap();
     let proposal = proposals
         .get_mut(proposal_id)
-        .ok_or_else(|| anyhow!("nanda.abort: proposal '{}' not found", proposal_id))?;
+        .ok_or_else(|| crate::safety::not_found("nanda.abort", "proposal", proposal_id))?;
     proposal.insert("status".to_string(), Value::Str("aborted".to_string()));
     let mut result = BTreeMap::new();
     result.insert("aborted".to_string(), Value::Bool(true));
@@ -32981,7 +32989,7 @@ fn bi_nanda_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let proposals = NANDA_PROPOSALS.read().unwrap();
         let proposal = proposals
             .get(proposal_id)
-            .ok_or_else(|| anyhow!("nanda.status: proposal '{}' not found", proposal_id))?;
+            .ok_or_else(|| crate::safety::not_found("nanda.status", "proposal", proposal_id))?;
         Ok(Value::Record(proposal.clone()))
     } else {
         let proposals = NANDA_PROPOSALS.read().unwrap();
@@ -33006,7 +33014,7 @@ fn bi_nanda_consensus(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
     let proposals = NANDA_PROPOSALS.read().unwrap();
     let proposal = proposals
         .get(proposal_id)
-        .ok_or_else(|| anyhow!("nanda.consensus: proposal '{}' not found", proposal_id))?;
+        .ok_or_else(|| crate::safety::not_found("nanda.consensus", "proposal", proposal_id))?;
     let threshold = proposal
         .get("threshold")
         .and_then(|v| v.as_float().ok())
@@ -33042,9 +33050,10 @@ fn bi_nanda_quorum(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .map_err(|_| crate::safety::arg_err("nanda.quorum: proposal_id must be a string"))?;
     let proposals = NANDA_PROPOSALS.read().unwrap();
     if !proposals.contains_key(proposal_id) {
-        return Err(anyhow!(
-            "nanda.quorum: proposal '{}' not found",
-            proposal_id
+        return Err(crate::safety::not_found(
+            "nanda.quorum",
+            "proposal",
+            proposal_id,
         ));
     }
     let registry = A2A_REGISTRY.read().unwrap();
@@ -33415,7 +33424,8 @@ fn bi_code_parse(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
         .ok_or_else(|| crate::safety::arg_err("file path required"))?;
-    let content = std::fs::read_to_string(&file)?;
+    let content = std::fs::read_to_string(&file)
+        .map_err(|e| crate::safety::fs_error("code_parse", &file, &e))?;
     let lines = content.lines().count();
     let mut result = BTreeMap::new();
     result.insert("path".to_string(), Value::Str(file));
@@ -33430,7 +33440,8 @@ fn bi_code_symbols(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
         .ok_or_else(|| crate::safety::arg_err("file path required"))?;
-    let content = std::fs::read_to_string(&file)?;
+    let content = std::fs::read_to_string(&file)
+        .map_err(|e| crate::safety::fs_error("code_symbols", &file, &e))?;
     let mut symbols = Vec::new();
     for (i, line) in content.lines().enumerate() {
         let trimmed = line.trim();
@@ -33474,7 +33485,8 @@ fn bi_code_imports(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
         .ok_or_else(|| crate::safety::arg_err("file path required"))?;
-    let content = std::fs::read_to_string(&file)?;
+    let content = std::fs::read_to_string(&file)
+        .map_err(|e| crate::safety::fs_error("code_imports", &file, &e))?;
     let imports: Vec<Value> = content
         .lines()
         .filter(|l| {
@@ -33494,7 +33506,8 @@ fn bi_code_exports(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
         .ok_or_else(|| crate::safety::arg_err("file path required"))?;
-    let content = std::fs::read_to_string(&file)?;
+    let content = std::fs::read_to_string(&file)
+        .map_err(|e| crate::safety::fs_error("code_exports", &file, &e))?;
     let exports: Vec<Value> = content
         .lines()
         .filter(|l| l.trim().starts_with("pub ") || l.trim().starts_with("export "))
@@ -33586,7 +33599,8 @@ fn bi_code_comments(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
         .ok_or_else(|| crate::safety::arg_err("file path required"))?;
-    let content = std::fs::read_to_string(&file)?;
+    let content = std::fs::read_to_string(&file)
+        .map_err(|e| crate::safety::fs_error("code_comments", &file, &e))?;
     let comments: Vec<Value> = content
         .lines()
         .enumerate()
@@ -33610,7 +33624,8 @@ fn bi_code_todos(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
         .ok_or_else(|| crate::safety::arg_err("file path required"))?;
-    let content = std::fs::read_to_string(&file)?;
+    let content = std::fs::read_to_string(&file)
+        .map_err(|e| crate::safety::fs_error("code_todos", &file, &e))?;
     let todos: Vec<Value> = content
         .lines()
         .enumerate()
@@ -34336,7 +34351,8 @@ fn bi_refactor_organize_imports(args: Vec<Value>, _input: Option<Value>) -> Resu
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
         .ok_or_else(|| crate::safety::arg_err("file required"))?;
-    let content = std::fs::read_to_string(&file)?;
+    let content = std::fs::read_to_string(&file)
+        .map_err(|e| crate::safety::fs_error("refactor_organize_imports", &file, &e))?;
     let mut imports: Vec<&str> = content.lines().filter(|l| l.starts_with("use ")).collect();
     imports.sort();
     Ok(Value::Array(
@@ -35859,7 +35875,8 @@ fn bi_platform_db_load(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         return Ok(Value::Null);
     }
 
-    let content = std::fs::read_to_string(&db_path)?;
+    let content = std::fs::read_to_string(&db_path)
+        .map_err(|e| crate::safety::fs_error("platform_db_load", &db_path, &e))?;
     let db: serde_json::Map<String, serde_json::Value> =
         serde_json::from_str(&content).unwrap_or_default();
 
@@ -35875,7 +35892,8 @@ fn bi_platform_db_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value
         return Ok(Value::Array(vec![]));
     }
 
-    let content = std::fs::read_to_string(&db_path)?;
+    let content = std::fs::read_to_string(&db_path)
+        .map_err(|e| crate::safety::fs_error("platform_db_list", &db_path, &e))?;
     let db: serde_json::Map<String, serde_json::Value> =
         serde_json::from_str(&content).unwrap_or_default();
 
@@ -35901,7 +35919,8 @@ fn bi_platform_db_delete(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
         return Ok(Value::Bool(false));
     }
 
-    let content = std::fs::read_to_string(&db_path)?;
+    let content = std::fs::read_to_string(&db_path)
+        .map_err(|e| crate::safety::fs_error("platform_db_delete", &db_path, &e))?;
     let mut db: serde_json::Map<String, serde_json::Value> =
         serde_json::from_str(&content).unwrap_or_default();
 
@@ -35929,7 +35948,8 @@ fn bi_platform_db_export(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
         return Ok(Value::Str("{}".to_string()));
     }
 
-    let content = std::fs::read_to_string(&db_path)?;
+    let content = std::fs::read_to_string(&db_path)
+        .map_err(|e| crate::safety::fs_error("platform_db_export", &db_path, &e))?;
 
     if let Some(path) = file_path {
         std::fs::write(path, &content)?;
@@ -35944,7 +35964,8 @@ fn bi_platform_db_import(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
 
     // Check if it's a file path or JSON string
     let content = if std::path::Path::new(source).exists() {
-        std::fs::read_to_string(source)?
+        std::fs::read_to_string(source)
+            .map_err(|e| crate::safety::fs_error("platform_db_import", &source, &e))?
     } else {
         source.to_string()
     };
@@ -42947,7 +42968,11 @@ fn bi_cloud_deploy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .read()
             .map_err(|e| anyhow!("lock error: {}", e))?;
         if !instances.contains_key(iid) {
-            return Err(anyhow!("cloud instance '{}' not found", iid));
+            return Err(crate::safety::not_found(
+                "",
+                "cloud instance",
+                &iid.to_string(),
+            ));
         }
     }
 
@@ -43136,7 +43161,11 @@ fn bi_cloud_instance_destroy(args: Vec<Value>, _input: Option<Value>) -> Result<
         );
         Ok(Value::Record(rec))
     } else {
-        Err(anyhow!("cloud instance '{}' not found", id))
+        Err(crate::safety::not_found(
+            "",
+            "cloud instance",
+            &id.to_string(),
+        ))
     }
 }
 
@@ -43177,7 +43206,11 @@ fn bi_cloud_instance_status(args: Vec<Value>, _input: Option<Value>) -> Result<V
         rec.insert("owner".to_string(), Value::Str(inst.owner.clone()));
         Ok(Value::Record(rec))
     } else {
-        Err(anyhow!("cloud instance '{}' not found", id))
+        Err(crate::safety::not_found(
+            "",
+            "cloud instance",
+            &id.to_string(),
+        ))
     }
 }
 
@@ -43225,7 +43258,11 @@ fn bi_cloud_instance_connect(args: Vec<Value>, _input: Option<Value>) -> Result<
         rec.insert("status".to_string(), Value::Str("connected".to_string()));
         Ok(Value::Record(rec))
     } else {
-        Err(anyhow!("cloud instance '{}' not found", id))
+        Err(crate::safety::not_found(
+            "",
+            "cloud instance",
+            &id.to_string(),
+        ))
     }
 }
 
@@ -43538,7 +43575,11 @@ fn bi_repl_disconnect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
         );
         Ok(Value::Record(rec))
     } else {
-        Err(anyhow!("REPL session '{}' not found", id))
+        Err(crate::safety::not_found(
+            "",
+            "repl session",
+            &id.to_string(),
+        ))
     }
 }
 
@@ -43708,7 +43749,11 @@ fn bi_workspace_join(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         rec.insert("status".to_string(), Value::Str("joined".to_string()));
         Ok(Value::Record(rec))
     } else {
-        Err(anyhow!("workspace '{}' not found", ws_id))
+        Err(crate::safety::not_found(
+            "",
+            "workspace",
+            &ws_id.to_string(),
+        ))
     }
 }
 
@@ -43745,7 +43790,11 @@ fn bi_workspace_leave(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
         rec.insert("status".to_string(), Value::Str("left".to_string()));
         Ok(Value::Record(rec))
     } else {
-        Err(anyhow!("workspace '{}' not found", ws_id))
+        Err(crate::safety::not_found(
+            "",
+            "workspace",
+            &ws_id.to_string(),
+        ))
     }
 }
 
@@ -43777,7 +43826,11 @@ fn bi_workspace_members(args: Vec<Value>, _input: Option<Value>) -> Result<Value
             .collect();
         Ok(Value::Array(members))
     } else {
-        Err(anyhow!("workspace '{}' not found", ws_id))
+        Err(crate::safety::not_found(
+            "",
+            "workspace",
+            &ws_id.to_string(),
+        ))
     }
 }
 
@@ -43822,7 +43875,11 @@ fn bi_workspace_share_agent(args: Vec<Value>, _input: Option<Value>) -> Result<V
         );
         Ok(Value::Record(rec))
     } else {
-        Err(anyhow!("workspace '{}' not found", ws_id))
+        Err(crate::safety::not_found(
+            "",
+            "workspace",
+            &ws_id.to_string(),
+        ))
     }
 }
 
@@ -43848,7 +43905,11 @@ fn bi_workspace_agents(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
             .collect();
         Ok(Value::Array(agents))
     } else {
-        Err(anyhow!("workspace '{}' not found", ws_id))
+        Err(crate::safety::not_found(
+            "",
+            "workspace",
+            &ws_id.to_string(),
+        ))
     }
 }
 
@@ -43885,7 +43946,11 @@ fn bi_workspace_sync(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         );
         Ok(Value::Record(rec))
     } else {
-        Err(anyhow!("workspace '{}' not found", ws_id))
+        Err(crate::safety::not_found(
+            "",
+            "workspace",
+            &ws_id.to_string(),
+        ))
     }
 }
 
@@ -44247,7 +44312,7 @@ fn bi_marketplace_uninstall(args: Vec<Value>, _input: Option<Value>) -> Result<V
         );
         Ok(Value::Record(rec))
     } else {
-        Err(anyhow!("package '{}' not found", name))
+        Err(crate::safety::not_found("", "package", &name.to_string()))
     }
 }
 
@@ -44395,7 +44460,7 @@ fn bi_marketplace_update(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
             );
             Ok(Value::Record(rec))
         } else {
-            Err(anyhow!("package '{}' not found", name))
+            Err(crate::safety::not_found("", "package", &name.to_string()))
         }
     } else {
         // Update all installed
@@ -45358,7 +45423,7 @@ fn eval_jq_expr(expr: &str, data: &serde_json::Value) -> Result<serde_json::Valu
                 if !obj_key.is_empty() {
                     current = current
                         .get(obj_key)
-                        .ok_or_else(|| anyhow!("Key '{}' not found", obj_key))?;
+                        .ok_or_else(|| crate::safety::not_found("", "key", obj_key))?;
                 }
                 if let Ok(idx) = idx_str.parse::<usize>() {
                     current = current
@@ -45368,7 +45433,7 @@ fn eval_jq_expr(expr: &str, data: &serde_json::Value) -> Result<serde_json::Valu
             } else {
                 current = current
                     .get(key)
-                    .ok_or_else(|| anyhow!("Key '{}' not found", key))?;
+                    .ok_or_else(|| crate::safety::not_found("", "key", key))?;
             }
         }
         return Ok(current.clone());

@@ -379,12 +379,12 @@ reading of the output. A benchmark is not trustworthy because its numbers
 favour the party who wrote it — it is trustworthy because its failure modes
 have been looked for in both directions.
 
-(AetherShell's own row moved over this work: the mean grew from 141 to 151
-bytes as four new codes carried more of the diagnosis in the message, and
-**distinct exit statuses went 7/10 to 8/10** -- a path refused for traversal
-now exits `EX_NOPERM` rather than a generic 1, because `validate_safe_path`
-stopped returning bare prose. That is the free pre-parse signal this document
-argues for, earned rather than asserted.)
+(AetherShell's own row moved over this work: **distinct exit statuses went
+7/10 to 9/10**, because `validate_safe_path` stopped returning bare prose — a
+traversal now exits `EX_NOPERM` and a missing file `EX_NOINPUT`, rather than
+both exiting a generic 1. Mean bytes went 141 → 146. That is the free
+pre-parse signal this document argues for, earned rather than asserted, and
+it came out of fixing errors rather than out of trying to move the score.)
 
 > **The 10/10 did not generalise when we first checked, and that is the part
 > worth reading.** Ten failures chosen to be representative prove something
@@ -492,6 +492,37 @@ argues for, earned rather than asserted.)
 >
 > `E_UNKNOWN` still exists — it is the boundary's guarantee that nothing
 > escapes as bare prose — but nothing in the catalogue reaches it.
+>
+> **And that claim is narrower than it sounds, which we found by testing it.**
+> One probe per builtin measures one thing: whether a builtin's *first*
+> failure is coded. A builtin that rejects a nonsense argument on type never
+> reaches its path handling at all.
+>
+> `cat("")` found the gap. The sweep probes `cat({unexpected: true})`, which
+> fails on the type; an empty string gets past that and into
+> `validate_safe_path` — which returned bare prose for **every** refusal,
+> including path traversal. The containment boundary, the single most
+> important thing for an agent to be able to branch on, was the least legible
+> thing the shell said.
+>
+> So `benches/agentic/uncoded-paths.mjs` is the same question one layer down:
+> every builtin handed a well-formed path that does not exist, which is the
+> commonest failure any shell has.
+>
+> | | first failure | second failure |
+> | --- | ---: | ---: |
+> | uncoded, before | 157 (14.9%) | 54 (5.1%) |
+> | uncoded, now | **0** | **27 (2.6%)** |
+>
+> The remaining 27 are individual conditions, not one class — a plugin
+> manifest, a REPL session, an unknown activation function. `E_NOT_FOUND`
+> covers 28 of the ones that used to be unknown, `E_OUTSIDE_WORKSPACE`
+> finally has a constructor, and `E_IO` names the filesystem failures that
+> are neither absence nor refusal.
+>
+> The honest statement is therefore two numbers, not one: **no builtin's
+> first failure is uncoded, and 2.6% of second failures still are.** A
+> benchmark that reported only the first would be measuring its own probe.
 >
 > A further finding came from the sweep's own conduct rather than its results.
 > One run was made against an `ae` binary five days older than `src/`, and it

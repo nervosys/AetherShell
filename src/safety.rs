@@ -1184,6 +1184,15 @@ pub enum ErrorCode {
     /// that means unidentifiable. The status is now carried, and an empty
     /// stderr is stated rather than rendered as silence.
     ToolFailed,
+    /// A filesystem operation failed for a reason that is neither
+    /// absence nor a refusal: the disk is full, the handle is bad, the
+    /// device is gone.
+    ///
+    /// Absence is `NotFound` and a refusal is `PolicyDeny`; this is the
+    /// rest of `io::ErrorKind`, which is identified even when it is not
+    /// actionable. `Unknown` would say the shell has no idea what
+    /// happened, and it does.
+    Io,
     /// A failure that reached the boundary without a specific code. The message
     /// is whatever the builtin produced; treat it as opaque and **not**
     /// retryable — an agent that cannot identify the fault should stop rather
@@ -1208,6 +1217,7 @@ impl ErrorCode {
             ErrorCode::BadState => "E_BAD_STATE",
             ErrorCode::NotFound => "E_NOT_FOUND",
             ErrorCode::ToolFailed => "E_TOOL_FAILED",
+            ErrorCode::Io => "E_IO",
             ErrorCode::Unknown => "E_UNKNOWN",
         }
     }
@@ -1239,6 +1249,9 @@ impl ErrorCode {
             // method's contract: an agent that wants to retry after fixing
             // the environment can, but nothing here promises it will help.
             ErrorCode::ToolFailed => false,
+            // The disk does not get less full because the call was made
+            // twice.
+            ErrorCode::Io => false,
             ErrorCode::PolicyDeny | ErrorCode::BudgetExceeded | ErrorCode::Unknown => false,
         }
     }
@@ -1282,6 +1295,8 @@ impl ErrorCode {
             ErrorCode::NotFound => 66,
             // EX_PROTOCOL -- issued out of sequence.
             ErrorCode::BadState => 76,
+            // EX_IOERR.
+            ErrorCode::Io => 74,
             ErrorCode::Unknown => 1,
         }
     }
@@ -1458,6 +1473,73 @@ pub fn spawn_error(builtin: &str, tool: &str, e: &std::io::Error) -> anyhow::Err
         expected: format!("`{tool}` to start"),
         got: e.kind().to_string(),
     })
+}
+
+/// Build a structured "that path is outside the workspace" error
+/// (`E_OUTSIDE_WORKSPACE`).
+///
+/// The code existed from the start and had no constructor, so the one place
+/// that actually detects the condition -- `security::validate_safe_path` --
+/// reported it as bare prose and it arrived as `E_UNKNOWN`. The containment
+/// boundary is the single most important thing for an agent to be able to
+/// branch on, and it was the least legible.
+pub fn outside_workspace(builtin: &str, path: &str) -> anyhow::Error {
+    anyhow::Error::new(SafetyError {
+        code: ErrorCode::OutsideWorkspace,
+        message: format!("{builtin}: `{path}` is outside the workspace"),
+        builtin: builtin.to_string(),
+        hint: "work inside the workspace root, or start the shell with a \
+               wider --workspace"
+            .to_string(),
+        approval: None,
+        did_you_mean: Vec::new(),
+        expected: "a path inside the workspace".to_string(),
+        got: path.to_string(),
+    })
+}
+
+/// Classify a filesystem failure.
+///
+/// The counterpart to [`spawn_error`], and found the same way: the
+/// catalogue sweep probes each builtin once, so it never reaches a second
+/// failure path. A second sweep -- every builtin handed a well-formed path
+/// that does not exist -- found 54 builtins answering `E_UNKNOWN`, nine of
+/// them with nothing but `No such file or directory (os error 2)`.
+///
+/// A missing file is the commonest failure any shell has, and it was the
+/// one code an agent is told not to reason about.
+/// `path` is `impl AsRef<Path>` because call sites hold a `String`, a
+/// `PathBuf` or a `&str` depending on whether the path has been through
+/// `validate_read_path` yet, and a uniform signature beats 36 conversions.
+pub fn fs_error(
+    builtin: &str,
+    path: impl AsRef<std::path::Path>,
+    e: &std::io::Error,
+) -> anyhow::Error {
+    let path = path.as_ref().display().to_string();
+    let path = path.as_str();
+    match e.kind() {
+        std::io::ErrorKind::NotFound => not_found(builtin, "file", path),
+        // The OS refused, not our policy -- but the shape is the same: no
+        // correction to the call will help.
+        std::io::ErrorKind::PermissionDenied => policy_deny(
+            builtin,
+            format!("{builtin}: the operating system denied access to `{path}`"),
+            "check the file's permissions and owner; the shell did not refuse this",
+        ),
+        _ => anyhow::Error::new(SafetyError {
+            code: ErrorCode::Io,
+            message: format!("{builtin}: cannot read `{path}`: {e}"),
+            builtin: builtin.to_string(),
+            hint: "a filesystem failure that is neither absence nor a \
+                   permission refusal; the message names the condition"
+                .to_string(),
+            approval: None,
+            did_you_mean: Vec::new(),
+            expected: format!("`{path}` to be readable"),
+            got: e.kind().to_string(),
+        }),
+    }
 }
 
 pub fn bad_arg(builtin: &str, expected: &str, got: &str) -> anyhow::Error {

@@ -485,28 +485,18 @@ pub fn validate_safe_path(path: &str) -> Result<PathBuf> {
     }
 
     if !is_within_allowed {
-        // MED-007 FIX: Sanitize error message to prevent information disclosure
-        // In debug mode, show details; in production, use generic message
-        if cfg!(debug_assertions) {
-            return Err(anyhow!(
-                "Access denied: path '{}' is outside allowed directories\n\
-                 Canonical path: {:?}\n\
-                 Allowed bases: {:?}\n\
-                 This is a security restriction to prevent path traversal attacks.",
-                sanitize_path_in_error(path),
-                sanitize_path_in_error(&canonical.display().to_string()),
-                allowed_bases
-                    .iter()
-                    .map(|p| sanitize_path_in_error(&p.display().to_string()))
-                    .collect::<Vec<_>>()
-            ));
-        } else {
-            // Production: Generic error without internal paths
-            return Err(anyhow!(
-                "Access denied: path is outside allowed directories.\n\
-                 This is a security restriction to prevent path traversal attacks."
-            ));
-        }
+        // MED-007: the message must not disclose internal paths. This was two
+        // arms of `cfg!(debug_assertions)` saying the same thing in prose --
+        // and the debug arm listed the canonical path and every allowed base,
+        // which is exactly the detail the release arm exists to withhold.
+        // Both arrived as `E_UNKNOWN`, so the containment boundary, the single
+        // most important thing for an agent to branch on, was the least
+        // legible thing the shell said. The structured error carries only the
+        // path the caller already named, so there is one arm.
+        return Err(crate::safety::outside_workspace(
+            "",
+            &sanitize_path_in_error(path),
+        ));
     }
 
     Ok(canonical)

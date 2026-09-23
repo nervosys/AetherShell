@@ -65,8 +65,17 @@ fn reset() {
 fn an_uncoded_failure_still_arrives_with_a_code() {
     let _l = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     reset();
-    // `cat` on a missing path fails deep inside path validation with plain prose.
-    let err = caught("cat", vec![s("no_such_file_ae_self_healing.txt")]);
+    // This used `cat` on a missing path as its example, because that failed
+    // deep inside path validation with plain prose. It does not any more --
+    // it is `E_NOT_FOUND` now -- and a test pinned to whichever builtin
+    // happens to be uncoded today gets invalidated by every improvement. The
+    // net is what this test is about, so drive the net.
+    let bare = anyhow::anyhow!("something went wrong in a way nobody classified");
+    let netted = aethershell::safety::ensure_structured("some_builtin", bare);
+    let err = match netted.downcast_ref::<aethershell::safety::SafetyError>() {
+        Some(se) => Value::from_json(&se.to_json()),
+        None => panic!("the boundary let a bare error through: {netted}"),
+    };
     assert_eq!(field(&err, &["error", "code"]), &s("E_UNKNOWN"));
     // An unidentified fault must NOT invite a retry — retrying spends budget
     // without changing anything.
@@ -80,6 +89,17 @@ fn an_uncoded_failure_still_arrives_with_a_code() {
         Value::Str(m) => assert!(!m.is_empty(), "original message was discarded"),
         other => panic!("message not a string: {other:?}"),
     }
+
+    // And the case this test used to rely on must not slide back. A missing
+    // file is the commonest failure a shell has; it answered `E_UNKNOWN` --
+    // the one code an agent is told not to reason about -- until `fs_error`
+    // classified it.
+    let missing = caught("cat", vec![s("no_such_file_ae_self_healing.txt")]);
+    assert_eq!(
+        field(&missing, &["error", "code"]),
+        &s("E_NOT_FOUND"),
+        "a missing file is identifiable, and must not go back to E_UNKNOWN"
+    );
 }
 
 /// A specific code must never be downgraded to `E_UNKNOWN` by the net.
