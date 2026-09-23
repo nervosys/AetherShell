@@ -559,8 +559,18 @@ impl Span {
         self.end_time = Some(current_timestamp_micros());
     }
 
+    /// Elapsed microseconds, or the time so far if the span is still open.
+    ///
+    /// `saturating_sub` because `current_timestamp_micros` reads
+    /// `SystemTime`, which is **not monotonic**: an NTP step backwards
+    /// during a span makes `end_time < start_time`, and a plain `-` then
+    /// panics in debug and wraps to ~18 quintillion microseconds in
+    /// release. A clock adjustment should cost a span its duration, not the
+    /// process.
     pub fn duration_micros(&self) -> u64 {
-        self.end_time.unwrap_or_else(current_timestamp_micros) - self.start_time
+        self.end_time
+            .unwrap_or_else(current_timestamp_micros)
+            .saturating_sub(self.start_time)
     }
 }
 
@@ -734,7 +744,14 @@ impl Dashboard {
     }
 
     pub fn get_history(&self, duration_secs: u64) -> Vec<PerformanceSnapshot> {
-        let cutoff = current_timestamp_micros() - (duration_secs * 1_000_000);
+        // Saturating throughout: `get_history(u64::MAX)` is a reasonable way
+        // to ask for everything, and `duration_secs * 1_000_000` overflows
+        // long before that -- then the subtraction underflows, and both panic
+        // in debug. Asking for more history than exists should return all of
+        // it, not abort the process. Same non-monotonic hazard as
+        // `Span::duration_micros`.
+        let window = duration_secs.saturating_mul(1_000_000);
+        let cutoff = current_timestamp_micros().saturating_sub(window);
         self.snapshots
             .read()
             .map(|s| {
@@ -1357,9 +1374,50 @@ mod tests {
         span.end();
 
         assert!(span.end_time.is_some());
-        assert!(span.duration_micros() > 0);
         assert_eq!(span.attributes.get("key"), Some(&"value".to_string()));
         assert_eq!(span.events.len(), 1);
+
+        // This used to assert `duration_micros() > 0`, which is a race
+        // against the clock's resolution rather than a test of anything:
+        // the span above does a few map inserts, finishes well inside one
+        // microsecond, and the subtraction yields 0. It failed on a macOS
+        // runner while the same commit passed on Linux and Windows.
+        //
+        // What the accessor actually promises is `end - start`, so set both
+        // and check the arithmetic. No clock, no flake.
+        span.start_time = 1_000;
+        span.end_time = Some(1_250);
+        assert_eq!(span.duration_micros(), 250);
+
+        // And it must not blow up when the clock steps backwards mid-span.
+        span.end_time = Some(900);
+        assert_eq!(
+            span.duration_micros(),
+            0,
+            "a backwards clock should cost the span its duration, not panic"
+        );
+    }
+
+    /// Asking for more history than exists must return what there is.
+    ///
+    /// `get_history` computed `now - duration_secs * 1_000_000` in `u64`.
+    /// Both halves overflow: the multiply wraps for any `duration_secs` above
+    /// ~18 trillion, and the subtraction underflows whenever the window is
+    /// wider than the epoch. In debug both panic, so a caller asking for
+    /// "everything" aborted the process; in release it wrapped to a cutoff in
+    /// the far future and returned nothing, which is the quieter of the two
+    /// and the worse.
+    #[test]
+    fn asking_for_more_history_than_exists_returns_what_there_is() {
+        let m = Dashboard::new(Arc::new(MetricsRegistry::new()));
+        assert!(
+            m.get_history(u64::MAX).is_empty(),
+            "no snapshots recorded, so nothing to return -- but it must not panic"
+        );
+        // A window just wide enough to underflow the epoch, and one just wide
+        // enough to overflow the multiply: the two failures are separate.
+        let _ = m.get_history(u64::MAX / 1_000_000);
+        let _ = m.get_history(u64::MAX / 999_999);
     }
 
     #[test]
