@@ -273,3 +273,61 @@ fn a_bounded_shell_out_still_returns_everything_it_printed() {
         }
     }
 }
+
+/// A builtin that does nothing must not report it as an ordinary `false`.
+///
+/// Nine builtins in the catalogue were `fn(_args, _input) -> Ok(Bool(false))`:
+/// they ignored their arguments entirely and always answered "no". An agent
+/// calling `user_lock("alice")` got `false` at exit 0, which is
+/// indistinguishable from "the lock failed" — so it might retry, or route
+/// around, or believe the account was already locked. The truth was that
+/// AetherShell does not implement account locking at all, while the ontology
+/// listed it as a callable capability.
+///
+/// Found by `benches/agentic/silent-success.mjs`, which asks a question the
+/// uncoded sweeps do not: of the builtins that ANSWER a nonsense argument,
+/// which answer with a value carrying no information?
+#[test]
+fn an_unimplemented_builtin_says_so_rather_than_returning_false() {
+    let jail = std::env::temp_dir().join(format!("ae_stub_{}", std::process::id()));
+    std::fs::create_dir_all(&jail).expect("create jail");
+
+    for name in [
+        "user_lock",
+        "user_unlock",
+        "cron_enable",
+        "cron_disable",
+        "at_remove",
+        "acl_set",
+        "session_undo",
+        "session_redo",
+        "net_send",
+    ] {
+        let mut env = aethershell::env::Env::new();
+        let r = aethershell::builtins::call_with_input(
+            name,
+            vec![aethershell::value::Value::Str("anything".to_string())],
+            None,
+            &mut env,
+        );
+        match r {
+            Ok(v) => panic!("{name} answered {v:?} instead of saying it is not implemented"),
+            Err(e) => {
+                let s = e.to_string();
+                assert!(
+                    s.contains("E_UNIMPLEMENTED"),
+                    "{name} should be E_UNIMPLEMENTED; got: {s}"
+                );
+                // The safety consequence has to be in the message, not the
+                // hint: "nothing was changed" is the part that stops an agent
+                // assuming the effect happened.
+                assert!(
+                    s.contains("NOTHING WAS CHANGED"),
+                    "{name} must say the effect did not happen: {s}"
+                );
+            }
+        }
+    }
+
+    let _ = std::fs::remove_dir_all(&jail);
+}

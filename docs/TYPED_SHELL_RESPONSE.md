@@ -527,10 +527,45 @@ it came out of fixing errors rather than out of trying to move the score.)
 > and `E_IO` names the filesystem failures that are neither absence nor
 > refusal.
 >
-> **Both probes now report zero.** That is two independent questions answered,
-> not one answered twice, and there is no reason to think a third probe would
-> find nothing — only that we have not built it yet. A sweep measures the
-> failures it provokes.
+> **Both probes report zero.** That is two independent questions answered, not
+> one answered twice — and a third probe did find something, which is the
+> point of saying so.
+>
+> **The failures that exit 0.** `errors.mjs` reports, for every engine,
+> "failures that exited 0 — an agent checking status alone sees success". We
+> apply that test to other shells and had never applied it to ourselves. Both
+> sweeps report a number they pass over without comment: **461 builtins
+> accepted the nonsense argument and answered.**
+>
+> `benches/agentic/silent-success.mjs` asks what they answered *with*. 148 of
+> them returned a value carrying no information — `null`, `false`, `[]`, `0`
+> — which is where a silent failure hides. Reading them:
+>
+> ```
+> fn bi_zip_create(args, _) -> Result<Value> {
+>     let archive = match args.first() {
+>         Some(Value::Str(s)) => s.clone(),
+>         _ => return Ok(Value::Bool(false)),   // exit 0. No archive.
+> ```
+>
+> That is the same shape as `db_json_to_sqlite("x") -> false, exit 0`, one of
+> the six defects that motivated `src/signature.rs` in the first place — still
+> present in 173 argument arms. They now refuse.
+>
+> **And nine builtins were not implemented at all.** `user_lock`,
+> `cron_enable`, `acl_set`, `session_undo` and five others were
+> `fn(_args, _input) -> Ok(Bool(false))`: they ignored their arguments and
+> always answered "no", while the ontology listed them as callable. An agent
+> told `false` may retry, route around, or conclude the account was already
+> locked. The truth was that the shell does not do it. They now answer
+> `E_UNIMPLEMENTED` and say NOTHING WAS CHANGED.
+>
+> Suspects: **148 → 79**, and the `false` group **65 → 13** — of which five
+> (`is_windows`, `is_macos`, `is_bsd`, `is_error`, `env_container`) are
+> predicates correctly answering "no" on this host. This probe reports
+> suspects, not defects: there is no oracle for "should this have failed?",
+> and every hit needs reading. A count of suspects is not a count of bugs,
+> and saying otherwise would be the same error as quoting the edit count.
 >
 > A further finding came from the sweep's own conduct rather than its results.
 > One run was made against an `ae` binary five days older than `src/`, and it

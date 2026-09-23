@@ -20595,7 +20595,13 @@ fn bi_proc_kill(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let pid = match args.first() {
         Some(Value::Int(p)) => *p,
         Some(Value::Str(s)) => s.parse().unwrap_or(0),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "proc_kill",
+                "Int or String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let signal = args
         .get(1)
@@ -20651,7 +20657,13 @@ fn bi_proc_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let pid = match args.first() {
         Some(Value::Int(p)) => *p,
         Some(Value::Str(s)) => s.parse().unwrap_or(0),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "proc_info",
+                "Int or String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     #[cfg(target_os = "windows")]
@@ -20738,7 +20750,13 @@ fn bi_proc_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_proc_spawn(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let cmd = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "proc_spawn",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     // Security: reject null bytes and validate command length
@@ -20795,7 +20813,13 @@ fn bi_proc_spawn(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_proc_wait(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let pid = match args.first() {
         Some(Value::Int(p)) => *p as u32,
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "proc_wait",
+                "Int",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let timeout_ms = args
         .get(1)
@@ -20839,7 +20863,13 @@ fn bi_proc_exists(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let pid = match args.first() {
         Some(Value::Int(p)) => *p,
         Some(Value::Str(s)) => s.parse().unwrap_or(0),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "proc_exists",
+                "Int or String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     #[cfg(target_os = "windows")]
@@ -20868,7 +20898,13 @@ fn bi_proc_exists(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_proc_children(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let pid = match args.first() {
         Some(Value::Int(p)) => *p,
-        _ => return Ok(Value::Array(vec![])),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "proc_children",
+                "Int",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     #[cfg(target_os = "windows")]
@@ -20919,7 +20955,13 @@ fn bi_proc_children(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_proc_parent(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let pid = match args.first() {
         Some(Value::Int(p)) => *p,
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "proc_parent",
+                "Int",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     #[cfg(target_os = "windows")]
@@ -20971,7 +21013,13 @@ fn bi_proc_parent(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_proc_priority(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let pid = match args.first() {
         Some(Value::Int(p)) => *p,
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "proc_priority",
+                "Int",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     // Returns a consistent Record {nice: Int, class: String} on all platforms
@@ -21030,12 +21078,24 @@ fn bi_proc_priority(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_proc_set_priority(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let pid = match args.first() {
         Some(Value::Int(p)) => *p,
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "proc_set_priority",
+                "Int",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let priority = match args.get(1) {
         Some(Value::Int(p)) => *p,
         Some(Value::Str(s)) => s.parse().unwrap_or(0),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "proc_set_priority",
+                "Int or String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     // Security: validate integer parameters before shell interpolation
@@ -21113,7 +21173,13 @@ fn bi_proc_cpu_usage(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_proc_mem_usage(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let pid = match args.first() {
         Some(Value::Int(p)) => *p,
-        _ => return Ok(Value::Int(0)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "proc_mem_usage",
+                "Int",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     #[cfg(target_os = "windows")]
@@ -21151,7 +21217,13 @@ fn bi_proc_mem_usage(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_proc_threads(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let pid = match args.first() {
         Some(Value::Int(p)) => *p,
-        _ => return Ok(Value::Int(0)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "proc_threads",
+                "Int",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     #[cfg(target_os = "windows")]
@@ -21261,7 +21333,13 @@ fn bi_proc_env(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_proc_cwd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let pid = match args.first() {
         Some(Value::Int(p)) => *p,
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "proc_cwd",
+                "Int",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     #[cfg(target_os = "windows")]
@@ -21297,7 +21375,13 @@ fn bi_proc_cwd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_proc_exe(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let pid = match args.first() {
         Some(Value::Int(p)) => *p,
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "proc_exe",
+                "Int",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     #[cfg(target_os = "windows")]
@@ -21338,7 +21422,13 @@ fn bi_proc_exe(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_proc_cmdline(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let pid = match args.first() {
         Some(Value::Int(p)) => *p,
-        _ => return Ok(Value::Array(vec![])),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "proc_cmdline",
+                "Int",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     // Always returns Array<String> on all platforms
@@ -21395,7 +21485,13 @@ fn bi_proc_cmdline(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_proc_start_time(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let pid = match args.first() {
         Some(Value::Int(p)) => *p,
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "proc_start_time",
+                "Int",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     #[cfg(target_os = "windows")]
@@ -21429,7 +21525,13 @@ fn bi_proc_start_time(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 fn bi_proc_suspend(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let pid = match args.first() {
         Some(Value::Int(p)) => *p,
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "proc_suspend",
+                "Int",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     #[cfg(target_os = "windows")]
@@ -21450,7 +21552,13 @@ fn bi_proc_suspend(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_proc_resume(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let pid = match args.first() {
         Some(Value::Int(p)) => *p,
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "proc_resume",
+                "Int",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     #[cfg(target_os = "windows")]
@@ -21474,7 +21582,13 @@ fn bi_proc_resume(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_fs_stat(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "fs_stat",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     if let Ok(meta) = std::fs::metadata(&path) {
@@ -21533,7 +21647,13 @@ fn bi_fs_stat(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_fs_lstat(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "fs_lstat",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     if let Ok(meta) = std::fs::symlink_metadata(&path) {
@@ -21553,7 +21673,13 @@ fn bi_fs_lstat(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_fs_chmod(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "fs_chmod",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let mode = match args.get(1) {
         Some(Value::Int(m)) => *m as u32,
@@ -21561,7 +21687,13 @@ fn bi_fs_chmod(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             u32::from_str_radix(s.trim_start_matches("0o").trim_start_matches("0"), 8)
                 .unwrap_or(0o644)
         }
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "fs_chmod",
+                "Int or String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     #[cfg(unix)]
@@ -21592,11 +21724,23 @@ fn bi_fs_chmod(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_fs_chown(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "fs_chown",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let uid = match args.get(1) {
         Some(Value::Int(u)) => *u,
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "fs_chown",
+                "Int",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let gid = match args.get(2) {
         Some(Value::Int(g)) => *g,
@@ -21627,11 +21771,23 @@ fn bi_fs_chown(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_fs_link(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let src = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "fs_link",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let dst = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "fs_link",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     Ok(Value::Bool(std::fs::hard_link(&src, &dst).is_ok()))
@@ -21640,11 +21796,23 @@ fn bi_fs_link(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_fs_symlink(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let src = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "fs_symlink",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let dst = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "fs_symlink",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     #[cfg(unix)]
@@ -21669,7 +21837,13 @@ fn bi_fs_symlink(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_fs_readlink(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "fs_readlink",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     if let Ok(target) = std::fs::read_link(&path) {
@@ -21681,7 +21855,13 @@ fn bi_fs_readlink(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_fs_realpath(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "fs_realpath",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     if let Ok(real) = std::fs::canonicalize(&path) {
@@ -21754,7 +21934,13 @@ fn bi_fs_unwatch(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_fs_glob(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let pattern = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Array(vec![])),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "fs_glob",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     // Simple glob implementation
@@ -22331,7 +22517,13 @@ fn bi_net_ip(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_net_dns_lookup(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let hostname = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Array(vec![])),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "net_dns_lookup",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     // Security: validate hostname to prevent command injection
@@ -22390,7 +22582,13 @@ fn bi_net_dns_lookup(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_net_dns_reverse(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let ip = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "net_dns_reverse",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     // Security: validate IP to prevent command injection
@@ -22516,7 +22714,13 @@ fn parse_ping_output(text: &str, host: &str) -> Value {
 fn bi_net_ping(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let host = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "net_ping",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     // Security: validate host to prevent command injection
@@ -22553,7 +22757,13 @@ fn bi_net_ping(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_net_traceroute(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let host = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "net_traceroute",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     // Security: validate host to prevent command injection
@@ -22760,7 +22970,14 @@ fn bi_net_connect(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_net_send(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Bool(false))
+    // Returned `Ok(false)` for every call, ignoring its arguments: an
+    // agent could not tell "this did not work" from "this shell does
+    // not do that", and the catalogue advertised it either way.
+    Err(crate::safety::unimplemented(
+        "net_send",
+        "sending on a raw socket is not implemented; NOTHING WAS CHANGED",
+        "use nc.connect or http.post",
+    ))
 }
 
 fn bi_net_recv(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -23127,7 +23344,13 @@ fn bi_net_bandwidth(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_net_latency(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let host = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "net_latency",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     // Security: validate host to prevent command injection
@@ -23169,7 +23392,13 @@ fn bi_net_scan(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_net_whois(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let domain = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "net_whois",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     // Security: validate domain to prevent command injection
@@ -24251,7 +24480,13 @@ fn bi_svc_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_svc_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "svc_status",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     #[cfg(target_os = "windows")]
@@ -24319,7 +24554,13 @@ fn bi_svc_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_svc_start(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "svc_start",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     #[cfg(target_os = "windows")]
@@ -24359,7 +24600,13 @@ fn bi_svc_start(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_svc_stop(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "svc_stop",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     #[cfg(target_os = "windows")]
@@ -24399,7 +24646,13 @@ fn bi_svc_stop(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_svc_restart(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "svc_restart",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     #[cfg(target_os = "windows")]
@@ -24442,7 +24695,13 @@ fn bi_svc_restart(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_svc_enable(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "svc_enable",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     #[cfg(target_os = "windows")]
@@ -24485,7 +24744,13 @@ fn bi_svc_enable(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_svc_disable(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "svc_disable",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     #[cfg(target_os = "windows")]
@@ -24528,7 +24793,13 @@ fn bi_svc_disable(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_svc_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let name = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "svc_logs",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let lines = args
         .get(1)
@@ -24781,11 +25052,25 @@ fn bi_cron_remove(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_cron_enable(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Bool(false))
+    // Returned `Ok(false)` for every call, ignoring its arguments: an
+    // agent could not tell "this did not work" from "this shell does
+    // not do that", and the catalogue advertised it either way.
+    Err(crate::safety::unimplemented(
+        "cron_enable",
+        "enabling a cron job is not implemented; NOTHING WAS CHANGED",
+        "use `crontab -e`, or cron.add to create one",
+    ))
 }
 
 fn bi_cron_disable(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Bool(false))
+    // Returned `Ok(false)` for every call, ignoring its arguments: an
+    // agent could not tell "this did not work" from "this shell does
+    // not do that", and the catalogue advertised it either way.
+    Err(crate::safety::unimplemented(
+        "cron_disable",
+        "disabling a cron job is not implemented; NOTHING WAS CHANGED",
+        "use `crontab -e`",
+    ))
 }
 
 fn bi_at_schedule(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -24830,7 +25115,14 @@ fn bi_at_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_at_remove(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Bool(false))
+    // Returned `Ok(false)` for every call, ignoring its arguments: an
+    // agent could not tell "this did not work" from "this shell does
+    // not do that", and the catalogue advertised it either way.
+    Err(crate::safety::unimplemented(
+        "at_remove",
+        "removing a scheduled `at` job is not implemented; NOTHING WAS CHANGED",
+        "use `atrm <id>`",
+    ))
 }
 
 fn bi_startup_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -24946,7 +25238,13 @@ fn bi_startup_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_zip_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let archive = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "zip_create",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let files: Vec<String> = args
         .iter()
@@ -24986,7 +25284,13 @@ fn bi_zip_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_zip_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let archive = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "zip_extract",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let dest = args
         .get(1)
@@ -25026,7 +25330,13 @@ fn bi_zip_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_zip_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let archive = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Array(vec![])),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "zip_list",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     #[cfg(target_os = "windows")]
@@ -25104,7 +25414,13 @@ fn bi_zip_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_zip_add(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let archive = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "zip_add",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let files: Vec<String> = args
         .iter()
@@ -25145,7 +25461,13 @@ fn bi_zip_add(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_tar_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let archive = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "tar_create",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let files: Vec<String> = args
         .iter()
@@ -25172,7 +25494,13 @@ fn bi_tar_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_tar_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let archive = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "tar_extract",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let dest = args.get(1).and_then(|v| match v {
         Value::Str(s) => Some(s.clone()),
@@ -25199,7 +25527,13 @@ fn bi_tar_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_tar_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let archive = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Array(vec![])),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "tar_list",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     crate::safety::reject_option_like("tar_list", std::slice::from_ref(&archive))?;
@@ -25215,7 +25549,13 @@ fn bi_tar_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_gzip_compress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let file = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "gzip_compress",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     let output = std::process::Command::new("gzip")
@@ -25228,7 +25568,13 @@ fn bi_gzip_compress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_gzip_decompress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let file = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "gzip_decompress",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     let output = std::process::Command::new("gzip")
@@ -25241,7 +25587,13 @@ fn bi_gzip_decompress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 fn bi_bzip2_compress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let file = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "bzip2_compress",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     let output = std::process::Command::new("bzip2")
@@ -25254,7 +25606,13 @@ fn bi_bzip2_compress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_bzip2_decompress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let file = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "bzip2_decompress",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     let output = std::process::Command::new("bzip2")
@@ -25267,7 +25625,13 @@ fn bi_bzip2_decompress(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 fn bi_xz_compress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let file = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "xz_compress",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     let output = std::process::Command::new("xz")
@@ -25280,7 +25644,13 @@ fn bi_xz_compress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_xz_decompress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let file = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "xz_decompress",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     let output = std::process::Command::new("xz")
@@ -25293,7 +25663,13 @@ fn bi_xz_decompress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_zstd_compress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let file = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "zstd_compress",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     let output = std::process::Command::new("zstd")
@@ -25306,7 +25682,13 @@ fn bi_zstd_compress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_zstd_decompress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let file = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "zstd_decompress",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     let output = std::process::Command::new("zstd")
@@ -25319,7 +25701,13 @@ fn bi_zstd_decompress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 fn bi_archive_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let file = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "archive_info",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     let mut rec = std::collections::BTreeMap::new();
@@ -25349,7 +25737,13 @@ fn bi_archive_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_archive_test(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let file = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "archive_test",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     if file.ends_with(".zip") {
@@ -25407,11 +25801,25 @@ fn bi_user_passwd(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_user_lock(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Bool(false))
+    // Returned `Ok(false)` for every call, ignoring its arguments: an
+    // agent could not tell "this did not work" from "this shell does
+    // not do that", and the catalogue advertised it either way.
+    Err(crate::safety::unimplemented(
+        "user_lock",
+        "locking a user account is not implemented; NOTHING WAS CHANGED",
+        "use `usermod -L <user>`",
+    ))
 }
 
 fn bi_user_unlock(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Bool(false))
+    // Returned `Ok(false)` for every call, ignoring its arguments: an
+    // agent could not tell "this did not work" from "this shell does
+    // not do that", and the catalogue advertised it either way.
+    Err(crate::safety::unimplemented(
+        "user_unlock",
+        "unlocking a user account is not implemented; NOTHING WAS CHANGED",
+        "use `usermod -U <user>`",
+    ))
 }
 
 fn bi_group_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -25439,7 +25847,13 @@ fn bi_group_mod(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_group_members(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let group = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Array(vec![])),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "group_members",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     #[cfg(target_os = "windows")]
@@ -25500,7 +25914,13 @@ fn bi_group_members(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_perm_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "perm_get",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     #[cfg(unix)]
@@ -25530,7 +25950,13 @@ fn bi_perm_set(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_perm_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "perm_check",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let mode = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
@@ -25568,7 +25994,14 @@ fn bi_acl_get(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_acl_set(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Bool(false))
+    // Returned `Ok(false)` for every call, ignoring its arguments: an
+    // agent could not tell "this did not work" from "this shell does
+    // not do that", and the catalogue advertised it either way.
+    Err(crate::safety::unimplemented(
+        "acl_set",
+        "setting a POSIX ACL is not implemented; NOTHING WAS CHANGED",
+        "use `setfacl`",
+    ))
 }
 
 fn bi_sudo_check(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -25828,7 +26261,13 @@ fn bi_pkg_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_pkg_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let query = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Array(vec![])),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "pkg_search",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let pm = detect_package_manager();
 
@@ -25905,7 +26344,13 @@ fn bi_pkg_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_pkg_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let package = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "pkg_info",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let pm = detect_package_manager();
 
@@ -26037,7 +26482,13 @@ fn bi_pkg_add_source(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 fn bi_pkg_files(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let package = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Array(vec![])),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "pkg_files",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let pm = detect_package_manager();
 
@@ -26072,7 +26523,13 @@ fn bi_pkg_files(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_pkg_owner(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let file = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "pkg_owner",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let pm = detect_package_manager();
 
@@ -26127,7 +26584,13 @@ fn bi_pkg_owner(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_pkg_verify(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let package = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "pkg_verify",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let pm = detect_package_manager();
 
@@ -26145,7 +26608,13 @@ fn bi_pkg_verify(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_pkg_deps(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let package = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Array(vec![])),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "pkg_deps",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let pm = detect_package_manager();
 
@@ -26169,7 +26638,13 @@ fn bi_pkg_deps(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_pkg_rdeps(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let package = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Array(vec![])),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "pkg_rdeps",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let pm = detect_package_manager();
 
@@ -26193,7 +26668,13 @@ fn bi_pkg_rdeps(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_pkg_changelog(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let package = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "pkg_changelog",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let pm = detect_package_manager();
 
@@ -26957,7 +27438,13 @@ fn bi_gui_focus_window(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     let title_or_hwnd = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         Some(Value::Int(h)) => h.to_string(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "gui_focus_window",
+                "Int or String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     #[cfg(target_os = "windows")]
@@ -27008,7 +27495,13 @@ if ($hwnd -eq [IntPtr]::Zero) {{ $hwnd = [IntPtr]::new({}) }}
 fn bi_gui_minimize_window(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let title = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "gui_minimize_window",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     #[cfg(target_os = "windows")]
@@ -27057,7 +27550,13 @@ $hwnd = [WindowMin]::FindWindow($null, {})
 fn bi_gui_maximize_window(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let title = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "gui_maximize_window",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     #[cfg(target_os = "windows")]
@@ -27106,7 +27605,13 @@ $hwnd = [WindowMax]::FindWindow($null, {})
 fn bi_gui_close_window(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let title = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "gui_close_window",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     #[cfg(target_os = "windows")]
@@ -27155,15 +27660,33 @@ $hwnd = [WindowClose]::FindWindow($null, {})
 fn bi_gui_move_window(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let title = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "gui_move_window",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let x = match args.get(1) {
         Some(Value::Int(n)) => *n,
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "gui_move_window",
+                "Int",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let y = match args.get(2) {
         Some(Value::Int(n)) => *n,
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "gui_move_window",
+                "Int",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     #[cfg(target_os = "windows")]
@@ -27214,15 +27737,33 @@ $hwnd = [WindowMove]::FindWindow($null, {})
 fn bi_gui_resize_window(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let title = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "gui_resize_window",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let w = match args.get(1) {
         Some(Value::Int(n)) => *n,
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "gui_resize_window",
+                "Int",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let h = match args.get(2) {
         Some(Value::Int(n)) => *n,
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "gui_resize_window",
+                "Int",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     #[cfg(target_os = "windows")]
@@ -27331,7 +27872,13 @@ $bitmap.Save({})
 fn bi_gui_screenshot_window(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let title = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "gui_screenshot_window",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let path = args
         .get(1)
@@ -27367,11 +27914,23 @@ fn bi_gui_screenshot_window(args: Vec<Value>, _input: Option<Value>) -> Result<V
 fn bi_gui_mouse_move(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let x = match args.first() {
         Some(Value::Int(n)) => *n,
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "gui_mouse_move",
+                "Int",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let y = match args.get(1) {
         Some(Value::Int(n)) => *n,
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "gui_mouse_move",
+                "Int",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     #[cfg(target_os = "windows")]
@@ -27489,19 +28048,43 @@ fn bi_gui_mouse_double_click(args: Vec<Value>, _input: Option<Value>) -> Result<
 fn bi_gui_mouse_drag(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let x1 = match args.first() {
         Some(Value::Int(n)) => *n,
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "gui_mouse_drag",
+                "Int",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let y1 = match args.get(1) {
         Some(Value::Int(n)) => *n,
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "gui_mouse_drag",
+                "Int",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let x2 = match args.get(2) {
         Some(Value::Int(n)) => *n,
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "gui_mouse_drag",
+                "Int",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let y2 = match args.get(3) {
         Some(Value::Int(n)) => *n,
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "gui_mouse_drag",
+                "Int",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     #[cfg(target_os = "linux")]
@@ -27631,7 +28214,13 @@ $point = New-Object MousePos+POINT
 fn bi_gui_key_press(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let key = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "gui_key_press",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     #[cfg(target_os = "windows")]
@@ -27722,7 +28311,13 @@ Add-Type -AssemblyName System.Windows.Forms
 fn bi_gui_type_text(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let text = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "gui_type_text",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     #[cfg(target_os = "windows")]
@@ -27863,7 +28458,13 @@ fn bi_gui_find_image(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 fn bi_gui_ocr(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let image_path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "gui_ocr",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     let output = std::process::Command::new("tesseract")
@@ -27941,7 +28542,13 @@ fn bi_gui_dialog_message(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
     crate::safety::refuse_if_headless("gui_dialog_message")?;
     let message = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "gui_dialog_message",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let title = args
         .get(1)
@@ -28216,7 +28823,13 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
 fn bi_web_open_url(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let url = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "web_open_url",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     // The rest of the `web_*` family gates here; this one did not, so it was
@@ -28264,7 +28877,13 @@ fn bi_web_open_url(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_web_fetch(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let url = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "web_fetch",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     guard_network("web_fetch", &url)?;
 
@@ -28289,7 +28908,13 @@ fn bi_web_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_web_post(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let url = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "web_post",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     guard_network("web_post", &url)?;
     let data = match args.get(1) {
@@ -28315,7 +28940,13 @@ fn bi_web_post(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_web_json_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let url = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "web_json_get",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     guard_network("web_json_get", &url)?;
 
@@ -28336,7 +28967,13 @@ fn bi_web_json_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_web_json_post(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let url = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "web_json_post",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     guard_network("web_json_post", &url)?;
     let data = match args.get(1) {
@@ -28372,7 +29009,13 @@ fn bi_web_json_post(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_web_scrape(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let url = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "web_scrape",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     guard_network("web_scrape", &url)?;
     let selector = args.get(1).and_then(|v| match v {
@@ -28416,7 +29059,13 @@ fn bi_web_scrape(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_web_download(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let url = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "web_download",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     guard_network("web_download", &url)?;
     let path = match args.get(1) {
@@ -28446,7 +29095,13 @@ fn bi_web_browser_open(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 fn bi_web_parse_url(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let url = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "web_parse_url",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     let mut rec = std::collections::BTreeMap::new();
@@ -28599,7 +29254,13 @@ fn bi_web_build_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 fn bi_web_headers(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let url = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "web_headers",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     guard_network("web_headers", &url)?;
 
@@ -28624,7 +29285,13 @@ fn bi_web_headers(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_web_cookies(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let url = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Array(vec![])),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "web_cookies",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     guard_network("web_cookies", &url)?;
 
@@ -28648,7 +29315,13 @@ fn bi_web_cookies(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_web_form_submit(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let url = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "web_form_submit",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     guard_network("web_form_submit", &url)?;
     let form_data = match args.get(1) {
@@ -28687,12 +29360,24 @@ fn bi_web_form_submit(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 fn bi_web_upload_file(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let url = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "web_upload_file",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     guard_network("web_upload_file", &url)?;
     let file_path = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "web_upload_file",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let field_name = args
         .get(2)
@@ -28724,7 +29409,13 @@ fn bi_web_rest_api(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     };
     let url = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "web_rest_api",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     guard_network("web_rest_api", &url)?;
     let body = args
@@ -28776,12 +29467,24 @@ fn bi_web_websocket(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_web_graphql(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let url = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "web_graphql",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     guard_network("web_graphql", &url)?;
     let query = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "web_graphql",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let variables = args.get(2).map(|v| value_to_json(v.clone()));
 
@@ -28816,7 +29519,13 @@ fn bi_web_graphql(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_web_check_url(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let url = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "web_check_url",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     guard_network("web_check_url", &url)?;
 
@@ -28838,7 +29547,13 @@ fn bi_web_check_url(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_web_robots_txt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let url = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "web_robots_txt",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     // Parse URL to get base
@@ -28859,7 +29574,13 @@ fn bi_web_robots_txt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_web_sitemap(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let url = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "web_sitemap",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     let base = if url.starts_with("http") {
@@ -28879,7 +29600,13 @@ fn bi_web_sitemap(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_web_extract_emails(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let text = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Array(vec![])),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "web_extract_emails",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     let mut emails = Vec::new();
@@ -28913,7 +29640,13 @@ fn bi_web_extract_emails(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
 fn bi_web_extract_phones(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let text = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Array(vec![])),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "web_extract_phones",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     let mut phones = Vec::new();
@@ -29295,7 +30028,13 @@ fn bi_input_select(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     };
     let options = match args.get(1) {
         Some(Value::Array(arr)) => arr.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "input_select",
+                "Array",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     eprintln!("{}", prompt);
@@ -29322,7 +30061,13 @@ fn bi_input_multi_select(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
     };
     let options = match args.get(1) {
         Some(Value::Array(arr)) => arr.clone(),
-        _ => return Ok(Value::Array(vec![])),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "input_multi_select",
+                "Array",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     eprintln!("{}", prompt);
@@ -29523,7 +30268,13 @@ $hashBytes = $hash.ComputeHash($bytes)
 fn bi_crypto_hash_file(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "crypto_hash_file",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let algo = args
         .get(1)
@@ -29588,11 +30339,23 @@ fn bi_crypto_hash_file(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 fn bi_crypto_hmac(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let data = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "crypto_hmac",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let key = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "crypto_hmac",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let algo = args
         .get(2)
@@ -30072,11 +30835,23 @@ fn bi_crypto_encrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     let data = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "crypto_encrypt",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let password = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "crypto_encrypt",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     if password.is_empty() {
         return Err(crate::safety::arg_err(
@@ -30168,11 +30943,23 @@ fn bi_crypto_decrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     let data = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "crypto_decrypt",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let password = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "crypto_decrypt",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     let trimmed = data.trim();
@@ -30309,7 +31096,13 @@ fn bi_crypto_key_generate(args: Vec<Value>, _input: Option<Value>) -> Result<Val
 fn bi_crypto_password_hash(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let password = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "crypto_password_hash",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     #[cfg(unix)]
@@ -30344,11 +31137,23 @@ fn bi_crypto_password_hash(args: Vec<Value>, _input: Option<Value>) -> Result<Va
 fn bi_crypto_password_verify(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let password = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "crypto_password_verify",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let hash = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "crypto_password_verify",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     // Simple verification - hash the password and compare
@@ -30365,7 +31170,13 @@ fn bi_crypto_checksum(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 fn bi_crypto_cert_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "crypto_cert_info",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     #[cfg(unix)]
@@ -30395,11 +31206,23 @@ fn bi_crypto_cert_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 fn bi_db_sqlite_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let db_path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_sqlite_query",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let query = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_sqlite_query",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     crate::safety::reject_sqlite_dot_command("db_sqlite_query", &query)?;
@@ -30450,11 +31273,23 @@ fn bi_db_sqlite_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 fn bi_db_sqlite_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let db_path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_sqlite_exec",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let sql = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_sqlite_exec",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     // Every mutating sqlite builtin (insert/update/delete/create_table/drop_table)
@@ -30477,7 +31312,13 @@ fn bi_db_sqlite_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_db_sqlite_tables(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let db_path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Array(vec![])),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_sqlite_tables",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     bi_db_sqlite_query(
@@ -30494,7 +31335,13 @@ fn bi_db_sqlite_tables(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 fn bi_db_sqlite_schema(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let db_path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_sqlite_schema",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let table = args.get(1).and_then(|v| match v {
         Value::Str(s) => Some(s.clone()),
@@ -30513,7 +31360,13 @@ fn bi_db_sqlite_schema(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 fn bi_db_sqlite_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let db_path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_sqlite_create",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     crate::safety::reject_option_like("db_sqlite_create", std::slice::from_ref(&db_path))?;
@@ -30529,7 +31382,13 @@ fn bi_db_sqlite_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 fn bi_db_sqlite_backup(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let db_path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_sqlite_backup",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let backup_path = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
@@ -30564,11 +31423,23 @@ fn bi_db_sqlite_backup(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 fn bi_db_sqlite_import_csv(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let db_path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_sqlite_import_csv",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let csv_path = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_sqlite_import_csv",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let table_name = match args.get(2) {
         Some(Value::Str(s)) => s.clone(),
@@ -30593,11 +31464,23 @@ fn bi_db_sqlite_import_csv(args: Vec<Value>, _input: Option<Value>) -> Result<Va
 fn bi_db_sqlite_export_csv(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let db_path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_sqlite_export_csv",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let table_or_query = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_sqlite_export_csv",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let output_path = args.get(2).and_then(|v| match v {
         Value::Str(s) => Some(s.clone()),
@@ -30643,7 +31526,13 @@ fn bi_db_kv_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     };
     let key = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_kv_get",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     bi_db_sqlite_query(
@@ -30675,12 +31564,24 @@ fn bi_db_kv_set(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     };
     let key = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_kv_set",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let value = match args.get(2) {
         Some(Value::Str(s)) => s.clone(),
         Some(v) => format!("{:?}", v),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_kv_set",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     // Ensure table exists
@@ -30714,7 +31615,13 @@ fn bi_db_kv_delete(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     };
     let key = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_kv_delete",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     crate::safety::guard(crate::safety::GuardCtx {
@@ -30768,7 +31675,13 @@ fn bi_db_kv_keys(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_db_json_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let json_path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_json_query",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let jq_filter = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
@@ -30800,7 +31713,13 @@ fn bi_db_json_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_db_csv_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let csv_path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Array(vec![])),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_csv_query",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     let content = std::fs::read_to_string(&csv_path)
@@ -30968,7 +31887,13 @@ fn bi_input_date(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_crypto_cert_verify(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let cert_path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "crypto_cert_verify",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     #[cfg(unix)]
@@ -31012,7 +31937,13 @@ fn bi_crypto_verify_signature(_args: Vec<Value>, _input: Option<Value>) -> Resul
 fn bi_crypto_jwt_decode(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let token = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "crypto_jwt_decode",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     // Simple JWT decode (no verification)
@@ -31100,15 +32031,33 @@ fn sql_value(builtin: &str, v: &Value) -> Result<String> {
 fn bi_db_sqlite_insert(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let db_path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_sqlite_insert",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let table = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_sqlite_insert",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let values = match args.get(2) {
         Some(Value::Record(r)) => r.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_sqlite_insert",
+                "Record",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     // Column names are identifiers, and they come from a caller-supplied record,
@@ -31137,19 +32086,43 @@ fn bi_db_sqlite_insert(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 fn bi_db_sqlite_update(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let db_path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_sqlite_update",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let table = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_sqlite_update",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let values = match args.get(2) {
         Some(Value::Record(r)) => r.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_sqlite_update",
+                "Record",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let where_clause = match args.get(3) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_sqlite_update",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     // Same as `db_sqlite_insert`: the record's keys are identifiers and are
@@ -31179,11 +32152,23 @@ fn bi_db_sqlite_update(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 fn bi_db_sqlite_delete(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let db_path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_sqlite_delete",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let table = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_sqlite_delete",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let where_clause = match args.get(2) {
         Some(Value::Str(s)) => s.clone(),
@@ -31215,11 +32200,23 @@ fn bi_db_sqlite_delete(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 fn bi_db_sqlite_count(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let db_path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Int(0)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_sqlite_count",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let table = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Int(0)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_sqlite_count",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let where_clause = args.get(2).and_then(|v| match v {
         Value::Str(s) => Some(s.clone()),
@@ -31255,11 +32252,23 @@ fn bi_db_sqlite_count(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 fn bi_db_sqlite_create_table(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let db_path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_sqlite_create_table",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let table = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_sqlite_create_table",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let columns = match args.get(2) {
         Some(Value::Record(r)) => r.clone(),
@@ -31272,7 +32281,13 @@ fn bi_db_sqlite_create_table(args: Vec<Value>, _input: Option<Value>) -> Result<
             );
             return bi_db_sqlite_exec(vec![Value::Str(db_path), Value::Str(sql)], None);
         }
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_sqlite_create_table",
+                "Record or String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     // Both halves of `"<name> <type>"` are validated. The type half used to be
@@ -31307,11 +32322,23 @@ fn bi_db_sqlite_create_table(args: Vec<Value>, _input: Option<Value>) -> Result<
 fn bi_db_sqlite_drop_table(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let db_path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_sqlite_drop_table",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let table = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_sqlite_drop_table",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     crate::safety::guard(crate::safety::GuardCtx {
@@ -31337,7 +32364,13 @@ fn bi_db_sqlite_drop_table(args: Vec<Value>, _input: Option<Value>) -> Result<Va
 fn bi_db_sqlite_vacuum(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let db_path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_sqlite_vacuum",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     bi_db_sqlite_exec(
@@ -31349,7 +32382,13 @@ fn bi_db_sqlite_vacuum(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 fn bi_db_sqlite_dump(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let db_path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_sqlite_dump",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     crate::safety::reject_option_like("db_sqlite_dump", std::slice::from_ref(&db_path))?;
@@ -31369,11 +32408,23 @@ fn bi_db_sqlite_dump(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_db_sqlite_import(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let db_path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_sqlite_import",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let sql_file = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_sqlite_import",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     let sql = std::fs::read_to_string(&sql_file)
@@ -31499,11 +32550,23 @@ fn bi_db_json_to_sqlite(args: Vec<Value>, _input: Option<Value>) -> Result<Value
 fn bi_db_sqlite_to_json(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let db_path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_sqlite_to_json",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let table = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_sqlite_to_json",
+                "String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     bi_db_sqlite_query(
@@ -34442,11 +35505,25 @@ fn bi_session_history(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 }
 
 fn bi_session_undo(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Bool(false))
+    // Returned `Ok(false)` for every call, ignoring its arguments: an
+    // agent could not tell "this did not work" from "this shell does
+    // not do that", and the catalogue advertised it either way.
+    Err(crate::safety::unimplemented(
+        "session_undo",
+        "undoing a session step is not implemented; NOTHING WAS CHANGED",
+        "use tx_begin/tx_rollback, which is implemented",
+    ))
 }
 
 fn bi_session_redo(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Bool(false))
+    // Returned `Ok(false)` for every call, ignoring its arguments: an
+    // agent could not tell "this did not work" from "this shell does
+    // not do that", and the catalogue advertised it either way.
+    Err(crate::safety::unimplemented(
+        "session_redo",
+        "redoing a session step is not implemented; NOTHING WAS CHANGED",
+        "use tx_begin/tx_rollback, which is implemented",
+    ))
 }
 
 fn bi_session_checkpoint(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -35818,11 +36895,23 @@ fn bi_platform_diff(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // Compare two snapshots
     let snap1 = match args.first() {
         Some(Value::Record(r)) => r.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "platform_diff",
+                "Record",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let snap2 = match args.get(1) {
         Some(Value::Record(r)) => r.clone(),
-        _ => return Ok(Value::Null),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "platform_diff",
+                "Record",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     let mut diff = std::collections::BTreeMap::new();
@@ -35863,11 +36952,23 @@ fn bi_platform_compatible(args: Vec<Value>, _input: Option<Value>) -> Result<Val
     // Check if two snapshots are compatible (same OS family, arch)
     let snap1 = match args.first() {
         Some(Value::Record(r)) => r,
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "platform_compatible",
+                "Record",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let snap2 = match args.get(1) {
         Some(Value::Record(r)) => r,
-        _ => return Ok(Value::Bool(false)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "platform_compatible",
+                "Record",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     let os_match = snap1.get("os") == snap2.get("os");
