@@ -187,7 +187,14 @@ fn a_closure_that_ignores_its_argument_does_not_pay_for_the_collection() {
     // a falsification nobody can afford to run is one nobody runs, so the
     // check that this test still bites would quietly stop happening.
     let (base, ratio) = calibrated(
-        ("range(0, 0) | sum", "range(0, 500) | sum", "range(0, 5000) | sum"),
+        // The BASELINE is ten times larger than the subject, on purpose. It
+        // measures what a linear 10x step costs on this machine, which is
+        // ~10x at any size big enough to resolve -- and at 500 elements it
+        // was not: `range(0, 500) | sum` ran in 40us against 50us for the
+        // EMPTY case on a macOS runner, so the guard below refused to divide
+        // and the build failed (1 run in 15). The subject cannot grow, for
+        // the reason given above; the baseline has no such constraint.
+        ("range(0, 0) | sum", "range(0, 5000) | sum", "range(0, 50000) | sum"),
         ("range(0, 0) | map(fn(x) => { id: x, pad: \"................................\" }) | map(fn(r) => 1)", "range(0, 500) | map(fn(x) => { id: x, pad: \"................................\" }) | map(fn(r) => 1)", "range(0, 5000) | map(fn(x) => { id: x, pad: \"................................\" }) | map(fn(r) => 1)"),
     );
     assert!(
