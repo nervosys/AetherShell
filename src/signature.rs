@@ -1418,11 +1418,12 @@ pub static SIGNATURES: &[Signature] = &[
     // consecutive calls. The ontology should say so rather than imply two
     // different clocks.
     //
-    // `capabilities` and the `search_*` builtins were in this tranche and
-    // were taken out: `capabilities` is a Linux concept, and the searches
-    // shell out to `grep`/`find`, which a Windows host may not have or may
-    // resolve to System32ind.exe. An executable example has to run on
-    // every platform CI has, and theirs cannot yet.
+    // `capabilities` stays undeclared: it is a Linux concept, and an
+    // executable example has to run on every platform CI has. The
+    // parameterless `search_*` builtins were held back for the same reason
+    // until they stopped shelling out to `grep`/`find` (which Windows may
+    // lack, or resolve to System32\find.exe); they walk in-process now and
+    // are declared below.
     //
     // `env_venv` returns "" when no virtualenv is active. That convention
     // is documented rather than changed -- callers may rely on it -- but an
@@ -1757,6 +1758,39 @@ pub static SIGNATURES: &[Signature] = &[
         returns: "Array",
         doc: "Every startup service, with its enabled state.",
         examples: &[("typeof(startup_list())", "Array")],
+    },
+    Signature {
+        name: "search_fixmes",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[],
+        returns: "Array",
+        doc: "Every FIXME comment under the working directory, as path:line:text. Skips dependency and build trees.",
+        examples: &[("typeof(search_fixmes())", "Array")],
+    },
+    Signature {
+        name: "search_todos",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[],
+        returns: "Array",
+        doc: "Every TODO comment under the working directory, as path:line:text. Skips dependency and build trees.",
+        examples: &[("typeof(search_todos())", "Array")],
+    },
+    Signature {
+        name: "search_recent",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[],
+        returns: "Array",
+        doc: "Files under the working directory modified in the last day. Skips dependency and build trees.",
+        examples: &[("typeof(search_recent())", "Array")],
     },
 ];
 

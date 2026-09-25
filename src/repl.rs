@@ -340,7 +340,7 @@ pub fn eval_line(env: &mut Env, code: &str) -> Result<Value> {
 /// Should rendered values carry ANSI colour?
 ///
 /// The config alone is not enough to answer this: until 10.0.1 it *was* the
-/// whole answer, so `ae -c '1 + 2' > out` wrote `[38;2;180;142;173m3[39m`
+/// whole answer, so `ae -c '1 + 2' > out` wrote `\x1b[38;2;180;142;173m3\x1b[39m`
 /// into the file. Anything consuming the shell's output — a pipe, a
 /// `$(...)` capture, the Homebrew formula's own `assert_equal "3"` — got
 /// escape codes it did not ask for.

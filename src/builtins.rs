@@ -7826,7 +7826,10 @@ fn bi_find(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         if let Some(ref pattern) = pattern {
             // Simple glob matching: support * for any characters
             let filename = entry.file_name().to_string_lossy();
-            if glob_match(pattern, &filename) {
+            if shell_glob(
+                &pattern.chars().collect::<Vec<_>>(),
+                &filename.chars().collect::<Vec<_>>(),
+            ) {
                 results.push(Value::Str(path_str));
             }
         } else {
@@ -7837,23 +7840,11 @@ fn bi_find(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Array(results))
 }
 
-// Simple glob matcher for basic patterns like *.ext
-fn glob_match(pattern: &str, text: &str) -> bool {
-    if pattern == "*" {
-        return true;
-    }
-
-    if let Some(ext) = pattern.strip_prefix("*.") {
-        return text.ends_with(&format!(".{}", ext));
-    }
-
-    if let Some(prefix) = pattern.strip_suffix("*") {
-        return text.starts_with(prefix);
-    }
-
-    // Exact match if no wildcards
-    pattern == text
-}
+// `find`'s patterns go through `shell_glob`. This used a matcher that knew
+// four forms -- `*`, `*.ext`, `prefix*` and an exact name -- and treated
+// anything else as an exact name, so `find("a*b.rs")`, `find("?.rs")` and
+// `find("[ab].rs")` silently found nothing. `shell_glob` is a strict superset
+// of those four, so no pattern that worked before behaves differently.
 
 fn bi_sort(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let reverse = args
@@ -35603,99 +35594,265 @@ const SEARCH_SKIP_DIRS: &[&str] = &[
 /// an agent, and a bounded refusal is worth more than an unbounded wait.
 const SEARCH_TIMEOUT_SECS: u64 = 30;
 
-fn run_search(
-    builtin: &str,
-    tool: &str,
-    cmd: std::process::Command,
-) -> Result<std::process::Output> {
-    crate::safety::output_with_timeout(cmd, SEARCH_TIMEOUT_SECS).map_err(|e| {
-        if e.kind() == std::io::ErrorKind::TimedOut {
-            crate::safety::budget_exceeded(
-                builtin,
-                format!(
-                    "`{tool}` did not finish within {SEARCH_TIMEOUT_SECS}s; nothing was returned"
-                ),
-                "search a narrower directory",
-            )
-        } else {
-            crate::safety::spawn_error(builtin, tool, &e)
+/// Everything a search needs to know about one directory entry.
+struct SearchEntry {
+    /// `./relative/path`, the form `find .` and `grep -r .` printed.
+    shown: String,
+    path: std::path::PathBuf,
+    is_file: bool,
+    meta: std::fs::Metadata,
+}
+
+/// Walk `.` in sorted order, skipping [`SEARCH_SKIP_DIRS`] and symlinks, and
+/// hand each entry to `visit`.
+///
+/// This replaces shelling out to `find` and `grep`. The subprocesses were the
+/// problem three times over: on Windows `find` is System32\find.exe, `grep` is
+/// only present when Git's tools happen to be on PATH, and on WSL two
+/// concurrent walks over /mnt/c stalled in 9P until the builtin never returned.
+/// A walk in-process is the same everywhere, and it is sorted, where `find`
+/// and `grep` printed in whatever order the directory happened to list --
+/// which made two identical searches differ.
+///
+/// Symlinks are skipped, matching what the subprocesses did: `find -type f`
+/// excludes them and `grep -r` follows only those named on the command line.
+fn search_walk(builtin: &str, visit: &mut dyn FnMut(&SearchEntry) -> Result<()>) -> Result<()> {
+    const BUDGET: u32 = 200_000;
+    let started = std::time::Instant::now();
+    let mut budget = BUDGET;
+    let mut stack = vec![(std::path::PathBuf::from("."), String::from("."))];
+    while let Some((dir, shown_dir)) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        let mut entries: Vec<_> = rd.flatten().collect();
+        entries.sort_by_key(|e| e.file_name());
+        let mut subdirs = Vec::new();
+        for entry in entries {
+            // A search that has not finished in this long is not going to be
+            // useful to an agent. Refusing is worth more than an unbounded wait,
+            // and a partial list returned as the whole answer would be the
+            // silent wrong answer this family used to give.
+            if budget == 0 || started.elapsed().as_secs() >= SEARCH_TIMEOUT_SECS {
+                return Err(crate::safety::budget_exceeded(
+                    builtin,
+                    format!(
+                        "stopped after {} entries and {}s; the result would be partial, \
+                         so nothing was returned",
+                        BUDGET - budget,
+                        started.elapsed().as_secs()
+                    ),
+                    "search a narrower directory",
+                ));
+            }
+            budget -= 1;
+            let Ok(meta) = std::fs::symlink_metadata(entry.path()) else {
+                continue;
+            };
+            if meta.file_type().is_symlink() {
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().to_string();
+            let shown = format!("{shown_dir}/{name}");
+            if meta.is_dir() && SEARCH_SKIP_DIRS.contains(&name.as_str()) {
+                continue;
+            }
+            let item = SearchEntry {
+                shown: shown.clone(),
+                path: entry.path(),
+                is_file: meta.is_file(),
+                meta,
+            };
+            visit(&item)?;
+            if item.meta.is_dir() {
+                subdirs.push((item.path, shown));
+            }
         }
+        // Reverse so that popping visits subdirectories in sorted order.
+        stack.extend(subdirs.into_iter().rev());
+    }
+    Ok(())
+}
+
+/// Shell-style glob on a file name: `*`, `?` and `[...]` (with `!` or `^`
+/// negation and `a-z` ranges) -- what `find -name` accepted.
+fn shell_glob(pat: &[char], name: &[char]) -> bool {
+    match pat.first() {
+        None => name.is_empty(),
+        Some('*') => (0..=name.len()).any(|i| shell_glob(&pat[1..], &name[i..])),
+        Some('?') => !name.is_empty() && shell_glob(&pat[1..], &name[1..]),
+        Some('[') => {
+            let Some(close) = pat.iter().skip(2).position(|&c| c == ']').map(|p| p + 2) else {
+                // No closing bracket: `[` is a literal, as in the shell.
+                return name.first() == Some(&'[') && shell_glob(&pat[1..], &name[1..]);
+            };
+            let Some(&c) = name.first() else {
+                return false;
+            };
+            let class = &pat[1..close];
+            let (negate, class) = match class.first() {
+                Some('!') | Some('^') => (true, &class[1..]),
+                _ => (false, class),
+            };
+            let mut hit = false;
+            let mut i = 0;
+            while i < class.len() {
+                if i + 2 < class.len() && class[i + 1] == '-' {
+                    hit |= class[i] <= c && c <= class[i + 2];
+                    i += 3;
+                } else {
+                    hit |= class[i] == c;
+                    i += 1;
+                }
+            }
+            hit != negate && shell_glob(&pat[close + 1..], &name[1..])
+        }
+        Some(&p) => name.first() == Some(&p) && shell_glob(&pat[1..], &name[1..]),
+    }
+}
+
+/// `find .`'s `-size` test: `[+|-]N[c|k|M|G|b]`, where a size is rounded UP
+/// to whole units before comparing, and a bare number means 512-byte blocks.
+/// `+1M` is "more than one MiB", `-10k` "under ten KiB".
+fn find_size_matches(builtin: &str, spec: &str, bytes: u64) -> Result<bool> {
+    let (cmp, rest) = match spec.chars().next() {
+        Some('+') => ('+', &spec[1..]),
+        Some('-') => ('-', &spec[1..]),
+        _ => ('=', spec),
+    };
+    let (digits, unit) = match rest.chars().last() {
+        Some(u) if u.is_ascii_alphabetic() => (&rest[..rest.len() - 1], u),
+        _ => (rest, 'b'),
+    };
+    let unit_bytes: u64 = match unit {
+        'c' => 1,
+        'k' => 1024,
+        'M' => 1024 * 1024,
+        'G' => 1024 * 1024 * 1024,
+        'b' => 512,
+        _ => {
+            return Err(crate::safety::bad_arg(
+                builtin,
+                "a find-style size such as +1M, -10k or 100c",
+                spec,
+            ))
+        }
+    };
+    let n: u64 = digits.parse().map_err(|_| {
+        crate::safety::bad_arg(builtin, "a find-style size such as +1M, -10k or 100c", spec)
+    })?;
+    let units = bytes.div_ceil(unit_bytes);
+    Ok(match cmp {
+        '+' => units > n,
+        '-' => units < n,
+        _ => units == n,
     })
 }
 
-/// `grep -r` for `pattern` under `.`, skipping [`SEARCH_SKIP_DIRS`] and
-/// binary files.
+/// Search file contents for `pattern` under `.`, as `grep -rnI` did: lines
+/// printed as `./path:line:text`, binary files skipped.
 ///
-/// grep exits 1 for "no match", which is an honest empty result; 2 or above is
-/// an error, and was being reported as "no matches" because the status was
-/// never read.
+/// The pattern is a Rust regular expression. `grep` read a POSIX basic
+/// regular expression, and the two agree on the literals every caller in this
+/// file passes (`TODO`, `FIXME`). They differ on grouping -- `foo(` is a
+/// literal `(` to grep and an unclosed group here -- so a pattern that does not
+/// compile is refused with the reason, never searched for as something else.
 fn search_grep(builtin: &str, pattern: &str) -> Result<Vec<String>> {
-    let mut cmd = std::process::Command::new("grep");
-    cmd.arg("-rnI");
-    for d in SEARCH_SKIP_DIRS {
-        cmd.arg(format!("--exclude-dir={d}"));
-    }
-    // `-e` so a pattern beginning with `-` is a pattern, not a flag.
-    cmd.arg("-e").arg(pattern).arg(".");
-    let out = run_search(builtin, "grep", cmd)?;
-    match out.status.code() {
-        Some(0) => Ok(String::from_utf8_lossy(&out.stdout)
-            .lines()
-            .map(str::to_string)
-            .collect()),
-        Some(1) => Ok(Vec::new()),
-        code => Err(crate::safety::tool_failed(
+    let re = regex::Regex::new(pattern).map_err(|e| {
+        crate::safety::bad_arg(
             builtin,
-            "grep -r",
-            code,
-            &String::from_utf8_lossy(&out.stderr),
-        )),
-    }
+            "a regular expression (Rust regex syntax)",
+            &e.to_string(),
+        )
+    })?;
+    let mut out = Vec::new();
+    search_walk(builtin, &mut |e| {
+        if !e.is_file {
+            return Ok(());
+        }
+        let Ok(bytes) = std::fs::read(&e.path) else {
+            return Ok(());
+        };
+        // `grep -I`: a NUL in the first block means binary.
+        if bytes.iter().take(8000).any(|&b| b == 0) {
+            return Ok(());
+        }
+        let text = String::from_utf8_lossy(&bytes);
+        for (i, line) in text.lines().enumerate() {
+            if re.is_match(line) {
+                out.push(format!("{}:{}:{}", e.shown, i + 1, line));
+            }
+        }
+        Ok(())
+    })?;
+    Ok(out)
 }
 
-/// `find .` with `predicates`, pruning [`SEARCH_SKIP_DIRS`].
+/// Find files under `.` by the subset of `find` predicates the `search_*`
+/// builtins use: `-type f`, `-name GLOB`, `-mtime -N` and `-size SPEC`.
 ///
-/// Refused on Windows. `Command::new("find")` there resolves to
-/// `C:\Windows\System32\find.exe` -- a text-search tool with different
-/// arguments -- because the system directories are searched before `PATH`,
-/// even when Git's GNU `find` is first on `PATH`. It rejected `-type`, printed
-/// nothing, and with the exit status unread `search_recent()` returned `[]` in
-/// a directory full of files edited that day.
+/// Without `-type f` a matching directory is listed too, as `find` did.
 fn search_find(builtin: &str, predicates: &[&str]) -> Result<Vec<String>> {
-    if cfg!(windows) {
-        return Err(crate::safety::unimplemented(
-            builtin,
-            "this search uses POSIX `find`, which Windows resolves to System32\\find.exe; \
-             NOTHING WAS SEARCHED",
-            "use Get-ChildItem -Recurse in PowerShell, or run ae under WSL",
-        ));
-    }
-    let mut cmd = std::process::Command::new("find");
-    cmd.arg(".");
-    // ( -type d ( -name a -o -name b ... ) -prune ) -o <predicates> -print
-    cmd.args(["(", "-type", "d", "("]);
-    for (i, d) in SEARCH_SKIP_DIRS.iter().enumerate() {
-        if i > 0 {
-            cmd.arg("-o");
+    let mut files_only = false;
+    let mut name: Option<Vec<char>> = None;
+    let mut newer_than_days: Option<u64> = None;
+    let mut size: Option<String> = None;
+    let mut it = predicates.iter();
+    while let Some(&p) = it.next() {
+        match (p, it.next()) {
+            ("-type", Some(&"f")) => files_only = true,
+            ("-name", Some(&g)) => name = Some(g.chars().collect()),
+            ("-mtime", Some(&d)) if d.starts_with('-') => {
+                newer_than_days =
+                    Some(d[1..].parse().map_err(|_| {
+                        crate::safety::bad_arg(builtin, "a whole number of days", d)
+                    })?)
+            }
+            ("-size", Some(&spec)) => size = Some(spec.to_string()),
+            (other, _) => {
+                // Only reachable by a change to this file, never by a caller:
+                // every predicate list is a literal above.
+                return Err(anyhow!("{builtin}: unsupported search predicate {other}"));
+            }
         }
-        cmd.args(["-name", d]);
     }
-    cmd.args([")", "-prune", ")", "-o"]);
-    cmd.args(predicates);
-    cmd.arg("-print");
-    let out = run_search(builtin, "find", cmd)?;
-    if !out.status.success() {
-        return Err(crate::safety::tool_failed(
-            builtin,
-            "find",
-            out.status.code(),
-            &String::from_utf8_lossy(&out.stderr),
-        ));
-    }
-    Ok(String::from_utf8_lossy(&out.stdout)
-        .lines()
-        .map(str::to_string)
-        .collect())
+    let now = std::time::SystemTime::now();
+    let mut out = Vec::new();
+    search_walk(builtin, &mut |e| {
+        if files_only && !e.is_file {
+            return Ok(());
+        }
+        if let Some(g) = &name {
+            let base: Vec<char> = e
+                .path
+                .file_name()
+                .map(|n| n.to_string_lossy().chars().collect())
+                .unwrap_or_default();
+            if !shell_glob(g, &base) {
+                return Ok(());
+            }
+        }
+        if let Some(days) = newer_than_days {
+            let age = e
+                .meta
+                .modified()
+                .ok()
+                .and_then(|m| now.duration_since(m).ok())
+                .map(|d| d.as_secs())
+                .unwrap_or(u64::MAX);
+            if age >= days.saturating_mul(86_400) {
+                return Ok(());
+            }
+        }
+        if let Some(spec) = &size {
+            if !find_size_matches(builtin, spec, e.meta.len())? {
+                return Ok(());
+            }
+        }
+        out.push(e.shown.clone());
+        Ok(())
+    })?;
+    Ok(out)
 }
 
 // Search module implementations
@@ -35728,19 +35885,18 @@ fn bi_search_symbols(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
         .ok_or_else(|| crate::safety::arg_err("pattern required"))?;
-    let output = std::process::Command::new("grep")
-        .args([
-            "-rn",
-            &format!(
-                "fn {}|struct {}|class {}|def {}",
-                pattern, pattern, pattern, pattern
-            ),
-            ".",
-        ])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("search_symbols", "grep", &e))?;
-    let matches: Vec<Value> = String::from_utf8_lossy(&output.stdout)
-        .lines()
+    // This ran `grep -rn "fn X|struct X|class X|def X" .`. Without `-E`, grep
+    // reads a BASIC regular expression, in which `|` is a literal pipe -- so it
+    // searched for that whole string, matched nothing, and returned [] for
+    // every symbol in every project. `search_grep` takes a Rust regex, where
+    // `|` alternates as intended; the symbol itself is escaped so that `a.b`
+    // means `a.b`.
+    let found = search_grep(
+        "search_symbols",
+        &format!(r"(?:fn|struct|class|def)\s+{}\b", regex::escape(&pattern)),
+    )?;
+    let matches: Vec<Value> = found
+        .iter()
         .take(50)
         .map(|l| Value::Str(l.to_string()))
         .collect();
