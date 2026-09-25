@@ -25130,8 +25130,28 @@ fn bi_cron_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     .collect();
                 return Ok(Value::Array(tasks));
             }
+            // PowerShell prints nothing at all for zero tasks, so an empty
+            // stdout on success is a real "none". Non-empty output that is
+            // not JSON is not.
+            if json_str.trim().is_empty() {
+                return Ok(Value::Array(vec![]));
+            }
+            return Err(crate::safety::tool_failed(
+                "cron_list",
+                "powershell Get-ScheduledTask",
+                output.status.code(),
+                "the output was not the JSON that was asked for",
+            ));
         }
-        Ok(Value::Array(vec![]))
+        // A failed query used to fall through to an empty list, i.e. "no
+        // scheduled tasks" -- the answer to a question that was never asked
+        // successfully.
+        Err(crate::safety::tool_failed(
+            "cron_list",
+            "powershell Get-ScheduledTask",
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ))
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -25139,6 +25159,23 @@ fn bi_cron_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args(["-l"])
             .output()
             .map_err(|e| crate::safety::spawn_error("cron_list", "crontab", &e))?;
+        // `crontab -l` exits 1 with "no crontab for <user>" when the user has
+        // no jobs, which genuinely means an empty list. Every OTHER failure
+        // -- a permission error, a broken cron daemon -- was also reported as
+        // an empty list, which is a confident "you have no scheduled jobs"
+        // about a question the shell could not answer.
+        if !output.status.success() {
+            let err = String::from_utf8_lossy(&output.stderr);
+            if err.contains("no crontab for") {
+                return Ok(Value::Array(vec![]));
+            }
+            return Err(crate::safety::tool_failed(
+                "cron_list",
+                "crontab -l",
+                output.status.code(),
+                &err,
+            ));
+        }
         let text = String::from_utf8_lossy(&output.stdout);
         let entries: Vec<Value> = text
             .lines()
@@ -26325,7 +26362,15 @@ fn bi_capabilities(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         rec.insert("raw".to_string(), Value::Str(text));
         return Ok(Value::Record(rec));
     }
-    Ok(Value::Null)
+    // Linux capability sets are a Linux concept. Everywhere else this fell
+    // through to `Ok(Value::Null)`, which a caller reads as "this process
+    // has no capabilities" -- a claim about privilege, made without looking.
+    #[allow(unreachable_code)]
+    Err(crate::safety::unimplemented(
+        "capabilities",
+        "Linux capability sets do not exist on this operating system; NOTHING WAS INSPECTED",
+        "use whoami /priv on Windows, or `id` elsewhere",
+    ))
 }
 
 // ============================================================================
@@ -35530,6 +35575,128 @@ fn bi_project_size(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     walk(std::path::Path::new("."), &mut total, 0);
     Ok(Value::Int(total as i64))
 }
+// ---------------------------------------------------------------------------
+// Recursive search helpers for the `search_*` family
+// ---------------------------------------------------------------------------
+
+/// Directories a code search must never descend into.
+///
+/// `search_fixmes` ran `grep -rn FIXME .` with no exclusions. From a project
+/// root that walks `node_modules`, `.git` and build output: slow, and full of
+/// third-party noise -- `search_todos` returned a TODO from
+/// `.git/hooks/sendemail-validate.sample`. Under WSL2, two such walks running
+/// at once over `/mnt/c` stalled in 9P (`wchan = p9_client_rpc`, state D)
+/// inside `node_modules/lucide-react/dist/esm/icons`, and because
+/// `Command::output()` waits forever, the builtin never returned.
+const SEARCH_SKIP_DIRS: &[&str] = &[
+    "node_modules",
+    ".git",
+    "target",
+    "dist",
+    "build",
+    "vendor",
+    ".venv",
+    "__pycache__",
+];
+
+/// A search that has not finished in this long is not going to be useful to
+/// an agent, and a bounded refusal is worth more than an unbounded wait.
+const SEARCH_TIMEOUT_SECS: u64 = 30;
+
+fn run_search(
+    builtin: &str,
+    tool: &str,
+    cmd: std::process::Command,
+) -> Result<std::process::Output> {
+    crate::safety::output_with_timeout(cmd, SEARCH_TIMEOUT_SECS).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::TimedOut {
+            crate::safety::budget_exceeded(
+                builtin,
+                format!(
+                    "`{tool}` did not finish within {SEARCH_TIMEOUT_SECS}s; nothing was returned"
+                ),
+                "search a narrower directory",
+            )
+        } else {
+            crate::safety::spawn_error(builtin, tool, &e)
+        }
+    })
+}
+
+/// `grep -r` for `pattern` under `.`, skipping [`SEARCH_SKIP_DIRS`] and
+/// binary files.
+///
+/// grep exits 1 for "no match", which is an honest empty result; 2 or above is
+/// an error, and was being reported as "no matches" because the status was
+/// never read.
+fn search_grep(builtin: &str, pattern: &str) -> Result<Vec<String>> {
+    let mut cmd = std::process::Command::new("grep");
+    cmd.arg("-rnI");
+    for d in SEARCH_SKIP_DIRS {
+        cmd.arg(format!("--exclude-dir={d}"));
+    }
+    // `-e` so a pattern beginning with `-` is a pattern, not a flag.
+    cmd.arg("-e").arg(pattern).arg(".");
+    let out = run_search(builtin, "grep", cmd)?;
+    match out.status.code() {
+        Some(0) => Ok(String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .map(str::to_string)
+            .collect()),
+        Some(1) => Ok(Vec::new()),
+        code => Err(crate::safety::tool_failed(
+            builtin,
+            "grep -r",
+            code,
+            &String::from_utf8_lossy(&out.stderr),
+        )),
+    }
+}
+
+/// `find .` with `predicates`, pruning [`SEARCH_SKIP_DIRS`].
+///
+/// Refused on Windows. `Command::new("find")` there resolves to
+/// `C:\Windows\System32\find.exe` -- a text-search tool with different
+/// arguments -- because the system directories are searched before `PATH`,
+/// even when Git's GNU `find` is first on `PATH`. It rejected `-type`, printed
+/// nothing, and with the exit status unread `search_recent()` returned `[]` in
+/// a directory full of files edited that day.
+fn search_find(builtin: &str, predicates: &[&str]) -> Result<Vec<String>> {
+    if cfg!(windows) {
+        return Err(crate::safety::unimplemented(
+            builtin,
+            "this search uses POSIX `find`, which Windows resolves to System32\\find.exe; \
+             NOTHING WAS SEARCHED",
+            "use Get-ChildItem -Recurse in PowerShell, or run ae under WSL",
+        ));
+    }
+    let mut cmd = std::process::Command::new("find");
+    cmd.arg(".");
+    // ( -type d ( -name a -o -name b ... ) -prune ) -o <predicates> -print
+    cmd.args(["(", "-type", "d", "("]);
+    for (i, d) in SEARCH_SKIP_DIRS.iter().enumerate() {
+        if i > 0 {
+            cmd.arg("-o");
+        }
+        cmd.args(["-name", d]);
+    }
+    cmd.args([")", "-prune", ")", "-o"]);
+    cmd.args(predicates);
+    cmd.arg("-print");
+    let out = run_search(builtin, "find", cmd)?;
+    if !out.status.success() {
+        return Err(crate::safety::tool_failed(
+            builtin,
+            "find",
+            out.status.code(),
+            &String::from_utf8_lossy(&out.stderr),
+        ));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(str::to_string)
+        .collect())
+}
 
 // Search module implementations
 fn bi_search_code(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -35538,12 +35705,9 @@ fn bi_search_code(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
         .ok_or_else(|| crate::safety::arg_err("pattern required"))?;
-    let output = std::process::Command::new("grep")
-        .args(["-rn", &pattern, "."])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("search_code", "grep", &e))?;
-    let matches: Vec<Value> = String::from_utf8_lossy(&output.stdout)
-        .lines()
+    let found = search_grep("search_code", &pattern)?;
+    let matches: Vec<Value> = found
+        .iter()
         .take(100)
         .map(|l| Value::Str(l.to_string()))
         .collect();
@@ -35589,24 +35753,15 @@ fn bi_search_files(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
         .ok_or_else(|| crate::safety::arg_err("pattern required"))?;
-    let output = std::process::Command::new("find")
-        .args([".", "-name", &pattern])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("search_files", "find", &e))?;
-    let files: Vec<Value> = String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .map(|l| Value::Str(l.to_string()))
-        .collect();
+    let found = search_find("search_files", &["-name", &pattern])?;
+    let files: Vec<Value> = found.iter().map(|l| Value::Str(l.to_string())).collect();
     Ok(Value::Array(files))
 }
 
 fn bi_search_recent(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("find")
-        .args([".", "-type", "f", "-mtime", "-1"])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("search_recent", "find", &e))?;
-    let files: Vec<Value> = String::from_utf8_lossy(&output.stdout)
-        .lines()
+    let found = search_find("search_recent", &["-type", "f", "-mtime", "-1"])?;
+    let files: Vec<Value> = found
+        .iter()
         .take(50)
         .map(|l| Value::Str(l.to_string()))
         .collect();
@@ -35615,12 +35770,12 @@ fn bi_search_recent(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 fn bi_search_modified(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let days = args.first().and_then(|v| v.as_int().ok()).unwrap_or(7);
-    let output = std::process::Command::new("find")
-        .args([".", "-type", "f", "-mtime", &format!("-{}", days)])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("search_modified", "find", &e))?;
-    let files: Vec<Value> = String::from_utf8_lossy(&output.stdout)
-        .lines()
+    let found = search_find(
+        "search_modified",
+        &["-type", "f", "-mtime", &format!("-{}", days)],
+    )?;
+    let files: Vec<Value> = found
+        .iter()
         .take(100)
         .map(|l| Value::Str(l.to_string()))
         .collect();
@@ -35633,14 +35788,8 @@ fn bi_search_by_type(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
         .ok_or_else(|| crate::safety::arg_err("extension required"))?;
-    let output = std::process::Command::new("find")
-        .args([".", "-name", &format!("*.{}", ext)])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("search_by_type", "find", &e))?;
-    let files: Vec<Value> = String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .map(|l| Value::Str(l.to_string()))
-        .collect();
+    let found = search_find("search_by_type", &["-name", &format!("*.{}", ext)])?;
+    let files: Vec<Value> = found.iter().map(|l| Value::Str(l.to_string())).collect();
     Ok(Value::Array(files))
 }
 
@@ -35650,14 +35799,8 @@ fn bi_search_by_size(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
         .unwrap_or("+1M".to_string());
-    let output = std::process::Command::new("find")
-        .args([".", "-type", "f", "-size", &size])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("search_by_size", "find", &e))?;
-    let files: Vec<Value> = String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .map(|l| Value::Str(l.to_string()))
-        .collect();
+    let found = search_find("search_by_size", &["-type", "f", "-size", &size])?;
+    let files: Vec<Value> = found.iter().map(|l| Value::Str(l.to_string())).collect();
     Ok(Value::Array(files))
 }
 
@@ -35672,12 +35815,9 @@ fn bi_search_duplicates(_args: Vec<Value>, _input: Option<Value>) -> Result<Valu
 }
 
 fn bi_search_todos(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("grep")
-        .args(["-rn", "TODO", "."])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("search_todos", "grep", &e))?;
-    let todos: Vec<Value> = String::from_utf8_lossy(&output.stdout)
-        .lines()
+    let found = search_grep("search_todos", "TODO")?;
+    let todos: Vec<Value> = found
+        .iter()
         .take(100)
         .map(|l| Value::Str(l.to_string()))
         .collect();
@@ -35685,12 +35825,9 @@ fn bi_search_todos(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_search_fixmes(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("grep")
-        .args(["-rn", "FIXME", "."])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("search_fixmes", "grep", &e))?;
-    let fixmes: Vec<Value> = String::from_utf8_lossy(&output.stdout)
-        .lines()
+    let found = search_grep("search_fixmes", "FIXME")?;
+    let fixmes: Vec<Value> = found
+        .iter()
         .take(100)
         .map(|l| Value::Str(l.to_string()))
         .collect();
@@ -36308,8 +36445,26 @@ fn bi_env_python(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .args(["--version"])
         .output()
         .map_err(|e| crate::safety::spawn_error("env_python", "python", &e))?;
+    // The exit status was ignored, so a failed command's output came
+    // back as the answer. On WSL, `docker` is a shim that exists,
+    // prints "could not be found in this WSL 2 distro" and exits
+    // non-zero -- and this returned that sentence as the version.
+    if !output.status.success() {
+        return Err(crate::safety::tool_failed(
+            "env_python",
+            "python",
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
+    }
+    // Several of these print their version to stderr rather than
+    // stdout, so an empty stdout on a SUCCESSFUL run is not an error.
+    let out = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if !out.is_empty() {
+        return Ok(Value::Str(out));
+    }
     Ok(Value::Str(
-        String::from_utf8_lossy(&output.stdout).trim().to_string(),
+        String::from_utf8_lossy(&output.stderr).trim().to_string(),
     ))
 }
 
@@ -36318,8 +36473,26 @@ fn bi_env_node(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .args(["--version"])
         .output()
         .map_err(|e| crate::safety::spawn_error("env_node", "node", &e))?;
+    // The exit status was ignored, so a failed command's output came
+    // back as the answer. On WSL, `docker` is a shim that exists,
+    // prints "could not be found in this WSL 2 distro" and exits
+    // non-zero -- and this returned that sentence as the version.
+    if !output.status.success() {
+        return Err(crate::safety::tool_failed(
+            "env_node",
+            "node",
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
+    }
+    // Several of these print their version to stderr rather than
+    // stdout, so an empty stdout on a SUCCESSFUL run is not an error.
+    let out = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if !out.is_empty() {
+        return Ok(Value::Str(out));
+    }
     Ok(Value::Str(
-        String::from_utf8_lossy(&output.stdout).trim().to_string(),
+        String::from_utf8_lossy(&output.stderr).trim().to_string(),
     ))
 }
 
@@ -36328,8 +36501,26 @@ fn bi_env_rust(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .args(["--version"])
         .output()
         .map_err(|e| crate::safety::spawn_error("env_rust", "rustc", &e))?;
+    // The exit status was ignored, so a failed command's output came
+    // back as the answer. On WSL, `docker` is a shim that exists,
+    // prints "could not be found in this WSL 2 distro" and exits
+    // non-zero -- and this returned that sentence as the version.
+    if !output.status.success() {
+        return Err(crate::safety::tool_failed(
+            "env_rust",
+            "rustc",
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
+    }
+    // Several of these print their version to stderr rather than
+    // stdout, so an empty stdout on a SUCCESSFUL run is not an error.
+    let out = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if !out.is_empty() {
+        return Ok(Value::Str(out));
+    }
     Ok(Value::Str(
-        String::from_utf8_lossy(&output.stdout).trim().to_string(),
+        String::from_utf8_lossy(&output.stderr).trim().to_string(),
     ))
 }
 
@@ -36338,8 +36529,26 @@ fn bi_env_go(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .args(["version"])
         .output()
         .map_err(|e| crate::safety::spawn_error("env_go", "go", &e))?;
+    // The exit status was ignored, so a failed command's output came
+    // back as the answer. On WSL, `docker` is a shim that exists,
+    // prints "could not be found in this WSL 2 distro" and exits
+    // non-zero -- and this returned that sentence as the version.
+    if !output.status.success() {
+        return Err(crate::safety::tool_failed(
+            "env_go",
+            "go",
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
+    }
+    // Several of these print their version to stderr rather than
+    // stdout, so an empty stdout on a SUCCESSFUL run is not an error.
+    let out = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if !out.is_empty() {
+        return Ok(Value::Str(out));
+    }
     Ok(Value::Str(
-        String::from_utf8_lossy(&output.stdout).trim().to_string(),
+        String::from_utf8_lossy(&output.stderr).trim().to_string(),
     ))
 }
 
@@ -36348,13 +36557,24 @@ fn bi_env_java(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .args(["--version"])
         .output()
         .map_err(|e| crate::safety::spawn_error("env_java", "java", &e))?;
-    Ok(Value::Str(
-        String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .next()
-            .unwrap_or("")
-            .to_string(),
-    ))
+    // Same exit-status gap as the rest of the family; this one takes only
+    // the first line, so a multi-line failure message was truncated into
+    // something that looked even more like a version string.
+    if !output.status.success() {
+        return Err(crate::safety::tool_failed(
+            "env_java",
+            "java",
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
+    }
+    let first = |s: &str| s.lines().next().unwrap_or("").to_string();
+    let out = first(&String::from_utf8_lossy(&output.stdout));
+    if !out.is_empty() {
+        return Ok(Value::Str(out));
+    }
+    // `java -version` writes to stderr on older JDKs.
+    Ok(Value::Str(first(&String::from_utf8_lossy(&output.stderr))))
 }
 
 fn bi_env_dotnet(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -36362,8 +36582,26 @@ fn bi_env_dotnet(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .args(["--version"])
         .output()
         .map_err(|e| crate::safety::spawn_error("env_dotnet", "dotnet", &e))?;
+    // The exit status was ignored, so a failed command's output came
+    // back as the answer. On WSL, `docker` is a shim that exists,
+    // prints "could not be found in this WSL 2 distro" and exits
+    // non-zero -- and this returned that sentence as the version.
+    if !output.status.success() {
+        return Err(crate::safety::tool_failed(
+            "env_dotnet",
+            "dotnet",
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
+    }
+    // Several of these print their version to stderr rather than
+    // stdout, so an empty stdout on a SUCCESSFUL run is not an error.
+    let out = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if !out.is_empty() {
+        return Ok(Value::Str(out));
+    }
     Ok(Value::Str(
-        String::from_utf8_lossy(&output.stdout).trim().to_string(),
+        String::from_utf8_lossy(&output.stderr).trim().to_string(),
     ))
 }
 
@@ -36372,8 +36610,26 @@ fn bi_env_ruby(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .args(["--version"])
         .output()
         .map_err(|e| crate::safety::spawn_error("env_ruby", "ruby", &e))?;
+    // The exit status was ignored, so a failed command's output came
+    // back as the answer. On WSL, `docker` is a shim that exists,
+    // prints "could not be found in this WSL 2 distro" and exits
+    // non-zero -- and this returned that sentence as the version.
+    if !output.status.success() {
+        return Err(crate::safety::tool_failed(
+            "env_ruby",
+            "ruby",
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
+    }
+    // Several of these print their version to stderr rather than
+    // stdout, so an empty stdout on a SUCCESSFUL run is not an error.
+    let out = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if !out.is_empty() {
+        return Ok(Value::Str(out));
+    }
     Ok(Value::Str(
-        String::from_utf8_lossy(&output.stdout).trim().to_string(),
+        String::from_utf8_lossy(&output.stderr).trim().to_string(),
     ))
 }
 
@@ -36439,8 +36695,26 @@ fn bi_env_docker(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .args(["--version"])
         .output()
         .map_err(|e| crate::safety::spawn_error("env_docker", "docker", &e))?;
+    // The exit status was ignored, so a failed command's output came
+    // back as the answer. On WSL, `docker` is a shim that exists,
+    // prints "could not be found in this WSL 2 distro" and exits
+    // non-zero -- and this returned that sentence as the version.
+    if !output.status.success() {
+        return Err(crate::safety::tool_failed(
+            "env_docker",
+            "docker",
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
+    }
+    // Several of these print their version to stderr rather than
+    // stdout, so an empty stdout on a SUCCESSFUL run is not an error.
+    let out = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if !out.is_empty() {
+        return Ok(Value::Str(out));
+    }
     Ok(Value::Str(
-        String::from_utf8_lossy(&output.stdout).trim().to_string(),
+        String::from_utf8_lossy(&output.stderr).trim().to_string(),
     ))
 }
 
