@@ -154,3 +154,31 @@ if (nondet.length) {
     fs.writeFileSync('nondeterministic.txt', `${nondet.join('\n')}\n`);
 }
 console.log('\nlists written to discarded-args.txt and nondeterministic.txt');
+
+// CI mode: a ratchet that may only fall. The count depends on which tools the
+// host has -- a builtin that fails for a missing tool is not comparable -- so
+// the ceiling is the number measured on the CI runner itself, kept in
+// ratchets.json, and lowered whenever a declaration tranche lowers it.
+if (process.env.AE_PROBE_ASSERT === '1') {
+    const file = new URL('./ratchets.json', import.meta.url);
+    const max = JSON.parse(fs.readFileSync(file, 'utf8')).discarded_args_max;
+    if (typeof max !== 'number') {
+        console.error('! ratchets.json has no numeric discarded_args_max');
+        process.exit(2);
+    }
+    if (discarded.length > max) {
+        console.error(
+            `\n! ${discarded.length} builtins discard extra arguments; the ceiling is ${max}. ` +
+                'Something that used to refuse them no longer does.',
+        );
+        process.exit(1);
+    }
+    if (discarded.length < max) {
+        console.log(
+            `\nassert: ${discarded.length} <= ${max}. Lower discarded_args_max in ` +
+                'ratchets.json to lock in the improvement.',
+        );
+    } else {
+        console.log(`\nassert: ${discarded.length} <= ${max}`);
+    }
+}

@@ -151,6 +151,52 @@ jobs:
             - name: Check on the declared MSRV
               run: cargo check --workspace --features native
 
+    # The catalogue probes, as gates. They were run by hand, which meant every
+    # number in docs/TYPED_SHELL_RESPONSE.md was only as current as the last
+    # time someone remembered to run them. Each probe already exits 2 when it
+    # measured nothing (too few builtins enumerated, a stale binary), so a probe
+    # that silently stops testing fails the job rather than passing it.
+    #
+    #   uncoded.mjs         every builtin, a nonsense argument: 0 uncoded, 0 hung
+    #   uncoded-paths.mjs   every builtin, a missing path:      0 uncoded, 0 hung
+    #   discarded-args.mjs  extra arguments ignored: may only fall (ratchets.json)
+    #
+    # silent-success.mjs is not here on purpose: it lists suspects, not defects,
+    # and its strict half -- advice returned as a result -- is already a Rust
+    # test.
+    agentic-probes:
+        name: Agentic probes
+        timeout-minutes: 45
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: dtolnay/rust-toolchain@stable
+
+            - uses: Swatinem/rust-cache@v2
+
+            - name: Install Linux dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y libasound2-dev libssl-dev pkg-config
+
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: "20"
+
+            - name: Build ae
+              run: cargo build --bin ae
+
+            - name: Run the probes as gates
+              env:
+                  AE_PROBE_ASSERT: "1"
+              run: |
+                  export PATH="$GITHUB_WORKSPACE/target/debug:$PATH"
+                  mkdir -p "$RUNNER_TEMP/probes" && cd "$RUNNER_TEMP/probes"
+                  node "$GITHUB_WORKSPACE/benches/agentic/uncoded.mjs"
+                  node "$GITHUB_WORKSPACE/benches/agentic/uncoded-paths.mjs"
+                  node "$GITHUB_WORKSPACE/benches/agentic/discarded-args.mjs"
+
     vscode-extension:
         name: VS Code Extension
         timeout-minutes: 15

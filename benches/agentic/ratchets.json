@@ -1,0 +1,4 @@
+{
+  "_discarded_args_max": "UNCALIBRATED. 1052 is the whole catalogue, so it cannot fail; it is replaced by the count the CI runner reports on its first run, because the number depends on which tools the host has installed.",
+  "discarded_args_max": 1052
+}

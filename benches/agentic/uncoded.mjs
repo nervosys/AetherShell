@@ -221,7 +221,13 @@ const toolAbsent = [];
 const hung = [];
 let done = 0;
 for (const name of [...names].sort()) {
-    const out = run(`${name}({unexpected: true})`);
+    // A call that times out gets one more attempt before it counts as HUNG.
+    // A real hang hangs again; a load spike does not. Without this the CI
+    // gate on `hung == 0` would trip on the runner being briefly busy --
+    // one run here reported a hang that three clean runs never reproduced --
+    // and a gate that flakes is a gate people learn to ignore.
+    let out = run(`${name}({unexpected: true})`);
+    if (out === '\u0000TIMEOUT') out = run(`${name}({unexpected: true})`);
     // Only a *failed* call can be uncoded. `diagnose({unexpected: true})`
     // succeeds and returns `{code: E_UNKNOWN}` describing the record it was
     // handed -- grepping the output for a code without checking that the call
@@ -264,3 +270,19 @@ if (hung.length) {
     console.log(`  ${hung.join(', ')}`);
 }
 console.log('\nlists written to uncoded.txt and uncoded-tool-absent.txt');
+
+// CI mode. Every count this probe reports as a problem is 0 today, so any of
+// them rising is a regression -- including a builtin that hangs, which is
+// worse for an agent than one that fails. Exit 1 so the job fails; the
+// non-vacuity checks above already exit 2 when the probe measured nothing.
+if (process.env.AE_PROBE_ASSERT === '1') {
+    const bad = uncoded.length + toolAbsent.length + hung.length;
+    if (bad > 0) {
+        console.error(
+            `\n! ${uncoded.length} uncoded, ${toolAbsent.length} uncoded tool-absent, ` +
+                `${hung.length} hung -- all three were 0`,
+        );
+        process.exit(1);
+    }
+    console.log('\nassert: 0 uncoded, 0 hung');
+}

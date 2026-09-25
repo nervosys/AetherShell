@@ -112,7 +112,13 @@ const clearProbePath = () => {
 
 for (const name of [...names].sort()) {
     clearProbePath();
-    const out = run(`${name}(${JSON.stringify(ARG)})`);
+    // A call that times out gets one more attempt before it counts as HUNG.
+    // A real hang hangs again; a load spike does not. Without this the CI
+    // gate on `hung == 0` would trip on the runner being briefly busy --
+    // one run here reported a hang that three clean runs never reproduced --
+    // and a gate that flakes is a gate people learn to ignore.
+    let out = run(`${name}(${JSON.stringify(ARG)})`);
+    if (out === '\u0000TIMEOUT') out = run(`${name}(${JSON.stringify(ARG)})`);
     const failed = out.startsWith('error') || out.startsWith('{"error"');
     const m = failed ? out.match(/E_[A-Z_0-9]+/) : null;
     const code =
@@ -145,3 +151,12 @@ if (hung.length) {
     console.log(`\n${hung.length} hung: ${hung.join(', ')}`);
 }
 console.log('list written to uncoded-paths.txt');
+
+// CI mode: both counts are 0 today; either rising is a regression.
+if (process.env.AE_PROBE_ASSERT === '1') {
+    if (uncoded.length + hung.length > 0) {
+        console.error(`\n! ${uncoded.length} uncoded, ${hung.length} hung -- both were 0`);
+        process.exit(1);
+    }
+    console.log('\nassert: 0 uncoded, 0 hung on the second failure path');
+}
