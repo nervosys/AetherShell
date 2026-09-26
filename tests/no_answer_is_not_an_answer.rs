@@ -224,3 +224,20 @@ fn hex_decode_refuses_what_is_not_hex() {
     assert_eq!(code_of(&e), "E_BAD_ARG");
     assert_eq!(call("crypto_hex_decode", vec![s("6869")]).unwrap(), s("hi"));
 }
+
+/// role_create dropped malformed permission entries and still reported
+/// "created", and a piped name took the description as its permissions.
+#[test]
+fn role_create_refuses_a_permission_it_cannot_read() {
+    for bad in [
+        eval(r#"role_create("r1", [{actions: ["read"]}])"#),
+        eval(r#"role_create("r2", [{resource: "docs", actions: "read"}])"#),
+        eval(r#"role_create("r3", ["docs"])"#),
+    ] {
+        assert_eq!(code_of(&bad.expect_err("accepted")), "E_BAD_ARG");
+    }
+    let piped = eval(r#""r4" | role_create([{resource: "docs", actions: ["read"]}], "desc")"#)
+        .expect("piped form");
+    let Value::Record(r) = piped else { panic!() };
+    assert_eq!(r.get("role"), Some(&s("r4")));
+}

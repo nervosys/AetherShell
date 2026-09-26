@@ -19544,42 +19544,66 @@ fn values_equal(a: &Value, b: &Value) -> bool {
 
 /// role_create(name, permissions, description?) - Create a new RBAC role
 fn bi_role_create(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    // With the name piped in, the arguments are the parameters; called
+    // directly, the name is the first. This read permissions from args[1]
+    // either way, so a piped name took the description as its permissions.
+    let piped = input.is_some();
     let name = input
         .or_else(|| args.first().cloned())
         .map(|v| key_arg("role_create", v))
         .transpose()?
         .ok_or_else(|| crate::safety::arg_err("role_create: missing 'name'"))?;
+    let params = if piped {
+        &args[..]
+    } else {
+        args.get(1..).unwrap_or(&[])
+    };
 
-    let permissions = args
+    // Every entry must be a {resource, actions} record. Malformed entries were
+    // dropped silently, so a role could be created with fewer permissions
+    // than asked for and still report "created" -- the wrong failure mode for
+    // an access-control builtin.
+    let bad_permission = |got: &Value| {
+        crate::safety::bad_arg(
+            "role_create",
+            "permissions: an array of {resource: String, actions: [String]} records",
+            &got.to_display_string(),
+        )
+    };
+    let permissions = match params.first() {
+        None => Vec::new(),
+        Some(Value::Array(arr)) => {
+            let mut out = Vec::with_capacity(arr.len());
+            for p in arr {
+                let Value::Record(rec) = p else {
+                    return Err(bad_permission(p));
+                };
+                let Some(Value::Str(resource)) = rec.get("resource") else {
+                    return Err(bad_permission(p));
+                };
+                let actions = match rec.get("actions") {
+                    None => Vec::new(),
+                    Some(Value::Array(a)) => a
+                        .iter()
+                        .map(|v| match v {
+                            Value::Str(s) => Ok(s.clone()),
+                            _ => Err(bad_permission(p)),
+                        })
+                        .collect::<Result<Vec<_>>>()?,
+                    Some(_) => return Err(bad_permission(p)),
+                };
+                out.push(Permission {
+                    resource: resource.clone(),
+                    actions,
+                });
+            }
+            out
+        }
+        Some(other) => return Err(bad_permission(other)),
+    };
+
+    let description = params
         .get(1)
-        .and_then(|v| match v {
-            Value::Array(arr) => Some(
-                arr.iter()
-                    .filter_map(|p| {
-                        if let Value::Record(rec) = p {
-                            let resource = rec.get("resource").map(|v| v.to_display_string())?;
-                            let actions = rec
-                                .get("actions")
-                                .and_then(|v| match v {
-                                    Value::Array(a) => {
-                                        Some(a.iter().map(|v| v.to_display_string()).collect())
-                                    }
-                                    _ => None,
-                                })
-                                .unwrap_or_default();
-                            Some(Permission { resource, actions })
-                        } else {
-                            None
-                        }
-                    })
-                    .collect::<Vec<_>>(),
-            ),
-            _ => None,
-        })
-        .unwrap_or_default();
-
-    let description = args
-        .get(2)
         .map(|v| v.to_display_string())
         .unwrap_or_default();
 
