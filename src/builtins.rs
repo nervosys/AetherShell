@@ -20824,18 +20824,32 @@ fn bi_proc_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Array(vec![]))
 }
 
-fn bi_proc_kill(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let pid = match args.first() {
-        Some(Value::Int(p)) => *p,
-        Some(Value::Str(s)) => s.parse().unwrap_or(0),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "proc_kill",
-                "Int or String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
+/// A process id: a positive integer, or a string of one.
+///
+/// Four builtins parsed a string with `unwrap_or(0)`, so a process *name*
+/// became pid 0, and none refused zero or a negative pid. To `kill`, 0 means
+/// the caller's own process group and -1 means every process the user may
+/// signal: `proc_kill("firefox")` signalled the shell's own group, and
+/// `proc_kill(-1)` everything.
+fn pid_arg(builtin: &str, v: Option<&Value>) -> Result<i64> {
+    let pid = match v {
+        Some(Value::Int(p)) => Some(*p),
+        Some(Value::Str(s)) => s.trim().parse::<i64>().ok(),
+        _ => None,
     };
+    match pid {
+        Some(p) if p > 0 => Ok(p),
+        _ => Err(crate::safety::bad_arg(
+            builtin,
+            "a process id: a positive integer (0 and negatives address groups of processes)",
+            &v.map(|v| v.to_display_string())
+                .unwrap_or_else(|| "nothing".into()),
+        )),
+    }
+}
+
+fn bi_proc_kill(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let pid = pid_arg("proc_kill", args.first())?;
     let signal = args
         .get(1)
         .and_then(|v| match v {
@@ -20876,7 +20890,15 @@ fn bi_proc_kill(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             "QUIT" | "3" => "-3",
             "STOP" | "19" => "-19",
             "CONT" | "18" => "-18",
-            _ => "-15",
+            "TERM" | "15" => "-15",
+            // An unknown name ("SIGKILL", "USR1") was sent as TERM, silently.
+            other => {
+                return Err(crate::safety::bad_arg(
+                    "proc_kill",
+                    "signal TERM, KILL, HUP, INT, QUIT, STOP or CONT (or its number)",
+                    other,
+                ))
+            }
         };
         let output = std::process::Command::new("kill")
             .args([sig, &pid.to_string()])
@@ -20887,17 +20909,7 @@ fn bi_proc_kill(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_proc_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let pid = match args.first() {
-        Some(Value::Int(p)) => *p,
-        Some(Value::Str(s)) => s.parse().unwrap_or(0),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "proc_info",
-                "Int or String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
+    let pid = pid_arg("proc_info", args.first())?;
 
     #[cfg(target_os = "windows")]
     {
@@ -21093,17 +21105,7 @@ fn bi_proc_wait(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_proc_exists(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let pid = match args.first() {
-        Some(Value::Int(p)) => *p,
-        Some(Value::Str(s)) => s.parse().unwrap_or(0),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "proc_exists",
-                "Int or String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
+    let pid = pid_arg("proc_exists", args.first())?;
 
     #[cfg(target_os = "windows")]
     {
@@ -21309,19 +21311,14 @@ fn bi_proc_priority(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_proc_set_priority(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let pid = match args.first() {
-        Some(Value::Int(p)) => *p,
-        other => {
-            return Err(crate::safety::bad_arg(
-                "proc_set_priority",
-                "Int",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
+    let pid = pid_arg("proc_set_priority", args.first())?;
     let priority = match args.get(1) {
         Some(Value::Int(p)) => *p,
-        Some(Value::Str(s)) => s.parse().unwrap_or(0),
+        // A non-numeric priority became 0 (normal), silently.
+        Some(Value::Str(s)) => s
+            .trim()
+            .parse()
+            .map_err(|_| crate::safety::bad_arg("proc_set_priority", "an integer priority", s))?,
         other => {
             return Err(crate::safety::bad_arg(
                 "proc_set_priority",
@@ -32310,6 +32307,8 @@ fn bi_db_json_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => ".".to_string(),
     };
+    // Both go to jq positionally, so a leading `-` would be read as an option.
+    crate::safety::reject_option_like("db_json_query", &[json_path.clone(), jq_filter.clone()])?;
 
     let output = std::process::Command::new("jq")
         .args([&jq_filter, &json_path])
@@ -32324,13 +32323,14 @@ fn bi_db_json_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         return Ok(Value::Str(json_str.trim().to_string()));
     }
 
-    // Fallback: read JSON and apply simple filter
-    if let Ok(content) = std::fs::read_to_string(&json_path) {
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-            return Ok(json_to_value(json));
-        }
-    }
-    Ok(Value::Null)
+    // This "fell back" to reading the file and returning all of it, so a
+    // filter jq rejected answered with the whole document, filter ignored.
+    Err(crate::safety::tool_failed(
+        "db_json_query",
+        "jq",
+        output.status.code(),
+        &String::from_utf8_lossy(&output.stderr),
+    ))
 }
 
 fn bi_db_csv_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -32372,55 +32372,83 @@ fn bi_db_csv_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_db_json_to_csv(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let json_data = match args.first() {
+    // Every failure here answered "": invalid JSON, a non-array, a first row
+    // that was not a record. Worse, cells that were not strings were written
+    // with Rust's Debug format, so 5 became `Int(5)`; columns came from the
+    // first record only, so a field first seen later was dropped; and a row
+    // that was not a record was skipped.
+    const B: &str = "db_json_to_csv";
+    let rows = match args.first() {
         Some(Value::Array(arr)) => arr.clone(),
         Some(Value::Str(s)) => {
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(s) {
-                if let Value::Array(arr) = json_to_value(json) {
-                    arr
-                } else {
-                    return Ok(Value::Str("".to_string()));
+            let json = serde_json::from_str::<serde_json::Value>(s)
+                .map_err(|e| crate::safety::bad_arg(B, "valid JSON", &e.to_string()))?;
+            match json_to_value(json) {
+                Value::Array(arr) => arr,
+                other => {
+                    return Err(crate::safety::bad_arg(
+                        B,
+                        "a JSON array of objects",
+                        other.type_name(),
+                    ))
                 }
-            } else {
-                return Ok(Value::Str("".to_string()));
             }
         }
-        _ => return Ok(Value::Str("".to_string())),
+        other => {
+            return Err(crate::safety::bad_arg(
+                B,
+                "an array of records, or its JSON text",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
-
-    if json_data.is_empty() {
-        return Ok(Value::Str("".to_string()));
+    if rows.is_empty() {
+        return Ok(Value::Str(String::new()));
     }
 
-    // Get headers from first record
-    let headers: Vec<String> = match &json_data[0] {
-        Value::Record(rec) => rec.keys().cloned().collect(),
-        _ => return Ok(Value::Str("".to_string())),
-    };
+    let mut headers = std::collections::BTreeSet::new();
+    for row in &rows {
+        match row {
+            Value::Record(rec) => headers.extend(rec.keys().cloned()),
+            other => {
+                return Err(crate::safety::bad_arg(
+                    B,
+                    "every row a record",
+                    other.type_name(),
+                ))
+            }
+        }
+    }
+    let headers: Vec<String> = headers.into_iter().collect();
 
-    let mut csv = headers.join(",") + "\n";
-
-    for row in json_data {
-        if let Value::Record(rec) = row {
-            let values: Vec<String> = headers
-                .iter()
-                .map(|h| match rec.get(h) {
-                    Some(Value::Str(s)) => {
-                        if s.contains(',') || s.contains('"') {
-                            format!("\"{}\"", s.replace("\"", "\"\""))
-                        } else {
-                            s.clone()
-                        }
-                    }
-                    Some(v) => format!("{:?}", v),
-                    None => "".to_string(),
-                })
-                .collect();
-            csv.push_str(&values.join(","));
-            csv.push('\n');
+    fn cell(v: Option<&Value>) -> String {
+        let raw = match v {
+            None | Some(Value::Null) => return String::new(),
+            Some(Value::Str(s)) => s.clone(),
+            Some(v @ (Value::Int(_) | Value::Float(_) | Value::Bool(_))) => v.to_display_string(),
+            Some(other) => value_to_json(other.clone()).to_string(),
+        };
+        if raw.contains([',', '"', '\n', '\r']) {
+            format!("\"{}\"", raw.replace('"', "\"\""))
+        } else {
+            raw
         }
     }
 
+    let mut csv = headers
+        .iter()
+        .map(|h| cell(Some(&Value::Str(h.clone()))))
+        .collect::<Vec<_>>()
+        .join(",");
+    csv.push('\n');
+    for row in &rows {
+        let Value::Record(rec) = row else {
+            unreachable!("checked above")
+        };
+        let line: Vec<String> = headers.iter().map(|h| cell(rec.get(h))).collect();
+        csv.push_str(&line.join(","));
+        csv.push('\n');
+    }
     Ok(Value::Str(csv))
 }
 
@@ -32904,17 +32932,28 @@ fn bi_db_sqlite_count(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
         )
     };
 
-    match bi_db_sqlite_query(vec![Value::Str(db_path), Value::Str(sql)], None)? {
-        Value::Array(arr) if !arr.is_empty() => {
-            if let Value::Record(rec) = &arr[0] {
-                if let Some(Value::Str(s)) = rec.get("count") {
-                    return Ok(Value::Int(s.parse().unwrap_or(0)));
-                }
-            }
-        }
-        _ => {}
-    }
-    Ok(Value::Int(0))
+    // This matched only a String count. db_sqlite_query returns it as an Int,
+    // so every table counted 0 -- a 3-row table included.
+    let rows = bi_db_sqlite_query(vec![Value::Str(db_path), Value::Str(sql)], None)?;
+    let count = match &rows {
+        Value::Array(arr) => match arr.first() {
+            Some(Value::Record(rec)) => match rec.get("count") {
+                Some(Value::Int(n)) => Some(*n),
+                Some(Value::Str(s)) => s.trim().parse().ok(),
+                _ => None,
+            },
+            _ => None,
+        },
+        _ => None,
+    };
+    count.map(Value::Int).ok_or_else(|| {
+        crate::safety::tool_failed(
+            "db_sqlite_count",
+            "sqlite3 SELECT COUNT(*)",
+            None,
+            &format!("no count in the result: {}", rows.to_display_string()),
+        )
+    })
 }
 
 fn bi_db_sqlite_create_table(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -37167,10 +37206,11 @@ fn bi_env_var(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
         .ok_or_else(|| crate::safety::arg_err("variable name required"))?;
-    Ok(gate_env_secret(
-        &name,
-        std::env::var(&name).unwrap_or_default(),
-    ))
+    // Unset was "", where env() and sys.env() answer null.
+    Ok(match std::env::var(&name) {
+        Ok(v) => gate_env_secret(&name, v),
+        Err(_) => Value::Null,
+    })
 }
 
 fn bi_env_vars(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {

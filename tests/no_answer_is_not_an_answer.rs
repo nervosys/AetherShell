@@ -290,3 +290,64 @@ fn base64_is_the_same_on_every_os_and_round_trips() {
     let e = call("base64_encode", vec![]).expect_err("encoded nothing");
     assert_eq!(code_of(&e), "E_BAD_ARG");
 }
+
+/// proc_kill parsed a name as pid 0 and passed negatives through: to kill(1),
+/// 0 is the caller's own process group and -1 every process it may signal.
+#[test]
+fn a_pid_is_positive_and_numeric() {
+    for (name, args) in [
+        ("proc_kill", vec![s("firefox")]),
+        ("proc_kill", vec![Value::Int(-1)]),
+        ("proc_kill", vec![Value::Int(0)]),
+        ("proc_info", vec![s("abc")]),
+        ("proc_exists", vec![s("abc")]),
+        ("proc_set_priority", vec![Value::Int(-1), Value::Int(5)]),
+    ] {
+        let e = call(name, args).expect_err(name);
+        assert_eq!(code_of(&e), "E_BAD_ARG", "{name}: {e}");
+    }
+    // An unknown signal was sent as TERM. Refused before anything runs.
+    let e = call("proc_kill", vec![Value::Int(999_999_999), s("SIGKILL")]).expect_err("signal");
+    assert_eq!(code_of(&e), "E_BAD_ARG");
+}
+
+/// db_json_to_csv wrote non-string cells with Debug formatting (`Int(5)`),
+/// took columns from the first record only, and answered "" for bad input.
+#[test]
+fn csv_cells_are_values_and_every_column_is_kept() {
+    let v = eval(r#"db_json_to_csv([{a: 5, b: "x,y"}, {a: 6, c: true}])"#).unwrap();
+    assert_eq!(v, s("a,b,c\n5,\"x,y\",\n6,,true\n"));
+    for bad in [
+        r#"db_json_to_csv("{not json")"#,
+        r#"db_json_to_csv("[1, 2]")"#,
+        "db_json_to_csv(5)",
+    ] {
+        assert_eq!(code_of(&eval(bad).expect_err(bad)), "E_BAD_ARG", "{bad}");
+    }
+}
+
+/// db_sqlite_count matched only a String count, and the query returns an Int,
+/// so every table counted 0.
+#[test]
+fn a_sqlite_count_counts() {
+    if std::process::Command::new("sqlite3")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        eprintln!("skipped: sqlite3 is not installed here");
+        return;
+    }
+    let dir = std::env::temp_dir().join(format!("ae-count-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let db = dir.join("t.db");
+    let made = std::process::Command::new("sqlite3")
+        .arg(&db)
+        .arg("create table t(a int); insert into t values (1),(2),(3);")
+        .status()
+        .unwrap();
+    assert!(made.success());
+    let n = call("db_sqlite_count", vec![s(db.to_str().unwrap()), s("t")]);
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(n.unwrap(), Value::Int(3));
+}
