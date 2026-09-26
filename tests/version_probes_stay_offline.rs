@@ -21,7 +21,8 @@ fn fake(dir: &Path, name: &str, log: &Path) {
 fn fake_answering(dir: &Path, name: &str, log: &Path, answer: &str) {
     let script = format!(
         "#!/bin/sh\necho \"{name} $* CHECKPOINT_DISABLE=$CHECKPOINT_DISABLE \
-         AZURE_CORE_COLLECT_TELEMETRY=$AZURE_CORE_COLLECT_TELEMETRY\" >> {log}\n\
+         AZURE_CORE_COLLECT_TELEMETRY=$AZURE_CORE_COLLECT_TELEMETRY \
+         CLOUDSDK_CORE_CHECK_GCE_METADATA=$CLOUDSDK_CORE_CHECK_GCE_METADATA\" >> {log}\n\
          echo '{answer}'\n",
         log = log.display()
     );
@@ -39,6 +40,7 @@ fn version_probes_ask_the_offline_question() {
 
     fake(&dir, "kubectl", &log);
     fake(&dir, "packer", &log);
+    fake(&dir, "gcloud", &log);
     fake_answering(
         &dir,
         "az",
@@ -79,6 +81,8 @@ fn version_probes_ask_the_offline_question() {
         call_of("kubectl")
     );
     assert!(call_of("packer").contains("CHECKPOINT_DISABLE=1"));
+    // gcloud resolves metadata.google.internal on a first run unless told not to.
+    assert!(call_of("gcloud").contains("CLOUDSDK_CORE_CHECK_GCE_METADATA=false"));
     // Any az invocation can fetch the latest release list (with no version
     // cache it does, even for `az version`), so az is never run. 9.9.9 is
     // what running it would have said; 2.64.0 is what is installed.

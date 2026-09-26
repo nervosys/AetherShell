@@ -37508,7 +37508,12 @@ fn get_tool_version(tool: &str) -> Option<String> {
         ("POWERSHELL_UPDATECHECK", "Off"), // pwsh
         ("GOTOOLCHAIN", "local"),       // go: never fetch a toolchain
         ("HOMEBREW_NO_AUTO_UPDATE", "1"), // brew
-        ("HOMEBREW_NO_ANALYTICS", "1"), // brew
+        ("HOMEBREW_NO_ANALYTICS", "1"),
+        // gcloud: on a first run it resolves metadata.google.internal to ask
+        // whether it is on Compute Engine; the egress gate caught that lookup.
+        ("CLOUDSDK_CORE_CHECK_GCE_METADATA", "false"),
+        ("CLOUDSDK_COMPONENT_MANAGER_DISABLE_UPDATE_CHECK", "true"),
+        ("CLOUDSDK_CORE_DISABLE_USAGE_REPORTING", "true"), // brew
     ] {
         cmd.env(k, v);
     }
