@@ -4,7 +4,7 @@ info:
   version: 12.0.2
   description: >
     Structured JSON API for AI agents to interact with AetherShell, a typed
-    functional shell with 1,300+ builtins. Start the server with
+    functional shell with 1,100+ builtins. Start the server with
     `ae agent serve` (default port 3002).
 
 

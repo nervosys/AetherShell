@@ -31,7 +31,7 @@
 //!
 //! ### Native-only (behind `native` feature)
 //! - [`eval`] — Expression evaluator and runtime semantics
-//! - [`builtins`] — 1,280+ built-in functions across 108 modules
+//! - [`builtins`] — 1,100+ built-in functions across 108 modules
 //! - [`modules`] — Module system mapping `module.function()` syntax to builtins
 //! - [`ai`] / [`ai_api`] — Multi-provider AI integration
 //! - [`agent`] / [`agent_api`] — Autonomous agent framework and HTTP API
@@ -132,7 +132,7 @@ pub mod ai_api;
 /// Authentication — token and credential management.
 #[cfg(feature = "native")]
 pub mod auth;
-/// Built-in functions — 1,280+ typed builtins across 108 modules.
+/// Built-in functions — 1,100+ typed builtins across 108 modules.
 #[cfg(feature = "native")]
 pub mod builtins;
 /// Configuration — XDG-compliant config, themes, and settings.

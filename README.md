@@ -571,8 +571,9 @@ following calls four levels deep: if a function constructs a process, writes a f
 opens a socket or kills a process, it cannot be `Pure` whatever it is called. It found
 306 more.
 
-Coverage is reported, not asserted: **662 of 1,301 builtins carry an explicit effect**.
-Three independent checks say nothing dangerous hides in the remaining 639 — zero act
+Coverage is reported, not asserted: **799 of the 1,318 names in the dispatch table carry an
+explicit effect** (`tests/effect_coverage.rs` prints the current figure). Three independent
+checks say nothing dangerous hides in the remaining 519 — zero act
 while classified `Pure`, zero read local state while classified `Pure`, and zero could
 reach an effect even when every ambiguous helper name is resolved to its worst
 definition. Each check has a canary proving it can still see, because a lint that has
@@ -1275,7 +1276,7 @@ src/
   main.rs          # Entry point
   eval.rs          # Expression evaluator
   parser.rs        # AetherShell syntax parser
-  builtins.rs      # 1,300+ builtin functions
+  builtins.rs      # 1,100+ builtin functions
   modules.rs       # Module system (file, sys, net, ...)
   ai.rs            # AI provider integration
   agent.rs         # Autonomous agent framework

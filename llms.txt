@@ -2,7 +2,7 @@
 
 > One language, every platform, deterministic typed output — the shell built for AI agents.
 
-AetherShell (`ae`) is a shell and scripting language written in Rust that eliminates the brittle text-parsing layer between AI agents and operating systems. Traditional shells (Bash, PowerShell, Zsh) produce unstructured output that varies by OS version, locale, and tool installation, making agent workflows non-deterministic. AetherShell replaces this with typed, structured data flows using Hindley-Milner type inference — every command returns deterministic Records, Arrays, and Tables, not raw text. An ontology built into the shell makes commands, their arguments, and their return types machine-discoverable. It provides 1,100+ builtins across 106 modules, native AI agents with multi-modal support, and the MCP/A2A/A2UI/NANDA agentic protocols.
+AetherShell (`ae`) is a shell and scripting language written in Rust that eliminates the brittle text-parsing layer between AI agents and operating systems. Traditional shells (Bash, PowerShell, Zsh) produce unstructured output that varies by OS version, locale, and tool installation, making agent workflows non-deterministic. AetherShell replaces this with typed, structured data flows using Hindley-Milner type inference — every command returns deterministic Records, Arrays, and Tables, not raw text. An ontology built into the shell makes commands, their arguments, and their return types machine-discoverable. It provides 1,100+ builtins across 108 modules, native AI agents with multi-modal support, and the MCP/A2A/A2UI/NANDA agentic protocols.
 
 ## Quick Links
 
