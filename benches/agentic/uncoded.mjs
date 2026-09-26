@@ -219,6 +219,10 @@ const tally = new Map();
 const uncoded = [];
 const toolAbsent = [];
 const hung = [];
+// What each uncoded builtin actually printed, so a failing CI run names the
+// offender and its message instead of only a count. The first CI failure of
+// this gate reported "2 uncoded" and nothing else, which costs a round trip.
+const said = {};
 let done = 0;
 for (const name of [...names].sort()) {
     // A call that times out gets one more attempt before it counts as HUNG.
@@ -246,6 +250,7 @@ for (const name of [...names].sort()) {
     if (code === 'HUNG') hung.push(name);
     if (code === 'E_UNKNOWN' || code === 'NO_CODE') {
         (TOOL_ABSENT.test(out) ? toolAbsent : uncoded).push(name);
+        said[name] = out.replace(/\s+/g, ' ').slice(0, 240);
     }
     if (++done % 200 === 0) process.stderr.write(`  ${done}/${names.size}\n`);
 }
@@ -282,6 +287,8 @@ if (process.env.AE_PROBE_ASSERT === '1') {
             `\n! ${uncoded.length} uncoded, ${toolAbsent.length} uncoded tool-absent, ` +
                 `${hung.length} hung -- all three were 0`,
         );
+        for (const n of [...uncoded, ...toolAbsent]) console.error(`    ${n}: ${said[n]}`);
+        for (const n of hung) console.error(`    ${n}: never returned`);
         process.exit(1);
     }
     console.log('\nassert: 0 uncoded, 0 hung');

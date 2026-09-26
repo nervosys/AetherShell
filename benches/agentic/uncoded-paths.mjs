@@ -156,6 +156,8 @@ console.log('list written to uncoded-paths.txt');
 if (process.env.AE_PROBE_ASSERT === '1') {
     if (uncoded.length + hung.length > 0) {
         console.error(`\n! ${uncoded.length} uncoded, ${hung.length} hung -- both were 0`);
+        for (const u of uncoded) console.error(`    ${u.replace('\t', ': ')}`);
+        for (const n of hung) console.error(`    ${n}: never returned`);
         process.exit(1);
     }
     console.log('\nassert: 0 uncoded, 0 hung on the second failure path');

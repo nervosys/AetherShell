@@ -42,13 +42,15 @@ that proves it has been run. Baseline at `b799289`:
 - [ ] Triage the remaining `silent-success` suspects.
 - [ ] Conventions: `env_venv` empty string vs null; `now`/`time` duplication; `startup_list` on unsupported operating systems.
 - [ ] Harden `eval::call_lambda1`'s per-call pipe-input copy (linear today, 9.3x over a 10x step).
-- [ ] Reconcile "1,280+ builtins" in `AGENTS.md` and `llms.txt` with the 1,052 the ontology lists.
+- [x] Every implementation is discoverable. The ontology listed 1,052 builtins while 1,101 distinct implementations dispatch: four categories (AI, Cluster, Platform, Service; 112 builtins) were shadowed by same-named builtins in `ontology_describe`. It now lists 1,164, and every dispatchable function is reachable under at least one listed name. Pinned by `tests/every_category_enumerates.rs`.
+- [ ] Reconcile "1,280+ builtins" in `AGENTS.md` with what is measurable: 1,433 callable names (aliases included), 1,101 distinct implementations, 1,164 listed by the ontology.
+- [ ] Classify `ai` correctly: it calls external models and is currently `pure`, so the network budget does not apply to it.
 
 ## Phase 3 — Make it stay done
 
-- [ ] Run the uncoded, second-path, silent-success and discarded-args probes in CI as ratchets.
+- [ ] Run the probes in CI as gates. The job exists and every gate has been shown to fail on an injected regression; its first run found 2 uncoded failures on the Ubuntu runner that do not occur under WSL (a different host has different tools, so different failure paths). Open until those are fixed and `discarded_args_max` is calibrated from the runner's own count.
 - [ ] Carry each probe's non-vacuity checks into CI, so a probe that stops testing anything fails the build.
-- [ ] Check every builtin name that collides with a Windows system tool (`find`, `sort`, `where`, `timeout`).
+- [x] Check every builtin name that collides with a Windows system tool. The builtins invoke 202 distinct programs; 13 share a name with a System32 executable. After the `find` fix, none reaches a Windows tool with different semantics: `timeout`, `cmd`, `nslookup`, `where`, `mount` and `net` are all behind a platform check (several as runtime `cfg!`), and the ungated `curl` and `tar` calls get real curl and bsdtar, which accept the same flags.
 - [x] Fail the build on a stray control character in source (`tests/no_control_characters_in_source.rs`); a scripted edit had put a form feed into `signature.rs` and a backspace into a regex.
 
 ## Phase 4 — Response document

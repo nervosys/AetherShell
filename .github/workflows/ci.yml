@@ -193,9 +193,14 @@ jobs:
               run: |
                   export PATH="$GITHUB_WORKSPACE/target/debug:$PATH"
                   mkdir -p "$RUNNER_TEMP/probes" && cd "$RUNNER_TEMP/probes"
-                  node "$GITHUB_WORKSPACE/benches/agentic/uncoded.mjs"
-                  node "$GITHUB_WORKSPACE/benches/agentic/uncoded-paths.mjs"
-                  node "$GITHUB_WORKSPACE/benches/agentic/discarded-args.mjs"
+                  # Every probe runs even when an earlier one fails: the first
+                  # CI failure of this job stopped at the uncoded probe and hid
+                  # what the other two would have said.
+                  status=0
+                  node "$GITHUB_WORKSPACE/benches/agentic/uncoded.mjs" || status=1
+                  node "$GITHUB_WORKSPACE/benches/agentic/uncoded-paths.mjs" || status=1
+                  node "$GITHUB_WORKSPACE/benches/agentic/discarded-args.mjs" || status=1
+                  exit $status
 
     vscode-extension:
         name: VS Code Extension

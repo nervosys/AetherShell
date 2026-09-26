@@ -2476,6 +2476,24 @@ pub fn ontology_describe_json(query: &str) -> JsonValue {
     let defs = get_all_builtin_definitions();
     let q = query.trim();
 
+    // An exact, case-sensitive category name wins. Categories are capitalised
+    // ("Platform") and builtins are not ("platform"), but the builtin lookup
+    // below is case-insensitive -- so four categories were shadowed by a
+    // builtin of the same name. ontology_manifest() advertised 69 Platform,
+    // 30 AI, 10 Service and 3 Cluster builtins, and ontology_describe() on
+    // each of those categories returned the single builtin `platform`, `ai`,
+    // `service` or `cluster` instead. 112 builtins were listed as existing and
+    // could not be enumerated. `ontology_describe("platform")` still returns
+    // the builtin.
+    let exact_cat: Vec<JsonValue> = defs
+        .iter()
+        .filter(|d| d.category == q)
+        .map(|d| json!({ "name": d.name, "signature": d.signature, "effect": def_effect(d) }))
+        .collect();
+    if !exact_cat.is_empty() {
+        return json!({ "category": q, "builtins": exact_cat });
+    }
+
     // Resolve by alias as well as by canonical name. Every entry already
     // *lists* its aliases, so refusing to look one up was the catalogue
     // declining to answer a question it had the answer to: `mean` is an alias
