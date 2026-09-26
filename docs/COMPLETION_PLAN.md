@@ -57,7 +57,7 @@ that proves it has been run. Baseline at `b799289`:
 
 ## Phase 4 — Response document
 
-- [ ] Bring `docs/TYPED_SHELL_RESPONSE.md` up to date with the findings since `07752c5`.
+- [x] Bring `docs/TYPED_SHELL_RESPONSE.md` up to date with the findings since `07752c5`. A new part of section 7, "What the catalogue probes found", covers the four probes and their first and current CI figures, egress, silent answers, the stubs, OS-dependent types and discovery. The probes are added to "Reproducing". Every figure comes from a CI log, a probe run or a commit message; the final pass re-checks them.
 - [ ] Re-run E1–E3 on a host with all four shells installed.
 - [ ] Run E7 against a live model.
 - [ ] Final pass: every number matches the command that produced it.

@@ -977,6 +977,74 @@ class of mistake.
 
 ---
 
+### What the catalogue probes found
+
+Ten queries exercise a few dozen builtins. The catalogue lists 1,165. Four
+probes in `benches/agentic/` now call every one of them. Each probe has a
+control that proves it can see what it counts, and CI's `agentic-probes` job
+runs them as gates on every push.
+
+| Probe | Question | First informative run | Now, on the CI runner |
+| --- | --- | --- | --- |
+| `uncoded.mjs`, `uncoded-paths.mjs` | Does every failure carry an error code, for a nonsense argument and for a missing path? | 5 uncoded and 1 hang, found only on the runner (`c64a7bd`) | 0 of 1,165 on both paths, 0 hung |
+| `discarded-args.mjs` | Does a builtin return the same value when handed three extra arguments? | 317 of 343 comparable builtins | 235 of 343 |
+| `network-egress.mjs` | Does anything open a connection with `AETHER_MAX_NET=0`? It uses strace, and attributes every `connect()` to the program that made it. | 6 on WSL, then 9 more on the runner | 0 of 1,165 |
+| `silent-success.mjs` | Which builtins answer a nonsense argument with null, false or empty? | 51 suspects | triaged; not a gate |
+
+What they found falls into four groups.
+
+**The network budget did not cover the builtins that most need it.** `ai`,
+`agent`, `swarm`, `rlm_agent`, `ai_backends` and `mcp_client` were
+unclassified, hence `Pure`, hence exempt from the budget. Under
+`--agent --policy strict` with the budget at zero, each still connected: to
+IronGate on :7700, to five local model ports, and to seven MCP ports. The
+runner has more tools installed than the development machine, and there nine
+`platform_*` builtins leaked through the tools they asked for a version:
+- `kubectl version` contacts the API server;
+- `packer` and `az --version` check online for updates;
+- `vcpkg` sends telemetry;
+- `bazel` (bazelisk, on that runner) downloads Bazel to answer `--version`.
+None of this could be seen on a machine without those tools.
+
+**Answers that were not answers.** Seventeen identifier lookups stringified
+a record argument and reported the miss as the result. Every git builtin
+ignored git's exit status, so outside a repository `git_status()` was `[]`,
+a clean tree. `platform_require({python: ">=3.10"})` was satisfied by any
+Python, because the version comparison was a TODO. `whoami()` returned every
+account on the machine. `capabilities()` never reported the effective set.
+`startup_list()` answered `[]` whenever its tool failed.
+
+The worst of this group were stubs. Two passes of a body-shape classifier found
+66 builtins whose whole body was a constant. 46 of them returned an advice
+string as their result, at exit 0, among them every privileged builtin:
+`user_add("alice")` answered "User creation requires elevated privileges".
+(`5fb9fe6`, `73c4c47`.) Declaring signatures made examples executable on every
+CI platform, and that found more: `sys_boot_time` had returned null on every
+Mac, and `project_loc` reported 0 lines for every project.
+
+**One call, two types.** `platform_cpu_freq` was a Float on Linux and an Int
+elsewhere, and `platform_libcpp` a Record on Linux and a String elsewhere.
+Both were found by measuring `typeof` on two operating systems before
+declaring a signature. That is this shell's own central claim, tested against
+itself.
+
+**Discovery.** 112 builtins, the whole `platform_*` family among them, were
+advertised by the manifest and could not be listed, because a category name
+resolved to a same-named builtin first. Once listable, the family took 5 to
+108 seconds per call on WSL. It now probes in parallel with bounded waits,
+at about 1.6 s. The documentation advertised four different builtin counts;
+one is now computed and tested.
+
+The pattern this section opened with holds at catalogue scale. None of these
+was visible to the unit tests, because each needed every builtin, a second
+operating system, or a host with different tools installed. What remains is
+pinned so that it can only shrink:
+- 51 builtins that never read an exit status, and 100 sites that report a
+  failure as `false` (`tests/exit_status_ratchet.rs`);
+- 235 builtins that discard arguments (`benches/agentic/ratchets.json`).
+
+The suite is now **165 binaries, 2,315 tests, 0 failing** on Linux.
+
 ## 8. Conflict of interest, and what would change our mind
 
 **We are not disinterested.** Nervosys builds AetherShell. The same caveat
@@ -1186,6 +1254,13 @@ node benches/agentic/errors.mjs    /tmp/aebench      # E3
 node benches/agentic/safety.mjs    /tmp/aebench      # E4
 node benches/agentic/environment.mjs .               # E5, against this repo
 node benches/agentic/report.mjs    /tmp/aebench      # exact BPE
+
+# The catalogue probes (section 7); AE_PROBE_ASSERT=1 makes each a gate, as CI runs them
+node benches/agentic/uncoded.mjs                     # every failure carries a code
+node benches/agentic/uncoded-paths.mjs               # ... on the missing-path route too
+node benches/agentic/discarded-args.mjs              # extra arguments refused, not ignored
+node benches/agentic/network-egress.mjs              # Linux + strace: no egress at budget 0
+node benches/agentic/silent-success.mjs              # suspects for reading, not a gate
 ```
 
 Engines whose binary is absent are skipped and named, never silently dropped.
