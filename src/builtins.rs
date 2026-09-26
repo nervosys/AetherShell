@@ -2420,7 +2420,7 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |_, _, _| bi_help(),
     |args, input, env| bi_call(args, input, env),
     |_, _, _| bi_clear(),
-    |args, _, _| bi_echo(&args),
+    |args, input, _| bi_echo(&args, input),
     |args, input, _| bi_print(args, input),
     |args, input, _| bi_http_get(args, input),
     |args, _, _| bi_some(args),
@@ -4701,7 +4701,14 @@ fn bi_clear() -> Result<Value> {
     Ok(Value::Str("\u{1b}[2J\u{1b}[H".to_string()))
 }
 
-fn bi_echo(args: &[Value]) -> Result<Value> {
+fn bi_echo(args: &[Value], input: Option<Value>) -> Result<Value> {
+    // `"hello" | echo()` answered "": the dispatch row dropped the pipe
+    // input, so a piped value vanished. With no arguments, echo the subject.
+    if args.is_empty() {
+        if let Some(v) = input {
+            return Ok(Value::Str(format_value_one_line(&v)));
+        }
+    }
     let mut s = String::new();
     for (i, v) in args.iter().enumerate() {
         if i > 0 {
@@ -19467,9 +19474,11 @@ fn bi_each(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Valu
         })
         .ok_or_else(|| crate::safety::arg_err("each requires a lambda function"))?;
 
-    // Apply lambda to each element for side effects
+    // For side effects. The results are discarded, the errors are not: this
+    // was `let _ = call_lambda(..)`, so a side effect that failed (a write
+    // refused, a division by zero) left `each` reporting success.
     for item in &arr {
-        let _ = call_lambda(lambda, &[item.clone()], env);
+        call_lambda(lambda, &[item.clone()], env)?;
     }
 
     // Return original array

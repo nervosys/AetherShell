@@ -2594,6 +2594,59 @@ pub static SIGNATURES: &[Signature] = &[
         doc: "The OpenSSL version, from openssl or pkg-config; null where OpenSSL is not installed.",
         examples: &[(r#"platform_ssl_version() == null || typeof(platform_ssl_version()) == "String""#, "true")],
     },
+    // The rest of the benchmark working set (plan item 1b starts here):
+    // every builtin the E1/E2 corpora or the E7 prompts use is now declared.
+    // `each` and `echo` are in the E7 cheatsheet; `git_branch` is E2's t4.
+    Signature {
+        name: "each",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: Some(Ty::Array),
+        params: &[req(
+            "action",
+            Ty::Lambda,
+            "fn(element) -> Any; run for its effect, result discarded",
+        )],
+        returns: "Array",
+        doc: "Run an action on every element for its effect and return the array unchanged. An error in the action stops the loop and is reported.",
+        examples: &[
+            ("[1, 2, 3] | each(fn(x) => x * 2)", "[1, 2, 3]"),
+            ("each([1, 2, 3], fn(x) => x)", "[1, 2, 3]"),
+        ],
+    },
+    Signature {
+        name: "echo",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[Param {
+            name: "values",
+            ty: Ty::Any,
+            required: false,
+            range: None,
+            variadic: true,
+            doc: "values to print, space-separated; with none, the piped value",
+        }],
+        returns: "String",
+        doc: "Render values on one line, separated by spaces. With no arguments, renders the piped value.",
+        examples: &[
+            (r#"echo("a", 1, true)"#, "a 1 true"),
+            (r#""hello" | echo()"#, "hello"),
+        ],
+    },
+    Signature {
+        name: "git_branch",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[],
+        returns: "String",
+        doc: "The current branch name; an empty string on a detached HEAD. Outside a repository, E_BAD_STATE.",
+        examples: &[("typeof(git_branch())", "String")],
+    },
 ];
 
 /// The declaration for `name`, if it has one.

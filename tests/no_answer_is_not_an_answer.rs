@@ -186,3 +186,28 @@ fn no_virtualenv_is_null_like_any_unset_variable() {
         "the convention env_venv now follows"
     );
 }
+
+fn eval(code: &str) -> anyhow::Result<Value> {
+    let stmts = aethershell::parser::parse_program(code)?;
+    aethershell::eval::eval_program(&stmts, &mut aethershell::env::Env::new())
+}
+
+/// `each` ran its action with `let _ =`, so a failing side effect left it
+/// reporting success with the array unchanged.
+#[test]
+fn each_reports_an_error_in_its_action() {
+    let e = eval("[1, 2] | each(fn(x) => x / 0)").expect_err("each swallowed the error");
+    assert!(code_of(&e).starts_with("E_"), "{e}");
+    // Non-vacuity: a well-behaved action still returns the array unchanged.
+    assert_eq!(
+        eval("[1, 2] | each(fn(x) => x * 2)").unwrap(),
+        Value::Array(vec![Value::Int(1), Value::Int(2)])
+    );
+}
+
+/// The dispatch row dropped the pipe input, so a piped value became "".
+#[test]
+fn echo_renders_a_piped_value() {
+    assert_eq!(eval(r#""hello" | echo()"#).unwrap(), s("hello"));
+    assert_eq!(eval(r#"echo("a", 1)"#).unwrap(), s("a 1"));
+}
