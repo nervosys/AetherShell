@@ -26470,6 +26470,7 @@ fn bi_group_members(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
     };
 
+    crate::safety::reject_option_like("group_members", std::slice::from_ref(&group))?;
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
@@ -26502,6 +26503,12 @@ fn bi_group_members(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 return Ok(Value::Array(members));
             }
         }
+        return Err(crate::safety::tool_failed(
+            "group_members",
+            "Get-LocalGroupMember",
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -26521,8 +26528,18 @@ fn bi_group_members(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 return Ok(Value::Array(member_list));
             }
         }
+        // getent exits 2 for a name it does not know. An unknown group, a
+        // failed query and a group with no members all answered [].
+        if output.status.code() == Some(2) {
+            return Err(crate::safety::not_found("group_members", "group", &group));
+        }
+        Err(crate::safety::tool_failed(
+            "group_members",
+            "getent",
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ))
     }
-    Ok(Value::Array(vec![]))
 }
 
 fn bi_perm_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -39383,16 +39400,20 @@ fn bi_platform_libs(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 fn bi_platform_lib_version(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let lib = args.first().and_then(|v| v.as_str().ok()).unwrap_or("");
-
-    if let Ok(out) = std::process::Command::new("pkg-config")
+    crate::safety::reject_option_like("platform_lib_version", &[lib.to_string()])?;
+    // A missing pkg-config and an absent library were both null, so "not
+    // installed" could not be told from "could not ask". Null now means only
+    // the library is unknown to pkg-config.
+    let out = std::process::Command::new("pkg-config")
         .args(["--modversion", lib])
         .output()
-    {
-        if out.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&out.stdout).trim().to_string(),
-            ));
-        }
+        .map_err(|e| {
+            crate::safety::tool_missing("platform_lib_version", "pkg-config", &e.to_string())
+        })?;
+    if out.status.success() {
+        return Ok(Value::Str(
+            String::from_utf8_lossy(&out.stdout).trim().to_string(),
+        ));
     }
     Ok(Value::Null)
 }
@@ -39498,6 +39519,15 @@ fn bi_platform_sdk_version(args: Vec<Value>, _input: Option<Value>) -> Result<Va
                 .args(["--show-sdk-version"])
                 .output()
             {
+                // A failing xcrun answered "".
+                if !out.status.success() {
+                    return Err(crate::safety::tool_failed(
+                        "platform_sdk_version",
+                        "xcrun",
+                        out.status.code(),
+                        &String::from_utf8_lossy(&out.stderr),
+                    ));
+                }
                 return Ok(Value::Str(
                     String::from_utf8_lossy(&out.stdout).trim().to_string(),
                 ));
@@ -39513,6 +39543,14 @@ fn bi_platform_sdk_version(args: Vec<Value>, _input: Option<Value>) -> Result<Va
                 .args(["--list-sdks"])
                 .output()
             {
+                if !out.status.success() {
+                    return Err(crate::safety::tool_failed(
+                        "platform_sdk_version",
+                        "dotnet",
+                        out.status.code(),
+                        &String::from_utf8_lossy(&out.stderr),
+                    ));
+                }
                 let sdks: Vec<Value> = String::from_utf8_lossy(&out.stdout)
                     .lines()
                     .map(|l| Value::Str(l.to_string()))
@@ -39525,9 +39563,18 @@ fn bi_platform_sdk_version(args: Vec<Value>, _input: Option<Value>) -> Result<Va
                 return Ok(Value::Str(home));
             }
         }
-        _ => {}
+        // An SDK name this does not know answered null, which reads as
+        // "not installed".
+        other => {
+            return Err(crate::safety::bad_arg(
+                "platform_sdk_version",
+                "sdk android, ios, macos, xcode, windows, dotnet, java or jdk",
+                other,
+            ))
+        }
     }
 
+    // A known SDK that is not installed.
     Ok(Value::Null)
 }
 
@@ -49923,14 +49970,23 @@ fn bi_objdump_disasm(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             ))
         }
     };
+    // The path goes to objdump positionally; a leading `-` would be an option.
+    crate::safety::reject_option_like("objdump_disasm", std::slice::from_ref(&path))?;
     let output = std::process::Command::new("objdump")
         .args(["-d", &path])
         .output();
     match output {
+        // A failed run answered {success: false, ...} at exit 0: a missing or
+        // non-binary file read as an inspection result.
+        Ok(o) if !o.status.success() => Err(crate::safety::tool_failed(
+            "objdump_disasm",
+            "objdump",
+            o.status.code(),
+            &String::from_utf8_lossy(&o.stderr),
+        )),
         Ok(o) => {
             let mut rec = BTreeMap::new();
             rec.insert("path".to_string(), Value::Str(path));
-            rec.insert("success".to_string(), Value::Bool(o.status.success()));
             rec.insert(
                 "disassembly".to_string(),
                 Value::Str(String::from_utf8_lossy(&o.stdout).to_string()),
@@ -49955,14 +50011,23 @@ fn bi_objdump_headers(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
             ))
         }
     };
+    // The path goes to objdump positionally; a leading `-` would be an option.
+    crate::safety::reject_option_like("objdump_headers", std::slice::from_ref(&path))?;
     let output = std::process::Command::new("objdump")
         .args(["-h", &path])
         .output();
     match output {
+        // A failed run answered {success: false, ...} at exit 0: a missing or
+        // non-binary file read as an inspection result.
+        Ok(o) if !o.status.success() => Err(crate::safety::tool_failed(
+            "objdump_headers",
+            "objdump",
+            o.status.code(),
+            &String::from_utf8_lossy(&o.stderr),
+        )),
         Ok(o) => {
             let mut rec = BTreeMap::new();
             rec.insert("path".to_string(), Value::Str(path));
-            rec.insert("success".to_string(), Value::Bool(o.status.success()));
             rec.insert(
                 "headers".to_string(),
                 Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
@@ -50035,14 +50100,23 @@ fn bi_readelf_headers(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
             ))
         }
     };
+    // The path goes to readelf positionally; a leading `-` would be an option.
+    crate::safety::reject_option_like("readelf_headers", std::slice::from_ref(&path))?;
     let output = std::process::Command::new("readelf")
         .args(["-h", &path])
         .output();
     match output {
+        // A failed run answered {success: false, ...} at exit 0: a missing or
+        // non-binary file read as an inspection result.
+        Ok(o) if !o.status.success() => Err(crate::safety::tool_failed(
+            "readelf_headers",
+            "readelf",
+            o.status.code(),
+            &String::from_utf8_lossy(&o.stderr),
+        )),
         Ok(o) => {
             let mut rec = BTreeMap::new();
             rec.insert("path".to_string(), Value::Str(path));
-            rec.insert("success".to_string(), Value::Bool(o.status.success()));
             rec.insert(
                 "headers".to_string(),
                 Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
@@ -50067,14 +50141,23 @@ fn bi_readelf_sections(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
             ))
         }
     };
+    // The path goes to readelf positionally; a leading `-` would be an option.
+    crate::safety::reject_option_like("readelf_sections", std::slice::from_ref(&path))?;
     let output = std::process::Command::new("readelf")
         .args(["-S", &path])
         .output();
     match output {
+        // A failed run answered {success: false, ...} at exit 0: a missing or
+        // non-binary file read as an inspection result.
+        Ok(o) if !o.status.success() => Err(crate::safety::tool_failed(
+            "readelf_sections",
+            "readelf",
+            o.status.code(),
+            &String::from_utf8_lossy(&o.stderr),
+        )),
         Ok(o) => {
             let mut rec = BTreeMap::new();
             rec.insert("path".to_string(), Value::Str(path));
-            rec.insert("success".to_string(), Value::Bool(o.status.success()));
             rec.insert(
                 "sections".to_string(),
                 Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
@@ -51676,8 +51759,12 @@ fn bi_rustup_show(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Ok(o) if o.status.success() => Ok(Value::Str(
             String::from_utf8_lossy(&o.stdout).trim().to_string(),
         )),
-        Ok(o) => Ok(Value::Str(
-            String::from_utf8_lossy(&o.stderr).trim().to_string(),
+        // rustup's error text was returned as if it were the toolchain list.
+        Ok(o) => Err(crate::safety::tool_failed(
+            "rustup_show",
+            "rustup",
+            o.status.code(),
+            &String::from_utf8_lossy(&o.stderr),
         )),
         Err(e) => Err(crate::safety::tool_missing(
             "rustup",

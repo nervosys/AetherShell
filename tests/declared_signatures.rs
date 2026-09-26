@@ -71,6 +71,28 @@ const MACHINE_DEPENDENT: &[(&str, &str)] = &[
         "pkg_search",
         "the host package manager and its package database",
     ),
+    ("objdump_disasm", "objdump (binutils or llvm)"),
+    ("objdump_headers", "objdump (binutils or llvm)"),
+    (
+        "readelf_headers",
+        "readelf (binutils); absent on macOS and Windows",
+    ),
+    (
+        "readelf_sections",
+        "readelf (binutils); absent on macOS and Windows",
+    ),
+    ("rustup_show", "an installed rustup"),
+    ("platform_tool_version", "which tools are installed"),
+    (
+        "platform_lib_version",
+        "pkg-config and the installed libraries",
+    ),
+    ("platform_sdk_version", "which SDKs are installed"),
+    (
+        "group_members",
+        "the host's groups (getent; Get-LocalGroupMember on Windows)",
+    ),
+    ("gpg_list_keys", "an installed gpg and its keyring"),
 ];
 
 /// The codes that honestly mean "not on this machine", as opposed to a
