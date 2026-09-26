@@ -211,3 +211,16 @@ fn echo_renders_a_piped_value() {
     assert_eq!(eval(r#""hello" | echo()"#).unwrap(), s("hello"));
     assert_eq!(eval(r#"echo("a", 1)"#).unwrap(), s("a 1"));
 }
+
+/// `crypto_hex_decode` sliced byte offsets: an odd length read past the end
+/// and panicked, and invalid pairs were skipped ("zz41" decoded to "A").
+#[test]
+fn hex_decode_refuses_what_is_not_hex() {
+    for bad in ["abc", "zz41", "é1"] {
+        let e = call("crypto_hex_decode", vec![s(bad)]).expect_err(bad);
+        assert_eq!(code_of(&e), "E_BAD_ARG", "{bad}");
+    }
+    let e = call("crypto_hex_encode", vec![]).expect_err("encoded nothing");
+    assert_eq!(code_of(&e), "E_BAD_ARG");
+    assert_eq!(call("crypto_hex_decode", vec![s("6869")]).unwrap(), s("hi"));
+}

@@ -31346,33 +31346,42 @@ fn bi_crypto_base64_decode(args: Vec<Value>, input: Option<Value>) -> Result<Val
     Ok(Value::Str("".to_string()))
 }
 
-fn bi_crypto_hex_encode(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let data = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => match input {
-            Some(Value::Str(s)) => s,
-            _ => return Ok(Value::Str("".to_string())),
-        },
-    };
+/// The string a hex builtin works on: the argument, else the piped value.
+/// Both answered "" when there was none, which reads as "encoded nothing".
+fn hex_subject(builtin: &str, args: &[Value], input: Option<Value>) -> Result<String> {
+    match args.first().cloned().or(input) {
+        Some(Value::Str(s)) => Ok(s),
+        other => Err(crate::safety::bad_arg(
+            builtin,
+            "a String (argument or piped input)",
+            other.as_ref().map(|v| v.type_name()).unwrap_or("nothing"),
+        )),
+    }
+}
 
+fn bi_crypto_hex_encode(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let data = hex_subject("crypto_hex_encode", &args, input)?;
     let hex: String = data.bytes().map(|b| format!("{:02x}", b)).collect();
     Ok(Value::Str(hex))
 }
 
 fn bi_crypto_hex_decode(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let data = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => match input {
-            Some(Value::Str(s)) => s,
-            _ => return Ok(Value::Str("".to_string())),
-        },
-    };
-
-    let bytes: Vec<u8> = (0..data.len())
-        .step_by(2)
-        .filter_map(|i| u8::from_str_radix(&data[i..i + 2.min(data.len())], 16).ok())
+    // This sliced `data[i..i + 2]` on byte offsets: an odd length read past
+    // the end and a non-ASCII character split a code point, and both
+    // panicked. Invalid pairs were skipped, so "zz41" decoded to "A".
+    let data = hex_subject("crypto_hex_decode", &args, input)?;
+    let digits = data.as_bytes();
+    if digits.len() % 2 != 0 || !digits.iter().all(u8::is_ascii_hexdigit) {
+        return Err(crate::safety::bad_arg(
+            "crypto_hex_decode",
+            "hex digits in pairs",
+            &format!("{:?}", data.chars().take(40).collect::<String>()),
+        ));
+    }
+    let bytes: Vec<u8> = digits
+        .chunks(2)
+        .map(|p| u8::from_str_radix(std::str::from_utf8(p).unwrap_or("00"), 16).unwrap_or(0))
         .collect();
-
     Ok(Value::Str(String::from_utf8_lossy(&bytes).to_string()))
 }
 
