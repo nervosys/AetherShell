@@ -47,14 +47,14 @@ aecon_decode	Pure
 age_decrypt	WriteLocal
 age_encrypt	WriteLocal
 age_keygen	WriteLocal
-agent	Pure
+agent	Network
 agent_completed	Pure
 agent_started	Pure
 agent_thinking	Pure
 agent_with_mcp	Pure
 aggregate	Pure
 aggregate_results	Pure
-ai	Pure
+ai	Network
 ai-add-route	Pure
 ai-backends	Pure
 ai-complete	Pure
@@ -83,7 +83,7 @@ ai-suggest	Pure
 ai-supported-conversions	Pure
 ai-usage	Pure
 ai_add_route	Pure
-ai_backends	Pure
+ai_backends	Network
 ai_convert_model	Exec
 ai_cost	Pure
 ai_detect	Pure
@@ -708,8 +708,8 @@ mcp_cache_clear	Pure
 mcp_cache_status	Pure
 mcp_call	Pure
 mcp_call_tool	Pure
-mcp_client	Pure
-mcp_connect	Pure
+mcp_client	Network
+mcp_connect	Network
 mcp_detect	Pure
 mcp_list_prompts	Pure
 mcp_list_resources	Pure
@@ -1033,7 +1033,7 @@ read_text	ReadLocal
 readelf	ReadLocal
 readelf_headers	ReadLocal
 readelf_sections	ReadLocal
-recursive_agent	Pure
+recursive_agent	Network
 reduce	Pure
 refactor_add_parameter	Pure
 refactor_change_signature	Pure
@@ -1084,7 +1084,7 @@ rl_replay_buffer	Pure
 rl_sarsa_agent	Pure
 rl_sarsa_update	Pure
 rl_update	Pure
-rlm_agent	Pure
+rlm_agent	Network
 rlm_config	Pure
 rlm_spawn	Exec
 rlm_stats	Pure
@@ -1217,7 +1217,7 @@ svc_restart	Process
 svc_start	Process
 svc_status	ReadLocal
 svc_stop	Process
-swarm	Pure
+swarm	Network
 syntax_add	WriteLocal
 syntax_categories	WriteLocal
 syntax_get	WriteLocal

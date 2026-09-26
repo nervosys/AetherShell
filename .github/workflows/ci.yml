@@ -178,7 +178,7 @@ jobs:
             - name: Install Linux dependencies
               run: |
                   sudo apt-get update
-                  sudo apt-get install -y libasound2-dev libssl-dev pkg-config
+                  sudo apt-get install -y libasound2-dev libssl-dev pkg-config strace
 
             - uses: actions/setup-node@v4
               with:
@@ -200,6 +200,9 @@ jobs:
                   node "$GITHUB_WORKSPACE/benches/agentic/uncoded.mjs" || status=1
                   node "$GITHUB_WORKSPACE/benches/agentic/uncoded-paths.mjs" || status=1
                   node "$GITHUB_WORKSPACE/benches/agentic/discarded-args.mjs" || status=1
+                  # connect(2) under AETHER_MAX_NET=0: the effect table is
+                  # checked against what the builtins actually do.
+                  node "$GITHUB_WORKSPACE/benches/agentic/network-egress.mjs" || status=1
                   exit $status
 
     vscode-extension:

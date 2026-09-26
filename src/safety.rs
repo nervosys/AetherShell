@@ -422,6 +422,15 @@ fn classified_effect(name: &str) -> Option<Effect> {
         // The NERVOSYS stack. `ai_gateway` probes IronGate over HTTP; it reads
         // and reports, so Network rather than Exec.
         "ai_gateway" => Some(Effect::Network),
+        // Model calls leave the machine. These were unclassified, so `Pure`, so
+        // `AETHER_MAX_NET=0` did not apply to them: under `--agent --policy
+        // strict` each one connected to IronGate (:7700), `ai_backends` swept
+        // five local model ports and `mcp_client` seven MCP ports. Found by
+        // `benches/agentic/network-egress.mjs`, which traces connect(2) across
+        // the whole catalogue rather than trusting this table.
+        "ai" | "agent" | "swarm" | "rlm_agent" | "ai_backends" | "mcp_client" => {
+            Some(Effect::Network)
+        }
         // The vault builtins spawn the `iv` binary. `vault_models` and
         // `vault_conversions` only read, but they still hand arguments to a
         // process, which is what Exec is about — the ratchet reads

@@ -982,8 +982,7 @@ fn merge_branch_variables(parent: &mut WorkflowContext, branch: WorkflowContext)
 async fn http_step(method: String, url: String, body: Option<Value>) -> Result<Value> {
     tokio::task::spawn_blocking(move || {
         crate::builtins::guard_network("workflow_http", &url)?;
-        let url = crate::security::validate_http_url(&url)
-            .context("workflow http step: URL validation failed")?;
+        let url = crate::security::validate_http_url("workflow_http", &url)?;
         let client = crate::security::create_secure_http_client()
             .context("workflow http step: failed to create HTTP client")?;
 

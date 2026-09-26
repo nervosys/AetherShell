@@ -1,4 +1,4 @@
 {
-  "_discarded_args_max": "Measured on the CI runner (ubuntu-latest) at ec4a608: 316 of 343 comparable builtins discard extra arguments. Set to 320 for one round: the next commit changes builtins that can move into the comparable set (tmux_list used to 'succeed' with an error string and now returns []), and mount_info jitters by one between identical runs because it reads the live mount table. Tighten to the next CI measurement plus one. May only fall.",
-  "discarded_args_max": 320
+  "_discarded_args_max": "Measured on the CI runner (ubuntu-latest) at c64a7bd: 317 of 343 comparable builtins discard extra arguments. The ceiling is that plus one, because mount_info reads the live mount table and jitters by one between identical runs. May only fall: lower it whenever a declaration tranche lowers the CI count.",
+  "discarded_args_max": 318
 }

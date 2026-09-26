@@ -1052,28 +1052,40 @@ use std::net::{IpAddr, ToSocketAddrs};
 /// # Security Notes
 /// - CWE-918: Server-Side Request Forgery (SSRF)
 /// - OWASP ASVS v4.0 Section 13.1
-pub fn validate_http_url(url_str: &str) -> Result<String> {
+pub fn validate_http_url(builtin: &str, url_str: &str) -> Result<String> {
     // Parse URL
-    let parsed = url::Url::parse(url_str).context("Invalid URL format")?;
+    // Every refusal below was bare prose, and `http_get` wrapped it in a
+    // label, so an SSRF refusal reached an agent as E_UNKNOWN "URL
+    // validation failed". The catalogue probes never saw it: they run with
+    // AETHER_MAX_NET=0, and the network budget stops every network builtin
+    // before it gets this far.
+    let parsed = url::Url::parse(url_str).map_err(|e| {
+        crate::safety::bad_arg(builtin, "an absolute http(s) URL", &e.to_string())
+    })?;
 
     // Only allow HTTP(S)
     if parsed.scheme() != "http" && parsed.scheme() != "https" {
-        return Err(anyhow!(
-            "Only HTTP(S) URLs are allowed, got: {}",
-            parsed.scheme()
+        return Err(crate::safety::bad_arg(
+            builtin,
+            "an http or https URL",
+            &format!("the scheme {}", parsed.scheme()),
         ));
     }
 
     // Get host
     let host = parsed
         .host_str()
-        .ok_or_else(|| anyhow!("URL missing host"))?;
+        .ok_or_else(|| crate::safety::bad_arg(builtin, "a URL with a host", "none"))?;
 
     // Block localhost variants
     let localhost_names = ["localhost", "127.0.0.1", "::1", "0.0.0.0", "[::]"];
     for localhost in &localhost_names {
         if host.eq_ignore_ascii_case(localhost) {
-            return Err(anyhow!("Access to localhost is blocked for security"));
+            return Err(crate::safety::policy_deny(
+                builtin,
+                format!("access to {host} is blocked: it is this machine (SSRF protection)"),
+                "this is a security policy, not a malformed call; use a public host",
+            ));
         }
     }
 
@@ -1087,10 +1099,13 @@ pub fn validate_http_url(url_str: &str) -> Result<String> {
             for addr in addrs {
                 let ip = addr.ip();
                 if is_internal_ip(&ip) {
-                    return Err(anyhow!(
-                        "Access to internal IP addresses is blocked: {} (resolved from {})",
-                        ip,
-                        host
+                    return Err(crate::safety::policy_deny(
+                        builtin,
+                        format!(
+                            "access to internal address {ip} (resolved from {host}) is blocked \
+                             (SSRF protection)"
+                        ),
+                        "this is a security policy, not a malformed call; use a public host",
                     ));
                 }
             }
@@ -1098,10 +1113,7 @@ pub fn validate_http_url(url_str: &str) -> Result<String> {
         Err(_) => {
             // DNS resolution failed - could be intentional
             // Block to be safe
-            return Err(anyhow!(
-                "Could not resolve hostname '{}' - potential DNS rebinding attack",
-                host
-            ));
+            return Err(crate::safety::not_found(builtin, "resolvable host", host));
         }
     }
 

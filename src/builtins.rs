@@ -4764,7 +4764,7 @@ fn bi_http_get(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     guard_network("http_get", &url)?;
 
     // SECURITY FIX (MED-008): Validate URL to prevent SSRF
-    let validated_url = validate_http_url(&url).context("http_get: URL validation failed")?;
+    let validated_url = validate_http_url("http_get", &url)?;
 
     // SECURITY FIX (HIGH-005): Use secure HTTP client
     let client = create_secure_http_client().context("Failed to create HTTP client")?;
@@ -15822,6 +15822,112 @@ fn parse_rlm_config(value: &Value) -> Result<RlmConfig> {
 /// Usage: sh(["echo", "hello"]) or sh("echo hello")
 ///
 /// SECURITY: Gated behind AETHER_ALLOW_SH=true environment variable.
+
+/// Split a command line into words as a POSIX shell does, without any of the
+/// expansions a shell would then perform.
+///
+/// Whitespace separates words; `'...'` is literal; `"..."` is literal except
+/// that `\` escapes `"`, `\`, `$` and a backquote; outside quotes `\` escapes
+/// the next character. Adjacent pieces join into one word (`a"b c"d` is
+/// `ab cd`), and `''` is an empty argument rather than nothing.
+fn split_command_words(s: &str) -> std::result::Result<Vec<String>, String> {
+    let mut words = Vec::new();
+    let mut cur = String::new();
+    let mut in_word = false;
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\'' => {
+                in_word = true;
+                loop {
+                    match chars.next() {
+                        Some('\'') => break,
+                        Some(ch) => cur.push(ch),
+                        None => return Err("an unterminated single quote".into()),
+                    }
+                }
+            }
+            '"' => {
+                in_word = true;
+                loop {
+                    match chars.next() {
+                        Some('"') => break,
+                        Some('\\') => match chars.peek() {
+                            Some(&n) if matches!(n, '"' | '\\' | '$' | '`') => {
+                                cur.push(n);
+                                chars.next();
+                            }
+                            _ => cur.push('\\'),
+                        },
+                        Some(ch) => cur.push(ch),
+                        None => return Err("an unterminated double quote".into()),
+                    }
+                }
+            }
+            '\\' => {
+                in_word = true;
+                match chars.next() {
+                    Some(n) => cur.push(n),
+                    None => return Err("a trailing backslash".into()),
+                }
+            }
+            c if c.is_whitespace() => {
+                if in_word {
+                    words.push(std::mem::take(&mut cur));
+                    in_word = false;
+                }
+            }
+            c => {
+                in_word = true;
+                cur.push(c);
+            }
+        }
+    }
+    if in_word {
+        words.push(cur);
+    }
+    Ok(words)
+}
+
+#[cfg(test)]
+mod split_command_words_tests {
+    use super::split_command_words;
+
+    fn split(s: &str) -> Vec<String> {
+        split_command_words(s).unwrap()
+    }
+
+    #[test]
+    fn quoted_arguments_stay_whole() {
+        assert_eq!(split("git commit -m 'fix bug'"), ["git", "commit", "-m", "fix bug"]);
+        assert_eq!(split(r#"echo "a \"b\" c""#), ["echo", r#"a "b" c"#]);
+        assert_eq!(split(r"touch my\ file"), ["touch", "my file"]);
+    }
+
+    #[test]
+    fn adjacent_quotes_join_and_empty_quotes_are_words() {
+        assert_eq!(split(r#"a'b'"c" ''"#), ["abc", ""]);
+    }
+
+    #[test]
+    fn nothing_is_expanded() {
+        assert_eq!(split("echo $HOME '*' *"), ["echo", "$HOME", "*", "*"]);
+        assert_eq!(split(r"echo 'a\nb'"), ["echo", r"a\nb"]);
+    }
+
+    #[test]
+    fn whitespace_only_is_no_words() {
+        assert!(split("  \t ").is_empty());
+    }
+
+    #[test]
+    fn malformed_input_is_refused() {
+        assert!(split_command_words("echo 'open").is_err());
+        assert!(split_command_words("echo \"open").is_err());
+        assert!(split_command_words("echo \\").is_err());
+    }
+}
+
 fn bi_sh(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     use std::process::Command;
 
@@ -15834,15 +15940,25 @@ fn bi_sh(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     let (program, cmd_args): (String, Vec<String>) = match &args[0] {
         Value::Str(s) => {
-            // Split string into program and args
-            let parts: Vec<&str> = s.split_whitespace().collect();
+            // Split the way a POSIX shell would split WORDS -- quotes and
+            // backslashes honoured -- but without running a shell: no
+            // globbing, no variables, no pipes. This was `split_whitespace`,
+            // which ignored quotes entirely, so
+            // `sh("git commit -m 'fix bug'")` passed `'fix` and `bug'` as two
+            // arguments: the commit message became `'fix`, and `bug'` was
+            // taken as a path. Found while writing a probe whose control call
+            // was `bash -c '...'` and never ran.
+            let parts = split_command_words(s).map_err(|why| {
+                crate::safety::bad_arg(
+                    "sh",
+                    "a command with balanced quotes, or an array of arguments",
+                    &why,
+                )
+            })?;
             if parts.is_empty() {
-                return Err(anyhow!("sh: empty command"));
+                return Err(crate::safety::bad_arg("sh", "a non-empty command", "an empty string"));
             }
-            (
-                parts[0].to_string(),
-                parts[1..].iter().map(|s| s.to_string()).collect(),
-            )
+            (parts[0].clone(), parts[1..].to_vec())
         }
         Value::Array(arr) => {
             if arr.is_empty() {
