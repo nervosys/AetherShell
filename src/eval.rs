@@ -279,7 +279,7 @@ fn is_effect_free(e: &Expr) -> bool {
 /// builtin is what eager evaluation would do, and matching it is the whole point.
 fn apply_stages(mut batch: Value, stages: &[&Expr], env: &mut Env) -> Result<Value> {
     for stage in stages {
-        let saved = env.input().cloned();
+        let saved = env.take_input();
         env.set_input(Some(batch));
         let res = eval_expr(stage, env);
         match saved {
@@ -422,7 +422,7 @@ fn try_stream_pipeline(
                 }
                 continue;
             }
-            let saved = env.input().cloned();
+            let saved = env.take_input();
             env.set_input(Some(batch));
             let res = eval_expr(stage, env);
             match saved {
@@ -638,7 +638,7 @@ pub fn eval_expr(expr: &Expr, env: &mut Env) -> Result<Value> {
                     // Plain lambdas never had the problem, which is why it went
                     // unnoticed.
                     let _depth = crate::safety::enter_call()?;
-                    let saved_pipe = env.input().cloned();
+                    let saved_pipe = env.take_input();
                     env.set_input(None);
                     let restore_caps = install_captured(&future.lambda.captured, env);
 
@@ -781,7 +781,7 @@ pub fn eval_expr(expr: &Expr, env: &mut Env) -> Result<Value> {
 
             // Otherwise set pipe input and evaluate right normally (this allows
             // call expressions to pick up env.input()). Restore afterwards.
-            let saved = env.input().cloned();
+            let saved = env.take_input();
             env.set_input(Some(left_val));
             let res = eval_expr(right, env);
             // Restore
@@ -1351,7 +1351,7 @@ fn call_lambda0(l: &Lambda, env: &mut Env) -> Result<Value> {
     let _depth = crate::safety::enter_call()?;
     let restore_caps = install_captured(&l.captured, env);
     // Save and clear pipe input to prevent leakage
-    let saved_pipe = env.input().cloned();
+    let saved_pipe = env.take_input();
     env.set_input(None);
 
     let out = eval_expr(&l.body, env);
@@ -1377,7 +1377,7 @@ fn call_lambda1(l: &Lambda, x: Value, i: usize, env: &mut Env) -> Result<Value> 
         .clone();
 
     // Save and clear pipe input to prevent leakage
-    let saved_pipe = env.input().cloned();
+    let saved_pipe = env.take_input();
     env.set_input(None);
 
     // Save prev bindings
@@ -1434,7 +1434,7 @@ fn call_lambda_n(l: &Lambda, args: Vec<Value>, env: &mut Env) -> Result<Value> {
     }
 
     // Save and clear pipe input to prevent leakage
-    let saved_pipe = env.input().cloned();
+    let saved_pipe = env.take_input();
     env.set_input(None);
 
     // Save old bindings and set new ones
@@ -1481,7 +1481,7 @@ fn call_lambda2(l: &Lambda, a: Value, b: Value, i: usize, env: &mut Env) -> Resu
         .clone();
 
     // Save and clear pipe input to prevent leakage
-    let saved_pipe = env.input().cloned();
+    let saved_pipe = env.take_input();
     env.set_input(None);
 
     let old_p1 = env.get_var(&p1).cloned();
