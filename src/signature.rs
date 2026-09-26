@@ -3799,6 +3799,87 @@ pub static SIGNATURES: &[Signature] = &[
             (r#"db_json_to_csv([{a: 1, b: 2}]) == "a,b\n1,2\n""#, r#"true"#),
         ],
     },
+    // 1b: tool lookup, sysinfo-backed disk and uptime queries, the semantic
+    // cache and diagnose.
+    Signature {
+        name: "platform_has_tool",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("name", Ty::Str, "a program name")],
+        returns: "Bool",
+        doc: "Whether a program is on PATH.",
+        examples: &[
+            (r#"platform_has_tool("definitely-not-a-real-tool")"#, r#"false"#),
+        ],
+    },
+    Signature {
+        name: "monitor_uptime",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[],
+        returns: "Record",
+        doc: "Uptime in seconds and as text, with the load average.",
+        examples: &[
+            (r#"typeof(monitor_uptime())"#, r#"Record"#),
+        ],
+    },
+    Signature {
+        name: "mount_info",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[],
+        returns: "Array",
+        doc: "Mounted filesystems: device, mount point, type, sizes.",
+        examples: &[
+            (r#"typeof(mount_info())"#, r#"Array"#),
+        ],
+    },
+    Signature {
+        name: "lsblk",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[],
+        returns: "Array",
+        doc: "Disks and their sizes.",
+        examples: &[
+            (r#"typeof(lsblk())"#, r#"Array"#),
+        ],
+    },
+    Signature {
+        name: "semantic_cache_get",
+        category: None,
+        subject_required: false,
+        aliases: &["cache_get"],
+        subject: Some(Ty::Any),
+        params: &[],
+        returns: "Record",
+        doc: "A cached response for a query: {hit, response}.",
+        examples: &[
+            (r#"semantic_cache_get("never-cached-query").hit"#, r#"false"#),
+        ],
+    },
+    Signature {
+        name: "diagnose",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: Some(Ty::Any),
+        params: &[],
+        returns: "Record",
+        doc: "The minimal repair context for an error a catch block bound; a plain string is reported as uncoded.",
+        examples: &[
+            (r#"diagnose("plain text failure").code"#, r#"E_UNKNOWN"#),
+            (r#"typeof(try { 1 / 0 } catch e { diagnose(e) })"#, r#"Record"#),
+        ],
+    },
 ];
 
 /// The declaration for `name`, if it has one.
