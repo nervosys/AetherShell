@@ -12825,15 +12825,10 @@ fn bi_sleep(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 ///
 /// Example:
 ///   time()     # Returns 1699401234
-fn bi_time(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|e| anyhow!("Failed to get system time: {}", e))?
-        .as_secs();
-
-    Ok(Value::Int(timestamp as i64))
+fn bi_time(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    // `now` and `time` are one clock under two names, declared identically
+    // in the ontology; one implementation keeps them from drifting apart.
+    bi_now(args, input)
 }
 
 /// json_parse(json_string?) - Parse JSON string into value
@@ -25498,7 +25493,17 @@ fn bi_startup_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     .collect();
                 return Ok(Value::Array(startup));
             }
+            // With no startup commands PowerShell prints nothing at all.
+            if String::from_utf8_lossy(&output.stdout).trim().is_empty() {
+                return Ok(Value::Array(vec![]));
+            }
         }
+        return Err(crate::safety::tool_failed(
+            "startup_list",
+            "powershell Get-CimInstance Win32_StartupCommand",
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
     }
     #[cfg(target_os = "linux")]
     {
@@ -25533,6 +25538,14 @@ fn bi_startup_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 .collect();
             return Ok(Value::Array(services));
         }
+        // Without systemd (a container, WSL without it) systemctl fails; that
+        // is not "nothing starts at boot".
+        return Err(crate::safety::tool_failed(
+            "startup_list",
+            "systemctl list-unit-files",
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
     }
     #[cfg(target_os = "macos")]
     {
@@ -25566,8 +25579,21 @@ fn bi_startup_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 .collect();
             return Ok(Value::Array(services));
         }
+        return Err(crate::safety::tool_failed(
+            "startup_list",
+            "launchctl list",
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
     }
-    Ok(Value::Array(vec![]))
+    // Every failure above, and every other operating system, used to land
+    // here as `[]`: "nothing starts at boot", said without looking.
+    #[allow(unreachable_code)]
+    Err(crate::safety::unimplemented(
+        "startup_list",
+        "listing startup items is implemented for Windows, Linux (systemd) and macOS only; NOTHING WAS INSPECTED",
+        "use this system's init tooling directly",
+    ))
 }
 
 // ============================================================================
@@ -37173,7 +37199,13 @@ fn bi_env_container(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_env_venv(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str(std::env::var("VIRTUAL_ENV").unwrap_or_default()))
+    // Null when no virtualenv is active, as `env("VIRTUAL_ENV")` and
+    // `sys.env(...)` answer for any unset variable. It was "", the one
+    // exception, so an agent had to learn a second spelling of "absent".
+    Ok(std::env::var("VIRTUAL_ENV")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .map_or(Value::Null, Value::Str))
 }
 
 fn bi_env_activate(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -37313,6 +37345,10 @@ fn get_tool_version(tool: &str) -> Option<String> {
         "java" => &["-version"],
         "go" => &["version"],
         "kubectl" => &["version", "--client"],
+        // `az --version` checks online for a newer release (the telemetry
+        // opt-out alone left that connection in place on the CI runner);
+        // `az version` reads the installed metadata and prints JSON.
+        "az" => &["version", "--output", "json"],
         _ => &["--version"],
     };
     if !on_path(tool) {
@@ -37341,6 +37377,10 @@ fn get_tool_version(tool: &str) -> Option<String> {
         return None;
     }
     let out = String::from_utf8_lossy(&o.stdout);
+    if tool == "az" {
+        let v: serde_json::Value = serde_json::from_str(&out).ok()?;
+        return v["azure-cli"].as_str().map(|s| format!("azure-cli {s}"));
+    }
     let err = String::from_utf8_lossy(&o.stderr);
     // Several tools (`java -version` among them) print to stderr.
     let combined = if out.trim().is_empty() { err } else { out };

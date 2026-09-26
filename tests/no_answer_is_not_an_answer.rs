@@ -174,3 +174,15 @@ fn a_wrongly_typed_argument_is_refused_not_defaulted() {
         assert_eq!(code_of(&e), "E_BAD_ARG", "{name}()");
     }
 }
+
+/// Null is the shell's one spelling of "unset". `env_venv` said "".
+#[test]
+fn no_virtualenv_is_null_like_any_unset_variable() {
+    std::env::remove_var("VIRTUAL_ENV");
+    assert_eq!(call("env_venv", vec![]).unwrap(), Value::Null);
+    assert_eq!(
+        call("env", vec![s("AE_SURELY_UNSET_VARIABLE")]).unwrap(),
+        Value::Null,
+        "the convention env_venv now follows"
+    );
+}

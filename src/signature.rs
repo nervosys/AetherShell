@@ -1425,9 +1425,10 @@ pub static SIGNATURES: &[Signature] = &[
     // lack, or resolve to System32\find.exe); they walk in-process now and
     // are declared below.
     //
-    // `env_venv` returns "" when no virtualenv is active. That convention
-    // is documented rather than changed -- callers may rely on it -- but an
-    // agent should not have to discover it by experiment.
+    // `env_venv` returned "" when no virtualenv was active. That was first
+    // documented rather than changed; it now returns null, because null is
+    // what every other unset-variable lookup in the shell returns. It is a
+    // breaking change, and belongs in the release notes as one.
     Signature {
         name: "git_branches",
         category: None,
@@ -1556,9 +1557,12 @@ pub static SIGNATURES: &[Signature] = &[
         aliases: &[],
         subject: None,
         params: &[],
-        returns: "String",
-        doc: "The active Python virtualenv path, or an empty string when there is none.",
-        examples: &[("typeof(env_venv())", "String")],
+        returns: "String | Null",
+        doc: "The active Python virtualenv path, or null when there is none.",
+        examples: &[(
+            r#"env_venv() == null || typeof(env_venv()) == "String""#,
+            "true",
+        )],
     },
     Signature {
         name: "a2a_agents",

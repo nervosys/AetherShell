@@ -15,10 +15,14 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 fn fake(dir: &Path, name: &str, log: &Path) {
+    fake_answering(dir, name, log, &format!("{name} version 1.2.3"));
+}
+
+fn fake_answering(dir: &Path, name: &str, log: &Path, answer: &str) {
     let script = format!(
         "#!/bin/sh\necho \"{name} $* CHECKPOINT_DISABLE=$CHECKPOINT_DISABLE \
          AZURE_CORE_COLLECT_TELEMETRY=$AZURE_CORE_COLLECT_TELEMETRY\" >> {log}\n\
-         echo \"{name} version 1.2.3\"\n",
+         echo '{answer}'\n",
         log = log.display()
     );
     let p = dir.join(name);
@@ -35,7 +39,12 @@ fn version_probes_ask_the_offline_question() {
 
     fake(&dir, "kubectl", &log);
     fake(&dir, "packer", &log);
-    fake(&dir, "az", &log);
+    fake_answering(
+        &dir,
+        "az",
+        &log,
+        r#"{"azure-cli": "2.64.0", "extensions": {}}"#,
+    );
     // `bazel` is a symlink to bazelisk, as on the GitHub runner.
     fake(&dir, "bazelisk-linux_amd64", &log);
     std::os::unix::fs::symlink(dir.join("bazelisk-linux_amd64"), dir.join("bazel")).unwrap();
@@ -66,7 +75,18 @@ fn version_probes_ask_the_offline_question() {
         call_of("kubectl")
     );
     assert!(call_of("packer").contains("CHECKPOINT_DISABLE=1"));
+    // `az --version` checks online for updates; `az version` does not.
+    assert!(
+        call_of("az").starts_with("az version --output json "),
+        "{}",
+        call_of("az")
+    );
     assert!(call_of("az").contains("AZURE_CORE_COLLECT_TELEMETRY=no"));
+    let az = versions
+        .iter()
+        .find(|(k, _)| k.ends_with(".az"))
+        .map(|(_, v)| v.clone());
+    assert_eq!(az, Some(Value::Str("azure-cli 2.64.0".into())));
     assert!(
         !calls.contains("bazelisk"),
         "bazelisk was run, which downloads Bazel:\n{calls}"
