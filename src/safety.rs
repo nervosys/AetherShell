@@ -4664,7 +4664,7 @@ mod tests {
 
     #[test]
     fn human_mode_allows_everything() {
-        let _l = ENV_LOCK.lock().unwrap();
+        let _l = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         clear_env();
         assert_eq!(decide(Effect::Destructive, Mode::Human), Decision::Allow);
         assert_eq!(decide(Effect::Exec, Mode::Human), Decision::Allow);
@@ -4677,7 +4677,7 @@ mod tests {
         assert!(is_weak_hash("md5") && is_weak_hash("MD5") && is_weak_hash("sha-1"));
         assert!(!is_weak_hash("sha256") && !is_weak_hash("sha512"));
 
-        let _l = ENV_LOCK.lock().unwrap();
+        let _l = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         clear_env();
         // FIPS off (default) → all algorithms pass through.
         assert!(require_fips_hash("md5").is_ok());
@@ -4691,7 +4691,7 @@ mod tests {
 
     #[test]
     fn agent_mode_gates_dangerous() {
-        let _l = ENV_LOCK.lock().unwrap();
+        let _l = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         clear_env();
         assert_eq!(decide(Effect::ReadLocal, Mode::Agent), Decision::Allow);
         assert_eq!(decide(Effect::Destructive, Mode::Agent), Decision::Approve);
@@ -4701,7 +4701,7 @@ mod tests {
 
     #[test]
     fn permissive_policy_allows_all_in_agent() {
-        let _l = ENV_LOCK.lock().unwrap();
+        let _l = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         clear_env();
         std::env::set_var("AETHER_POLICY", "permissive");
         assert_eq!(decide(Effect::Destructive, Mode::Agent), Decision::Allow);
@@ -4711,7 +4711,7 @@ mod tests {
 
     #[test]
     fn approval_token_is_bound_to_action() {
-        let _l = ENV_LOCK.lock().unwrap();
+        let _l = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         clear_env();
         let a = ApprovalDescriptor::new(
             "delete",
@@ -4736,7 +4736,7 @@ mod tests {
 
     #[test]
     fn guard_blocks_then_allows_with_token() {
-        let _l = ENV_LOCK.lock().unwrap();
+        let _l = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         clear_env();
         std::env::set_var("AETHER_MODE", "agent");
         let log = isolate_audit("approve");
@@ -4773,7 +4773,7 @@ mod tests {
 
     #[test]
     fn jail_blocks_paths_outside_workspace() {
-        let _l = ENV_LOCK.lock().unwrap();
+        let _l = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         clear_env();
         std::env::set_var("AETHER_MODE", "agent");
         let log = isolate_audit("jail");
@@ -4794,7 +4794,7 @@ mod tests {
 
     #[test]
     fn rbac_authorized_principal_bypasses_approval() {
-        let _l = ENV_LOCK.lock().unwrap();
+        let _l = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         clear_env();
         std::env::set_var("AETHER_MODE", "agent");
         let tmp = std::env::temp_dir();
@@ -4844,7 +4844,7 @@ mod tests {
 
     #[test]
     fn audit_chain_verifies_and_detects_tampering() {
-        let _l = ENV_LOCK.lock().unwrap();
+        let _l = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         clear_env();
         let mut log = std::env::temp_dir();
         log.push(format!("ae_audit_test_{}.log", std::process::id()));

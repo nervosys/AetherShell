@@ -306,9 +306,12 @@ fn a_pid_is_positive_and_numeric() {
         let e = call(name, args).expect_err(name);
         assert_eq!(code_of(&e), "E_BAD_ARG", "{name}: {e}");
     }
-    // An unknown signal was sent as TERM. Refused before anything runs.
-    let e = call("proc_kill", vec![Value::Int(999_999_999), s("SIGKILL")]).expect_err("signal");
-    assert_eq!(code_of(&e), "E_BAD_ARG");
+    // An unknown signal was sent as TERM, and on Windows every signal was.
+    // Refused before anything runs, on every OS.
+    for sig in [s("USR1"), Value::Bool(true)] {
+        let e = call("proc_kill", vec![Value::Int(999_999_999), sig]).expect_err("signal");
+        assert_eq!(code_of(&e), "E_BAD_ARG");
+    }
 }
 
 /// db_json_to_csv wrote non-string cells with Debug formatting (`Int(5)`),

@@ -20850,13 +20850,38 @@ fn pid_arg(builtin: &str, v: Option<&Value>) -> Result<i64> {
 
 fn bi_proc_kill(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let pid = pid_arg("proc_kill", args.first())?;
-    let signal = args
-        .get(1)
-        .and_then(|v| match v {
-            Value::Str(s) => Some(s.as_str()),
-            _ => None,
-        })
-        .unwrap_or("TERM");
+    // Parsed once, before anything runs, on every OS. A numeric signal was
+    // ignored (only strings were read) and sent as TERM, and an unknown name
+    // ("SIGKILL", "USR1") became TERM too. On Windows every name did.
+    let signal = match args.get(1) {
+        None => "TERM".to_string(),
+        Some(Value::Str(s)) => s.trim().trim_start_matches("SIG").to_ascii_uppercase(),
+        Some(Value::Int(n)) => n.to_string(),
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "proc_kill",
+                "signal: a name (TERM, KILL, ...) or number",
+                other.type_name(),
+            ))
+        }
+    };
+    let (name, num) = match signal.as_str() {
+        "TERM" | "15" => ("TERM", "-15"),
+        "KILL" | "9" => ("KILL", "-9"),
+        "HUP" | "1" => ("HUP", "-1"),
+        "INT" | "2" => ("INT", "-2"),
+        "QUIT" | "3" => ("QUIT", "-3"),
+        "STOP" | "19" => ("STOP", "-19"),
+        "CONT" | "18" => ("CONT", "-18"),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "proc_kill",
+                "signal TERM, KILL, HUP, INT, QUIT, STOP or CONT (or its number)",
+                other,
+            ))
+        }
+    };
+    let signal = name;
 
     crate::safety::guard(crate::safety::GuardCtx {
         builtin: "proc_kill",
@@ -20870,7 +20895,19 @@ fn bi_proc_kill(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     #[cfg(target_os = "windows")]
     {
-        let force = signal == "KILL" || signal == "9";
+        let _ = num; // kill(1) numbering; taskkill has none
+                     // taskkill has a graceful close and a forced one; nothing else maps.
+        let force = match signal {
+            "TERM" => false,
+            "KILL" => true,
+            other => {
+                return Err(crate::safety::unimplemented(
+                    "proc_kill",
+                    &format!("signal {other} has no Windows equivalent; NOTHING WAS SENT"),
+                    "use TERM (graceful) or KILL (forced)",
+                ))
+            }
+        };
         let mut cmd = std::process::Command::new("taskkill");
         cmd.args(["/PID", &pid.to_string()]);
         if force {
@@ -20883,23 +20920,7 @@ fn bi_proc_kill(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let sig = match signal {
-            "KILL" | "9" => "-9",
-            "HUP" | "1" => "-1",
-            "INT" | "2" => "-2",
-            "QUIT" | "3" => "-3",
-            "STOP" | "19" => "-19",
-            "CONT" | "18" => "-18",
-            "TERM" | "15" => "-15",
-            // An unknown name ("SIGKILL", "USR1") was sent as TERM, silently.
-            other => {
-                return Err(crate::safety::bad_arg(
-                    "proc_kill",
-                    "signal TERM, KILL, HUP, INT, QUIT, STOP or CONT (or its number)",
-                    other,
-                ))
-            }
-        };
+        let sig = num;
         let output = std::process::Command::new("kill")
             .args([sig, &pid.to_string()])
             .output()
@@ -52838,7 +52859,35 @@ mod declaration_narrowness {
                             call_with_input_inner(sig.name, Vec::new(), None, &mut bare_env)
                         }));
                         let ignored = matches!(bare, Ok(Ok(ref b)) if *b == out);
-                        if meaningful(&out) && !ignored {
+                        // A parameterless builtin whose own answer changes
+                        // between identical calls (mount_info reads the live
+                        // mount table) cannot be compared this way: the noise
+                        // looks like the argument mattering. Refusing an
+                        // argument is the point of declaring it parameterless,
+                        // so a disagreement between two bare calls settles it.
+                        // Two samples do not catch every jitter, so builtins
+                        // whose answer is live system state are listed: their
+                        // bodies bind `let _ = args`, so the argument provably
+                        // cannot matter, and uptime ticks every second.
+                        const LIVE_STATE: &[&str] = &["mount_info", "lsblk", "monitor_uptime"];
+                        let noisy = (sig.params.is_empty() && LIVE_STATE.contains(&sig.name))
+                            || sig.params.is_empty() && {
+                                let mut again_env = crate::env::Env::new();
+                                let again =
+                                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                        call_with_input_inner(
+                                            sig.name,
+                                            Vec::new(),
+                                            None,
+                                            &mut again_env,
+                                        )
+                                    }));
+                                match (&bare, &again) {
+                                    (Ok(Ok(a)), Ok(Ok(b))) => a != b,
+                                    _ => false,
+                                }
+                            };
+                        if meaningful(&out) && !ignored && !noisy {
                             let position = if piped { "piped" } else { "direct" };
                             too_narrow.push(format!(
                                 "{}({label}, {position}) -> declaration refuses, body returns {}",
