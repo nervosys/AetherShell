@@ -123,6 +123,20 @@ import os from 'node:os';
 import path from 'node:path';
 
 const JAIL = fs.mkdtempSync(path.join(os.tmpdir(), 'ae-uncoded-'));
+// A throwaway HOME, outside the workspace jail as a real one is. Thousands of
+// calls include builtins that keep state under ~ (platform_db_store, config,
+// history); run against the real HOME, a probe writes into the user's shell
+// state -- which is how "a", "hello" and "definitely-missing-94117.txt" came
+// to be saved platform snapshots on the machine these probes were built on.
+const SCRATCH = fs.mkdtempSync(path.join(os.tmpdir(), 'ae-home-'));
+process.on('exit', () => fs.rmSync(SCRATCH, { recursive: true, force: true }));
+const SCRATCH_HOME = {
+    HOME: SCRATCH,
+    USERPROFILE: SCRATCH,
+    XDG_CONFIG_HOME: path.join(SCRATCH, '.config'),
+    XDG_DATA_HOME: path.join(SCRATCH, '.local', 'share'),
+    XDG_CACHE_HOME: path.join(SCRATCH, '.cache'),
+};
 process.on('exit', () => fs.rmSync(JAIL, { recursive: true, force: true }));
 
 // A call that times out must not look like a call that succeeded.
@@ -135,7 +149,7 @@ const run = (code) => {
         cwd: JAIL,
         encoding: 'utf8',
         timeout: 10000,
-        env: { ...process.env, AETHER_MAX_NET: '0' },
+        env: { ...process.env, ...SCRATCH_HOME, AETHER_MAX_NET: '0' },
     });
     const out = ((r.stdout ?? '') + (r.stderr ?? '')).trim();
     // Node reports a timeout kill as SIGTERM with a null status.
