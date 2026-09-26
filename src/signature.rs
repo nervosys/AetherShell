@@ -2130,9 +2130,12 @@ pub static SIGNATURES: &[Signature] = &[
         aliases: &[],
         subject: None,
         params: &[],
-        returns: "Record",
-        doc: "The CUDA toolkit version reported by nvcc; an empty record where nvcc is absent.",
-        examples: &[("typeof(platform_cuda_version())", "Record")],
+        returns: "Record | Null",
+        doc: "The CUDA toolkit version reported by nvcc; null where nvcc is absent.",
+        examples: &[(
+            r#"platform_cuda_version() == null || typeof(platform_cuda_version()) == "Record""#,
+            "true",
+        )],
     },
     Signature {
         name: "platform_databases",
