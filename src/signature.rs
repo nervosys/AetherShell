@@ -2188,9 +2188,12 @@ pub static SIGNATURES: &[Signature] = &[
         aliases: &[],
         subject: None,
         params: &[],
-        returns: "Record",
-        doc: "GPU memory totals from nvidia-smi; an empty record without an NVIDIA GPU.",
-        examples: &[("typeof(platform_gpu_memory())", "Record")],
+        returns: "Record | Null",
+        doc: "GPU memory totals from nvidia-smi; null without an NVIDIA GPU.",
+        examples: &[(
+            r#"platform_gpu_memory() == null || typeof(platform_gpu_memory()) == "Record""#,
+            "true",
+        )],
     },
     Signature {
         name: "platform_gpus",

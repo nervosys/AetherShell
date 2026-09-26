@@ -43,8 +43,12 @@ fn version_probes_ask_the_offline_question() {
         &dir,
         "az",
         &log,
-        r#"{"azure-cli": "2.64.0", "extensions": {}}"#,
+        r#"{"azure-cli": "9.9.9", "extensions": {}}"#,
     );
+    // Where the Azure CLI's own install keeps its package metadata. The
+    // version must come from here: running az can go online.
+    std::fs::create_dir_all(dir.join("lib/python3.12/site-packages/azure_cli-2.64.0.dist-info"))
+        .unwrap();
     // `bazel` is a symlink to bazelisk, as on the GitHub runner.
     fake(&dir, "bazelisk-linux_amd64", &log);
     std::os::unix::fs::symlink(dir.join("bazelisk-linux_amd64"), dir.join("bazel")).unwrap();
@@ -75,13 +79,13 @@ fn version_probes_ask_the_offline_question() {
         call_of("kubectl")
     );
     assert!(call_of("packer").contains("CHECKPOINT_DISABLE=1"));
-    // `az --version` checks online for updates; `az version` does not.
+    // Any az invocation can fetch the latest release list (with no version
+    // cache it does, even for `az version`), so az is never run. 9.9.9 is
+    // what running it would have said; 2.64.0 is what is installed.
     assert!(
-        call_of("az").starts_with("az version --output json "),
-        "{}",
-        call_of("az")
+        !calls.lines().any(|l| l.starts_with("az ")),
+        "az was run:\n{calls}"
     );
-    assert!(call_of("az").contains("AZURE_CORE_COLLECT_TELEMETRY=no"));
     let az = versions
         .iter()
         .find(|(k, _)| k.ends_with(".az"))

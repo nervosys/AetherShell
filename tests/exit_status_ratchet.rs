@@ -12,7 +12,7 @@
 //! pins the counts, which may only fall, and each fix is a reading of one
 //! body. Lower the ceilings whenever a fix lowers the count.
 
-const UNCHECKED_MAX: usize = 51;
+const UNCHECKED_MAX: usize = 49;
 const BOOL_SUCCESS_MAX: usize = 100;
 
 fn source() -> String {

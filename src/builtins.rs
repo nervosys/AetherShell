@@ -23762,18 +23762,28 @@ fn bi_sys_hostname(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             return Ok(Value::Str(name));
         }
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(unix)]
     {
-        let output = std::process::Command::new("hostname")
-            .output()
-            .map_err(|e| crate::safety::spawn_error("sys_hostname", "hostname", &e))?;
-        if output.status.success() {
+        // gethostname(2): no subprocess, and no dependency on a `hostname`
+        // binary, which minimal containers do not have.
+        let mut buf = [0u8; 256];
+        let rc = unsafe { libc::gethostname(buf.as_mut_ptr() as *mut libc::c_char, buf.len()) };
+        if rc == 0 {
+            let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
             return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).trim().to_string(),
+                String::from_utf8_lossy(&buf[..end]).into_owned(),
             ));
         }
     }
-    Ok(Value::Null)
+    // Every machine has a hostname; not finding one is a failure, and a null
+    // here read as an answer.
+    #[allow(unreachable_code)]
+    Err(crate::safety::tool_failed(
+        "sys_hostname",
+        "hostname",
+        None,
+        "the hostname could not be read",
+    ))
 }
 
 fn bi_sys_os(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -24060,7 +24070,15 @@ fn bi_sys_cpu_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             return Ok(Value::Record(rec));
         }
     }
-    Ok(Value::Null)
+    // Every machine has a CPU; reaching here means detection failed, which a
+    // null reported as an answer.
+    #[allow(unreachable_code)]
+    Err(crate::safety::tool_failed(
+        "sys_cpu_info",
+        "the platform's CPU query",
+        None,
+        "CPU information could not be read",
+    ))
 }
 
 fn bi_sys_cpu_count(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -37353,6 +37371,79 @@ fn on_path(name: &str) -> bool {
     index.contains_key(name)
 }
 
+/// The Azure CLI's version, read from its installed package metadata.
+///
+/// Running `az` at all can reach the network. With no version cache -- a new
+/// home, anyone's first run -- it fetches the latest release list before
+/// answering, `az version` included; the egress gate caught it doing so once
+/// the probes stopped sharing the developer's HOME. The installed version is
+/// in the name of an `azure_cli-<version>.dist-info` directory, found from the
+/// launcher: its own tree (the Windows MSI, a Homebrew keg), or the Python
+/// interpreter a launcher script names (`/usr/bin/az` runs
+/// `/opt/az/bin/python3` in the Debian package).
+fn az_version_offline() -> Option<String> {
+    use std::path::{Path, PathBuf};
+    let path_var = std::env::var_os("PATH")?;
+    let names: &[&str] = if cfg!(windows) {
+        &["az.cmd", "az.bat", "az"]
+    } else {
+        &["az"]
+    };
+    let az = std::env::split_paths(&path_var)
+        .flat_map(|d| names.iter().map(move |n| d.join(n)))
+        .find(|p| p.is_file())?;
+    let real = std::fs::canonicalize(&az).unwrap_or(az);
+
+    let mut roots: Vec<PathBuf> = real
+        .ancestors()
+        .skip(1)
+        .take(3)
+        .map(Path::to_path_buf)
+        .collect();
+    if let Ok(bytes) = std::fs::read(&real) {
+        if bytes.len() < 16 * 1024 {
+            let text = String::from_utf8_lossy(&bytes);
+            for tok in text.split(|c: char| c.is_whitespace() || c == '"' || c == '\'') {
+                let tok = tok.trim_start_matches("#!");
+                if tok.starts_with('/') && tok.contains("python") {
+                    if let Some(prefix) = Path::new(tok).parent().and_then(Path::parent) {
+                        roots.push(prefix.to_path_buf());
+                    }
+                }
+            }
+        }
+    }
+
+    for root in roots {
+        for lib in ["lib", "Lib", "libexec/lib"] {
+            let lib = root.join(lib);
+            let mut site_dirs = vec![lib.join("site-packages")];
+            if let Ok(rd) = std::fs::read_dir(&lib) {
+                for e in rd.flatten() {
+                    if e.file_name().to_string_lossy().starts_with("python") {
+                        site_dirs.push(e.path().join("site-packages"));
+                    }
+                }
+            }
+            for sp in site_dirs {
+                let Ok(rd) = std::fs::read_dir(&sp) else {
+                    continue;
+                };
+                for e in rd.flatten() {
+                    let name = e.file_name().to_string_lossy().to_string();
+                    if let Some(v) = name
+                        .strip_prefix("azure_cli-")
+                        .and_then(|r| r.strip_suffix(".dist-info"))
+                    {
+                        return Some(v.to_string());
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Whether the first `bazel` on PATH is bazelisk, which fetches a Bazel
 /// release (hundreds of megabytes, over the network) to answer `--version`.
 fn resolves_to_bazelisk() -> bool {
@@ -37391,14 +37482,17 @@ fn get_tool_version(tool: &str) -> Option<String> {
         "java" => &["-version"],
         "go" => &["version"],
         "kubectl" => &["version", "--client"],
-        // `az --version` checks online for a newer release (the telemetry
-        // opt-out alone left that connection in place on the CI runner);
-        // `az version` reads the installed metadata and prints JSON.
-        "az" => &["version", "--output", "json"],
         _ => &["--version"],
     };
     if !on_path(tool) {
         return None;
+    }
+    if tool == "az" {
+        // Never run: see az_version_offline.
+        return Some(match az_version_offline() {
+            Some(v) => format!("azure-cli {v}"),
+            None => "azure-cli (installed; version not found offline)".to_string(),
+        });
     }
     if tool == "bazel" && resolves_to_bazelisk() {
         return Some("bazelisk (Bazel is downloaded on first use; not run)".to_string());
@@ -37423,10 +37517,6 @@ fn get_tool_version(tool: &str) -> Option<String> {
         return None;
     }
     let out = String::from_utf8_lossy(&o.stdout);
-    if tool == "az" {
-        let v: serde_json::Value = serde_json::from_str(&out).ok()?;
-        return v["azure-cli"].as_str().map(|s| format!("azure-cli {s}"));
-    }
     let err = String::from_utf8_lossy(&o.stderr);
     // Several tools (`java -version` among them) print to stderr.
     let combined = if out.trim().is_empty() { err } else { out };
@@ -37730,14 +37820,10 @@ fn bi_platform_arch(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Str(std::env::consts::ARCH.to_string()))
 }
 
-fn bi_platform_hostname(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    if let Ok(out) = std::process::Command::new("hostname").output() {
-        Ok(Value::Str(
-            String::from_utf8_lossy(&out.stdout).trim().to_string(),
-        ))
-    } else {
-        Ok(Value::Str("unknown".to_string()))
-    }
+fn bi_platform_hostname(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    // Its own copy ran `hostname` and answered the string "unknown" when that
+    // failed. One implementation, which reports a failure as one.
+    bi_sys_hostname(args, input)
 }
 
 fn bi_platform_machine_id(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -39765,7 +39851,15 @@ fn bi_platform_memory_total(_args: Vec<Value>, _input: Option<Value>) -> Result<
             }
         }
     }
-    Ok(Value::Null)
+    // Every machine has memory; reaching here means detection failed, which a
+    // null reported as an answer.
+    #[allow(unreachable_code)]
+    Err(crate::safety::tool_failed(
+        "platform_memory_total",
+        "the platform's memory query",
+        None,
+        "total memory could not be read",
+    ))
 }
 
 fn bi_platform_memory_free(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
