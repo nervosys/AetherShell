@@ -79,8 +79,17 @@ const traced = (code, env = ENV, agent = true) => {
     const exe = new Map();
     const parent = new Map();
     for (const l of lines) {
-        const ex = l.match(/^(\d+) execve\("([^"]+)"/);
-        if (ex && !/= -1 /.test(l)) exe.set(ex[1], path.basename(ex[2]));
+        const ex = l.match(/^(\d+) execve\("([^"]+)", \[([^\]]*)\]/);
+        if (ex && !/= -1 /.test(l)) {
+            // "python3" names nobody: gcloud, az and friends are launcher
+            // scripts that exec an interpreter on a script. Name the script.
+            let prog = path.basename(ex[2]);
+            if (/^(python|node|ruby|perl|php|java)/.test(prog)) {
+                const script = [...ex[3].matchAll(/"([^"]*)"/g)].map((m) => m[1]).slice(1).find((a) => !a.startsWith('-'));
+                if (script) prog += ` ${path.basename(script)}`;
+            }
+            exe.set(ex[1], prog);
+        }
         const cl = l.match(/^(\d+) (?:<\.\.\. )?(?:clone3?|v?fork)\b.*= (\d+)$/);
         if (cl) parent.set(cl[2], cl[1]);
     }

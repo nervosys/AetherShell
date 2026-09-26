@@ -176,3 +176,23 @@ credentials and no local endpoint. The headline tier is 50 generations and
 wants an explicit budget decision, which is what the Cost section above says
 it should get. Nothing in this file has been revised in the light of a result,
 because there is no result.
+
+## Amendment 2 — 2026-09-25, before the first generation
+
+**The oracle's implementation changed; its definition did not.** `corpus.mjs`
+carried the answers as a pasted table, attributed to an `oracle.mjs` that was
+never committed. The table was right only for the 2026-09-17 fetch. On a fresh
+fetch, all eight E1 engines agreed on every answer and were all scored wrong.
+`oracle.mjs` now exists: it answers the same ten questions in plain JavaScript
+from the `issues.json` on disk, at run time, sharing no code with any arm. On
+the 2026-09-25 fetch it agrees with all eight engines on all ten questions, and
+`--replay` scores every arm 10/10 against it. The prompt hash is unaffected,
+since prompts do not contain answers.
+
+**Consequence for the protocol.** "The corpus" above means whatever fetch the
+run is scored against. That fetch is not committed, so the run's result file
+must record its record count, PR count and open count (as `prepare.mjs`
+prints them), and the report must quote them. The questions, `normalise`, the
+arms, the scoring and the token path are unchanged. q4 now refuses to score a
+corpus on which the top PR author is tied, instead of silently rewarding one
+engine's tie-break.

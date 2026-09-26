@@ -19,7 +19,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { COMMANDS, ORACLE, QUESTIONS, normalise } from './corpus.mjs';
+import { COMMANDS, QUESTIONS, normalise } from './corpus.mjs';
+import { corpusFacts, oracleFor } from './oracle.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PROMPTS = path.join(HERE, 'e7-prompts');
@@ -35,6 +36,7 @@ if (!dataDir) {
     console.error('usage: e7.mjs <datadir> [--replay | --provider <name>] [--model M] [--seeds N]');
     process.exit(2);
 }
+const ORACLE = oracleFor(dataDir);
 
 // ── arms ────────────────────────────────────────────────────────────────
 //
@@ -262,7 +264,7 @@ console.log('');
 
 const outFile = path.join(dataDir, 'e7-' + hash + '.json');
 fs.writeFileSync(outFile, JSON.stringify(
-    { prompts: hash, provider, model, temperature, seeds,
+    { prompts: hash, provider, model, temperature, seeds, corpus: corpusFacts(dataDir),
         skipped: MISSING.map((a) => ({ arm: a.id, needs: a.bin })), rows }, null, 2));
 
 const pad = (s, n) => String(s).padEnd(n);

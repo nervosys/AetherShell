@@ -1,19 +1,19 @@
 ### t1 -- List the .rs files in src/ with their sizes.
 
 $ aethershell: ls("src") | where(fn(f) => ends_with(f.name, ".rs")) | pick("name", "size")
-[{name: ai.rs, size: 114529}, {name: auth.rs, size: 51857}, {name: builtins.rs, size: 1770246}, {name: evolution.rs, size: 29151}, {name: mcp.rs, size: 57301}, {name: workflow_builtins.rs, size: 28644}, {name: workflows.rs, size: 105578}, {name: value.rs, size: 20084}, {name: rlm.rs, size: 44249}, {name: types.rs, size: 2867}, {name: packages.rs, size: 30804}, {name: syntax_kb.rs, size: 19347}, {name: ast.rs, size: 5122}, {name: wasm.rs, size: 48653}, {name: external_tools.rs, size: 43230}, {name: line_editor.rs, size: 25128}, {name: agent_api.rs, size: 199700}, {name: agent.rs, size: 27260}, {name: typecheck.rs, size: 21989}, {name: shell_features.rs, size: 14813}, {name: lib.rs, size: 10991}, {name: shapes.rs, size: 11839}, {name: handles.rs, size: 14268}, {name: journal.rs, size: 16140}, {name: marketplace.rs, size: 20399}, {name: main.rs, size: 38295}, {name: yaml.rs, size: 27597}, {name: metrics.rs, size: 49879}, {name: env.rs, size: 9160}, {name: eval.rs, size: 66312}, {name: modules.rs, size: 51769}, {name: safety.rs, size: 186375}, {name: persistence.rs, size: 48820}, {name: security.rs, size: 57506}, {name: config.rs, size: 57178}, {name: rl.rs, size: 31230}, {name: os_tools.rs, size: 326688}, {name: secure_config.rs, size: 10571}, {name: plugins.rs, size: 79119}, {name: model_plane.rs, size: 13947}, {name: prompt.rs, size: 41111}, {name: repl.rs, size: 16989}, {name: parser.rs, size: 75492}, {name: neural.rs, size: 25266}, {name: tx.rs, size: 12558}]
+[{name: agent.rs, size: 27260}, {name: agent_api.rs, size: 208922}, {name: ai.rs, size: 117318}, {name: ast.rs, size: 5122}, {name: auth.rs, size: 51857}, {name: builtins.rs, size: 1954924}, {name: config.rs, size: 57178}, {name: env.rs, size: 9160}, {name: eval.rs, size: 67917}, {name: evolution.rs, size: 30150}, {name: external_tools.rs, size: 44510}, {name: handles.rs, size: 14646}, {name: journal.rs, size: 16140}, {name: lib.rs, size: 11117}, {name: line_editor.rs, size: 25879}, {name: main.rs, size: 41255}, {name: marketplace.rs, size: 21019}, {name: mcp.rs, size: 57975}, {name: metrics.rs, size: 54500}, {name: model_plane.rs, size: 14326}, {name: modules.rs, size: 53338}, {name: neural.rs, size: 26087}, {name: os_tools.rs, size: 335166}, {name: packages.rs, size: 31757}, {name: parser.rs, size: 78512}, {name: persistence.rs, size: 50350}, {name: plugins.rs, size: 79401}, {name: prompt.rs, size: 42410}, {name: repl.rs, size: 21160}, {name: rl.rs, size: 31230}, {name: rlm.rs, size: 45622}, {name: safety.rs, size: 211987}, {name: secure_config.rs, size: 10912}, {name: security.rs, size: 61382}, {name: shapes.rs, size: 11839}, {name: shell_features.rs, size: 14813}, {name: signature.rs, size: 92963}, {name: syntax_kb.rs, size: 19347}, {name: tx.rs, size: 12750}, {name: typecheck.rs, size: 21989}, {name: types.rs, size: 2867}, {name: value.rs, size: 20084}, {name: wasm.rs, size: 49954}, {name: workflows.rs, size: 109194}, {name: workflow_builtins.rs, size: 29404}, {name: yaml.rs, size: 28434}]
 
 
 ### t2 -- Total line count of the Rust sources in src/.
 
 $ aethershell: ls("src") | where(fn(f) => ends_with(f.name, ".rs")) | map(fn(f) => len(split(cat(f.path), "\n"))) | sum
-109968
+118453
 
 
 ### t3 -- The five largest files in src/, with sizes.
 
 $ aethershell: ls("src") | sort_by("size") | last(5) | pick("name", "size")
-[{name: ai.rs, size: 114529}, {name: safety.rs, size: 186375}, {name: agent_api.rs, size: 199700}, {name: os_tools.rs, size: 326688}, {name: builtins.rs, size: 1770246}]
+[{name: ai.rs, size: 117318}, {name: agent_api.rs, size: 208922}, {name: safety.rs, size: 211987}, {name: os_tools.rs, size: 335166}, {name: builtins.rs, size: 1954924}]
 
 
 ### t4 -- The current git branch.
@@ -25,7 +25,7 @@ master
 ### t5 -- How many files are under tests/.
 
 $ aethershell: fs_walk("tests") | len
-190
+215
 
 
 ### t6 -- The package version declared in Cargo.toml.
@@ -37,13 +37,13 @@ version = "12.0.2"
 ### t7 -- Count the .rs files under src/ recursively.
 
 $ aethershell: fs_walk("src") | where(fn(f) => ends_with(f, ".rs")) | len
-88
+89
 
 
 ### t8 -- The newest three files in src/, by modification time.
 
 $ aethershell: ls("src") | sort_by("modified") | last(3) | pick("name", "modified")
-[{modified: 1789584988, name: tx.rs}, {modified: 1789584988, name: providers}, {modified: 1789584988, name: ai_api}]
+[{modified: 1790398277, name: workflows.rs}, {modified: 1790401198, name: signature.rs}, {modified: 1790401257, name: builtins.rs}]
 
 
 ### t1 -- List the .rs files in src/ with their sizes.
@@ -51,68 +51,69 @@ $ aethershell: ls("src") | sort_by("modified") | last(3) | pick("name", "modifie
 $ aethershell (agent): ls("src") | where(fn(f) => ends_with(f.name, ".rs")) | pick("name", "size")
 name	size
 @suffix name: .rs
-ai	114529
-auth	51857
-builtins	1770246
-evolution	29151
-mcp	57301
-workflow_builtins	28644
-workflows	105578
-value	20084
-rlm	44249
-types	2867
-packages	30804
-syntax_kb	19347
-ast	5122
-wasm	48653
-external_tools	43230
-line_editor	25128
-agent_api	199700
 agent	27260
-typecheck	21989
-shell_features	14813
-lib	10991
-shapes	11839
-handles	14268
-journal	16140
-marketplace	20399
-main	38295
-yaml	27597
-metrics	49879
-env	9160
-eval	66312
-modules	51769
-safety	186375
-persistence	48820
-security	57506
+agent_api	208922
+ai	117318
+ast	5122
+auth	51857
+builtins	1954924
 config	57178
+env	9160
+eval	67917
+evolution	30150
+external_tools	44510
+handles	14646
+journal	16140
+lib	11117
+line_editor	25879
+main	41255
+marketplace	21019
+mcp	57975
+metrics	54500
+model_plane	14326
+modules	53338
+neural	26087
+os_tools	335166
+packages	31757
+parser	78512
+persistence	50350
+plugins	79401
+prompt	42410
+repl	21160
 rl	31230
-os_tools	326688
-secure_config	10571
-plugins	79119
-model_plane	13947
-prompt	41111
-repl	16989
-parser	75492
-neural	25266
-tx	12558
+rlm	45622
+safety	211987
+secure_config	10912
+security	61382
+shapes	11839
+shell_features	14813
+signature	92963
+syntax_kb	19347
+tx	12750
+typecheck	21989
+types	2867
+value	20084
+wasm	49954
+workflows	109194
+workflow_builtins	29404
+yaml	28434
 
 
 ### t2 -- Total line count of the Rust sources in src/.
 
 $ aethershell (agent): ls("src") | where(fn(f) => ends_with(f.name, ".rs")) | map(fn(f) => len(split(cat(f.path), "\n"))) | sum
-109968
+118453
 
 
 ### t3 -- The five largest files in src/, with sizes.
 
 $ aethershell (agent): ls("src") | sort_by("size") | last(5) | pick("name", "size")
 name	size
-ai.rs	114529
-safety.rs	186375
-agent_api.rs	199700
-os_tools.rs	326688
-builtins.rs	1770246
+ai.rs	117318
+agent_api.rs	208922
+safety.rs	211987
+os_tools.rs	335166
+builtins.rs	1954924
 
 
 ### t4 -- The current git branch.
@@ -124,7 +125,7 @@ master
 ### t5 -- How many files are under tests/.
 
 $ aethershell (agent): fs_walk("tests") | len
-190
+215
 
 
 ### t6 -- The package version declared in Cargo.toml.
@@ -136,84 +137,84 @@ version = "12.0.2"
 ### t7 -- Count the .rs files under src/ recursively.
 
 $ aethershell (agent): fs_walk("src") | where(fn(f) => ends_with(f, ".rs")) | len
-88
+89
 
 
 ### t8 -- The newest three files in src/, by modification time.
 
 $ aethershell (agent): ls("src") | sort_by("modified") | last(3) | pick("name", "modified")
-name
-@const modified=1789584988
-tx.rs
-providers
-ai_api
+modified	name
+1790398277	workflows.rs
+1790401198	signature.rs
+1790401257	builtins.rs
 
 
 ### t1 -- List the .rs files in src/ with their sizes.
 
 $ bash: ls -l src/*.rs
--rw-r--r-- 1 test test  199700 Sep 16 11:56 src/agent_api.rs
--rw-r--r-- 1 test test   27260 Sep 16 11:56 src/agent.rs
--rw-r--r-- 1 test test  114529 Sep 16 11:56 src/ai.rs
--rw-r--r-- 1 test test    5122 Sep 16 11:56 src/ast.rs
--rw-r--r-- 1 test test   51857 Sep 16 11:56 src/auth.rs
--rw-r--r-- 1 test test 1770246 Sep 16 11:56 src/builtins.rs
--rw-r--r-- 1 test test   57178 Sep 16 11:56 src/config.rs
--rw-r--r-- 1 test test    9160 Sep 16 11:56 src/env.rs
--rw-r--r-- 1 test test   66312 Sep 16 11:56 src/eval.rs
--rw-r--r-- 1 test test   29151 Sep 16 11:56 src/evolution.rs
--rw-r--r-- 1 test test   43230 Sep 16 11:56 src/external_tools.rs
--rw-r--r-- 1 test test   14268 Sep 16 11:56 src/handles.rs
--rw-r--r-- 1 test test   16140 Sep 16 11:56 src/journal.rs
--rw-r--r-- 1 test test   10991 Sep 16 11:56 src/lib.rs
--rw-r--r-- 1 test test   25128 Sep 16 11:56 src/line_editor.rs
--rw-r--r-- 1 test test   38295 Sep 16 11:56 src/main.rs
--rw-r--r-- 1 test test   20399 Sep 16 11:56 src/marketplace.rs
--rw-r--r-- 1 test test   57301 Sep 16 11:56 src/mcp.rs
--rw-r--r-- 1 test test   49879 Sep 16 11:56 src/metrics.rs
--rw-r--r-- 1 test test   13947 Sep 16 11:56 src/model_plane.rs
--rw-r--r-- 1 test test   51769 Sep 16 11:56 src/modules.rs
--rw-r--r-- 1 test test   25266 Sep 16 11:56 src/neural.rs
--rw-r--r-- 1 test test  326688 Sep 16 11:56 src/os_tools.rs
--rw-r--r-- 1 test test   30804 Sep 16 11:56 src/packages.rs
--rw-r--r-- 1 test test   75492 Sep 16 11:56 src/parser.rs
--rw-r--r-- 1 test test   48820 Sep 16 11:56 src/persistence.rs
--rw-r--r-- 1 test test   79119 Sep 16 11:56 src/plugins.rs
--rw-r--r-- 1 test test   41111 Sep 16 11:56 src/prompt.rs
--rw-r--r-- 1 test test   16989 Sep 16 11:56 src/repl.rs
--rw-r--r-- 1 test test   44249 Sep 16 11:56 src/rlm.rs
--rw-r--r-- 1 test test   31230 Sep 16 11:56 src/rl.rs
--rw-r--r-- 1 test test  186375 Sep 16 11:56 src/safety.rs
--rw-r--r-- 1 test test   10571 Sep 16 11:56 src/secure_config.rs
--rw-r--r-- 1 test test   57506 Sep 16 11:56 src/security.rs
--rw-r--r-- 1 test test   11839 Sep 16 11:56 src/shapes.rs
--rw-r--r-- 1 test test   14813 Sep 16 11:56 src/shell_features.rs
--rw-r--r-- 1 test test   19347 Sep 16 11:56 src/syntax_kb.rs
--rw-r--r-- 1 test test   12558 Sep 16 11:56 src/tx.rs
--rw-r--r-- 1 test test   21989 Sep 16 11:56 src/typecheck.rs
--rw-r--r-- 1 test test    2867 Sep 16 11:56 src/types.rs
--rw-r--r-- 1 test test   20084 Sep 16 11:56 src/value.rs
--rw-r--r-- 1 test test   48653 Sep 16 11:56 src/wasm.rs
--rw-r--r-- 1 test test   28644 Sep 16 11:56 src/workflow_builtins.rs
--rw-r--r-- 1 test test  105578 Sep 16 11:56 src/workflows.rs
--rw-r--r-- 1 test test   27597 Sep 16 11:56 src/yaml.rs
+-rwxrwxrwx 1 test test  208922 Sep 25 17:03 src/agent_api.rs
+-rwxrwxrwx 1 test test   27260 Feb 10  2026 src/agent.rs
+-rwxrwxrwx 1 test test  117318 Sep 25 18:16 src/ai.rs
+-rwxrwxrwx 1 test test    5122 Jan 27  2026 src/ast.rs
+-rwxrwxrwx 1 test test   51857 Aug 24 14:34 src/auth.rs
+-rwxrwxrwx 1 test test 1954924 Sep 25 22:40 src/builtins.rs
+-rwxrwxrwx 1 test test   57178 Aug 31 14:24 src/config.rs
+-rwxrwxrwx 1 test test    9160 Aug 31 22:53 src/env.rs
+-rwxrwxrwx 1 test test   67917 Sep 25 21:15 src/eval.rs
+-rwxrwxrwx 1 test test   30150 Sep 21 09:56 src/evolution.rs
+-rwxrwxrwx 1 test test   44510 Sep 21 09:56 src/external_tools.rs
+-rwxrwxrwx 1 test test   14646 Sep 21 09:56 src/handles.rs
+-rwxrwxrwx 1 test test   16140 Aug 11 18:18 src/journal.rs
+-rwxrwxrwx 1 test test   11117 Sep 25 21:25 src/lib.rs
+-rwxrwxrwx 1 test test   25879 Sep 21 09:56 src/line_editor.rs
+-rwxrwxrwx 1 test test   41255 Sep 21 09:56 src/main.rs
+-rwxrwxrwx 1 test test   21019 Sep 21 09:56 src/marketplace.rs
+-rwxrwxrwx 1 test test   57975 Sep 21 09:56 src/mcp.rs
+-rwxrwxrwx 1 test test   54500 Sep 22 17:47 src/metrics.rs
+-rwxrwxrwx 1 test test   14326 Sep 21 09:56 src/model_plane.rs
+-rwxrwxrwx 1 test test   53338 Sep 21 09:56 src/modules.rs
+-rwxrwxrwx 1 test test   26087 Sep 21 09:56 src/neural.rs
+-rwxrwxrwx 1 test test  335166 Sep 21 09:56 src/os_tools.rs
+-rwxrwxrwx 1 test test   31757 Sep 21 09:56 src/packages.rs
+-rwxrwxrwx 1 test test   78512 Sep 16 15:03 src/parser.rs
+-rwxrwxrwx 1 test test   50350 Sep 21 09:56 src/persistence.rs
+-rwxrwxrwx 1 test test   79401 Sep 22 20:26 src/plugins.rs
+-rwxrwxrwx 1 test test   42410 Sep 21 09:56 src/prompt.rs
+-rwxrwxrwx 1 test test   21160 Sep 25 15:42 src/repl.rs
+-rwxrwxrwx 1 test test   45622 Sep 21 09:56 src/rlm.rs
+-rwxrwxrwx 1 test test   31230 Jul 29 20:25 src/rl.rs
+-rwxrwxrwx 1 test test  211987 Sep 25 21:38 src/safety.rs
+-rwxrwxrwx 1 test test   10912 Sep 21 09:56 src/secure_config.rs
+-rwxrwxrwx 1 test test   61382 Sep 25 19:52 src/security.rs
+-rwxrwxrwx 1 test test   11839 Aug 17 16:23 src/shapes.rs
+-rwxrwxrwx 1 test test   14813 May 31 21:47 src/shell_features.rs
+-rwxrwxrwx 1 test test   92963 Sep 25 22:39 src/signature.rs
+-rwxrwxrwx 1 test test   19347 May 31 21:50 src/syntax_kb.rs
+-rwxrwxrwx 1 test test   12750 Sep 22 14:11 src/tx.rs
+-rwxrwxrwx 1 test test   21989 Jun  1 18:26 src/typecheck.rs
+-rwxrwxrwx 1 test test    2867 Jan 27  2026 src/types.rs
+-rwxrwxrwx 1 test test   20084 Aug 31 21:09 src/value.rs
+-rwxrwxrwx 1 test test   49954 Sep 21 09:56 src/wasm.rs
+-rwxrwxrwx 1 test test   29404 Sep 21 09:56 src/workflow_builtins.rs
+-rwxrwxrwx 1 test test  109194 Sep 25 21:51 src/workflows.rs
+-rwxrwxrwx 1 test test   28434 Sep 21 09:56 src/yaml.rs
 
 
 ### t2 -- Total line count of the Rust sources in src/.
 
 $ bash: cat src/*.rs | wc -l
-109923
+118407
 
 
 ### t3 -- The five largest files in src/, with sizes.
 
 $ bash: ls -lS src | head -6
-total 3976
--rw-r--r-- 1 test test 1770246 Sep 16 11:56 builtins.rs
--rw-r--r-- 1 test test  326688 Sep 16 11:56 os_tools.rs
--rw-r--r-- 1 test test  199700 Sep 16 11:56 agent_api.rs
--rw-r--r-- 1 test test  186375 Sep 16 11:56 safety.rs
--rw-r--r-- 1 test test  114529 Sep 16 11:56 ai.rs
+total 4316
+-rwxrwxrwx 1 test test 1954924 Sep 25 22:40 builtins.rs
+-rwxrwxrwx 1 test test  335166 Sep 21 09:56 os_tools.rs
+-rwxrwxrwx 1 test test  211987 Sep 25 21:38 safety.rs
+-rwxrwxrwx 1 test test  208922 Sep 25 17:03 agent_api.rs
+-rwxrwxrwx 1 test test  117318 Sep 25 18:16 ai.rs
 
 
 ### t4 -- The current git branch.
@@ -225,7 +226,7 @@ master
 ### t5 -- How many files are under tests/.
 
 $ bash: find tests -type f | wc -l
-186
+211
 
 
 ### t6 -- The package version declared in Cargo.toml.
@@ -237,16 +238,16 @@ version = "12.0.2"
 ### t7 -- Count the .rs files under src/ recursively.
 
 $ bash: find src -name "*.rs" | wc -l
-88
+89
 
 
 ### t8 -- The newest three files in src/, by modification time.
 
 $ bash: ls -lt src | head -4
-total 3976
-drwxr-xr-x 2 test test    4096 Sep 16 11:56 tui
--rw-r--r-- 1 test test   12558 Sep 16 11:56 tx.rs
--rw-r--r-- 1 test test   21989 Sep 16 11:56 typecheck.rs
+total 4316
+-rwxrwxrwx 1 test test 1954924 Sep 25 22:40 builtins.rs
+-rwxrwxrwx 1 test test   92963 Sep 25 22:39 signature.rs
+-rwxrwxrwx 1 test test  109194 Sep 25 21:51 workflows.rs
 
 
 ### t1 -- List the .rs files in src/ with their sizes.
@@ -255,58 +256,59 @@ $ pwsh: Get-ChildItem src/*.rs | Select-Object Name,Length
 
 [32;1mName                [0m[32;1m  Length[0m
 [32;1m----                [0m [32;1m ------[0m
-agent_api.rs          199700
+agent_api.rs          208922
 agent.rs               27260
-ai.rs                 114529
+ai.rs                 117318
 ast.rs                  5122
 auth.rs                51857
-builtins.rs          1770246
+builtins.rs          1954924
 config.rs              57178
 env.rs                  9160
-eval.rs                66312
-evolution.rs           29151
-external_tools.rs      43230
-handles.rs             14268
+eval.rs                67917
+evolution.rs           30150
+external_tools.rs      44510
+handles.rs             14646
 journal.rs             16140
-lib.rs                 10991
-line_editor.rs         25128
-main.rs                38295
-marketplace.rs         20399
-mcp.rs                 57301
-metrics.rs             49879
-model_plane.rs         13947
-modules.rs             51769
-neural.rs              25266
-os_tools.rs           326688
-packages.rs            30804
-parser.rs              75492
-persistence.rs         48820
-plugins.rs             79119
-prompt.rs              41111
-repl.rs                16989
+lib.rs                 11117
+line_editor.rs         25879
+main.rs                41255
+marketplace.rs         21019
+mcp.rs                 57975
+metrics.rs             54500
+model_plane.rs         14326
+modules.rs             53338
+neural.rs              26087
+os_tools.rs           335166
+packages.rs            31757
+parser.rs              78512
+persistence.rs         50350
+plugins.rs             79401
+prompt.rs              42410
+repl.rs                21160
 rl.rs                  31230
-rlm.rs                 44249
-safety.rs             186375
-secure_config.rs       10571
-security.rs            57506
+rlm.rs                 45622
+safety.rs             211987
+secure_config.rs       10912
+security.rs            61382
 shapes.rs              11839
 shell_features.rs      14813
+signature.rs           92963
 syntax_kb.rs           19347
-tx.rs                  12558
+tx.rs                  12750
 typecheck.rs           21989
 types.rs                2867
 value.rs               20084
-wasm.rs                48653
-workflow_builtins.rs   28644
-workflows.rs          105578
-yaml.rs                27597
+wasm.rs                49954
+workflow_builtins.rs   29404
+workflows.rs          109194
+yaml.rs                28434
 
 
 
 ### t2 -- Total line count of the Rust sources in src/.
 
 $ pwsh: (Get-Content src/*.rs | Measure-Object -Line).Lines
-101362
+109724
 
 
 ### t3 -- The five largest files in src/, with sizes.
@@ -315,11 +317,11 @@ $ pwsh: Get-ChildItem src -File | Sort-Object Length -Descending | Select-Object
 
 [32;1mName        [0m[32;1m  Length[0m
 [32;1m----        [0m [32;1m ------[0m
-builtins.rs  1770246
-os_tools.rs   326688
-agent_api.rs  199700
-safety.rs     186375
-ai.rs         114529
+builtins.rs  1954924
+os_tools.rs   335166
+safety.rs     211987
+agent_api.rs  208922
+ai.rs         117318
 
 
 
@@ -332,7 +334,7 @@ master
 ### t5 -- How many files are under tests/.
 
 $ pwsh: (Get-ChildItem tests -Recurse -File).Count
-186
+211
 
 
 ### t6 -- The package version declared in Cargo.toml.
@@ -344,7 +346,7 @@ version = "12.0.2"
 ### t7 -- Count the .rs files under src/ recursively.
 
 $ pwsh: (Get-ChildItem src -Recurse -Filter *.rs).Count
-88
+89
 
 
 ### t8 -- The newest three files in src/, by modification time.
@@ -353,9 +355,9 @@ $ pwsh: Get-ChildItem src -File | Sort-Object LastWriteTime -Descending | Select
 
 [32;1mName        [0m[32;1m LastWriteTime[0m
 [32;1m----        [0m [32;1m-------------[0m
-yaml.rs      9/16/2026 11:56:28 AM
-tx.rs        9/16/2026 11:56:28 AM
-typecheck.rs 9/16/2026 11:56:28 AM
+builtins.rs  9/25/2026 10:40:57 PM
+signature.rs 9/25/2026 10:39:58 PM
+workflows.rs 9/25/2026 9:51:17 PM
 
 
 
@@ -366,50 +368,51 @@ $ nushell: ls src/*.rs | select name size
 │  # │           name           │   size   │
 ├────┼──────────────────────────┼──────────┤
 │  0 │ src/agent.rs             │  27.2 kB │
-│  1 │ src/agent_api.rs         │ 199.7 kB │
-│  2 │ src/ai.rs                │ 114.5 kB │
+│  1 │ src/agent_api.rs         │ 208.9 kB │
+│  2 │ src/ai.rs                │ 117.3 kB │
 │  3 │ src/ast.rs               │   5.1 kB │
 │  4 │ src/auth.rs              │  51.8 kB │
-│  5 │ src/builtins.rs          │   1.7 MB │
+│  5 │ src/builtins.rs          │   1.9 MB │
 │  6 │ src/config.rs            │  57.1 kB │
 │  7 │ src/env.rs               │   9.1 kB │
-│  8 │ src/eval.rs              │  66.3 kB │
-│  9 │ src/evolution.rs         │  29.1 kB │
-│ 10 │ src/external_tools.rs    │  43.2 kB │
-│ 11 │ src/handles.rs           │  14.2 kB │
+│  8 │ src/eval.rs              │  67.9 kB │
+│  9 │ src/evolution.rs         │  30.1 kB │
+│ 10 │ src/external_tools.rs    │  44.5 kB │
+│ 11 │ src/handles.rs           │  14.6 kB │
 │ 12 │ src/journal.rs           │  16.1 kB │
-│ 13 │ src/lib.rs               │  10.9 kB │
-│ 14 │ src/line_editor.rs       │  25.1 kB │
-│ 15 │ src/main.rs              │  38.2 kB │
-│ 16 │ src/marketplace.rs       │  20.3 kB │
-│ 17 │ src/mcp.rs               │  57.3 kB │
-│ 18 │ src/metrics.rs           │  49.8 kB │
-│ 19 │ src/model_plane.rs       │  13.9 kB │
-│ 20 │ src/modules.rs           │  51.7 kB │
-│ 21 │ src/neural.rs            │  25.2 kB │
-│ 22 │ src/os_tools.rs          │ 326.6 kB │
-│ 23 │ src/packages.rs          │  30.8 kB │
-│ 24 │ src/parser.rs            │  75.4 kB │
-│ 25 │ src/persistence.rs       │  48.8 kB │
-│ 26 │ src/plugins.rs           │  79.1 kB │
-│ 27 │ src/prompt.rs            │  41.1 kB │
-│ 28 │ src/repl.rs              │  16.9 kB │
+│ 13 │ src/lib.rs               │  11.1 kB │
+│ 14 │ src/line_editor.rs       │  25.8 kB │
+│ 15 │ src/main.rs              │  41.2 kB │
+│ 16 │ src/marketplace.rs       │  21.0 kB │
+│ 17 │ src/mcp.rs               │  57.9 kB │
+│ 18 │ src/metrics.rs           │  54.5 kB │
+│ 19 │ src/model_plane.rs       │  14.3 kB │
+│ 20 │ src/modules.rs           │  53.3 kB │
+│ 21 │ src/neural.rs            │  26.0 kB │
+│ 22 │ src/os_tools.rs          │ 335.1 kB │
+│ 23 │ src/packages.rs          │  31.7 kB │
+│ 24 │ src/parser.rs            │  78.5 kB │
+│ 25 │ src/persistence.rs       │  50.3 kB │
+│ 26 │ src/plugins.rs           │  79.4 kB │
+│ 27 │ src/prompt.rs            │  42.4 kB │
+│ 28 │ src/repl.rs              │  21.1 kB │
 │ 29 │ src/rl.rs                │  31.2 kB │
-│ 30 │ src/rlm.rs               │  44.2 kB │
-│ 31 │ src/safety.rs            │ 186.3 kB │
-│ 32 │ src/secure_config.rs     │  10.5 kB │
-│ 33 │ src/security.rs          │  57.5 kB │
+│ 30 │ src/rlm.rs               │  45.6 kB │
+│ 31 │ src/safety.rs            │ 211.9 kB │
+│ 32 │ src/secure_config.rs     │  10.9 kB │
+│ 33 │ src/security.rs          │  61.3 kB │
 │ 34 │ src/shapes.rs            │  11.8 kB │
 │ 35 │ src/shell_features.rs    │  14.8 kB │
-│ 36 │ src/syntax_kb.rs         │  19.3 kB │
-│ 37 │ src/tx.rs                │  12.5 kB │
-│ 38 │ src/typecheck.rs         │  21.9 kB │
-│ 39 │ src/types.rs             │   2.8 kB │
-│ 40 │ src/value.rs             │  20.0 kB │
-│ 41 │ src/wasm.rs              │  48.6 kB │
-│ 42 │ src/workflow_builtins.rs │  28.6 kB │
-│ 43 │ src/workflows.rs         │ 105.5 kB │
-│ 44 │ src/yaml.rs              │  27.5 kB │
+│ 36 │ src/signature.rs         │  92.9 kB │
+│ 37 │ src/syntax_kb.rs         │  19.3 kB │
+│ 38 │ src/tx.rs                │  12.7 kB │
+│ 39 │ src/typecheck.rs         │  21.9 kB │
+│ 40 │ src/types.rs             │   2.8 kB │
+│ 41 │ src/value.rs             │  20.0 kB │
+│ 42 │ src/wasm.rs              │  49.9 kB │
+│ 43 │ src/workflow_builtins.rs │  29.4 kB │
+│ 44 │ src/workflows.rs         │ 109.1 kB │
+│ 45 │ src/yaml.rs              │  28.4 kB │
 ├────┼──────────────────────────┼──────────┤
 │  # │           name           │   size   │
 ╰────┴──────────────────────────┴──────────╯
@@ -418,7 +421,7 @@ $ nushell: ls src/*.rs | select name size
 ### t2 -- Total line count of the Rust sources in src/.
 
 $ nushell: ls src/*.rs | get name | each {|f| open $f | lines | length} | math sum
-109923
+118407
 
 
 ### t3 -- The five largest files in src/, with sizes.
@@ -427,11 +430,11 @@ $ nushell: ls src | sort-by size | last 5 | select name size
 ╭───┬──────────────────┬──────────╮
 │ # │       name       │   size   │
 ├───┼──────────────────┼──────────┤
-│ 0 │ src/ai.rs        │ 114.5 kB │
-│ 1 │ src/safety.rs    │ 186.3 kB │
-│ 2 │ src/agent_api.rs │ 199.7 kB │
-│ 3 │ src/os_tools.rs  │ 326.6 kB │
-│ 4 │ src/builtins.rs  │   1.7 MB │
+│ 0 │ src/ai.rs        │ 117.3 kB │
+│ 1 │ src/agent_api.rs │ 208.9 kB │
+│ 2 │ src/safety.rs    │ 211.9 kB │
+│ 3 │ src/os_tools.rs  │ 335.1 kB │
+│ 4 │ src/builtins.rs  │   1.9 MB │
 ╰───┴──────────────────┴──────────╯
 
 
@@ -444,7 +447,7 @@ master
 ### t5 -- How many files are under tests/.
 
 $ nushell: ls tests/**/* | where type == file | length
-186
+211
 
 
 ### t6 -- The package version declared in Cargo.toml.
@@ -456,16 +459,16 @@ $ nushell: open Cargo.toml | get package.version
 ### t7 -- Count the .rs files under src/ recursively.
 
 $ nushell: ls src/**/*.rs | length
-88
+89
 
 
 ### t8 -- The newest three files in src/, by modification time.
 
 $ nushell: ls src | sort-by modified | last 3 | select name modified
-╭───┬──────────────────────────┬─────────────╮
-│ # │           name           │  modified   │
-├───┼──────────────────────────┼─────────────┤
-│ 0 │ src/workflow_builtins.rs │ 4 hours ago │
-│ 1 │ src/workflows.rs         │ 4 hours ago │
-│ 2 │ src/yaml.rs              │ 4 hours ago │
-╰───┴──────────────────────────┴─────────────╯
+╭───┬──────────────────┬────────────────╮
+│ # │       name       │    modified    │
+├───┼──────────────────┼────────────────┤
+│ 0 │ src/workflows.rs │ an hour ago    │
+│ 1 │ src/signature.rs │ 18 minutes ago │
+│ 2 │ src/builtins.rs  │ 17 minutes ago │
+╰───┴──────────────────┴────────────────╯

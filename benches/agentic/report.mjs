@@ -8,6 +8,7 @@
 //
 //   node benches/agentic/report.mjs <datadir> [--no-tokens]
 
+import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -28,7 +29,10 @@ if (!noTokens) {
     // Absolute paths for 120 files overflow the Windows 32 KB command line, so
     // pass basenames and let the child resolve them from the token directory.
     const files = fs.readdirSync(tokDir);
-    const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\//, '')), '..', '..');
+    // fileURLToPath: stripping the leading slash was right for a Windows URL
+    // (/C:/...) and made a Linux path relative, so cargo was pointed at
+    // <cwd>/mnt/c/.../Cargo.toml.
+    const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
     for (let i = 0; i < files.length; i += 20) {
         const out = execFileSync('cargo', [
             'run', '-q', '--manifest-path', path.join(repoRoot, 'Cargo.toml'),

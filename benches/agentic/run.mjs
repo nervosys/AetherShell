@@ -13,10 +13,12 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { ENGINES, COMMANDS, ORACLE, QUESTIONS, ATTEMPTS, normalise } from './corpus.mjs';
+import { ENGINES, COMMANDS, QUESTIONS, ATTEMPTS, normalise } from './corpus.mjs';
+import { corpusFacts, oracleFor } from './oracle.mjs';
 
 const data = process.argv[2];
 const REPEATS = Number(process.argv[3] ?? 7);
+const ORACLE = oracleFor(data);
 if (!data) { console.error('usage: run.mjs <datadir> [repeats]'); process.exit(2); }
 
 const tokDir = path.join(data, 'tok');
@@ -102,6 +104,7 @@ fs.writeFileSync(resultsPath, JSON.stringify({
     generated: new Date().toISOString(),
     repeats: REPEATS,
     platform: `${process.platform} ${process.arch}`,
+    corpus: corpusFacts(data),
     results: merged,
 }, null, 2));
 

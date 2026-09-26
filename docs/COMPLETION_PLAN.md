@@ -58,7 +58,7 @@ that proves it has been run. Baseline at `b799289`:
 ## Phase 4 — Response document
 
 - [x] Bring `docs/TYPED_SHELL_RESPONSE.md` up to date with the findings since `07752c5`. A new part of section 7, "What the catalogue probes found", covers the four probes and their first and current CI figures, egress, silent answers, the stubs, OS-dependent types and discovery. The probes are added to "Reproducing". Every figure comes from a CI log, a probe run or a commit message; the final pass re-checks them.
-- [ ] Re-run E1–E3 on a host with all four shells installed.
+- [x] Re-run E1–E3 on a host with all four shells installed. Done on WSL, 2026-09-25, with pinned PowerShell 7.6.6 and nushell 0.115.1 unpacked into ~/tools, against a release build. Every engine was correct and byte-stable. The re-run exposed three harness defects, all fixed. The oracle was a pasted table attributed to an `oracle.mjs` that was never committed, so a fresh corpus scored all eight engines wrong; `oracle.mjs` now computes it, and it agrees with all eight engines. `prepare.mjs` broke under cmd.exe on the `&` in its URL. `report.mjs` built a relative manifest path on Linux. E2 was re-run from a clone on the Linux filesystem, because /mnt/c made every engine 5–17× slower. The response is updated throughout: section 3 table, section 4 (now 3.0×), section 5 table, and the README.
 - [ ] Run E7 against a live model.
 - [ ] Final pass: every number matches the command that produced it.
 

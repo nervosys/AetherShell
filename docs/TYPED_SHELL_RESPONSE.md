@@ -132,7 +132,10 @@ materialised in the three representations the blog post compared: one JSON
 array, 500 individual files, and a SQLite database. Ten questions of increasing
 difficulty, from *"how many open items mention security"* to *"how many authors
 have opened both a PR and an issue"*. Every answer is checked against an oracle
-computed independently in JavaScript.
+computed independently in JavaScript (`oracle.mjs`), from the corpus on disk at
+run time. The figures below are from the 2026-09-25 fetch: 500 records, 266 of
+them PRs, 91 open, #13994 to #14530. The corpus is the latest 500 items, so a
+later fetch gives different answers and slightly different token counts.
 
 **Every engine answered all ten correctly, and every engine was byte-stable
 across all 11 runs.** That is worth stating plainly: on this corpus the
@@ -142,14 +145,14 @@ because nothing varied except the clock — §4 puts it under real pressure.)
 
 | Engine | Command tokens | Output tokens | **Total** | Total ms |
 | --- | ---: | ---: | ---: | ---: |
-| sqlite | 202 | 56 | **258** | 52 |
-| **AetherShell `-a`** | 275 | 67 | **342** | 438 |
-| bash + jq | 287 | 58 | **345** | 140 |
-| nushell | 297 | 56 | **353** | 361 |
-| **AetherShell + `sqlite_query`** | 329 | 57 | **386** | 80 |
-| AetherShell (default) | 381 | 67 | **448** | 308 |
-| PowerShell | 474 | 57 | **531** | 33,995 |
-| bash + coreutils | 647 | 57 | **704** | 3,686 |
+| sqlite | 202 | 52 | **254** | 27 |
+| **AetherShell `-a`** | 275 | 61 | **336** | 130 |
+| bash + jq | 287 | 53 | **340** | 76 |
+| nushell | 297 | 51 | **348** | 153 |
+| **AetherShell + `sqlite_query`** | 329 | 52 | **381** | 56 |
+| AetherShell (default) | 381 | 61 | **442** | 131 |
+| PowerShell | 474 | 52 | **526** | 25,947 |
+| bash + coreutils | 647 | 52 | **699** | 2,288 |
 
 **As first published, this section reported only the default row, and said
 there was no reading of the table in which the typed shell won it.** That was
@@ -159,8 +162,8 @@ ten queries until its implicit-parameter desugaring was fixed to bind more than
 one reference. `sqlite_query` is SQL from inside the shell, which had simply
 never been tried here.
 
-With both measured, AetherShell is **second of eight on tokens** (342 against
-jq's 345) and **second on latency** (80 ms against bare SQLite's 52). SQLite
+With both measured, AetherShell is **second of eight on tokens** (336 against
+jq's 340) and **second on latency** (56 ms against bare SQLite's 27). SQLite
 still holds both columns outright. The axis is no longer lost; it is not won.
 
 The default row is left in because it is what you get without flags, and
@@ -168,11 +171,11 @@ because deleting the number this section was originally wrong about would be
 the wrong kind of tidying.
 
 The reason is worth more than the ranking, and it survives the ranking changing.
-**Look at the output column.** Every engine lands between 56 and 67 tokens — because every one of these ten
-questions has a scalar answer. `10`. `293`. `4.97`. There is no structure in
+**Look at the output column.** Every engine lands between 51 and 61 tokens — because every one of these ten
+questions has a scalar answer. `12`. `266`. `4.61`. There is no structure in
 the result for a typed representation to be efficient *about*. The entire
 spread in the total column is command verbosity — which is exactly why a
-terser syntax moved us five places and a typed one would not have.
+terser syntax moved us four places and a typed one would not have.
 AetherShell's default commands are the most verbose here:
 
 ```
@@ -191,23 +194,24 @@ decision pays.
 Two further observations from this table:
 
 **`bash + coreutils` is the Vercel finding, reproduced at the substrate level.**
-704 tokens and 2.7–3.7 seconds against jq's 345 and 78–140 ms. The three
-queries that dominate are the ones that must open each of 500 files: q1 (610
-ms), q5 (945 ms), q7 (710 ms). This is the same shape as *"`stat()` calls
+699 tokens and 2.3 seconds against jq's 340 and 76 ms (2.7–3.7 s against
+78–140 ms in earlier runs on a busier machine). The three queries that
+dominate are the ones that must open each of 500 files: q1 (549 ms), q5 (777
+ms), q7 (607 ms). This is the same shape as *"`stat()` calls
 across 68,000 files were the culprit"* — a per-file process spawn is the wrong
-primitive, and the cost is in the substrate, not the model. On Windows the same
-three queries took 33 s, 24 s and 40 s — a 25–56× penalty per query, from
+primitive, and the cost is in the substrate, not the model. On Windows (measured in the
+September run) the same three queries took 33 s, 24 s and 40 s — a 25–56× penalty per query, from
 fork emulation alone.
 
-**PowerShell is unusable for this workload on Linux**, at 2.3–3.6 s *per
-invocation*, almost all of it .NET start-up. It is not slow at the work; it is
+**PowerShell is unusable for this workload on Linux**, at 2.6 s *per
+invocation* in this run (2.3–3.6 s in earlier ones), almost all of it .NET start-up. It is not slow at the work; it is
 slow at existing. On Windows the same commands run in ~350 ms.
 
 ### An accident worth reporting
 
 During the first run we started an unrelated compile on the same machine.
 Under that contention, `bash + coreutils` q10 returned **5.02** where the answer
-is **4.97** — one record silently dropped from a ~2,000-subprocess pipeline,
+on that corpus (the 2026-09-17 fetch) is **4.97** — one record silently dropped from a ~2,000-subprocess pipeline,
 exit status 0, no warning, and the value is plausible. Re-run unloaded, it
 returns 4.97 ten times out of ten.
 
@@ -222,7 +226,7 @@ not answered, and we would not assert either.
 
 ---
 
-## 4. The same comparison where the answer is data: 2.9×
+## 4. The same comparison where the answer is data: 3.0×
 
 §3 asks ten questions whose answers are scalars. §4 asks eight questions whose
 answers are *tables* — the things an agent actually does between decisions:
@@ -238,15 +242,17 @@ this repository, five engines, same methodology.
 > which then checked only that the exit status was zero and the output
 > non-empty — scored it as correct. The renderer is fixed (§7, defect 9), the
 > harness now requires each answer to contain the facts it asked for, and the
-> numbers below are from the re-run. The real advantage is **2.9×**, not 4.3×.
+> numbers below are from the re-run. The real advantage was **2.9×**, not 4.3×.
+> Re-measured on 2026-09-25 against the current tree (46 source files, run from
+> a clone on the Linux filesystem), it is **3.0×**; the table is that run.
 
 | Engine | Command tokens | **Output tokens** | **Total** | Median ms |
 | --- | ---: | ---: | ---: | ---: |
-| **AetherShell `--agent`** | 163 | **334** | **497** | 9.7 |
-| PowerShell | 142 | 593 | **735** | 3,285 |
-| AetherShell (default) | 163 | 679 | **842** | 9.7 |
-| nushell | 91 | 1,183 | **1,274** | 36.6 |
-| bash | 68 | 1,395 | **1,463** | 5.3 |
+| **AetherShell `--agent`** | 163 | **339** | **502** | 5.1 |
+| PowerShell | 142 | 600 | **742** | 2,570 |
+| AetherShell (default) | 163 | 691 | **854** | 4.3 |
+| nushell | 91 | 1,204 | **1,295** | 12.4 |
+| bash | 68 | 1,421 | **1,489** | 3.4 |
 
 Two AetherShell rows, because the shell has two renderers and it would be
 sleight of hand to quote only the better one. `--agent` is the mode an agent
@@ -256,23 +262,23 @@ rendering differs.
 
 The command column has not changed its story: AetherShell is still the most
 verbose to write, 2.4× bash. The output column inverts it. **Agent-mode output
-costs 4.2× less than bash's and 3.5× less than nushell's**, and the total is
-**2.9× cheaper than bash**, 2.6× cheaper than nushell, 1.5× cheaper than
+costs 4.2× less than bash's and 3.6× less than nushell's**, and the total is
+**3.0× cheaper than bash**, 2.6× cheaper than nushell, 1.5× cheaper than
 PowerShell. In its default human rendering it is still 1.7× cheaper than bash
 overall.
 
 One task carries most of it. *List the `.rs` files in `src/` with their sizes*
-— 45 files:
+— 46 files:
 
 | | tokens | bytes | exact sizes? |
 | --- | ---: | ---: | --- |
-| AetherShell `--agent` | **285** | 657 | yes |
-| PowerShell `Get-ChildItem src/*.rs \| Select-Object Name,Length` | 398 | 1,409 | yes |
-| AetherShell default `ls("src") \| where(…) \| pick("name", "size")` | 582 | 1,485 | yes |
-| nushell `ls src/*.rs \| select name size` | 913 | 3,023 | **no** |
-| bash `ls -l src/*.rs` | 1,177 | 2,650 | yes |
+| AetherShell `--agent` | **290** | 673 | yes |
+| PowerShell `Get-ChildItem src/*.rs \| Select-Object Name,Length` | 405 | 1,438 | yes |
+| AetherShell default `ls("src") \| where(…) \| pick("name", "size")` | 594 | 1,520 | yes |
+| nushell `ls src/*.rs \| select name size` | 931 | 3,076 | **no** |
+| bash `ls -l src/*.rs` | 1,203 | 2,711 | yes |
 
-Same 45 facts, four renderings of them. bash spends its tokens on permission
+Same 46 facts, four renderings of them. bash spends its tokens on permission
 strings, owner, group, month-day-time and a repeated `src/` prefix on every
 line — six fields nobody asked for. nushell spends them on box-drawing
 characters and column padding, and is *more* expensive than bash, because its
@@ -297,7 +303,7 @@ disagreement in §1 rather than just adding a data point to it:
 The Vercel benchmark is of the scalar kind — reasonably, since it was testing
 query accuracy. But an agent's session is not ten scalar questions; it is
 hundreds of turns of listing, reading, diffing and inspecting, where the result
-*is* a table. That is the regime §4 measures, and the 2.9× applies to the term
+*is* a table. That is the regime §4 measures, and the 3.0× applies to the term
 that dominates a real transcript.
 
 It also puts a number on the Microsoft finding from the other side. Their
@@ -361,8 +367,8 @@ denial, an index past the end — expressed in each shell.
 
 | Engine | Failed | Machine-readable code | Repair hint | Distinct exit status | Mean bytes |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| AetherShell | 10/10 | **10/10** | **10/10** | **7/10** | 141 |
-| nushell | 10/10 | **10/10** | 7/10 | 0/10 | 294 |
+| AetherShell | 10/10 | **10/10** | **10/10** | **9/10** | 145 |
+| nushell | 10/10 | **10/10** | 7/10 | 0/10 | 293 |
 | bash | 10/10 | 0/10 | 1/10 | **5/10** | **42** |
 | PowerShell | 8/10 | 0/10 | 1/10 | 0/10 | 114 |
 
@@ -382,7 +388,8 @@ have been looked for in both directions.
 (AetherShell's own row moved over this work: **distinct exit statuses went
 7/10 to 9/10**, because `validate_safe_path` stopped returning bare prose — a
 traversal now exits `EX_NOPERM` and a missing file `EX_NOINPUT`, rather than
-both exiting a generic 1. Mean bytes went 141 → 146. That is the free
+both exiting a generic 1. Mean bytes went 141 → 145. The table is the
+2026-09-25 re-run, on a host with all four shells. That is the free
 pre-parse signal this document argues for, earned rather than asserted, and
 it came out of fixing errors rather than out of trying to move the score.)
 
@@ -592,6 +599,12 @@ it came out of fixing errors rather than out of trying to move the score.)
 > probe did not take, and declaring it away would delete working calls at
 > scale. That failure mode has already happened twice here by hand.
 >
+> **Update, 2026-09-25.** 187 builtins are now declared, added in tranches by
+> reading each body, never generated from this probe. On the CI runner the
+> count is **232 of 343 comparable builtins (67.6%)**, from 317 when that work
+> began. `benches/agentic/ratchets.json` holds it: the ceiling may only fall,
+> and CI fails a push that raises it.
+>
 > **The probe found something it was not looking for.** Excluding
 > nondeterministic builtins meant listing them, and `tools()` was on the list:
 > it collected from a `HashMap`, whose iteration order Rust randomises per
@@ -627,8 +640,9 @@ it came out of fixing errors rather than out of trying to move the score.)
 > remove.
 >
 > So the honest claim is narrower than the row above: on ten representative
-> failures AetherShell codes all ten; across the whole catalogue of 1,052 it
-> codes **all of them**. That claim needed eight passes, four new codes and
+> failures AetherShell codes all ten; across the whole catalogue — 1,052
+> builtins then, 1,165 now, and checked by CI on every push — it codes **all of
+> them**. That claim needed eight passes, four new codes and
 > three corrections to the measuring instrument to become true, and it was
 > false in a flattering direction at every intermediate step — which is the
 > only reason worth writing any of this down.
@@ -669,7 +683,7 @@ bash          bash: line 1: lenght: command not found
 76 bytes, ~300 bytes, 38 bytes. All three identify the problem; two suggest the
 fix; nushell spends 4× the tokens on source-span art that is valuable to a
 human at a terminal and is pure cost to a model that already has the source. At
-a mean of 294 bytes against our 141, nushell's failures cost 2.1× more to read.
+a mean of 293 bytes against our 145, nushell's failures cost 2.0× more to read.
 bash's are the cheapest of all and carry neither a code nor, in 9 cases out of
 10, a suggestion.
 
@@ -1110,7 +1124,7 @@ The claim is narrower:
 > typed, whether its failures carry codes, and whether its effects are gated.
 > You can have all four. On the operations that dominate a real agent
 > transcript — the ones whose answer is a table rather than a number — typing
-> the output is worth 2.9× in tokens, and gating the effects removes the
+> the output is worth 3.0× in tokens, and gating the effects removes the
 > precondition on which the paper's own recommendation rests.
 
 And one methodological point, which we hold more firmly than the product claim:
@@ -1234,8 +1248,9 @@ weighting into a single number is not. **zsh and fish were never executed** —
 their profiles are inherited from bash, which is an assumption the module marks
 in its output and a test enforces, and which is weaker for fish, since fish
 deliberately breaks POSIX compatibility. And **the composite hides the
-inversion that section 4 is about**: on scalar answers AetherShell places fourth
-of six, and no single fitness number will tell you that.
+inversion that section 4 is about**: on scalar answers AetherShell's default
+syntax places sixth of eight (its terse syntax second, behind SQLite), and no
+single fitness number will tell you that.
 
 The row that most deserves attention is nushell's. It reached a complete error
 taxonomy — 10/10 machine-readable codes — before AetherShell did, and we only

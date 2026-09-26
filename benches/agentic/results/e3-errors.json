@@ -16,14 +16,14 @@
     "engine": "aethershell",
     "case": "missing-file",
     "command": "cat(\"nope.json\")",
-    "exit": 1,
+    "exit": 66,
     "failed": true,
-    "distinct_exit": false,
+    "distinct_exit": true,
     "machine_code": true,
     "repair_hint": true,
-    "bytes": 200,
+    "bytes": 139,
     "lines": 2,
-    "excerpt": "error[E_UNKNOWN]: cat: failed to read file metadata: \"/home/test/aebench/data/errdir/nope.json\" hint: cat failed without a specific error code; inspect the mess"
+    "excerpt": "error[E_NOT_FOUND]: cat: no file named '/home/test/aebench/errdir/nope.json' hint: list the available files and use an identifier from it"
   },
   {
     "engine": "aethershell",
@@ -86,9 +86,9 @@
     "distinct_exit": true,
     "machine_code": true,
     "repair_hint": true,
-    "bytes": 117,
+    "bytes": 185,
     "lines": 2,
-    "excerpt": "error[E_BAD_ARG]: starts_with requires prefix argument hint: check this builtin's required argument count and types"
+    "excerpt": "error[E_BAD_ARG]: starts_with: expected String | starts_with(prefix: String) -> Bool, got 0 of 1 required hint: pass an argument matching: String | starts_with("
   },
   {
     "engine": "aethershell",
@@ -107,14 +107,14 @@
     "engine": "aethershell",
     "case": "permission-or-path",
     "command": "cat(\"/root/.ssh/id_rsa\")",
-    "exit": 1,
+    "exit": 77,
     "failed": true,
-    "distinct_exit": false,
+    "distinct_exit": true,
     "machine_code": true,
     "repair_hint": true,
-    "bytes": 150,
+    "bytes": 189,
     "lines": 2,
-    "excerpt": "error[E_UNKNOWN]: cat: path validation failed hint: cat failed without a specific error code; inspect the message rather than retrying the same call"
+    "excerpt": "error[E_POLICY_DENY]: access denied: the path matches the blocked pattern `.ssh/id_rsa` hint: this is a security policy, not a malformed call; no other spelling"
   },
   {
     "engine": "aethershell",
@@ -281,9 +281,9 @@
     "distinct_exit": false,
     "machine_code": false,
     "repair_hint": false,
-    "bytes": 117,
+    "bytes": 112,
     "lines": 1,
-    "excerpt": "\u001b[31;1mGet-Content: \u001b[31;1mCannot find path '/home/test/aebench/data/errdir/nope.json' because it does not exist.\u001b[0m"
+    "excerpt": "\u001b[31;1mGet-Content: \u001b[31;1mCannot find path '/home/test/aebench/errdir/nope.json' because it does not exist.\u001b[0m"
   },
   {
     "engine": "pwsh",
@@ -411,9 +411,9 @@
     "distinct_exit": false,
     "machine_code": true,
     "repair_hint": true,
-    "bytes": 222,
+    "bytes": 217,
     "lines": 9,
-    "excerpt": "Error: nu::shell::io::file_not_found x File not found ,-[source:1:6] 1 | open nope.json : ^^^^|^^^^ : `-- File not found `---- help: '/home/test/aebench/data/er"
+    "excerpt": "Error: nu::shell::io::file_not_found x File not found ,-[source:1:6] 1 | open nope.json : ^^^^|^^^^ : `-- File not found `---- help: '/home/test/aebench/errdir/"
   },
   {
     "engine": "nushell",
@@ -424,9 +424,9 @@
     "distinct_exit": false,
     "machine_code": true,
     "repair_hint": true,
-    "bytes": 710,
+    "bytes": 700,
     "lines": 28,
-    "excerpt": "Error: nu::shell::error x Error while parsing as json ,-[source:1:6] 1 | open broken.json : ^^^^^|^^^^^ : `-- Could not parse '/home/test/aebench/data/errdir/br"
+    "excerpt": "Error: nu::shell::error x Error while parsing as json ,-[source:1:6] 1 | open broken.json : ^^^^^|^^^^^ : `-- Could not parse '/home/test/aebench/errdir/broken."
   },
   {
     "engine": "nushell",

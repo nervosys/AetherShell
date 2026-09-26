@@ -26,7 +26,9 @@ let raw = [];
 for (let p = 1; p <= PAGES; p++) {
     const body = execFileSync(
         'gh', ['api', `repos/${REPO}/issues?state=all&per_page=100&page=${p}`],
-        { encoding: 'utf8', maxBuffer: 64 << 20, shell: true }
+        // No shell: under cmd.exe the `&` in the query string ended the command,
+        // and `gh` is a real executable that needs none.
+        { encoding: 'utf8', maxBuffer: 64 << 20 }
     );
     raw = raw.concat(JSON.parse(body));
 }

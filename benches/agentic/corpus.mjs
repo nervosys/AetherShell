@@ -27,12 +27,9 @@ export const ENGINES = {
     nushell: { bin: 'nu', argv: (c) => ['-n', '-c', c], label: 'nushell 0.115.1' },
 };
 
-// Oracle values, computed independently in oracle.mjs from the same records.
-export const ORACLE = {
-    q1: '10', q2: '293', q3: '430', q4: 'dependabot[bot] 72',
-    q5: '14086,14089,14090,14107,14223,14256,14309,14386,14389,14420',
-    q6: '43', q7: '19', q8: '97', q9: '25', q10: '4.97',
-};
+// The oracle is computed at run time from the corpus on disk, by oracle.mjs,
+// which shares no code with any engine. It was a pasted table here, correct
+// only for the fetch it came from.
 
 // Normalise an engine's rendering of the same answer before comparing: the
 // benchmark asks whether the agent got the fact, not whether the shell printed

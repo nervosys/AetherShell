@@ -761,10 +761,11 @@ written by hand to match each shell's usual format rather than captured from a
 run. Executed measurements — real processes, real bytes, answers checked against
 an oracle — are in [`benches/agentic/`](benches/agentic/), and the argument built
 on them is [docs/TYPED_SHELL_RESPONSE.md](docs/TYPED_SHELL_RESPONSE.md). On eight
-ordinary repository operations there, AetherShell's agent mode costs **2.9× fewer
-total tokens than bash** (497 vs 1,463) and **4.2× fewer output tokens** (334 vs
-1,395); on a ten-query corpus whose every answer is a scalar it comes **fourth of
-six**, behind SQLite and jq. Both numbers are worth having, and the second is why
+ordinary repository operations there, AetherShell's agent mode costs **3.0× fewer
+total tokens than bash** (502 vs 1,489) and **4.2× fewer output tokens** (339 vs
+1,421); on a ten-query corpus whose every answer is a scalar, its default syntax
+comes **sixth of eight** and its token-minimised syntax (`ae -a`) **second**,
+behind SQLite. Both numbers are worth having, and the second is why
 this table is not the whole story.
 
 | Task | AetherShell | Bash | Zsh | Fish | Nushell | PowerShell |
