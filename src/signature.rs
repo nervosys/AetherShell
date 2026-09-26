@@ -3689,6 +3689,116 @@ pub static SIGNATURES: &[Signature] = &[
             (r#"typeof(du("src"))"#, r#"Record"#),
         ],
     },
+    // 1b: environment and process lookups, the search family, tree, CSV.
+    // proc_kill/proc_info are not declared here: an example would kill, or
+    // read a pid whose existence differs across CI systems.
+    Signature {
+        name: "env_var",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("name", Ty::Str, "environment variable")],
+        returns: "String | Null",
+        doc: "An environment variable, null when unset. Secret-looking names are redacted in agent mode.",
+        examples: &[
+            (r#"env_var("AE_SURELY_UNSET_VARIABLE") == null"#, r#"true"#),
+            (r#"env_var("PATH") != null"#, r#"true"#),
+        ],
+    },
+    Signature {
+        name: "proc_exists",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("pid", Ty::Any, "a positive process id, Int or numeric String")],
+        returns: "Bool",
+        doc: "Whether a process id is live. A name, zero or a negative number is refused.",
+        examples: &[
+            (r#"proc_exists(999999999)"#, r#"false"#),
+        ],
+    },
+    Signature {
+        name: "search_files",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("pattern", Ty::Str, "file-name glob such as *.rs")],
+        returns: "Array",
+        doc: "Files beneath the current directory whose name matches a glob; build and dependency directories are skipped.",
+        examples: &[
+            (r#"(search_files("Cargo.toml") | len) > 0"#, r#"true"#),
+        ],
+    },
+    Signature {
+        name: "search_by_type",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("extension", Ty::Str, "extension without the dot")],
+        returns: "Array",
+        doc: "Files beneath the current directory with an extension.",
+        examples: &[
+            (r#"(search_by_type("toml") | len) > 0"#, r#"true"#),
+        ],
+    },
+    Signature {
+        name: "search_modified",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[opt("days", Ty::Int, "within this many days; default 7")],
+        returns: "Array",
+        doc: "Up to 100 files modified recently, beneath the current directory.",
+        examples: &[
+            (r#"typeof(search_modified())"#, r#"Array"#),
+            (r#"typeof(search_modified(30))"#, r#"Array"#),
+        ],
+    },
+    Signature {
+        name: "search_symbols",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("name", Ty::Str, "a function, struct or class name")],
+        returns: "Array",
+        doc: "Definitions (fn, struct, class, def) of a name beneath the current directory.",
+        examples: &[
+            (r#"(search_symbols("bi_echo") | len) > 0"#, r#"true"#),
+        ],
+    },
+    Signature {
+        name: "fs_tree",
+        category: None,
+        subject_required: false,
+        aliases: &["tree"],
+        subject: None,
+        params: &[opt("path", Ty::Str, "directory; default the current one"), opt("depth", Ty::Int, "levels; default 3")],
+        returns: "String",
+        doc: "A directory tree as indented text.",
+        examples: &[
+            (r#"typeof(tree())"#, r#"String"#),
+            (r#"typeof(tree("src", 1))"#, r#"String"#),
+        ],
+    },
+    Signature {
+        name: "db_json_to_csv",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("rows", Ty::Any, "an array of records, or its JSON text")],
+        returns: "String",
+        doc: "CSV text with a column for every field that appears in any record; nested values become JSON.",
+        examples: &[
+            (r#"db_json_to_csv([{a: 1, b: 2}]) == "a,b\n1,2\n""#, r#"true"#),
+        ],
+    },
 ];
 
 /// The declaration for `name`, if it has one.
