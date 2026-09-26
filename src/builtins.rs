@@ -50127,16 +50127,14 @@ fn bi_nc_listen(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(crate::safety::arg_err("nc_listen requires a port")),
     };
-    let mut rec = BTreeMap::new();
-    rec.insert("port".to_string(), Value::Str(port.clone()));
-    rec.insert(
-        "info".to_string(),
-        Value::Str(format!(
-            "Use `nc -l {}` to listen. This is an interactive command.",
-            port
-        )),
-    );
-    Ok(Value::Record(rec))
+    // This returned a record whose "info" field told the caller to run the
+    // command themselves -- advice presented as a result. It is an interactive listener, which a
+    // shell call cannot host, so say that instead.
+    Err(crate::safety::unimplemented(
+        "nc_listen",
+        "nc_listen is an interactive listener and is not run by the shell; NOTHING WAS RUN",
+        &format!("run `nc -l {port}` in a terminal"),
+    ))
 }
 
 // --- socat (1025) ---
@@ -50182,17 +50180,14 @@ fn bi_iperf3_server(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Int(n)) => n.to_string(),
         _ => "5201".to_string(),
     };
-    let mut rec = BTreeMap::new();
-    rec.insert("mode".to_string(), Value::Str("server".to_string()));
-    rec.insert("port".to_string(), Value::Str(port.clone()));
-    rec.insert(
-        "info".to_string(),
-        Value::Str(format!(
-            "Use `iperf3 -s -p {}` to start server. This is a long-running command.",
-            port
-        )),
-    );
-    Ok(Value::Record(rec))
+    // This returned a record whose "info" field told the caller to run the
+    // command themselves -- advice presented as a result. It is a long-running server, which a
+    // shell call cannot host, so say that instead.
+    Err(crate::safety::unimplemented(
+        "iperf3_server",
+        "iperf3_server is a long-running server and is not run by the shell; NOTHING WAS RUN",
+        &format!("run `iperf3 -s -p {port}` in a terminal"),
+    ))
 }
 
 /// iperf3 client — Run iperf3 client bandwidth test.
@@ -50390,15 +50385,14 @@ fn bi_lazygit_open(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => ".".to_string(),
     };
-    let mut rec = BTreeMap::new();
-    rec.insert("path".to_string(), Value::Str(path));
-    rec.insert(
-        "info".to_string(),
-        Value::Str(
-            "lazygit is an interactive TUI application. Run `lazygit` in terminal.".to_string(),
-        ),
-    );
-    Ok(Value::Record(rec))
+    // This returned a record whose "info" field told the caller to run the
+    // command themselves -- advice presented as a result. It is an interactive terminal UI, which a
+    // shell call cannot host, so say that instead.
+    Err(crate::safety::unimplemented(
+        "lazygit",
+        "lazygit is an interactive terminal UI and is not run by the shell; NOTHING WAS RUN",
+        &format!("run `lazygit` in {path} from a terminal"),
+    ))
 }
 
 // --- fzf (1034) ---
@@ -50638,16 +50632,14 @@ fn bi_entr_watch(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(crate::safety::arg_err("entr requires a command to run")),
     };
-    let mut rec = BTreeMap::new();
-    rec.insert("command".to_string(), Value::Str(command.clone()));
-    rec.insert(
-        "info".to_string(),
-        Value::Str(format!(
-            "Use `find . | entr {}` to watch for changes. This is a long-running command.",
-            command
-        )),
-    );
-    Ok(Value::Record(rec))
+    // This returned a record whose "info" field told the caller to run the
+    // command themselves -- advice presented as a result. It is a long-running file watcher, which a
+    // shell call cannot host, so say that instead.
+    Err(crate::safety::unimplemented(
+        "entr",
+        "entr is a long-running file watcher and is not run by the shell; NOTHING WAS RUN",
+        &format!("run `find . | entr {command}` in a terminal"),
+    ))
 }
 
 // --- watchexec (1040) ---
@@ -50658,16 +50650,14 @@ fn bi_watchexec_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(crate::safety::arg_err("watchexec requires a command")),
     };
-    let mut rec = BTreeMap::new();
-    rec.insert("command".to_string(), Value::Str(command.clone()));
-    rec.insert(
-        "info".to_string(),
-        Value::Str(format!(
-            "Use `watchexec -- {}` to watch and re-run. This is a long-running command.",
-            command
-        )),
-    );
-    Ok(Value::Record(rec))
+    // This returned a record whose "info" field told the caller to run the
+    // command themselves -- advice presented as a result. It is a long-running file watcher, which a
+    // shell call cannot host, so say that instead.
+    Err(crate::safety::unimplemented(
+        "watchexec",
+        "watchexec is a long-running file watcher and is not run by the shell; NOTHING WAS RUN",
+        &format!("run `watchexec -- {command}` in a terminal"),
+    ))
 }
 
 // --- just (1041-1042) ---
@@ -52719,16 +52709,14 @@ fn bi_nodemon_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(crate::safety::arg_err("nodemon requires a script path")),
     };
-    let mut rec = BTreeMap::new();
-    rec.insert("script".to_string(), Value::Str(script.clone()));
-    rec.insert(
-        "info".to_string(),
-        Value::Str(format!(
-            "Use `nodemon {}` to start watching. This is a long-running command.",
-            script
-        )),
-    );
-    Ok(Value::Record(rec))
+    // This returned a record whose "info" field told the caller to run the
+    // command themselves -- advice presented as a result. It is a long-running file watcher, which a
+    // shell call cannot host, so say that instead.
+    Err(crate::safety::unimplemented(
+        "nodemon",
+        "nodemon is a long-running file watcher and is not run by the shell; NOTHING WAS RUN",
+        &format!("run `nodemon {script}` in a terminal"),
+    ))
 }
 
 #[cfg(test)]
