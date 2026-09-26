@@ -514,7 +514,8 @@ lazy_static::lazy_static! {
         map.insert("sys_timezone", 309);
         map.insert("hostname", 291);
         map.insert("uptime", 295);
-        map.insert("whoami", 304);
+        // Was 304, `sys_users`: every account on the machine, not the caller.
+        map.insert("whoami", 1157);
         // 310-329: Service & Daemon Management
         map.insert("svc_list", 310);
         map.insert("svc_status", 311);
@@ -3795,6 +3796,7 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_crypto_random_string(args, input), // 1154
     |args, input, _| bi_input_number(args, input), // 1155
     |args, input, _| bi_input_timeout(args, input), // 1156
+    |args, input, _| bi_whoami(args, input),       // 1157
 ];
 
 fn fast_builtin_lookup(
@@ -24529,6 +24531,50 @@ fn bi_sys_groups(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Array(vec![]))
 }
 
+/// `whoami()` -- the name of the user this shell runs as.
+///
+/// It was an alias of `sys_users`, so it returned every account on the
+/// machine: root, daemon and the rest on Linux, every local user on Windows.
+fn bi_whoami(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    #[cfg(unix)]
+    {
+        // The effective uid, as whoami(1) reports it. $USER can be unset
+        // (cron, containers) or stale (after su).
+        let uid = unsafe { libc::geteuid() };
+        let mut pwd: libc::passwd = unsafe { std::mem::zeroed() };
+        let mut buf = vec![0 as libc::c_char; 16 * 1024];
+        let mut found: *mut libc::passwd = std::ptr::null_mut();
+        let rc =
+            unsafe { libc::getpwuid_r(uid, &mut pwd, buf.as_mut_ptr(), buf.len(), &mut found) };
+        if rc == 0 && !found.is_null() && !pwd.pw_name.is_null() {
+            let name = unsafe { std::ffi::CStr::from_ptr(pwd.pw_name) };
+            return Ok(Value::Str(name.to_string_lossy().into_owned()));
+        }
+        return Err(crate::safety::bad_state(
+            "whoami",
+            &format!("uid {uid} has no entry in the user database"),
+            "the process runs as a uid with no passwd entry (common in containers)",
+        ));
+    }
+    #[cfg(windows)]
+    {
+        return match std::env::var("USERNAME") {
+            Ok(u) if !u.is_empty() => Ok(Value::Str(u)),
+            _ => Err(crate::safety::bad_state(
+                "whoami",
+                "USERNAME is not set",
+                "this process was started without a user environment",
+            )),
+        };
+    }
+    #[allow(unreachable_code)]
+    Err(crate::safety::unimplemented(
+        "whoami",
+        "no user database on this platform; NOTHING WAS INSPECTED",
+        "",
+    ))
+}
+
 fn bi_sys_user_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // Returns consistent Record {name, home, shell, domain} on all platforms
     let mut rec = std::collections::BTreeMap::new();
@@ -39211,52 +39257,115 @@ fn bi_platform_libc(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Str("unknown".to_string()))
 }
 
+/// The highest `<prefix>N.N.N` symbol-version string in a binary, compared
+/// numerically: by string order `GLIBCXX_3.4.9` outranks `GLIBCXX_3.4.33`.
+#[cfg(target_os = "linux")]
+fn highest_symbol_version(bytes: &[u8], prefix: &str) -> Option<String> {
+    let p = prefix.as_bytes();
+    let mut best: Option<(Vec<u64>, String)> = None;
+    let mut i = 0;
+    while i + p.len() <= bytes.len() {
+        if &bytes[i..i + p.len()] == p {
+            let start = i + p.len();
+            let end = bytes[start..]
+                .iter()
+                .position(|b| !(b.is_ascii_digit() || *b == b'.'))
+                .map_or(bytes.len(), |n| start + n);
+            let ver = std::str::from_utf8(&bytes[start..end]).unwrap_or("");
+            let key: Vec<u64> = ver.split('.').filter_map(|x| x.parse().ok()).collect();
+            if !key.is_empty() && best.as_ref().is_none_or(|(k, _)| key > *k) {
+                best = Some((key, ver.to_string()));
+            }
+            i = end;
+        } else {
+            i += 1;
+        }
+    }
+    best.map(|(_, v)| v)
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod highest_symbol_version_tests {
+    use super::highest_symbol_version;
+
+    #[test]
+    fn versions_compare_numerically_not_as_strings() {
+        let bin = b"\0GLIBCXX_3.4.9\0GLIBCXX_3.4.33\0GLIBCXX_3.4.4\0CXXABI_1.3.15\0CXXABI_1.3.9\0";
+        assert_eq!(
+            highest_symbol_version(bin, "GLIBCXX_").as_deref(),
+            Some("3.4.33")
+        );
+        assert_eq!(
+            highest_symbol_version(bin, "CXXABI_").as_deref(),
+            Some("1.3.15")
+        );
+        assert_eq!(highest_symbol_version(bin, "NOPE_"), None);
+    }
+}
+
 fn bi_platform_libcpp(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    // One shape everywhere: {name, version, abi}. It was a Record of symbol
+    // versions on Linux and a bare String elsewhere, so the same call had two
+    // types depending on the OS. The Linux side also shelled out to
+    // `strings` (absent without binutils), picked the "highest" version by
+    // string order, looked only in x86_64 paths, and fell back to the string
+    // "unknown".
+    let lib = |name: &str, version: Option<String>, abi: Option<String>| {
+        let mut rec = std::collections::BTreeMap::new();
+        rec.insert("name".to_string(), Value::Str(name.to_string()));
+        rec.insert(
+            "version".to_string(),
+            version.map_or(Value::Null, Value::Str),
+        );
+        rec.insert("abi".to_string(), abi.map_or(Value::Null, Value::Str));
+        Value::Record(rec)
+    };
     #[cfg(target_os = "linux")]
     {
-        // Check for libstdc++ version
-        let paths = [
+        for path in [
             "/usr/lib/x86_64-linux-gnu/libstdc++.so.6",
+            "/usr/lib/aarch64-linux-gnu/libstdc++.so.6",
             "/usr/lib64/libstdc++.so.6",
+            "/usr/lib/libstdc++.so.6",
             "/lib/x86_64-linux-gnu/libstdc++.so.6",
-        ];
-        for path in paths {
-            if std::path::Path::new(path).exists() {
-                if let Ok(out) = std::process::Command::new("strings").arg(path).output() {
-                    let output = String::from_utf8_lossy(&out.stdout);
-                    let glibcxx: Vec<&str> = output
-                        .lines()
-                        .filter(|l| l.starts_with("GLIBCXX_") || l.starts_with("CXXABI_"))
-                        .collect();
-                    if !glibcxx.is_empty() {
-                        let max_gxx = glibcxx.iter().filter(|l| l.starts_with("GLIBCXX_")).max();
-                        let max_abi = glibcxx.iter().filter(|l| l.starts_with("CXXABI_")).max();
-                        let mut info = std::collections::BTreeMap::new();
-                        if let Some(g) = max_gxx {
-                            info.insert("glibcxx".to_string(), Value::Str(g.to_string()));
-                        }
-                        if let Some(a) = max_abi {
-                            info.insert("cxxabi".to_string(), Value::Str(a.to_string()));
-                        }
-                        return Ok(Value::Record(info));
-                    }
-                }
+        ] {
+            if let Ok(bytes) = std::fs::read(path) {
+                return Ok(lib(
+                    "libstdc++",
+                    highest_symbol_version(&bytes, "GLIBCXX_"),
+                    highest_symbol_version(&bytes, "CXXABI_"),
+                ));
             }
         }
-        // Check for libc++
-        if std::path::Path::new("/usr/lib/x86_64-linux-gnu/libc++.so").exists() {
-            return Ok(Value::Str("libc++ (LLVM)".to_string()));
+        for path in [
+            "/usr/lib/x86_64-linux-gnu/libc++.so.1",
+            "/usr/lib/aarch64-linux-gnu/libc++.so.1",
+            "/usr/lib/libc++.so.1",
+        ] {
+            if std::path::Path::new(path).exists() {
+                return Ok(lib("libc++", None, None));
+            }
         }
+        return Err(crate::safety::bad_state(
+            "platform_libcpp",
+            "no C++ standard library (libstdc++ or libc++) was found in the usual locations",
+            "install libstdc++6 or libc++1",
+        ));
     }
     #[cfg(target_os = "macos")]
     {
-        return Ok(Value::Str("libc++ (Apple LLVM)".to_string()));
+        return Ok(lib("libc++", None, None));
     }
     #[cfg(target_os = "windows")]
     {
-        return Ok(Value::Str("MSVC STL".to_string()));
+        return Ok(lib("MSVC STL", None, None));
     }
-    Ok(Value::Str("unknown".to_string()))
+    #[allow(unreachable_code)]
+    Err(crate::safety::unimplemented(
+        "platform_libcpp",
+        "detecting the C++ standard library is implemented for Linux, macOS and Windows only; NOTHING WAS INSPECTED",
+        "",
+    ))
 }
 
 fn bi_platform_ssl_version(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -39475,6 +39584,9 @@ fn bi_platform_cpu_count(_args: Vec<Value>, _input: Option<Value>) -> Result<Val
 }
 
 fn bi_platform_cpu_freq(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    // MHz as a Float on every OS. It was an Int on Windows and macOS and a
+    // Float on Linux, so the same call had two types. Null where the OS
+    // reports no frequency (Apple Silicon, many ARM and virtual CPUs).
     #[cfg(target_os = "windows")]
     {
         // Use PowerShell instead of WMIC (more reliable)
@@ -39486,8 +39598,8 @@ fn bi_platform_cpu_freq(_args: Vec<Value>, _input: Option<Value>) -> Result<Valu
             .output()
         {
             if out.status.success() {
-                if let Ok(n) = String::from_utf8_lossy(&out.stdout).trim().parse::<i64>() {
-                    return Ok(Value::Int(n));
+                if let Ok(n) = String::from_utf8_lossy(&out.stdout).trim().parse::<f64>() {
+                    return Ok(Value::Float(n));
                 }
             }
         }
@@ -39513,7 +39625,7 @@ fn bi_platform_cpu_freq(_args: Vec<Value>, _input: Option<Value>) -> Result<Valu
             .output()
         {
             if let Ok(n) = String::from_utf8_lossy(&out.stdout).trim().parse::<i64>() {
-                return Ok(Value::Int(n / 1_000_000)); // Convert Hz to MHz
+                return Ok(Value::Float(n as f64 / 1_000_000.0)); // Hz to MHz
             }
         }
     }
@@ -52542,6 +52654,32 @@ mod declaration_narrowness {
         let _env_lock = crate::safety::ENV_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
+
+        // Put back what this sets, even when an assertion below fails. These
+        // are process-global: left behind, AETHER_MAX_NET=0 refused the
+        // workflow HTTP tests that happened to run later in the same process.
+        struct Restore(Vec<(&'static str, Option<std::ffi::OsString>)>);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                for (k, v) in &self.0 {
+                    match v {
+                        Some(v) => std::env::set_var(k, v),
+                        None => std::env::remove_var(k),
+                    }
+                }
+            }
+        }
+        let _restore = Restore(
+            [
+                "AETHER_MODE",
+                "AETHER_POLICY",
+                "AETHER_WORKSPACE",
+                "AETHER_MAX_NET",
+            ]
+            .iter()
+            .map(|k| (*k, std::env::var_os(k)))
+            .collect(),
+        );
 
         let jail = std::env::temp_dir().join(format!("ae_narrow_{}", std::process::id()));
         std::fs::create_dir_all(&jail).expect("create jail");

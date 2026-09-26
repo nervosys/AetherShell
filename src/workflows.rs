@@ -2826,8 +2826,20 @@ mod tests {
         }
     }
 
+    /// The HTTP-step tests assume no network budget is set. Other tests in
+    /// this process set AETHER_MAX_NET under ENV_LOCK, so take it too.
+    fn no_network_budget() -> std::sync::MutexGuard<'static, ()> {
+        let g = crate::safety::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        std::env::remove_var("AETHER_MAX_NET");
+        g
+    }
+
     #[tokio::test]
+    #[allow(clippy::await_holding_lock)] // current-thread runtime; nothing else awaits it
     async fn an_http_step_refuses_a_method_it_cannot_issue() {
+        let _env = no_network_budget();
         let engine = WorkflowEngine::new();
         let template = WorkflowTemplateFactory::pipeline(
             "Http",
@@ -2842,7 +2854,9 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(clippy::await_holding_lock)] // current-thread runtime; nothing else awaits it
     async fn an_http_step_goes_through_the_network_guard() {
+        let _env = no_network_budget();
         // A URL beginning with `-` is what `guard_network` exists to reject:
         // it lands in a positional slot and is read as an option. If the step
         // ever stops calling the guard, this URL reaches the client instead and

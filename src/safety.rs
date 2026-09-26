@@ -328,6 +328,9 @@ fn classified_effect(name: &str) -> Option<Effect> {
         }
         "rbac_logout" => Some(Effect::WriteLocal),
         "rbac_session" | "rbac_can" => Some(Effect::ReadLocal),
+        // Reads the user database. It inherited ReadLocal from `sys_users`
+        // while it was that builtin's alias; it has its own body now.
+        "whoami" => Some(Effect::ReadLocal),
         "rm"
         | "rmdir"
         | "file_delete"
