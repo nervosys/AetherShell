@@ -4274,6 +4274,21 @@ fn expect_int(name: &str, v: &Value) -> Result<i64> {
     }
 }
 
+/// A lookup key: a name, id, token or query. A string, or an integer id;
+/// anything else was stringified and looked up, so `job_status({})` answered
+/// "no such job" and `user_roles([1])` answered "no roles" at exit 0.
+fn key_arg(builtin: &str, v: Value) -> Result<String> {
+    match v {
+        Value::Str(s) => Ok(s),
+        Value::Int(n) => Ok(n.to_string()),
+        other => Err(crate::safety::bad_arg(
+            builtin,
+            "a string or integer id",
+            other.type_name(),
+        )),
+    }
+}
+
 fn expect_string<'a>(name: &str, v: &'a Value) -> Result<&'a str> {
     if let Value::Str(s) = v {
         Ok(s.as_str())
@@ -6506,7 +6521,8 @@ fn bi_cluster_add_node(args: Vec<Value>, input: Option<Value>) -> Result<Value> 
 fn bi_cluster_remove_node(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let id = input
         .or_else(|| args.first().cloned())
-        .map(|v| v.to_display_string())
+        .map(|v| key_arg("cluster_remove_node", v))
+        .transpose()?
         .ok_or_else(|| crate::safety::arg_err("cluster_remove_node: requires node id"))?;
 
     let mut nodes = CLUSTER_NODES
@@ -6655,7 +6671,8 @@ fn bi_job_submit(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_job_status(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let job_id = input
         .or_else(|| args.first().cloned())
-        .map(|v| v.to_display_string())
+        .map(|v| key_arg("job_status", v))
+        .transpose()?
         .ok_or_else(|| crate::safety::arg_err("job_status: requires job_id"))?;
 
     let jobs = DISTRIBUTED_JOBS
@@ -6685,7 +6702,8 @@ fn bi_job_status(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_job_cancel(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let job_id = input
         .or_else(|| args.first().cloned())
-        .map(|v| v.to_display_string())
+        .map(|v| key_arg("job_cancel", v))
+        .transpose()?
         .ok_or_else(|| crate::safety::arg_err("job_cancel: requires job_id"))?;
 
     let mut jobs = DISTRIBUTED_JOBS
@@ -6713,7 +6731,8 @@ fn bi_job_cancel(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_job_results(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let job_id = input
         .or_else(|| args.first().cloned())
-        .map(|v| v.to_display_string())
+        .map(|v| key_arg("job_results", v))
+        .transpose()?
         .ok_or_else(|| crate::safety::arg_err("job_results: requires job_id"))?;
 
     let results = JOB_RESULTS
@@ -6900,7 +6919,8 @@ fn bi_rag_index(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_rag_search(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let query = input
         .or_else(|| args.first().cloned())
-        .map(|v| v.to_display_string())
+        .map(|v| key_arg("rag_search", v))
+        .transpose()?
         .ok_or_else(|| crate::safety::arg_err("rag_search: requires query"))?;
 
     let top_k = args
@@ -6936,7 +6956,8 @@ fn bi_rag_search(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_rag_query(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let query = input
         .or_else(|| args.first().cloned())
-        .map(|v| v.to_display_string())
+        .map(|v| key_arg("rag_query", v))
+        .transpose()?
         .ok_or_else(|| crate::safety::arg_err("rag_query: requires query"))?;
 
     let top_k = args
@@ -7085,7 +7106,8 @@ fn bi_kg_relate(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_kg_query(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let pattern = input
         .or_else(|| args.first().cloned())
-        .map(|v| v.to_display_string())
+        .map(|v| key_arg("kg_query", v))
+        .transpose()?
         .ok_or_else(|| crate::safety::arg_err("kg_query: requires pattern"))?;
 
     let kg = KNOWLEDGE_GRAPH
@@ -7180,7 +7202,8 @@ fn bi_semantic_cache(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_semantic_cache_get(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let query = input
         .or_else(|| args.first().cloned())
-        .map(|v| v.to_display_string())
+        .map(|v| key_arg("semantic_cache_get", v))
+        .transpose()?
         .ok_or_else(|| crate::safety::arg_err("semantic_cache_get: requires query"))?;
 
     let mut cache = SEMANTIC_CACHE
@@ -19517,7 +19540,8 @@ fn values_equal(a: &Value, b: &Value) -> bool {
 fn bi_role_create(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let name = input
         .or_else(|| args.first().cloned())
-        .map(|v| v.to_display_string())
+        .map(|v| key_arg("role_create", v))
+        .transpose()?
         .ok_or_else(|| crate::safety::arg_err("role_create: missing 'name'"))?;
 
     let permissions = args
@@ -19572,7 +19596,8 @@ fn bi_role_create(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_role_delete(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let name = input
         .or_else(|| args.first().cloned())
-        .map(|v| v.to_display_string())
+        .map(|v| key_arg("role_delete", v))
+        .transpose()?
         .ok_or_else(|| crate::safety::arg_err("role_delete: missing 'name'"))?;
 
     let existed = RBAC_ROLES.write().unwrap().remove(&name).is_some();
@@ -19647,7 +19672,8 @@ fn bi_role_revoke(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_user_roles(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let user = input
         .or_else(|| args.first().cloned())
-        .map(|v| v.to_display_string())
+        .map(|v| key_arg("user_roles", v))
+        .transpose()?
         .ok_or_else(|| crate::safety::arg_err("user_roles: missing 'user'"))?;
 
     let roles = USER_ROLES
@@ -19951,7 +19977,8 @@ fn bi_sso_auth(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_sso_validate(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let token = input
         .or_else(|| args.first().cloned())
-        .map(|v| v.to_display_string())
+        .map(|v| key_arg("sso_validate", v))
+        .transpose()?
         .ok_or_else(|| crate::safety::arg_err("sso_validate: missing 'token'"))?;
 
     let sessions = SSO_SESSIONS.read().unwrap();
@@ -19979,7 +20006,8 @@ fn bi_sso_validate(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_sso_logout(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let token = input
         .or_else(|| args.first().cloned())
-        .map(|v| v.to_display_string())
+        .map(|v| key_arg("sso_logout", v))
+        .transpose()?
         .ok_or_else(|| crate::safety::arg_err("sso_logout: missing 'token'"))?;
 
     let removed = SSO_SESSIONS.write().unwrap().remove(&token).is_some();
@@ -20018,7 +20046,8 @@ fn bi_sso_status(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_compliance_check(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let standard_str = input
         .or_else(|| args.first().cloned())
-        .map(|v| v.to_display_string())
+        .map(|v| key_arg("compliance_check", v))
+        .transpose()?
         .ok_or_else(|| crate::safety::arg_err("compliance_check: missing 'standard'"))?;
 
     let standard = ComplianceStandard::from_str(&standard_str).ok_or_else(|| {
@@ -20070,7 +20099,8 @@ fn bi_compliance_check(args: Vec<Value>, input: Option<Value>) -> Result<Value> 
 fn bi_compliance_report(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let standard_str = input
         .or_else(|| args.first().cloned())
-        .map(|v| v.to_display_string())
+        .map(|v| key_arg("compliance_report", v))
+        .transpose()?
         .ok_or_else(|| crate::safety::arg_err("compliance_report: missing 'standard'"))?;
 
     let standard = ComplianceStandard::from_str(&standard_str).ok_or_else(|| {
@@ -20154,7 +20184,8 @@ fn bi_finetune_start(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_finetune_status(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let job_id = input
         .or_else(|| args.first().cloned())
-        .map(|v| v.to_display_string())
+        .map(|v| key_arg("finetune_status", v))
+        .transpose()?
         .ok_or_else(|| crate::safety::arg_err("finetune_status: missing 'job_id'"))?;
 
     let jobs = FINETUNE_JOBS.read().unwrap();
@@ -20199,7 +20230,8 @@ fn bi_finetune_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_finetune_cancel(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let job_id = input
         .or_else(|| args.first().cloned())
-        .map(|v| v.to_display_string())
+        .map(|v| key_arg("finetune_cancel", v))
+        .transpose()?
         .ok_or_else(|| crate::safety::arg_err("finetune_cancel: missing 'job_id'"))?;
 
     let mut jobs = FINETUNE_JOBS.write().unwrap();
@@ -38088,68 +38120,141 @@ fn bi_platform_shell_type(_args: Vec<Value>, _input: Option<Value>) -> Result<Va
     }
 }
 
+/// The first dotted number in `s` ("Python 3.12.1" -> [3, 12, 1]).
+fn first_version(s: &str) -> Option<Vec<u64>> {
+    static RE: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"\d+(?:\.\d+)*").unwrap());
+    let m = RE.find(s)?;
+    m.as_str().split('.').map(|p| p.parse().ok()).collect()
+}
+
+/// `">=3.10"` -> (">=", [3, 10]). A bare version means `>=`, which is what a
+/// requirement written as `{python: "3.10"}` asks for.
+fn parse_version_req(req: &str) -> Option<(&'static str, Vec<u64>)> {
+    let req = req.trim();
+    let (op, rest) = [">=", "<=", "==", ">", "<", "="]
+        .iter()
+        .find_map(|op| req.strip_prefix(op).map(|r| (*op, r)))
+        .unwrap_or((">=", req));
+    let op = if op == "=" { "==" } else { op };
+    let rest = rest.trim();
+    if rest.is_empty() || !rest.chars().all(|c| c.is_ascii_digit() || c == '.') {
+        return None;
+    }
+    Some((op, first_version(rest)?))
+}
+
+fn version_satisfies(have: &[u64], op: &str, want: &[u64]) -> bool {
+    // Compare over the requirement's precision: "3.10" is met by 3.10.4.
+    let n = want.len();
+    let have: Vec<u64> = (0..n).map(|i| have.get(i).copied().unwrap_or(0)).collect();
+    let ord = have.as_slice().cmp(want);
+    match op {
+        ">=" => ord.is_ge(),
+        "<=" => ord.is_le(),
+        ">" => ord.is_gt(),
+        "<" => ord.is_lt(),
+        _ => ord.is_eq(),
+    }
+}
+
 fn bi_platform_require(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // Expect a record like {os: "linux|windows", python: ">=3.10", docker: true}
-    let spec = match args.first() {
-        Some(Value::Record(r)) => r.clone(),
-        _ => {
-            return Ok(Value::Record({
-                let mut m = std::collections::BTreeMap::new();
-                m.insert("satisfied".to_string(), Value::Bool(true));
-                m.insert("missing".to_string(), Value::Array(vec![]));
-                m
-            }))
-        }
-    };
+    //
+    // Four answers here were made without looking. A non-record argument was
+    // "satisfied"; `os: 42` compared the OS against ""; a tool value that was
+    // neither Bool nor String was skipped; and a version requirement was a
+    // TODO, so {python: ">=3.10"} held whenever any python was installed.
+    let spec =
+        match args.first() {
+            Some(Value::Record(r)) => r.clone(),
+            None => {
+                // No requirements: vacuously satisfied.
+                return Ok(Value::Record({
+                    let mut m = std::collections::BTreeMap::new();
+                    m.insert("satisfied".to_string(), Value::Bool(true));
+                    m.insert("missing".to_string(), Value::Array(vec![]));
+                    m
+                }));
+            }
+            Some(other) => return Err(crate::safety::bad_arg(
+                "platform_require",
+                "a record of requirements, e.g. {os: \"linux\", python: \">=3.10\", docker: true}",
+                other.type_name(),
+            )),
+        };
 
     let mut missing = Vec::new();
-    let mut satisfied = true;
 
     for (key, val) in &spec {
         match key.as_str() {
-            "os" => {
-                let required_os = val.as_str().unwrap_or("");
-                let current_os = std::env::consts::OS;
-                let matches = required_os.split('|').any(|o| o.trim() == current_os);
-                if !matches {
-                    satisfied = false;
+            "os" | "arch" => {
+                let Value::Str(required) = val else {
+                    return Err(crate::safety::bad_arg(
+                        "platform_require",
+                        &format!("{key} as a string such as \"linux|macos\""),
+                        val.type_name(),
+                    ));
+                };
+                let current = if key == "os" {
+                    std::env::consts::OS
+                } else {
+                    std::env::consts::ARCH
+                };
+                if !required.split('|').any(|o| o.trim() == current) {
                     missing.push(Value::Str(format!(
-                        "os: need {}, have {}",
-                        required_os, current_os
+                        "{key}: need {required}, have {current}"
                     )));
                 }
             }
-            "arch" => {
-                let required = val.as_str().unwrap_or("");
-                let current = std::env::consts::ARCH;
-                if !required.split('|').any(|a| a.trim() == current) {
-                    satisfied = false;
-                    missing.push(Value::Str(format!(
-                        "arch: need {}, have {}",
-                        required, current
-                    )));
-                }
-            }
-            _ => {
-                // Check if it's a tool requirement
-                if let Ok(required) = val.as_bool() {
-                    if required && !on_path(key) {
-                        satisfied = false;
-                        missing.push(Value::Str(format!("{}: not found", key)));
-                    }
-                } else if let Ok(ver_req) = val.as_str() {
+            _ => match val {
+                Value::Bool(false) => {}
+                Value::Bool(true) => {
                     if !on_path(key) {
-                        satisfied = false;
-                        missing.push(Value::Str(format!("{}: not found", key)));
+                        missing.push(Value::Str(format!("{key}: not found")));
                     }
-                    // TODO: version comparison
                 }
-            }
+                Value::Str(req) => {
+                    let Some((op, want)) = parse_version_req(req) else {
+                        return Err(crate::safety::bad_arg(
+                            "platform_require",
+                            &format!("{key} as a version requirement such as \">=3.10\""),
+                            &format!("\"{req}\""),
+                        ));
+                    };
+                    if !on_path(key) {
+                        missing.push(Value::Str(format!("{key}: not found")));
+                        continue;
+                    }
+                    match get_tool_version(key).as_deref().and_then(first_version) {
+                        Some(have) if version_satisfies(&have, op, &want) => {}
+                        Some(have) => missing.push(Value::Str(format!(
+                            "{key}: need {req}, have {}",
+                            have.iter()
+                                .map(u64::to_string)
+                                .collect::<Vec<_>>()
+                                .join(".")
+                        ))),
+                        // Installed, but it would not say which version. Not
+                        // provably satisfied, so not reported as satisfied.
+                        None => missing.push(Value::Str(format!(
+                            "{key}: need {req}, version could not be determined"
+                        ))),
+                    }
+                }
+                other => {
+                    return Err(crate::safety::bad_arg(
+                        "platform_require",
+                        &format!("{key} as true/false or a version requirement"),
+                        other.type_name(),
+                    ))
+                }
+            },
         }
     }
 
     let mut result = std::collections::BTreeMap::new();
-    result.insert("satisfied".to_string(), Value::Bool(satisfied));
+    result.insert("satisfied".to_string(), Value::Bool(missing.is_empty()));
     result.insert("missing".to_string(), Value::Array(missing));
     Ok(Value::Record(result))
 }
