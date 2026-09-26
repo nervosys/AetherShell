@@ -81,8 +81,9 @@ fn test_plugin_info_toml_handler() {
 #[test]
 fn test_plugin_info_nonexistent() {
     let result = run(r#"plugin_info("nonexistent-plugin")"#);
-    // Should return null for nonexistent plugin
-    assert!(result.contains("null") || result.contains("Null"));
+    // It returned null, which read as "no information about it". An unknown
+    // id is now a coded miss an agent can branch on.
+    assert!(result.contains("E_NOT_FOUND"), "{result}");
 }
 
 #[test]

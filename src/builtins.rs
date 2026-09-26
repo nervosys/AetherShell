@@ -5548,7 +5548,15 @@ fn bi_plugin_info(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         return Err(crate::safety::arg_err("plugin_info: requires plugin ID"));
     };
 
-    Ok(crate::plugins::bi_plugin_info(&plugin_id))
+    // Null for an unknown id read as "no information about it".
+    match crate::plugins::bi_plugin_info(&plugin_id) {
+        Value::Null => Err(crate::safety::not_found(
+            "plugin_info",
+            "plugin",
+            &plugin_id,
+        )),
+        info => Ok(info),
+    }
 }
 
 /// Enable a plugin by ID
@@ -19138,7 +19146,13 @@ fn bi_audit_verify(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => std::path::PathBuf::from(s),
         _ => match crate::safety::audit_path() {
             Some(p) => p,
-            None => return Err(anyhow!("audit_verify: no audit log is active; pass a path")),
+            None => {
+                return Err(crate::safety::bad_state(
+                    "audit_verify",
+                    "no audit log is active",
+                    "pass the path of a log to verify, or run in agent mode, which keeps one",
+                ))
+            }
         },
     };
     let mut rec = BTreeMap::new();
@@ -19874,6 +19888,16 @@ fn bi_audit_export(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .first()
         .map(|v| v.to_display_string())
         .unwrap_or_else(|| "json".to_string());
+    // The format was echoed back and otherwise ignored: audit_export("csv")
+    // answered {format: "csv"} around the same records. Records are the only
+    // shape produced, so only "json" is honest.
+    if format != "json" {
+        return Err(crate::safety::bad_arg(
+            "audit_export",
+            "format \"json\" (the only one implemented; the entries are records)",
+            &format!("{format:?}"),
+        ));
+    }
 
     let log = AUDIT_LOG.read().unwrap();
 
