@@ -3944,6 +3944,7 @@ pub const SELF_GUARDED: &[&str] = &[
     "tmux_new",
     "tmux_send",
     "tool_exec",
+    "touch",
     "web_check_url",
     "web_cookies",
     "web_download",

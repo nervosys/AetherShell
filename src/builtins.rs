@@ -22155,10 +22155,8 @@ fn bi_fs_tempfile(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     );
     let path = temp_dir.join(&filename);
 
-    if std::fs::File::create(&path).is_ok() {
-        return Ok(Value::Str(path.to_string_lossy().to_string()));
-    }
-    Ok(Value::Null)
+    std::fs::File::create(&path).map_err(|e| crate::safety::fs_error("fs_tempfile", &path, &e))?;
+    Ok(Value::Str(path.to_string_lossy().to_string()))
 }
 
 fn bi_fs_tempdir(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -22181,10 +22179,9 @@ fn bi_fs_tempdir(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     );
     let path = temp_dir.join(&dirname);
 
-    if std::fs::create_dir_all(&path).is_ok() {
-        return Ok(Value::Str(path.to_string_lossy().to_string()));
-    }
-    Ok(Value::Null)
+    // A failure was null, which reads as "no directory" rather than "could not".
+    std::fs::create_dir_all(&path).map_err(|e| crate::safety::fs_error("fs_tempdir", &path, &e))?;
+    Ok(Value::Str(path.to_string_lossy().to_string()))
 }
 
 fn bi_fs_watch(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -42563,12 +42560,19 @@ fn bi_touch(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(crate::safety::arg_err("touch: expected path string")),
     };
-    std::fs::OpenOptions::new()
+    // Opening with create+write and writing nothing does not change an
+    // existing file's modification time, so this did not touch anything
+    // that already existed; errors were uncoded. It also skipped the
+    // workspace jail the other writers go through.
+    let path = guard_local_write("touch", &path)?;
+    let file = std::fs::OpenOptions::new()
         .create(true)
-        .write(true)
+        .append(true)
         .open(&path)
-        .map_err(|e| anyhow!("touch: {}: {}", path, e))?;
-    Ok(Value::Str(format!("touched: {}", path)))
+        .map_err(|e| crate::safety::fs_error("touch", &path, &e))?;
+    file.set_modified(std::time::SystemTime::now())
+        .map_err(|e| crate::safety::fs_error("touch", &path, &e))?;
+    Ok(Value::Str(path))
 }
 
 /// 953: bi_file_type - Detect file MIME type (cross-platform, no shell-out).

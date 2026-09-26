@@ -354,3 +354,25 @@ fn a_sqlite_count_counts() {
     let _ = std::fs::remove_dir_all(&dir);
     assert_eq!(n.unwrap(), Value::Int(3));
 }
+
+/// touch opened the file with create+write and wrote nothing, which leaves an
+/// existing file's modification time alone: it touched nothing that existed.
+#[test]
+fn touch_moves_the_modification_time() {
+    let p = std::env::temp_dir().join(format!("ae-touch-{}", std::process::id()));
+    std::fs::write(&p, "x").unwrap();
+    let old = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000_000);
+    std::fs::OpenOptions::new()
+        .append(true)
+        .open(&p)
+        .unwrap()
+        .set_modified(old)
+        .unwrap();
+    call("touch", vec![s(p.to_str().unwrap())]).unwrap();
+    let now = std::fs::metadata(&p).unwrap().modified().unwrap();
+    let _ = std::fs::remove_file(&p);
+    assert!(
+        now > old + std::time::Duration::from_secs(86_400 * 365),
+        "mtime not updated"
+    );
+}

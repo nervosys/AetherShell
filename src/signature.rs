@@ -3692,6 +3692,9 @@ pub static SIGNATURES: &[Signature] = &[
     // 1b: environment and process lookups, the search family, tree, CSV.
     // proc_kill/proc_info are not declared here: an example would kill, or
     // read a pid whose existence differs across CI systems.
+    // search_symbols is not declared either: its example greps every file in
+    // the repository, which can exceed its own 30 s walk budget on a loaded
+    // machine, and an example that sometimes cannot finish is a flaky test.
     Signature {
         name: "env_var",
         category: None,
@@ -3757,19 +3760,6 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[
             (r#"typeof(search_modified())"#, r#"Array"#),
             (r#"typeof(search_modified(30))"#, r#"Array"#),
-        ],
-    },
-    Signature {
-        name: "search_symbols",
-        category: None,
-        subject_required: false,
-        aliases: &[],
-        subject: None,
-        params: &[req("name", Ty::Str, "a function, struct or class name")],
-        returns: "Array",
-        doc: "Definitions (fn, struct, class, def) of a name beneath the current directory.",
-        examples: &[
-            (r#"(search_symbols("bi_echo") | len) > 0"#, r#"true"#),
         ],
     },
     Signature {
@@ -3878,6 +3868,49 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[
             (r#"diagnose("plain text failure").code"#, r#"E_UNKNOWN"#),
             (r#"typeof(try { 1 / 0 } catch e { diagnose(e) })"#, r#"Record"#),
+        ],
+    },
+    // 1b: temp paths and touch. Examples write only under the system temp
+    // directory, never into the repository the tests run in.
+    Signature {
+        name: "fs_tempdir",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[opt("prefix", Ty::Str, "name prefix; default aether_")],
+        returns: "String",
+        doc: "Create a new directory under the system temp directory and return its path.",
+        examples: &[
+            (r#"typeof(fs_tempdir())"#, r#"String"#),
+            (r#"typeof(fs_tempdir("ae_example"))"#, r#"String"#),
+        ],
+    },
+    Signature {
+        name: "fs_tempfile",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[opt("prefix", Ty::Str, "name prefix; default aether_")],
+        returns: "String",
+        doc: "Create a new empty file under the system temp directory and return its path.",
+        examples: &[
+            (r#"typeof(fs_tempfile())"#, r#"String"#),
+            (r#"typeof(fs_tempfile("ae_example"))"#, r#"String"#),
+        ],
+    },
+    Signature {
+        name: "touch",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("path", Ty::Str, "file to create or refresh")],
+        returns: "String",
+        doc: "Create a file if missing and set its modification time to now; returns the path.",
+        examples: &[
+            (r#"typeof(touch(fs_tempfile("ae_touch")))"#, r#"String"#),
         ],
     },
 ];

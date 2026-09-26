@@ -1,4 +1,4 @@
 {
-  "_discarded_args_max": "Measured on the CI runner (ubuntu-latest) at ab2e9ec: 186 of 343 comparable builtins discard extra arguments. The ceiling is that plus one, because mount_info reads the live mount table and jitters by one between identical runs. May only fall: lower it whenever a declaration tranche lowers the CI count.",
-  "discarded_args_max": 187
+  "_discarded_args_max": "Measured on the CI runner (ubuntu-latest) at c692ee5: 136 of 343 comparable builtins discard extra arguments. The ceiling is that plus one, because mount_info reads the live mount table and jitters by one between identical runs. May only fall: lower it whenever a declaration tranche lowers the CI count.",
+  "discarded_args_max": 137
 }
