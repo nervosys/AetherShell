@@ -20332,7 +20332,14 @@ fn bi_a2ui_notify(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         })
         .unwrap_or_else(|| "info".to_string())
         .parse::<NotificationLevel>()
-        .unwrap_or(NotificationLevel::Info);
+        // An unknown level ("critical") was shown as info, silently.
+        .map_err(|_| {
+            crate::safety::bad_arg(
+                "a2ui_notify",
+                "level info, success, warning or error",
+                "another level",
+            )
+        })?;
 
     A2UI_CHANNEL.notify_level("builtin", &message, level)?;
 
@@ -20479,7 +20486,14 @@ fn bi_a2ui_render(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             if let Some(Value::Str(md)) = r.get("markdown") {
                 RenderContent::Markdown(md.clone())
             } else if let Some(Value::Str(json_str)) = r.get("json") {
-                RenderContent::Json(serde_json::from_str(json_str).unwrap_or_default())
+                // Invalid JSON rendered as null, silently.
+                RenderContent::Json(serde_json::from_str(json_str).map_err(|e| {
+                    crate::safety::bad_arg(
+                        "a2ui_render",
+                        "valid JSON in the json field",
+                        &e.to_string(),
+                    )
+                })?)
             } else {
                 RenderContent::Json(serde_json::to_value(&content).unwrap_or_default())
             }
@@ -20581,7 +20595,14 @@ fn bi_a2ui_toast(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         .map(|v| v.to_display_string())
         .unwrap_or_else(|| "info".to_string())
         .parse::<NotificationLevel>()
-        .unwrap_or(NotificationLevel::Info);
+        // An unknown level ("critical") was shown as info, silently.
+        .map_err(|_| {
+            crate::safety::bad_arg(
+                "a2ui_toast",
+                "level info, success, warning or error",
+                "another level",
+            )
+        })?;
 
     let duration_ms = args
         .get(2)

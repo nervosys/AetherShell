@@ -241,3 +241,17 @@ fn role_create_refuses_a_permission_it_cannot_read() {
     let Value::Record(r) = piped else { panic!() };
     assert_eq!(r.get("role"), Some(&s("r4")));
 }
+
+/// Unknown notification levels were shown as info, a non-bool success was
+/// reported as success, and invalid JSON rendered as null.
+#[test]
+fn a2ui_refuses_what_it_would_have_misreported() {
+    for bad in [
+        r#"a2ui_notify("x", "critical")"#,
+        r#"a2ui_toast("x", "critical")"#,
+        r#"a2ui_agent_completed("a1", "failed")"#,
+        r#"a2ui_render({json: "{not json"})"#,
+    ] {
+        assert_eq!(code_of(&eval(bad).expect_err(bad)), "E_BAD_ARG", "{bad}");
+    }
+}
