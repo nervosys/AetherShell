@@ -26868,7 +26868,15 @@ fn bi_pkg_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .map_err(|e| crate::safety::spawn_error("pkg_list", "winget", &e))?,
         other => return Err(pkg_unsupported("pkg_list", other)),
     };
-    pkg_succeeded("pkg_list", pm, &output)?;
+    let program = match pm {
+        "apt" => "dpkg",
+        "dnf" | "yum" => pm,
+        "pacman" => "pacman",
+        "brew" => "brew",
+        "winget" => "winget",
+        other => other,
+    };
+    pkg_succeeded("pkg_list", program, &output)?;
 
     let text = String::from_utf8_lossy(&output.stdout);
     let packages: Vec<Value> = match pm {
@@ -27012,7 +27020,15 @@ fn bi_pkg_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .map_err(|e| crate::safety::spawn_error("pkg_search", "winget", &e))?,
         other => return Err(pkg_unsupported("pkg_search", other)),
     };
-    pkg_succeeded("pkg_search", pm, &output)?;
+    let program = match pm {
+        "apt" => "apt-cache",
+        "dnf" | "yum" => pm,
+        "pacman" => "pacman",
+        "brew" => "brew",
+        "winget" => "winget",
+        other => other,
+    };
+    pkg_succeeded("pkg_search", program, &output)?;
 
     let text = String::from_utf8_lossy(&output.stdout);
     let results: Vec<Value> = match pm {
@@ -27097,7 +27113,15 @@ fn bi_pkg_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .map_err(|e| crate::safety::spawn_error("pkg_info", "winget", &e))?,
         other => return Err(pkg_unsupported("pkg_info", other)),
     };
-    pkg_succeeded("pkg_info", pm, &output)?;
+    let program = match pm {
+        "apt" => "apt-cache",
+        "dnf" | "yum" => pm,
+        "pacman" => "pacman",
+        "brew" => "brew",
+        "winget" => "winget",
+        other => other,
+    };
+    pkg_succeeded("pkg_info", program, &output)?;
 
     // Parse key-value "Field: Value" lines into a Record (works for apt, dnf, pacman, brew, winget)
     let text = String::from_utf8_lossy(&output.stdout);
@@ -27263,18 +27287,24 @@ fn bi_pkg_files(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .map_err(|e| crate::safety::spawn_error("pkg_files", "pacman", &e))?,
         other => return Err(pkg_unsupported("pkg_files", other)),
     };
-    pkg_succeeded("pkg_files", pm, &output)?;
+    let program = match pm {
+        "apt" => "dpkg",
+        "pacman" => "pacman",
+        other => other,
+    };
+    pkg_succeeded("pkg_files", program, &output)?;
 
     let text = String::from_utf8_lossy(&output.stdout);
     let files: Vec<Value> = text
         .lines()
-        .filter(|l| !l.trim().is_empty())
+        // dpkg -L lists the root as "/."; it is not a file of the package.
+        .filter(|l| !l.trim().is_empty() && l.trim() != "/.")
         .map(|l| {
-            // pacman -Ql format: "package /path/to/file", dpkg -L format: "/path/to/file"
-            if let Some((_pkg, path)) = l.split_once(' ') {
-                Value::Str(path.to_string())
-            } else {
-                Value::Str(l.trim().to_string())
+            // pacman -Ql prints "package /path"; dpkg -L prints the path alone,
+            // and splitting that at a space cut "/usr/share/doc/a b" to "b".
+            match l.split_once(' ') {
+                Some((_pkg, path)) if pm == "pacman" => Value::Str(path.to_string()),
+                _ => Value::Str(l.trim().to_string()),
             }
         })
         .collect();
@@ -27306,7 +27336,12 @@ fn bi_pkg_owner(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .map_err(|e| crate::safety::spawn_error("pkg_owner", "pacman", &e))?,
         other => return Err(pkg_unsupported("pkg_owner", other)),
     };
-    pkg_succeeded("pkg_owner", pm, &output)?;
+    let program = match pm {
+        "apt" => "dpkg",
+        "pacman" => "pacman",
+        other => other,
+    };
+    pkg_succeeded("pkg_owner", program, &output)?;
 
     let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
     let mut rec = std::collections::BTreeMap::new();
@@ -27372,6 +27407,83 @@ fn bi_pkg_verify(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     ))
 }
 
+/// `apt-cache depends` ("  Depends: libc6", "  |Depends: a" for an
+/// alternative) or `pacman -Si` ("Depends On : a  b>=1") as records.
+fn parse_pkg_deps(pm: &str, text: &str) -> Value {
+    let mut out = Vec::new();
+    let mut push = |kind: &str, package: &str, alternative: bool| {
+        let mut r = BTreeMap::new();
+        r.insert("kind".to_string(), Value::Str(kind.to_string()));
+        r.insert("package".to_string(), Value::Str(package.to_string()));
+        r.insert("alternative".to_string(), Value::Bool(alternative));
+        out.push(Value::Record(r));
+    };
+    if pm == "pacman" {
+        for line in text.lines() {
+            let Some((key, val)) = line.split_once(':') else {
+                continue;
+            };
+            let kind = match key.trim() {
+                "Depends On" => "Depends",
+                "Optional Deps" => "Optional",
+                "Make Deps" => "MakeDepends",
+                _ => continue,
+            };
+            if val.trim() == "None" {
+                continue;
+            }
+            for dep in val.split_whitespace() {
+                push(kind, dep, false);
+            }
+        }
+    } else {
+        for line in text.lines().filter(|l| l.starts_with(' ')) {
+            let t = line.trim();
+            let (alternative, t) = match t.strip_prefix('|') {
+                Some(rest) => (true, rest),
+                None => (false, t),
+            };
+            if let Some((kind, pkg)) = t.split_once(':') {
+                push(kind.trim(), pkg.trim(), alternative);
+            }
+        }
+    }
+    Value::Array(out)
+}
+
+/// `apt-cache rdepends` (names under "Reverse Depends:", some repeated per
+/// architecture as "name:arm64") or `pacman -Sii` ("Required By : a b") as a
+/// de-duplicated list of package names.
+fn parse_pkg_rdeps(pm: &str, package: &str, text: &str) -> Value {
+    let mut names = std::collections::BTreeSet::new();
+    if pm == "pacman" {
+        for line in text.lines() {
+            if let Some((key, val)) = line.split_once(':') {
+                if key.trim() == "Required By" && val.trim() != "None" {
+                    names.extend(val.split_whitespace().map(str::to_string));
+                }
+            }
+        }
+    } else {
+        let mut listing = false;
+        for line in text.lines() {
+            if line.trim_end() == "Reverse Depends:" {
+                listing = true;
+            } else if listing && line.starts_with(' ') {
+                let n = line.trim().trim_start_matches('|');
+                let n = n.split(':').next().unwrap_or(n);
+                if !n.is_empty() {
+                    names.insert(n.to_string());
+                }
+            }
+        }
+    }
+    // apt lists the package's other architectures ("coreutils:arm64") among
+    // its reverse dependencies; with the suffix gone that is the package.
+    names.remove(package);
+    Value::Array(names.into_iter().map(Value::Str).collect())
+}
+
 fn bi_pkg_deps(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let package = match args.first() {
         Some(Value::Str(s)) => s.clone(),
@@ -27397,11 +27509,16 @@ fn bi_pkg_deps(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .map_err(|e| crate::safety::spawn_error("pkg_deps", "pacman", &e))?,
         other => return Err(pkg_unsupported("pkg_deps", other)),
     };
-    pkg_succeeded("pkg_deps", pm, &output)?;
+    let program = match pm {
+        "apt" => "apt-cache",
+        "pacman" => "pacman",
+        other => other,
+    };
+    pkg_succeeded("pkg_deps", program, &output)?;
 
-    Ok(Value::Str(
-        String::from_utf8_lossy(&output.stdout).to_string(),
-    ))
+    // This returned the tool's text verbatim, a different format per
+    // package manager, which is what typed output exists to replace.
+    Ok(parse_pkg_deps(pm, &String::from_utf8_lossy(&output.stdout)))
 }
 
 fn bi_pkg_rdeps(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -27429,10 +27546,19 @@ fn bi_pkg_rdeps(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .map_err(|e| crate::safety::spawn_error("pkg_rdeps", "pacman", &e))?,
         other => return Err(pkg_unsupported("pkg_rdeps", other)),
     };
-    pkg_succeeded("pkg_rdeps", pm, &output)?;
+    let program = match pm {
+        "apt" => "apt-cache",
+        "pacman" => "pacman",
+        other => other,
+    };
+    pkg_succeeded("pkg_rdeps", program, &output)?;
 
-    Ok(Value::Str(
-        String::from_utf8_lossy(&output.stdout).to_string(),
+    // This returned the tool's text verbatim, a different format per
+    // package manager, which is what typed output exists to replace.
+    Ok(parse_pkg_rdeps(
+        pm,
+        &package,
+        &String::from_utf8_lossy(&output.stdout),
     ))
 }
 
@@ -27457,7 +27583,11 @@ fn bi_pkg_changelog(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .map_err(|e| crate::safety::spawn_error("pkg_changelog", "apt-get", &e))?,
         other => return Err(pkg_unsupported("pkg_changelog", other)),
     };
-    pkg_succeeded("pkg_changelog", pm, &output)?;
+    let program = match pm {
+        "apt" => "apt-get",
+        other => other,
+    };
+    pkg_succeeded("pkg_changelog", program, &output)?;
 
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).to_string(),

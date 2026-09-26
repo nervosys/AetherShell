@@ -3981,6 +3981,99 @@ pub static SIGNATURES: &[Signature] = &[
             (r#"rlm_stats({total_spawned: 2}).total_spawned"#, r#"2"#),
         ],
     },
+    // 1b: package-manager queries. Machine-dependent: see MACHINE_DEPENDENT in
+    // tests/declared_signatures.rs; the results shown are Debian's.
+    Signature {
+        name: "pkg_info",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("package", Ty::Str, "a package name")],
+        returns: "Record",
+        doc: "A package's metadata, as the package manager reports it. Unsupported package managers are E_UNIMPLEMENTED; a package the manager does not know is E_TOOL_FAILED.",
+        examples: &[
+            (r#"pkg_info("coreutils")"#, r#"{package: coreutils, version: 9.4-3.1, ...}"#),
+        ],
+    },
+    Signature {
+        name: "pkg_files",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("package", Ty::Str, "a package name")],
+        returns: "Array",
+        doc: "Files an installed package owns (apt, pacman). Unsupported package managers are E_UNIMPLEMENTED; a package the manager does not know is E_TOOL_FAILED.",
+        examples: &[
+            (r#"pkg_files("coreutils")"#, r#"[/usr, /usr/bin, /usr/bin/ls, ...]"#),
+        ],
+    },
+    Signature {
+        name: "pkg_deps",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("package", Ty::Str, "a package name")],
+        returns: "Array",
+        doc: "A package's dependencies as {kind, package, alternative} (apt, pacman). Unsupported package managers are E_UNIMPLEMENTED; a package the manager does not know is E_TOOL_FAILED.",
+        examples: &[
+            (r#"pkg_deps("coreutils")"#, r#"[{alternative: false, kind: PreDepends, package: libacl1}, ...]"#),
+        ],
+    },
+    Signature {
+        name: "pkg_rdeps",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("package", Ty::Str, "a package name")],
+        returns: "Array",
+        doc: "Packages that depend on a package (apt, pacman). Unsupported package managers are E_UNIMPLEMENTED; a package the manager does not know is E_TOOL_FAILED.",
+        examples: &[
+            (r#"pkg_rdeps("coreutils")"#, r#"[chkrootkit, dgit, ...]"#),
+        ],
+    },
+    Signature {
+        name: "pkg_verify",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("package", Ty::Str, "a package name")],
+        returns: "Bool",
+        doc: "Whether an installed package's files match what was installed (apt: dpkg -V). Unsupported package managers are E_UNIMPLEMENTED; a package the manager does not know is E_TOOL_FAILED.",
+        examples: &[
+            (r#"pkg_verify("coreutils")"#, r#"true"#),
+        ],
+    },
+    Signature {
+        name: "pkg_owner",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("path", Ty::Str, "an absolute file path")],
+        returns: "Record",
+        doc: "The installed package that owns a file (apt, pacman). Unsupported package managers are E_UNIMPLEMENTED; a package the manager does not know is E_TOOL_FAILED.",
+        examples: &[
+            (r#"pkg_owner("/usr/bin/ls")"#, r#"{file: /usr/bin/ls, package: coreutils}"#),
+        ],
+    },
+    Signature {
+        name: "pkg_search",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("query", Ty::Str, "text to search package names and descriptions for")],
+        returns: "Array",
+        doc: "Available packages matching a query, as {name, description}. Unsupported package managers are E_UNIMPLEMENTED; a package the manager does not know is E_TOOL_FAILED.",
+        examples: &[
+            (r#"pkg_search("coreutils")"#, r#"[{description: GNU core utilities, name: coreutils}, ...]"#),
+        ],
+    },
 ];
 
 /// The declaration for `name`, if it has one.

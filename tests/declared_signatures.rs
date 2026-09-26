@@ -32,6 +32,82 @@ fn ok(name: &str, args: Vec<Value>) -> Value {
     call(name, args, &mut Env::new()).unwrap_or_else(|e| panic!("{name} refused a valid call: {e}"))
 }
 
+/// Builtins whose answer depends on the machine: an installed package
+/// manager, a service, a binary tool. Their examples cannot state one result
+/// that holds on Linux, macOS and Windows runners alike, so
+/// `a_self_contained_example_produces_the_result_it_claims` does not compare
+/// it. They are not skipped: `a_machine_dependent_example_answers_in_its_type
+/// _or_says_why_not` runs every one of their examples and requires either the
+/// declared return type or a failure coded as the machine lacking something.
+/// A wrong call shape (E_BAD_ARG) or an uncoded failure still fails.
+///
+/// Every entry says what it depends on.
+const MACHINE_DEPENDENT: &[(&str, &str)] = &[
+    (
+        "pkg_info",
+        "the host package manager and its package database",
+    ),
+    (
+        "pkg_files",
+        "the host package manager and its package database",
+    ),
+    (
+        "pkg_deps",
+        "the host package manager and its package database",
+    ),
+    (
+        "pkg_rdeps",
+        "the host package manager and its package database",
+    ),
+    (
+        "pkg_verify",
+        "the host package manager and its package database",
+    ),
+    (
+        "pkg_owner",
+        "the host package manager and its package database",
+    ),
+    (
+        "pkg_search",
+        "the host package manager and its package database",
+    ),
+];
+
+/// The codes that honestly mean "not on this machine", as opposed to a
+/// defect in the example or the builtin.
+const ABSENT_HERE: &[&str] = &[
+    "E_TOOL_MISSING",
+    "E_TOOL_FAILED",
+    "E_UNIMPLEMENTED",
+    "E_NOT_FOUND",
+    "E_NO_UI",
+    "E_IO",
+];
+
+fn machine_dependent(name: &str) -> bool {
+    MACHINE_DEPENDENT.iter().any(|(n, _)| *n == name)
+}
+
+/// The first `E_...` code in an error's text.
+fn error_code(msg: &str) -> Option<String> {
+    let at = msg.find("E_")?;
+    Some(
+        msg[at..]
+            .chars()
+            .take_while(|c| c.is_ascii_uppercase() || *c == '_')
+            .collect(),
+    )
+}
+
+/// Whether a value has one of the types a declaration's `returns` names.
+fn has_declared_type(returns: &str, v: &Value) -> bool {
+    returns.split('|').map(str::trim).any(|t| match t {
+        "Any" => true,
+        "Number" => matches!(v, Value::Int(_) | Value::Float(_)),
+        t => v.type_name() == t,
+    })
+}
+
 // ── the declarations describe things that exist ─────────────────────────
 
 #[test]
@@ -541,7 +617,7 @@ fn a_self_contained_example_produces_the_result_it_claims() {
 
     let mut checked = 0;
     for sig in SIGNATURES {
-        if NEEDS_THE_WORLD.contains(&sig.name) {
+        if NEEDS_THE_WORLD.contains(&sig.name) || machine_dependent(sig.name) {
             continue;
         }
         for (code, want) in sig.examples {
@@ -826,4 +902,56 @@ fn sqlite_query_no_longer_answers_calls_it_cannot_honour() {
         Value::Array(rows) => assert_eq!(rows.len(), 1, "expected one row: {out:?}"),
         other => panic!("expected an array of rows, got {other:?}"),
     }
+}
+
+#[test]
+fn a_machine_dependent_example_answers_in_its_type_or_says_why_not() {
+    for (name, why) in MACHINE_DEPENDENT {
+        assert!(
+            !why.trim().is_empty(),
+            "{name} is listed without saying what it depends on"
+        );
+        let sig = signature_of(name)
+            .unwrap_or_else(|| panic!("{name} is listed as machine-dependent but not declared"));
+        assert_eq!(
+            sig.name, *name,
+            "list {name} by its declared name, {}",
+            sig.name
+        );
+        for (code, _) in sig.examples {
+            let stmts = aethershell::parser::parse_program(code)
+                .unwrap_or_else(|e| panic!("{name}: {code}: {e}"));
+            match aethershell::eval::eval_program(&stmts, &mut Env::new()) {
+                Ok(v) => assert!(
+                    has_declared_type(sig.returns, &v),
+                    "{name}'s example answered {} where the declaration says {}: {code}",
+                    v.type_name(),
+                    sig.returns
+                ),
+                Err(e) => {
+                    let msg = e.to_string();
+                    let code_seen = error_code(&msg);
+                    assert!(
+                        code_seen.as_deref().is_some_and(|c| ABSENT_HERE.contains(&c)),
+                        "{name}'s example failed in a way that is not \"absent on this                          machine\" ({code_seen:?}): {code}
+  {msg}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// Non-vacuity for the tier above: a type mismatch and a wrong-shape error
+/// must both be caught by the predicates it relies on.
+#[test]
+fn non_vacuity_the_machine_dependent_checks_can_fail() {
+    assert!(!has_declared_type("Array", &Value::Null));
+    assert!(has_declared_type("Record | Null", &Value::Null));
+    assert!(has_declared_type("Number", &Value::Float(1.0)));
+    assert_eq!(
+        error_code("error[E_BAD_ARG]: x").as_deref(),
+        Some("E_BAD_ARG")
+    );
+    assert!(!ABSENT_HERE.contains(&"E_BAD_ARG") && !ABSENT_HERE.contains(&"E_UNKNOWN"));
 }
