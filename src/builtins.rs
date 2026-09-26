@@ -26386,87 +26386,126 @@ fn bi_sudo_exec(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     ))
 }
 
+/// Capability numbers from `linux/capability.h`, in order. A bit beyond the
+/// end of this table (a newer kernel) is reported as `cap_<n>`, not dropped.
+#[cfg(target_os = "linux")]
+const LINUX_CAPABILITIES: [&str; 41] = [
+    "cap_chown",
+    "cap_dac_override",
+    "cap_dac_read_search",
+    "cap_fowner",
+    "cap_fsetid",
+    "cap_kill",
+    "cap_setgid",
+    "cap_setuid",
+    "cap_setpcap",
+    "cap_linux_immutable",
+    "cap_net_bind_service",
+    "cap_net_broadcast",
+    "cap_net_admin",
+    "cap_net_raw",
+    "cap_ipc_lock",
+    "cap_ipc_owner",
+    "cap_sys_module",
+    "cap_sys_rawio",
+    "cap_sys_chroot",
+    "cap_sys_ptrace",
+    "cap_sys_pacct",
+    "cap_sys_admin",
+    "cap_sys_boot",
+    "cap_sys_nice",
+    "cap_sys_resource",
+    "cap_sys_time",
+    "cap_sys_tty_config",
+    "cap_mknod",
+    "cap_lease",
+    "cap_audit_write",
+    "cap_audit_control",
+    "cap_setfcap",
+    "cap_mac_override",
+    "cap_mac_admin",
+    "cap_syslog",
+    "cap_wake_alarm",
+    "cap_block_suspend",
+    "cap_audit_read",
+    "cap_perfmon",
+    "cap_bpf",
+    "cap_checkpoint_restore",
+];
+
+#[cfg(target_os = "linux")]
+fn decode_capability_mask(hex: &str) -> Option<Vec<Value>> {
+    let mask = u64::from_str_radix(hex.trim(), 16).ok()?;
+    Some(
+        (0..64u32)
+            .filter(|bit| mask & (1u64 << bit) != 0)
+            .map(|bit| {
+                Value::Str(match LINUX_CAPABILITIES.get(bit as usize) {
+                    Some(name) => name.to_string(),
+                    None => format!("cap_{bit}"),
+                })
+            })
+            .collect(),
+    )
+}
+
 fn bi_capabilities(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    // This parsed `capsh --print`, and got it wrong: capsh writes the
+    // effective set as `Current: =...`, with a colon, so the set an agent
+    // most needs was never extracted (it surfaced as a key named
+    // "current:"), `uid` came back as the string "1000(test) euid=1000(test)",
+    // and hosts without libcap's tools failed outright. The kernel publishes
+    // all five sets in /proc/self/status as bitmasks; decode those.
     #[cfg(target_os = "linux")]
     {
-        let output = std::process::Command::new("capsh")
-            .args(["--print"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("capabilities", "capsh", &e))?;
-        let text = String::from_utf8_lossy(&output.stdout).to_string();
+        let status = std::fs::read_to_string("/proc/self/status")
+            .map_err(|e| crate::safety::fs_error("capabilities", "/proc/self/status", &e))?;
         let mut rec = std::collections::BTreeMap::new();
-        for line in text.lines() {
-            let line = line.trim();
-            if let Some((key, val)) = line.split_once('=') {
-                let key = key.trim().to_lowercase();
-                let val = val.trim();
-                match key.as_str() {
-                    "current" => {
-                        let caps: Vec<Value> = val
-                            .split(',')
-                            .map(|c| Value::Str(c.trim().to_string()))
-                            .filter(|v| {
-                                if let Value::Str(s) = v {
-                                    !s.is_empty()
-                                } else {
-                                    false
-                                }
-                            })
-                            .collect();
-                        rec.insert("current".to_string(), Value::Array(caps));
-                    }
-                    "bounding" | "bounding set" => {
-                        let caps: Vec<Value> = val
-                            .split(',')
-                            .map(|c| Value::Str(c.trim().to_string()))
-                            .filter(|v| {
-                                if let Value::Str(s) = v {
-                                    !s.is_empty()
-                                } else {
-                                    false
-                                }
-                            })
-                            .collect();
-                        rec.insert("bounding".to_string(), Value::Array(caps));
-                    }
-                    "ambient" | "ambient set" => {
-                        let caps: Vec<Value> = val
-                            .split(',')
-                            .map(|c| Value::Str(c.trim().to_string()))
-                            .filter(|v| {
-                                if let Value::Str(s) = v {
-                                    !s.is_empty()
-                                } else {
-                                    false
-                                }
-                            })
-                            .collect();
-                        rec.insert("ambient".to_string(), Value::Array(caps));
-                    }
-                    "securebits" => {
-                        rec.insert("securebits".to_string(), Value::Str(val.to_string()));
-                    }
-                    "uid" => {
-                        if let Ok(uid) = val.parse::<i64>() {
-                            rec.insert("uid".to_string(), Value::Int(uid));
-                        } else {
-                            rec.insert("uid".to_string(), Value::Str(val.to_string()));
-                        }
-                    }
-                    "gid" => {
-                        if let Ok(gid) = val.parse::<i64>() {
-                            rec.insert("gid".to_string(), Value::Int(gid));
-                        } else {
-                            rec.insert("gid".to_string(), Value::Str(val.to_string()));
-                        }
-                    }
-                    _ => {
-                        rec.insert(key, Value::Str(val.to_string()));
-                    }
+        for line in status.lines() {
+            let Some((key, val)) = line.split_once(':') else {
+                continue;
+            };
+            let field = match key {
+                "CapInh" => "inheritable",
+                "CapPrm" => "permitted",
+                "CapEff" => "effective",
+                "CapBnd" => "bounding",
+                "CapAmb" => "ambient",
+                "NoNewPrivs" => {
+                    rec.insert("no_new_privs".to_string(), Value::Bool(val.trim() == "1"));
+                    continue;
                 }
+                "Uid" | "Gid" => {
+                    // real, effective, saved, filesystem
+                    let ids: Vec<i64> =
+                        val.split_whitespace().filter_map(|v| v.parse().ok()).collect();
+                    let (real, eff) = if key == "Uid" { ("uid", "euid") } else { ("gid", "egid") };
+                    if let [r, e, ..] = ids[..] {
+                        rec.insert(real.to_string(), Value::Int(r));
+                        rec.insert(eff.to_string(), Value::Int(e));
+                    }
+                    continue;
+                }
+                _ => continue,
+            };
+            let caps = decode_capability_mask(val).ok_or_else(|| {
+                crate::safety::bad_state(
+                    "capabilities",
+                    &format!("/proc/self/status has an unreadable {key} mask: {}", val.trim()),
+                    "this kernel reports capabilities in a format this shell does not know",
+                )
+            })?;
+            rec.insert(field.to_string(), Value::Array(caps));
+        }
+        for field in ["inheritable", "permitted", "effective", "bounding", "ambient"] {
+            if !rec.contains_key(field) {
+                return Err(crate::safety::bad_state(
+                    "capabilities",
+                    &format!("/proc/self/status does not report the {field} set"),
+                    "this kernel predates the capability set, or /proc is not procfs",
+                ));
             }
         }
-        rec.insert("raw".to_string(), Value::Str(text));
         return Ok(Value::Record(rec));
     }
     // Linux capability sets are a Linux concept. Everywhere else this fell
