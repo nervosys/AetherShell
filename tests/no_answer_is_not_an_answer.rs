@@ -125,3 +125,52 @@ fn platform_require_compares_versions() {
     let (sat, _) = require(rec(&[("cargo", s("<1.0"))])).unwrap();
     assert!(!sat);
 }
+
+/// Every git builtin read stdout and ignored git's exit status. Outside a
+/// repository git writes only to stderr, so `git_status()` said `[]` --
+/// a clean tree -- at exit 0.
+#[test]
+fn git_outside_a_repository_is_a_state_error() {
+    let dir = std::env::temp_dir().join(format!("ae-not-a-repo-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    // Stop git from finding an enclosing repository above the temp dir.
+    let inside_repo = std::process::Command::new("git")
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .current_dir(&dir)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(true);
+    if inside_repo {
+        eprintln!("skipped: the temp dir is inside a git work tree here");
+        return;
+    }
+    let path = s(dir.to_str().unwrap());
+    for name in ["git_status", "git_diff", "git_diff_staged"] {
+        let e = call(name, vec![path.clone()]).expect_err(name);
+        assert_eq!(code_of(&e), "E_BAD_STATE", "{name}: {e}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_wrongly_typed_argument_is_refused_not_defaulted() {
+    let odd = rec(&[("unexpected", Value::Bool(true))]);
+    for name in [
+        "git_status",
+        "git_show",
+        "git_log",
+        "session_restore",
+        "search_by_size",
+        "proc_env",
+        "proc_cpu_usage",
+        "platform_has_tool",
+        "clipboard_set",
+    ] {
+        let e = call(name, vec![odd.clone()]).expect_err(name);
+        assert_eq!(code_of(&e), "E_BAD_ARG", "{name}");
+    }
+    for name in ["proc_env", "proc_cpu_usage", "platform_has_tool"] {
+        let e = call(name, vec![]).expect_err(name);
+        assert_eq!(code_of(&e), "E_BAD_ARG", "{name}()");
+    }
+}

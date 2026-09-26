@@ -21289,9 +21289,16 @@ fn bi_proc_set_priority(args: Vec<Value>, _input: Option<Value>) -> Result<Value
 }
 
 fn bi_proc_cpu_usage(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    // A missing or non-integer pid answered 0.0: an idle process.
     let pid = match args.first() {
         Some(Value::Int(p)) => *p,
-        _ => return Ok(Value::Float(0.0)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "proc_cpu_usage",
+                "a process id (Int)",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     #[cfg(target_os = "windows")]
@@ -21421,9 +21428,16 @@ fn bi_proc_threads(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_proc_env(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    // A missing or non-integer pid answered {}: a process with no environment.
     let pid = match args.first() {
         Some(Value::Int(p)) => *p,
-        _ => return Ok(Value::Record(std::collections::BTreeMap::new())),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "proc_env",
+                "a process id (Int)",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
 
     #[cfg(target_os = "windows")]
@@ -30364,13 +30378,20 @@ fn bi_clipboard_get(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_clipboard_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let text = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => match input {
-            Some(Value::Str(s)) => s,
-            Some(v) => format!("{:?}", v),
-            None => return Ok(Value::Bool(false)),
-        },
+    // With nothing to copy this returned `false`, indistinguishable from a
+    // clipboard that refused; and a non-string argument fell through to the
+    // pipe input, or to that same `false`.
+    let text = match (args.first(), input) {
+        (Some(v), _) => expect_string("clipboard_set", v)?.to_string(),
+        (None, Some(Value::Str(s))) => s,
+        (None, Some(v)) => v.to_display_string(),
+        (None, None) => {
+            return Err(crate::safety::bad_arg(
+                "clipboard_set",
+                "the text to copy",
+                "nothing",
+            ))
+        }
     };
 
     #[cfg(target_os = "windows")]
@@ -34767,17 +34788,50 @@ fn bi_nanda_quorum(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // ============== AI CODING ASSISTANT BUILTINS ==============
 
 // Git module implementations
+/// `git` exited non-zero. Every git builtin read stdout and ignored the
+/// status, so outside a repository -- where git prints only to stderr --
+/// `git_status()` was `[]`, `git_branch()` was `""` and `git_log()` was `[]`,
+/// all at exit 0: "clean", "detached" and "no history", none of them true.
+fn git_succeeded(builtin: &str, output: &std::process::Output, dir: &str) -> Result<()> {
+    if output.status.success() {
+        return Ok(());
+    }
+    // Ask git rather than read its stderr: outside a repository `git status`
+    // says "not a git repository", `git diff` says "Not a git repository" and
+    // prints usage, `git diff --staged` says only "unknown option", and all
+    // of it is translated under a non-English locale.
+    let in_repo = std::process::Command::new("git")
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .current_dir(dir)
+        .output()
+        .is_ok_and(|o| o.status.success());
+    if !in_repo {
+        return Err(crate::safety::bad_state(
+            builtin,
+            "the working directory is not inside a git repository",
+            "cd into a repository (or pass its path where the builtin takes one)",
+        ));
+    }
+    Err(crate::safety::tool_failed(
+        builtin,
+        "git",
+        output.status.code(),
+        &String::from_utf8_lossy(&output.stderr),
+    ))
+}
+
 fn bi_git_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let path = args
         .first()
-        .and_then(|v| v.as_str().ok())
-        .map(|s| s.to_string())
+        .map(|v| expect_string("git_status", v).map(str::to_string))
+        .transpose()?
         .unwrap_or(".".to_string());
     let output = std::process::Command::new("git")
         .args(["status", "--porcelain", "-b"])
         .current_dir(&path)
         .output()
         .map_err(|e| crate::safety::spawn_error("git_status", "git", &e))?;
+    git_succeeded("git_status", &output, &path)?;
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let lines: Vec<Value> = stdout.lines().map(|l| Value::Str(l.to_string())).collect();
     Ok(Value::Array(lines))
@@ -34786,14 +34840,15 @@ fn bi_git_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_git_diff(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let path = args
         .first()
-        .and_then(|v| v.as_str().ok())
-        .map(|s| s.to_string())
+        .map(|v| expect_string("git_diff", v).map(str::to_string))
+        .transpose()?
         .unwrap_or(".".to_string());
     let output = std::process::Command::new("git")
         .args(["diff"])
         .current_dir(&path)
         .output()
         .map_err(|e| crate::safety::spawn_error("git_diff", "git", &e))?;
+    git_succeeded("git_diff", &output, &path)?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).to_string(),
     ))
@@ -34802,25 +34857,31 @@ fn bi_git_diff(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_git_diff_staged(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let path = args
         .first()
-        .and_then(|v| v.as_str().ok())
-        .map(|s| s.to_string())
+        .map(|v| expect_string("git_diff_staged", v).map(str::to_string))
+        .transpose()?
         .unwrap_or(".".to_string());
     let output = std::process::Command::new("git")
         .args(["diff", "--staged"])
         .current_dir(&path)
         .output()
         .map_err(|e| crate::safety::spawn_error("git_diff_staged", "git", &e))?;
+    git_succeeded("git_diff_staged", &output, &path)?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).to_string(),
     ))
 }
 
 fn bi_git_log(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let count = args.first().and_then(|v| v.as_int().ok()).unwrap_or(10);
+    let count = args
+        .first()
+        .map(|v| expect_int("git_log", v))
+        .transpose()?
+        .unwrap_or(10);
     let output = std::process::Command::new("git")
         .args(["log", &format!("-{}", count), "--oneline"])
         .output()
         .map_err(|e| crate::safety::spawn_error("git_log", "git", &e))?;
+    git_succeeded("git_log", &output, ".")?;
     let lines: Vec<Value> = String::from_utf8_lossy(&output.stdout)
         .lines()
         .map(|l| Value::Str(l.to_string()))
@@ -34839,6 +34900,7 @@ fn bi_git_blame(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .args(["blame", &file])
         .output()
         .map_err(|e| crate::safety::spawn_error("git_blame", "git", &e))?;
+    git_succeeded("git_blame", &output, ".")?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).to_string(),
     ))
@@ -34849,6 +34911,7 @@ fn bi_git_branch(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .args(["branch", "--show-current"])
         .output()
         .map_err(|e| crate::safety::spawn_error("git_branch", "git", &e))?;
+    git_succeeded("git_branch", &output, ".")?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).trim().to_string(),
     ))
@@ -34859,6 +34922,7 @@ fn bi_git_branches(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .args(["branch", "-a"])
         .output()
         .map_err(|e| crate::safety::spawn_error("git_branches", "git", &e))?;
+    git_succeeded("git_branches", &output, ".")?;
     let branches: Vec<Value> = String::from_utf8_lossy(&output.stdout)
         .lines()
         .map(|l| Value::Str(l.trim().trim_start_matches("* ").to_string()))
@@ -34945,6 +35009,7 @@ fn bi_git_stash_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
         .args(["stash", "list"])
         .output()
         .map_err(|e| crate::safety::spawn_error("git_stash_list", "git", &e))?;
+    git_succeeded("git_stash_list", &output, ".")?;
     let stashes: Vec<Value> = String::from_utf8_lossy(&output.stdout)
         .lines()
         .map(|l| Value::Str(l.to_string()))
@@ -34957,6 +35022,7 @@ fn bi_git_remote(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .args(["remote", "-v"])
         .output()
         .map_err(|e| crate::safety::spawn_error("git_remote", "git", &e))?;
+    git_succeeded("git_remote", &output, ".")?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).to_string(),
     ))
@@ -35033,6 +35099,7 @@ fn bi_git_tags(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .args(["tag", "-l"])
         .output()
         .map_err(|e| crate::safety::spawn_error("git_tags", "git", &e))?;
+    git_succeeded("git_tags", &output, ".")?;
     let tags: Vec<Value> = String::from_utf8_lossy(&output.stdout)
         .lines()
         .map(|l| Value::Str(l.to_string()))
@@ -35043,14 +35110,15 @@ fn bi_git_tags(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_git_show(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let commit = args
         .first()
-        .and_then(|v| v.as_str().ok())
-        .map(|s| s.to_string())
+        .map(|v| expect_string("git_show", v).map(str::to_string))
+        .transpose()?
         .unwrap_or("HEAD".to_string());
     crate::safety::reject_option_like("git_show", std::slice::from_ref(&commit))?;
     let output = std::process::Command::new("git")
         .args(["show", &commit])
         .output()
         .map_err(|e| crate::safety::spawn_error("git_show", "git", &e))?;
+    git_succeeded("git_show", &output, ".")?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).to_string(),
     ))
@@ -35059,14 +35127,15 @@ fn bi_git_show(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_git_rev_parse(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let rev = args
         .first()
-        .and_then(|v| v.as_str().ok())
-        .map(|s| s.to_string())
+        .map(|v| expect_string("git_rev_parse", v).map(str::to_string))
+        .transpose()?
         .unwrap_or("HEAD".to_string());
     crate::safety::reject_option_like("git_rev_parse", std::slice::from_ref(&rev))?;
     let output = std::process::Command::new("git")
         .args(["rev-parse", &rev])
         .output()
         .map_err(|e| crate::safety::spawn_error("git_rev_parse", "git", &e))?;
+    git_succeeded("git_rev_parse", &output, ".")?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).trim().to_string(),
     ))
@@ -35077,6 +35146,7 @@ fn bi_git_root(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .args(["rev-parse", "--show-toplevel"])
         .output()
         .map_err(|e| crate::safety::spawn_error("git_root", "git", &e))?;
+    git_succeeded("git_root", &output, ".")?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).trim().to_string(),
     ))
@@ -35104,6 +35174,7 @@ fn bi_git_clean(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .args(["clean", "-d", flag])
         .output()
         .map_err(|e| crate::safety::spawn_error("git_clean", "git", &e))?;
+    git_succeeded("git_clean", &output, ".")?;
     let files: Vec<Value> = String::from_utf8_lossy(&output.stdout)
         .lines()
         .map(|l| Value::Str(l.to_string()))
@@ -36161,8 +36232,8 @@ fn bi_search_by_type(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_search_by_size(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let size = args
         .first()
-        .and_then(|v| v.as_str().ok())
-        .map(|s| s.to_string())
+        .map(|v| expect_string("search_by_size", v).map(str::to_string))
+        .transpose()?
         .unwrap_or("+1M".to_string());
     let found = search_find("search_by_size", &["-type", "f", "-size", &size])?;
     let files: Vec<Value> = found.iter().map(|l| Value::Str(l.to_string())).collect();
@@ -36643,12 +36714,19 @@ fn bi_session_checkpoint(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
 }
 
 fn bi_session_restore(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let index = args.first().and_then(|v| v.as_int().ok()).unwrap_or(0);
+    let index = args
+        .first()
+        .map(|v| expect_int("session_restore", v))
+        .transpose()?
+        .unwrap_or(0);
     let output = std::process::Command::new("git")
         .args(["stash", "apply", &format!("stash@{{{}}}", index)])
         .output()
         .map_err(|e| crate::safety::spawn_error("session_restore", "git", &e))?;
-    Ok(Value::Bool(output.status.success()))
+    // `false` said "not restored" and dropped why: no repository, no such
+    // checkpoint, or a conflict. Those need different next steps.
+    git_succeeded("session_restore", &output, ".")?;
+    Ok(Value::Bool(true))
 }
 
 fn bi_session_checkpoints(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -36658,14 +36736,15 @@ fn bi_session_checkpoints(_args: Vec<Value>, _input: Option<Value>) -> Result<Va
 fn bi_session_diff_since(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let commit = args
         .first()
-        .and_then(|v| v.as_str().ok())
-        .map(|s| s.to_string())
+        .map(|v| expect_string("session_diff_since", v).map(str::to_string))
+        .transpose()?
         .unwrap_or("HEAD~1".to_string());
     crate::safety::reject_option_like("session_diff_since", std::slice::from_ref(&commit))?;
     let output = std::process::Command::new("git")
         .args(["diff", &commit])
         .output()
         .map_err(|e| crate::safety::spawn_error("session_diff_since", "git", &e))?;
+    git_succeeded("session_diff_since", &output, ".")?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).to_string(),
     ))
@@ -36692,8 +36771,8 @@ fn bi_session_rollback(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 fn bi_session_export(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let file = args
         .first()
-        .and_then(|v| v.as_str().ok())
-        .map(|s| s.to_string())
+        .map(|v| expect_string("session_export", v).map(str::to_string))
+        .transpose()?
         .unwrap_or("session.patch".to_string());
     // Same again: labelled `ReadLocal`, writes an arbitrary path.
     let file = guard_local_write("session_export", &file)?;
@@ -36701,6 +36780,7 @@ fn bi_session_export(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .args(["diff"])
         .output()
         .map_err(|e| crate::safety::spawn_error("session_export", "git", &e))?;
+    git_succeeded("session_export", &output, ".")?;
     std::fs::write(&file, &output.stdout)?;
     Ok(Value::Str(file))
 }
@@ -36892,6 +36972,9 @@ fn bi_env_rust(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_env_go(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = std::process::Command::new("go")
         .args(["version"])
+        // In a module whose go.mod asks for a newer Go, `go version` would
+        // download that toolchain first.
+        .env("GOTOOLCHAIN", "local")
         .output()
         .map_err(|e| crate::safety::spawn_error("env_go", "go", &e))?;
     // The exit status was ignored, so a failed command's output came
@@ -37192,6 +37275,18 @@ fn on_path(name: &str) -> bool {
     index.contains_key(name)
 }
 
+/// Whether the first `bazel` on PATH is bazelisk, which fetches a Bazel
+/// release (hundreds of megabytes, over the network) to answer `--version`.
+fn resolves_to_bazelisk() -> bool {
+    let path_var = std::env::var_os("PATH").unwrap_or_default();
+    std::env::split_paths(&path_var)
+        .map(|d| d.join(if cfg!(windows) { "bazel.exe" } else { "bazel" }))
+        .find(|p| p.is_file())
+        .and_then(|p| std::fs::canonicalize(p).ok())
+        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_lowercase()))
+        .is_some_and(|n| n.contains("bazelisk"))
+}
+
 /// How long one `<tool> --version` may take. A version string that has not
 /// arrived by then is not going to be useful to an agent waiting on it.
 const TOOL_VERSION_TIMEOUT_SECS: u64 = 5;
@@ -37204,17 +37299,43 @@ const TOOL_VERSION_TIMEOUT_SECS: u64 = 5;
 /// "The command 'docker' could not be found in this WSL 2 distro" and exits
 /// non-zero -- and that sentence would have been reported as Docker's version.
 /// It also waited forever: see [`probe_tool_versions`] for what that cost.
+///
+/// Asking a tool its version must not reach the network, and several did:
+/// with AETHER_MAX_NET=0, `benches/agentic/network-egress.mjs` traced
+/// connections from the tools themselves. `kubectl version` contacts the API
+/// server (localhost:8080 by default); `docker version` asks the daemon, and
+/// exits non-zero when none runs, which read as "not installed"; packer
+/// checked HashiCorp for updates; vcpkg and the Azure CLI sent telemetry; and
+/// `bazel`, when it is bazelisk, downloads Bazel itself. So: client-only
+/// subcommands, the vendors' documented opt-outs, and bazelisk is not run.
 fn get_tool_version(tool: &str) -> Option<String> {
     let version_args: &[&str] = match tool {
         "java" => &["-version"],
-        "go" | "docker" | "kubectl" => &["version"],
+        "go" => &["version"],
+        "kubectl" => &["version", "--client"],
         _ => &["--version"],
     };
     if !on_path(tool) {
         return None;
     }
+    if tool == "bazel" && resolves_to_bazelisk() {
+        return Some("bazelisk (Bazel is downloaded on first use; not run)".to_string());
+    }
     let mut cmd = std::process::Command::new(tool);
     cmd.args(version_args);
+    for (k, v) in [
+        ("CHECKPOINT_DISABLE", "1"),    // HashiCorp: packer, terraform, vault
+        ("VCPKG_DISABLE_METRICS", "1"), // vcpkg
+        ("AZURE_CORE_COLLECT_TELEMETRY", "no"), // az
+        ("DOTNET_CLI_TELEMETRY_OPTOUT", "1"), // dotnet
+        ("POWERSHELL_TELEMETRY_OPTOUT", "1"), // pwsh
+        ("POWERSHELL_UPDATECHECK", "Off"), // pwsh
+        ("GOTOOLCHAIN", "local"),       // go: never fetch a toolchain
+        ("HOMEBREW_NO_AUTO_UPDATE", "1"), // brew
+        ("HOMEBREW_NO_ANALYTICS", "1"), // brew
+    ] {
+        cmd.env(k, v);
+    }
     let o = crate::safety::output_with_timeout(cmd, TOOL_VERSION_TIMEOUT_SECS).ok()?;
     if !o.status.success() {
         return None;
@@ -37890,7 +38011,17 @@ fn bi_platform_detect_tools(_args: Vec<Value>, _input: Option<Value>) -> Result<
 }
 
 fn bi_platform_has_tool(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let tool = args.first().and_then(|v| v.as_str().ok()).unwrap_or("");
+    // With no tool named this asked whether "" is installed, and said no.
+    let tool = match args.first() {
+        Some(v) => expect_string("platform_has_tool", v)?,
+        None => {
+            return Err(crate::safety::bad_arg(
+                "platform_has_tool",
+                "a tool name",
+                "nothing",
+            ))
+        }
+    };
     Ok(Value::Bool(on_path(tool)))
 }
 
