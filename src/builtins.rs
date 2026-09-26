@@ -36913,23 +36913,134 @@ fn platform_db_path() -> std::path::PathBuf {
 }
 
 /// Get tool version by running command with --version
+/// Whether `name` is an executable on `PATH`, answered from an index of the
+/// `PATH` directories that is built once and reused.
+///
+/// Looking a tool up used to stat every `PATH` entry, once per tool, per call.
+/// Under WSL, 107 of 117 `PATH` entries are Windows directories reached over
+/// 9P, so `platform_detect_tools` -- sixty `which` lookups -- took 14.5s, and
+/// 0.1s with the Windows entries removed. Listing each directory once and
+/// answering every later question from memory makes a missing tool free.
+///
+/// Keyed on the value of `PATH`, so a script that changes `PATH` gets a fresh
+/// index rather than a stale answer. On Unix a hit must also be executable;
+/// on Windows a name matches with any `PATHEXT` extension, as `which` did.
+fn on_path(name: &str) -> bool {
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+    static INDEX: Mutex<Option<(String, Arc<HashMap<String, std::path::PathBuf>>)>> =
+        Mutex::new(None);
+
+    if name.is_empty() || name.contains(['/', '\\']) {
+        return std::path::Path::new(name).is_file();
+    }
+    let path_var = std::env::var("PATH").unwrap_or_default();
+    let index = {
+        let mut guard = INDEX.lock().unwrap_or_else(|e| e.into_inner());
+        match guard.as_ref() {
+            Some((key, idx)) if *key == path_var => Arc::clone(idx),
+            _ => {
+                let mut idx = HashMap::new();
+                for dir in std::env::split_paths(&path_var) {
+                    let Ok(rd) = std::fs::read_dir(&dir) else {
+                        continue;
+                    };
+                    for e in rd.flatten() {
+                        let file = e.file_name().to_string_lossy().to_string();
+                        let key = if cfg!(windows) {
+                            file.to_lowercase()
+                        } else {
+                            file
+                        };
+                        // First occurrence wins, as PATH order does.
+                        idx.entry(key).or_insert_with(|| e.path());
+                    }
+                }
+                let idx = Arc::new(idx);
+                *guard = Some((path_var, Arc::clone(&idx)));
+                idx
+            }
+        }
+    };
+
+    if cfg!(windows) {
+        let exts = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into());
+        let lower = name.to_lowercase();
+        return index.contains_key(&lower)
+            || exts
+                .split(';')
+                .filter(|x| !x.is_empty())
+                .any(|x| index.contains_key(&format!("{lower}{}", x.to_lowercase())));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        return index.get(name).is_some_and(|p| {
+            std::fs::metadata(p).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+        });
+    }
+    #[allow(unreachable_code)]
+    index.contains_key(name)
+}
+
+/// How long one `<tool> --version` may take. A version string that has not
+/// arrived by then is not going to be useful to an agent waiting on it.
+const TOOL_VERSION_TIMEOUT_SECS: u64 = 5;
+
+/// The first line of `<tool> --version`, or `None` if the tool is absent,
+/// fails, or does not answer in time.
+///
+/// The exit status used to be ignored, so a tool that ran and failed had its
+/// error line recorded as its version. On WSL the `docker` shim exists, prints
+/// "The command 'docker' could not be found in this WSL 2 distro" and exits
+/// non-zero -- and that sentence would have been reported as Docker's version.
+/// It also waited forever: see [`probe_tool_versions`] for what that cost.
 fn get_tool_version(tool: &str) -> Option<String> {
     let version_args: &[&str] = match tool {
         "java" => &["-version"],
         "go" | "docker" | "kubectl" => &["version"],
         _ => &["--version"],
     };
+    if !on_path(tool) {
+        return None;
+    }
+    let mut cmd = std::process::Command::new(tool);
+    cmd.args(version_args);
+    let o = crate::safety::output_with_timeout(cmd, TOOL_VERSION_TIMEOUT_SECS).ok()?;
+    if !o.status.success() {
+        return None;
+    }
+    let out = String::from_utf8_lossy(&o.stdout);
+    let err = String::from_utf8_lossy(&o.stderr);
+    // Several tools (`java -version` among them) print to stderr.
+    let combined = if out.trim().is_empty() { err } else { out };
+    combined
+        .lines()
+        .next()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
 
-    std::process::Command::new(tool)
-        .args(version_args)
-        .output()
-        .ok()
-        .and_then(|o| {
-            let out = String::from_utf8_lossy(&o.stdout);
-            let err = String::from_utf8_lossy(&o.stderr);
-            let combined = if out.is_empty() { err } else { out };
-            combined.lines().next().map(|s| s.trim().to_string())
-        })
+/// Every tool in `tools` that answers, with its version, in the input order.
+///
+/// Probed in parallel. The `platform_*` builtins asked 20-60 tools one after
+/// another, each with an unbounded wait, so their cost was the SUM of every
+/// probe: 5-108 seconds per call on WSL, where looking up a missing tool walks
+/// every PATH entry including the Windows ones over 9P.
+/// `platform_tool_versions` took 108 seconds. In parallel, with each probe
+/// bounded, the cost is roughly the slowest single tool.
+fn probe_tool_versions(tools: &[&str]) -> Vec<(String, String)> {
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = tools
+            .iter()
+            .map(|&t| scope.spawn(move || (t.to_string(), get_tool_version(t))))
+            .collect();
+        handles
+            .into_iter()
+            .filter_map(|h| h.join().ok())
+            .filter_map(|(t, v)| v.map(|v| (t, v)))
+            .collect()
+    })
 }
 
 /// Complete system snapshot with all versioning info
@@ -37040,10 +37151,9 @@ fn bi_platform_snapshot(_args: Vec<Value>, _input: Option<Value>) -> Result<Valu
         "gcloud",
     ];
     let mut tool_versions = std::collections::BTreeMap::new();
-    for tool in tools {
-        if let Some(ver) = get_tool_version(tool) {
-            tool_versions.insert(tool.to_string(), Value::Str(ver));
-        }
+    for (tool, ver) in probe_tool_versions(&tools) {
+        let tool = tool.as_str();
+        tool_versions.insert(tool.to_string(), Value::Str(ver));
     }
     snapshot.insert("tools".to_string(), Value::Record(tool_versions));
 
@@ -37268,6 +37378,11 @@ fn bi_platform_tool_version(args: Vec<Value>, _input: Option<Value>) -> Result<V
 
 fn bi_platform_tool_versions(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut versions = std::collections::BTreeMap::new();
+    // Every group is collected first and probed in ONE parallel batch.
+    // Probing the seventeen groups one after another made this cost the sum
+    // of seventeen slowest-tools: 108s under WSL, and still over ten seconds
+    // on the CI runner, where the probe gate killed it as hung.
+    let mut pending: Vec<(&str, &[&str])> = Vec::new();
 
     // Compilers & Build Tools
     let compilers = [
@@ -37275,41 +37390,25 @@ fn bi_platform_tool_versions(_args: Vec<Value>, _input: Option<Value>) -> Result
         "ghc", "ocaml", "fpc", "gfortran", "nvcc", "hipcc", "dmd", "ldc2", "gdc", "zig", "nim",
         "crystal",
     ];
-    for tool in compilers {
-        if let Some(ver) = get_tool_version(tool) {
-            versions.insert(format!("compiler.{}", tool), Value::Str(ver));
-        }
-    }
+    pending.push(("compiler", &compilers[..]));
 
     // Build Systems
     let build_systems = [
         "make", "cmake", "ninja", "meson", "bazel", "buck2", "scons", "gradle", "maven", "ant",
         "cargo", "cabal", "stack", "mix", "dune", "zig", "xmake", "premake5", "waf",
     ];
-    for tool in build_systems {
-        if let Some(ver) = get_tool_version(tool) {
-            versions.insert(format!("build.{}", tool), Value::Str(ver));
-        }
-    }
+    pending.push(("build", &build_systems[..]));
 
     // Linkers
     let linkers = ["ld", "lld", "gold", "mold", "link"];
-    for tool in linkers {
-        if let Some(ver) = get_tool_version(tool) {
-            versions.insert(format!("linker.{}", tool), Value::Str(ver));
-        }
-    }
+    pending.push(("linker", &linkers[..]));
 
     // Language Runtimes
     let runtimes = [
         "python", "python3", "node", "deno", "bun", "ruby", "php", "perl", "lua", "luajit",
         "julia", "R", "java", "dotnet", "mono", "erlang", "elixir", "racket", "sbcl", "clisp",
     ];
-    for tool in runtimes {
-        if let Some(ver) = get_tool_version(tool) {
-            versions.insert(format!("runtime.{}", tool), Value::Str(ver));
-        }
-    }
+    pending.push(("runtime", &runtimes[..]));
 
     // Package Managers (Language)
     let pkg_lang = [
@@ -37317,30 +37416,18 @@ fn bi_platform_tool_versions(_args: Vec<Value>, _input: Option<Value>) -> Result
         "bun", "gem", "bundler", "composer", "cargo", "go", "nuget", "dotnet", "maven", "gradle",
         "cabal", "stack", "opam", "mix", "hex", "rebar3", "cpan", "luarocks",
     ];
-    for tool in pkg_lang {
-        if let Some(ver) = get_tool_version(tool) {
-            versions.insert(format!("pkg.{}", tool), Value::Str(ver));
-        }
-    }
+    pending.push(("pkg", &pkg_lang[..]));
 
     // Package Managers (System)
     let pkg_sys = [
         "apt", "apt-get", "dnf", "yum", "pacman", "zypper", "apk", "brew", "port", "nix", "guix",
         "snap", "flatpak", "choco", "winget", "scoop", "vcpkg", "conan",
     ];
-    for tool in pkg_sys {
-        if let Some(ver) = get_tool_version(tool) {
-            versions.insert(format!("syspkg.{}", tool), Value::Str(ver));
-        }
-    }
+    pending.push(("syspkg", &pkg_sys[..]));
 
     // Version Control
     let vcs = ["git", "hg", "svn", "fossil", "darcs", "bzr", "cvs"];
-    for tool in vcs {
-        if let Some(ver) = get_tool_version(tool) {
-            versions.insert(format!("vcs.{}", tool), Value::Str(ver));
-        }
-    }
+    pending.push(("vcs", &vcs[..]));
 
     // Containers & Virtualization
     let containers = [
@@ -37361,11 +37448,7 @@ fn bi_platform_tool_versions(_args: Vec<Value>, _input: Option<Value>) -> Result
         "vboxmanage",
         "multipass",
     ];
-    for tool in containers {
-        if let Some(ver) = get_tool_version(tool) {
-            versions.insert(format!("container.{}", tool), Value::Str(ver));
-        }
-    }
+    pending.push(("container", &containers[..]));
 
     // Orchestration & IaC
     let orchestration = [
@@ -37387,11 +37470,7 @@ fn bi_platform_tool_versions(_args: Vec<Value>, _input: Option<Value>) -> Result
         "puppet",
         "salt",
     ];
-    for tool in orchestration {
-        if let Some(ver) = get_tool_version(tool) {
-            versions.insert(format!("iac.{}", tool), Value::Str(ver));
-        }
-    }
+    pending.push(("iac", &orchestration[..]));
 
     // Cloud CLIs
     let cloud = [
@@ -37408,11 +37487,7 @@ fn bi_platform_tool_versions(_args: Vec<Value>, _input: Option<Value>) -> Result
         "scaleway",
         "flyctl",
     ];
-    for tool in cloud {
-        if let Some(ver) = get_tool_version(tool) {
-            versions.insert(format!("cloud.{}", tool), Value::Str(ver));
-        }
-    }
+    pending.push(("cloud", &cloud[..]));
 
     // Databases
     let databases = [
@@ -37428,22 +37503,14 @@ fn bi_platform_tool_versions(_args: Vec<Value>, _input: Option<Value>) -> Result
         "influx",
         "clickhouse-client",
     ];
-    for tool in databases {
-        if let Some(ver) = get_tool_version(tool) {
-            versions.insert(format!("db.{}", tool), Value::Str(ver));
-        }
-    }
+    pending.push(("db", &databases[..]));
 
     // Testing & Quality
     let testing = [
         "pytest", "jest", "mocha", "rspec", "phpunit", "go", "cargo", "valgrind", "gdb", "lldb",
         "strace", "dtrace", "perf",
     ];
-    for tool in testing {
-        if let Some(ver) = get_tool_version(tool) {
-            versions.insert(format!("test.{}", tool), Value::Str(ver));
-        }
-    }
+    pending.push(("test", &testing[..]));
 
     // Linters & Formatters
     let linters = [
@@ -37465,11 +37532,7 @@ fn bi_platform_tool_versions(_args: Vec<Value>, _input: Option<Value>) -> Result
         "jsonlint",
         "tflint",
     ];
-    for tool in linters {
-        if let Some(ver) = get_tool_version(tool) {
-            versions.insert(format!("lint.{}", tool), Value::Str(ver));
-        }
-    }
+    pending.push(("lint", &linters[..]));
 
     // Documentation
     let docs = [
@@ -37484,11 +37547,7 @@ fn bi_platform_tool_versions(_args: Vec<Value>, _input: Option<Value>) -> Result
         "javadoc",
         "pdoc",
     ];
-    for tool in docs {
-        if let Some(ver) = get_tool_version(tool) {
-            versions.insert(format!("docs.{}", tool), Value::Str(ver));
-        }
-    }
+    pending.push(("docs", &docs[..]));
 
     // CI/CD & DevOps
     let cicd = [
@@ -37505,11 +37564,7 @@ fn bi_platform_tool_versions(_args: Vec<Value>, _input: Option<Value>) -> Result
         "tilt",
         "devspace",
     ];
-    for tool in cicd {
-        if let Some(ver) = get_tool_version(tool) {
-            versions.insert(format!("cicd.{}", tool), Value::Str(ver));
-        }
-    }
+    pending.push(("cicd", &cicd[..]));
 
     // Security
     let security = [
@@ -37526,11 +37581,7 @@ fn bi_platform_tool_versions(_args: Vec<Value>, _input: Option<Value>) -> Result
         "cosign",
         "sigstore",
     ];
-    for tool in security {
-        if let Some(ver) = get_tool_version(tool) {
-            versions.insert(format!("security.{}", tool), Value::Str(ver));
-        }
-    }
+    pending.push(("security", &security[..]));
 
     // Network Tools
     let network = [
@@ -37547,12 +37598,23 @@ fn bi_platform_tool_versions(_args: Vec<Value>, _input: Option<Value>) -> Result
         "tcpdump",
         "wireshark",
     ];
-    for tool in network {
-        if let Some(ver) = get_tool_version(tool) {
-            versions.insert(format!("net.{}", tool), Value::Str(ver));
+    pending.push(("net", &network[..]));
+
+    let mut all: Vec<&str> = pending
+        .iter()
+        .flat_map(|(_, g)| g.iter().copied())
+        .collect();
+    all.sort_unstable();
+    all.dedup();
+    let found: std::collections::HashMap<String, String> =
+        probe_tool_versions(&all).into_iter().collect();
+    for (prefix, group) in &pending {
+        for tool in group.iter() {
+            if let Some(ver) = found.get(*tool) {
+                versions.insert(format!("{prefix}.{tool}"), Value::Str(ver.clone()));
+            }
         }
     }
-
     Ok(Value::Record(versions))
 }
 
@@ -37611,7 +37673,7 @@ fn bi_platform_detect_tools(_args: Vec<Value>, _input: Option<Value>) -> Result<
 
     let available: Vec<Value> = tools
         .iter()
-        .filter(|t| which::which(t).is_ok())
+        .filter(|t| on_path(t))
         .map(|t| Value::Str(t.to_string()))
         .collect();
 
@@ -37620,7 +37682,7 @@ fn bi_platform_detect_tools(_args: Vec<Value>, _input: Option<Value>) -> Result<
 
 fn bi_platform_has_tool(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let tool = args.first().and_then(|v| v.as_str().ok()).unwrap_or("");
-    Ok(Value::Bool(which::which(tool).is_ok()))
+    Ok(Value::Bool(on_path(tool)))
 }
 
 fn bi_platform_capabilities(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -37644,10 +37706,7 @@ fn bi_platform_capabilities(_args: Vec<Value>, _input: Option<Value>) -> Result<
             "has_admin".to_string(),
             Value::Bool(unsafe { libc::geteuid() } == 0),
         );
-        caps.insert(
-            "has_sudo".to_string(),
-            Value::Bool(which::which("sudo").is_ok()),
-        );
+        caps.insert("has_sudo".to_string(), Value::Bool(on_path("sudo")));
     }
 
     // GUI
@@ -37670,49 +37729,43 @@ fn bi_platform_capabilities(_args: Vec<Value>, _input: Option<Value>) -> Result<
     caps.insert("has_network".to_string(), Value::Bool(true)); // Basic assumption
 
     // Container runtimes
-    caps.insert(
-        "has_docker".to_string(),
-        Value::Bool(which::which("docker").is_ok()),
-    );
-    caps.insert(
-        "has_podman".to_string(),
-        Value::Bool(which::which("podman").is_ok()),
-    );
+    caps.insert("has_docker".to_string(), Value::Bool(on_path("docker")));
+    caps.insert("has_podman".to_string(), Value::Bool(on_path("podman")));
     caps.insert(
         "has_container".to_string(),
-        Value::Bool(which::which("docker").is_ok() || which::which("podman").is_ok()),
+        Value::Bool(on_path("docker") || on_path("podman")),
     );
 
     // Package managers
     let mut pkg_mgrs = Vec::new();
-    if which::which("apt").is_ok() {
+    if on_path("apt") {
         pkg_mgrs.push("apt");
     }
-    if which::which("dnf").is_ok() {
+    if on_path("dnf") {
         pkg_mgrs.push("dnf");
     }
-    if which::which("yum").is_ok() {
+    if on_path("yum") {
         pkg_mgrs.push("yum");
     }
-    if which::which("pacman").is_ok() {
+    if on_path("pacman") {
         pkg_mgrs.push("pacman");
     }
-    if which::which("brew").is_ok() {
+    if on_path("brew") {
         pkg_mgrs.push("brew");
     }
-    if which::which("choco").is_ok() {
+    if on_path("choco") {
         pkg_mgrs.push("choco");
     }
-    if which::which("winget").is_ok() {
+    if on_path("winget") {
         pkg_mgrs.push("winget");
     }
-    if which::which("scoop").is_ok() {
+    if on_path("scoop") {
         pkg_mgrs.push("scoop");
     }
-    if which::which("snap").is_ok() {
+    if on_path("snap") {
         pkg_mgrs.push("snap");
     }
-    if which::which("flatpak").is_ok() {
+    if on_path("flatpak") {
         pkg_mgrs.push("flatpak");
     }
     caps.insert(
@@ -37745,7 +37798,7 @@ fn bi_platform_has_admin(_args: Vec<Value>, _input: Option<Value>) -> Result<Val
 }
 
 fn bi_platform_has_sudo(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Bool(which::which("sudo").is_ok()))
+    Ok(Value::Bool(on_path("sudo")))
 }
 
 fn bi_platform_has_gui(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -37777,9 +37830,7 @@ fn bi_platform_has_network(_args: Vec<Value>, _input: Option<Value>) -> Result<V
 }
 
 fn bi_platform_has_container(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Bool(
-        which::which("docker").is_ok() || which::which("podman").is_ok(),
-    ))
+    Ok(Value::Bool(on_path("docker") || on_path("podman")))
 }
 
 fn bi_platform_pkg_managers(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -37803,7 +37854,7 @@ fn bi_platform_pkg_managers(_args: Vec<Value>, _input: Option<Value>) -> Result<
 
     let available: Vec<Value> = managers
         .iter()
-        .filter(|(_, cmd)| which::which(cmd).is_ok())
+        .filter(|(_, cmd)| on_path(cmd))
         .map(|(name, _)| Value::Str(name.to_string()))
         .collect();
 
@@ -37905,12 +37956,12 @@ fn bi_platform_require(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
             _ => {
                 // Check if it's a tool requirement
                 if let Ok(required) = val.as_bool() {
-                    if required && which::which(key).is_err() {
+                    if required && !on_path(key) {
                         satisfied = false;
                         missing.push(Value::Str(format!("{}: not found", key)));
                     }
                 } else if let Ok(ver_req) = val.as_str() {
-                    if which::which(key).is_err() {
+                    if !on_path(key) {
                         satisfied = false;
                         missing.push(Value::Str(format!("{}: not found", key)));
                     }
@@ -38170,7 +38221,14 @@ fn bi_platform_db_import(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
     };
 
     // Validate JSON
-    let imported: serde_json::Map<String, serde_json::Value> = serde_json::from_str(&content)?;
+    let imported: serde_json::Map<String, serde_json::Value> = serde_json::from_str(&content)
+        .map_err(|e| {
+            crate::safety::bad_arg(
+                "platform_db_import",
+                "a JSON object, or the path of a file containing one",
+                &e.to_string(),
+            )
+        })?;
 
     let db_path = platform_db_path();
     bi_platform_db_init(vec![], None)?;
@@ -38217,10 +38275,9 @@ fn bi_platform_compilers(_args: Vec<Value>, _input: Option<Value>) -> Result<Val
         "crystal", "tcc", "pcc", "icc", "icx", "nvc", "nvc++", "emcc", "wasm-ld",
     ];
     let mut versions = std::collections::BTreeMap::new();
-    for tool in compilers {
-        if let Some(ver) = get_tool_version(tool) {
-            versions.insert(tool.to_string(), Value::Str(ver));
-        }
+    for (tool, ver) in probe_tool_versions(&compilers) {
+        let tool = tool.as_str();
+        versions.insert(tool.to_string(), Value::Str(ver));
     }
     Ok(Value::Record(versions))
 }
@@ -38232,10 +38289,9 @@ fn bi_platform_build_systems(_args: Vec<Value>, _input: Option<Value>) -> Result
         "tup", "gn", "gyp", "qmake", "autoconf", "automake", "libtool",
     ];
     let mut versions = std::collections::BTreeMap::new();
-    for tool in build_systems {
-        if let Some(ver) = get_tool_version(tool) {
-            versions.insert(tool.to_string(), Value::Str(ver));
-        }
+    for (tool, ver) in probe_tool_versions(&build_systems) {
+        let tool = tool.as_str();
+        versions.insert(tool.to_string(), Value::Str(ver));
     }
     Ok(Value::Record(versions))
 }
@@ -38247,10 +38303,9 @@ fn bi_platform_runtimes(_args: Vec<Value>, _input: Option<Value>) -> Result<Valu
         "guile", "tcl", "tk", "groovy", "scala", "kotlin", "clojure",
     ];
     let mut versions = std::collections::BTreeMap::new();
-    for tool in runtimes {
-        if let Some(ver) = get_tool_version(tool) {
-            versions.insert(tool.to_string(), Value::Str(ver));
-        }
+    for (tool, ver) in probe_tool_versions(&runtimes) {
+        let tool = tool.as_str();
+        versions.insert(tool.to_string(), Value::Str(ver));
     }
     Ok(Value::Record(versions))
 }
@@ -38263,10 +38318,9 @@ fn bi_platform_pkg_lang(_args: Vec<Value>, _input: Option<Value>) -> Result<Valu
         "spm", "vcpkg", "conan", "hunter", "cpm",
     ];
     let mut versions = std::collections::BTreeMap::new();
-    for tool in pkg_lang {
-        if let Some(ver) = get_tool_version(tool) {
-            versions.insert(tool.to_string(), Value::Str(ver));
-        }
+    for (tool, ver) in probe_tool_versions(&pkg_lang) {
+        let tool = tool.as_str();
+        versions.insert(tool.to_string(), Value::Str(ver));
     }
     Ok(Value::Record(versions))
 }
@@ -38298,10 +38352,9 @@ fn bi_platform_containers(_args: Vec<Value>, _input: Option<Value>) -> Result<Va
         "microk8s",
     ];
     let mut versions = std::collections::BTreeMap::new();
-    for tool in containers {
-        if let Some(ver) = get_tool_version(tool) {
-            versions.insert(tool.to_string(), Value::Str(ver));
-        }
+    for (tool, ver) in probe_tool_versions(&containers) {
+        let tool = tool.as_str();
+        versions.insert(tool.to_string(), Value::Str(ver));
     }
     Ok(Value::Record(versions))
 }
@@ -38332,10 +38385,9 @@ fn bi_platform_cloud_clis(_args: Vec<Value>, _input: Option<Value>) -> Result<Va
         "amplify",
     ];
     let mut versions = std::collections::BTreeMap::new();
-    for tool in cloud {
-        if let Some(ver) = get_tool_version(tool) {
-            versions.insert(tool.to_string(), Value::Str(ver));
-        }
+    for (tool, ver) in probe_tool_versions(&cloud) {
+        let tool = tool.as_str();
+        versions.insert(tool.to_string(), Value::Str(ver));
     }
     Ok(Value::Record(versions))
 }
@@ -38365,10 +38417,9 @@ fn bi_platform_databases(_args: Vec<Value>, _input: Option<Value>) -> Result<Val
         "surreal",
     ];
     let mut versions = std::collections::BTreeMap::new();
-    for tool in databases {
-        if let Some(ver) = get_tool_version(tool) {
-            versions.insert(tool.to_string(), Value::Str(ver));
-        }
+    for (tool, ver) in probe_tool_versions(&databases) {
+        let tool = tool.as_str();
+        versions.insert(tool.to_string(), Value::Str(ver));
     }
     Ok(Value::Record(versions))
 }
@@ -38403,10 +38454,9 @@ fn bi_platform_linters(_args: Vec<Value>, _input: Option<Value>) -> Result<Value
         "uncrustify",
     ];
     let mut versions = std::collections::BTreeMap::new();
-    for tool in linters {
-        if let Some(ver) = get_tool_version(tool) {
-            versions.insert(tool.to_string(), Value::Str(ver));
-        }
+    for (tool, ver) in probe_tool_versions(&linters) {
+        let tool = tool.as_str();
+        versions.insert(tool.to_string(), Value::Str(ver));
     }
     Ok(Value::Record(versions))
 }
@@ -38428,10 +38478,9 @@ fn bi_platform_vcs(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         "hub",
     ];
     let mut versions = std::collections::BTreeMap::new();
-    for tool in vcs {
-        if let Some(ver) = get_tool_version(tool) {
-            versions.insert(tool.to_string(), Value::Str(ver));
-        }
+    for (tool, ver) in probe_tool_versions(&vcs) {
+        let tool = tool.as_str();
+        versions.insert(tool.to_string(), Value::Str(ver));
     }
     Ok(Value::Record(versions))
 }
@@ -38468,10 +38517,9 @@ fn bi_platform_iac_tools(_args: Vec<Value>, _input: Option<Value>) -> Result<Val
         "devspace",
     ];
     let mut versions = std::collections::BTreeMap::new();
-    for tool in iac {
-        if let Some(ver) = get_tool_version(tool) {
-            versions.insert(tool.to_string(), Value::Str(ver));
-        }
+    for (tool, ver) in probe_tool_versions(&iac) {
+        let tool = tool.as_str();
+        versions.insert(tool.to_string(), Value::Str(ver));
     }
     Ok(Value::Record(versions))
 }
@@ -42692,12 +42740,9 @@ fn sec_run_cmd_ok(program: &str, args: &[&str]) -> Option<String> {
 }
 
 fn cmd_exists(program: &str) -> bool {
-    Command::new(program).arg("--version").output().is_ok()
-        || Command::new("which")
-            .arg(program)
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
+    // This used to find out whether a program existed by RUNNING it with
+    // `--version`, with no time limit, and then running `which` as well.
+    on_path(program)
 }
 
 fn rec(pairs: Vec<(&str, Value)>) -> Value {
@@ -43514,10 +43559,12 @@ fn bi_tcpdump_capture(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
                 result.insert("packets".to_string(), Value::Array(records));
                 Ok(Value::Record(result))
             }
-            Ok(out) => {
-                let stderr = String::from_utf8_lossy(&out.stderr);
-                Err(anyhow!("tcpdump_capture: tcpdump failed: {}", stderr))
-            }
+            Ok(out) => Err(crate::safety::tool_failed(
+                "monitor_tcpdump",
+                "tcpdump",
+                out.status.code(),
+                &String::from_utf8_lossy(&out.stderr),
+            )),
             Err(e) => {
                 let mut rec = BTreeMap::new();
                 rec.insert("available".to_string(), Value::Bool(false));
@@ -43562,10 +43609,12 @@ fn bi_tcpdump_capture(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
                 result.insert("packets".to_string(), Value::Array(records));
                 Ok(Value::Record(result))
             }
-            Ok(out) => {
-                let stderr = String::from_utf8_lossy(&out.stderr);
-                Err(anyhow!("tcpdump_capture: tcpdump failed: {}", stderr))
-            }
+            Ok(out) => Err(crate::safety::tool_failed(
+                "monitor_tcpdump",
+                "tcpdump",
+                out.status.code(),
+                &String::from_utf8_lossy(&out.stderr),
+            )),
             Err(e) => {
                 let mut rec = BTreeMap::new();
                 rec.insert("available".to_string(), Value::Bool(false));
@@ -44028,14 +44077,12 @@ fn bi_ethtool_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 }
                 Ok(Value::Record(rec))
             }
-            Ok(out) => {
-                let stderr = String::from_utf8_lossy(&out.stderr);
-                Err(anyhow!(
-                    "ethtool_info: ethtool failed for {}: {}",
-                    device,
-                    stderr
-                ))
-            }
+            Ok(out) => Err(crate::safety::tool_failed(
+                "monitor_ethtool",
+                &format!("ethtool {device}"),
+                out.status.code(),
+                &String::from_utf8_lossy(&out.stderr),
+            )),
             Err(e) => {
                 let mut rec = BTreeMap::new();
                 rec.insert("available".to_string(), Value::Bool(false));
@@ -48296,10 +48343,27 @@ fn bi_tmux_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 .collect();
             Ok(Value::Array(sessions))
         }
-        Ok(o) => Ok(Value::Str(
-            String::from_utf8_lossy(&o.stderr).trim().to_string(),
+        // tmux's stderr used to come back as the successful result: with no
+        // server running, `tmux_list()` answered the String "error connecting
+        // to /tmp/tmux-1001/default (No such file or directory)" at exit 0.
+        // No server means no sessions; anything else is a failure.
+        Ok(o) => {
+            let err = String::from_utf8_lossy(&o.stderr);
+            if err.contains("no server running") || err.contains("error connecting to") {
+                return Ok(Value::Array(vec![]));
+            }
+            Err(crate::safety::tool_failed(
+                "tmux_list",
+                "tmux list-sessions",
+                o.status.code(),
+                &err,
+            ))
+        }
+        Err(e) => Err(crate::safety::tool_missing(
+            "tmux_list",
+            "tmux",
+            &e.to_string(),
         )),
-        Err(e) => Err(crate::safety::tool_missing("tmux", "tmux", &e.to_string())),
     }
 }
 

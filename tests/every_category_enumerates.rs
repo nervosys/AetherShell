@@ -22,7 +22,11 @@ fn every_advertised_category_lists_the_count_it_advertises() {
         .expect("manifest has a categories array");
 
     // Non-vacuity: a manifest with nothing in it would pass every check below.
-    assert!(cats.len() >= 40, "only {} categories in the manifest", cats.len());
+    assert!(
+        cats.len() >= 40,
+        "only {} categories in the manifest",
+        cats.len()
+    );
 
     let mut short = Vec::new();
     let mut total = 0;
@@ -34,7 +38,9 @@ fn every_advertised_category_lists_the_count_it_advertises() {
             .map_or(0, |b| b.len());
         total += listed;
         if listed != advertised {
-            short.push(format!("{name}: advertised {advertised}, describe() lists {listed}"));
+            short.push(format!(
+                "{name}: advertised {advertised}, describe() lists {listed}"
+            ));
         }
     }
 
@@ -45,7 +51,10 @@ fn every_advertised_category_lists_the_count_it_advertises() {
         short.len(),
         short.join("\n")
     );
-    assert!(total >= 1000, "only {total} builtins enumerated across all categories");
+    assert!(
+        total >= 1000,
+        "only {total} builtins enumerated across all categories"
+    );
 }
 
 #[test]

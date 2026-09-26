@@ -41,6 +41,7 @@ that proves it has been run. Baseline at `b799289`:
 - [ ] `capabilities` on Windows: implement, or record the refusal as final.
 - [ ] Triage the remaining `silent-success` suspects.
 - [ ] Conventions: `env_venv` empty string vs null; `now`/`time` duplication; `startup_list` on unsupported operating systems.
+- [x] Tool detection: the `platform_*` family probed 20-60 tools one after another with no time limit, and recorded a failing tool's error line as its version. It now probes in parallel with a 5s bound per tool, reads the exit status, and answers "is it installed?" from a `PATH` index built once instead of a lookup per tool. Under WSL: `platform_tool_versions` 108s -> 1.6s, `platform_detect_tools` 14.5s -> 0.6s, matching `command -v` on all 49 tools it checks.
 - [ ] Harden `eval::call_lambda1`'s per-call pipe-input copy (linear today, 9.3x over a 10x step).
 - [x] Every implementation is discoverable. The ontology listed 1,052 builtins while 1,101 distinct implementations dispatch: four categories (AI, Cluster, Platform, Service; 112 builtins) were shadowed by same-named builtins in `ontology_describe`. It now lists 1,164, and every dispatchable function is reachable under at least one listed name. Pinned by `tests/every_category_enumerates.rs`.
 - [ ] Reconcile "1,280+ builtins" in `AGENTS.md` with what is measurable: 1,433 callable names (aliases included), 1,101 distinct implementations, 1,164 listed by the ontology.

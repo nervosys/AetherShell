@@ -741,28 +741,13 @@ pub fn complete_sync_router(prompt: &str) -> Result<String> {
             ])
         }
 
-        "" => Err(anyhow!(
-            "No AI provider configured.\n\n\
-            To use AI features, set the AETHER_AI environment variable:\n\n\
-            For IronGate (routes to IronWorks locally, or to a cloud model):\n  \
-              $env:AETHER_AI = \"irongate\"\n  \
-              # Ensure irongate is running (default http://localhost:7700/v1)\n\n\
-            For OpenAI:\n  \
-              $env:AETHER_AI = \"openai\"\n  \
-              $env:OPENAI_API_KEY = \"sk-your-key\"\n\n\
-            For Anthropic:\n  \
-              $env:AETHER_AI = \"anthropic\"\n  \
-              $env:ANTHROPIC_API_KEY = \"sk-ant-...\"\n\n\
-            For Ollama (local):\n  \
-              $env:AETHER_AI = \"ollama\"\n  \
-              # Ensure 'ollama serve' is running\n\n\
-            For any provider via model URI:\n  \
-              $env:AETHER_AI = \"openai:gpt-4o\"\n  \
-              $env:AETHER_AI = \"anthropic:claude-sonnet-4-20250514\"\n\n\
-            Supported: irongate, openai, anthropic, google, ollama, deepseek, groq,\n\
-            together, fireworks, perplexity, xai, azure, openrouter,\n\
-            mistral, cohere, local, vllm, lmstudio, compat, tgi\n\n\
-            Then restart ae."
+        // A missing prerequisite, not an unidentified fault: this was a
+        // twenty-line help text returned as E_UNKNOWN, so an agent was told
+        // not to reason about the one failure with a known fix.
+        "" => Err(crate::safety::bad_state(
+            "ai",
+            "no AI provider is configured",
+            "set AETHER_AI to a provider (irongate, openai, anthropic, google, ollama, deepseek, groq, ...) or provider:model",
         )),
         other => Err(anyhow!(
             "Unknown AI provider: '{}'\n\n\

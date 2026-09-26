@@ -1,4 +1,4 @@
 {
-  "_discarded_args_max": "UNCALIBRATED. 1052 is the whole catalogue, so it cannot fail; it is replaced by the count the CI runner reports on its first run, because the number depends on which tools the host has installed.",
-  "discarded_args_max": 1052
+  "_discarded_args_max": "Measured on the CI runner (ubuntu-latest) at ec4a608: 316 of 343 comparable builtins discard extra arguments. Set to 320 for one round: the next commit changes builtins that can move into the comparable set (tmux_list used to 'succeed' with an error string and now returns []), and mount_info jitters by one between identical runs because it reads the live mount table. Tighten to the next CI measurement plus one. May only fall.",
+  "discarded_args_max": 320
 }
