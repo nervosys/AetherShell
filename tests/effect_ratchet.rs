@@ -561,15 +561,62 @@ fn called_names(body: &str) -> Vec<String> {
 /// is only half the dispatcher: 113 names an agent can call were never looked
 /// at, while `safety::guard_dispatch` enforced policy from `effect_of` for all
 /// of them.
+/// The function each `BUILTIN_DISPATCH` row calls, by index; `None` for a row
+/// that calls something other than a `bi_*` function.
+///
+/// Pairing a name with `bi_<name>` alone left every builtin whose function is
+/// named differently unread: `monitor_iftop` dispatches to `bi_iftop_info`,
+/// `lscpu` to `bi_hw_cpu`, every alias to its target. Those were Pure by
+/// default and never checked, and `monitor_iftop` spawns a process.
+fn dispatch_rows() -> Vec<Option<String>> {
+    let src = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/builtins.rs"),
+    )
+    .expect("src/builtins.rs is readable");
+    let lines: Vec<&str> = src.lines().collect();
+    let start = lines
+        .iter()
+        .position(|l| l.contains("BUILTIN_DISPATCH") && l.contains("&["))
+        .expect("BUILTIN_DISPATCH must be findable");
+    let mut rows = Vec::new();
+    for line in &lines[start + 1..] {
+        let t = line.trim();
+        if t == "];" {
+            break;
+        }
+        if t.starts_with('|') {
+            rows.push(
+                t.split_once("| ")
+                    .and_then(|(_, rest)| rest.split_once('('))
+                    .map(|(name, _)| name.trim().to_string())
+                    .filter(|n| n.starts_with("bi_")),
+            );
+        } else if t.starts_with("bi_") && t.contains(',') {
+            rows.push(Some(t.split(',').next().unwrap_or(t).trim().to_string()));
+        }
+    }
+    rows
+}
+
 fn dispatched_pairs() -> Vec<(String, String)> {
-    let mut pairs: Vec<(String, String)> = bodies_by_name()
-        .keys()
-        .filter_map(|fn_name| {
-            let name = fn_name.strip_prefix("bi_")?;
-            (!name.is_empty() && BUILTIN_LOOKUP.contains_key(name))
-                .then(|| (name.to_string(), fn_name.clone()))
+    let rows = dispatch_rows();
+    let mut pairs: Vec<(String, String)> = BUILTIN_LOOKUP
+        .iter()
+        .filter_map(|(name, idx)| {
+            let f = rows.get(*idx)?.clone()?;
+            Some(((*name).to_string(), f))
         })
         .collect();
+    pairs.extend(
+        bodies_by_name()
+            .keys()
+            .filter_map(|fn_name| {
+                let name = fn_name.strip_prefix("bi_")?;
+                (!name.is_empty() && BUILTIN_LOOKUP.contains_key(name))
+                    .then(|| (name.to_string(), fn_name.clone()))
+            })
+            .collect::<Vec<_>>(),
+    );
     pairs.extend(
         FALLBACK_BUILTINS
             .iter()
@@ -973,4 +1020,22 @@ fn report_fallback_dispatch_coverage() {
          body — the ratchet's zero is mostly blindness, not coverage",
         arms.len()
     );
+}
+
+/// Non-vacuity for the name -> function pairing. A builtin whose function is
+/// not called `bi_<name>` was never read: 13 `monitor_*` builtins spawned
+/// processes while classified Pure, two of them running `sh -c` under perf.
+#[test]
+fn a_builtin_is_read_through_its_dispatch_row_not_its_name() {
+    let pairs = dispatched_pairs();
+    for (name, f) in [
+        ("monitor_iftop", "bi_iftop_info"),
+        ("monitor_perf_stat", "bi_perf_stat"),
+        ("lscpu", "bi_hw_cpu"),
+    ] {
+        assert!(
+            pairs.iter().any(|(n, g)| n == name && g == f),
+            "{name} is not paired with {f}"
+        );
+    }
 }

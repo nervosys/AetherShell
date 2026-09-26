@@ -328,6 +328,23 @@ fn classified_effect(name: &str) -> Option<Effect> {
         }
         "rbac_logout" => Some(Effect::WriteLocal),
         "rbac_session" | "rbac_can" => Some(Effect::ReadLocal),
+        // The `monitor_*` names dispatch to functions named differently
+        // (`monitor_iftop` -> `bi_iftop_info`), and the body-evidence ratchet
+        // only paired a name with `bi_<name>`, so none of these bodies had ever
+        // been read. All 13 spawn a process and were Pure.
+        //
+        // Packet capture: reads every process's traffic and needs root or
+        // CAP_NET_RAW. An agent doing it unassisted is the privilege boundary.
+        "monitor_tcpdump" => Some(Effect::Privileged),
+        // Run `sh -c <command>` under perf: arbitrary execution, exactly as the
+        // `perf_stat`/`perf_record` spellings are classified.
+        "monitor_perf_stat" | "monitor_perf_record" => Some(Effect::Exec),
+        // Read-only system queries that spawn a tool (`ip`, `ss`, `who`,
+        // `last`, `journalctl`, `ethtool`, ...), classified like
+        // `netstat_info` and `journalctl`.
+        "monitor_ethtool" | "monitor_iftop" | "monitor_ip_addr" | "monitor_ip_link"
+        | "monitor_ip_route" | "monitor_logins" | "monitor_nethogs" | "monitor_sockets"
+        | "monitor_syslog" | "monitor_users" => Some(Effect::ReadLocal),
         // Reads the user database. It inherited ReadLocal from `sys_users`
         // while it was that builtin's alias; it has its own body now.
         "whoami" => Some(Effect::ReadLocal),
