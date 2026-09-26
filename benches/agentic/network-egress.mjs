@@ -51,16 +51,34 @@ const traced = (code, env = ENV, agent = true) => {
     const r = spawnSync(
         'setsid',
         ['timeout', '-k', '2', '15',
-         'strace', '-f', '-qq', '-e', 'trace=connect', '-o', TRACE,
+         'strace', '-f', '-qq', '-e', 'trace=connect,%process', '-o', TRACE,
          'ae', ...(agent ? ['--agent', '--policy', 'strict', '--workspace', JAIL] : []), '-c', code],
         { cwd: JAIL, stdio: 'ignore', timeout: 30000, env },
     );
     try { process.kill(-r.pid, 'SIGKILL'); } catch { /* group already gone */ }
     const log = fs.existsSync(TRACE) ? fs.readFileSync(TRACE, 'utf8') : '';
+    // A connection is only actionable once we know WHO made it: `ae` itself,
+    // or a program it started (a CLI asked for its version that phones home).
+    // Map every pid to the last program it exec'd, falling back to its parent.
+    const lines = log.split('\n');
+    const exe = new Map();
+    const parent = new Map();
+    for (const l of lines) {
+        const ex = l.match(/^(\d+) execve\("([^"]+)"/);
+        if (ex && !/= -1 /.test(l)) exe.set(ex[1], path.basename(ex[2]));
+        const cl = l.match(/^(\d+) (?:<\.\.\. )?(?:clone3?|v?fork)\b.*= (\d+)$/);
+        if (cl) parent.set(cl[2], cl[1]);
+    }
+    const who = (pid) => {
+        for (let p = pid, hops = 0; p && hops < 64; p = parent.get(p), hops++) {
+            if (exe.has(p)) return exe.get(p);
+        }
+        return '?';
+    };
     // AF_UNIX connects (nscd, D-Bus) are local. AF_INET/AF_INET6 are not.
-    const inet = log
-        .split('\n')
-        .filter((l) => /connect\(/.test(l) && /sa_family=AF_INET6?\b/.test(l));
+    const inet = lines
+        .filter((l) => /connect\(/.test(l) && /sa_family=AF_INET6?\b/.test(l))
+        .map((l) => ({ line: l, prog: who(l.match(/^(\d+)/)?.[1]) }));
     return { inet, status: r.status, err: r.error };
 };
 
@@ -77,8 +95,6 @@ if (which.status !== 0) {
 // never connects: the SSRF guard refuses local addresses before connect(), so
 // the control failed and the probe correctly refused to report.)
 const control = traced(
-    // No quoting on purpose: sh() splits its string on whitespace and ignores
-    // quotes, so a `bash -c '...'` control never ran the command it described.
     `sh("curl -s --max-time 2 http://127.0.0.1:9/")`,
     // sh() is refused unless explicitly allowed -- the right default, and
     // lifted here for the control call only.
@@ -89,7 +105,13 @@ if (control.inet.length === 0) {
     console.error('! control call produced no connect(); the tracer is not seeing egress');
     process.exit(2);
 }
-console.log(`control: tracer sees egress (${control.inet.length} connect() on the control call)`);
+// The attribution is checked the same way: the control's connection is made
+// by curl, never by ae, so anything else means the pid map is wrong.
+if (!control.inet.every(({ prog }) => prog === 'curl')) {
+    console.error(`! control connect() attributed to ${control.inet.map((c) => c.prog).join(', ')}, not curl`);
+    process.exit(2);
+}
+console.log(`control: tracer sees egress (${control.inet.length} connect() by curl on the control call)`);
 
 const list = spawnSync('ae', ['-c', 'json.stringify(ontology_manifest())'], {
     encoding: 'utf8',
@@ -117,10 +139,11 @@ let done = 0;
 for (const name of [...names].sort()) {
     const { inet } = traced(`${name}("hello")`);
     if (inet.length) {
-        const dest = inet
-            .map((l) => (l.match(/sin6?_port=htons\((\d+)\).*?inet_(?:addr|pton)\([^"]*"([^"]+)"/) ?? []).slice(1).reverse().join(':'))
-            .filter(Boolean);
-        leaks.push(`${name}\t${[...new Set(dest)].join(', ') || inet[0].slice(0, 120)}`);
+        const dest = inet.map(({ line, prog }) => {
+            const m = line.match(/sin6?_port=htons\((\d+)\).*?inet_(?:addr|pton)\([^"]*"([^"]+)"/);
+            return `${prog} ${m ? `${m[2]}:${m[1]}` : line.slice(0, 80)}`;
+        });
+        leaks.push(`${name}\t${[...new Set(dest)].join(', ')}`);
     }
     if (++done % 200 === 0) process.stderr.write(`  ${done}/${names.size}\n`);
 }

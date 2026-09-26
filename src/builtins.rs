@@ -15899,7 +15899,10 @@ mod split_command_words_tests {
 
     #[test]
     fn quoted_arguments_stay_whole() {
-        assert_eq!(split("git commit -m 'fix bug'"), ["git", "commit", "-m", "fix bug"]);
+        assert_eq!(
+            split("git commit -m 'fix bug'"),
+            ["git", "commit", "-m", "fix bug"]
+        );
         assert_eq!(split(r#"echo "a \"b\" c""#), ["echo", r#"a "b" c"#]);
         assert_eq!(split(r"touch my\ file"), ["touch", "my file"]);
     }
@@ -15956,7 +15959,11 @@ fn bi_sh(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 )
             })?;
             if parts.is_empty() {
-                return Err(crate::safety::bad_arg("sh", "a non-empty command", "an empty string"));
+                return Err(crate::safety::bad_arg(
+                    "sh",
+                    "a non-empty command",
+                    "an empty string",
+                ));
             }
             (parts[0].clone(), parts[1..].to_vec())
         }
@@ -26477,9 +26484,15 @@ fn bi_capabilities(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 }
                 "Uid" | "Gid" => {
                     // real, effective, saved, filesystem
-                    let ids: Vec<i64> =
-                        val.split_whitespace().filter_map(|v| v.parse().ok()).collect();
-                    let (real, eff) = if key == "Uid" { ("uid", "euid") } else { ("gid", "egid") };
+                    let ids: Vec<i64> = val
+                        .split_whitespace()
+                        .filter_map(|v| v.parse().ok())
+                        .collect();
+                    let (real, eff) = if key == "Uid" {
+                        ("uid", "euid")
+                    } else {
+                        ("gid", "egid")
+                    };
                     if let [r, e, ..] = ids[..] {
                         rec.insert(real.to_string(), Value::Int(r));
                         rec.insert(eff.to_string(), Value::Int(e));
@@ -26491,13 +26504,22 @@ fn bi_capabilities(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             let caps = decode_capability_mask(val).ok_or_else(|| {
                 crate::safety::bad_state(
                     "capabilities",
-                    &format!("/proc/self/status has an unreadable {key} mask: {}", val.trim()),
+                    &format!(
+                        "/proc/self/status has an unreadable {key} mask: {}",
+                        val.trim()
+                    ),
                     "this kernel reports capabilities in a format this shell does not know",
                 )
             })?;
             rec.insert(field.to_string(), Value::Array(caps));
         }
-        for field in ["inheritable", "permitted", "effective", "bounding", "ambient"] {
+        for field in [
+            "inheritable",
+            "permitted",
+            "effective",
+            "bounding",
+            "ambient",
+        ] {
             if !rec.contains_key(field) {
                 return Err(crate::safety::bad_state(
                     "capabilities",

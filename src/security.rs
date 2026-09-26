@@ -1059,9 +1059,8 @@ pub fn validate_http_url(builtin: &str, url_str: &str) -> Result<String> {
     // validation failed". The catalogue probes never saw it: they run with
     // AETHER_MAX_NET=0, and the network budget stops every network builtin
     // before it gets this far.
-    let parsed = url::Url::parse(url_str).map_err(|e| {
-        crate::safety::bad_arg(builtin, "an absolute http(s) URL", &e.to_string())
-    })?;
+    let parsed = url::Url::parse(url_str)
+        .map_err(|e| crate::safety::bad_arg(builtin, "an absolute http(s) URL", &e.to_string()))?;
 
     // Only allow HTTP(S)
     if parsed.scheme() != "http" && parsed.scheme() != "https" {

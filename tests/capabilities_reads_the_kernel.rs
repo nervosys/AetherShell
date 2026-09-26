@@ -18,7 +18,10 @@ fn call(name: &str) -> Value {
 
 fn kernel_mask(key: &str) -> u64 {
     let status = std::fs::read_to_string("/proc/self/status").unwrap();
-    let line = status.lines().find(|l| l.starts_with(&format!("{key}:"))).unwrap();
+    let line = status
+        .lines()
+        .find(|l| l.starts_with(&format!("{key}:")))
+        .unwrap();
     u64::from_str_radix(line.split_once(':').unwrap().1.trim(), 16).unwrap()
 }
 
@@ -43,7 +46,9 @@ fn every_set_matches_the_kernel_mask() {
             "{field} has a different number of capabilities than {key}"
         );
         for c in caps {
-            let Value::Str(s) = c else { panic!("{field} holds a non-string") };
+            let Value::Str(s) = c else {
+                panic!("{field} holds a non-string")
+            };
             assert!(s.starts_with("cap_"), "{field} holds {s:?}");
         }
     }
@@ -51,14 +56,24 @@ fn every_set_matches_the_kernel_mask() {
 
 #[test]
 fn names_follow_the_kernel_numbering() {
-    let Value::Record(rec) = call("capabilities") else { panic!() };
-    let Some(Value::Array(bounding)) = rec.get("bounding") else { panic!() };
+    let Value::Record(rec) = call("capabilities") else {
+        panic!()
+    };
+    let Some(Value::Array(bounding)) = rec.get("bounding") else {
+        panic!()
+    };
     // Bit 0 is CAP_CHOWN and bit 21 is CAP_SYS_ADMIN on every kernel; if the
     // bounding set holds them (it does outside a locked-down container), the
     // table is aligned.
     let names: Vec<&str> = bounding
         .iter()
-        .filter_map(|v| if let Value::Str(s) = v { Some(s.as_str()) } else { None })
+        .filter_map(|v| {
+            if let Value::Str(s) = v {
+                Some(s.as_str())
+            } else {
+                None
+            }
+        })
         .collect();
     let mask = kernel_mask("CapBnd");
     assert_eq!(names.contains(&"cap_chown"), mask & 1 != 0);
@@ -67,9 +82,15 @@ fn names_follow_the_kernel_numbering() {
 
 #[test]
 fn ids_are_integers() {
-    let Value::Record(rec) = call("capabilities") else { panic!() };
+    let Value::Record(rec) = call("capabilities") else {
+        panic!()
+    };
     for field in ["uid", "euid", "gid", "egid"] {
-        assert!(matches!(rec.get(field), Some(Value::Int(_))), "{field}: {:?}", rec.get(field));
+        assert!(
+            matches!(rec.get(field), Some(Value::Int(_))),
+            "{field}: {:?}",
+            rec.get(field)
+        );
     }
     assert!(matches!(rec.get("no_new_privs"), Some(Value::Bool(_))));
 }
