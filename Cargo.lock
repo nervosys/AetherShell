@@ -93,6 +93,7 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
+ "sha1",
  "sha2",
  "sysinfo",
  "tar",

@@ -737,8 +737,8 @@ lazy_static::lazy_static! {
         map.insert("uuid", 484);
         map.insert("base64_encode", 485);
         map.insert("base64_decode", 486);
-        map.insert("md5", 480);
-        map.insert("sha256", 480);
+        map.insert("md5", 1158); // was 480, crypto_hash: md5 answered SHA-256
+        map.insert("sha256", 1159); // was 480, crypto_hash: md5 answered SHA-256
         // 500-519: Database
         map.insert("db_sqlite_open", 500);
         map.insert("db_sqlite_query", 501);
@@ -3797,6 +3797,8 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_input_number(args, input), // 1155
     |args, input, _| bi_input_timeout(args, input), // 1156
     |args, input, _| bi_whoami(args, input),       // 1157
+    |args, input, _| bi_named_hash("md5", args, input), // 1158
+    |args, input, _| bi_named_hash("sha256", args, input), // 1159
 ];
 
 fn fast_builtin_lookup(
@@ -30912,83 +30914,89 @@ fn bi_input_autocomplete(_args: Vec<Value>, _input: Option<Value>) -> Result<Val
 // 480-499: Security & Crypto
 // ============================================================================
 
+/// Hex digest of `bytes`, in-process.
+///
+/// These builtins shelled out -- `sha256sum`/`md5sum` on Unix, PowerShell on
+/// Windows -- although `sha2`, `md5` and `sha1` are linked. Worse, a name the
+/// match did not know fell through to SHA-256, so `crypto_hash(x, "blake3")`
+/// returned a SHA-256 digest labelled as whatever was asked for.
+fn digest_hex(builtin: &str, algo: &str, bytes: &[u8]) -> Result<String> {
+    crate::safety::require_fips_hash(algo)?;
+    let hex = |b: &[u8]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
+    Ok(match algo.to_ascii_lowercase().as_str() {
+        "md5" => format!("{:x}", md5::compute(bytes)),
+        "sha1" | "sha-1" => hex(&sha1::Sha1::digest(bytes)),
+        "sha256" | "sha-256" => hex(&Sha256::digest(bytes)),
+        "sha384" | "sha-384" => hex(&sha2::Sha384::digest(bytes)),
+        "sha512" | "sha-512" => hex(&sha2::Sha512::digest(bytes)),
+        other => {
+            return Err(crate::safety::bad_arg(
+                builtin,
+                "algorithm md5, sha1, sha256, sha384 or sha512",
+                &format!("{other:?}"),
+            ))
+        }
+    })
+}
+
+/// `(subject, the arguments after it)`: piped, the subject is the input and
+/// every argument is a parameter; called directly, it is the first argument.
+/// These builtins took `args[0]` as the data even when a value was piped, so
+/// `"x" | crypto_hash("md5")` hashed the string "md5".
+fn subject_and_params(
+    builtin: &str,
+    args: &[Value],
+    input: Option<Value>,
+) -> Result<(String, Vec<Value>)> {
+    let (subject, params) = match input {
+        Some(v) => (Some(v), args.to_vec()),
+        None => (args.first().cloned(), args.get(1..).unwrap_or(&[]).to_vec()),
+    };
+    match subject {
+        Some(Value::Str(s)) => Ok((s, params)),
+        other => Err(crate::safety::bad_arg(
+            builtin,
+            "a String (argument or piped input)",
+            other.as_ref().map(|v| v.type_name()).unwrap_or("nothing"),
+        )),
+    }
+}
+
+fn algo_param(builtin: &str, params: &[Value], default: &str) -> Result<String> {
+    match params.first() {
+        None => Ok(default.to_string()),
+        Some(Value::Str(s)) => Ok(s.clone()),
+        Some(other) => Err(crate::safety::bad_arg(
+            builtin,
+            "algorithm: String",
+            other.type_name(),
+        )),
+    }
+}
+
 fn bi_crypto_hash(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let data = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => match input {
-            Some(Value::Str(s)) => s,
-            _ => return Ok(Value::Null),
-        },
-    };
-    let algo = args
-        .get(1)
-        .and_then(|v| match v {
-            Value::Str(s) => Some(s.to_lowercase()),
-            _ => None,
-        })
-        .unwrap_or_else(|| "sha256".to_string());
-    crate::safety::require_fips_hash(&algo)?;
+    let (data, params) = subject_and_params("crypto_hash", &args, input)?;
+    let algo = algo_param("crypto_hash", &params, "sha256")?;
+    Ok(Value::Str(digest_hex(
+        "crypto_hash",
+        &algo,
+        data.as_bytes(),
+    )?))
+}
 
-    let hash_cmd = match algo.as_str() {
-        "md5" => "md5sum",
-        "sha1" => "sha1sum",
-        "sha256" | "sha-256" => "sha256sum",
-        "sha384" | "sha-384" => "sha384sum",
-        "sha512" | "sha-512" => "sha512sum",
-        _ => "sha256sum",
-    };
-
-    #[cfg(target_os = "windows")]
-    {
-        let ps_algo = match algo.as_str() {
-            "md5" => "MD5",
-            "sha1" => "SHA1",
-            "sha384" | "sha-384" => "SHA384",
-            "sha512" | "sha-512" => "SHA512",
-            _ => "SHA256",
-        };
-        let ps_script = crate::ps_script!(
-            r#"
-$bytes = [System.Text.Encoding]::UTF8.GetBytes({})
-$hash = [System.Security.Cryptography.HashAlgorithm]::Create({})
-$hashBytes = $hash.ComputeHash($bytes)
-[System.BitConverter]::ToString($hashBytes).Replace("-", "").ToLower()
-"#,
-            crate::safety::ps_quote(&data),
-            crate::safety::ps_quote(&ps_algo)
-        );
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", &ps_script])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("crypto_hash", "powershell", &e))?;
-        if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).trim().to_string(),
-            ));
-        }
+/// `md5` and `sha256` shared `crypto_hash`'s dispatch row, and its default is
+/// SHA-256, so `md5("hello")` returned the SHA-256 of "hello". Each now has
+/// its own row with its algorithm fixed.
+fn bi_named_hash(name: &str, args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let (data, params) = subject_and_params(name, &args, input)?;
+    if let Some(extra) = params.first() {
+        return Err(crate::safety::bad_arg(
+            name,
+            &format!("only the data: {name} fixes its algorithm"),
+            extra.type_name(),
+        ));
     }
-    #[cfg(unix)]
-    {
-        let mut child = std::process::Command::new(hash_cmd)
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .spawn()
-            .map_err(|e| crate::safety::spawn_error("crypto_hash", hash_cmd, &e))?;
-        if let Some(stdin) = child.stdin.as_mut() {
-            use std::io::Write;
-            stdin.write_all(data.as_bytes())?;
-        }
-        let output = child.wait_with_output()?;
-        if output.status.success() {
-            let hash = String::from_utf8_lossy(&output.stdout)
-                .split_whitespace()
-                .next()
-                .unwrap_or("")
-                .to_string();
-            return Ok(Value::Str(hash));
-        }
-    }
-    Ok(Value::Null)
+    Ok(Value::Str(digest_hex(name, name, data.as_bytes())?))
 }
 
 fn bi_crypto_hash_file(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -31002,64 +31010,14 @@ fn bi_crypto_hash_file(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
             ))
         }
     };
-    let algo = args
-        .get(1)
-        .and_then(|v| match v {
-            Value::Str(s) => Some(s.to_lowercase()),
-            _ => None,
-        })
-        .unwrap_or_else(|| "sha256".to_string());
-    crate::safety::require_fips_hash(&algo)?;
-
-    #[cfg(target_os = "windows")]
-    {
-        let ps_algo = match algo.as_str() {
-            "md5" => "MD5",
-            "sha1" => "SHA1",
-            "sha384" | "sha-384" => "SHA384",
-            "sha512" | "sha-512" => "SHA512",
-            _ => "SHA256",
-        };
-        let output = std::process::Command::new("powershell")
-            .args([
-                "-Command",
-                &crate::ps_script!(
-                    "(Get-FileHash -Path {} -Algorithm {}).Hash.ToLower()",
-                    crate::safety::ps_quote(&path),
-                    ps_algo
-                ),
-            ])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("crypto_hash_file", "powershell", &e))?;
-        if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).trim().to_string(),
-            ));
-        }
-    }
-    #[cfg(unix)]
-    {
-        let hash_cmd = match algo.as_str() {
-            "md5" => "md5sum",
-            "sha1" => "sha1sum",
-            "sha384" | "sha-384" => "sha384sum",
-            "sha512" | "sha-512" => "sha512sum",
-            _ => "sha256sum",
-        };
-        let output = std::process::Command::new(hash_cmd)
-            .arg(&path)
-            .output()
-            .map_err(|e| crate::safety::spawn_error("crypto_hash_file", hash_cmd, &e))?;
-        if output.status.success() {
-            let hash = String::from_utf8_lossy(&output.stdout)
-                .split_whitespace()
-                .next()
-                .unwrap_or("")
-                .to_string();
-            return Ok(Value::Str(hash));
-        }
-    }
-    Ok(Value::Null)
+    let algo = algo_param("crypto_hash_file", args.get(1..).unwrap_or(&[]), "sha256")?;
+    let validated = crate::security::validate_read_path(&path)?;
+    let meta = std::fs::metadata(&validated)
+        .map_err(|e| crate::safety::fs_error("crypto_hash_file", &validated, &e))?;
+    crate::security::check_file_size_limit(meta.len())?;
+    let bytes = std::fs::read(&validated)
+        .map_err(|e| crate::safety::fs_error("crypto_hash_file", &validated, &e))?;
+    Ok(Value::Str(digest_hex("crypto_hash_file", &algo, &bytes)?))
 }
 
 fn bi_crypto_hmac(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -31319,100 +31277,30 @@ $result
 }
 
 fn bi_crypto_base64_encode(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let data = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => match input {
-            Some(Value::Str(s)) => s,
-            _ => return Ok(Value::Str("".to_string())),
-        },
-    };
-
-    #[cfg(target_os = "windows")]
-    {
-        let ps_script = crate::ps_script!(
-            r#"
-[Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes({}))
-"#,
-            crate::safety::ps_quote(&data)
-        );
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", &ps_script])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("crypto_base64_encode", "powershell", &e))?;
-        if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).trim().to_string(),
-            ));
-        }
-    }
-    #[cfg(unix)]
-    {
-        let mut child = std::process::Command::new("base64")
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .spawn()
-            .map_err(|e| crate::safety::spawn_error("crypto_base64_encode", "base64", &e))?;
-        if let Some(stdin) = child.stdin.as_mut() {
-            use std::io::Write;
-            stdin.write_all(data.as_bytes())?;
-        }
-        let output = child.wait_with_output()?;
-        if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).trim().to_string(),
-            ));
-        }
-    }
-    Ok(Value::Str("".to_string()))
+    // In-process. This piped the data through `base64` on Unix and PowerShell
+    // on Windows: GNU base64 wraps at 76 columns and PowerShell does not, so a
+    // long input encoded differently by OS, and any failure answered "".
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+    let data = hex_subject("crypto_base64_encode", &args, input)?;
+    Ok(Value::Str(STANDARD.encode(data.as_bytes())))
 }
 
 fn bi_crypto_base64_decode(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let data = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => match input {
-            Some(Value::Str(s)) => s,
-            _ => return Ok(Value::Str("".to_string())),
-        },
-    };
-
-    #[cfg(target_os = "windows")]
-    {
-        let ps_script = crate::ps_script!(
-            r#"
-[System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String({}))
-"#,
-            crate::safety::ps_quote(&data)
-        );
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", &ps_script])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("crypto_base64_decode", "powershell", &e))?;
-        if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).to_string(),
-            ));
-        }
-    }
-    #[cfg(unix)]
-    {
-        let mut child = std::process::Command::new("base64")
-            .args(["-d"])
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .spawn()
-            .map_err(|e| crate::safety::spawn_error("crypto_base64_decode", "base64", &e))?;
-        if let Some(stdin) = child.stdin.as_mut() {
-            use std::io::Write;
-            stdin.write_all(data.as_bytes())?;
-        }
-        let output = child.wait_with_output()?;
-        if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).to_string(),
-            ));
-        }
-    }
-    Ok(Value::Str("".to_string()))
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+    let data = hex_subject("crypto_base64_decode", &args, input)?;
+    // Wrapped input (as `base64` writes it) decodes: whitespace is not data.
+    let compact: String = data.chars().filter(|c| !c.is_ascii_whitespace()).collect();
+    let bytes = STANDARD.decode(compact.as_bytes()).map_err(|e| {
+        crate::safety::bad_arg("crypto_base64_decode", "valid base64", &e.to_string())
+    })?;
+    // Bytes that are not text were replaced with U+FFFD, silently.
+    String::from_utf8(bytes).map(Value::Str).map_err(|_| {
+        crate::safety::bad_arg(
+            "crypto_base64_decode",
+            "base64 of UTF-8 text (these bytes are binary)",
+            "non-UTF-8 bytes",
+        )
+    })
 }
 
 /// The string a hex builtin works on: the argument, else the piped value.

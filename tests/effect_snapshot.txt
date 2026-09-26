@@ -720,7 +720,7 @@ mcp_server	Pure
 mcp_server_start	Pure
 mcp_servers	Pure
 mcp_tools	Pure
-md5	ReadLocal
+md5	Pure
 mean	Pure
 measure	Pure
 measure-object	Pure
@@ -1157,7 +1157,7 @@ session_start	Pure
 session_undo	Pure
 set_env	Pure
 sh	Exec
-sha256	ReadLocal
+sha256	Pure
 shell	Exec
 shellcheck	ReadLocal
 shellcheck_check	ReadLocal

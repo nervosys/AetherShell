@@ -255,3 +255,38 @@ fn a2ui_refuses_what_it_would_have_misreported() {
         assert_eq!(code_of(&eval(bad).expect_err(bad)), "E_BAD_ARG", "{bad}");
     }
 }
+
+/// md5 shared crypto_hash's dispatch row, whose default is SHA-256, so
+/// md5("hello") returned the SHA-256 of "hello". An unknown algorithm fell
+/// through to SHA-256 too, and a piped subject hashed the algorithm's name.
+#[test]
+fn a_hash_is_the_hash_it_names() {
+    const MD5: &str = "5d41402abc4b2a76b9719d911017c592";
+    const SHA1: &str = "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d";
+    const SHA256: &str = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824";
+    assert_eq!(eval(r#"md5("hello")"#).unwrap(), s(MD5));
+    assert_eq!(eval(r#"sha256("hello")"#).unwrap(), s(SHA256));
+    assert_eq!(eval(r#"crypto_hash("hello", "sha1")"#).unwrap(), s(SHA1));
+    assert_eq!(eval(r#""hello" | crypto_hash("md5")"#).unwrap(), s(MD5));
+    assert_eq!(eval(r#"hash("hello")"#).unwrap(), s(SHA256));
+    let e = eval(r#"crypto_hash("hello", "blake3")"#).expect_err("blake3 answered");
+    assert_eq!(code_of(&e), "E_BAD_ARG");
+    let e = eval(r#"md5("hello", "sha256")"#).expect_err("md5 took an algorithm");
+    assert_eq!(code_of(&e), "E_BAD_ARG");
+}
+
+/// base64 ran `base64` (which wraps at 76 columns) on Unix and PowerShell
+/// (which does not) on Windows, so a long input encoded differently by OS.
+#[test]
+fn base64_is_the_same_on_every_os_and_round_trips() {
+    let long = "x".repeat(200);
+    let Value::Str(enc) = call("base64_encode", vec![s(&long)]).unwrap() else {
+        panic!()
+    };
+    assert!(!enc.contains('\n'), "wrapped: {enc}");
+    assert_eq!(call("base64_decode", vec![s(&enc)]).unwrap(), s(&long));
+    let e = call("base64_decode", vec![s("not base64!")]).expect_err("decoded garbage");
+    assert_eq!(code_of(&e), "E_BAD_ARG");
+    let e = call("base64_encode", vec![]).expect_err("encoded nothing");
+    assert_eq!(code_of(&e), "E_BAD_ARG");
+}
