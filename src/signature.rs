@@ -3913,6 +3913,74 @@ pub static SIGNATURES: &[Signature] = &[
             (r#"typeof(touch(fs_tempfile("ae_touch")))"#, r#"String"#),
         ],
     },
+    // 1b: JWT, RBAC queries, permissions and RLM statistics, each made to
+    // report failures instead of answering null.
+    Signature {
+        name: "crypto_jwt_decode",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("token", Ty::Str, "a JWT: header.payload.signature")],
+        returns: "Any",
+        doc: "A JWT's payload, decoded WITHOUT verifying the signature. A malformed token is refused.",
+        examples: &[
+            (r#"crypto_jwt_decode("eyJhbGciOiJub25lIn0.eyJzdWIiOiJhZSJ9.x").sub"#, r#"ae"#),
+        ],
+    },
+    Signature {
+        name: "rbac_can",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("permission", Ty::Str, "a permission such as files:read")],
+        returns: "Bool",
+        doc: "Whether the current principal holds a permission; false when no principal is set.",
+        examples: &[
+            (r#"rbac_can("files:read")"#, r#"false"#),
+        ],
+    },
+    Signature {
+        name: "rbac_session",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[],
+        returns: "Record | Null",
+        doc: "The current login session, or null when anonymous or expired.",
+        examples: &[
+            (r#"rbac_session() == null"#, r#"true"#),
+        ],
+    },
+    Signature {
+        name: "perm_get",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("path", Ty::Str, "a file path")],
+        returns: "String",
+        doc: "A path's permissions: octal mode bits on Unix, readonly or readwrite on Windows.",
+        examples: &[
+            (r#"typeof(perm_get("Cargo.toml"))"#, r#"String"#),
+        ],
+    },
+    Signature {
+        name: "rlm_stats",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[opt("run", Ty::Record, "the record an rlm run returned")],
+        returns: "Record",
+        doc: "Statistics of this session's last recursive-agent run as {runs, last_run}; last_run is null before any run. Given a run's record, returns it.",
+        examples: &[
+            (r#"typeof(rlm_stats())"#, r#"Record"#),
+            (r#"rlm_stats({total_spawned: 2}).total_spawned"#, r#"2"#),
+        ],
+    },
 ];
 
 /// The declaration for `name`, if it has one.

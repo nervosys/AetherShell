@@ -25,10 +25,13 @@ print(custom_config)
 # Hierarchy Statistics
 # ============================================================
 
-# Get current hierarchy statistics (before running any agents)
+# Statistics of the last rlm_agent / rlm_spawn run in this session.
+# Before any run there is none to describe:
 let stats = rlm_stats()
 print(stats)
-# Output: {total_spawned: 0, currently_active: 0, messages_sent: 0, ...}
+# Output: {last_run: null, runs: 0}
+# After a run, last_run holds {total_spawned, currently_active, messages_sent,
+# elapsed_ms, max_depth, max_agents}.
 
 # ============================================================
 # Running Recursive Agents

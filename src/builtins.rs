@@ -15664,6 +15664,7 @@ fn bi_rlm_agent(args: Vec<Value>, _input: Option<Value>, env: &mut Env) -> Resul
     } else {
         run_recursive(&goal, &tool_refs, config, false, env)?
     };
+    record_rlm_run(&stats);
 
     // Return result with stats
     let mut rec = BTreeMap::new();
@@ -15724,24 +15725,63 @@ fn bi_rlm_config(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 /// Get RLM statistics from the last run
 /// Usage: rlm_stats()
+/// The last recursive-agent run's statistics, and how many runs there were.
+static LAST_RLM_RUN: std::sync::Mutex<Option<(u64, crate::rlm::HierarchyStats)>> =
+    std::sync::Mutex::new(None);
+
+fn record_rlm_run(stats: &crate::rlm::HierarchyStats) {
+    let mut last = LAST_RLM_RUN.lock().unwrap_or_else(|e| e.into_inner());
+    let runs = last.as_ref().map_or(0, |(n, _)| *n) + 1;
+    *last = Some((runs, stats.clone()));
+}
+
 fn bi_rlm_stats(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    // If input is a record with stats, format it nicely
-    let stats_value = input.or_else(|| args.first().cloned());
-
-    if let Some(Value::Record(rec)) = stats_value {
-        // Already a stats record, return as-is
-        return Ok(Value::Record(rec));
+    // Given the record an rlm run returned, report it.
+    match input.or_else(|| args.first().cloned()) {
+        Some(Value::Record(rec)) => return Ok(Value::Record(rec)),
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "rlm_stats",
+                "nothing, or the record an rlm run returned",
+                other.type_name(),
+            ))
+        }
+        None => {}
     }
-
-    // Return default stats structure
+    // With no argument this returned constants -- max_depth 5, max_agents 50,
+    // zero spawned -- presented as "statistics from the last run", whether or
+    // not anything had run. Nothing recorded runs. rlm_agent and rlm_spawn
+    // now do, and this reports the last one; before any run, `runs` is 0 and
+    // there is no last run to describe.
+    let last = LAST_RLM_RUN
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
     let mut rec = BTreeMap::new();
-    rec.insert("total_spawned".to_string(), Value::Int(0));
-    rec.insert("currently_active".to_string(), Value::Int(0));
-    rec.insert("messages_sent".to_string(), Value::Int(0));
-    rec.insert("elapsed_ms".to_string(), Value::Int(0));
-    rec.insert("max_depth".to_string(), Value::Int(5));
-    rec.insert("max_agents".to_string(), Value::Int(50));
-
+    rec.insert(
+        "runs".to_string(),
+        Value::Int(last.as_ref().map_or(0, |(n, _)| *n as i64)),
+    );
+    let last = last.map(|(_, st)| {
+        let mut r = BTreeMap::new();
+        r.insert(
+            "total_spawned".to_string(),
+            Value::Int(st.total_spawned as i64),
+        );
+        r.insert(
+            "currently_active".to_string(),
+            Value::Int(st.currently_active as i64),
+        );
+        r.insert(
+            "messages_sent".to_string(),
+            Value::Int(st.messages_sent as i64),
+        );
+        r.insert("elapsed_ms".to_string(), Value::Int(st.elapsed_ms as i64));
+        r.insert("max_depth".to_string(), Value::Int(st.max_depth as i64));
+        r.insert("max_agents".to_string(), Value::Int(st.max_agents as i64));
+        Value::Record(r)
+    });
+    rec.insert("last_run".to_string(), last.unwrap_or(Value::Null));
     Ok(Value::Record(rec))
 }
 
@@ -15798,6 +15838,7 @@ fn bi_rlm_spawn(args: Vec<Value>, _input: Option<Value>, env: &mut Env) -> Resul
     crate::safety::guard_exec("rlm_spawn", format!("spawn agent '{name}': {goal}"))?;
     let tool_refs: Vec<&str> = tool_names.iter().map(|s| s.as_str()).collect();
     let (result, stats) = run_recursive(&goal, &tool_refs, config, false, env)?;
+    record_rlm_run(&stats);
 
     let mut rec = BTreeMap::new();
     rec.insert("name".to_string(), Value::Str(name));
@@ -22111,10 +22152,10 @@ fn bi_fs_readlink(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
     };
 
-    if let Ok(target) = std::fs::read_link(&path) {
-        return Ok(Value::Str(target.to_string_lossy().to_string()));
-    }
-    Ok(Value::Null)
+    // A missing path and a path that is not a symlink were both null.
+    let target =
+        std::fs::read_link(&path).map_err(|e| crate::safety::fs_error("fs_readlink", &path, &e))?;
+    Ok(Value::Str(target.to_string_lossy().to_string()))
 }
 
 fn bi_fs_realpath(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -26496,24 +26537,22 @@ fn bi_perm_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
     };
 
+    // A path that could not be read was null.
+    let meta =
+        std::fs::metadata(&path).map_err(|e| crate::safety::fs_error("perm_get", &path, &e))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        if let Ok(meta) = std::fs::metadata(&path) {
-            let mode = meta.permissions().mode();
-            return Ok(Value::Str(format!("{:o}", mode & 0o777)));
-        }
+        let mode = meta.permissions().mode();
+        return Ok(Value::Str(format!("{:o}", mode & 0o777)));
     }
     #[cfg(not(unix))]
     {
-        if let Ok(meta) = std::fs::metadata(&path) {
-            let readonly = meta.permissions().readonly();
-            return Ok(Value::Str(
-                if readonly { "readonly" } else { "readwrite" }.to_string(),
-            ));
-        }
+        let readonly = meta.permissions().readonly();
+        Ok(Value::Str(
+            if readonly { "readonly" } else { "readwrite" }.to_string(),
+        ))
     }
-    Ok(Value::Null)
 }
 
 fn bi_perm_set(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -26827,8 +26866,9 @@ fn bi_pkg_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args(["list"])
             .output()
             .map_err(|e| crate::safety::spawn_error("pkg_list", "winget", &e))?,
-        _ => return Ok(Value::Array(vec![])),
+        other => return Err(pkg_unsupported("pkg_list", other)),
     };
+    pkg_succeeded("pkg_list", pm, &output)?;
 
     let text = String::from_utf8_lossy(&output.stdout);
     let packages: Vec<Value> = match pm {
@@ -26907,6 +26947,34 @@ fn bi_pkg_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Array(packages))
 }
 
+/// This package manager is not one the builtin knows how to query. These
+/// answered [] ("no files", "no results"), null, or -- for pkg_verify --
+/// `true`, "verified", without inspecting anything.
+fn pkg_unsupported(builtin: &str, pm: &str) -> anyhow::Error {
+    crate::safety::unimplemented(
+        builtin,
+        &format!(
+            "{builtin} is not implemented for the {pm} package manager; NOTHING WAS INSPECTED"
+        ),
+        "query the package manager directly",
+    )
+}
+
+/// The query ran; did it succeed? The exit status was not read, so a package
+/// that is not installed answered as one with no files, no dependencies, or
+/// an owner record whose package was "".
+fn pkg_succeeded(builtin: &str, program: &str, output: &std::process::Output) -> Result<()> {
+    if output.status.success() {
+        return Ok(());
+    }
+    Err(crate::safety::tool_failed(
+        builtin,
+        program,
+        output.status.code(),
+        &String::from_utf8_lossy(&output.stderr),
+    ))
+}
+
 fn bi_pkg_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let query = match args.first() {
         Some(Value::Str(s)) => s.clone(),
@@ -26918,6 +26986,7 @@ fn bi_pkg_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             ))
         }
     };
+    crate::safety::reject_option_like("pkg_search", std::slice::from_ref(&query))?;
     let pm = detect_package_manager();
 
     let output = match pm {
@@ -26941,8 +27010,9 @@ fn bi_pkg_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args(["search", &query])
             .output()
             .map_err(|e| crate::safety::spawn_error("pkg_search", "winget", &e))?,
-        _ => return Ok(Value::Array(vec![])),
+        other => return Err(pkg_unsupported("pkg_search", other)),
     };
+    pkg_succeeded("pkg_search", pm, &output)?;
 
     let text = String::from_utf8_lossy(&output.stdout);
     let results: Vec<Value> = match pm {
@@ -27001,6 +27071,7 @@ fn bi_pkg_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             ))
         }
     };
+    crate::safety::reject_option_like("pkg_info", std::slice::from_ref(&package))?;
     let pm = detect_package_manager();
 
     let output = match pm {
@@ -27024,8 +27095,9 @@ fn bi_pkg_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args(["show", &package])
             .output()
             .map_err(|e| crate::safety::spawn_error("pkg_info", "winget", &e))?,
-        _ => return Ok(Value::Null),
+        other => return Err(pkg_unsupported("pkg_info", other)),
     };
+    pkg_succeeded("pkg_info", pm, &output)?;
 
     // Parse key-value "Field: Value" lines into a Record (works for apt, dnf, pacman, brew, winget)
     let text = String::from_utf8_lossy(&output.stdout);
@@ -27177,6 +27249,7 @@ fn bi_pkg_files(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             ))
         }
     };
+    crate::safety::reject_option_like("pkg_files", std::slice::from_ref(&package))?;
     let pm = detect_package_manager();
 
     let output = match pm {
@@ -27188,8 +27261,9 @@ fn bi_pkg_files(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args(["-Ql", &package])
             .output()
             .map_err(|e| crate::safety::spawn_error("pkg_files", "pacman", &e))?,
-        _ => return Ok(Value::Array(vec![])),
+        other => return Err(pkg_unsupported("pkg_files", other)),
     };
+    pkg_succeeded("pkg_files", pm, &output)?;
 
     let text = String::from_utf8_lossy(&output.stdout);
     let files: Vec<Value> = text
@@ -27218,6 +27292,7 @@ fn bi_pkg_owner(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             ))
         }
     };
+    crate::safety::reject_option_like("pkg_owner", std::slice::from_ref(&file))?;
     let pm = detect_package_manager();
 
     let output = match pm {
@@ -27229,8 +27304,9 @@ fn bi_pkg_owner(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args(["-Qo", &file])
             .output()
             .map_err(|e| crate::safety::spawn_error("pkg_owner", "pacman", &e))?,
-        _ => return Ok(Value::Null),
+        other => return Err(pkg_unsupported("pkg_owner", other)),
     };
+    pkg_succeeded("pkg_owner", pm, &output)?;
 
     let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
     let mut rec = std::collections::BTreeMap::new();
@@ -27279,6 +27355,7 @@ fn bi_pkg_verify(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             ))
         }
     };
+    crate::safety::reject_option_like("pkg_verify", std::slice::from_ref(&package))?;
     let pm = detect_package_manager();
 
     let output = match pm {
@@ -27286,10 +27363,13 @@ fn bi_pkg_verify(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args(["-V", &package])
             .output()
             .map_err(|e| crate::safety::spawn_error("pkg_verify", "dpkg", &e))?,
-        _ => return Ok(Value::Bool(true)),
+        other => return Err(pkg_unsupported("pkg_verify", other)),
     };
 
-    Ok(Value::Bool(output.status.success()))
+    // dpkg -V prints one line per file that fails verification.
+    Ok(Value::Bool(
+        output.status.success() && String::from_utf8_lossy(&output.stdout).trim().is_empty(),
+    ))
 }
 
 fn bi_pkg_deps(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -27303,6 +27383,7 @@ fn bi_pkg_deps(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             ))
         }
     };
+    crate::safety::reject_option_like("pkg_deps", std::slice::from_ref(&package))?;
     let pm = detect_package_manager();
 
     let output = match pm {
@@ -27314,8 +27395,9 @@ fn bi_pkg_deps(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args(["-Si", &package])
             .output()
             .map_err(|e| crate::safety::spawn_error("pkg_deps", "pacman", &e))?,
-        _ => return Ok(Value::Array(vec![])),
+        other => return Err(pkg_unsupported("pkg_deps", other)),
     };
+    pkg_succeeded("pkg_deps", pm, &output)?;
 
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).to_string(),
@@ -27333,6 +27415,7 @@ fn bi_pkg_rdeps(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             ))
         }
     };
+    crate::safety::reject_option_like("pkg_rdeps", std::slice::from_ref(&package))?;
     let pm = detect_package_manager();
 
     let output = match pm {
@@ -27344,8 +27427,9 @@ fn bi_pkg_rdeps(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args(["-Sii", &package])
             .output()
             .map_err(|e| crate::safety::spawn_error("pkg_rdeps", "pacman", &e))?,
-        _ => return Ok(Value::Array(vec![])),
+        other => return Err(pkg_unsupported("pkg_rdeps", other)),
     };
+    pkg_succeeded("pkg_rdeps", pm, &output)?;
 
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).to_string(),
@@ -27363,6 +27447,7 @@ fn bi_pkg_changelog(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             ))
         }
     };
+    crate::safety::reject_option_like("pkg_changelog", std::slice::from_ref(&package))?;
     let pm = detect_package_manager();
 
     let output = match pm {
@@ -27370,8 +27455,9 @@ fn bi_pkg_changelog(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args(["changelog", &package])
             .output()
             .map_err(|e| crate::safety::spawn_error("pkg_changelog", "apt-get", &e))?,
-        _ => return Ok(Value::Null),
+        other => return Err(pkg_unsupported("pkg_changelog", other)),
     };
+    pkg_succeeded("pkg_changelog", pm, &output)?;
 
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).to_string(),
@@ -32660,59 +32746,23 @@ fn bi_crypto_jwt_decode(args: Vec<Value>, _input: Option<Value>) -> Result<Value
         }
     };
 
-    // Simple JWT decode (no verification)
-    let parts: Vec<&str> = token.split('.').collect();
-    if parts.len() >= 2 {
-        // Decode payload (second part)
-        let payload = parts[1];
-        // Add padding if needed
-        let padded = match payload.len() % 4 {
-            2 => format!("{}==", payload),
-            3 => format!("{}=", payload),
-            _ => payload.to_string(),
-        };
-
-        #[cfg(target_os = "windows")]
-        {
-            let ps_script = crate::ps_script!(
-                r#"
-[System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String({}))
-"#,
-                crate::safety::ps_quote(&padded.replace('-', "+").replace('_', "/"))
-            );
-            let output = std::process::Command::new("powershell")
-                .args(["-Command", &ps_script])
-                .output()
-                .map_err(|e| crate::safety::spawn_error("crypto_jwt_decode", "powershell", &e))?;
-            if output.status.success() {
-                let json_str = String::from_utf8_lossy(&output.stdout);
-                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                    return Ok(json_to_value(json));
-                }
-            }
-        }
-        #[cfg(unix)]
-        {
-            let mut child = std::process::Command::new("base64")
-                .args(["-d"])
-                .stdin(std::process::Stdio::piped())
-                .stdout(std::process::Stdio::piped())
-                .spawn()
-                .map_err(|e| crate::safety::spawn_error("crypto_jwt_decode", "base64", &e))?;
-            if let Some(stdin) = child.stdin.as_mut() {
-                use std::io::Write;
-                stdin.write_all(padded.replace('-', "+").replace('_', "/").as_bytes())?;
-            }
-            let output = child.wait_with_output()?;
-            if output.status.success() {
-                let json_str = String::from_utf8_lossy(&output.stdout);
-                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                    return Ok(json_to_value(json));
-                }
-            }
-        }
+    // The payload, decoded without verifying the signature. This shelled
+    // out to `base64` (Unix) or PowerShell (Windows) and answered null for a
+    // malformed token, a bad segment or a payload that was not JSON.
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+    let bad = |why: &str| {
+        crate::safety::bad_arg("crypto_jwt_decode", "a JWT (header.payload.signature)", why)
+    };
+    let parts: Vec<&str> = token.trim().split('.').collect();
+    if parts.len() != 3 {
+        return Err(bad(&format!("{} dot-separated segment(s)", parts.len())));
     }
-    Ok(Value::Null)
+    let bytes = URL_SAFE_NO_PAD
+        .decode(parts[1].trim_end_matches('='))
+        .map_err(|e| bad(&format!("a payload that is not base64url: {e}")))?;
+    let json: serde_json::Value = serde_json::from_slice(&bytes)
+        .map_err(|e| bad(&format!("a payload that is not JSON: {e}")))?;
+    Ok(json_to_value(json))
 }
 
 // ============================================================================
@@ -38750,9 +38800,18 @@ fn bi_platform_db_load(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 
     let content = std::fs::read_to_string(&db_path)
         .map_err(|e| crate::safety::fs_error("platform_db_load", &db_path, &e))?;
+    // A corrupt store read as empty, so every key answered null.
     let db: serde_json::Map<String, serde_json::Value> =
-        serde_json::from_str(&content).unwrap_or_default();
-
+        serde_json::from_str(&content).map_err(|e| {
+            crate::safety::bad_state(
+                "platform_db_load",
+                &format!(
+                    "the platform store {} is not valid JSON: {e}",
+                    db_path.display()
+                ),
+                "repair or delete the file; platform_db_store recreates it",
+            )
+        })?;
     match db.get(key) {
         Some(val) => Ok(json_to_value(val.clone())),
         None => Ok(Value::Null),

@@ -376,3 +376,59 @@ fn touch_moves_the_modification_time() {
         "mtime not updated"
     );
 }
+
+/// Each of these answered null for a failure: a malformed JWT, a missing
+/// path, a path that is not a symlink. And rlm_stats() returned constants
+/// presented as the last run's statistics.
+#[test]
+fn failures_are_reported_not_nulled() {
+    for (name, arg) in [
+        ("crypto_jwt_decode", "not-a-jwt"),
+        ("crypto_jwt_decode", "a.!!!.c"),
+        ("perm_get", "no-such-file-ae"),
+        ("fs_readlink", "no-such-file-ae"),
+    ] {
+        let e = call(name, vec![s(arg)]).expect_err(name);
+        assert!(
+            code_of(&e).starts_with("E_") && !code_of(&e).starts_with("NO_CODE"),
+            "{name}: {e}"
+        );
+    }
+    let Value::Record(r) = call("rlm_stats", vec![]).unwrap() else {
+        panic!()
+    };
+    assert!(
+        r.contains_key("runs") && r.contains_key("last_run"),
+        "{r:?}"
+    );
+    assert!(
+        !r.contains_key("max_depth"),
+        "config defaults presented as statistics"
+    );
+}
+
+/// The package queries answered [] or null when the package manager was not
+/// one they knew, never read the tool's exit status (a package that is not
+/// installed had "no files"), and pkg_verify said `true` on every system but
+/// apt without inspecting anything.
+#[test]
+fn package_queries_do_not_answer_for_what_they_did_not_inspect() {
+    for name in [
+        "pkg_files",
+        "pkg_info",
+        "pkg_deps",
+        "pkg_verify",
+        "pkg_owner",
+    ] {
+        let e = call(name, vec![s("--admindir=/tmp")]).expect_err(name);
+        assert!(code_of(&e).starts_with("E_"), "{name}: {e}");
+        let e = call(name, vec![s("definitely-not-a-package-ae-7f3")]);
+        match e {
+            Err(e) => assert!(!code_of(&e).starts_with("NO_CODE"), "{name}: {e}"),
+            Ok(v) => assert!(
+                !matches!(v, Value::Bool(true)) && v != Value::Array(vec![]) && v != Value::Null,
+                "{name} answered {v:?} for a package that does not exist"
+            ),
+        }
+    }
+}
