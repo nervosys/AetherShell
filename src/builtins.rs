@@ -19231,27 +19231,26 @@ fn bi_mcp_server_start(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         })
         .unwrap_or_else(|| "builtin".to_string());
 
-    // Generate a unique endpoint
-    let port = 3000
-        + (std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as u16 % 1000)
-            .unwrap_or(0));
-    let endpoint = format!("http://localhost:{}", port);
-
-    // Create server info record
+    // This reported status "started" with an endpoint on a port derived from
+    // the clock, and started nothing. It now says what it is: a declaration.
+    // `ae mcp serve` is the real server.
     let mut result = BTreeMap::new();
     result.insert("name".to_string(), Value::Str(name));
     result.insert("type".to_string(), Value::Str(server_type));
-    result.insert("endpoint".to_string(), Value::Str(endpoint));
-    result.insert("port".to_string(), Value::Int(port as i64));
-    result.insert("status".to_string(), Value::Str("started".to_string()));
-
-    // Include original config
+    if let Some(ep) = config.get("endpoint") {
+        result.insert("endpoint".to_string(), ep.clone());
+    }
+    result.insert(
+        "status".to_string(),
+        Value::Str("declared (not started)".to_string()),
+    );
+    result.insert(
+        "hint".to_string(),
+        Value::Str("run `ae mcp serve` to start an MCP server".to_string()),
+    );
     if let Some(inner_config) = config.get("config") {
         result.insert("config".to_string(), inner_config.clone());
     }
-
     Ok(Value::Record(result))
 }
 

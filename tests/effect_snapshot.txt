@@ -706,8 +706,8 @@ mcp-detect	Pure
 mcp-servers	Pure
 mcp_cache_clear	Pure
 mcp_cache_status	Pure
-mcp_call	Pure
-mcp_call_tool	Pure
+mcp_call	Exec
+mcp_call_tool	Exec
 mcp_client	Network
 mcp_connect	Network
 mcp_detect	Pure

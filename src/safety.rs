@@ -335,6 +335,13 @@ fn classified_effect(name: &str) -> Option<Effect> {
         //
         // Packet capture: reads every process's traffic and needs root or
         // CAP_NET_RAW. An agent doing it unassisted is the privilege boundary.
+        // mcp_call runs an OS program from the tool catalogue (cp, mv, make,
+        // deno, kubectl, sed, ...) with caller-supplied arguments, through a
+        // method call the body-evidence ratchet does not follow. Classified
+        // Pure it skipped the gate entirely: in agent mode `cp` to a path
+        // outside the workspace was refused and `mcp_call("cp", ...)` made the
+        // same copy. tests/mcp_call_is_gated.rs runs that sequence.
+        "mcp_call" | "mcp_call_tool" => Some(Effect::Exec),
         "monitor_tcpdump" => Some(Effect::Privileged),
         // Run `sh -c <command>` under perf: arbitrary execution, exactly as the
         // `perf_stat`/`perf_record` spellings are classified.
