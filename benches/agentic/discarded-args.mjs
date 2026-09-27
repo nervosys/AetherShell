@@ -186,6 +186,13 @@ console.log(`${discarded.length} of ${compared} (${pct}%) returned the SAME valu
 console.log('extra arguments as without them. Those arguments were discarded.\n');
 for (const d of discarded.slice(0, 40)) console.log(`  ${d}`);
 if (discarded.length > 40) console.log(`  ... and ${discarded.length - 40} more`);
+// Every name on one line in CI, so two runs of the same code can be diffed:
+// the count moved by three between such runs, and the 40-line list above
+// cannot show which builtins moved.
+if (process.env.AE_PROBE_ASSERT === '1') {
+    console.log(`\ndiscarded-names: ${discarded.map((d) => d.split('\t')[0]).join(' ')}`);
+    console.log(`nondeterministic-names: ${nondet.join(' ')}`);
+}
 fs.writeFileSync('discarded-args.txt', `${discarded.join('\n')}\n`);
 if (nondet.length) {
     fs.writeFileSync('nondeterministic.txt', `${nondet.join('\n')}\n`);
