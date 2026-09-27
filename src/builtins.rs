@@ -28777,6 +28777,10 @@ fn bi_gui_screenshot(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             format!("screenshot_{}.png", ts)
         });
 
+    // Where it writes is checked like any other write (it was not), and the
+    // path goes to scrot/screencapture positionally.
+    crate::safety::reject_option_like("gui_screenshot", std::slice::from_ref(&path))?;
+    let path = guard_local_write("gui_screenshot", &path)?;
     #[cfg(target_os = "windows")]
     {
         let ps_script = crate::ps_script!(
@@ -28797,6 +28801,13 @@ $bitmap.Save({})
         if output.status.success() {
             return Ok(Value::Str(path));
         }
+        // A failed capture answered null.
+        return Err(crate::safety::tool_failed(
+            "gui_screenshot",
+            "powershell",
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
     }
     #[cfg(target_os = "linux")]
     {
@@ -28807,6 +28818,13 @@ $bitmap.Save({})
         if output.status.success() {
             return Ok(Value::Str(path));
         }
+        // A failed capture answered null.
+        return Err(crate::safety::tool_failed(
+            "gui_screenshot",
+            "scrot",
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
     }
     #[cfg(target_os = "macos")]
     {
@@ -28817,49 +28835,32 @@ $bitmap.Save({})
         if output.status.success() {
             return Ok(Value::Str(path));
         }
+        // A failed capture answered null.
+        return Err(crate::safety::tool_failed(
+            "gui_screenshot",
+            "screencapture",
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
     }
-    Ok(Value::Null)
+    #[allow(unreachable_code)]
+    Err(crate::safety::unimplemented(
+        "gui_screenshot",
+        "screen capture is not implemented on this OS; NOTHING WAS CAPTURED",
+        "use the platform's screenshot tool",
+    ))
 }
 
 fn bi_gui_screenshot_window(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let title = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "gui_screenshot_window",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-    let path = args
-        .get(1)
-        .and_then(|v| match v {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        })
-        .unwrap_or_else(|| {
-            format!(
-                "window_{}.png",
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs()
-            )
-        });
-
-    #[cfg(target_os = "linux")]
-    {
-        let output = std::process::Command::new("scrot")
-            .args(["-u", &path])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("gui_screenshot_window", "scrot", &e))?;
-        if output.status.success() {
-            return Ok(Value::Str(path));
-        }
-    }
-    let _ = title;
-    Ok(Value::Null)
+    // This promised the window with a given title. The title was never used:
+    // on Linux `scrot -u` captured whichever window had focus, and every other
+    // OS answered null. Capturing by title is not implemented anywhere.
+    let _ = &args;
+    Err(crate::safety::unimplemented(
+        "gui_screenshot_window",
+        "capturing a window by title is not implemented; NOTHING WAS CAPTURED",
+        "screenshot(path) captures the whole screen",
+    ))
 }
 
 #[allow(unused_variables)]
@@ -29426,6 +29427,7 @@ fn bi_gui_ocr(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
     };
 
+    crate::safety::reject_option_like("gui_ocr", std::slice::from_ref(&image_path))?;
     let output = std::process::Command::new("tesseract")
         .args([&image_path, "stdout"])
         .output();
@@ -29434,9 +29436,15 @@ fn bi_gui_ocr(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Ok(out) if out.status.success() => {
             Ok(Value::Str(String::from_utf8_lossy(&out.stdout).to_string()))
         }
-        _ => Ok(Value::Str(
-            "OCR requires tesseract to be installed".to_string(),
+        // Both failures answered the String "OCR requires tesseract to be
+        // installed" -- as the text recognised in the image.
+        Ok(out) => Err(crate::safety::tool_failed(
+            "gui_ocr",
+            "tesseract",
+            out.status.code(),
+            &String::from_utf8_lossy(&out.stderr),
         )),
+        Err(e) => Err(crate::safety::spawn_error("gui_ocr", "tesseract", &e)),
     }
 }
 
@@ -29729,10 +29737,18 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{ $dialog
 }
 
 fn bi_gui_wait(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    // A negative Int became u64::MAX milliseconds: gui_wait(-1) slept forever.
     let ms = match args.first() {
-        Some(Value::Int(n)) => *n as u64,
-        Some(Value::Float(f)) => *f as u64,
-        _ => 1000,
+        None => 1000,
+        Some(Value::Int(n)) if (0..=3_600_000).contains(n) => *n as u64,
+        Some(Value::Float(f)) if (0.0..=3_600_000.0).contains(f) => *f as u64,
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "gui_wait",
+                "milliseconds from 0 to 3600000",
+                &other.to_display_string(),
+            ))
+        }
     };
     std::thread::sleep(std::time::Duration::from_millis(ms));
     Ok(Value::Bool(true))
@@ -30832,7 +30848,15 @@ fn bi_clipboard_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             ])
             .output()
             .map_err(|e| crate::safety::spawn_error("clipboard_set", "powershell", &e))?;
-        Ok(Value::Bool(output.status.success()))
+        if !output.status.success() {
+            return Err(crate::safety::tool_failed(
+                "clipboard_set",
+                "Set-Clipboard",
+                output.status.code(),
+                &String::from_utf8_lossy(&output.stderr),
+            ));
+        }
+        Ok(Value::Bool(true))
     }
     #[cfg(target_os = "macos")]
     {
@@ -30845,7 +30869,15 @@ fn bi_clipboard_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             stdin.write_all(text.as_bytes())?;
         }
         let status = child.wait()?;
-        return Ok(Value::Bool(status.success()));
+        if !status.success() {
+            return Err(crate::safety::tool_failed(
+                "clipboard_set",
+                "the clipboard tool",
+                status.code(),
+                "it exited unsuccessfully",
+            ));
+        }
+        return Ok(Value::Bool(true));
     }
     #[cfg(target_os = "linux")]
     {
@@ -30862,7 +30894,15 @@ fn bi_clipboard_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                 stdin.write_all(text.as_bytes())?;
             }
             let status = c.wait()?;
-            return Ok(Value::Bool(status.success()));
+            if !status.success() {
+                return Err(crate::safety::tool_failed(
+                    "clipboard_set",
+                    "the clipboard tool",
+                    status.code(),
+                    "it exited unsuccessfully",
+                ));
+            }
+            return Ok(Value::Bool(true));
         }
         // Try xsel
         let mut child = std::process::Command::new("xsel")
@@ -30875,7 +30915,15 @@ fn bi_clipboard_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             stdin.write_all(text.as_bytes())?;
         }
         let status = child.wait()?;
-        return Ok(Value::Bool(status.success()));
+        if !status.success() {
+            return Err(crate::safety::tool_failed(
+                "clipboard_set",
+                "the clipboard tool",
+                status.code(),
+                "it exited unsuccessfully",
+            ));
+        }
+        return Ok(Value::Bool(true));
     }
 }
 
@@ -31950,6 +31998,14 @@ fn bi_crypto_key_generate(args: Vec<Value>, _input: Option<Value>) -> Result<Val
             _ => None,
         })
         .unwrap_or(2048);
+    // Any size was accepted, 512 included.
+    if key_type == "rsa" && !(2048..=16384).contains(&bits) {
+        return Err(crate::safety::bad_arg(
+            "crypto_key_generate",
+            "an RSA size from 2048 to 16384 bits",
+            &bits.to_string(),
+        ));
+    }
 
     #[cfg(unix)]
     {
@@ -31962,15 +32018,39 @@ fn bi_crypto_key_generate(args: Vec<Value>, _input: Option<Value>) -> Result<Val
                 .args(["ecparam", "-genkey", "-name", "prime256v1"])
                 .output()
                 .map_err(|e| crate::safety::spawn_error("crypto_key_generate", "openssl", &e))?,
-            _ => return Ok(Value::Str("Unsupported key type".to_string())),
+            // This answered the String "Unsupported key type" -- in the place a
+            // caller reads the key from.
+            other => {
+                return Err(crate::safety::bad_arg(
+                    "crypto_key_generate",
+                    "key type rsa or ec",
+                    other,
+                ))
+            }
         };
         if output.status.success() {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&output.stdout).to_string(),
             ));
         }
+        return Err(crate::safety::tool_failed(
+            "crypto_key_generate",
+            "openssl",
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
     }
-    Ok(Value::Str("Key generation requires OpenSSL".to_string()))
+    // This answered the String "Key generation requires OpenSSL" as the key:
+    // saved to a file, that sentence became the private key.
+    #[allow(unreachable_code)]
+    {
+        let _ = (key_type, bits);
+        Err(crate::safety::unimplemented(
+            "crypto_key_generate",
+            "key generation needs the openssl CLI, which this build uses only on Unix; NO KEY WAS GENERATED",
+            "generate the key with openssl or ssh_keygen",
+        ))
+    }
 }
 
 fn bi_crypto_password_hash(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {

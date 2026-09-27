@@ -556,3 +556,21 @@ fn a_helper_only_names_builtins_that_exist() {
         );
     }
 }
+
+/// crypto_key_generate answered the Strings "Unsupported key type" and "Key
+/// generation requires OpenSSL" where the key goes; saved to a file, the
+/// sentence became the private key. gui_ocr answered "OCR requires tesseract
+/// to be installed" as the recognised text. gui_wait(-1) slept forever.
+#[test]
+fn an_error_is_never_returned_where_the_data_goes() {
+    for (name, args) in [
+        ("crypto_generate_key", vec![s("dsa")]),
+        ("crypto_generate_key", vec![s("rsa"), Value::Int(512)]),
+        ("gui_ocr", vec![s("no-such-image-ae.png")]),
+        ("gui_wait", vec![Value::Int(-1)]),
+        ("gui_screenshot_window", vec![s("Some Window")]),
+    ] {
+        let r = call(name, args);
+        assert!(r.is_err(), "{name} answered {r:?}");
+    }
+}
