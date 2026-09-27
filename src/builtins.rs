@@ -32392,8 +32392,17 @@ fn bi_db_sqlite_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .args([&db_path, &sql])
         .output()
         .map_err(|e| crate::safety::spawn_error("db_sqlite_exec", "sqlite3", &e))?;
-
-    Ok(Value::Bool(output.status.success()))
+    // Every mutating sqlite builtin comes through here, and a SQL error was a
+    // bare `false` with sqlite3's message discarded.
+    if !output.status.success() {
+        return Err(crate::safety::tool_failed(
+            "db_sqlite_exec",
+            "sqlite3",
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
+    }
+    Ok(Value::Bool(true))
 }
 
 fn bi_db_sqlite_tables(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -32462,8 +32471,15 @@ fn bi_db_sqlite_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         .args([&db_path, "SELECT 1"])
         .output()
         .map_err(|e| crate::safety::spawn_error("db_sqlite_create", "sqlite3", &e))?;
-
-    Ok(Value::Bool(output.status.success()))
+    if !output.status.success() {
+        return Err(crate::safety::tool_failed(
+            "db_sqlite_create",
+            "sqlite3",
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
+    }
+    Ok(Value::Bool(true))
 }
 
 fn bi_db_sqlite_backup(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -33758,7 +33774,9 @@ fn bi_db_kv_store(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         })
         .unwrap_or_else(|| ".aether_kv.db".to_string());
 
-    let _ = bi_db_sqlite_exec(
+    // The result was discarded, so a store that could not be created was
+    // reported as created.
+    bi_db_sqlite_exec(
         vec![
             Value::Str(store_path.clone()),
             Value::Str(
@@ -33766,8 +33784,7 @@ fn bi_db_kv_store(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             ),
         ],
         None,
-    );
-
+    )?;
     Ok(Value::Str(store_path))
 }
 
@@ -35722,12 +35739,27 @@ fn bi_git_ignore(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
         .ok_or_else(|| crate::safety::arg_err("pattern required"))?;
-    use std::io::Write;
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(".gitignore")?;
-    writeln!(file, "{}", pattern)?;
+    // One pattern per call: a newline in it wrote several.
+    if pattern.contains(['\n', '\r']) || pattern.trim().is_empty() {
+        return Err(crate::safety::bad_arg(
+            "git_ignore",
+            "one non-empty pattern without line breaks",
+            &format!("{pattern:?}"),
+        ));
+    }
+    let existing = std::fs::read_to_string(".gitignore").unwrap_or_default();
+    // Idempotent: the same pattern was appended again on every call.
+    if existing.lines().any(|l| l.trim() == pattern.trim()) {
+        return Ok(Value::Bool(false));
+    }
+    let mut text = existing;
+    if !text.is_empty() && !text.ends_with('\n') {
+        text.push('\n'); // or the pattern was glued onto the last line
+    }
+    text.push_str(pattern.trim());
+    text.push('\n');
+    std::fs::write(".gitignore", text)
+        .map_err(|e| crate::safety::fs_error("git_ignore", ".gitignore", &e))?;
     Ok(Value::Bool(true))
 }
 
@@ -37280,11 +37312,40 @@ fn bi_session_checkpoint(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
         .unwrap_or("checkpoint".to_string());
+    // This ran `git stash push`, which saves the changes and then REMOVES
+    // them from the working tree: a "checkpoint" that erased the work it was
+    // meant to protect. With nothing to save git exits 0, so it also answered
+    // true having saved nothing. `stash create` records the changes without
+    // touching the tree; `stash store` keeps that record in the stash list.
     let output = std::process::Command::new("git")
-        .args(["stash", "push", "-m", &name])
+        .args(["stash", "create"])
         .output()
         .map_err(|e| crate::safety::spawn_error("session_checkpoint", "git", &e))?;
-    Ok(Value::Bool(output.status.success()))
+    if !output.status.success() {
+        return Err(crate::safety::tool_failed(
+            "session_checkpoint",
+            "git stash create",
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
+    }
+    let sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if sha.is_empty() {
+        return Ok(Value::Bool(false)); // nothing to checkpoint
+    }
+    let output = std::process::Command::new("git")
+        .args(["stash", "store", "-m", &name, &sha])
+        .output()
+        .map_err(|e| crate::safety::spawn_error("session_checkpoint", "git", &e))?;
+    if !output.status.success() {
+        return Err(crate::safety::tool_failed(
+            "session_checkpoint",
+            "git stash store",
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
+    }
+    Ok(Value::Bool(true))
 }
 
 fn bi_session_restore(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -39213,14 +39274,26 @@ fn bi_platform_db_store(args: Vec<Value>, _input: Option<Value>) -> Result<Value
     bi_platform_db_init(vec![], None)?;
 
     let content = std::fs::read_to_string(&db_path).unwrap_or_else(|_| "{}".to_string());
-    let mut db: serde_json::Map<String, serde_json::Value> =
-        serde_json::from_str(&content).unwrap_or_default();
+    // A corrupt store read as empty and was then written back with only the
+    // new key: every other entry was destroyed.
+    let mut db: serde_json::Map<String, serde_json::Value> = serde_json::from_str(&content)
+        .map_err(|e| {
+            crate::safety::bad_state(
+                "platform_db_store",
+                &format!(
+                    "the platform store {} is not valid JSON: {e}",
+                    db_path.display()
+                ),
+                "repair or delete the file; nothing was written",
+            )
+        })?;
 
     // Convert Value to serde_json::Value
     let json_val = value_to_json(snapshot.clone());
     db.insert(key.to_string(), json_val);
 
-    std::fs::write(&db_path, serde_json::to_string_pretty(&db)?)?;
+    std::fs::write(&db_path, serde_json::to_string_pretty(&db)?)
+        .map_err(|e| crate::safety::fs_error("platform_db_store", &db_path, &e))?;
     Ok(Value::Bool(true))
 }
 
@@ -39321,8 +39394,11 @@ fn bi_platform_db_export(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
         .map_err(|e| crate::safety::fs_error("platform_db_export", &db_path, &e))?;
 
     if let Some(path) = file_path {
-        std::fs::write(path, &content)?;
-        Ok(Value::Str(path.to_string()))
+        // The destination was written with no workspace check at all.
+        let path = guard_local_write("platform_db_export", path)?;
+        std::fs::write(&path, &content)
+            .map_err(|e| crate::safety::fs_error("platform_db_export", &path, &e))?;
+        Ok(Value::Str(path))
     } else {
         Ok(Value::Str(content))
     }

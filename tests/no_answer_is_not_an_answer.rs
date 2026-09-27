@@ -478,3 +478,47 @@ fn archives_are_read_not_guessed() {
         Value::Bool(false)
     );
 }
+
+/// session_checkpoint ran `git stash push`, which saves the changes and then
+/// removes them from the working tree: the checkpoint erased the work.
+#[test]
+fn a_checkpoint_keeps_the_work_it_checkpoints() {
+    let git = |dir: &std::path::Path, args: &[&str]| {
+        std::process::Command::new("git")
+            .current_dir(dir)
+            .args(["-c", "user.email=t@t", "-c", "user.name=t"])
+            .args(args)
+            .output()
+    };
+    let dir = std::env::temp_dir().join(format!("ae-checkpoint-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    if git(&dir, &["init", "-q"]).is_err() {
+        eprintln!("skipped: git is not installed here");
+        return;
+    }
+    std::fs::write(dir.join("tracked.txt"), "v1\n").unwrap();
+    git(&dir, &["add", "."]).unwrap();
+    git(&dir, &["commit", "-q", "-m", "init"]).unwrap();
+    std::fs::write(dir.join("tracked.txt"), "work in progress\n").unwrap();
+
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_ae"))
+        .current_dir(&dir)
+        .args(["-c", r#"session_checkpoint("cp")"#])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let after = std::fs::read_to_string(dir.join("tracked.txt")).unwrap();
+    let stashes =
+        String::from_utf8_lossy(&git(&dir, &["stash", "list"]).unwrap().stdout).to_string();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(
+        stdout.contains("true"),
+        "checkpoint did not report saving: {stdout}"
+    );
+    assert_eq!(
+        after, "work in progress\n",
+        "the checkpoint removed the work"
+    );
+    assert!(stashes.contains("cp"), "no stash entry: {stashes}");
+}

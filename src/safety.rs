@@ -3929,6 +3929,7 @@ pub const SELF_GUARDED: &[&str] = &[
     "perf_record",
     "perf_stat",
     "platform_db_delete",
+    "platform_db_export",
     "podman_exec",
     "proc_kill",
     "proc_spawn",
