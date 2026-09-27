@@ -4207,6 +4207,90 @@ pub static SIGNATURES: &[Signature] = &[
             (r#"gpg_list_keys()"#, r#"[]"#),
         ],
     },
+    // 1b: disk usage, process info, diagnostics, docs search, pager, the
+    // platform key-value store. proc_info, diag_explain and docs_search are
+    // machine-dependent; the rest must give the result shown everywhere.
+    Signature {
+        name: "platform_disk_usage",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[opt("path", Ty::Str, "any path on the disk; default the current directory")],
+        returns: "Record",
+        doc: "Size, free and used space of the disk holding a path, with its mount point.",
+        examples: &[
+            (r#"platform_disk_usage().total_bytes > 0"#, r#"true"#),
+            (r#"platform_disk_usage("src").total_bytes > 0"#, r#"true"#),
+        ],
+    },
+    Signature {
+        name: "proc_info",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("pid", Ty::Any, "a positive process id, Int or numeric String")],
+        returns: "Record",
+        doc: "A process as {pid, name, state, ppid, memory_bytes, start_time, exe}. An unknown pid is E_NOT_FOUND.",
+        examples: &[
+            (r#"proc_info(1)"#, r#"{name: systemd, pid: 1, ppid: null, state: Sleeping, ...}"#),
+        ],
+    },
+    Signature {
+        name: "diag_explain",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("code", Ty::Str, "a Rust error code such as E0308")],
+        returns: "String",
+        doc: "rustc's explanation of an error code. A code rustc does not know is E_TOOL_FAILED.",
+        examples: &[
+            (r#"diag_explain("E0308")"#, r#"Expected type did not match the received type. ..."#),
+        ],
+    },
+    Signature {
+        name: "docs_search",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("query", Ty::Str, "text to find")],
+        returns: "Array",
+        doc: "Up to 20 lines of target/doc containing a query, as file:line: text. No target/doc is E_NOT_FOUND.",
+        examples: &[
+            (r#"docs_search("Value")"#, r#"["target/doc/aethershell/value/enum.Value.html:1: ...", ...]"#),
+        ],
+    },
+    Signature {
+        name: "less",
+        category: None,
+        subject_required: false,
+        aliases: &["pager"],
+        subject: Some(Ty::Str),
+        params: &[opt("options", Ty::Record, "{file: true} to read the subject as a path")],
+        returns: "String | Record",
+        doc: "Text of at most 40 lines as-is, or the first page of longer text as a record.",
+        examples: &[
+            (r#"less("a")"#, r#"a"#),
+            (r#"typeof(less("Cargo.toml", {file: true}))"#, r#"Record"#),
+        ],
+    },
+    Signature {
+        name: "platform_db_load",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[opt("key", Ty::Str, "default \"default\"")],
+        returns: "Any",
+        doc: "A value from the platform key-value store, or null when absent. A corrupt store is E_BAD_STATE.",
+        examples: &[
+            (r#"platform_db_load("no-such-key-ae") == null"#, r#"true"#),
+            (r#"platform_db_load()"#, r#"null"#),
+        ],
+    },
 ];
 
 /// The declaration for `name`, if it has one.

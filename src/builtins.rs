@@ -20971,87 +20971,40 @@ fn bi_proc_kill(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_proc_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    // In-process through sysinfo, the same on every OS. It was three
+    // shell-outs: on Windows it reported ppid 0 and state "running" for every
+    // process, which Get-Process never said; on Linux it split /proc/<pid>/stat
+    // on whitespace, so a process name containing a space shifted every field
+    // after it; and a pid that did not exist answered null everywhere.
     let pid = pid_arg("proc_info", args.first())?;
-
-    #[cfg(target_os = "windows")]
-    {
-        let cmd = crate::ps_script!(
-            "Get-Process -Id {} | Select-Object Id,ProcessName,CPU,WorkingSet64,StartTime,Path | ConvertTo-Json",
-            pid
-        );
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", &cmd])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("proc_info", "powershell", &e))?;
-        if output.status.success() {
-            let json_str = String::from_utf8_lossy(&output.stdout);
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                if let serde_json::Value::Object(obj) = json {
-                    let mut rec = std::collections::BTreeMap::new();
-                    rec.insert(
-                        "pid".to_string(),
-                        Value::Int(obj.get("Id").and_then(|v| v.as_i64()).unwrap_or(0)),
-                    );
-                    rec.insert(
-                        "name".to_string(),
-                        Value::Str(
-                            obj.get("ProcessName")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string(),
-                        ),
-                    );
-                    rec.insert("state".to_string(), Value::Str("running".to_string()));
-                    rec.insert("ppid".to_string(), Value::Int(0)); // Windows Get-Process doesn't expose PPID directly
-                    return Ok(Value::Record(rec));
-                }
-            }
-        }
-    }
-    #[cfg(target_os = "linux")]
-    {
-        let stat_path = format!("/proc/{}/stat", pid);
-        if let Ok(stat) = std::fs::read_to_string(&stat_path) {
-            let parts: Vec<&str> = stat.split_whitespace().collect();
-            if parts.len() > 20 {
-                let mut rec = std::collections::BTreeMap::new();
-                rec.insert("pid".to_string(), Value::Int(pid));
-                rec.insert(
-                    "name".to_string(),
-                    Value::Str(parts[1].trim_matches(|c| c == '(' || c == ')').to_string()),
-                );
-                rec.insert("state".to_string(), Value::Str(parts[2].to_string()));
-                rec.insert(
-                    "ppid".to_string(),
-                    Value::Int(parts[3].parse().unwrap_or(0)),
-                );
-                return Ok(Value::Record(rec));
-            }
-        }
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let output = std::process::Command::new("ps")
-            .args(["-p", &pid.to_string(), "-o", "pid=,comm=,stat=,ppid="])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("proc_info", "ps", &e))?;
-        if output.status.success() {
-            let text = String::from_utf8_lossy(&output.stdout);
-            let parts: Vec<&str> = text.trim().split_whitespace().collect();
-            if parts.len() >= 4 {
-                let mut rec = std::collections::BTreeMap::new();
-                rec.insert("pid".to_string(), Value::Int(pid));
-                rec.insert("name".to_string(), Value::Str(parts[1].to_string()));
-                rec.insert("state".to_string(), Value::Str(parts[2].to_string()));
-                rec.insert(
-                    "ppid".to_string(),
-                    Value::Int(parts[3].parse().unwrap_or(0)),
-                );
-                return Ok(Value::Record(rec));
-            }
-        }
-    }
-    Ok(Value::Null)
+    let spid = sysinfo::Pid::from_u32(pid as u32);
+    let mut sys = System::new();
+    sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[spid]), true);
+    let p = sys
+        .process(spid)
+        .ok_or_else(|| crate::safety::not_found("proc_info", "process", &pid.to_string()))?;
+    let mut rec = BTreeMap::new();
+    rec.insert("pid".to_string(), Value::Int(pid));
+    rec.insert(
+        "name".to_string(),
+        Value::Str(p.name().to_string_lossy().to_string()),
+    );
+    rec.insert("state".to_string(), Value::Str(p.status().to_string()));
+    rec.insert(
+        "ppid".to_string(),
+        p.parent()
+            .map(|pp| Value::Int(pp.as_u32() as i64))
+            .unwrap_or(Value::Null),
+    );
+    rec.insert("memory_bytes".to_string(), Value::Int(p.memory() as i64));
+    rec.insert("start_time".to_string(), Value::Int(p.start_time() as i64));
+    rec.insert(
+        "exe".to_string(),
+        p.exe()
+            .map(|e| Value::Str(e.to_string_lossy().to_string()))
+            .unwrap_or(Value::Null),
+    );
+    Ok(Value::Record(rec))
 }
 
 fn bi_proc_spawn(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -36808,10 +36761,20 @@ fn bi_diag_explain(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
         .ok_or_else(|| crate::safety::arg_err("error code required"))?;
+    crate::safety::reject_option_like("diag_explain", std::slice::from_ref(&code))?;
     let output = std::process::Command::new("rustc")
         .args(["--explain", &code])
         .output()
         .map_err(|e| crate::safety::spawn_error("diag_explain", "rustc", &e))?;
+    // A code rustc does not know ("E9999") answered "".
+    if !output.status.success() {
+        return Err(crate::safety::tool_failed(
+            "diag_explain",
+            "rustc --explain",
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
+    }
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).to_string(),
     ))
@@ -37114,20 +37077,55 @@ fn bi_docs_generate(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_docs_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    // In-process, as "file:line: text" like the grep it replaces. That grep
+    // took the query as a pattern (a leading `-` was an option), does not
+    // exist on Windows, and exited 2 with [] when there were no docs, which
+    // read as "no matches".
     let query = args
         .first()
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
         .ok_or_else(|| crate::safety::arg_err("query required"))?;
-    let output = std::process::Command::new("grep")
-        .args(["-rn", &query, "target/doc"])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("docs_search", "grep", &e))?;
-    let matches: Vec<Value> = String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .take(20)
-        .map(|l| Value::Str(l.to_string()))
-        .collect();
+    let root = std::path::Path::new("target/doc");
+    if !root.is_dir() {
+        return Err(crate::safety::not_found(
+            "docs_search",
+            "documentation directory",
+            "target/doc (run `cargo doc` first)",
+        ));
+    }
+    const LIMIT: usize = 20;
+    let mut matches = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        let mut entries: Vec<_> = entries.filter_map(|e| e.ok()).map(|e| e.path()).collect();
+        entries.sort();
+        for p in entries {
+            if p.is_dir() {
+                stack.push(p);
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(&p) else {
+                continue;
+            };
+            for (i, line) in text.lines().enumerate() {
+                if line.contains(&query) {
+                    matches.push(Value::Str(format!(
+                        "{}:{}: {}",
+                        p.display(),
+                        i + 1,
+                        line.trim()
+                    )));
+                    if matches.len() == LIMIT {
+                        return Ok(Value::Array(matches));
+                    }
+                }
+            }
+        }
+    }
     Ok(Value::Array(matches))
 }
 
@@ -40308,101 +40306,54 @@ fn bi_platform_disks(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 }
 
 fn bi_platform_disk_usage(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    // In-process, from the disk that holds `path`. This ran `df -B1`, which
+    // BSD df does not accept, so on macOS it always answered null; on
+    // Windows it ignored any path without a drive letter and answered {} for
+    // a drive that did not exist.
     let path = args.first().and_then(|v| v.as_str().ok()).unwrap_or(".");
-
-    #[cfg(target_os = "windows")]
-    {
-        // Get drive letter from path
-        let drive = if path.len() >= 2 && path.chars().nth(1) == Some(':') {
-            &path[0..2]
+    let resolved = std::fs::canonicalize(path)
+        .map_err(|e| crate::safety::fs_error("platform_disk_usage", path, &e))?;
+    // Windows canonical paths carry the verbatim prefix, backslash backslash
+    // question-mark backslash, which no mount point such as C: is a prefix
+    // of. Spelled with escapes, not a raw string, and described in words
+    // here: the source scanners in tests/ do not skip comments, and a quote
+    // after a backslash reads to them as an escaped quote that never closes.
+    let resolved = match resolved.to_str().and_then(|s| s.strip_prefix("\\\\?\\")) {
+        Some(rest) if !rest.starts_with("UNC") => std::path::PathBuf::from(rest),
+        _ => resolved,
+    };
+    let disks = Disks::new_with_refreshed_list();
+    let disk = disks
+        .iter()
+        .filter(|d| resolved.starts_with(d.mount_point()))
+        .max_by_key(|d| d.mount_point().as_os_str().len())
+        .ok_or_else(|| {
+            crate::safety::bad_state(
+                "platform_disk_usage",
+                &format!("no mounted disk contains {}", resolved.display()),
+                "pass a path on a mounted filesystem",
+            )
+        })?;
+    let total = disk.total_space() as i64;
+    let free = disk.available_space() as i64;
+    let used = total - free;
+    let mut info = BTreeMap::new();
+    info.insert(
+        "mount_point".to_string(),
+        Value::Str(disk.mount_point().to_string_lossy().to_string()),
+    );
+    info.insert("total_bytes".to_string(), Value::Int(total));
+    info.insert("free_bytes".to_string(), Value::Int(free));
+    info.insert("used_bytes".to_string(), Value::Int(used));
+    info.insert(
+        "usage_percent".to_string(),
+        Value::Float(if total > 0 {
+            used as f64 / total as f64 * 100.0
         } else {
-            "C:"
-        };
-        // Use PowerShell Get-CimInstance instead of WMIC
-        let ps_cmd = crate::ps_script!(
-            "$disk = Get-CimInstance Win32_LogicalDisk | Where-Object {{ $_.DeviceID -eq {} }};              if ($disk) {{                $disk | Select-Object @{{N='Size';E={{$_.Size}}}}, @{{N='FreeSpace';E={{$_.FreeSpace}}}} |                ForEach-Object {{ 'Size=' + $_.Size; 'FreeSpace=' + $_.FreeSpace }}              }}",
-            crate::safety::ps_quote(&drive)
-        );
-        if let Ok(out) = std::process::Command::new("powershell")
-            .args(["-NoProfile", "-Command", &ps_cmd])
-            .output()
-        {
-            let mut info = std::collections::BTreeMap::new();
-            let output = String::from_utf8_lossy(&out.stdout);
-            for line in output.lines() {
-                if let Some((key, val)) = line.split_once('=') {
-                    let key = key.trim().to_lowercase();
-                    if let Ok(n) = val.trim().parse::<i64>() {
-                        match key.as_str() {
-                            "size" => {
-                                info.insert("total_bytes".to_string(), Value::Int(n));
-                            }
-                            "freespace" => {
-                                info.insert("free_bytes".to_string(), Value::Int(n));
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-            }
-            let tot = info.get("total_bytes").and_then(|v| {
-                if let Value::Int(n) = v {
-                    Some(*n)
-                } else {
-                    None
-                }
-            });
-            let fre = info.get("free_bytes").and_then(|v| {
-                if let Value::Int(n) = v {
-                    Some(*n)
-                } else {
-                    None
-                }
-            });
-            if let (Some(total), Some(free)) = (tot, fre) {
-                info.insert("used_bytes".to_string(), Value::Int(total - free));
-                info.insert(
-                    "usage_percent".to_string(),
-                    Value::Float(((total - free) as f64 / total as f64) * 100.0),
-                );
-            }
-            return Ok(Value::Record(info));
-        }
-    }
-
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    {
-        if let Ok(out) = std::process::Command::new("df")
-            .args(["-B1", path])
-            .output()
-        {
-            let output = String::from_utf8_lossy(&out.stdout);
-            if let Some(line) = output.lines().nth(1) {
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 4 {
-                    let mut info = std::collections::BTreeMap::new();
-                    if let Ok(total) = parts[1].parse::<i64>() {
-                        info.insert("total_bytes".to_string(), Value::Int(total));
-                    }
-                    if let Ok(used) = parts[2].parse::<i64>() {
-                        info.insert("used_bytes".to_string(), Value::Int(used));
-                    }
-                    if let Ok(free) = parts[3].parse::<i64>() {
-                        info.insert("free_bytes".to_string(), Value::Int(free));
-                    }
-                    if parts.len() >= 5 {
-                        let pct = parts[4].replace('%', "");
-                        if let Ok(p) = pct.parse::<f64>() {
-                            info.insert("usage_percent".to_string(), Value::Float(p));
-                        }
-                    }
-                    return Ok(Value::Record(info));
-                }
-            }
-        }
-    }
-
-    Ok(Value::Null)
+            0.0
+        }),
+    );
+    Ok(Value::Record(info))
 }
 
 fn bi_platform_gpus(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -48226,7 +48177,8 @@ fn bi_sed_replace(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let re = regex::Regex::new(&pattern)
         .map_err(|e| anyhow!("Invalid regex pattern '{}': {}", pattern, e))?;
     let input_text = if file_mode {
-        std::fs::read_to_string(&text).map_err(|e| crate::safety::fs_error("", &text, &e))?
+        std::fs::read_to_string(&text)
+            .map_err(|e| crate::safety::fs_error("sed_replace", &text, &e))?
     } else {
         text.clone()
     };
@@ -48714,7 +48666,7 @@ fn bi_pager(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         _ => false,
     };
     let content = if is_file {
-        std::fs::read_to_string(&text).map_err(|e| crate::safety::fs_error("", &text, &e))?
+        std::fs::read_to_string(&text).map_err(|e| crate::safety::fs_error("less", &text, &e))?
     } else {
         text.clone()
     };
@@ -50471,7 +50423,7 @@ fn bi_bat_view(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         _ => {
             // Fallback to cat/native read
             let content = std::fs::read_to_string(&path)
-                .map_err(|e| crate::safety::fs_error("", &path, &e))?;
+                .map_err(|e| crate::safety::fs_error("bat", &path, &e))?;
             Ok(Value::Str(content))
         }
     }

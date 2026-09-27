@@ -93,6 +93,16 @@ const MACHINE_DEPENDENT: &[(&str, &str)] = &[
         "the host's groups (getent; Get-LocalGroupMember on Windows)",
     ),
     ("gpg_list_keys", "an installed gpg and its keyring"),
+    (
+        "proc_info",
+        "which process ids exist (pid 1 does not on Windows)",
+    ),
+    ("diag_explain", "an installed rustc"),
+    ("docs_search", "generated documentation in target/doc"),
+    (
+        "platform_db_load",
+        "what this machine's platform store already holds",
+    ),
 ];
 
 /// The codes that honestly mean "not on this machine", as opposed to a
