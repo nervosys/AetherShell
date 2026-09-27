@@ -2,7 +2,7 @@ use crate::ast::{BinOp, CfgCondition, Expr, Stmt, UnOp, Visibility};
 use crate::builtins;
 use crate::env::Env;
 use crate::value::{AsyncLambda, Future, Lambda, Value};
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use std::collections::BTreeMap;
 
 /// Evaluate a cfg condition at runtime
@@ -468,8 +468,9 @@ pub fn eval_stmt(stmt: &Stmt, env: &mut Env) -> Result<Value> {
             visibility,
         } => {
             let v = eval_expr(value, env)?;
-            env.declare_var(name, v.clone(), *is_mut)
-                .map_err(|e| anyhow::anyhow!("{}", e))?;
+            env.declare_var(name, v.clone(), *is_mut).map_err(|e| {
+                crate::safety::bad_state("let", &e, "use a different name, or `let mut` to rebind")
+            })?;
 
             // Mark as public if visibility is Pub
             if *visibility == Visibility::Pub {
@@ -502,7 +503,11 @@ pub fn eval_stmt(stmt: &Stmt, env: &mut Env) -> Result<Value> {
             #[cfg(not(feature = "native"))]
             {
                 let _ = (items, source, alias);
-                Err(anyhow!("import statements are not supported in this build"))
+                Err(crate::safety::unimplemented(
+                    "import",
+                    "import statements are not supported in this build",
+                    "use the builtin modules directly (file.read, sys.hostname, ...)",
+                ))
             }
         }
         Stmt::Export { items, from_source } => {
@@ -522,7 +527,11 @@ pub fn eval_stmt(stmt: &Stmt, env: &mut Env) -> Result<Value> {
                     // Import and re-export specified items
                     for item in items {
                         let value = module_env.get_var(&item.name).cloned().ok_or_else(|| {
-                            anyhow!("'{}' not found in module '{}'", item.name, source)
+                            crate::safety::not_found(
+                                "import",
+                                &format!("item in module '{source}'"),
+                                &item.name,
+                            )
                         })?;
 
                         let export_name = item.alias.as_ref().unwrap_or(&item.name);
@@ -533,7 +542,11 @@ pub fn eval_stmt(stmt: &Stmt, env: &mut Env) -> Result<Value> {
                     // Export local items
                     for item in items {
                         if env.get_var(&item.name).is_none() {
-                            return Err(anyhow!("cannot export '{}': not defined", item.name));
+                            return Err(crate::safety::not_found(
+                                "export",
+                                "definition",
+                                &item.name,
+                            ));
                         }
 
                         let export_name = item.alias.as_ref().unwrap_or(&item.name);
@@ -550,7 +563,11 @@ pub fn eval_stmt(stmt: &Stmt, env: &mut Env) -> Result<Value> {
             #[cfg(not(feature = "native"))]
             {
                 let _ = (items, from_source);
-                Err(anyhow!("export statements are not supported in this build"))
+                Err(crate::safety::unimplemented(
+                    "export",
+                    "export statements are not supported in this build",
+                    "define the value where it is used",
+                ))
             }
         }
         Stmt::Cfg { condition, body } => {
@@ -729,6 +746,17 @@ pub fn eval_expr(expr: &Expr, env: &mut Env) -> Result<Value> {
                         Value::Lambda(_) | Value::AsyncLambda(_) => {
                             return call_value_with_pipe(v, pin, vals, env)
                         }
+                        // A variable that is not a function and whose name is
+                        // no builtin either: `let f = 5; f(1)` said "unknown
+                        // builtin: f", which sends the reader looking for a
+                        // missing builtin rather than at their variable.
+                        other if !builtins::is_dispatched(name) => {
+                            return Err(crate::safety::bad_arg(
+                                &format!("{name}(...)"),
+                                &format!("a function in `{name}`"),
+                                other.type_name(),
+                            ));
+                        }
                         _ => {
                             return builtins::call_with_input(name, vals, pin, env);
                         }
@@ -799,7 +827,11 @@ pub fn eval_expr(expr: &Expr, env: &mut Env) -> Result<Value> {
                 (UnOp::Neg, Value::Int(n)) => Ok(Value::Int(-n)),
                 (UnOp::Neg, Value::Float(x)) => Ok(Value::Float(-x)),
                 (UnOp::Not, v) => Ok(Value::Bool(!is_truthy(&v))),
-                (_, other) => Err(anyhow!("bad unary op on {:?}", other)),
+                (_, other) => Err(crate::safety::bad_arg(
+                    "unary -",
+                    "an Int or Float",
+                    other.type_name(),
+                )),
             }
         }
 
@@ -823,10 +855,18 @@ pub fn eval_expr(expr: &Expr, env: &mut Env) -> Result<Value> {
                         crate::builtins::nearest_names(field, map.keys().map(|k| k.as_str())),
                     )
                 }),
-                other => Err(anyhow!(
-                    "cannot access field '{}' on non-record value: {:?}",
-                    field,
-                    other
+                // Uncoded (E_UNKNOWN), though it is the commonest type error
+                // an agent makes: reading a field of a string or null.
+                // Named after the expression when it is a plain name, so
+                // `nope.read(...)` says `nope` -- the unbound name is the
+                // commonest cause.
+                other => Err(crate::safety::bad_arg(
+                    &match object.as_ref() {
+                        Expr::Ident(name) => format!("{name}.{field}"),
+                        _ => format!(".{field}"),
+                    },
+                    "a Record (or a module)",
+                    other.type_name(),
                 )),
             }
         }
@@ -860,7 +900,11 @@ pub fn eval_expr(expr: &Expr, env: &mut Env) -> Result<Value> {
                 }
             }
 
-            Err(anyhow!("match: no arm matched the value"))
+            Err(crate::safety::bad_arg(
+                "match",
+                "a value one of the arms matches (add `_ => ...` to catch the rest)",
+                "a value no arm matches",
+            ))
         }
     }
 }
@@ -993,20 +1037,20 @@ fn call_value_with_pipe(
                 // Two-arg: if we have two explicit args, call directly
                 (_, 2, 2) if args.len() == 2 => {
                     // SECURITY: Replace .unwrap() with proper error handling (CVSS 7.1)
-                    let b = args
-                        .pop()
-                        .ok_or_else(|| anyhow!("Expected second argument for lambda call"))?;
-                    let a = args
-                        .pop()
-                        .ok_or_else(|| anyhow!("Expected first argument for lambda call"))?;
+                    let b = args.pop().ok_or_else(|| {
+                        crate::safety::bad_arg("lambda call", "an argument", "nothing")
+                    })?;
+                    let a = args.pop().ok_or_else(|| {
+                        crate::safety::bad_arg("lambda call", "an argument", "nothing")
+                    })?;
                     call_lambda2(&l, a, b, 0, env)
                 }
                 // One-arg: if we have one explicit arg, call directly
                 (_, 1, 1) => {
                     // SECURITY: Replace .unwrap() with proper error handling (CVSS 7.1)
-                    let arg = args
-                        .pop()
-                        .ok_or_else(|| anyhow!("Expected argument for lambda call"))?;
+                    let arg = args.pop().ok_or_else(|| {
+                        crate::safety::bad_arg("lambda call", "an argument", "nothing")
+                    })?;
                     call_lambda1(&l, arg, 0, env)
                 }
                 // N-arg (3+): if we have exact arity match, call with all args
@@ -1044,8 +1088,12 @@ fn call_value_with_pipe(
                 builtins::call(&name, args, env)
             }
         }
-        Value::Null => Err(anyhow!("cannot call null")),
-        other => Err(anyhow!("cannot call non-function value: {:?}", other)),
+        Value::Null => Err(crate::safety::bad_arg("call", "a function", "Null")),
+        other => Err(crate::safety::bad_arg(
+            "call",
+            "a function",
+            other.type_name(),
+        )),
     }
 }
 
@@ -1100,10 +1148,14 @@ const MAX_STRING_BYTES: usize = 8 * 1024 * 1024;
 /// Build a string value, refusing one that exceeds [`MAX_STRING_BYTES`].
 fn checked_string(s: String) -> Result<Value> {
     if s.len() > MAX_STRING_BYTES {
-        return Err(anyhow!(
-            "string operation would produce {} bytes, over the {} byte limit",
-            s.len(),
-            MAX_STRING_BYTES
+        return Err(crate::safety::budget_exceeded(
+            "string",
+            format!(
+                "string operation would produce {} bytes, over the {} byte limit",
+                s.len(),
+                MAX_STRING_BYTES
+            ),
+            "build the text in smaller pieces, or write it to a file",
         ));
     }
     Ok(Value::Str(s))
@@ -1426,10 +1478,10 @@ fn call_lambda_n(l: &Lambda, args: Vec<Value>, env: &mut Env) -> Result<Value> {
     let _depth = crate::safety::enter_call()?;
     let restore_caps = install_captured(&l.captured, env);
     if args.len() != l.params.len() {
-        return Err(anyhow!(
-            "lambda expects {} arguments, got {}",
-            l.params.len(),
-            args.len()
+        return Err(crate::safety::bad_arg(
+            "lambda call",
+            &format!("{} argument(s)", l.params.len()),
+            &format!("{}", args.len()),
         ));
     }
 
@@ -1642,10 +1694,13 @@ fn binop(op: &BinOp, a: Value, b: Value) -> Result<Value> {
                 // must not be built and then rejected.
                 let want = s.len().saturating_mul(n as usize);
                 if want > MAX_STRING_BYTES {
-                    return Err(anyhow!(
-                        "string repeat would produce {} bytes, over the {} byte limit",
-                        want,
-                        MAX_STRING_BYTES
+                    return Err(crate::safety::budget_exceeded(
+                        "string *",
+                        format!(
+                            "string repeat would produce {} bytes, over the {} byte limit",
+                            want, MAX_STRING_BYTES
+                        ),
+                        "repeat fewer times",
                     ));
                 }
                 Value::Str(s.repeat(n as usize))
@@ -1663,7 +1718,15 @@ fn binop(op: &BinOp, a: Value, b: Value) -> Result<Value> {
             checked_string(format!("{}{}", other.to_display_string(), y))?
         }
 
-        (op, a, b) => return Err(anyhow!("unsupported op {:?} on {:?} and {:?}", op, a, b)),
+        // Uncoded (E_UNKNOWN), and printed whole values: `null - null` said
+        // "unsupported op Sub on Null and Null", a record dumped its contents.
+        (op, a, b) => {
+            return Err(crate::safety::bad_arg(
+                &format!("operator {op:?}"),
+                "operands it applies to",
+                &format!("{} and {}", a.type_name(), b.type_name()),
+            ))
+        }
     })
 }
 

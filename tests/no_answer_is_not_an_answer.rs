@@ -574,3 +574,28 @@ fn an_error_is_never_returned_where_the_data_goes() {
         assert!(r.is_err(), "{name} answered {r:?}");
     }
 }
+
+/// The language's own runtime errors were uncoded (E_UNKNOWN), though they
+/// are the commonest an agent meets: `null - null`, reading a field of a
+/// string, calling a non-function, a lambda given the wrong number of
+/// arguments. The builtin census never saw them; it probes builtins.
+#[test]
+fn an_expression_error_is_coded() {
+    for (code, want) in [
+        (r#"null - null"#, "E_BAD_ARG"),
+        (r#""x".id"#, "E_BAD_ARG"),
+        (r#"-"x""#, "E_BAD_ARG"),
+        (r#"let f = 5; f(1)"#, "E_BAD_ARG"),
+        (r#"let f = fn(a, b) => a + b; f(1, 2, 3)"#, "E_BAD_ARG"),
+        (r#"match 3 { 1 => "one" }"#, "E_BAD_ARG"),
+        (r#"let x = 1; let x = 2; x"#, "E_BAD_STATE"),
+    ] {
+        match eval(code) {
+            Err(e) => assert_eq!(code_of(&e), want, "{code}: {e}"),
+            Ok(v) => {
+                // Shadowing may be allowed; only a coded failure is checked.
+                assert!(want == "E_BAD_STATE", "{code} answered {v:?}");
+            }
+        }
+    }
+}

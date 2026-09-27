@@ -971,7 +971,7 @@ impl PluginRegistry {
         let entry = self
             .plugins
             .get(plugin_id)
-            .ok_or_else(|| crate::safety::not_found("", "plugin", plugin_id))?;
+            .ok_or_else(|| crate::safety::not_found("plugin_reload", "plugin", plugin_id))?;
 
         match &entry.source {
             PluginSource::DynamicLibrary(path) => {
@@ -1005,7 +1005,7 @@ impl PluginRegistry {
         let entry = self
             .plugins
             .get(plugin_id)
-            .ok_or_else(|| crate::safety::not_found("", "plugin", plugin_id))?;
+            .ok_or_else(|| crate::safety::not_found("plugin_unload", "plugin", plugin_id))?;
 
         // Check if it's a builtin
         if matches!(entry.source, PluginSource::Builtin) {
@@ -1155,6 +1155,7 @@ impl PluginRegistry {
             result.push((name.clone(), id.clone()));
         }
 
+        result.sort();
         result
     }
 
@@ -1266,23 +1267,31 @@ impl PluginRegistry {
 
     /// List all registered plugins
     pub fn list_plugins(&self) -> Vec<PluginMetadata> {
-        self.plugins.values().map(|e| e.metadata.clone()).collect()
+        // Sorted: `plugins` is a HashMap, iterated in an order randomised per
+        // process, so plugins() listed the same plugins differently each run.
+        let mut v: Vec<PluginMetadata> =
+            self.plugins.values().map(|e| e.metadata.clone()).collect();
+        v.sort_by(|a, b| a.id.cmp(&b.id));
+        v
     }
 
     /// List plugins by category
     pub fn list_by_category(&self, category: &PluginCategory) -> Vec<PluginMetadata> {
-        self.plugins
+        let mut v = self
+            .plugins
             .values()
             .filter(|e| e.metadata.categories.contains(category))
             .map(|e| e.metadata.clone())
-            .collect()
+            .collect::<Vec<_>>();
+        v.sort_by(|a, b| a.id.cmp(&b.id));
+        v
     }
 
     /// Enable a plugin
     pub fn enable_plugin(&mut self, plugin_id: &str) -> Result<()> {
         self.plugins
             .get_mut(plugin_id)
-            .ok_or_else(|| crate::safety::not_found("", "plugin", plugin_id))?
+            .ok_or_else(|| crate::safety::not_found("plugin_enable", "plugin", plugin_id))?
             .enabled = true;
         Ok(())
     }
@@ -1291,7 +1300,7 @@ impl PluginRegistry {
     pub fn disable_plugin(&mut self, plugin_id: &str) -> Result<()> {
         self.plugins
             .get_mut(plugin_id)
-            .ok_or_else(|| crate::safety::not_found("", "plugin", plugin_id))?
+            .ok_or_else(|| crate::safety::not_found("plugin_disable", "plugin", plugin_id))?
             .enabled = false;
         Ok(())
     }
@@ -1896,7 +1905,11 @@ pub fn unload_plugin(plugin_id: &str) -> Result<Value> {
         result.insert("status".to_string(), Value::Str("unloaded".to_string()));
         Ok(Value::Record(result))
     } else {
-        Err(crate::safety::not_found("", "plugin", plugin_id))
+        Err(crate::safety::not_found(
+            "plugin_unload",
+            "plugin",
+            plugin_id,
+        ))
     }
 }
 
@@ -2126,6 +2139,14 @@ pub fn bi_plugins_by_source(source_type: &str) -> Value {
             Value::Record(rec)
         })
         .collect();
+    let mut filtered = filtered;
+    filtered.sort_by_key(|v| match v {
+        Value::Record(r) => r
+            .get("id")
+            .map(|i| i.to_display_string())
+            .unwrap_or_default(),
+        _ => String::new(),
+    });
 
     Value::Array(filtered)
 }

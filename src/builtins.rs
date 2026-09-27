@@ -2068,10 +2068,18 @@ impl KnowledgeGraph {
         properties: HashMap<String, String>,
     ) -> Result<String> {
         if !self.entities.contains_key(source_id) {
-            return Err(crate::safety::not_found("", "source entity", source_id));
+            return Err(crate::safety::not_found(
+                "kg_relate",
+                "source entity",
+                source_id,
+            ));
         }
         if !self.entities.contains_key(target_id) {
-            return Err(crate::safety::not_found("", "target entity", target_id));
+            return Err(crate::safety::not_found(
+                "kg_relate",
+                "target entity",
+                target_id,
+            ));
         }
 
         let id = format!("r_{}", self.next_relation_id);
@@ -12770,7 +12778,7 @@ fn bi_syntax_get(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let kb = get_syntax_kb().lock().unwrap();
     let entry = kb
         .get(id)
-        .ok_or_else(|| crate::safety::not_found("", "syntax", id))?;
+        .ok_or_else(|| crate::safety::not_found("syntax_get", "syntax", id))?;
 
     // Convert to Value::Record
     let mut fields = std::collections::BTreeMap::new();
@@ -15147,7 +15155,7 @@ fn bi_tool_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let db = OSToolsDatabase::new();
     let tool = db
         .get_tool(&tool_name)
-        .ok_or_else(|| crate::safety::not_found("", "tool", &tool_name.to_string()))?;
+        .ok_or_else(|| crate::safety::not_found("tool_info", "tool", &tool_name.to_string()))?;
 
     let mut rec = BTreeMap::new();
     rec.insert("name".to_string(), Value::Str(tool.name.clone()));
@@ -47954,7 +47962,11 @@ fn bi_marketplace_uninstall(args: Vec<Value>, _input: Option<Value>) -> Result<V
         );
         Ok(Value::Record(rec))
     } else {
-        Err(crate::safety::not_found("", "package", &name.to_string()))
+        Err(crate::safety::not_found(
+            "marketplace_uninstall",
+            "package",
+            &name.to_string(),
+        ))
     }
 }
 
@@ -48102,7 +48114,11 @@ fn bi_marketplace_update(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
             );
             Ok(Value::Record(rec))
         } else {
-            Err(crate::safety::not_found("", "package", &name.to_string()))
+            Err(crate::safety::not_found(
+                "marketplace_update",
+                "package",
+                &name.to_string(),
+            ))
         }
     } else {
         // Update all installed
@@ -49066,7 +49082,7 @@ fn eval_jq_expr(expr: &str, data: &serde_json::Value) -> Result<serde_json::Valu
                 if !obj_key.is_empty() {
                     current = current
                         .get(obj_key)
-                        .ok_or_else(|| crate::safety::not_found("", "key", obj_key))?;
+                        .ok_or_else(|| crate::safety::not_found("jq", "key", obj_key))?;
                 }
                 if let Ok(idx) = idx_str.parse::<usize>() {
                     current = current
@@ -49076,7 +49092,7 @@ fn eval_jq_expr(expr: &str, data: &serde_json::Value) -> Result<serde_json::Valu
             } else {
                 current = current
                     .get(key)
-                    .ok_or_else(|| crate::safety::not_found("", "key", key))?;
+                    .ok_or_else(|| crate::safety::not_found("jq", "key", key))?;
             }
         }
         return Ok(current.clone());
