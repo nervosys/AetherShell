@@ -224,7 +224,7 @@ config_get	Pure
 config_init	WriteLocal
 config_path	Pure
 config_reload	Pure
-config_set	Pure
+config_set	WriteLocal
 confirm_user	Pure
 consensus_net	Pure
 consensus_vote	Pure

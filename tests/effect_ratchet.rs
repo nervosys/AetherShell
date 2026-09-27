@@ -278,6 +278,18 @@ fn all_fn_bodies() -> Vec<(String, String)> {
 
 /// Extract every `fn <name>` body from one comment-stripped file.
 fn collect_fn_bodies(source: &str, out: &mut Vec<(String, String)>) {
+    let mut items = Vec::new();
+    collect_fn_items(source, &mut items);
+    out.extend(
+        items
+            .into_iter()
+            .map(|(name, _sig, body, _at)| (name, body)),
+    );
+}
+
+/// Every `fn` as (name, signature, body). The signature is what separates a
+/// method (it takes `self`) from a free function of the same name.
+fn collect_fn_items(source: &str, out: &mut Vec<(String, String, String, usize)>) {
     let bytes = source.as_bytes();
     let mut search = 0usize;
     while let Some(rel) = source[search..].find("fn ") {
@@ -325,7 +337,12 @@ fn collect_fn_bodies(source: &str, out: &mut Vec<(String, String)>) {
             i += 1;
         }
         if depth == 0 && i > brace {
-            out.push((fn_name, source[brace..=i.min(bytes.len() - 1)].to_string()));
+            out.push((
+                fn_name,
+                source[start..brace].to_string(),
+                source[brace..=i.min(bytes.len() - 1)].to_string(),
+                start,
+            ));
         }
     }
 }
@@ -354,6 +371,202 @@ fn bodies_by_name() -> HashMap<String, String> {
 
 /// How many function names are too ambiguous to resolve. Reported so the size
 /// of that blind spot is visible rather than implied.
+/// Methods, keyed so a call can be resolved without guessing.
+///
+/// A plain `.name(` could mean any of a dozen methods (`search` is one on six
+/// types), and following all of them reported five builtins as making HTTP
+/// requests because an unrelated `search` does. So a method call is followed
+/// only when the receiver's type is known from the body: `let s =
+/// McpServer::new()`, `let s: McpServer`, or `self` inside a method. Anything
+/// else stays unfollowed: this lint remains a lower bound, just a less blind
+/// one.
+struct Methods {
+    by_type: HashMap<(String, String), Vec<String>>,
+}
+
+/// `impl ... {` blocks as (start, end, type): the type is the last path
+/// segment of the implementing type, generics and `where` dropped.
+fn impl_spans(source: &str) -> Vec<(usize, usize, String)> {
+    let re =
+        regex::Regex::new(r"(?m)^[ \t]*(?:pub(?:\([^)]*\))?\s+)?(?:unsafe\s+)?impl\b([^{;]*)\{")
+            .unwrap();
+    let bytes = source.as_bytes();
+    let mut out = Vec::new();
+    for c in re.captures_iter(source) {
+        let whole = c.get(0).unwrap();
+        let mut header = c[1].to_string();
+        if let Some(i) = header.find(" where ") {
+            header.truncate(i);
+        }
+        let target = match header.rsplit_once(" for ") {
+            Some((_, t)) => t.to_string(),
+            None => {
+                // `impl<T> Type<T>`: drop the leading generic parameters.
+                let h = header.trim_start();
+                if let Some(rest) = h.strip_prefix('<') {
+                    let mut depth = 1;
+                    let mut cut = rest.len();
+                    for (i, ch) in rest.char_indices() {
+                        match ch {
+                            '<' => depth += 1,
+                            '>' => {
+                                depth -= 1;
+                                if depth == 0 {
+                                    cut = i + 1;
+                                    break;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    rest[cut..].to_string()
+                } else {
+                    h.to_string()
+                }
+            }
+        };
+        let path = target.trim().split('<').next().unwrap_or("").trim();
+        let ty = path
+            .rsplit("::")
+            .next()
+            .unwrap_or("")
+            .trim_start_matches('&')
+            .to_string();
+        if ty.is_empty() {
+            continue;
+        }
+        let start = whole.end() - 1;
+        let (mut depth, mut i, mut in_str, mut esc) = (0i32, start, false, false);
+        while i < bytes.len() {
+            let ch = bytes[i] as char;
+            if in_str {
+                if ch == '\\' && !esc {
+                    esc = true;
+                } else {
+                    if ch == '"' && !esc {
+                        in_str = false;
+                    }
+                    esc = false;
+                }
+            } else if ch == '"' {
+                in_str = true;
+            } else if ch == '{' {
+                depth += 1;
+            } else if ch == '}' {
+                depth -= 1;
+                if depth == 0 {
+                    break;
+                }
+            }
+            i += 1;
+        }
+        out.push((start, i, ty));
+    }
+    out
+}
+
+fn methods() -> &'static Methods {
+    static M: std::sync::OnceLock<Methods> = std::sync::OnceLock::new();
+    M.get_or_init(|| {
+        let mut by_type: HashMap<(String, String), Vec<String>> = HashMap::new();
+        for file in source_files() {
+            let src = strip_comments(&file);
+            let spans = impl_spans(&src);
+            let mut items = Vec::new();
+            collect_fn_items(&src, &mut items);
+            for (name, sig, body, at) in items {
+                let params = sig
+                    .split_once('(')
+                    .map(|(_, p)| p.trim_start())
+                    .unwrap_or("");
+                let is_method = ["&self", "&mut self", "self", "mut self"]
+                    .iter()
+                    .any(|p| params.starts_with(p));
+                if !is_method {
+                    continue;
+                }
+                // The innermost impl block around this fn.
+                let Some((_, _, ty)) = spans
+                    .iter()
+                    .filter(|(s, e, _)| *s < at && at < *e)
+                    .min_by_key(|(s, e, _)| e - s)
+                else {
+                    continue;
+                };
+                by_type.entry((ty.clone(), name)).or_default().push(body);
+            }
+        }
+        Methods { by_type }
+    })
+}
+
+/// Local variable types a body states: `let x = Type::...`, `let x = Type {`,
+/// `let x: Type`.
+fn local_types(body: &str) -> HashMap<String, String> {
+    static ANNOTATED: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    static CONSTRUCTED: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let annotated = ANNOTATED.get_or_init(|| {
+        regex::Regex::new(r"let\s+(?:mut\s+)?(\w+)\s*:\s*&?(?:mut\s+)?(?:\w+::)*([A-Z]\w*)")
+            .unwrap()
+    });
+    let constructed = CONSTRUCTED.get_or_init(|| {
+        regex::Regex::new(r"let\s+(?:mut\s+)?(\w+)\s*=\s*&?(?:\w+::)*([A-Z]\w*)\s*(?:::|\{)")
+            .unwrap()
+    });
+    let mut out = HashMap::new();
+    for re in [constructed, annotated] {
+        for c in re.captures_iter(body) {
+            out.insert(c[1].to_string(), c[2].to_string());
+        }
+    }
+    out
+}
+
+/// `receiver.method(` pairs in a body, across line breaks.
+fn receiver_calls(body: &str) -> Vec<(String, String)> {
+    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let re = RE.get_or_init(|| {
+        regex::Regex::new(r"\b([a-z_][a-z0-9_]*)\s*\.\s*([a-z_][a-z0-9_]*)\s*\(").unwrap()
+    });
+    re.captures_iter(body)
+        .map(|c| (c[1].to_string(), c[2].to_string()))
+        .collect()
+}
+
+/// The method bodies a call in `body` resolves to, given the type `self` has
+/// there (when `body` is itself a method).
+fn resolve_methods(body: &str, self_type: Option<&str>) -> Vec<(String, String, String)> {
+    let m = methods();
+    let locals = local_types(body);
+    let mut out = Vec::new();
+    for (recv, name) in receiver_calls(body) {
+        let ty = if recv == "self" {
+            self_type.map(str::to_string)
+        } else {
+            locals.get(&recv).cloned()
+        };
+        match ty {
+            Some(ty) => {
+                for b in m
+                    .by_type
+                    .get(&(ty.clone(), name.clone()))
+                    .into_iter()
+                    .flatten()
+                {
+                    out.push((ty.clone(), name.clone(), b.clone()));
+                }
+            }
+            // An untyped receiver is not followed, even when only one method
+            // in the crate has the name: `map.remove(k)` on a HashMap
+            // resolved to SyntaxKB::remove and `.join(` to GossipCluster::join,
+            // and 29 builtins were reported as writing files or binding
+            // sockets. A name being unique here says nothing about std.
+            None => {}
+        }
+    }
+    out
+}
+
 fn ambiguous_name_count() -> usize {
     let mut counts: HashMap<String, usize> = HashMap::new();
     for (name, _) in all_fn_bodies() {
@@ -476,9 +689,23 @@ fn delegated_evidence(
     all: &HashMap<String, String>,
     depth: usize,
     seen: &mut HashSet<String>,
+    self_type: Option<&str>,
 ) -> Option<(&'static str, String)> {
     if depth == 0 {
         return None;
+    }
+    // Methods first: `server.call_tool(...)` is how mcp_call reached a process
+    // while this lint, following only free calls, read it as pure.
+    for (ty, m, mb) in resolve_methods(body, self_type) {
+        if !seen.insert(format!("{ty}::{m}")) {
+            continue;
+        }
+        if let Some((marker, why)) = direct_evidence(&mb) {
+            return Some((marker, format!("{ty}::{m}() {why}")));
+        }
+        if let Some((marker, chain)) = delegated_evidence(&mb, all, depth - 1, seen, Some(&ty)) {
+            return Some((marker, format!("{ty}::{m}() → {chain}")));
+        }
     }
     for callee in called_names(body) {
         if !seen.insert(callee.clone()) {
@@ -488,7 +715,7 @@ fn delegated_evidence(
         if let Some((marker, why)) = direct_evidence(cb) {
             return Some((marker, format!("{callee}() {why}")));
         }
-        if let Some((marker, chain)) = delegated_evidence(cb, all, depth - 1, seen) {
+        if let Some((marker, chain)) = delegated_evidence(cb, all, depth - 1, seen, None) {
             return Some((marker, format!("{callee}() → {chain}")));
         }
     }
@@ -649,7 +876,8 @@ fn current_violations() -> Vec<(String, &'static str, String)> {
         let mut seen = HashSet::new();
         // Do not follow into itself.
         seen.insert(fn_name.clone());
-        if let Some((marker, chain)) = delegated_evidence(body, &all, FOLLOW_DEPTH, &mut seen) {
+        if let Some((marker, chain)) = delegated_evidence(body, &all, FOLLOW_DEPTH, &mut seen, None)
+        {
             out.push((name, marker, format!("delegates: {chain}")));
         }
     }
@@ -1038,4 +1266,40 @@ fn a_builtin_is_read_through_its_dispatch_row_not_its_name() {
             "{name} is not paired with {f}"
         );
     }
+}
+
+/// Non-vacuity for method resolution. mcp_call reached a process through
+/// `server.call_tool(...)` -> `self.execute_tool(...)` -> `Command::new`,
+/// which this lint could not see while it followed only free calls; it ran
+/// catalogue programs ungated in agent mode. The chain must stay visible.
+#[test]
+fn a_typed_method_call_is_followed_to_its_effect() {
+    let all = bodies_by_name();
+    let body = all.get("bi_mcp_call").expect("bi_mcp_call has a body");
+    let mut seen = HashSet::new();
+    let (_, chain) = delegated_evidence(body, &all, FOLLOW_DEPTH, &mut seen, None)
+        .expect("mcp_call's process is invisible again");
+    assert!(
+        chain.contains("McpServer::call_tool") && chain.contains("execute_tool"),
+        "found a different path: {chain}"
+    );
+}
+
+/// And an untyped receiver is not: `map.remove(k)` on a HashMap must not
+/// resolve to the crate's only `remove` method.
+#[test]
+fn an_untyped_receiver_is_not_guessed() {
+    let calls = resolve_methods(
+        "let mut m = std::collections::HashMap::new(); m.remove(&k);",
+        None,
+    );
+    assert!(
+        calls.iter().all(|(ty, _, _)| ty == "HashMap"),
+        "resolved through a guessed type: {:?}",
+        calls
+            .iter()
+            .map(|(t, n, _)| format!("{t}::{n}"))
+            .collect::<Vec<_>>()
+    );
+    assert!(resolve_methods("x.remove(&k);", None).is_empty());
 }

@@ -342,6 +342,9 @@ fn classified_effect(name: &str) -> Option<Effect> {
         // outside the workspace was refused and `mcp_call("cp", ...)` made the
         // same copy. tests/mcp_call_is_gated.rs runs that sequence.
         "mcp_call" | "mcp_call_tool" => Some(Effect::Exec),
+        // Persists the shell config file (ShellConfig::save), found once the
+        // effect ratchet followed typed method calls.
+        "config_set" => Some(Effect::WriteLocal),
         "monitor_tcpdump" => Some(Effect::Privileged),
         // Run `sh -c <command>` under perf: arbitrary execution, exactly as the
         // `perf_stat`/`perf_record` spellings are classified.
