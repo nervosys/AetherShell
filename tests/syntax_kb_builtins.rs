@@ -4,6 +4,20 @@
 use aethershell::{env::Env, eval, parser, value::Value};
 use anyhow::Result;
 
+/// The syntax KB persists to $HOME/.aethershell/syntax_kb.json, and
+/// `syntax_add` saves. These tests added `test_proto` to the developer's own
+/// knowledge base on every run. Point HOME at a scratch directory before the
+/// first test touches the KB (it is loaded once per process).
+fn isolate() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let dir = std::env::temp_dir().join(format!("ae-syntax-kb-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::env::set_var("HOME", &dir);
+        std::env::set_var("USERPROFILE", &dir);
+    });
+}
+
 /// Helper to evaluate and get string result
 fn eval_str(env: &mut Env, code: &str) -> Result<String> {
     let stmts = parser::parse_program(code)?;
@@ -19,6 +33,7 @@ fn eval_in_env(env: &mut Env, code: &str) -> Result<Value> {
 
 #[test]
 fn test_syntax_get_ab() {
+    isolate();
     let mut env = Env::new();
     let result = eval_str(&mut env, r#"syntax_get("ab")"#).unwrap();
 
@@ -30,6 +45,7 @@ fn test_syntax_get_ab() {
 
 #[test]
 fn test_syntax_search() {
+    isolate();
     let mut env = Env::new();
     let result = eval_str(&mut env, r#"syntax_search("protocol")"#).unwrap();
 
@@ -39,6 +55,7 @@ fn test_syntax_search() {
 
 #[test]
 fn test_syntax_add_and_retrieve() {
+    isolate();
     let mut env = Env::new();
 
     // Add a custom syntax entry
@@ -64,6 +81,7 @@ fn test_syntax_add_and_retrieve() {
 
 #[test]
 fn test_ab_encode_decode_ping() {
+    isolate();
     let mut env = Env::new();
 
     // Encode a PING message
@@ -85,6 +103,7 @@ fn test_ab_encode_decode_ping() {
 
 #[test]
 fn test_ab_encode_decode_query() {
+    isolate();
     let mut env = Env::new();
 
     // Encode a QUERY message
@@ -104,6 +123,7 @@ fn test_ab_encode_decode_query() {
 
 #[test]
 fn test_ab_encode_delegate() {
+    isolate();
     let mut env = Env::new();
 
     // Encode a DELEGATE message
@@ -120,6 +140,7 @@ fn test_ab_encode_delegate() {
 
 #[test]
 fn test_ab_encode_collaborate() {
+    isolate();
     let mut env = Env::new();
 
     // Encode a COLLABORATE message
@@ -138,6 +159,7 @@ fn test_ab_encode_collaborate() {
 
 #[test]
 fn test_ab_encode_learn_ack_workflow() {
+    isolate();
     let mut env = Env::new();
 
     // Agent 1 sends LEARN message
@@ -166,6 +188,7 @@ fn test_ab_encode_learn_ack_workflow() {
 
 #[test]
 fn test_ab_all_opcodes() {
+    isolate();
     let mut env = Env::new();
 
     let opcodes = vec![
@@ -205,6 +228,7 @@ fn test_ab_all_opcodes() {
 
 #[test]
 fn test_ab_encode_numeric_codes() {
+    isolate();
     let mut env = Env::new();
 
     // Test using numeric message type and opcode
@@ -218,6 +242,7 @@ fn test_ab_encode_numeric_codes() {
 
 #[test]
 fn test_syntax_search_no_results() {
+    isolate();
     let mut env = Env::new();
 
     // Search for something that doesn't exist
@@ -229,6 +254,7 @@ fn test_syntax_search_no_results() {
 
 #[test]
 fn test_ab_message_types() {
+    isolate();
     let mut env = Env::new();
 
     let msg_types = vec![
@@ -255,6 +281,7 @@ fn test_ab_message_types() {
 
 #[test]
 fn test_ab_roundtrip_unicode() {
+    isolate();
     let mut env = Env::new();
 
     // Test Unicode payload
@@ -271,6 +298,7 @@ fn test_ab_roundtrip_unicode() {
 
 #[test]
 fn test_ab_version_field() {
+    isolate();
     let mut env = Env::new();
 
     // Encode and decode, check version field
@@ -284,6 +312,7 @@ fn test_ab_version_field() {
 
 #[test]
 fn test_syntax_get_nonexistent() {
+    isolate();
     let mut env = Env::new();
 
     // Try to get non-existent syntax entry
@@ -291,4 +320,32 @@ fn test_syntax_get_nonexistent() {
 
     // Should return an error
     assert!(result.is_err());
+}
+
+/// The KB is a HashMap, iterated in an order randomised per process, so the
+/// same search answered in a different order on every run. The discarded-args
+/// probe counted `syntax_search` as nondeterministic for it.
+#[test]
+fn listings_are_in_a_stable_order() {
+    isolate();
+    let mut env = Env::new();
+    for code in [r#"syntax_list()"#, r#"syntax_search("a")"#] {
+        let Value::Array(items) = eval_in_env(&mut env, code).unwrap() else {
+            panic!("{code} is not an array")
+        };
+        let ids: Vec<String> = items
+            .iter()
+            .map(|v| match v {
+                Value::Str(s) => s.clone(),
+                Value::Record(r) => r
+                    .get("id")
+                    .map(|i| i.to_display_string())
+                    .unwrap_or_default(),
+                other => other.to_display_string(),
+            })
+            .collect();
+        let mut sorted = ids.clone();
+        sorted.sort();
+        assert_eq!(ids, sorted, "{code} is not in a stable order");
+    }
 }

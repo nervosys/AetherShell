@@ -368,31 +368,46 @@ NOTIFICATION (no response expected):
         let key = Self::category_key(category);
         self.category_index
             .get(&key)
-            .map(|ids| ids.iter().filter_map(|id| self.entries.get(id)).collect())
+            .map(|ids| {
+                let mut v: Vec<&SyntaxEntry> =
+                    ids.iter().filter_map(|id| self.entries.get(id)).collect();
+                v.sort_by(|a, b| a.id.cmp(&b.id));
+                v
+            })
             .unwrap_or_default()
     }
 
     /// Search for syntax entries by keyword
     pub fn search(&self, query: &str) -> Vec<&SyntaxEntry> {
         let query_lower = query.to_lowercase();
-        self.entries
+        let mut found = self
+            .entries
             .values()
             .filter(|entry| {
                 entry.name.to_lowercase().contains(&query_lower)
                     || entry.id.to_lowercase().contains(&query_lower)
                     || entry.specification.to_lowercase().contains(&query_lower)
             })
-            .collect()
+            .collect::<Vec<_>>();
+        // Sorted: the entries live in a HashMap, whose iteration order is
+        // randomised per process, so the same search answered in a different
+        // order on every run.
+        found.sort_by(|a, b| a.id.cmp(&b.id));
+        found
     }
 
     /// Get all syntax IDs
     pub fn list_all_ids(&self) -> Vec<String> {
-        self.entries.keys().cloned().collect()
+        let mut ids: Vec<String> = self.entries.keys().cloned().collect();
+        ids.sort();
+        ids
     }
 
     /// Get all categories
     pub fn list_categories(&self) -> Vec<String> {
-        self.category_index.keys().cloned().collect()
+        let mut cats: Vec<String> = self.category_index.keys().cloned().collect();
+        cats.sort();
+        cats
     }
 
     /// Remove a syntax entry
