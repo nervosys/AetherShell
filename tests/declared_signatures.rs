@@ -108,6 +108,25 @@ const MACHINE_DEPENDENT: &[(&str, &str)] = &[
     ("db_kv_keys", "the sqlite3 command-line tool"),
     ("db_kv_get", "the sqlite3 command-line tool"),
     ("db_sqlite_count", "the sqlite3 command-line tool"),
+    (
+        "svc_status",
+        "the service manager (systemd, launchd, Windows services) and which services exist",
+    ),
+    (
+        "svc_info",
+        "the service manager (systemd, launchd, Windows services) and which services exist",
+    ),
+    (
+        "svc_logs",
+        "the system journal / event log and what it holds",
+    ),
+    ("lsof", "lsof (Unix); E_UNIMPLEMENTED on Windows"),
+    ("blkid", "blkid and the block devices present (Linux only)"),
+    (
+        "crypto_cert_verify",
+        "openssl and the system trust store (Unix only)",
+    ),
+    ("ssh_config", "the user's ~/.ssh/config"),
 ];
 
 /// The codes that honestly mean "not on this machine", as opposed to a

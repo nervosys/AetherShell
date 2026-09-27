@@ -24904,6 +24904,7 @@ fn bi_svc_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
     };
 
+    crate::safety::reject_option_like("svc_status", std::slice::from_ref(&name))?;
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
@@ -24926,7 +24927,12 @@ fn bi_svc_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     }
                     let status_str = match obj.get("Status").and_then(|v| v.as_i64()) {
                         Some(1) => "stopped",
+                        Some(2) => "start_pending",
+                        Some(3) => "stop_pending",
                         Some(4) => "running",
+                        Some(5) => "continue_pending",
+                        Some(6) => "pause_pending",
+                        Some(7) => "paused",
                         _ => "unknown",
                     };
                     rec.insert("status".to_string(), Value::Str(status_str.to_string()));
@@ -24934,17 +24940,54 @@ fn bi_svc_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 }
             }
         }
+        // A service that does not exist fell through to null.
+        return Err(crate::safety::tool_failed(
+            "svc_status",
+            "Get-Service",
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
     }
     #[cfg(target_os = "linux")]
     {
+        // `systemctl is-active` says "inactive" for a unit that does not
+        // exist, so a missing service read as a stopped one. LoadState tells
+        // them apart.
         let output = std::process::Command::new("systemctl")
-            .args(["is-active", &name])
+            .args([
+                "show",
+                "-p",
+                "LoadState",
+                "-p",
+                "ActiveState",
+                "-p",
+                "SubState",
+                &name,
+            ])
             .output()
             .map_err(|e| crate::safety::spawn_error("svc_status", "systemctl", &e))?;
-        let status_text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !output.status.success() {
+            return Err(crate::safety::tool_failed(
+                "svc_status",
+                "systemctl show",
+                output.status.code(),
+                &String::from_utf8_lossy(&output.stderr),
+            ));
+        }
+        let text = String::from_utf8_lossy(&output.stdout).to_string();
+        let prop = |k: &str| {
+            text.lines()
+                .find_map(|l| l.strip_prefix(&format!("{k}=")))
+                .unwrap_or("")
+                .to_string()
+        };
+        if prop("LoadState") == "not-found" {
+            return Err(crate::safety::not_found("svc_status", "service", &name));
+        }
         let mut rec = std::collections::BTreeMap::new();
         rec.insert("name".to_string(), Value::Str(name.clone()));
-        rec.insert("status".to_string(), Value::Str(status_text));
+        rec.insert("status".to_string(), Value::Str(prop("ActiveState")));
+        rec.insert("sub_state".to_string(), Value::Str(prop("SubState")));
         return Ok(Value::Record(rec));
     }
     #[cfg(target_os = "macos")]
@@ -24953,17 +24996,32 @@ fn bi_svc_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args(["list", &name])
             .output()
             .map_err(|e| crate::safety::spawn_error("svc_status", "launchctl", &e))?;
+        // `launchctl list <label>` fails for a label that is not loaded, which
+        // read as "stopped", and succeeds for a loaded job whether or not it
+        // is running, which read as "running". A running job has a PID.
+        if !output.status.success() {
+            return Err(crate::safety::not_found(
+                "svc_status",
+                "loaded service",
+                &name,
+            ));
+        }
+        let text = String::from_utf8_lossy(&output.stdout);
         let mut rec = std::collections::BTreeMap::new();
         rec.insert("name".to_string(), Value::Str(name.clone()));
-        if output.status.success() {
-            rec.insert("status".to_string(), Value::Str("running".to_string()));
-        } else {
-            rec.insert("status".to_string(), Value::Str("stopped".to_string()));
-        }
+        let running = text.contains("\"PID\" =");
+        rec.insert(
+            "status".to_string(),
+            Value::Str(if running { "running" } else { "stopped" }.to_string()),
+        );
         return Ok(Value::Record(rec));
     }
     #[allow(unreachable_code)]
-    Ok(Value::Null)
+    Err(crate::safety::unimplemented(
+        "svc_status",
+        "service status is not implemented on this OS; NOTHING WAS INSPECTED",
+        "query the service manager directly",
+    ))
 }
 
 fn bi_svc_start(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -25230,7 +25288,9 @@ fn bi_svc_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args([
                 "-Command",
                 &crate::ps_script!(
-                    "Get-EventLog -LogName Application -Source {} -Newest {} | Select-Object TimeGenerated,EntryType,Message | ConvertTo-Json",
+                    // Get-EventLog exits 1 when there are no entries; an empty
+                    // log is [], not a failure.
+                    "ConvertTo-Json -InputObject @(Get-EventLog -LogName Application -Source {} -Newest {} -ErrorAction SilentlyContinue | Select-Object TimeGenerated,EntryType,Message)",
                     crate::safety::ps_quote(&name), lines
                 ),
             ])
@@ -25264,7 +25324,13 @@ fn bi_svc_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 return Ok(Value::Array(entries));
             }
         }
-        return Ok(Value::Array(vec![]));
+        // A failed query answered [], "no log entries".
+        return Err(crate::safety::tool_failed(
+            "svc_logs",
+            "Get-EventLog",
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
     }
     #[cfg(target_os = "linux")]
     {
@@ -25313,6 +25379,15 @@ fn bi_svc_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args(["-u", &name, "-n", &lines.to_string(), "--no-pager"])
             .output()
             .map_err(|e| crate::safety::spawn_error("svc_logs", "journalctl", &e))?;
+        // Unreadable journals (no systemd, no permission) answered [].
+        if !output.status.success() {
+            return Err(crate::safety::tool_failed(
+                "svc_logs",
+                "journalctl",
+                output.status.code(),
+                &String::from_utf8_lossy(&output.stderr),
+            ));
+        }
         let text = String::from_utf8_lossy(&output.stdout);
         let entries: Vec<Value> = text
             .lines()
@@ -25327,6 +25402,17 @@ fn bi_svc_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "macos")]
     {
+        // The name goes into a log predicate inside single quotes; a quote or
+        // backslash in it would change the predicate.
+        // Code points, not char literals: see the scanner note in
+        // platform_disk_usage. 0x27 is the single quote, 0x5c the backslash.
+        if name.chars().any(|c| matches!(c as u32, 0x27 | 0x5c)) {
+            return Err(crate::safety::bad_arg(
+                "svc_logs",
+                "a process name without quotes or backslashes",
+                &name,
+            ));
+        }
         let output = std::process::Command::new("log")
             .args([
                 "show",
@@ -25339,11 +25425,24 @@ fn bi_svc_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             ])
             .output()
             .map_err(|e| crate::safety::spawn_error("svc_logs", "log", &e))?;
+        if !output.status.success() {
+            return Err(crate::safety::tool_failed(
+                "svc_logs",
+                "log show",
+                output.status.code(),
+                &String::from_utf8_lossy(&output.stderr),
+            ));
+        }
         let text = String::from_utf8_lossy(&output.stdout);
-        let entries: Vec<Value> = text
+        // The newest `lines` entries; this took the oldest. The first line is
+        // the column header.
+        let all: Vec<&str> = text
             .lines()
-            .take(lines as usize)
+            .skip(1)
             .filter(|l| !l.trim().is_empty())
+            .collect();
+        let entries: Vec<Value> = all[all.len().saturating_sub(lines.max(0) as usize)..]
+            .iter()
             .map(|l| {
                 let mut rec = std::collections::BTreeMap::new();
                 // macOS log compact format: "timestamp  processName[pid]  message"
@@ -32848,6 +32947,14 @@ fn bi_crypto_cert_verify(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
     #[cfg(unix)]
     {
         crate::safety::reject_option_like("crypto_cert_verify", std::slice::from_ref(&cert_path))?;
+        // A certificate file that did not exist answered false, "invalid".
+        if !std::path::Path::new(&cert_path).is_file() {
+            return Err(crate::safety::not_found(
+                "crypto_cert_verify",
+                "certificate file",
+                &cert_path,
+            ));
+        }
         let output = std::process::Command::new("openssl")
             .args(["verify", &cert_path])
             .output()
@@ -42925,10 +43032,27 @@ fn bi_blkid(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             Some(Value::Str(s)) => s.clone(),
             _ => return Err(crate::safety::arg_err("blkid: expected device path")),
         };
+        crate::safety::reject_option_like("blkid", std::slice::from_ref(&device))?;
         let out = Command::new("blkid")
             .args(&["-o", "export", &device])
             .output()
-            .map_err(|e| anyhow!("blkid: {}", e))?;
+            .map_err(|e| crate::safety::spawn_error("blkid", "blkid", &e))?;
+        // blkid exits 2 for a device it cannot identify; that answered {}.
+        if out.status.code() == Some(2) {
+            return Err(crate::safety::not_found(
+                "blkid",
+                "identifiable device",
+                &device,
+            ));
+        }
+        if !out.status.success() {
+            return Err(crate::safety::tool_failed(
+                "blkid",
+                "blkid",
+                out.status.code(),
+                &String::from_utf8_lossy(&out.stderr),
+            ));
+        }
         let text = String::from_utf8_lossy(&out.stdout);
         let mut rec = BTreeMap::new();
         for line in text.lines() {
@@ -42940,7 +43064,12 @@ fn bi_blkid(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(not(target_os = "linux"))]
     {
-        Err(anyhow!("blkid: only supported on Linux"))
+        let _ = &args;
+        Err(crate::safety::unimplemented(
+            "blkid",
+            "blkid is Linux-only; NOTHING WAS INSPECTED",
+            "lsblk() lists disks on every OS",
+        ))
     }
 }
 
@@ -42987,7 +43116,17 @@ fn bi_lsof(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let out = Command::new("lsof")
             .args(&["-i", "-P", "-n"])
             .output()
-            .map_err(|e| anyhow!("lsof: {}", e))?;
+            .map_err(|e| crate::safety::spawn_error("lsof", "lsof", &e))?;
+        // lsof exits 1 with nothing on stdout when there is nothing to list;
+        // anything on stderr with a failure is a real error.
+        if !out.status.success() && !out.stderr.is_empty() {
+            return Err(crate::safety::tool_failed(
+                "lsof",
+                "lsof",
+                out.status.code(),
+                &String::from_utf8_lossy(&out.stderr),
+            ));
+        }
         let text = String::from_utf8_lossy(&out.stdout);
         let lines: Vec<&str> = text.lines().collect();
         if lines.is_empty() {
@@ -43012,17 +43151,15 @@ fn bi_lsof(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "windows")]
     {
-        let out = Command::new("powershell")
-            .args([
-                "-NoProfile",
-                "-Command",
-                "Get-Process | Select-Object -First 50 Id,ProcessName,HandleCount | ConvertTo-Json",
-            ])
-            .output()
-            .map_err(|e| anyhow!("lsof: {}", e))?;
-        let json: serde_json::Value =
-            serde_json::from_slice(&out.stdout).map_err(|e| anyhow!("lsof: parse error: {}", e))?;
-        Ok(json_to_value(json))
+        // This returned the first 50 processes with handle counts: a
+        // different answer to a different question from the network
+        // connections `lsof -i` lists on Unix, under the same name.
+        let _ = &args;
+        Err(crate::safety::unimplemented(
+            "lsof",
+            "lsof is not available on Windows; NOTHING WAS LISTED",
+            "netstat_info() lists this machine's network connections",
+        ))
     }
 }
 

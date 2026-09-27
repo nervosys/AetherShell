@@ -40,8 +40,11 @@ fn assert_not_mistakable_for_success(name: &str, args: Vec<Value>) {
     match try_call(name, args) {
         Err(e) => {
             let msg = e.to_string();
+            // E_NOT_FOUND since the certificate file's existence is checked
+            // first: the bogus paths used here do not exist, and saying so is
+            // as fail-closed as E_UNIMPLEMENTED. An uncoded error is not.
             assert!(
-                msg.contains("E_UNIMPLEMENTED"),
+                msg.contains("E_UNIMPLEMENTED") || msg.contains("E_NOT_FOUND"),
                 "{name} failed, but not with the E_UNIMPLEMENTED code the shell's \
                  error convention expects: {msg}"
             );

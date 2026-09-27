@@ -4414,6 +4414,101 @@ pub static SIGNATURES: &[Signature] = &[
             (r#"db_sqlite_count("tests/fixtures/sample.db", "people", "age > 40")"#, r#"1"#),
         ],
     },
+    // 1b: services, open connections, block devices, certificates, SSH
+    // config. All machine-dependent; results shown are Debian's.
+    Signature {
+        name: "svc_status",
+        category: None,
+        subject_required: false,
+        aliases: &["service", "systemctl"],
+        subject: None,
+        params: &[req("name", Ty::Str, "a service name")],
+        returns: "Record",
+        doc: "A service's {name, status} (and sub_state under systemd). A service that does not exist is E_NOT_FOUND, not \"inactive\".",
+        examples: &[
+            (r#"service("cron")"#, r#"{name: cron, status: active, sub_state: running}"#),
+        ],
+    },
+    Signature {
+        name: "svc_info",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("name", Ty::Str, "a service name")],
+        returns: "Record",
+        doc: "The same as svc_status.",
+        examples: &[
+            (r#"svc_info("cron")"#, r#"{name: cron, status: active, sub_state: running}"#),
+        ],
+    },
+    Signature {
+        name: "svc_logs",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("name", Ty::Str, "a service or process name"), opt("lines", Ty::Int, "newest entries to return; default 100")],
+        returns: "Array",
+        doc: "A service's newest log entries as {timestamp, level, message}.",
+        examples: &[
+            (r#"svc_logs("cron")"#, r#"[{level: 6, message: "...", timestamp: "..."}, ...]"#),
+            (r#"svc_logs("cron", 5)"#, r#"[{level: 6, message: "...", timestamp: "..."}, ...]"#),
+        ],
+    },
+    Signature {
+        name: "lsof",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[],
+        returns: "Array",
+        doc: "This machine's network connections as lsof -i reports them, one record per line.",
+        examples: &[
+            (r#"lsof()"#, r#"[{command: sshd, pid: "812", ...}, ...]"#),
+        ],
+    },
+    Signature {
+        name: "blkid",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("device", Ty::Str, "a block device such as /dev/sda1")],
+        returns: "Record",
+        doc: "A block device's attributes (uuid, type, label). An unidentifiable device is E_NOT_FOUND.",
+        examples: &[
+            (r#"blkid("/dev/sda1")"#, r#"{type: ext4, uuid: "...", ...}"#),
+        ],
+    },
+    Signature {
+        name: "crypto_cert_verify",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("path", Ty::Str, "a PEM certificate file")],
+        returns: "Bool",
+        doc: "Whether a certificate verifies against the system trust store. A missing file is E_NOT_FOUND.",
+        examples: &[
+            (r#"crypto_cert_verify("/etc/ssl/certs/ca-certificates.crt")"#, r#"true"#),
+        ],
+    },
+    Signature {
+        name: "ssh_config",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[opt("path", Ty::Str, "an ssh config file; default ~/.ssh/config")],
+        returns: "Array",
+        doc: "Host entries of an ssh config file as records. A missing file is E_NOT_FOUND.",
+        examples: &[
+            (r#"ssh_config()"#, r#"[{host: github.com, user: git, ...}]"#),
+            (r#"ssh_config("/etc/ssh/ssh_config")"#, r#"[{host: "*", ...}]"#),
+        ],
+    },
 ];
 
 /// The declaration for `name`, if it has one.
