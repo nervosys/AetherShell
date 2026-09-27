@@ -3940,6 +3940,7 @@ pub const SELF_GUARDED: &[&str] = &[
     "session_export",
     "sh",
     "ssh_exec",
+    "ssh_keygen",
     "strace_cmd",
     "tar_extract",
     "terraform_destroy",

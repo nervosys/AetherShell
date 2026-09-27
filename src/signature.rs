@@ -218,6 +218,19 @@ const fn opt_range(name: &'static str, ty: Ty, lo: i64, hi: i64, doc: &'static s
     }
 }
 
+/// Like [`rest`], but zero values are allowed: `wc()` and `wc("-l")` are both
+/// calls of one builtin.
+const fn opt_rest(name: &'static str, ty: Ty, doc: &'static str) -> Param {
+    Param {
+        name,
+        ty,
+        required: false,
+        range: None,
+        variadic: true,
+        doc,
+    }
+}
+
 /// A parameter that absorbs every remaining argument.
 const fn rest(name: &'static str, ty: Ty, doc: &'static str) -> Param {
     Param {
@@ -4768,6 +4781,156 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[
             (r#"fix("something broke").code"#, r#"E_UNKNOWN"#),
             (r#"(try { crypto_hash("x", "blake3") } catch e { fix(e) }).code"#, r#"E_BAD_ARG"#),
+        ],
+    },
+    // 1b: print, wc, cloud_config, syntax_list, imports, the SQLite/kv
+    // creators (temp files only), code_format, fs_readlink, db_json_query.
+    Signature {
+        name: "print",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: Some(Ty::Any),
+        params: &[],
+        returns: "String",
+        doc: "Show a value on stdout and return its plain text.",
+        examples: &[
+            (r#"print("hi")"#, r#"hi"#),
+            (r#"[1, 2] | print()"#, r#"[1, 2]"#),
+        ],
+    },
+    Signature {
+        name: "wc",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: Some(Ty::Str),
+        params: &[opt_rest("flags", Ty::Str, "-l, -w or -c to count only lines, words or characters")],
+        returns: "Record",
+        doc: "Line, word and character counts of piped text, or of a file named as the subject. An unknown flag is refused.",
+        examples: &[
+            (r#""a b\nc" | wc()"#, r#"{chars: 5, lines: 2, words: 3}"#),
+            (r#""a b\nc" | wc("-l")"#, r#"{lines: 2}"#),
+        ],
+    },
+    Signature {
+        name: "cloud_config",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[opt("options", Ty::Record, "provider, region, endpoint, instance_type")],
+        returns: "Record | Null",
+        doc: "Set the cloud configuration from a record, or read it back; null when nothing has been configured.",
+        examples: &[
+            (r#"cloud_config({region: "eu-west-1"}).region"#, r#"eu-west-1"#),
+            (r#"let c = cloud_config({region: "eu-west-1"}); cloud_config().region"#, r#"eu-west-1"#),
+        ],
+    },
+    Signature {
+        name: "syntax_list",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[opt("category", Ty::Str, "protocol, language, encoding, command, query or a custom one")],
+        returns: "Array",
+        doc: "Ids in the syntax knowledge base, optionally of one category.",
+        examples: &[
+            (r#"typeof(syntax_list())"#, r#"Array"#),
+            (r#"typeof(syntax_list("protocol"))"#, r#"Array"#),
+        ],
+    },
+    Signature {
+        name: "refactor_organize_imports",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("file", Ty::Str, "a Rust source file")],
+        returns: "Array",
+        doc: "A Rust file's `use` lines, sorted. It reads the file and does not change it.",
+        examples: &[
+            (r#"(refactor_organize_imports("src/lib.rs") | len) >= 0"#, r#"true"#),
+        ],
+    },
+    Signature {
+        name: "db_kv_store",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[opt("store", Ty::Str, "store file; default .aether_kv.db")],
+        returns: "String",
+        doc: "Create a key-value store (a SQLite file with a kv table) and return its path.",
+        examples: &[
+            (r#"db_kv_store(fs_tempdir("ae_kv") + "/s.db")"#, r#"/tmp/ae_kv_.../s.db"#),
+        ],
+    },
+    Signature {
+        name: "db_sqlite_open",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("db", Ty::Str, "a SQLite file, created if missing")],
+        returns: "Bool",
+        doc: "Create or open a SQLite database file.",
+        examples: &[
+            (r#"let d = fs_tempdir("ae_db"); db_sqlite_open(d + "/x.db")"#, r#"true"#),
+        ],
+    },
+    Signature {
+        name: "db_sqlite_vacuum",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("db", Ty::Str, "a SQLite file")],
+        returns: "Bool",
+        doc: "Rebuild a SQLite database to reclaim space.",
+        examples: &[
+            (r#"let d = fs_tempdir("ae_db"); db_sqlite_open(d + "/x.db"); db_sqlite_vacuum(d + "/x.db")"#, r#"true"#),
+        ],
+    },
+    Signature {
+        name: "code_format",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("file", Ty::Str, "a .rs, .py, .js or .ts file, formatted in place")],
+        returns: "Bool",
+        doc: "Format a source file in place with its language formatter. An unsupported extension is refused.",
+        examples: &[
+            (r#"let f = fs_tempdir("ae_fmt") + "/a.rs"; file_write(f, "fn main(){}"); code_format(f)"#, r#"true"#),
+        ],
+    },
+    Signature {
+        name: "fs_readlink",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("path", Ty::Str, "a symbolic link")],
+        returns: "String",
+        doc: "A symlink's target. A missing path or one that is not a link is an error, not null.",
+        examples: &[
+            (r#"fs_readlink("/proc/self/exe")"#, r#"/usr/local/bin/ae"#),
+        ],
+    },
+    Signature {
+        name: "db_json_query",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("path", Ty::Str, "a JSON file"), opt("filter", Ty::Str, "a jq filter; default .")],
+        returns: "Any",
+        doc: "Run a jq filter over a JSON file. A filter jq rejects is E_TOOL_FAILED, not the whole document.",
+        examples: &[
+            (r#"db_json_query(".well-known/ai-plugin.json", ".name_for_model")"#, r#"aethershell"#),
+            (r#"typeof(db_json_query(".well-known/ai-plugin.json"))"#, r#"Record"#),
         ],
     },
 ];

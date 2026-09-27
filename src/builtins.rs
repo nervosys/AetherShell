@@ -7986,6 +7986,7 @@ fn bi_wc(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         .iter()
         .any(|arg| matches!(arg, Value::Str(s) if s == "-c" || s == "--chars"));
 
+    let content_came_from_pipe = input.is_some();
     let content = if let Some(input) = input {
         match input {
             Value::Str(s) => s,
@@ -8016,6 +8017,22 @@ fn bi_wc(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             "a direct call with no subject",
         ));
     };
+    // An unknown flag ("-x", "--bogus") was ignored and every count returned.
+    let flags = if content_came_from_pipe {
+        &args[..]
+    } else {
+        &args[1..]
+    };
+    for f in flags {
+        if !matches!(f, Value::Str(s) if matches!(s.as_str(), "-l" | "--lines" | "-w" | "--words" | "-c" | "--chars"))
+        {
+            return Err(crate::safety::bad_arg(
+                "wc",
+                "a flag -l, -w or -c",
+                &f.to_display_string(),
+            ));
+        }
+    }
 
     let line_count = content.lines().count();
     let word_count = content.split_whitespace().count();
@@ -30895,6 +30912,26 @@ fn bi_clipboard_types(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     }
 }
 
+/// One line from stdin. Closed stdin (EOF) answered "" -- an empty answer to
+/// the question, a `false` from input_confirm, a null from input_number --
+/// when nobody was there to answer at all.
+fn read_answer(builtin: &str, prompt: &str) -> Result<String> {
+    if !prompt.is_empty() {
+        eprint!("{}", prompt);
+    }
+    let mut line = String::new();
+    let n = std::io::stdin()
+        .read_line(&mut line)
+        .map_err(|e| crate::safety::fs_error(builtin, "stdin", &e))?;
+    if n == 0 {
+        return Err(crate::safety::no_ui(builtin));
+    }
+    Ok(line
+        .trim_end_matches('\n')
+        .trim_end_matches('\r')
+        .to_string())
+}
+
 fn bi_input_read_line(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let prompt = args
         .first()
@@ -30904,18 +30941,7 @@ fn bi_input_read_line(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
         })
         .unwrap_or_default();
 
-    if !prompt.is_empty() {
-        eprint!("{}", prompt);
-    }
-
-    let mut input = String::new();
-    std::io::stdin().read_line(&mut input)?;
-    Ok(Value::Str(
-        input
-            .trim_end_matches('\n')
-            .trim_end_matches('\r')
-            .to_string(),
-    ))
+    Ok(Value::Str(read_answer("prompt", &prompt)?))
 }
 
 fn bi_input_read_password(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -30976,12 +31002,7 @@ fn bi_input_confirm(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         })
         .unwrap_or_else(|| "Confirm? [y/N]: ".to_string());
 
-    eprint!("{}", prompt);
-
-    let mut input = String::new();
-    std::io::stdin().read_line(&mut input)?;
-    let response = input.trim().to_lowercase();
-
+    let response = read_answer("input_confirm", &prompt)?.trim().to_lowercase();
     Ok(Value::Bool(response == "y" || response == "yes"))
 }
 
@@ -31068,18 +31089,19 @@ fn bi_input_number(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         })
         .unwrap_or_else(|| "Enter number: ".to_string());
 
-    eprint!("{}", prompt);
-
-    let mut input = String::new();
-    std::io::stdin().read_line(&mut input)?;
-
-    if let Ok(n) = input.trim().parse::<i64>() {
+    let answer = read_answer("input_number", &prompt)?;
+    if let Ok(n) = answer.trim().parse::<i64>() {
         return Ok(Value::Int(n));
     }
-    if let Ok(f) = input.trim().parse::<f64>() {
+    if let Ok(f) = answer.trim().parse::<f64>() {
         return Ok(Value::Float(f));
     }
-    Ok(Value::Null)
+    // Text that is not a number answered null.
+    Err(crate::safety::bad_arg(
+        "input_number",
+        "a number",
+        &format!("{answer:?}"),
+    ))
 }
 
 fn bi_input_editor(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -31121,23 +31143,16 @@ fn bi_input_editor(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_input_timeout(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let prompt = args
-        .first()
-        .and_then(|v| match v {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        })
-        .unwrap_or_default();
-    let _timeout_ms = args
-        .get(1)
-        .and_then(|v| match v {
-            Value::Int(n) => Some(*n),
-            _ => None,
-        })
-        .unwrap_or(5000);
-
-    // Simple implementation - no actual timeout
-    bi_input_read_line(vec![Value::Str(prompt)], None)
+    // This ignored its timeout and waited for a line indefinitely, so a
+    // caller relying on the timeout hung. A timed stdin read needs a reader
+    // thread, and an abandoned one would swallow the next line typed at a
+    // later prompt, so it is refused rather than half-done.
+    let _ = &args;
+    Err(crate::safety::unimplemented(
+        "input_timeout",
+        "a timed read is not implemented; NOTHING WAS READ",
+        "prompt(text) reads a line without a timeout",
+    ))
 }
 
 fn bi_input_autocomplete(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -32881,7 +32896,12 @@ fn bi_input_date(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         })
         .unwrap_or_else(|| "Enter date (YYYY-MM-DD): ".to_string());
 
-    bi_input_read_line(vec![Value::Str(prompt)], None)
+    // Any text was accepted as a date.
+    let answer = read_answer("input_date", &prompt)?;
+    chrono::NaiveDate::parse_from_str(answer.trim(), "%Y-%m-%d").map_err(|_| {
+        crate::safety::bad_arg("input_date", "a date as YYYY-MM-DD", &format!("{answer:?}"))
+    })?;
+    Ok(Value::Str(answer.trim().to_string()))
 }
 
 // ============================================================================
@@ -35791,17 +35811,43 @@ fn bi_code_format(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .extension()
         .and_then(|s| s.to_str())
         .unwrap_or("");
-    let result = match ext {
-        "rs" => std::process::Command::new("rustfmt").arg(&file).output(),
-        "py" => std::process::Command::new("black").arg(&file).output(),
-        "js" | "ts" => std::process::Command::new("prettier")
-            .args(["--write", &file])
-            .output(),
-        _ => return Ok(Value::Bool(false)),
+    // The path goes to the formatter positionally.
+    crate::safety::reject_option_like("code_format", std::slice::from_ref(&file))?;
+    let (program, result) = match ext {
+        "rs" => (
+            "rustfmt",
+            std::process::Command::new("rustfmt").arg(&file).output(),
+        ),
+        "py" => (
+            "black",
+            std::process::Command::new("black").arg(&file).output(),
+        ),
+        "js" | "ts" => (
+            "prettier",
+            std::process::Command::new("prettier")
+                .args(["--write", &file])
+                .output(),
+        ),
+        // An unsupported extension, a missing formatter and a formatter that
+        // failed were all `false`.
+        other => {
+            return Err(crate::safety::bad_arg(
+                "code_format",
+                "a .rs, .py, .js or .ts file",
+                &format!("a .{other} file"),
+            ))
+        }
     };
-    Ok(Value::Bool(
-        result.map(|o| o.status.success()).unwrap_or(false),
-    ))
+    let output = result.map_err(|e| crate::safety::spawn_error("code_format", program, &e))?;
+    if !output.status.success() {
+        return Err(crate::safety::tool_failed(
+            "code_format",
+            program,
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
+    }
+    Ok(Value::Bool(true))
 }
 
 fn bi_code_language(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -43522,25 +43568,44 @@ fn bi_ssh_keygen(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             format!("{}/.ssh/id_{}", home, key_type)
         }
     };
+    // A key file that already exists is never replaced: ssh-keygen would ask,
+    // and nobody is there to answer.
+    if std::path::Path::new(&filename).exists() {
+        return Err(crate::safety::bad_state(
+            "ssh_keygen",
+            &format!("{filename} already exists"),
+            "pass a new file name; existing keys are not overwritten",
+        ));
+    }
+    // Writing a private key is a write like any other: the workspace jail
+    // applies (by default this wrote into ~/.ssh unchecked).
+    let filename = guard_local_write("ssh_keygen", &filename)?;
     let output = Command::new("ssh-keygen")
         .args(["-t", &key_type, "-f", &filename, "-N", ""])
         .output()
-        .map_err(|e| anyhow!("ssh_keygen: failed to run ssh-keygen: {}", e))?;
+        .map_err(|e| crate::safety::spawn_error("ssh_keygen", "ssh-keygen", &e))?;
+    // A failure was {success: false, error} at exit 0.
+    if !output.status.success() {
+        return Err(crate::safety::tool_failed(
+            "ssh_keygen",
+            "ssh-keygen",
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
+    }
     let mut map = BTreeMap::new();
-    map.insert("success".to_string(), Value::Bool(output.status.success()));
+    // The key has no passphrase (-N ""); say so rather than leave it implied.
+    map.insert("passphrase".to_string(), Value::Bool(false));
     map.insert("type".to_string(), Value::Str(key_type));
     map.insert("private_key".to_string(), Value::Str(filename.clone()));
     map.insert(
         "public_key".to_string(),
         Value::Str(format!("{}.pub", filename)),
     );
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        map.insert("error".to_string(), Value::Str(stderr));
-    } else {
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        map.insert("output".to_string(), Value::Str(stdout));
-    }
+    map.insert(
+        "output".to_string(),
+        Value::Str(String::from_utf8_lossy(&output.stdout).to_string()),
+    );
     Ok(Value::Record(map))
 }
 

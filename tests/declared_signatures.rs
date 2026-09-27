@@ -170,6 +170,18 @@ const MACHINE_DEPENDENT: &[(&str, &str)] = &[
         "the tar program (bsdtar on Windows and macOS)",
     ),
     ("zip_extract", "unzip (Expand-Archive on Windows)"),
+    ("db_kv_store", "the sqlite3 command-line tool"),
+    ("db_sqlite_open", "the sqlite3 command-line tool"),
+    ("db_sqlite_vacuum", "the sqlite3 command-line tool"),
+    (
+        "code_format",
+        "the formatter for the language (rustfmt, black, prettier)",
+    ),
+    (
+        "fs_readlink",
+        "which symlinks exist (/proc/self/exe on Linux)",
+    ),
+    ("db_json_query", "the jq program"),
 ];
 
 /// The codes that honestly mean "not on this machine", as opposed to a
@@ -845,7 +857,9 @@ fn an_optional_parameter_is_demonstrated_both_ways() {
     // World-touching builtins are exempt by name -- their examples cannot run
     // here -- and the exemption list is asserted small so it cannot grow into a
     // way of avoiding this rule.
-    const CANNOT_DEMONSTRATE: &[&str] = &["db_json_to_sqlite"];
+    // db_kv_store: its bare form creates .aether_kv.db in the working
+    // directory, which here is the repository.
+    const CANNOT_DEMONSTRATE: &[&str] = &["db_json_to_sqlite", "db_kv_store"];
     assert!(
         CANNOT_DEMONSTRATE.len() <= 2,
         "the exemption list is becoming a loophole"
