@@ -432,3 +432,49 @@ fn package_queries_do_not_answer_for_what_they_did_not_inspect() {
         }
     }
 }
+
+/// The sqlite3 CLI creates an empty database for a path that does not exist,
+/// so reading a mistyped path made a new file and answered [] ("no tables");
+/// and a SQL error answered null.
+#[test]
+fn a_sqlite_read_neither_creates_nor_hides() {
+    if std::process::Command::new("sqlite3")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        eprintln!("skipped: sqlite3 is not installed here");
+        return;
+    }
+    let p = std::env::temp_dir().join(format!("ae-typo-{}.db", std::process::id()));
+    let _ = std::fs::remove_file(&p);
+    let e = call("db_sqlite_tables", vec![s(p.to_str().unwrap())]).expect_err("typo");
+    assert_eq!(code_of(&e), "E_NOT_FOUND");
+    assert!(!p.exists(), "reading a missing database created it");
+    let e = call(
+        "db_sqlite_query",
+        vec![s("tests/fixtures/sample.db"), s("SELEC nonsense")],
+    )
+    .expect_err("bad sql");
+    assert_eq!(code_of(&e), "E_TOOL_FAILED");
+}
+
+/// zip_list dropped every entry containing "files", and archive_test said
+/// true for a zip it never tested on Windows.
+#[test]
+fn archives_are_read_not_guessed() {
+    let names =
+        eval(r#"zip_list("tests/fixtures/archives/sample.zip") | map(fn(e) => e.name)"#).unwrap();
+    assert_eq!(
+        names,
+        Value::Array(vec![s("README.txt"), s("src/files.rs")])
+    );
+    assert_eq!(
+        call(
+            "archive_test",
+            vec![s("tests/fixtures/archives/damaged.zip")]
+        )
+        .unwrap(),
+        Value::Bool(false)
+    );
+}

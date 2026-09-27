@@ -103,6 +103,11 @@ const MACHINE_DEPENDENT: &[(&str, &str)] = &[
         "platform_db_load",
         "what this machine's platform store already holds",
     ),
+    ("db_sqlite_tables", "the sqlite3 command-line tool"),
+    ("db_sqlite_dump", "the sqlite3 command-line tool"),
+    ("db_kv_keys", "the sqlite3 command-line tool"),
+    ("db_kv_get", "the sqlite3 command-line tool"),
+    ("db_sqlite_count", "the sqlite3 command-line tool"),
 ];
 
 /// The codes that honestly mean "not on this machine", as opposed to a

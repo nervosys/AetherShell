@@ -172,6 +172,7 @@ url = "2.5"
 urlencoding = "2.1"
 flate2 = "1.0"
 tar = "0.4"
+zip = { version = "0.6", default-features = false, features = ["deflate"] }  # already locked; archive listing and testing in-process
 getrandom = { version = "0.2", features = ["js"] }
 async-trait = "0.1"
 dirs = "5.0"

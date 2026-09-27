@@ -25845,90 +25845,6 @@ fn bi_zip_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
 }
 
-fn bi_zip_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let archive = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "zip_list",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-
-    #[cfg(target_os = "windows")]
-    {
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", &crate::ps_script!("Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::OpenRead({}).Entries | Select-Object FullName,Length | ConvertTo-Json", crate::safety::ps_quote(&archive))])
-            .output()
-        .map_err(|e| crate::safety::spawn_error("zip_list", "powershell", &e))?;
-        if output.status.success() {
-            let json_str = String::from_utf8_lossy(&output.stdout);
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                let items = match &json {
-                    serde_json::Value::Array(arr) => arr.clone(),
-                    obj @ serde_json::Value::Object(_) => vec![obj.clone()],
-                    _ => vec![],
-                };
-                let entries: Vec<Value> = items
-                    .iter()
-                    .filter_map(|obj| {
-                        let o = obj.as_object()?;
-                        let mut rec = std::collections::BTreeMap::new();
-                        if let Some(v) = o.get("FullName") {
-                            rec.insert("name".to_string(), json_to_value(v.clone()));
-                        }
-                        if let Some(v) = o.get("Length") {
-                            rec.insert("size".to_string(), json_to_value(v.clone()));
-                        }
-                        Some(Value::Record(rec))
-                    })
-                    .collect();
-                return Ok(Value::Array(entries));
-            }
-        }
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        crate::safety::reject_option_like("zip_list", std::slice::from_ref(&archive))?;
-        let output = std::process::Command::new("unzip")
-            .args(["-l", &archive])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("zip_list", "unzip", &e))?;
-        if output.status.success() {
-            let text = String::from_utf8_lossy(&output.stdout);
-            // Parse unzip -l output: "  Length  Date  Time  Name" format
-            let entries: Vec<Value> = text
-                .lines()
-                .filter(|line| {
-                    let trimmed = line.trim();
-                    !trimmed.is_empty()
-                        && !trimmed.starts_with("Archive")
-                        && !trimmed.starts_with("Length")
-                        && !trimmed.starts_with("---")
-                        && !trimmed.contains("files")
-                })
-                .filter_map(|line| {
-                    let parts: Vec<&str> = line.split_whitespace().collect();
-                    if parts.len() >= 4 {
-                        let mut rec = std::collections::BTreeMap::new();
-                        rec.insert("name".to_string(), Value::Str(parts[3..].join(" ")));
-                        if let Ok(size) = parts[0].parse::<i64>() {
-                            rec.insert("size".to_string(), Value::Int(size));
-                        }
-                        Some(Value::Record(rec))
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-            return Ok(Value::Array(entries));
-        }
-    }
-    Ok(Value::Array(vec![]))
-}
-
 fn bi_zip_add(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let archive = match args.first() {
         Some(Value::Str(s)) => s.clone(),
@@ -26042,26 +25958,183 @@ fn bi_tar_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Bool(output.status.success()))
 }
 
+/// What an archive's name says it is: "zip", "tar", "tar.gz", "gzip",
+/// "bzip2", "xz", "zstd", or None.
+fn archive_kind(path: &str) -> Option<&'static str> {
+    let p = path.to_ascii_lowercase();
+    Some(if p.ends_with(".zip") {
+        "zip"
+    } else if p.ends_with(".tar.gz") || p.ends_with(".tgz") {
+        "tar.gz"
+    } else if p.ends_with(".tar") {
+        "tar"
+    } else if p.ends_with(".gz") {
+        "gzip"
+    } else if p.ends_with(".bz2") {
+        "bzip2"
+    } else if p.ends_with(".xz") {
+        "xz"
+    } else if p.ends_with(".zst") {
+        "zstd"
+    } else {
+        return None;
+    })
+}
+
+fn archive_path_arg(builtin: &str, args: &[Value]) -> Result<String> {
+    match args.first() {
+        Some(Value::Str(s)) => Ok(s.clone()),
+        other => Err(crate::safety::bad_arg(
+            builtin,
+            "path: String",
+            other.map(|v| v.type_name()).unwrap_or("nothing"),
+        )),
+    }
+}
+
+fn archive_open(builtin: &str, path: &str) -> Result<std::fs::File> {
+    std::fs::File::open(path).map_err(|e| crate::safety::fs_error(builtin, path, &e))
+}
+
+fn archive_corrupt(builtin: &str, path: &str, e: impl std::fmt::Display) -> anyhow::Error {
+    crate::safety::bad_arg(builtin, "a readable archive", &format!("{path}: {e}"))
+}
+
+/// The entries of a tar or tar.gz archive, as {path, size, kind}.
+fn tar_entries(builtin: &str, path: &str, gz: bool) -> Result<Vec<Value>> {
+    let f = archive_open(builtin, path)?;
+    let reader: Box<dyn std::io::Read> = if gz {
+        Box::new(flate2::read::GzDecoder::new(f))
+    } else {
+        Box::new(f)
+    };
+    let mut ar = tar::Archive::new(reader);
+    let mut out = Vec::new();
+    for entry in ar
+        .entries()
+        .map_err(|e| archive_corrupt(builtin, path, e))?
+    {
+        let entry = entry.map_err(|e| archive_corrupt(builtin, path, e))?;
+        let h = entry.header();
+        let mut r = BTreeMap::new();
+        r.insert(
+            "path".to_string(),
+            Value::Str(
+                entry
+                    .path()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_default(),
+            ),
+        );
+        r.insert("size".to_string(), Value::Int(h.size().unwrap_or(0) as i64));
+        let kind = match h.entry_type() {
+            tar::EntryType::Directory => "dir",
+            tar::EntryType::Symlink | tar::EntryType::Link => "link",
+            _ => "file",
+        };
+        r.insert("kind".to_string(), Value::Str(kind.to_string()));
+        out.push(Value::Record(r));
+    }
+    Ok(out)
+}
+
 fn bi_tar_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let archive = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
+    // In-process. This returned `tar -tvf`'s text verbatim and ignored its
+    // exit status, so a missing or damaged archive answered "".
+    let path = archive_path_arg("tar_list", &args)?;
+    let gz = matches!(archive_kind(&path), Some("tar.gz"));
+    Ok(Value::Array(tar_entries("tar_list", &path, gz)?))
+}
+
+fn bi_zip_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    // In-process. The Unix branch parsed `unzip -l` and dropped every line
+    // containing "files" -- meant for the summary line, it also removed
+    // entries such as src/files.rs -- and every failure answered [].
+    let path = archive_path_arg("zip_list", &args)?;
+    let mut z = zip::ZipArchive::new(archive_open("zip_list", &path)?)
+        .map_err(|e| archive_corrupt("zip_list", &path, e))?;
+    let mut out = Vec::new();
+    for i in 0..z.len() {
+        let f = z
+            .by_index_raw(i)
+            .map_err(|e| archive_corrupt("zip_list", &path, e))?;
+        let mut r = BTreeMap::new();
+        r.insert("name".to_string(), Value::Str(f.name().to_string()));
+        r.insert("size".to_string(), Value::Int(f.size() as i64));
+        r.insert(
+            "compressed_size".to_string(),
+            Value::Int(f.compressed_size() as i64),
+        );
+        r.insert("dir".to_string(), Value::Bool(f.is_dir()));
+        out.push(Value::Record(r));
+    }
+    Ok(Value::Array(out))
+}
+
+fn bi_archive_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    // A file that did not exist still answered {path, type}.
+    let path = archive_path_arg("archive_info", &args)?;
+    let meta =
+        std::fs::metadata(&path).map_err(|e| crate::safety::fs_error("archive_info", &path, &e))?;
+    let mut rec = BTreeMap::new();
+    rec.insert("path".to_string(), Value::Str(path.clone()));
+    rec.insert(
+        "type".to_string(),
+        archive_kind(&path)
+            .map(|k| Value::Str(k.to_string()))
+            .unwrap_or(Value::Null),
+    );
+    rec.insert("size".to_string(), Value::Int(meta.len() as i64));
+    Ok(Value::Record(rec))
+}
+
+fn bi_archive_test(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    // Whether every entry decompresses and, for zip, matches its CRC. This
+    // answered `true` for any zip on Windows without testing it, and for
+    // any other format whenever the file merely existed.
+    let path = archive_path_arg("archive_test", &args)?;
+    let kind = archive_kind(&path).ok_or_else(|| {
+        crate::safety::bad_arg(
+            "archive_test",
+            "a .zip, .tar, .tar.gz/.tgz or .gz file",
+            &path,
+        )
+    })?;
+    let sink = |r: &mut dyn std::io::Read| std::io::copy(r, &mut std::io::sink()).is_ok();
+    Ok(Value::Bool(match kind {
+        "zip" => {
+            let Ok(mut z) = zip::ZipArchive::new(archive_open("archive_test", &path)?) else {
+                return Ok(Value::Bool(false));
+            };
+            (0..z.len()).all(|i| z.by_index(i).map(|mut f| sink(&mut f)).unwrap_or(false))
+        }
+        "tar" | "tar.gz" => {
+            let f = archive_open("archive_test", &path)?;
+            let reader: Box<dyn std::io::Read> = if kind == "tar.gz" {
+                Box::new(flate2::read::GzDecoder::new(f))
+            } else {
+                Box::new(f)
+            };
+            let mut ar = tar::Archive::new(reader);
+            match ar.entries() {
+                Ok(entries) => entries
+                    .into_iter()
+                    .all(|e| e.map(|mut e| sink(&mut e)).unwrap_or(false)),
+                Err(_) => false,
+            }
+        }
+        "gzip" => sink(&mut flate2::read::GzDecoder::new(archive_open(
+            "archive_test",
+            &path,
+        )?)),
         other => {
-            return Err(crate::safety::bad_arg(
-                "tar_list",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            return Err(crate::safety::unimplemented(
+                "archive_test",
+                &format!("testing {other} archives is not implemented; NOTHING WAS TESTED"),
+                "use the format's own tool (bzip2 -t, xz -t, zstd -t)",
             ))
         }
-    };
-
-    crate::safety::reject_option_like("tar_list", std::slice::from_ref(&archive))?;
-    let output = std::process::Command::new("tar")
-        .args(["-tvf", &archive])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("tar_list", "tar", &e))?;
-    Ok(Value::Str(
-        String::from_utf8_lossy(&output.stdout).to_string(),
-    ))
+    }))
 }
 
 fn bi_gzip_compress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -26214,76 +26287,6 @@ fn bi_zstd_decompress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
         .output()
         .map_err(|e| crate::safety::spawn_error("zstd_decompress", "zstd", &e))?;
     Ok(Value::Bool(output.status.success()))
-}
-
-fn bi_archive_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let file = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "archive_info",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-
-    let mut rec = std::collections::BTreeMap::new();
-    rec.insert("path".to_string(), Value::Str(file.clone()));
-
-    if file.ends_with(".zip") {
-        rec.insert("type".to_string(), Value::Str("zip".to_string()));
-    } else if file.ends_with(".tar") || file.ends_with(".tar.gz") || file.ends_with(".tgz") {
-        rec.insert("type".to_string(), Value::Str("tar".to_string()));
-    } else if file.ends_with(".gz") {
-        rec.insert("type".to_string(), Value::Str("gzip".to_string()));
-    } else if file.ends_with(".bz2") {
-        rec.insert("type".to_string(), Value::Str("bzip2".to_string()));
-    } else if file.ends_with(".xz") {
-        rec.insert("type".to_string(), Value::Str("xz".to_string()));
-    } else if file.ends_with(".zst") {
-        rec.insert("type".to_string(), Value::Str("zstd".to_string()));
-    }
-
-    if let Ok(meta) = std::fs::metadata(&file) {
-        rec.insert("size".to_string(), Value::Int(meta.len() as i64));
-    }
-
-    Ok(Value::Record(rec))
-}
-
-fn bi_archive_test(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let file = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "archive_test",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-
-    if file.ends_with(".zip") {
-        #[cfg(not(target_os = "windows"))]
-        {
-            crate::safety::reject_option_like("archive_test", std::slice::from_ref(&file))?;
-            let output = std::process::Command::new("unzip")
-                .args(["-t", &file])
-                .output()
-                .map_err(|e| crate::safety::spawn_error("archive_test", "unzip", &e))?;
-            return Ok(Value::Bool(output.status.success()));
-        }
-    } else if file.ends_with(".tar") || file.ends_with(".tar.gz") || file.ends_with(".tgz") {
-        crate::safety::reject_option_like("archive_test", std::slice::from_ref(&file))?;
-        let output = std::process::Command::new("tar")
-            .args(["-tf", &file])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("archive_test", "tar", &e))?;
-        return Ok(Value::Bool(output.status.success()));
-    }
-
-    Ok(Value::Bool(std::fs::metadata(&file).is_ok()))
 }
 
 // ============================================================================
@@ -32027,6 +32030,20 @@ fn bi_crypto_cert_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 // 500-519: Database
 // ============================================================================
 
+/// Whether a SQL statement only reads. The sqlite3 CLI creates an empty
+/// database for a path that does not exist, so a read against a mistyped
+/// path made a new file and answered [] -- "no tables", "no rows".
+fn sql_reads_only(query: &str) -> bool {
+    let q = query.trim_start().to_ascii_lowercase();
+    ["select", "with", "pragma", "explain"]
+        .iter()
+        .any(|k| q.starts_with(k))
+}
+
+fn sqlite_db_exists(path: &str) -> bool {
+    path == ":memory:" || std::path::Path::new(path).exists()
+}
+
 fn bi_db_sqlite_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let db_path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
@@ -32051,16 +32068,35 @@ fn bi_db_sqlite_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 
     crate::safety::reject_sqlite_dot_command("db_sqlite_query", &query)?;
     crate::safety::reject_option_like("db_sqlite_query", std::slice::from_ref(&db_path))?;
-
+    if sql_reads_only(&query) && !sqlite_db_exists(&db_path) {
+        return Err(crate::safety::not_found(
+            "db_sqlite_query",
+            "database",
+            &db_path,
+        ));
+    }
     let output = std::process::Command::new("sqlite3")
         .args(["-json", &db_path, &query])
         .output()
         .map_err(|e| crate::safety::spawn_error("db_sqlite_query", "sqlite3", &e))?;
 
-    if output.status.success() {
+    // A SQL error, or a sqlite3 too old for -json, answered null.
+    if !output.status.success() {
+        return Err(crate::safety::tool_failed(
+            "db_sqlite_query",
+            "sqlite3",
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
+    }
+    {
         let json_str = String::from_utf8_lossy(&output.stdout);
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
             return Ok(json_to_value(json));
+        }
+        // sqlite3 -json prints nothing at all for zero rows.
+        if json_str.trim().is_empty() {
+            return Ok(Value::Array(vec![]));
         }
         // Fallback to CSV mode
         // Already validated at the top of this function.
@@ -32090,8 +32126,13 @@ fn bi_db_sqlite_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
                 .collect();
             return Ok(Value::Array(rows));
         }
+        Err(crate::safety::tool_failed(
+            "db_sqlite_query",
+            "sqlite3 -csv",
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ))
     }
-    Ok(Value::Null)
 }
 
 fn bi_db_sqlite_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -32359,6 +32400,11 @@ fn bi_db_kv_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
     };
 
+    // A store that does not exist yet holds no value; asking must not
+    // create one.
+    if !sqlite_db_exists(&store_path) {
+        return Ok(Value::Null);
+    }
     bi_db_sqlite_query(
         vec![
             Value::Str(store_path),
@@ -32476,6 +32522,9 @@ fn bi_db_kv_keys(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         _ => ".aether_kv.db".to_string(),
     };
 
+    if !sqlite_db_exists(&store_path) {
+        return Ok(Value::Array(vec![]));
+    }
     bi_db_sqlite_query(
         vec![
             Value::Str(store_path),
@@ -33267,6 +33316,13 @@ fn bi_db_sqlite_dump(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     };
 
     crate::safety::reject_option_like("db_sqlite_dump", std::slice::from_ref(&db_path))?;
+    if !sqlite_db_exists(&db_path) {
+        return Err(crate::safety::not_found(
+            "db_sqlite_dump",
+            "database",
+            &db_path,
+        ));
+    }
     let output = std::process::Command::new("sqlite3")
         .args([&db_path, ".dump"])
         .output()
@@ -33277,7 +33333,13 @@ fn bi_db_sqlite_dump(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             String::from_utf8_lossy(&output.stdout).to_string(),
         ));
     }
-    Ok(Value::Null)
+    // A failure answered null.
+    Err(crate::safety::tool_failed(
+        "db_sqlite_dump",
+        "sqlite3 .dump",
+        output.status.code(),
+        &String::from_utf8_lossy(&output.stderr),
+    ))
 }
 
 fn bi_db_sqlite_import(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {

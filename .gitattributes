@@ -7,3 +7,7 @@
 *.rs linguist-detectable=true
 *.tsx linguist-detectable=true
 *.ts linguist-detectable=true
+
+# Archive fixtures: byte-exact, never line-ending converted
+tests/fixtures/archives/* binary
+tests/fixtures/sample.db binary
