@@ -4715,6 +4715,61 @@ pub static SIGNATURES: &[Signature] = &[
             (r#"unzip("no-such.zip")"#, r#"error: E_TOOL_FAILED"#),
         ],
     },
+    // 1b: the catalogue helpers. They read the declared signatures and the
+    // dispatcher; no model is consulted, so the answers are the same everywhere.
+    Signature {
+        name: "suggest",
+        category: None,
+        subject_required: false,
+        aliases: &["ai-suggest"],
+        subject: Some(Ty::Str),
+        params: &[],
+        returns: "Array",
+        doc: "Declared builtins whose name or description contains every word of a query, as {name, signature, doc}; at most 10.",
+        examples: &[
+            (r#"suggest("sha256 digest") | map(fn(s) => s.name)"#, r#"["sha256"]"#),
+        ],
+    },
+    Signature {
+        name: "explain",
+        category: None,
+        subject_required: false,
+        aliases: &["ai-explain"],
+        subject: Some(Ty::Str),
+        params: &[],
+        returns: "Record",
+        doc: "A builtin's declared signature and description, or what an error code in the text means. Anything else is E_NOT_FOUND.",
+        examples: &[
+            (r#"explain("crypto_hash").name"#, r#"crypto_hash"#),
+        ],
+    },
+    Signature {
+        name: "complete",
+        category: None,
+        subject_required: false,
+        aliases: &["ai-complete"],
+        subject: Some(Ty::Str),
+        params: &[],
+        returns: "Array",
+        doc: "Builtin names starting with a prefix, sorted; at most 20.",
+        examples: &[
+            (r#"complete("git_stat")"#, r#"["git_status"]"#),
+        ],
+    },
+    Signature {
+        name: "fix",
+        category: None,
+        subject_required: false,
+        aliases: &["ai-fix"],
+        subject: Some(Ty::Any),
+        params: &[],
+        returns: "Record",
+        doc: "The minimal repair context for an error (as diagnose gives), from a caught error record or its text.",
+        examples: &[
+            (r#"fix("something broke").code"#, r#"E_UNKNOWN"#),
+            (r#"(try { crypto_hash("x", "blake3") } catch e { fix(e) }).code"#, r#"E_BAD_ARG"#),
+        ],
+    },
 ];
 
 /// The declaration for `name`, if it has one.

@@ -163,23 +163,26 @@ ai_backends
 # ]
 ```
 
-## AI Shell Helpers
+## Shell Helpers
 
-Built-in AI-powered shell assistance:
+Four helpers answer from the shell's own catalogue. **No model is consulted**
+(use `ai(...)` for that), so they work offline and give the same answer every
+time.
 
 ```aethershell
-# Get command suggestions
-ai-suggest "find all rust files larger than 10KB"
-# Suggests: ls "." | where(fn(f) => f.extension == "rs" && f.size > 10240)
+# Declared builtins whose name or description matches every word
+suggest("sha256 digest")
+# [{name: "sha256", signature: "sha256(...) -> String", doc: "SHA-256 hex digest of a string."}]
 
-# Explain a command
-ai-explain 'ls "src" | where(fn(f) => f.size > 1000) | sort_by "size" "desc"'
+# A builtin's declared signature, or what an error code means
+explain("crypto_hash")
 
-# Fix a broken command
-ai-fix 'ls src | filter(size > 100)'
+# Builtin names starting with a prefix
+complete("git_st")
+# ["git_stash", "git_stash_list", "git_stash_pop", "git_status"]
 
-# AI-powered tab completion
-ai-complete "ls src | wh"
+# The minimal repair context for an error, from its text or a caught record
+try { crypto_hash("x", "blake3") } catch e { fix(e) }
 ```
 
 ## Pipeline Integration

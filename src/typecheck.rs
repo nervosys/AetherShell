@@ -386,7 +386,7 @@ fn is_builtin(name: &str) -> bool {
             | "to-yaml" | "to_yaml"
             | "columns"
             | "describe"
-            // AI-enhanced commands
+            // Catalogue helpers (no model is consulted)
             | "ai-suggest" | "suggest"
             | "ai-explain" | "explain"
             | "ai-complete" | "complete"

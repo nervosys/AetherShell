@@ -68,7 +68,7 @@
 #### AI Example (Example 05)
 - **Issue**: Used `ai()` function which isn't a builtin
 - **Fix**: Changed to demonstrate `read_text()` and `type_of()` instead
-- **Note**: Directed users to `agent` builtin or `ai-suggest` for AI features
+- **Note**: Directed users to the `agent` builtin for AI features (`suggest` searches the builtin catalogue; it is not a model)
 
 ### 3. ✅ Match Statement
 - **Status**: Already fully implemented, no changes needed

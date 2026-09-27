@@ -9301,340 +9301,157 @@ fn extract_string_array(record: &BTreeMap<String, Value>, key: &str) -> Option<V
     })
 }
 
-/// ai-suggest: Get AI-powered command suggestions
+// suggest / explain / complete / fix
+//
+// These were documented as "AI-powered". No model was consulted: each matched
+// keywords against canned paragraphs, and the paragraphs told the caller to run
+// `Get-Files`, `Get-Content`, `Where-Object`, `Sort-Object`, `from-json`,
+// `describe` and `ai-suggest "..."` -- none of which this shell can call (the
+// last parses as a subtraction). An agent following the advice failed again.
+//
+// They now answer from the shell's own catalogue: the dispatcher's names and
+// the declared signatures, which the test suite executes. Nothing here claims
+// intelligence it does not have.
+
+/// The single string subject of these builtins: piped input or the first
+/// argument.
+fn hint_subject(builtin: &str, args: &[Value], input: Option<Value>) -> Result<String> {
+    match input.or_else(|| args.first().cloned()) {
+        Some(Value::Str(s)) if !s.trim().is_empty() => Ok(s),
+        other => Err(crate::safety::bad_arg(
+            builtin,
+            "a non-empty String (argument or piped input)",
+            other.as_ref().map(|v| v.type_name()).unwrap_or("nothing"),
+        )),
+    }
+}
+
+fn hint_signature_record(sig: &crate::signature::Signature) -> Value {
+    let mut r = BTreeMap::new();
+    r.insert("name".to_string(), Value::Str(sig.name.to_string()));
+    r.insert("signature".to_string(), Value::Str(sig.render()));
+    r.insert("doc".to_string(), Value::Str(sig.doc.to_string()));
+    Value::Record(r)
+}
+
+/// suggest(query): declared builtins whose name or description contains every
+/// word of the query, best (most words in the name) first; at most 10.
 fn bi_ai_suggest(args: Vec<Value>, input: Option<Value>, _env: &mut Env) -> Result<Value> {
-    let query = if let Some(input) = input {
-        match input {
-            Value::Str(s) => s,
-            _ => {
-                return Err(crate::safety::arg_err(
-                    "ai-suggest: input must be a query string",
-                ))
-            }
-        }
-    } else if !args.is_empty() {
-        match &args[0] {
-            Value::Str(s) => s.clone(),
-            other => {
-                return Err(crate::safety::bad_arg(
-                    "ai-suggest",
-                    "query: String",
-                    other.type_name(),
-                ))
-            }
-        }
-    } else {
-        return Err(crate::safety::arg_err("ai-suggest: requires query"));
-    };
-
-    // For now, provide rule-based suggestions
-    let suggestions = get_command_suggestions(&query);
-    Ok(Value::Array(suggestions))
+    let query = hint_subject("suggest", &args, input)?.to_lowercase();
+    let words: Vec<&str> = query.split_whitespace().collect();
+    let mut hits: Vec<(usize, &crate::signature::Signature)> = crate::signature::SIGNATURES
+        .iter()
+        .filter_map(|sig| {
+            let name = sig.name.to_lowercase();
+            let text = format!("{} {}", name, sig.doc.to_lowercase());
+            words
+                .iter()
+                .all(|w| text.contains(w))
+                .then(|| (words.iter().filter(|w| name.contains(*w)).count(), sig))
+        })
+        .collect();
+    hits.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.name.cmp(b.1.name)));
+    Ok(Value::Array(
+        hits.into_iter()
+            .take(10)
+            .map(|(_, sig)| hint_signature_record(sig))
+            .collect(),
+    ))
 }
 
-fn get_command_suggestions(query: &str) -> Vec<Value> {
-    let query_lower = query.to_lowercase();
-    let mut suggestions = Vec::new();
-
-    if query_lower.contains("list") || query_lower.contains("files") {
-        suggestions.push(Value::Str("ls or Get-Files for listing files".to_string()));
-        suggestions.push(Value::Str(
-            "find . \"*.ext\" for finding specific files".to_string(),
-        ));
-    }
-
-    if query_lower.contains("read") || query_lower.contains("content") {
-        suggestions.push(Value::Str(
-            "cat filename or Get-Content filename".to_string(),
-        ));
-        suggestions.push(Value::Str("head filename for first few lines".to_string()));
-    }
-
-    if query_lower.contains("filter") || query_lower.contains("search") {
-        suggestions.push(Value::Str("grep \"pattern\" for text search".to_string()));
-        suggestions.push(Value::Str(
-            "where fn(x) => condition for filtering".to_string(),
-        ));
-        suggestions.push(Value::Str("Where-Object property -eq value".to_string()));
-    }
-
-    if query_lower.contains("sort") {
-        suggestions.push(Value::Str("sort for basic sorting".to_string()));
-        suggestions.push(Value::Str(
-            "Sort-Object property for property-based sorting".to_string(),
-        ));
-    }
-
-    if query_lower.contains("json") {
-        suggestions.push(Value::Str("from-json for parsing JSON".to_string()));
-        suggestions.push(Value::Str("to-json for converting to JSON".to_string()));
-    }
-
-    if suggestions.is_empty() {
-        suggestions.push(Value::Str(
-            "Try: ls, cat, grep, sort, map, where".to_string(),
-        ));
-        suggestions.push(Value::Str(
-            "Use 'help' for complete command list".to_string(),
-        ));
-    }
-
-    suggestions
-}
-
-/// ai-explain: Get AI-powered explanations of commands or errors
+/// explain(subject): a builtin's declared signature and description, or what
+/// an error code in the subject means.
 fn bi_ai_explain(args: Vec<Value>, input: Option<Value>, _env: &mut Env) -> Result<Value> {
-    let subject = if let Some(input) = input {
-        match input {
-            Value::Str(s) => s,
-            _ => {
-                return Err(crate::safety::arg_err(
-                    "ai-explain: input must be a string to explain",
-                ))
-            }
-        }
-    } else if !args.is_empty() {
-        match &args[0] {
-            Value::Str(s) => s.clone(),
-            other => {
-                return Err(crate::safety::bad_arg(
-                    "ai-explain",
-                    "subject: String",
-                    other.type_name(),
-                ))
-            }
-        }
-    } else {
-        return Err(crate::safety::arg_err(
-            "ai-explain: requires something to explain",
-        ));
-    };
-
-    let explanation = generate_explanation(&subject);
-    Ok(Value::Str(explanation))
-}
-
-fn generate_explanation(subject: &str) -> String {
-    let subject_lower = subject.to_lowercase();
-
-    if subject_lower.contains("error") || subject_lower.contains("failed") {
-        format!(
-            "🔍 Error Analysis: {}\n\n\
-            Common causes:\n\
-            • Check file paths and permissions\n\
-            • Verify command syntax\n\
-            • Ensure required arguments are provided\n\
-            • Try 'help command_name' for usage info\n\n\
-            💡 Use 'ai-suggest \"how to...\"' for alternative approaches",
-            subject
-        )
-    } else if subject_lower.starts_with("ls") || subject_lower.contains("get-files") {
-        "📁 ls / Get-Files: Lists files and directories\n\
-        • ls . - list current directory\n\
-        • ls path - list specific directory\n\
-        • Get-Files returns rich objects with metadata\n\
-        • Pipe to 'where' or 'select' for filtering"
-            .to_string()
-    } else if subject_lower.starts_with("cat") || subject_lower.contains("get-content") {
-        "📄 cat / Get-Content: Reads file contents\n\
-        • cat filename - display entire file\n\
-        • Get-Content returns array of lines\n\
-        • Pipe to 'head' or 'tail' to limit output\n\
-        • Use with grep for searching"
-            .to_string()
-    } else if subject_lower.contains("pipe") || subject_lower.contains("|") {
-        "🔗 Pipelines: Connect commands together\n\
-        • data | command - pass data to next command\n\
-        • Supports structured data (objects, arrays)\n\
-        • Each command processes and transforms data\n\
-        • Example: ls . | where fn(f) => !f.is_dir | head 5"
-            .to_string()
-    } else {
-        format!(
-            "💭 About: {}\n\n\
-            This appears to be a command or concept in AetherShell.\n\
-            • Try running it to see what happens\n\
-            • Use 'help' for general assistance\n\
-            • Check syntax with similar commands\n\
-            • Use 'ai-suggest' for alternative approaches",
-            subject
-        )
+    let subject = hint_subject("explain", &args, input)?;
+    if let Some(sig) = crate::signature::signature_of(subject.trim()) {
+        return Ok(hint_signature_record(sig));
     }
+    if is_dispatched(subject.trim()) {
+        let mut r = BTreeMap::new();
+        r.insert("name".to_string(), Value::Str(subject.trim().to_string()));
+        r.insert(
+            "doc".to_string(),
+            Value::Str(
+                "a builtin with no declared signature yet; its arguments are not described"
+                    .to_string(),
+            ),
+        );
+        return Ok(Value::Record(r));
+    }
+    if subject.contains("E_") {
+        return bi_diagnose(vec![hint_error_value(&subject)], None);
+    }
+    Err(crate::safety::not_found(
+        "explain",
+        "builtin or error code",
+        subject.trim(),
+    ))
 }
 
-/// ai-complete: Get AI-powered command completion
+/// complete(partial): builtin names that start with `partial`, sorted,
+/// at most 20.
 fn bi_ai_complete(args: Vec<Value>, input: Option<Value>, _env: &mut Env) -> Result<Value> {
-    let partial = if let Some(input) = input {
-        match input {
-            Value::Str(s) => s,
-            _ => {
-                return Err(crate::safety::arg_err(
-                    "ai-complete: input must be a partial command string",
-                ));
-            }
-        }
-    } else if !args.is_empty() {
-        match &args[0] {
-            Value::Str(s) => s.clone(),
-            other => {
-                return Err(crate::safety::bad_arg(
-                    "ai-complete",
-                    "partial command: String",
-                    other.type_name(),
-                ))
-            }
-        }
-    } else {
-        return Err(crate::safety::arg_err(
-            "ai-complete: requires partial command",
-        ));
-    };
-
-    let completions = get_smart_completions(&partial);
-    Ok(Value::Array(completions))
+    let partial = hint_subject("complete", &args, input)?;
+    let mut names: Vec<&str> = BUILTIN_LOOKUP
+        .keys()
+        .copied()
+        .chain(FALLBACK_BUILTINS.iter().map(|(n, _)| *n))
+        .filter(|n| n.starts_with(partial.trim()))
+        .collect();
+    names.sort_unstable();
+    names.dedup();
+    Ok(Value::Array(
+        names
+            .into_iter()
+            .take(20)
+            .map(|n| Value::Str(n.to_string()))
+            .collect(),
+    ))
 }
 
-fn get_smart_completions(partial: &str) -> Vec<Value> {
-    let mut completions = Vec::new();
-
-    let builtins = [
-        "ls",
-        "cat",
-        "head",
-        "tail",
-        "grep",
-        "find",
-        "sort",
-        "uniq",
-        "wc",
-        "pwd",
-        "map",
-        "where",
-        "reduce",
-        "take",
-        "print",
-        "echo",
-        "Get-Files",
-        "Get-Content",
-        "Select-Object",
-        "Where-Object",
-        "Sort-Object",
-        "from-json",
-        "to-json",
-        "from-csv",
-        "to-csv",
-        "describe",
-        "columns",
-        "ai-suggest",
-        "ai-explain",
-        "ai-complete",
-        "ai-fix",
-    ];
-
-    // Basic command completion
-    for builtin in &builtins {
-        if builtin.to_lowercase().starts_with(&partial.to_lowercase()) {
-            completions.push(Value::Str(builtin.to_string()));
-        }
+/// An error given as text: the JSON a coded error prints, or plain words.
+fn hint_error_value(text: &str) -> Value {
+    let t = text.trim();
+    let json = t
+        .find('{')
+        .and_then(|i| serde_json::from_str::<serde_json::Value>(&t[i..]).ok());
+    match json.map(json_to_value) {
+        Some(Value::Record(r)) => match r.get("error") {
+            Some(inner @ Value::Record(_)) => inner.clone(),
+            _ => Value::Record(r),
+        },
+        _ => match t.find("E_") {
+            // "error[E_BAD_ARG]: ..." as the CLI prints it
+            Some(i) => {
+                let code: String = t[i..]
+                    .chars()
+                    .take_while(|c| c.is_ascii_uppercase() || *c == '_')
+                    .collect();
+                let mut r = BTreeMap::new();
+                r.insert("code".to_string(), Value::Str(code));
+                r.insert("message".to_string(), Value::Str(t.to_string()));
+                Value::Record(r)
+            }
+            None => Value::Str(t.to_string()),
+        },
     }
-
-    // Pipeline completions
-    if partial.ends_with("| ") {
-        for cmd in &["map", "where", "select", "sort", "head", "tail", "grep"] {
-            completions.push(Value::Str(format!("{}{}", partial, cmd)));
-        }
-    }
-
-    // File path completions (simplified)
-    if partial.contains("\"") || partial.contains("/") || partial.contains("\\") {
-        completions.push(Value::Str("./".to_string()));
-        completions.push(Value::Str("../".to_string()));
-        completions.push(Value::Str("README.md".to_string()));
-    }
-
-    completions
 }
 
-/// ai-fix: Get AI-powered error fixes and suggestions
+/// fix(error): the minimal repair context for an error, as diagnose gives
+/// for a caught error record, from the error's text.
 fn bi_ai_fix(args: Vec<Value>, input: Option<Value>, _env: &mut Env) -> Result<Value> {
-    let error_msg = if let Some(input) = input {
-        match input {
-            Value::Str(s) => s,
-            _ => {
-                return Err(crate::safety::arg_err(
-                    "ai-fix: input must be an error message string",
-                ))
-            }
+    let error = match input.or_else(|| args.first().cloned()) {
+        Some(v @ Value::Record(_)) => v,
+        Some(Value::Str(s)) if !s.trim().is_empty() => hint_error_value(&s),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "fix",
+                "an error: the record a catch bound, or its text",
+                other.as_ref().map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
         }
-    } else if !args.is_empty() {
-        match &args[0] {
-            Value::Str(s) => s.clone(),
-            other => {
-                return Err(crate::safety::bad_arg(
-                    "ai-fix",
-                    "error message: String",
-                    other.type_name(),
-                ))
-            }
-        }
-    } else {
-        return Err(crate::safety::arg_err("ai-fix: requires error message"));
     };
-
-    let fix_suggestion = generate_fix_suggestion(&error_msg);
-    Ok(Value::Str(fix_suggestion))
-}
-
-fn generate_fix_suggestion(error: &str) -> String {
-    let error_lower = error.to_lowercase();
-
-    if error_lower.contains("unknown builtin") {
-        "🔧 Fix: Command not found\n\
-        1. Check spelling: ls, cat, grep, etc.\n\
-        2. Try similar commands: ai-suggest \"what command...\"\n\
-        3. Use 'help' to see available commands\n\
-        4. For PowerShell users: Get-Files instead of Get-ChildItem"
-            .to_string()
-    } else if error_lower.contains("requires array input") {
-        "🔧 Fix: Type mismatch\n\
-        1. Wrap single value in array: [value] | command\n\
-        2. Use array-producing commands first: ls | command\n\
-        3. Check if input data is structured correctly\n\
-        4. Try 'describe' to see data type"
-            .to_string()
-    } else if error_lower.contains("no such file") || error_lower.contains("file not found") {
-        "🔧 Fix: File not found\n\
-        1. Check current directory: pwd\n\
-        2. List available files: ls or Get-Files\n\
-        3. Use absolute path: /full/path/to/file\n\
-        4. Search for file: find . \"filename*\""
-            .to_string()
-    } else if error_lower.contains("permission denied") {
-        "🔧 Fix: Permission denied\n\
-        1. Check file permissions: ls -la (on Unix)\n\
-        2. Run with appropriate privileges\n\
-        3. Verify file ownership\n\
-        4. Use different file location"
-            .to_string()
-    } else if error_lower.contains("syntax error") || error_lower.contains("parse") {
-        "🔧 Fix: Syntax error\n\
-        1. Check command syntax: help command_name\n\
-        2. Verify parentheses and quotes are balanced\n\
-        3. Use proper pipeline syntax: cmd1 | cmd2\n\
-        4. Try simpler version first"
-            .to_string()
-    } else {
-        format!(
-            "🔧 General Fix Suggestions:\n\
-            Error: {}\n\n\
-            1. Check command spelling and syntax\n\
-            2. Verify input data types with 'describe'\n\
-            3. Use 'help' for command documentation\n\
-            4. Try 'ai-suggest' for alternative approaches\n\
-            5. Break complex commands into simpler steps",
-            error
-        )
-    }
+    bi_diagnose(vec![error], None)
 }
 
 // ============ Option Type Constructors ============

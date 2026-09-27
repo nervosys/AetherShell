@@ -522,3 +522,37 @@ fn a_checkpoint_keeps_the_work_it_checkpoints() {
     );
     assert!(stashes.contains("cp"), "no stash entry: {stashes}");
 }
+
+/// suggest, explain, complete and fix were documented as "AI-powered"; they
+/// matched keywords against canned paragraphs that told the caller to run
+/// Get-Files, Get-Content, describe and `ai-suggest "..."`, none of which
+/// exist. Whatever they name now must be callable.
+#[test]
+fn a_helper_only_names_builtins_that_exist() {
+    for query in ["list files", "read file", "sort", "json", "hash"] {
+        let Value::Array(hits) = call("suggest", vec![s(query)]).unwrap() else {
+            panic!()
+        };
+        for h in hits {
+            let Value::Record(r) = h else { panic!() };
+            let Some(Value::Str(name)) = r.get("name") else {
+                panic!()
+            };
+            assert!(
+                aethershell::builtins::is_dispatched(name),
+                "suggest named {name}"
+            );
+        }
+    }
+    let Value::Array(names) = call("complete", vec![s("git_")]).unwrap() else {
+        panic!()
+    };
+    assert!(!names.is_empty());
+    for n in names {
+        let Value::Str(n) = n else { panic!() };
+        assert!(
+            aethershell::builtins::is_dispatched(&n),
+            "complete named {n}"
+        );
+    }
+}
