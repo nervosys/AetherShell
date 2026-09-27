@@ -25929,7 +25929,15 @@ fn bi_zip_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args(["-Command", &cmd])
             .output()
             .map_err(|e| crate::safety::spawn_error("zip_extract", "powershell", &e))?;
-        Ok(Value::Bool(output.status.success()))
+        if !output.status.success() {
+            return Err(crate::safety::tool_failed(
+                "zip_extract",
+                "Expand-Archive",
+                output.status.code(),
+                &String::from_utf8_lossy(&output.stderr),
+            ));
+        }
+        Ok(Value::Bool(true))
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -25940,7 +25948,15 @@ fn bi_zip_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .args([&archive, "-d", &dest])
             .output()
             .map_err(|e| crate::safety::spawn_error("zip_extract", "unzip", &e))?;
-        return Ok(Value::Bool(output.status.success()));
+        if !output.status.success() {
+            return Err(crate::safety::tool_failed(
+                "zip_extract",
+                "unzip",
+                output.status.code(),
+                &String::from_utf8_lossy(&output.stderr),
+            ));
+        }
+        return Ok(Value::Bool(true));
     }
 }
 
@@ -26054,7 +26070,15 @@ fn bi_tar_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let output = cmd
         .output()
         .map_err(|e| crate::safety::spawn_error("tar_extract", "tar", &e))?;
-    Ok(Value::Bool(output.status.success()))
+    if !output.status.success() {
+        return Err(crate::safety::tool_failed(
+            "tar_extract",
+            "tar",
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
+    }
+    Ok(Value::Bool(true))
 }
 
 /// What an archive's name says it is: "zip", "tar", "tar.gz", "gzip",
@@ -26236,6 +26260,63 @@ fn bi_archive_test(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }))
 }
 
+/// gzip, in-process (flate2): `gzip -k` semantics -- the input is kept and
+/// an existing output is not overwritten. This ran the gzip program, which
+/// Windows does not have, passed the file name unchecked (a leading `-` was
+/// an option), and answered a bare `false` for every failure.
+///
+/// `out_path` must already have been through guard_local_write in the
+/// builtin's own body: tests/guard_enforcement.rs reads `bi_*` bodies, not
+/// helpers, to decide which builtins guard themselves.
+fn gzip_file(builtin: &str, input: &str, out_path: &str, decompress: bool) -> Result<Value> {
+    let src =
+        std::fs::File::open(input).map_err(|e| crate::safety::fs_error(builtin, input, &e))?;
+    if std::path::Path::new(&out_path).exists() {
+        return Err(crate::safety::bad_state(
+            builtin,
+            &format!("{out_path} already exists"),
+            "remove it first; the existing file is not overwritten",
+        ));
+    }
+    let dst = std::fs::File::create(out_path)
+        .map_err(|e| crate::safety::fs_error(builtin, out_path, &e))?;
+    let result = if decompress {
+        std::io::copy(
+            &mut flate2::read::GzDecoder::new(src),
+            &mut std::io::BufWriter::new(dst),
+        )
+    } else {
+        let mut enc = flate2::write::GzEncoder::new(dst, flate2::Compression::default());
+        std::io::copy(&mut std::io::BufReader::new(src), &mut enc)
+            .and_then(|n| enc.finish().map(|_| n))
+    };
+    if let Err(e) = result {
+        let _ = std::fs::remove_file(out_path); // no half-written output
+        return Err(crate::safety::bad_arg(
+            builtin,
+            if decompress {
+                "valid gzip data"
+            } else {
+                "a readable file"
+            },
+            &format!("{input}: {e}"),
+        ));
+    }
+    Ok(Value::Bool(true))
+}
+
+/// Where gzip_file writes: path.gz, or the path without its .gz.
+fn gzip_out_path(builtin: &str, input: &str, decompress: bool) -> Result<String> {
+    Ok(if decompress {
+        input
+            .strip_suffix(".gz")
+            .ok_or_else(|| crate::safety::bad_arg(builtin, "a .gz file", input))?
+            .to_string()
+    } else {
+        format!("{input}.gz")
+    })
+}
+
 fn bi_gzip_compress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let file = match args.first() {
         Some(Value::Str(s)) => s.clone(),
@@ -26247,12 +26328,11 @@ fn bi_gzip_compress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             ))
         }
     };
-
-    let output = std::process::Command::new("gzip")
-        .args(["-k", &file])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("gzip_compress", "gzip", &e))?;
-    Ok(Value::Bool(output.status.success()))
+    let out = guard_local_write(
+        "gzip_compress",
+        &gzip_out_path("gzip_compress", &file, false)?,
+    )?;
+    gzip_file("gzip_compress", &file, &out, false)
 }
 
 fn bi_gzip_decompress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -26266,12 +26346,11 @@ fn bi_gzip_decompress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
             ))
         }
     };
-
-    let output = std::process::Command::new("gzip")
-        .args(["-dk", &file])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("gzip_decompress", "gzip", &e))?;
-    Ok(Value::Bool(output.status.success()))
+    let out = guard_local_write(
+        "gzip_decompress",
+        &gzip_out_path("gzip_decompress", &file, true)?,
+    )?;
+    gzip_file("gzip_decompress", &file, &out, true)
 }
 
 fn bi_bzip2_compress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -26286,11 +26365,22 @@ fn bi_bzip2_compress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
     };
 
+    // The file goes to bzip2 positionally; a leading `-` would be an option.
+    crate::safety::reject_option_like("bzip2_compress", std::slice::from_ref(&file))?;
     let output = std::process::Command::new("bzip2")
         .args(["-k", &file])
         .output()
         .map_err(|e| crate::safety::spawn_error("bzip2_compress", "bzip2", &e))?;
-    Ok(Value::Bool(output.status.success()))
+    // A failure was a bare `false`, with bzip2's reason discarded.
+    if !output.status.success() {
+        return Err(crate::safety::tool_failed(
+            "bzip2_compress",
+            "bzip2",
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
+    }
+    Ok(Value::Bool(true))
 }
 
 fn bi_bzip2_decompress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -26305,11 +26395,22 @@ fn bi_bzip2_decompress(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         }
     };
 
+    // The file goes to bzip2 positionally; a leading `-` would be an option.
+    crate::safety::reject_option_like("bzip2_decompress", std::slice::from_ref(&file))?;
     let output = std::process::Command::new("bzip2")
         .args(["-dk", &file])
         .output()
         .map_err(|e| crate::safety::spawn_error("bzip2_decompress", "bzip2", &e))?;
-    Ok(Value::Bool(output.status.success()))
+    // A failure was a bare `false`, with bzip2's reason discarded.
+    if !output.status.success() {
+        return Err(crate::safety::tool_failed(
+            "bzip2_decompress",
+            "bzip2",
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
+    }
+    Ok(Value::Bool(true))
 }
 
 fn bi_xz_compress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -26343,11 +26444,22 @@ fn bi_xz_decompress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
     };
 
+    // The file goes to xz positionally; a leading `-` would be an option.
+    crate::safety::reject_option_like("xz_decompress", std::slice::from_ref(&file))?;
     let output = std::process::Command::new("xz")
         .args(["-dk", &file])
         .output()
         .map_err(|e| crate::safety::spawn_error("xz_decompress", "xz", &e))?;
-    Ok(Value::Bool(output.status.success()))
+    // A failure was a bare `false`, with xz's reason discarded.
+    if !output.status.success() {
+        return Err(crate::safety::tool_failed(
+            "xz_decompress",
+            "xz",
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
+    }
+    Ok(Value::Bool(true))
 }
 
 fn bi_zstd_compress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -26381,11 +26493,22 @@ fn bi_zstd_decompress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
         }
     };
 
+    // The file goes to zstd positionally; a leading `-` would be an option.
+    crate::safety::reject_option_like("zstd_decompress", std::slice::from_ref(&file))?;
     let output = std::process::Command::new("zstd")
         .args(["-dk", &file])
         .output()
         .map_err(|e| crate::safety::spawn_error("zstd_decompress", "zstd", &e))?;
-    Ok(Value::Bool(output.status.success()))
+    // A failure was a bare `false`, with zstd's reason discarded.
+    if !output.status.success() {
+        return Err(crate::safety::tool_failed(
+            "zstd_decompress",
+            "zstd",
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
+    }
+    Ok(Value::Bool(true))
 }
 
 // ============================================================================

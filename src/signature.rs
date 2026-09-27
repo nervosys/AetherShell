@@ -4646,6 +4646,75 @@ pub static SIGNATURES: &[Signature] = &[
             (r#"monitor_syslog("error", 5)"#, r#"[{MESSAGE: "...", ...}]"#),
         ],
     },
+    // 1b: compression and extraction. gzip is in-process (strict); the rest
+    // run a tool. Every example writes only under the system temp directory.
+    Signature {
+        name: "gzip_compress",
+        category: None,
+        subject_required: false,
+        aliases: &["compress"],
+        subject: None,
+        params: &[req("path", Ty::Str, "the file")],
+        returns: "Bool",
+        doc: "Write path.gz beside a file, keeping the file. An existing path.gz is not overwritten (E_BAD_STATE).",
+        examples: &[
+            (r#"compress(fs_tempfile("ae_gz"))"#, r#"true"#),
+        ],
+    },
+    Signature {
+        name: "gzip_decompress",
+        category: None,
+        subject_required: false,
+        aliases: &["decompress"],
+        subject: None,
+        params: &[req("path", Ty::Str, "a .gz file")],
+        returns: "Bool",
+        doc: "Write a .gz file's contents beside it without the suffix, keeping the .gz. Invalid gzip data is refused.",
+        examples: &[
+            (r#"let d = fs_tempdir("ae_gz"); let f = d + "/a.txt"; file_write(f, "hello"); compress(f); file_move(f + ".gz", d + "/b.txt.gz"); decompress(d + "/b.txt.gz"); read_text(d + "/b.txt")"#, r#"hello"#),
+        ],
+    },
+    Signature {
+        name: "bzip2_compress",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("path", Ty::Str, "the file")],
+        returns: "Bool",
+        doc: "Write path.bz2 beside a file, keeping the file. A failure is E_TOOL_FAILED with the reason.",
+        examples: &[
+            (r#"bzip2_compress(fs_tempfile("ae_bz"))"#, r#"true"#),
+        ],
+    },
+    Signature {
+        name: "tar_extract",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("archive", Ty::Str, "a tar archive"), opt("dest", Ty::Str, "directory to extract into; default the current one")],
+        returns: "Bool",
+        doc: "Extract a tar archive. A failure is E_TOOL_FAILED with the reason.",
+        examples: &[
+            (r#"tar_extract("tests/fixtures/archives/sample.tar.gz", fs_tempdir("ae_tar"))"#, r#"true"#),
+            (r#"tar_extract("no-such.tar")"#, r#"error: E_TOOL_FAILED"#),
+        ],
+    },
+    Signature {
+        name: "zip_extract",
+        category: None,
+        subject_required: false,
+        aliases: &["unzip"],
+        subject: None,
+        params: &[req("archive", Ty::Str, "a .zip file"), opt("dest", Ty::Str, "directory to extract into; default the current one")],
+        returns: "Bool",
+        doc: "Extract a zip archive. A failure is E_TOOL_FAILED with the reason.",
+        examples: &[
+            (r#"unzip("tests/fixtures/archives/sample.zip", fs_tempdir("ae_zip"))"#, r#"true"#),
+            (r#"unzip("no-such.zip")"#, r#"error: E_TOOL_FAILED"#),
+        ],
+    },
 ];
 
 /// The declaration for `name`, if it has one.

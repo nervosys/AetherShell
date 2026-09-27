@@ -3917,6 +3917,8 @@ pub const SELF_GUARDED: &[&str] = &[
     "file_move",
     "file_patch",
     "file_write",
+    "gzip_compress",
+    "gzip_decompress",
     "http_get",
     "k8s_delete",
     "k8s_exec",

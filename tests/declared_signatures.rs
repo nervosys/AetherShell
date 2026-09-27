@@ -164,6 +164,12 @@ const MACHINE_DEPENDENT: &[(&str, &str)] = &[
         "monitor_syslog",
         "the system journal or event log and what it holds",
     ),
+    ("bzip2_compress", "the bzip2 program"),
+    (
+        "tar_extract",
+        "the tar program (bsdtar on Windows and macOS)",
+    ),
+    ("zip_extract", "unzip (Expand-Archive on Windows)"),
 ];
 
 /// The codes that honestly mean "not on this machine", as opposed to a
