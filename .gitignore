@@ -71,3 +71,6 @@ integrations/python/build/
 # mdBook build output (docs/book/book, per docs/book/book.toml build-dir).
 docs/book/book/
 website/book/
+
+# Test fixtures are committed on purpose, whatever their extension.
+!tests/fixtures/**
