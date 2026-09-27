@@ -127,6 +127,43 @@ const MACHINE_DEPENDENT: &[(&str, &str)] = &[
         "openssl and the system trust store (Unix only)",
     ),
     ("ssh_config", "the user's ~/.ssh/config"),
+    (
+        "monitor_iftop",
+        "this machine's network state and its tools (ip, ss, netstat; PowerShell on Windows)",
+    ),
+    (
+        "monitor_ip_route",
+        "this machine's network state and its tools (ip, ss, netstat; PowerShell on Windows)",
+    ),
+    (
+        "monitor_nethogs",
+        "this machine's network state and its tools (ip, ss, netstat; PowerShell on Windows)",
+    ),
+    (
+        "monitor_sockets",
+        "this machine's network state and its tools (ip, ss, netstat; PowerShell on Windows)",
+    ),
+    ("monitor_users", "who is logged in to this machine"),
+    (
+        "monitor_ip_addr",
+        "this machine's network state and its tools (ip, ss, netstat; PowerShell on Windows)",
+    ),
+    (
+        "monitor_ip_link",
+        "this machine's network state and its tools (ip, ss, netstat; PowerShell on Windows)",
+    ),
+    (
+        "monitor_logins",
+        "the login history (last; the Security log on Windows, which needs elevation)",
+    ),
+    (
+        "monitor_ethtool",
+        "ethtool and the interfaces present (Linux only)",
+    ),
+    (
+        "monitor_syslog",
+        "the system journal or event log and what it holds",
+    ),
 ];
 
 /// The codes that honestly mean "not on this machine", as opposed to a
