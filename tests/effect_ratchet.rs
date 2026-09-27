@@ -545,23 +545,20 @@ fn resolve_methods(body: &str, self_type: Option<&str>) -> Vec<(String, String, 
         } else {
             locals.get(&recv).cloned()
         };
-        match ty {
-            Some(ty) => {
-                for b in m
-                    .by_type
-                    .get(&(ty.clone(), name.clone()))
-                    .into_iter()
-                    .flatten()
-                {
-                    out.push((ty.clone(), name.clone(), b.clone()));
-                }
+        // An untyped receiver is not followed, even when only one method in
+        // the crate has the name: `map.remove(k)` on a HashMap resolved to
+        // SyntaxKB::remove and `.join(` to GossipCluster::join, and 29
+        // builtins were reported as writing files or binding sockets. A name
+        // being unique here says nothing about std.
+        if let Some(ty) = ty {
+            for b in m
+                .by_type
+                .get(&(ty.clone(), name.clone()))
+                .into_iter()
+                .flatten()
+            {
+                out.push((ty.clone(), name.clone(), b.clone()));
             }
-            // An untyped receiver is not followed, even when only one method
-            // in the crate has the name: `map.remove(k)` on a HashMap
-            // resolved to SyntaxKB::remove and `.join(` to GossipCluster::join,
-            // and 29 builtins were reported as writing files or binding
-            // sockets. A name being unique here says nothing about std.
-            None => {}
         }
     }
     out

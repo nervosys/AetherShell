@@ -140,7 +140,30 @@ for (const name of [...names].sort()) {
     compared += 1;
     const cFailed = c.out.startsWith('error') || c.out.startsWith('{"error"') || c.status !== 0;
     if (!cFailed && c.out === a.out) {
-        discarded.push(`${name}\t${a.out.replace(/\s+/g, ' ').slice(0, 80)}`);
+        // Three fast calls can land in the same clock second, so a builtin
+        // whose answer is the time agreed with itself and with the extras
+        // call by coincidence: it counted as discarding on one run and as
+        // nondeterministic on the next, and the total moved by three between
+        // runs of identical code (57, 60). Ask once more after the second
+        // has turned over; an answer that changed was never comparable.
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1100);
+        const d = run(`${name}(${BASE})`);
+        if (d.out !== a.out) {
+            nondet.push(name);
+            compared -= 1;
+        } else {
+            discarded.push(`${name}\t${a.out.replace(/\s+/g, ' ').slice(0, 80)}`);
+        }
+    } else if (!cFailed) {
+        // The other direction: a tick between the base calls and the extras
+        // call makes a time-varying builtin look as if the extras changed its
+        // answer. If the base call has also moved on, the difference was the
+        // clock, and the builtin was never comparable.
+        const e = run(`${name}(${BASE})`);
+        if (e.out !== a.out) {
+            nondet.push(name);
+            compared -= 1;
+        }
     }
     if (++done % 100 === 0) process.stderr.write(`  ${done}/${names.size}\n`);
 }
