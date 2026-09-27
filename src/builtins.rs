@@ -24030,11 +24030,12 @@ fn bi_sys_cpu_freq(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .output()
             .map_err(|e| crate::safety::spawn_error("sys_cpu_freq", "powershell", &e))?;
         if output.status.success() {
-            let mhz: i64 = String::from_utf8_lossy(&output.stdout)
+            if let Ok(mhz) = String::from_utf8_lossy(&output.stdout)
                 .trim()
-                .parse()
-                .unwrap_or(0);
-            return Ok(Value::Int(mhz));
+                .parse::<i64>()
+            {
+                return Ok(Value::Int(mhz));
+            }
         }
     }
     #[cfg(target_os = "linux")]
@@ -24042,8 +24043,9 @@ fn bi_sys_cpu_freq(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         if let Ok(freq) =
             std::fs::read_to_string("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq")
         {
-            let khz: i64 = freq.trim().parse().unwrap_or(0);
-            return Ok(Value::Int(khz / 1000)); // Return MHz
+            if let Ok(khz) = freq.trim().parse::<i64>() {
+                return Ok(Value::Int(khz / 1000)); // Return MHz
+            }
         }
     }
     #[cfg(target_os = "macos")]
@@ -24053,15 +24055,18 @@ fn bi_sys_cpu_freq(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .output()
         {
             if output.status.success() {
-                let hz: i64 = String::from_utf8_lossy(&output.stdout)
+                if let Ok(hz) = String::from_utf8_lossy(&output.stdout)
                     .trim()
-                    .parse()
-                    .unwrap_or(0);
-                return Ok(Value::Int(hz / 1_000_000)); // Hz to MHz
+                    .parse::<i64>()
+                {
+                    return Ok(Value::Int(hz / 1_000_000)); // Hz to MHz
+                }
             }
         }
     }
-    Ok(Value::Int(0))
+    // Unknown: Apple Silicon has no hw.cpufrequency, many Linux VMs no
+    // cpufreq. This answered 0 MHz, which reads as a measurement.
+    Ok(Value::Null)
 }
 
 fn bi_sys_mem_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {

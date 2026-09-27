@@ -182,6 +182,14 @@ const MACHINE_DEPENDENT: &[(&str, &str)] = &[
         "which symlinks exist (/proc/self/exe on Linux)",
     ),
     ("db_json_query", "the jq program"),
+    (
+        "hw_memory",
+        "the host's memory, which changes from call to call",
+    ),
+    (
+        "sys_cpu_freq",
+        "the CPU and whether the OS exposes its frequency",
+    ),
 ];
 
 /// The codes that honestly mean "not on this machine", as opposed to a

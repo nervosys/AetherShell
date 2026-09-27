@@ -4933,6 +4933,73 @@ pub static SIGNATURES: &[Signature] = &[
             (r#"typeof(db_json_query(".well-known/ai-plugin.json"))"#, r#"Record"#),
         ],
     },
+    // 1b: builtins whose answers made the discarded-args probe jitter
+    // between CI runs. Declared, they refuse extra arguments outright.
+    Signature {
+        name: "plugins",
+        category: None,
+        subject_required: false,
+        aliases: &["plugin_list"],
+        subject: None,
+        params: &[],
+        returns: "Array",
+        doc: "Registered plugins as records, sorted by id.",
+        examples: &[
+            (r#"plugins() | map(fn(p) => p.id)"#, r#"["builtin.csv", "builtin.json", "builtin.toml"]"#),
+        ],
+    },
+    Signature {
+        name: "syntax_categories",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[],
+        returns: "Array",
+        doc: "Categories in the syntax knowledge base, sorted.",
+        examples: &[
+            (r#"typeof(syntax_categories())"#, r#"Array"#),
+        ],
+    },
+    Signature {
+        name: "syntax_search",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("query", Ty::Str, "text to find in names, ids and specifications")],
+        returns: "Array",
+        doc: "Ids of syntax knowledge-base entries matching a query, sorted.",
+        examples: &[
+            (r#"syntax_search("jsonrpc") | where(fn(x) => x == "jsonrpc") | len"#, r#"1"#),
+        ],
+    },
+    Signature {
+        name: "hw_memory",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[],
+        returns: "Record",
+        doc: "Total, used and free memory.",
+        examples: &[
+            (r#"hw_memory()"#, r#"{available: 12884901888, total: 17179869184, used: ...}"#),
+        ],
+    },
+    Signature {
+        name: "sys_cpu_freq",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[],
+        returns: "Int | Null",
+        doc: "CPU frequency in MHz: the maximum on Windows, the current on Linux, the nominal on macOS. Null when the OS does not say (Apple Silicon, many VMs).",
+        examples: &[
+            (r#"sys_cpu_freq()"#, r#"3200"#),
+        ],
+    },
 ];
 
 /// The declaration for `name`, if it has one.
