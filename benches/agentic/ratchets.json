@@ -1,4 +1,4 @@
 {
-  "_discarded_args_max": "Measured on the CI runner (ubuntu-latest) at 8a7af92: 6 of 126 comparable builtins (4.8%) discard extra arguments, the same 6 names in two runs. The ceiling is the measurement itself: the probe rechecks time-varying answers and the listings it compares are sorted, so identical code measures identically. May only fall: lower it whenever a declaration tranche lowers the CI count, after confirming the new figure on more than one run.",
-  "discarded_args_max": 6
+  "_discarded_args_max": "Measured on the CI runner (ubuntu-latest) at fc7c599: 5 of 126 comparable builtins (4.0%) discard extra arguments, the same 5 names in two runs. The ceiling is the measurement itself: the probe rechecks time-varying answers and the listings it compares are sorted, so identical code measures identically. May only fall: lower it whenever a declaration tranche lowers the CI count, after confirming the new figure on more than one run.",
+  "discarded_args_max": 5
 }
