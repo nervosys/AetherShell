@@ -18633,10 +18633,22 @@ fn bi_try_repair(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Resul
     // survive); otherwise open one for the duration of the attempt.
     let owned = !crate::tx::is_active();
     if owned {
-        crate::tx::begin().map_err(|e| anyhow!("try_repair: {}", e))?;
+        crate::tx::begin().map_err(|e| {
+            crate::safety::bad_state(
+                "try_repair",
+                &e.to_string(),
+                "finish or roll back the open transaction",
+            )
+        })?;
     }
     let mark = format!("__repair_{}", REPAIR_SEQ.fetch_add(1, Ordering::Relaxed));
-    crate::tx::savepoint(&mark).map_err(|e| anyhow!("try_repair: {}", e))?;
+    crate::tx::savepoint(&mark).map_err(|e| {
+        crate::safety::bad_state(
+            "try_repair",
+            &e.to_string(),
+            "finish or roll back the open transaction",
+        )
+    })?;
 
     let result = (|| -> Result<Value> {
         let stmts = crate::parser::parse_program(&code)?;
@@ -18647,7 +18659,13 @@ fn bi_try_repair(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Resul
     match result {
         Ok(v) => {
             if owned {
-                crate::tx::commit().map_err(|e| anyhow!("try_repair: {}", e))?;
+                crate::tx::commit().map_err(|e| {
+                    crate::safety::bad_state(
+                        "try_repair",
+                        &e.to_string(),
+                        "finish or roll back the open transaction",
+                    )
+                })?;
             }
             out.insert("ok".to_string(), Value::Bool(true));
             out.insert("value".to_string(), v);
@@ -22307,8 +22325,13 @@ fn bi_fs_df(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_fs_mount(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Mounting requires elevated privileges - return error
-    Ok(Value::Str("mount requires elevated privileges".to_string()))
+    // This answered the String "mount requires elevated privileges" at exit
+    // 0, advice in place of a result.
+    Err(crate::safety::unimplemented(
+        "fs_mount",
+        "mounting is not implemented; NOTHING WAS MOUNTED",
+        "mount from an elevated shell (mount, or Mount-DiskImage on Windows)",
+    ))
 }
 
 fn bi_fs_unmount(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -37091,7 +37114,16 @@ fn bi_diag_fix(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .args(["fix", "--allow-dirty"])
         .output()
         .map_err(|e| crate::safety::spawn_error("diag_fix", "cargo", &e))?;
-    Ok(Value::Bool(output.status.success()))
+    // A failure was a bare `false`, with cargo's reason discarded.
+    if !output.status.success() {
+        return Err(crate::safety::tool_failed(
+            "diag_fix",
+            "cargo fix",
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
+    }
+    Ok(Value::Bool(true))
 }
 
 fn bi_diag_explain(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -37259,11 +37291,24 @@ fn bi_refactor_organize_imports(args: Vec<Value>, _input: Option<Value>) -> Resu
 }
 
 fn bi_refactor_remove_unused(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    // This ran `cargo fix --edition`: a migration to the next Rust edition,
+    // not a removal of unused code, applied over uncommitted work
+    // (--allow-dirty). `cargo fix` applies the compiler's machine-applicable
+    // suggestions, which include removing unused imports.
     let output = std::process::Command::new("cargo")
-        .args(["fix", "--allow-dirty", "--edition"])
+        .args(["fix", "--allow-dirty"])
         .output()
         .map_err(|e| crate::safety::spawn_error("refactor_remove_unused", "cargo", &e))?;
-    Ok(Value::Bool(output.status.success()))
+    // A failure was a bare `false`, with cargo's reason discarded.
+    if !output.status.success() {
+        return Err(crate::safety::tool_failed(
+            "refactor_remove_unused",
+            "cargo fix",
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
+    }
+    Ok(Value::Bool(true))
 }
 
 // Session module implementations
@@ -37441,7 +37486,16 @@ fn bi_docs_generate(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .args(["doc", "--no-deps"])
         .output()
         .map_err(|e| crate::safety::spawn_error("docs_generate", "cargo", &e))?;
-    Ok(Value::Bool(output.status.success()))
+    // A failure was a bare `false`, with cargo's reason discarded.
+    if !output.status.success() {
+        return Err(crate::safety::tool_failed(
+            "docs_generate",
+            "cargo doc",
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
+    }
+    Ok(Value::Bool(true))
 }
 
 fn bi_docs_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -39271,10 +39325,12 @@ fn bi_platform_compatible(args: Vec<Value>, _input: Option<Value>) -> Result<Val
 fn bi_platform_db_init(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let db_path = platform_db_path();
     if let Some(parent) = db_path.parent() {
-        std::fs::create_dir_all(parent)?;
+        std::fs::create_dir_all(parent)
+            .map_err(|e| crate::safety::fs_error("platform_db_init", parent, &e))?;
     }
     if !db_path.exists() {
-        std::fs::write(&db_path, "{}")?;
+        std::fs::write(&db_path, "{}")
+            .map_err(|e| crate::safety::fs_error("platform_db_init", &db_path, &e))?;
     }
     Ok(Value::Str(db_path.to_string_lossy().to_string()))
 }

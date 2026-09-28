@@ -5520,6 +5520,35 @@ pub static SIGNATURES: &[Signature] = &[
             (r#"mcp_server({max_safety_level: "safe"}).server_name"#, r#"aethershell-mcp"#),
         ],
     },
+    // 1c: try_repair and rbac_logout, the last pure entries on the
+    // discarded-args worklist that can be run safely in a test.
+    Signature {
+        name: "try_repair",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: Some(Ty::Str),
+        params: &[],
+        returns: "Record",
+        doc: "Run code in a savepoint: {ok: true, value} on success; on failure {ok: false, error, restored, retryable}, with its changes rolled back.",
+        examples: &[
+            (r#"try_repair("1 + 1").value"#, r#"2"#),
+            (r#"try_repair("null - null").error.code"#, r#"E_BAD_ARG"#),
+        ],
+    },
+    Signature {
+        name: "rbac_logout",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[],
+        returns: "Bool",
+        doc: "End the login session, reporting whether there was one.",
+        examples: &[
+            (r#"rbac_logout()"#, r#"false"#),
+        ],
+    },
 ];
 
 /// The declaration for `name`, if it has one.
