@@ -257,6 +257,7 @@ const MACHINE_DEPENDENT: &[(&str, &str)] = &[
     ("search_files", "the size of the working tree and the speed of its filesystem: the walk stops at a 30 s budget"),
     ("search_by_type", "the size of the working tree and the speed of its filesystem: the walk stops at a 30 s budget"),
     ("search_modified", "the size of the working tree and the speed of its filesystem: the walk stops at a 30 s budget"),
+    ("search_symbols", "the size of the working tree and the speed of its filesystem: the walk stops at a 30 s budget"),
 ];
 
 /// The codes that honestly mean "not on this machine", as opposed to a

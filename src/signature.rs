@@ -3705,9 +3705,7 @@ pub static SIGNATURES: &[Signature] = &[
     // 1b: environment and process lookups, the search family, tree, CSV.
     // proc_kill/proc_info are not declared here: an example would kill, or
     // read a pid whose existence differs across CI systems.
-    // search_symbols is not declared either: its example greps every file in
-    // the repository, which can exceed its own 30 s walk budget on a loaded
-    // machine, and an example that sometimes cannot finish is a flaky test.
+    // search_symbols is declared further down, in the machine-dependent tier.
     Signature {
         name: "env_var",
         category: None,
@@ -5627,6 +5625,21 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[
             (r#"platform_db_export()"#, r#"{"default": {...}}"#),
             (r#"platform_db_export(fs_tempfile("ae_pdb"))"#, r#"/tmp/ae_pdb_..."#),
+        ],
+    },
+    // 1c: search_symbols, withdrawn in 1934b80 because its walk could run
+    // out of its 30 s budget. That is now a coded absent-here answer.
+    Signature {
+        name: "search_symbols",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("name", Ty::Str, "a function, struct or class name")],
+        returns: "Array",
+        doc: "Definitions (fn, struct, class, def) of a name beneath the working directory, as path:line:text.",
+        examples: &[
+            (r#"search_symbols("bi_echo")"#, r#"["./src/builtins.rs:4210: fn bi_echo(args: Vec<Value>, ...)"]"#),
         ],
     },
 ];
