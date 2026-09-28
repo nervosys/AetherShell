@@ -215,6 +215,21 @@ const MACHINE_DEPENDENT: &[(&str, &str)] = &[
         "platform_memory_free",
         "the host's memory, which changes from call to call",
     ),
+    ("docker_images", "a running docker daemon"),
+    ("docker_networks", "a running docker daemon"),
+    ("docker_stats", "a running docker daemon"),
+    ("docker_volumes", "a running docker daemon"),
+    ("env_docker", "an installed docker"),
+    ("env_dotnet", "an installed dotnet"),
+    ("env_go", "an installed go"),
+    ("env_path", "this process's PATH"),
+    ("env_python", "an installed python"),
+    ("env_ruby", "an installed ruby"),
+    ("fs_mounts", "the host's mount table"),
+    ("hw_pci", "the PCI devices present and lspci (Linux)"),
+    ("hw_usb", "the USB devices present and lsusb (Linux)"),
+    ("pipx_list", "an installed pipx"),
+    ("pkg_history", "the dpkg or dnf log (Linux only)"),
 ];
 
 /// The codes that honestly mean "not on this machine", as opposed to a

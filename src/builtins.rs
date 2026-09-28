@@ -22407,7 +22407,13 @@ fn bi_fs_mounts(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             return Ok(Value::Array(result));
         }
     }
-    Ok(Value::Array(vec![]))
+    // A failed query answered [], "nothing mounted".
+    Err(crate::safety::tool_failed(
+        "fs_mounts",
+        "the mount table",
+        None,
+        "it could not be read",
+    ))
 }
 
 // ============================================================================
@@ -27754,7 +27760,24 @@ fn bi_pkg_history(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             return Ok(Value::Array(entries));
         }
     }
-    Ok(Value::Array(vec![]))
+    // This answered [] -- "no history" -- on every OS but Linux, where it is
+    // not implemented, and on Linux when neither package log exists.
+    #[cfg(target_os = "linux")]
+    {
+        Err(crate::safety::not_found(
+            "pkg_history",
+            "package log",
+            "/var/log/dpkg.log or /var/log/dnf.log",
+        ))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Err(crate::safety::unimplemented(
+            "pkg_history",
+            "package history is read from dpkg/dnf logs, on Linux only; NOTHING WAS READ",
+            "ask the package manager directly (brew log, winget list)",
+        ))
+    }
 }
 
 // ============================================================================
@@ -27958,7 +27981,13 @@ fn bi_hw_usb(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             }
         }
     }
-    Ok(Value::Null)
+    // A failed query answered null.
+    Err(crate::safety::tool_failed(
+        "lsusb",
+        "the device query",
+        None,
+        "it failed or printed nothing usable",
+    ))
 }
 
 fn bi_hw_pci(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -28048,7 +28077,13 @@ fn bi_hw_pci(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             }
         }
     }
-    Ok(Value::Null)
+    // A failed query answered null.
+    Err(crate::safety::tool_failed(
+        "lspci",
+        "the device query",
+        None,
+        "it failed or printed nothing usable",
+    ))
 }
 
 fn bi_hw_audio(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -37735,6 +37770,8 @@ fn bi_env_path(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let path = std::env::var("PATH").unwrap_or_default();
     let parts: Vec<Value> = path
         .split(if cfg!(windows) { ";" } else { ":" })
+        // An empty entry ("a::b", or PATH unset) is no directory.
+        .filter(|p| !p.is_empty())
         .map(|p| Value::Str(p.to_string()))
         .collect();
     Ok(Value::Array(parts))
@@ -51747,8 +51784,12 @@ fn bi_pipx_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Ok(o) if o.status.success() => Ok(Value::Str(
             String::from_utf8_lossy(&o.stdout).trim().to_string(),
         )),
-        Ok(o) => Ok(Value::Str(
-            String::from_utf8_lossy(&o.stderr).trim().to_string(),
+        // pipx's error text was returned as the list.
+        Ok(o) => Err(crate::safety::tool_failed(
+            "pipx",
+            "pipx list",
+            o.status.code(),
+            &String::from_utf8_lossy(&o.stderr),
         )),
         Err(e) => Err(crate::safety::tool_missing("pipx", "pipx", &e.to_string())),
     }
