@@ -190,6 +190,31 @@ const MACHINE_DEPENDENT: &[(&str, &str)] = &[
         "sys_cpu_freq",
         "the CPU and whether the OS exposes its frequency",
     ),
+    (
+        "capabilities",
+        "Linux process capabilities (E_UNIMPLEMENTED elsewhere)",
+    ),
+    ("config_reload", "the user's config file"),
+    (
+        "diag_config",
+        "the working directory (the repository when tests run)",
+    ),
+    (
+        "docs_changelog",
+        "the working directory (the repository when tests run)",
+    ),
+    (
+        "docs_readme",
+        "the working directory (the repository when tests run)",
+    ),
+    (
+        "sys_users",
+        "the host's accounts (/etc/passwd; local users on Windows)",
+    ),
+    (
+        "platform_memory_free",
+        "the host's memory, which changes from call to call",
+    ),
 ];
 
 /// The codes that honestly mean "not on this machine", as opposed to a

@@ -5518,10 +5518,16 @@ fn bi_config_init() -> Result<Value> {
 
 /// Reload configuration from disk
 fn bi_config_reload() -> Result<Value> {
-    match reload_config() {
-        Ok(_) => Ok(Value::Str("Configuration reloaded".to_string())),
-        Err(e) => Err(anyhow!("Failed to reload config: {}", e)),
-    }
+    // The failure was an uncoded string; success was the prose
+    // "Configuration reloaded".
+    reload_config().map_err(|e| {
+        crate::safety::bad_state(
+            "config_reload",
+            &format!("the configuration could not be reloaded: {e}"),
+            "fix the config file (see config_path()) and reload",
+        )
+    })?;
+    Ok(Value::Bool(true))
 }
 
 /// List all available color themes
@@ -22020,8 +22026,12 @@ fn bi_fs_tempdir(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_fs_watch(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // File watching requires async/threading - return stub
-    Ok(Value::Str("watch_id_stub".to_string()))
+    // This answered the String "watch_id_stub", as if a watch had been set up.
+    Err(crate::safety::unimplemented(
+        "fs_watch",
+        "watching files is not implemented; NOTHING IS WATCHED",
+        "poll with fs_stat, or run a watcher (entr, watchexec) in a terminal",
+    ))
 }
 
 fn bi_fs_unwatch(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -24403,9 +24413,10 @@ fn bi_sys_users(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(not(target_os = "windows"))]
     {
         if let Ok(passwd) = std::fs::read_to_string("/etc/passwd") {
+            // Blank and malformed lines became empty records.
             let users: Vec<Value> = passwd
                 .lines()
-                .filter(|l| !l.starts_with('#'))
+                .filter(|l| !l.starts_with('#') && l.split(':').count() >= 7)
                 .map(|l| {
                     let parts: Vec<&str> = l.split(':').collect();
                     let mut rec = std::collections::BTreeMap::new();
@@ -24422,7 +24433,13 @@ fn bi_sys_users(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             return Ok(Value::Array(users));
         }
     }
-    Ok(Value::Array(vec![]))
+    // A failure to read the account list answered [], "no users".
+    Err(crate::safety::tool_failed(
+        "sys_users",
+        "the account database",
+        None,
+        "it could not be read",
+    ))
 }
 
 fn bi_sys_groups(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -37469,6 +37486,8 @@ fn bi_docs_examples(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             }
         }
     }
+    // read_dir's order is the filesystem's, not a stable one.
+    examples.sort_by_key(|v| v.to_display_string());
     Ok(Value::Array(examples))
 }
 
@@ -40458,55 +40477,13 @@ fn bi_platform_memory_total(_args: Vec<Value>, _input: Option<Value>) -> Result<
 }
 
 fn bi_platform_memory_free(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    #[cfg(target_os = "windows")]
-    {
-        // Use PowerShell instead of WMIC
-        if let Ok(out) = std::process::Command::new("powershell")
-            .args([
-                "-Command",
-                "(Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory",
-            ])
-            .output()
-        {
-            if out.status.success() {
-                if let Ok(kb) = String::from_utf8_lossy(&out.stdout).trim().parse::<i64>() {
-                    return Ok(Value::Int(kb * 1024)); // Return bytes
-                }
-            }
-        }
-    }
-    #[cfg(target_os = "linux")]
-    {
-        if let Ok(meminfo) = std::fs::read_to_string("/proc/meminfo") {
-            for line in meminfo.lines() {
-                if line.starts_with("MemAvailable:") {
-                    let val = line.replace("MemAvailable:", "").replace(" kB", "");
-                    if let Ok(kb) = val.trim().parse::<i64>() {
-                        return Ok(Value::Int(kb * 1024));
-                    }
-                }
-            }
-        }
-    }
-    #[cfg(target_os = "macos")]
-    {
-        // macOS doesn't have a simple free memory sysctl, use vm_stat
-        if let Ok(out) = std::process::Command::new("vm_stat").output() {
-            let output = String::from_utf8_lossy(&out.stdout);
-            let mut free_pages: i64 = 0;
-            let page_size: i64 = 4096;
-            for line in output.lines() {
-                if line.starts_with("Pages free:") {
-                    let val = line.replace("Pages free:", "").replace(".", "");
-                    if let Ok(n) = val.trim().parse::<i64>() {
-                        free_pages = n;
-                    }
-                }
-            }
-            return Ok(Value::Int(free_pages * page_size));
-        }
-    }
-    Ok(Value::Null)
+    // Available memory in bytes, the same quantity on every OS (sysinfo).
+    // This read MemAvailable on Linux but only the free-page list on macOS,
+    // and assumed 4096-byte pages there -- Apple Silicon's are 16384, so it
+    // reported a quarter of the free memory.
+    let mut sys = System::new();
+    sys.refresh_memory();
+    Ok(Value::Int(sys.available_memory() as i64))
 }
 
 fn bi_platform_disks(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
