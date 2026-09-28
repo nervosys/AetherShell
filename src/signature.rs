@@ -5476,6 +5476,50 @@ pub static SIGNATURES: &[Signature] = &[
             (r#"yamllint(".github/workflows/ci.yml")"#, r#"{issues: [], success: true}"#),
         ],
     },
+    // 1c: the in-process MCP server's listings. They read only the
+    // built-in tool catalogue, so they answer the same everywhere.
+    Signature {
+        name: "mcp_prompts",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[opt("name", Ty::Str, "one prompt by name")],
+        returns: "Array | Record",
+        doc: "The MCP prompts, or one by name. An unknown name is E_NOT_FOUND.",
+        examples: &[
+            (r#"mcp_prompts() | map(fn(p) => p.name)"#, r#"["find-tool", "explain-tool"]"#),
+            (r#"mcp_prompts("find-tool").name"#, r#"find-tool"#),
+        ],
+    },
+    Signature {
+        name: "mcp_resources",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[opt("type", Ty::Str, "only resources whose MIME type contains this")],
+        returns: "Array",
+        doc: "The MCP resources, optionally filtered by MIME type.",
+        examples: &[
+            (r#"mcp_resources() | len"#, r#"3"#),
+            (r#"mcp_resources("json") | len"#, r#"3"#),
+        ],
+    },
+    Signature {
+        name: "mcp_server",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[opt("config", Ty::Record, "{max_safety_level?, allow_admin?, blocked_tools?, allowed_categories?}")],
+        returns: "Record",
+        doc: "Describe the in-process MCP server a config would create. An unknown safety level is refused.",
+        examples: &[
+            (r#"mcp_server().server_name"#, r#"aethershell-mcp"#),
+            (r#"mcp_server({max_safety_level: "safe"}).server_name"#, r#"aethershell-mcp"#),
+        ],
+    },
 ];
 
 /// The declaration for `name`, if it has one.

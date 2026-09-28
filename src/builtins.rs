@@ -11086,7 +11086,14 @@ fn bi_mcp_server(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     "caution" => SafetyLevel::Caution,
                     "dangerous" => SafetyLevel::Dangerous,
                     "critical" => SafetyLevel::Critical,
-                    _ => SafetyLevel::Caution,
+                    // An unknown level ("dangerus") silently became Caution.
+                    other => {
+                        return Err(crate::safety::bad_arg(
+                            "mcp_server",
+                            "max_safety_level safe, caution, dangerous or critical",
+                            other,
+                        ))
+                    }
                 };
             }
 
@@ -11420,7 +11427,8 @@ fn bi_mcp_prompts(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 }
                 return Ok(Value::Record(rec));
             }
-            return Ok(Value::Null);
+            // An unknown prompt name answered null.
+            return Err(crate::safety::not_found("mcp_prompts", "prompt", name));
         }
     }
 
