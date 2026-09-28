@@ -5381,6 +5381,101 @@ pub static SIGNATURES: &[Signature] = &[
             (r#"pkg_history()"#, r#"[{action: install, package: curl, date: "2026-09-01 10:02:11", ...}]"#),
         ],
     },
+    // 1c: container, session and lint listings from the discarded-args
+    // worklist. Machine-dependent: each runs a tool.
+    Signature {
+        name: "buildah_images",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[],
+        returns: "Any",
+        doc: "Buildah images, as buildah images --json reports them.",
+        examples: &[
+            (r#"buildah_images()"#, r#"[{id: "...", names: ["localhost/app:latest"], ...}]"#),
+        ],
+    },
+    Signature {
+        name: "docker_ps",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[opt("all", Ty::Bool, "include stopped containers")],
+        returns: "Array",
+        doc: "Containers as records; running only unless all is true.",
+        examples: &[
+            (r#"docker_ps()"#, r#"[{Names: web, State: running, ...}]"#),
+            (r#"docker_ps(true)"#, r#"[{Names: web, ...}, {Names: old, State: exited, ...}]"#),
+        ],
+    },
+    Signature {
+        name: "netstat",
+        category: None,
+        subject_required: false,
+        aliases: &["netstat_info"],
+        subject: None,
+        params: &[opt("filter", Ty::Record, "{proto?, state?, port?}")],
+        returns: "Array",
+        doc: "Network connections as {proto, local_address, foreign_address, state}, optionally filtered.",
+        examples: &[
+            (r#"netstat()"#, r#"[{proto: tcp, local_address: "0.0.0.0:22", state: LISTEN, ...}]"#),
+            (r#"netstat({proto: "tcp"})"#, r#"[{proto: tcp, ...}]"#),
+        ],
+    },
+    Signature {
+        name: "screen_list",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[],
+        returns: "Array",
+        doc: "screen sessions as {id, line}.",
+        examples: &[
+            (r#"screen_list()"#, r#"[{id: 1234.work, line: "1234.work (Detached)"}]"#),
+        ],
+    },
+    Signature {
+        name: "tmux_list",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[],
+        returns: "Array",
+        doc: "tmux sessions as {name, windows, attached}; [] when no server runs.",
+        examples: &[
+            (r#"tmux_list()"#, r#"[{attached: false, name: work, windows: 2}]"#),
+        ],
+    },
+    Signature {
+        name: "shellcheck_check",
+        category: None,
+        subject_required: false,
+        aliases: &["shellcheck"],
+        subject: None,
+        params: &[req("path", Ty::Str, "a shell script")],
+        returns: "Array",
+        doc: "shellcheck's findings for a script ([] when clean). A file it cannot read is E_TOOL_FAILED, not a clean result.",
+        examples: &[
+            (r#"shellcheck("scripts/run_tests.sh")"#, r#"[{code: 2086, level: info, line: 12, message: "Double quote ..."}, ...]"#),
+        ],
+    },
+    Signature {
+        name: "yamllint_check",
+        category: None,
+        subject_required: false,
+        aliases: &["yamllint"],
+        subject: None,
+        params: &[req("path", Ty::Str, "a YAML file")],
+        returns: "Record",
+        doc: "yamllint's result as {success, issues}. A file it cannot read is E_TOOL_FAILED.",
+        examples: &[
+            (r#"yamllint(".github/workflows/ci.yml")"#, r#"{issues: [], success: true}"#),
+        ],
+    },
 ];
 
 /// The declaration for `name`, if it has one.

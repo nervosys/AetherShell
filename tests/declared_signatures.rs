@@ -230,6 +230,13 @@ const MACHINE_DEPENDENT: &[(&str, &str)] = &[
     ("hw_usb", "the USB devices present and lsusb (Linux)"),
     ("pipx_list", "an installed pipx"),
     ("pkg_history", "the dpkg or dnf log (Linux only)"),
+    ("buildah_images", "an installed buildah"),
+    ("docker_ps", "a running docker daemon"),
+    ("netstat", "netstat and the connections open on the host"),
+    ("screen_list", "an installed GNU screen"),
+    ("tmux_list", "an installed tmux"),
+    ("shellcheck_check", "an installed shellcheck"),
+    ("yamllint_check", "an installed yamllint"),
 ];
 
 /// The codes that honestly mean "not on this machine", as opposed to a

@@ -49453,6 +49453,14 @@ fn bi_netstat_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .args(&flags)
         .output()
         .map_err(|e| crate::safety::spawn_error("netstat", "netstat", &e))?;
+    if !out.status.success() {
+        return Err(crate::safety::tool_failed(
+            "netstat",
+            "netstat",
+            out.status.code(),
+            &String::from_utf8_lossy(&out.stderr),
+        ));
+    }
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     // Parse netstat output into structured records
     let filter_proto = match args.first() {
@@ -52899,13 +52907,24 @@ fn bi_buildah_images(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     match output {
         Ok(o) if o.status.success() => {
             let stdout = String::from_utf8_lossy(&o.stdout);
-            match serde_json::from_str::<serde_json::Value>(&stdout) {
-                Ok(json) => Ok(json_to_value(json)),
-                Err(_) => Ok(Value::Str(stdout.trim().to_string())),
-            }
+            // Non-JSON output came back as a String, and a failure's stderr
+            // as the answer.
+            serde_json::from_str::<serde_json::Value>(&stdout)
+                .map(json_to_value)
+                .map_err(|e| {
+                    crate::safety::tool_failed(
+                        "buildah_images",
+                        "buildah images --json",
+                        o.status.code(),
+                        &format!("output that is not JSON: {e}"),
+                    )
+                })
         }
-        Ok(o) => Ok(Value::Str(
-            String::from_utf8_lossy(&o.stderr).trim().to_string(),
+        Ok(o) => Err(crate::safety::tool_failed(
+            "buildah_images",
+            "buildah images",
+            o.status.code(),
+            &String::from_utf8_lossy(&o.stderr),
         )),
         Err(e) => Err(crate::safety::tool_missing(
             "buildah",
@@ -53103,21 +53122,33 @@ fn bi_shellcheck_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(crate::safety::arg_err("shellcheck requires a script path")),
     };
+    crate::safety::reject_option_like("shellcheck", std::slice::from_ref(&path))?;
     let output = std::process::Command::new("shellcheck")
         .args(["--format=json", &path])
         .output();
     match output {
+        // Exit 0 is clean and 1 means issues; 2 and up are failures. A file
+        // that did not exist exits 2 and still prints `[]`, which read as
+        // a clean lint. Output that was not JSON came back as a different
+        // shape, {success, output}.
+        Ok(o) if !matches!(o.status.code(), Some(0) | Some(1)) => Err(crate::safety::tool_failed(
+            "shellcheck",
+            "shellcheck",
+            o.status.code(),
+            &String::from_utf8_lossy(&o.stderr),
+        )),
         Ok(o) => {
             let stdout = String::from_utf8_lossy(&o.stdout);
-            match serde_json::from_str::<serde_json::Value>(&stdout) {
-                Ok(json) => Ok(json_to_value(json)),
-                Err(_) => {
-                    let mut rec = BTreeMap::new();
-                    rec.insert("success".to_string(), Value::Bool(o.status.success()));
-                    rec.insert("output".to_string(), Value::Str(stdout.trim().to_string()));
-                    Ok(Value::Record(rec))
-                }
-            }
+            serde_json::from_str::<serde_json::Value>(&stdout)
+                .map(json_to_value)
+                .map_err(|e| {
+                    crate::safety::tool_failed(
+                        "shellcheck",
+                        "shellcheck --format=json",
+                        o.status.code(),
+                        &format!("output that is not JSON: {e}"),
+                    )
+                })
         }
         Err(e) => Err(crate::safety::tool_missing(
             "shellcheck",
@@ -53160,6 +53191,7 @@ fn bi_yamllint_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(crate::safety::arg_err("yamllint requires a file path")),
     };
+    crate::safety::reject_option_like("yamllint", std::slice::from_ref(&path))?;
     let output = std::process::Command::new("yamllint")
         .args(["-f", "parsable", &path])
         .output();
@@ -53171,6 +53203,16 @@ fn bi_yamllint_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 .filter(|l| !l.is_empty())
                 .map(|line| Value::Str(line.to_string()))
                 .collect();
+            // A file yamllint could not read answered {success: false,
+            // issues: []}: failed, with nothing wrong.
+            if !o.status.success() && issues.is_empty() {
+                return Err(crate::safety::tool_failed(
+                    "yamllint",
+                    "yamllint",
+                    o.status.code(),
+                    &String::from_utf8_lossy(&o.stderr),
+                ));
+            }
             let mut rec = BTreeMap::new();
             rec.insert("success".to_string(), Value::Bool(o.status.success()));
             rec.insert("issues".to_string(), Value::Array(issues));
