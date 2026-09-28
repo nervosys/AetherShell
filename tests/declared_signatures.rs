@@ -237,6 +237,26 @@ const MACHINE_DEPENDENT: &[(&str, &str)] = &[
     ("tmux_list", "an installed tmux"),
     ("shellcheck_check", "an installed shellcheck"),
     ("yamllint_check", "an installed yamllint"),
+    (
+        "hw_battery",
+        "the hardware present; null when none is found (values await the Phase 0 hardware check)",
+    ),
+    (
+        "hw_gpu",
+        "the hardware present; null when none is found (values await the Phase 0 hardware check)",
+    ),
+    (
+        "hw_sensors",
+        "the hardware present; null when none is found (values await the Phase 0 hardware check)",
+    ),
+    ("clipboard_types", "the clipboard (Windows only)"),
+    ("platform_db_export", "the user's platform store"),
+    ("search_fixmes", "the size of the working tree and the speed of its filesystem: the walk stops at a 30 s budget"),
+    ("search_todos", "the size of the working tree and the speed of its filesystem: the walk stops at a 30 s budget"),
+    ("search_recent", "the size of the working tree and the speed of its filesystem: the walk stops at a 30 s budget"),
+    ("search_files", "the size of the working tree and the speed of its filesystem: the walk stops at a 30 s budget"),
+    ("search_by_type", "the size of the working tree and the speed of its filesystem: the walk stops at a 30 s budget"),
+    ("search_modified", "the size of the working tree and the speed of its filesystem: the walk stops at a 30 s budget"),
 ];
 
 /// The codes that honestly mean "not on this machine", as opposed to a
@@ -248,6 +268,11 @@ const ABSENT_HERE: &[&str] = &[
     "E_NOT_FOUND",
     "E_NO_UI",
     "E_IO",
+    // A walk of the working tree that runs out of its time budget: on a slow
+    // filesystem (WSL's /mnt/c) the repository could not be searched in 30 s,
+    // and search_fixmes failed the strict tier intermittently. The budget
+    // stop is coded and honest; it is not a defect in the call.
+    "E_BUDGET_EXCEEDED",
 ];
 
 fn machine_dependent(name: &str) -> bool {

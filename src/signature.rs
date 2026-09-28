@@ -1785,7 +1785,7 @@ pub static SIGNATURES: &[Signature] = &[
         params: &[],
         returns: "Array",
         doc: "Every FIXME comment under the working directory, as path:line:text. Skips dependency and build trees.",
-        examples: &[("typeof(search_fixmes())", "Array")],
+        examples: &[("search_fixmes()", "[\"src/eval.rs:120: // FIXME ...\", ...]")],
     },
     Signature {
         name: "search_todos",
@@ -1796,7 +1796,7 @@ pub static SIGNATURES: &[Signature] = &[
         params: &[],
         returns: "Array",
         doc: "Every TODO comment under the working directory, as path:line:text. Skips dependency and build trees.",
-        examples: &[("typeof(search_todos())", "Array")],
+        examples: &[("search_todos()", "[\"src/parser.rs:88: // TODO ...\", ...]")],
     },
     Signature {
         name: "search_recent",
@@ -1807,7 +1807,7 @@ pub static SIGNATURES: &[Signature] = &[
         params: &[],
         returns: "Array",
         doc: "Files under the working directory modified in the last day. Skips dependency and build trees.",
-        examples: &[("typeof(search_recent())", "Array")],
+        examples: &[("search_recent()", "[\"src/builtins.rs\", ...]")],
     },
     // Fourth tranche of parameterless declarations. Chosen from the
     // discarded-args list by reading bodies: every one binds `_args` or never
@@ -3745,7 +3745,7 @@ pub static SIGNATURES: &[Signature] = &[
         returns: "Array",
         doc: "Files beneath the current directory whose name matches a glob; build and dependency directories are skipped.",
         examples: &[
-            (r#"(search_files("Cargo.toml") | len) > 0"#, r#"true"#),
+            (r#"search_files("Cargo.toml")"#, r#"["./Cargo.toml"]"#),
         ],
     },
     Signature {
@@ -3758,7 +3758,7 @@ pub static SIGNATURES: &[Signature] = &[
         returns: "Array",
         doc: "Files beneath the current directory with an extension.",
         examples: &[
-            (r#"(search_by_type("toml") | len) > 0"#, r#"true"#),
+            (r#"search_by_type("toml")"#, r#"["./Cargo.toml", ...]"#),
         ],
     },
     Signature {
@@ -3771,8 +3771,8 @@ pub static SIGNATURES: &[Signature] = &[
         returns: "Array",
         doc: "Up to 100 files modified recently, beneath the current directory.",
         examples: &[
-            (r#"typeof(search_modified())"#, r#"Array"#),
-            (r#"typeof(search_modified(30))"#, r#"Array"#),
+            (r#"search_modified()"#, r#"["./src/builtins.rs", ...]"#),
+            (r#"search_modified(30)"#, r#"["./src/builtins.rs", ...]"#),
         ],
     },
     Signature {
@@ -5547,6 +5547,86 @@ pub static SIGNATURES: &[Signature] = &[
         doc: "End the login session, reporting whether there was one.",
         examples: &[
             (r#"rbac_logout()"#, r#"false"#),
+        ],
+    },
+    // 1c: six of the last eleven on the discarded-args worklist.
+    Signature {
+        name: "journal",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[],
+        returns: "Record",
+        doc: "The recorded steps of this session and how many can be reversed.",
+        examples: &[
+            (r#"typeof(journal())"#, r#"Record"#),
+        ],
+    },
+    Signature {
+        name: "hw_battery",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[],
+        returns: "Record | Null",
+        doc: "Battery charge and status, or null when there is no battery.",
+        examples: &[
+            (r#"hw_battery()"#, r#"{charge_percent: 87, status: discharging}"#),
+        ],
+    },
+    Signature {
+        name: "hw_gpu",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[],
+        returns: "Array | Null",
+        doc: "GPUs as {name, memory, driver}, or null when none is found.",
+        examples: &[
+            (r#"hw_gpu()"#, r#"[{driver: "32.0.15", memory: 8589934592, name: "NVIDIA ..."}]"#),
+        ],
+    },
+    Signature {
+        name: "hw_sensors",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[],
+        returns: "Array | Null",
+        doc: "Temperature sensors as records, or null when none is readable.",
+        examples: &[
+            (r#"hw_sensors()"#, r#"[{name: acpitz, temperature_c: 41.0}]"#),
+        ],
+    },
+    Signature {
+        name: "clipboard_types",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[],
+        returns: "Array",
+        doc: "The formats on the clipboard: text, image, files, audio.",
+        examples: &[
+            (r#"clipboard_types()"#, r#"["text"]"#),
+        ],
+    },
+    Signature {
+        name: "platform_db_export",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[opt("path", Ty::Str, "write the store to this file")],
+        returns: "String",
+        doc: "The platform store as JSON text, or, given a path, write it there and return the path.",
+        examples: &[
+            (r#"platform_db_export()"#, r#"{"default": {...}}"#),
+            (r#"platform_db_export(fs_tempfile("ae_pdb"))"#, r#"/tmp/ae_pdb_..."#),
         ],
     },
 ];

@@ -31035,23 +31035,44 @@ fn bi_clipboard_has_text(_args: Vec<Value>, _input: Option<Value>) -> Result<Val
 }
 
 fn bi_clipboard_types(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    // This always listed "text" -- on Linux and macOS without looking at the
+    // clipboard at all, on Windows even when the clipboard was empty or held
+    // an image. It now asks the clipboard what it holds.
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
-            .args(["-Command", "(Get-Clipboard -Format FileDropList) -ne $null"])
+            .args([
+                "-NoProfile",
+                "-STA",
+                "-Command",
+                "Add-Type -AssemblyName System.Windows.Forms; $c = [Windows.Forms.Clipboard]; @(if ($c::ContainsText()) {'text'}; if ($c::ContainsImage()) {'image'}; if ($c::ContainsFileDropList()) {'files'}; if ($c::ContainsAudio()) {'audio'}) -join ','",
+            ])
             .output()
             .map_err(|e| crate::safety::spawn_error("clipboard_types", "powershell", &e))?;
-        let has_files = String::from_utf8_lossy(&output.stdout).trim() == "True";
-
-        let mut types = vec![Value::Str("text".to_string())];
-        if has_files {
-            types.push(Value::Str("files".to_string()));
+        if !output.status.success() {
+            return Err(crate::safety::tool_failed(
+                "clipboard_types",
+                "powershell",
+                output.status.code(),
+                &String::from_utf8_lossy(&output.stderr),
+            ));
         }
-        Ok(Value::Array(types))
+        let text = String::from_utf8_lossy(&output.stdout);
+        Ok(Value::Array(
+            text.trim()
+                .split(',')
+                .filter(|t| !t.is_empty())
+                .map(|t| Value::Str(t.to_string()))
+                .collect(),
+        ))
     }
     #[cfg(not(target_os = "windows"))]
     {
-        return Ok(Value::Array(vec![Value::Str("text".to_string())]));
+        Err(crate::safety::unimplemented(
+            "clipboard_types",
+            "listing clipboard formats is implemented on Windows only; NOTHING WAS INSPECTED",
+            "clipboard() reads the text on the clipboard",
+        ))
     }
 }
 
@@ -39461,12 +39482,14 @@ fn bi_platform_db_export(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
     let file_path = args.first().and_then(|v| v.as_str().ok());
 
     let db_path = platform_db_path();
-    if !db_path.exists() {
-        return Ok(Value::Str("{}".to_string()));
-    }
-
-    let content = std::fs::read_to_string(&db_path)
-        .map_err(|e| crate::safety::fs_error("platform_db_export", &db_path, &e))?;
+    // With no store yet, a requested export file was never written: the
+    // call answered "{}" instead of the path.
+    let content = if db_path.exists() {
+        std::fs::read_to_string(&db_path)
+            .map_err(|e| crate::safety::fs_error("platform_db_export", &db_path, &e))?
+    } else {
+        "{}".to_string()
+    };
 
     if let Some(path) = file_path {
         // The destination was written with no workspace check at all.
