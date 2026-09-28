@@ -5642,6 +5642,21 @@ pub static SIGNATURES: &[Signature] = &[
             (r#"search_symbols("bi_echo")"#, r#"["./src/builtins.rs:4210: fn bi_echo(args: Vec<Value>, ...)"]"#),
         ],
     },
+    // 1c: strings, in-process since this commit, so the same everywhere.
+    Signature {
+        name: "strings",
+        category: None,
+        subject_required: false,
+        aliases: &["strings_extract"],
+        subject: None,
+        params: &[req("path", Ty::Str, "a file"), opt("min", Ty::Int, "shortest run to report, 1 to 4096; default 4")],
+        returns: "Array",
+        doc: "Runs of printable ASCII (and tab) in a file, as GNU strings finds them.",
+        examples: &[
+            (r#"strings("tests/fixtures/sample.db") | take(1)"#, r#"["SQLite format 3"]"#),
+            (r#"(strings("tests/fixtures/sample.db", 8) | len) > 0"#, r#"true"#),
+        ],
+    },
 ];
 
 /// The declaration for `name`, if it has one.

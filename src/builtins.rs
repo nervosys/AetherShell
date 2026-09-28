@@ -50742,46 +50742,55 @@ fn bi_readelf_sections(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 
 /// strings — Extract printable strings from a binary file.
 fn bi_strings_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    // In-process on every OS, reading the file through the read checks. This
+    // ran the `strings` program (absent on Windows, and handed the path
+    // positionally) and fell back to this scan on any failure; the fallback's
+    // errors were labelled `bat`; and a negative minimum became a huge usize,
+    // so nothing matched.
     let path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("strings requires a file path")),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "strings",
+                "path: String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let min_len = match args.get(1) {
-        Some(Value::Int(n)) => *n as usize,
-        _ => 4,
-    };
-    // Cross-platform: try `strings` command, fallback to native Rust
-    let output = std::process::Command::new("strings")
-        .args(["-n", &min_len.to_string(), &path])
-        .output();
-    match output {
-        Ok(o) if o.status.success() => {
-            let stdout = String::from_utf8_lossy(&o.stdout);
-            let strings: Vec<Value> = stdout.lines().map(|l| Value::Str(l.to_string())).collect();
-            Ok(Value::Array(strings))
+        None => 4,
+        Some(Value::Int(n)) if (1..=4096).contains(n) => *n as usize,
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "strings",
+                "a minimum length from 1 to 4096",
+                &other.to_display_string(),
+            ))
         }
-        _ => {
-            // Fallback: native Rust implementation
-            let data =
-                std::fs::read(&path).map_err(|e| crate::safety::fs_error("bat", &path, &e))?;
-            let mut result = Vec::new();
-            let mut current = String::new();
-            for &byte in &data {
-                if (0x20..0x7f).contains(&byte) {
-                    current.push(byte as char);
-                } else {
-                    if current.len() >= min_len {
-                        result.push(Value::Str(current.clone()));
-                    }
-                    current.clear();
-                }
-            }
+    };
+    let validated = validate_read_path(&path)?;
+    let meta = std::fs::metadata(&validated)
+        .map_err(|e| crate::safety::fs_error("strings", &validated, &e))?;
+    check_file_size_limit(meta.len())?;
+    let data = std::fs::read(&validated)
+        .map_err(|e| crate::safety::fs_error("strings", &validated, &e))?;
+    let mut result = Vec::new();
+    let mut current = String::new();
+    for &byte in &data {
+        // Printable ASCII and tab, as GNU strings counts them.
+        if (0x20..0x7f).contains(&byte) || byte == 0x09 {
+            current.push(byte as char);
+        } else {
             if current.len() >= min_len {
-                result.push(Value::Str(current));
+                result.push(Value::Str(std::mem::take(&mut current)));
             }
-            Ok(Value::Array(result))
+            current.clear();
         }
     }
+    if current.len() >= min_len {
+        result.push(Value::Str(current));
+    }
+    Ok(Value::Array(result))
 }
 
 // --- chgrp (1020) ---
