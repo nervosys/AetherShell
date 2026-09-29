@@ -1025,7 +1025,7 @@ pub static SIGNATURES: &[Signature] = &[
         doc: "Every call in a program with its effect class and agent-mode decision, and the strictest decision overall, without running it.",
         examples: &[
             (r#"explain_effects("[1, 2] | map(fn(x) => x + 1)") | fn(r) => r.decision"#, "allow"),
-            (r#"explain_effects("rm(1)") | fn(r) => r.effects"#, "[destructive]"),
+            (r#"explain_effects("rm(1)") | fn(r) => r.effects"#, r#"["destructive"]"#),
         ],
     },
     Signature {
