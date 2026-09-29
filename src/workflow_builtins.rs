@@ -278,15 +278,19 @@ pub fn names() -> Vec<(&'static str, &'static str)> {
 }
 
 /// Serve a workflow builtin, or `None` if the name is not one.
+/// Whether this module serves `name`, without taking its arguments.
+pub fn serves(name: &str) -> bool {
+    names().iter().any(|(n, _)| *n == name)
+}
+
 pub fn call(name: &str, args: Vec<Value>, input: Option<Value>) -> Option<Result<Value>> {
-    let served = names().iter().any(|(n, _)| *n == name);
-    if !served {
+    if !serves(name) {
         return None;
     }
     Some(dispatch(name, args, input))
 }
 
-fn dispatch(name: &str, args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+pub(crate) fn dispatch(name: &str, args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let arg = |i: usize| {
         args.get(i)
             .cloned()

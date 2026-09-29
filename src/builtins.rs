@@ -3809,21 +3809,25 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_named_hash("sha256", args, input), // 1159
 ];
 
+/// The dispatch row that serves `name`, if the fast table has one.
+fn fast_index(name: &str) -> Option<usize> {
+    BUILTIN_LOOKUP
+        .get(name)
+        .copied()
+        .filter(|&i| i < BUILTIN_DISPATCH.len())
+}
+
+/// Run a fast-table builtin by its row. The one place `BUILTIN_DISPATCH` is
+/// indexed, reached only from `call_with_input_inner` after the gate
+/// (`tests/one_door.rs`). It takes a resolved row rather than a name so the
+/// caller can decide before giving up its arguments, which then move.
 fn fast_builtin_lookup(
-    name: &str,
+    index: usize,
     args: Vec<Value>,
     input: Option<Value>,
     env: &mut Env,
-) -> Option<Result<Value>> {
-    if let Some(&index) = BUILTIN_LOOKUP.get(name) {
-        if index < BUILTIN_DISPATCH.len() {
-            Some(BUILTIN_DISPATCH[index](args, input, env))
-        } else {
-            None
-        }
-    } else {
-        None
-    }
+) -> Result<Value> {
+    BUILTIN_DISPATCH[index](args, input, env)
 }
 
 // --------------- Public entry points ---------------
@@ -4146,8 +4150,13 @@ fn call_with_input_inner(
     let journal_mark = crate::journal::mark();
     crate::journal::record_before(name, crate::safety::effect_of(name), &args);
 
-    // Try fast lookup first
-    if let Some(result) = fast_builtin_lookup(name, args.clone(), input.clone(), env) {
+    // Try fast lookup first. Decide *which* table serves the name before
+    // handing the arguments over, so they move instead of being copied: this
+    // cloned the whole pipe input on every call -- twice for a builtin in the
+    // fallback match -- and `cat("src/*.rs") | lines | len` spent most of its
+    // time deep-copying 128,000 strings it was about to count.
+    if let Some(index) = fast_index(name) {
+        let result = fast_builtin_lookup(index, args, input, env);
         // A call that failed changed nothing, so it must leave nothing behind to
         // undo. Without this a write refused by the workspace jail still left an
         // entry, and `undo()` answered `complete: false` about an operation that
@@ -4161,7 +4170,8 @@ fn call_with_input_inner(
     // The workflow engine's own surface. It lives in its own module because it
     // is the one family of builtins that has to bridge to an async engine, and
     // that bridge has to know which kind of runtime it was called from.
-    if let Some(result) = crate::workflow_builtins::call(name, args.clone(), input.clone()) {
+    if crate::workflow_builtins::serves(name) {
+        let result = crate::workflow_builtins::dispatch(name, args, input);
         if result.is_err() {
             crate::journal::rollback_to(journal_mark);
         }
