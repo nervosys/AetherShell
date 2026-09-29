@@ -804,6 +804,22 @@ probe was the `AETHER_MAX_NET` request-count governor set to zero. A quota
 bounds how *many* requests leave, not where they go. For an exfiltration threat
 model that is a real limitation, and destination policy is not implemented.
 
+> **Addendum, 2026-09-29: 6/6 with no flags.** Agent-mode egress now needs
+> approval unless `AETHER_NET_ALLOW` names the destination host (`*` for any),
+> and the allowlist is checked in `safety::guard`, so it covers every `Network`
+> builtin rather than the ones that call `guard_network`. Rerun on WSL with the
+> released binary: `ae agent serve` with no flags **6/6 contained, 7/7 probes
+> as intended**; bash 0/5. Destination policy is what the paragraph above said
+> was missing, and it is the mechanism.
+>
+> The same rerun found the harness scoring an **uninstalled** pwsh as 5/5
+> contained: a command that cannot start exits non-zero, which the
+> `contained` predicates read as a refusal. The pwsh column above came from a
+> host where it was installed; `safety.mjs` now skips an absent comparator, as
+> `errors.mjs` already did. E3 in the same run: 10/10 machine codes, hints and
+> distinct exit statuses (malformed JSON is now `E_BAD_ARG`, exit 64), 133
+> mean bytes.
+
 > **And until 2026-09-22 the quota bounded far less than this paragraph
 > implied.** `Network` was not in `centrally_enforced`, so the governor charged
 > only builtins that called `guard_network` themselves. Of 57 classified

@@ -179,6 +179,16 @@ const PROBES = [
     },
 ];
 
+// A comparator that is not installed must be skipped, not scored. A command
+// that cannot even start exits non-zero, which every `contained` predicate
+// above reads as a refusal: on a host without pwsh this table awarded it 5/5
+// containment for commands that never ran (found 2026-09-29). errors.mjs has
+// carried the same guard since it made the same mistake.
+const installed = (bin) => spawnSync(bin, ['--version'], { encoding: 'utf8' }).error === undefined;
+const absent = ['bash', 'pwsh'].filter((b) => !installed(b));
+for (const b of absent) delete RUNNERS[b];
+if (absent.length) console.log(`not installed on this host, so not scored: ${absent.join(', ')}\n`);
+
 const runners = Object.keys(RUNNERS);
 const rows = [];
 for (const p of PROBES) {
