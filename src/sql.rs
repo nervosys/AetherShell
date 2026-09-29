@@ -463,8 +463,65 @@ fn run(builtin: &str, conn: &Connection, query: &str) -> Result<(Vec<String>, Ve
     Ok((columns, rows_out))
 }
 
-/// Open the connection a call's arguments describe and load its tables.
-fn connect(builtin: &str, args: &[Value], subject: Option<Value>) -> Result<(Connection, String)> {
+/// A file as loaded: its canonical path, size and modification time. Any
+/// change to the file changes the key, so a cached table is never stale.
+type FileKey = (String, u64, std::time::SystemTime);
+
+/// Files larger than this are loaded per query rather than kept.
+const CACHE_MAX_FILE: u64 = 64 << 20;
+/// Loaded files kept per thread.
+const CACHE_ENTRIES: usize = 4;
+
+thread_local! {
+    /// In-memory databases already built from files, for a session that asks
+    /// several questions of the same file (`ae mcp stdio`, `ae agent serve`,
+    /// the REPL). Building one parses the file and inserts every row, which
+    /// was most of a warm query's cost; the queries are read-only, so reuse
+    /// is safe.
+    static FILE_CACHE: std::cell::RefCell<Vec<(FileKey, Connection)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+fn file_key(path: &str) -> Option<FileKey> {
+    let md = std::fs::metadata(path).ok()?;
+    if md.len() > CACHE_MAX_FILE {
+        return None;
+    }
+    let canonical = std::fs::canonicalize(path).ok()?;
+    Some((
+        canonical.to_string_lossy().into_owned(),
+        md.len(),
+        md.modified().ok()?,
+    ))
+}
+
+fn cache_take(key: &FileKey) -> Option<Connection> {
+    FILE_CACHE.with(|c| {
+        let mut c = c.borrow_mut();
+        let i = c.iter().position(|(k, _)| k == key)?;
+        Some(c.remove(i).1)
+    })
+}
+
+fn cache_put(key: FileKey, conn: Connection) {
+    FILE_CACHE.with(|c| {
+        let mut c = c.borrow_mut();
+        // Any older version of the same file is superseded.
+        c.retain(|(k, _)| k.0 != key.0);
+        c.push((key, conn));
+        while c.len() > CACHE_ENTRIES {
+            c.remove(0);
+        }
+    })
+}
+
+/// Open the connection a call's arguments describe and load its tables. The
+/// key is set when the connection came from a file and may be cached.
+fn connect(
+    builtin: &str,
+    args: &[Value],
+    subject: Option<Value>,
+) -> Result<(Connection, String, Option<FileKey>)> {
     let str_arg = |i: usize, what: &str| match args.get(i) {
         Some(Value::Str(s)) => Ok(s.clone()),
         other => Err(bad(
@@ -497,12 +554,16 @@ fn connect(builtin: &str, args: &[Value], subject: Option<Value>) -> Result<(Con
             let tables = tables_from_subject(builtin, subject)?;
             let conn = memory()?;
             load(&conn, builtin, &tables)?;
-            Ok((conn, query))
+            Ok((conn, query, None))
         }
         2 => {
             let source = str_arg(0, "the source")?;
             let query = str_arg(1, "the query")?;
             if let Some(kind) = tabular_kind(&source) {
+                let key = file_key(&source);
+                if let Some(conn) = key.as_ref().and_then(cache_take) {
+                    return Ok((conn, query, key));
+                }
                 let tables = table_from_file(builtin, &source, kind)?;
                 let conn = memory()?;
                 load(&conn, builtin, &tables)?;
@@ -515,10 +576,10 @@ fn connect(builtin: &str, args: &[Value], subject: Option<Value>) -> Result<(Con
                         .map_err(|e| internal(builtin, &e))?;
                     }
                 }
-                return Ok((conn, query));
+                return Ok((conn, query, key));
             }
             if source == ":memory:" {
-                return Ok((memory()?, query));
+                return Ok((memory()?, query, None));
             }
             if !std::path::Path::new(&source).is_file() {
                 return Err(crate::safety::not_found(builtin, "database", &source));
@@ -538,7 +599,7 @@ fn connect(builtin: &str, args: &[Value], subject: Option<Value>) -> Result<(Con
                     e.to_string(),
                 )
             })?;
-            Ok((conn, query))
+            Ok((conn, query, None))
         }
         n => Err(bad(
             builtin,
@@ -550,10 +611,24 @@ fn connect(builtin: &str, args: &[Value], subject: Option<Value>) -> Result<(Con
     }
 }
 
+/// Connect, run, and return a file's database to the cache whether or not the
+/// query succeeded -- a typo in a query should not cost the next one a reload.
+fn query_once(
+    builtin: &str,
+    args: &[Value],
+    subject: Option<Value>,
+) -> Result<(Vec<String>, Vec<Vec<Value>>)> {
+    let (conn, query, key) = connect(builtin, args, subject)?;
+    let result = run(builtin, &conn, &query);
+    if let Some(k) = key {
+        cache_put(k, conn);
+    }
+    result
+}
+
 /// `sql` / `sqlite_query` / `db_sqlite_query`: rows as records.
 pub fn sql(builtin: &str, args: Vec<Value>, subject: Option<Value>) -> Result<Value> {
-    let (conn, query) = connect(builtin, &args, subject)?;
-    let (columns, rows) = run(builtin, &conn, &query)?;
+    let (columns, rows) = query_once(builtin, &args, subject)?;
     Ok(Value::Array(
         rows.into_iter()
             .map(|cells| Value::Record(columns.iter().cloned().zip(cells).collect()))
@@ -569,8 +644,7 @@ pub fn sql(builtin: &str, args: Vec<Value>, subject: Option<Value>) -> Result<Va
 /// says what it returns, and refuses when the query did not produce it.
 pub fn sql_value(args: Vec<Value>, subject: Option<Value>) -> Result<Value> {
     const NAME: &str = "sql_value";
-    let (conn, query) = connect(NAME, &args, subject)?;
-    let (columns, mut rows) = run(NAME, &conn, &query)?;
+    let (columns, mut rows) = query_once(NAME, &args, subject)?;
     if rows.len() == 1 && columns.len() == 1 {
         return Ok(rows.remove(0).remove(0));
     }
@@ -705,6 +779,36 @@ mod tests {
                 .unwrap_err();
         let se = e.downcast_ref::<SafetyError>().expect("structured");
         assert_eq!(se.code, ErrorCode::BudgetExceeded, "{}", se.message);
+    }
+
+    #[test]
+    fn a_cached_file_is_reloaded_when_it_changes() {
+        let dir = std::env::temp_dir().join(format!("ae_sql_cache_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("rows.json");
+        let p = path.to_string_lossy().to_string();
+        let count = || {
+            sql_value(
+                vec![
+                    Value::Str(p.clone()),
+                    Value::Str("select count(*) from rows".into()),
+                ],
+                None,
+            )
+            .unwrap()
+        };
+        std::fs::write(&path, r#"[{"a":1},{"a":2}]"#).unwrap();
+        assert_eq!(count(), Value::Int(2));
+        assert_eq!(count(), Value::Int(2), "served from the cache");
+        // A different size is a different key, whatever the timestamp says.
+        std::fs::write(&path, r#"[{"a":1},{"a":2},{"a":3}]"#).unwrap();
+        assert_eq!(
+            count(),
+            Value::Int(3),
+            "a changed file must not be served stale"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

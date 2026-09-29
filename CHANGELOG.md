@@ -25,6 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `open("Cargo.toml").package.version` (parses JSON, JSON lines, TOML, YAML and
   CSV by extension), `ls("src/*.rs")`. E2 command tokens 163 → 96; the agent
   arm is 3.5× cheaper than bash in total (was 3.0×).
+- **Warm sessions answer in under a millisecond**: `sql`/`sql_value` keep each
+  file's loaded database between calls (invalidated by size or mtime), so an
+  agent on `ae mcp stdio` pays 0.47 ms per query against 20-26 ms for `ae -c`
+  and 7-15 ms for a `sqlite3` process per query
+  (`benches/agentic/results/latency-warm.md`).
 - **`ae --explain` / `explain_effects(code)`**: every call in a program, its
   effect class and the agent-mode decision, without running it.
 
