@@ -65,13 +65,20 @@ result = runtime.eval('sys.hostname()')
 tools = get_agent_api_tools("http://localhost:3002")
 ```
 
-### Option 4: Run Existing Shell Scripts (limited)
+### Option 4: Run Existing Shell Scripts
 
-Bash, Zsh and PowerShell input is accepted, but mostly **not** translated. On a
-32-one-liner corpus (`benches/agentic/bashcompat.mjs`, E6) 2 ran natively, 10
-were handed to real `bash -lc`, 3 were refused and 17 failed. A delegated line
-runs outside the effect gate and the workspace jail, so do not treat this path
-as contained. Prefer writing AetherShell (or SQL via `sqlite_query`) directly.
+`ae -b` (and `.sh` files) run the ordinary POSIX subset **in-process**
+(`src/posix.rs`): pipelines, `&&`/`||`, variables, `$(…)`, redirections,
+`if`/`for`/`while`, `test`, and GNU-compatible `ls`/`find`/`grep`/`head`/`tail`/
+`wc`/`sort`/`uniq`/`cut`/`sed`/`cat`/`echo`/`printf`. Other commands run as the
+real program, directly, through the effect gate — never via `bash -c` — so
+agent mode gates each one. On E6 (`benches/agentic/bashcompat.mjs`), 32 of 32
+matched bash byte-for-byte, and 32 of 32 on a held-out corpus.
+
+Not in the subset (functions, `case`, `$((…))`, here-documents, subshells,
+background jobs) falls back to the transpiler, which may delegate to
+`bash -lc` when `AETHER_ALLOW_SH` is set; that fallback is not contained.
+Zsh and PowerShell input still goes through the transpilers only.
 
 ```bash
 # Auto-detected by file extension

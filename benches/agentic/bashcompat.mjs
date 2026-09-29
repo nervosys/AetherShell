@@ -69,6 +69,45 @@ const CORPUS = [
     ['exit', 'true && echo chained'],
 ];
 
+// A second corpus, written on 2026-09-28 *after* src/posix.rs was built
+// against the one above -- which makes the one above a fit, not a test. These
+// were not run through `ae -b` before being written down, and are reported
+// whatever they score. `--heldout` selects them.
+const HELDOUT = [
+    ['orient', 'ls -a | head -4'],
+    ['orient', 'ls -1 src | wc -l'],
+    ['orient', 'find . -maxdepth 1 -type d | sort | head -5'],
+    ['orient', 'find src -type f -name "*.rs" | wc -l'],
+    ['search', 'grep -rl "unsafe" src | sort | head -3'],
+    ['search', 'grep -n "^pub mod" src/lib.rs | head -3'],
+    ['search', 'grep -i "license" Cargo.toml'],
+    ['search', 'grep -v "^#" Cargo.toml | grep -c "="'],
+    ['search', 'grep -E "^(name|version) =" Cargo.toml'],
+    ['read', 'tail -3 Cargo.toml'],
+    ['read', 'head -n 2 README.md'],
+    ['read', 'cat -n Cargo.toml | head -3'],
+    ['read', 'wc -c < Cargo.toml'],
+    ['read', 'sed -n "/^\\[package\\]/,/^version/p" Cargo.toml'],
+    ['vars', 'N=3; echo "n is $N"'],
+    ['vars', 'A=foo; B="${A}bar"; echo $B'],
+    ['vars', 'unset Q; echo "${Q:-default}"'],
+    ['subst', 'echo "files: $(ls src | wc -l)"'],
+    ['subst', 'COUNT=$(grep -c "\\[" Cargo.toml); echo $COUNT'],
+    ['control', 'for f in src/lib.rs src/main.rs; do wc -l < $f; done'],
+    ['control', 'if grep -q "tokio" Cargo.toml; then echo uses-tokio; fi'],
+    ['control', '[ -d nope ] || echo missing'],
+    ['control', 'for d in src tests; do test -d $d && echo $d; done'],
+    ['pipes', 'cat Cargo.toml | sort | uniq | wc -l'],
+    ['pipes', 'ls src | grep "^a" | head -3'],
+    ['pipes', 'echo "a,b,c" | cut -d, -f2'],
+    ['pipes', 'printf "3\\n1\\n2\\n" | sort -n | tail -1'],
+    ['redirect', 'echo test > /tmp/ae_heldout.txt; wc -l < /tmp/ae_heldout.txt'],
+    ['redirect', 'ls nope 2>&1 | head -1'],
+    ['git', 'git diff --stat HEAD~1 | tail -1'],
+    ['git', 'git log -3 --format=%s | wc -l'],
+    ['exit', 'grep -q zzzz_not_here Cargo.toml; echo $?'],
+];
+
 const run = (bin, argv, env) => {
     const r = spawnSync(bin, argv, {
         cwd: repo, encoding: 'utf8', timeout: 30000, maxBuffer: 32 << 20,
@@ -86,7 +125,8 @@ const run = (bin, argv, env) => {
 const DELEGATED = /\[SECURITY\] sh\(\) executed|sh\(\["bash"/;
 
 const rows = [];
-for (const [group, cmd] of CORPUS) {
+const heldout = process.argv.includes('--heldout');
+for (const [group, cmd] of heldout ? HELDOUT : CORPUS) {
     const reference = run('bash', ['-c', cmd], {});
 
     // Default posture: sh() disabled, which is what E4 measures and what any
@@ -99,7 +139,12 @@ for (const [group, cmd] of CORPUS) {
     const matches = (a, b) => a.code === b.code && a.out === b.out;
 
     let verdict;
-    if (sealed.code === 0 && !DELEGATED.test(sealed.err) && matches(sealed, reference)) {
+    // Matching bash means matching its exit status too, including a non-zero
+    // one. This required `sealed.code === 0` until 2026-09-28, which scored
+    // `grep -c "fn " src/lib.rs` as a failure once lib.rs stopped containing
+    // "fn ": bash prints 0 and exits 1, and so did `ae -b` -- a case bash
+    // itself would have failed. Changed after that run, and said so here.
+    if (!DELEGATED.test(sealed.err) && matches(sealed, reference)) {
         verdict = 'native';
     } else if (delegated && open.code === 0) {
         verdict = 'delegated';
@@ -118,7 +163,8 @@ for (const [group, cmd] of CORPUS) {
     });
 }
 
-fs.writeFileSync(path.join(repo, 'bashcompat.json'), JSON.stringify(rows, null, 2));
+fs.writeFileSync(path.join(repo, heldout ? 'bashcompat-heldout.json' : 'bashcompat.json'),
+    JSON.stringify(rows, null, 2));
 
 const tally = (v) => rows.filter((r) => r.verdict === v).length;
 const pad = (s, n) => String(s).padEnd(n);

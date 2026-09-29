@@ -581,7 +581,7 @@ pub static SIGNATURES: &[Signature] = &[
             "fn(element) -> Bool; omit to test the elements themselves",
         )],
         returns: "Bool",
-        doc: "True when the predicate holds for at least one element, or when               any element is itself true.",
+        doc: "True when the predicate holds for at least one element, or when any element is itself true.",
         examples: &[
             (r#"any(["a", "b"], fn(l) => l == "b")"#, "true"),
             ("[1, 2] | any(fn(x) => x > 1)", "true"),
@@ -600,7 +600,7 @@ pub static SIGNATURES: &[Signature] = &[
             "fn(element) -> Bool; omit to test the elements themselves",
         )],
         returns: "Bool",
-        doc: "True when the predicate holds for every element, or when every               element is itself true.",
+        doc: "True when the predicate holds for every element, or when every element is itself true.",
         examples: &[
             ("[2, 3] | all(fn(x) => x > 1)", "true"),
             ("all([true, false, true])", "false"),
@@ -990,7 +990,7 @@ pub static SIGNATURES: &[Signature] = &[
             req(
                 "source_or_query",
                 Ty::Str,
-                "with rows piped in, the query (they are table `t`); otherwise a source: a                  .json/.jsonl/.csv file (a table named after the file, also `t`), a SQLite                  file, or \":memory:\"",
+                "with rows piped in, the query (they are table `t`); otherwise a source: a .json/.jsonl/.csv file (a table named after the file, also `t`), a SQLite file, or \":memory:\"",
             ),
             opt(
                 "query",
@@ -1010,6 +1010,22 @@ pub static SIGNATURES: &[Signature] = &[
                 "1",
             ),
             (r#"sql(":memory:", "SELECT 2 AS n") | len"#, "1"),
+        ],
+    },
+    Signature {
+        // docs/LANGUAGE_FIRST_PRINCIPLES.md §6: containment an agent can ask
+        // about before running, instead of discovering by being refused.
+        name: "explain_effects",
+        category: Some("Safety"),
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("code", Ty::Str, "AetherShell source to analyse; it is parsed, never run")],
+        returns: "Record",
+        doc: "Every call in a program with its effect class and agent-mode decision, and the strictest decision overall, without running it.",
+        examples: &[
+            (r#"explain_effects("[1, 2] | map(fn(x) => x + 1)") | fn(r) => r.decision"#, "allow"),
+            (r#"explain_effects("rm(1)") | fn(r) => r.effects"#, "[destructive]"),
         ],
     },
     Signature {

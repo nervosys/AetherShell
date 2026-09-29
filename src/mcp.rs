@@ -1272,7 +1272,7 @@ pub mod server {
                             [(header::WWW_AUTHENTICATE, "Bearer")],
                             Json(serde_json::json!({
                                 "error": "unauthorized",
-                                "detail": "Send `Authorization: Bearer <token>`.                                     The token is printed when the server starts.",
+                                "detail": "Send `Authorization: Bearer <token>`. The token is printed when the server starts.",
                             })),
                         )
                             .into_response()
@@ -1319,7 +1319,7 @@ pub mod server {
                 crate::safety::workspace_root().display()
             ),
             other => println!(
-                "⚠  Effect gate: {other:?} mode (AETHER_MODE set explicitly) — OFF.                  Unset AETHER_MODE to get the agent profile."
+                "⚠  Effect gate: {other:?} mode (AETHER_MODE set explicitly) — OFF. Unset AETHER_MODE to get the agent profile."
             ),
         }
         println!();

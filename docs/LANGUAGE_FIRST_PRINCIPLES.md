@@ -388,9 +388,11 @@ statically rather than by trusting a runtime.
 prices it. Keep the implicit parameter and `|.field` — they are small, regular
 and were measured — and stop assigning letters.
 
-**Stop advertising bash compatibility.** Measured 2 of 32 (E6). Already removed
-from the README; it should come out of `AGENTS.md` too, which still lists
-"Option 4: Migrate Existing Shell Scripts" as though it worked.
+**Stop advertising bash compatibility** — superseded 2026-09-28. It measured 2
+of 32 (E6) when this was written. The fix turned out to be the borrowing this
+document argues for, applied to the input side: `src/posix.rs` runs the subset
+in-process, 32 of 32 on E6 and on a held-out corpus, with no delegation to
+bash, so the claim is now measured rather than advertised.
 
 **Stop chasing SQLite on latency by optimising the evaluator.** SQLite reads an
 index; we parse a document. Not re-parsing is the answer, and it exists.

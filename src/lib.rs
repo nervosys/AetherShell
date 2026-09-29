@@ -144,6 +144,9 @@ pub mod eval;
 /// Evolutionary algorithms — genetic algorithms and NEAT.
 #[cfg(feature = "native")]
 pub mod evolution;
+/// Static effect analysis: what a program would do, before it runs.
+#[cfg(feature = "native")]
+pub mod explain;
 /// External tools — integration with system-installed CLI tools.
 #[cfg(feature = "native")]
 pub mod external_tools;
@@ -191,6 +194,10 @@ pub mod persistence;
 /// Plugin system — dynamic TOML-based plugin loading.
 #[cfg(feature = "native")]
 pub mod plugins;
+/// A POSIX-shell subset run in-process: what `ae -b` executes before it
+/// falls back to the transpiler.
+#[cfg(feature = "native")]
+pub mod posix;
 /// Prompt rendering — fish-, oh-my-posh-, and pure-inspired prompt styles.
 #[cfg(feature = "native")]
 pub mod prompt;

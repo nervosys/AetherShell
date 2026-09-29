@@ -4015,6 +4015,7 @@ pub const FALLBACK_BUILTINS: &[(&str, &str)] = &[
     ("complete", "bi_ai_complete"),
     ("describe", "bi_describe"),
     ("explain", "bi_ai_explain"),
+    ("explain_effects", "bi_explain_effects"),
     ("fix", "bi_ai_fix"),
     ("foreach", "bi_foreach_object"),
     ("foreach-object", "bi_foreach_object"),
@@ -4180,6 +4181,7 @@ fn call_with_input_inner(
         // Nushell-style data commands (not in fast lookup)
         "from-json" | "from_json" => bi_from_json(args, input),
         "sql_value" => bi_sql_value(args, input),
+        "explain_effects" => bi_explain_effects(args),
         "to-json" | "to_json" => bi_to_json(args, input),
         "from-csv" | "from_csv" => bi_from_csv(args, input),
         "to-csv" | "to_csv" => bi_to_csv(args, input),
@@ -4329,49 +4331,16 @@ fn arg<'a>(builtin: &str, args: &'a [Value], idx: usize, expected: &str) -> Resu
         .ok_or_else(|| crate::safety::bad_arg(builtin, expected, "nothing"))
 }
 
-/// Extract the lowercased host from a URL, ignoring scheme, userinfo, port, and
-/// path. Returns `None` if no authority is present.
-fn url_host(url: &str) -> Option<String> {
-    let after_scheme = url.split("://").nth(1)?;
-    let authority = after_scheme.split(['/', '?', '#']).next()?;
-    let host_port = authority.rsplit('@').next()?; // drop any userinfo@
-    let host = host_port.split(':').next()?; // drop :port
-    if host.is_empty() {
-        None
-    } else {
-        Some(host.to_ascii_lowercase())
-    }
-}
-
-/// Egress allowlist decision (pure). When `allow` is empty the allowlist is not
-/// configured and egress is unchanged (returns `true`). Otherwise the URL's host
-/// must equal an allowed entry or be a subdomain of one (`api.x.com` matches
-/// `x.com`). A URL whose host can't be determined is denied under an allowlist.
-fn egress_allowed(url: &str, allow: &str) -> bool {
-    let allow = allow.trim();
-    if allow.is_empty() {
-        return true;
-    }
-    let host = match url_host(url) {
-        Some(h) => h,
-        None => return false,
-    };
-    allow
-        .split(';')
-        .map(|s| s.trim().to_ascii_lowercase())
-        .filter(|s| !s.is_empty())
-        .any(|entry| host == entry || host.ends_with(&format!(".{entry}")))
-}
-
 /// Gate a network-egress builtin through the safety guard with the `Network`
 /// effect, so the resource governor (`AETHER_MAX_NET`) bounds egress and the
 /// audit log records the request. `Network` is policy-`allow` in agent mode, so
 /// this meters and audits rather than prompting.
 ///
-/// Egress containment: when `AETHER_NET_ALLOW` is set (a `;`-separated host
-/// allowlist), only those hosts and their subdomains may be reached — a control
-/// against data exfiltration over an otherwise-open network channel. Unset → the
-/// allowlist is inactive and behavior is unchanged.
+/// Egress containment lives in `safety::guard`, which every `Network` call
+/// reaches, not only these: `AETHER_NET_ALLOW` (hosts and their subdomains,
+/// `;`- or `,`-separated, `*` for any) refuses other destinations with
+/// `E_POLICY_DENY`, and in agent mode with no allowlist a request needs
+/// approval.
 pub(crate) fn guard_network(builtin: &str, url: &str) -> Result<()> {
     // Every one of these builtins hands the URL to `curl` or `wget` in a
     // positional slot, so a leading `-` is read as an option rather than an
@@ -4383,14 +4352,6 @@ pub(crate) fn guard_network(builtin: &str, url: &str) -> Result<()> {
     // URL begins with `-`.
     crate::safety::reject_option_like(builtin, &[url.to_string()])?;
 
-    let allow = std::env::var("AETHER_NET_ALLOW").unwrap_or_default();
-    if !egress_allowed(url, &allow) {
-        return Err(anyhow!(
-            "E_EGRESS_DENIED: {} target host is not in the AETHER_NET_ALLOW egress allowlist: {}",
-            builtin,
-            url
-        ));
-    }
     crate::safety::guard(crate::safety::GuardCtx {
         builtin,
         effect: crate::safety::Effect::Network,
@@ -4464,42 +4425,6 @@ fn guard_local_move(builtin: &str, path: &str) -> Result<String> {
 // change invented here rather than an inconsistency being corrected, so it is
 // left as it is and named instead. `tests/network_write_jail.rs` pins the
 // distinction so it stays a decision rather than an oversight.
-
-#[cfg(test)]
-mod egress_tests {
-    use super::{egress_allowed, url_host};
-
-    #[test]
-    fn url_host_extraction() {
-        assert_eq!(
-            url_host("https://api.example.com/v1/x?q=1").as_deref(),
-            Some("api.example.com")
-        );
-        assert_eq!(
-            url_host("http://user:pw@Host.COM:8080/p").as_deref(),
-            Some("host.com")
-        );
-        assert_eq!(url_host("not a url").as_deref(), None);
-    }
-
-    #[test]
-    fn egress_allowlist_policy() {
-        // Unset allowlist → unchanged (allow all).
-        assert!(egress_allowed("https://anything.example/x", ""));
-        // Exact host and subdomain match.
-        assert!(egress_allowed("https://example.com/x", "example.com"));
-        assert!(egress_allowed("https://api.example.com/x", "example.com"));
-        assert!(egress_allowed(
-            "https://a.b.example.com/x",
-            "foo.org; example.com"
-        ));
-        // Non-allowed host denied; a lookalike suffix is NOT a subdomain match.
-        assert!(!egress_allowed("https://evil.com/x", "example.com"));
-        assert!(!egress_allowed("https://notexample.com/x", "example.com"));
-        // Undeterminable host under an active allowlist → denied.
-        assert!(!egress_allowed("garbage", "example.com"));
-    }
-}
 
 /// Evaluate a lambda with N positional arguments by temporarily binding its `params`
 /// in the environment, then `eval_expr` on its body. Restores env afterwards.
@@ -32314,6 +32239,19 @@ fn bi_db_sqlite_query(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     // the sqlite3 CLI, so it was classed Exec, gated in agent mode, and absent
     // on any host without sqlite3.
     crate::sql::sql("sql", args, input)
+}
+
+/// explain_effects(code): every call in `code`, its effect class and the
+/// agent-mode decision, without running it; see src/explain.rs.
+fn bi_explain_effects(args: Vec<Value>) -> Result<Value> {
+    match args.first() {
+        Some(Value::Str(code)) => crate::explain::explain(code),
+        other => Err(crate::safety::bad_arg(
+            "explain_effects",
+            "String",
+            other.map(|v| v.type_name()).unwrap_or("nothing"),
+        )),
+    }
 }
 
 /// sql_value: the one cell of a one-row, one-column query; see src/sql.rs.

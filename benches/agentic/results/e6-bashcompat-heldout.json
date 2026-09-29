@@ -1,214 +1,223 @@
 [
   {
     "group": "orient",
-    "cmd": "pwd",
+    "cmd": "ls -a | head -4",
     "verdict": "native",
     "bash_code": 0,
     "sealed_code": 0,
     "open_code": 0,
-    "sealed_excerpt": "/home/test/e6repo"
+    "sealed_excerpt": ". .. AGENTS.md assets"
   },
   {
     "group": "orient",
-    "cmd": "ls",
+    "cmd": "ls -1 src | wc -l",
     "verdict": "native",
     "bash_code": 0,
     "sealed_code": 0,
     "open_code": 0,
-    "sealed_excerpt": "AGENTS.md assets bashcompat.json benches Cargo.lock Cargo.toml CHANGELOG.md CLA.md CONTRIB"
+    "sealed_excerpt": "54"
   },
   {
     "group": "orient",
-    "cmd": "ls -la src | head -5",
+    "cmd": "find . -maxdepth 1 -type d | sort | head -5",
     "verdict": "native",
     "bash_code": 0,
     "sealed_code": 0,
     "open_code": 0,
-    "sealed_excerpt": "total 4492 drwxr-xr-x 9 test test 4096 Sep 28 19:04 . drwxr-xr-x 24 test test 4096 Sep 28 "
+    "sealed_excerpt": ". ./assets ./benches ./.cargo ./crates"
   },
   {
     "group": "orient",
-    "cmd": "ls src/*.rs",
+    "cmd": "find src -type f -name \"*.rs\" | wc -l",
     "verdict": "native",
     "bash_code": 0,
     "sealed_code": 0,
     "open_code": 0,
-    "sealed_excerpt": "src/agent_api.rs src/agent.rs src/ai.rs src/ast.rs src/auth.rs src/builtins.rs src/config."
-  },
-  {
-    "group": "orient",
-    "cmd": "find src -name \"*.rs\" | head -3",
-    "verdict": "native",
-    "bash_code": 0,
-    "sealed_code": 0,
-    "open_code": 0,
-    "sealed_excerpt": "src/ai.rs src/auth.rs src/builtins.rs"
+    "sealed_excerpt": "90"
   },
   {
     "group": "search",
-    "cmd": "grep -rn \"fn main\" src | head -3",
+    "cmd": "grep -rl \"unsafe\" src | sort | head -3",
     "verdict": "native",
     "bash_code": 0,
     "sealed_code": 0,
     "open_code": 0,
-    "sealed_excerpt": "src/signature.rs:950: examples: &[(r#\"grep(\"fn main\", \"src/main.rs\") | len\"#, \"1\"), (r#\"(g"
+    "sealed_excerpt": "src/agent.rs src/builtins.rs src/external_tools.rs"
   },
   {
     "group": "search",
-    "cmd": "grep -c \"fn \" src/lib.rs",
+    "cmd": "grep -n \"^pub mod\" src/lib.rs | head -3",
     "verdict": "native",
-    "bash_code": 1,
-    "sealed_code": 1,
-    "open_code": 1,
-    "sealed_excerpt": "0"
+    "bash_code": 0,
+    "sealed_code": 0,
+    "open_code": 0,
+    "sealed_excerpt": "100:pub mod ast; 102:pub mod env; 104:pub mod parser;"
   },
   {
     "group": "search",
-    "cmd": "grep -l \"pub fn\" src/*.rs | wc -l",
+    "cmd": "grep -i \"license\" Cargo.toml",
     "verdict": "native",
     "bash_code": 0,
     "sealed_code": 0,
     "open_code": 0,
-    "sealed_excerpt": "44"
+    "sealed_excerpt": "license = \"AGPL-3.0-or-later\" license-file = [\"LICENSE\", \"0\"] \"LICENSE\", \"usr/share/doc/ae"
+  },
+  {
+    "group": "search",
+    "cmd": "grep -v \"^#\" Cargo.toml | grep -c \"=\"",
+    "verdict": "native",
+    "bash_code": 0,
+    "sealed_code": 0,
+    "open_code": 0,
+    "sealed_excerpt": "131"
+  },
+  {
+    "group": "search",
+    "cmd": "grep -E \"^(name|version) =\" Cargo.toml",
+    "verdict": "native",
+    "bash_code": 0,
+    "sealed_code": 0,
+    "open_code": 0,
+    "sealed_excerpt": "name = \"aethershell\" version = \"12.0.2\" name = \"aethershell\" name = \"ae\" name = \"aimodel\" "
   },
   {
     "group": "read",
-    "cmd": "cat Cargo.toml | head -5",
+    "cmd": "tail -3 Cargo.toml",
     "verdict": "native",
     "bash_code": 0,
     "sealed_code": 0,
     "open_code": 0,
-    "sealed_excerpt": "[workspace] members = [\".\", \"crates/aethershell-lsp\", \"crates/agentic-eval\"] exclude = [\"w"
+    "sealed_excerpt": "{ source = \"README.md\", dest = \"/usr/share/doc/aethershell/README.md\", mode = \"644\" }, { s"
   },
   {
     "group": "read",
-    "cmd": "head -20 src/lib.rs | tail -5",
+    "cmd": "head -n 2 README.md",
     "verdict": "native",
     "bash_code": 0,
     "sealed_code": 0,
     "open_code": 0,
-    "sealed_excerpt": "//! without documentation scraping or prompt engineering. //! - **Functional pipelines**: "
+    "sealed_excerpt": "<p align=\"center\"> <img src=\"assets/banner.png\" alt=\"Æther Shell\" width=\"100%\">"
   },
   {
     "group": "read",
-    "cmd": "wc -l src/lib.rs",
+    "cmd": "cat -n Cargo.toml | head -3",
     "verdict": "native",
     "bash_code": 0,
     "sealed_code": 0,
     "open_code": 0,
-    "sealed_excerpt": "251 src/lib.rs"
+    "sealed_excerpt": "1 [workspace] 2 members = [\".\", \"crates/aethershell-lsp\", \"crates/agentic-eval\"] 3 exclude"
   },
   {
     "group": "read",
-    "cmd": "sed -n \"1,3p\" Cargo.toml",
+    "cmd": "wc -c < Cargo.toml",
     "verdict": "native",
     "bash_code": 0,
     "sealed_code": 0,
     "open_code": 0,
-    "sealed_excerpt": "[workspace] members = [\".\", \"crates/aethershell-lsp\", \"crates/agentic-eval\"] exclude = [\"w"
+    "sealed_excerpt": "12198"
+  },
+  {
+    "group": "read",
+    "cmd": "sed -n \"/^\\[package\\]/,/^version/p\" Cargo.toml",
+    "verdict": "native",
+    "bash_code": 0,
+    "sealed_code": 0,
+    "open_code": 0,
+    "sealed_excerpt": "[package] name = \"aethershell\" version = \"12.0.2\""
   },
   {
     "group": "vars",
-    "cmd": "X=5; echo $X",
+    "cmd": "N=3; echo \"n is $N\"",
     "verdict": "native",
     "bash_code": 0,
     "sealed_code": 0,
     "open_code": 0,
-    "sealed_excerpt": "5"
+    "sealed_excerpt": "n is 3"
   },
   {
     "group": "vars",
-    "cmd": "echo $HOME",
+    "cmd": "A=foo; B=\"${A}bar\"; echo $B",
     "verdict": "native",
     "bash_code": 0,
     "sealed_code": 0,
     "open_code": 0,
-    "sealed_excerpt": "/home/test"
+    "sealed_excerpt": "foobar"
   },
   {
     "group": "vars",
-    "cmd": "export FOO=bar && echo $FOO",
+    "cmd": "unset Q; echo \"${Q:-default}\"",
     "verdict": "native",
     "bash_code": 0,
     "sealed_code": 0,
     "open_code": 0,
-    "sealed_excerpt": "bar"
-  },
-  {
-    "group": "vars",
-    "cmd": "echo \"${PATH:-unset}\" | head -c 10",
-    "verdict": "native",
-    "bash_code": 0,
-    "sealed_code": 0,
-    "open_code": 0,
-    "sealed_excerpt": "/home/test"
+    "sealed_excerpt": "default"
   },
   {
     "group": "subst",
-    "cmd": "echo $(date +%Y)",
+    "cmd": "echo \"files: $(ls src | wc -l)\"",
     "verdict": "native",
     "bash_code": 0,
     "sealed_code": 0,
     "open_code": 0,
-    "sealed_excerpt": "2026"
+    "sealed_excerpt": "files: 54"
   },
   {
     "group": "subst",
-    "cmd": "echo \"lines: $(wc -l < Cargo.toml)\"",
+    "cmd": "COUNT=$(grep -c \"\\[\" Cargo.toml); echo $COUNT",
     "verdict": "native",
     "bash_code": 0,
     "sealed_code": 0,
     "open_code": 0,
-    "sealed_excerpt": "lines: 353"
+    "sealed_excerpt": "59"
   },
   {
     "group": "control",
-    "cmd": "for i in 1 2 3; do echo $i; done",
+    "cmd": "for f in src/lib.rs src/main.rs; do wc -l < $f; done",
     "verdict": "native",
     "bash_code": 0,
     "sealed_code": 0,
     "open_code": 0,
-    "sealed_excerpt": "1 2 3"
+    "sealed_excerpt": "251 1134"
   },
   {
     "group": "control",
-    "cmd": "if [ -f Cargo.toml ]; then echo yes; else echo no; fi",
+    "cmd": "if grep -q \"tokio\" Cargo.toml; then echo uses-tokio; fi",
     "verdict": "native",
     "bash_code": 0,
     "sealed_code": 0,
     "open_code": 0,
-    "sealed_excerpt": "yes"
+    "sealed_excerpt": "uses-tokio"
   },
   {
     "group": "control",
-    "cmd": "test -d src && echo present",
+    "cmd": "[ -d nope ] || echo missing",
     "verdict": "native",
     "bash_code": 0,
     "sealed_code": 0,
     "open_code": 0,
-    "sealed_excerpt": "present"
+    "sealed_excerpt": "missing"
   },
   {
     "group": "control",
-    "cmd": "while read -r l; do echo \"$l\"; break; done < Cargo.toml",
+    "cmd": "for d in src tests; do test -d $d && echo $d; done",
     "verdict": "native",
     "bash_code": 0,
     "sealed_code": 0,
     "open_code": 0,
-    "sealed_excerpt": "[workspace]"
+    "sealed_excerpt": "src tests"
   },
   {
     "group": "pipes",
-    "cmd": "cat Cargo.toml | grep version | head -1",
+    "cmd": "cat Cargo.toml | sort | uniq | wc -l",
     "verdict": "native",
     "bash_code": 0,
     "sealed_code": 0,
     "open_code": 0,
-    "sealed_excerpt": "version = \"12.0.2\""
+    "sealed_excerpt": "303"
   },
   {
     "group": "pipes",
-    "cmd": "ls src | sort | head -3",
+    "cmd": "ls src | grep \"^a\" | head -3",
     "verdict": "native",
     "bash_code": 0,
     "sealed_code": 0,
@@ -217,74 +226,65 @@
   },
   {
     "group": "pipes",
-    "cmd": "grep \"name\" Cargo.toml | cut -d= -f2 | head -1",
+    "cmd": "echo \"a,b,c\" | cut -d, -f2",
     "verdict": "native",
     "bash_code": 0,
     "sealed_code": 0,
     "open_code": 0,
-    "sealed_excerpt": "\"aethershell\""
+    "sealed_excerpt": "b"
+  },
+  {
+    "group": "pipes",
+    "cmd": "printf \"3\\n1\\n2\\n\" | sort -n | tail -1",
+    "verdict": "native",
+    "bash_code": 0,
+    "sealed_code": 0,
+    "open_code": 0,
+    "sealed_excerpt": "3"
   },
   {
     "group": "redirect",
-    "cmd": "echo hi > /tmp/ae_compat_probe.txt && cat /tmp/ae_compat_probe.txt",
+    "cmd": "echo test > /tmp/ae_heldout.txt; wc -l < /tmp/ae_heldout.txt",
     "verdict": "native",
     "bash_code": 0,
     "sealed_code": 0,
     "open_code": 0,
-    "sealed_excerpt": "hi"
+    "sealed_excerpt": "1"
   },
   {
     "group": "redirect",
-    "cmd": "cat Cargo.toml 2>/dev/null | head -1",
+    "cmd": "ls nope 2>&1 | head -1",
     "verdict": "native",
     "bash_code": 0,
     "sealed_code": 0,
     "open_code": 0,
-    "sealed_excerpt": "[workspace]"
+    "sealed_excerpt": "ls: cannot access 'nope': No such file or directory"
   },
   {
     "group": "git",
-    "cmd": "git rev-parse --abbrev-ref HEAD",
+    "cmd": "git diff --stat HEAD~1 | tail -1",
     "verdict": "native",
     "bash_code": 0,
     "sealed_code": 0,
     "open_code": 0,
-    "sealed_excerpt": "master"
+    "sealed_excerpt": "12 files changed, 981 insertions(+), 129 deletions(-)"
   },
   {
     "group": "git",
-    "cmd": "git status --porcelain | head -3",
+    "cmd": "git log -3 --format=%s | wc -l",
     "verdict": "native",
     "bash_code": 0,
     "sealed_code": 0,
     "open_code": 0,
-    "sealed_excerpt": "?? bashcompat.json"
-  },
-  {
-    "group": "git",
-    "cmd": "git log --oneline -1",
-    "verdict": "native",
-    "bash_code": 0,
-    "sealed_code": 0,
-    "open_code": 0,
-    "sealed_excerpt": "ced003c feat: SQL over typed values, in-process; JSON null is Null"
+    "sealed_excerpt": "3"
   },
   {
     "group": "exit",
-    "cmd": "false || echo recovered",
+    "cmd": "grep -q zzzz_not_here Cargo.toml; echo $?",
     "verdict": "native",
     "bash_code": 0,
     "sealed_code": 0,
     "open_code": 0,
-    "sealed_excerpt": "recovered"
-  },
-  {
-    "group": "exit",
-    "cmd": "true && echo chained",
-    "verdict": "native",
-    "bash_code": 0,
-    "sealed_code": 0,
-    "open_code": 0,
-    "sealed_excerpt": "chained"
+    "sealed_excerpt": "1"
   }
 ]

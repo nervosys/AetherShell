@@ -382,6 +382,7 @@ exec_remote	Pure
 exists	ReadLocal
 exit	Pure
 explain	Pure
+explain_effects	Pure
 export_audit	Pure
 eza	ReadLocal
 eza_list	ReadLocal

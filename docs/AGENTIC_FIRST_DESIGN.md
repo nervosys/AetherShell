@@ -815,8 +815,11 @@ shell."
   `web_upload_file`/`web_rest_api`/`web_graphql`/`web_check_url`, with
   `web_robots_txt`/`web_sitemap` inheriting it by delegating to `web_fetch`) through
   `guard()` with the `Network` effect via the `guard_network` helper — which
-  also brings them under the audit log (`Network` is policy-`allow`, so this meters +
-  audits without prompting). `governor_status()` reports counts/limits/elapsed (also
+  also brings them under the audit log. (`Network` was policy-`allow`, metered
+  and audited without prompting. Since 2026-09-28 agent mode asks for approval
+  unless `AETHER_NET_ALLOW` names the host, or is `*`; the allowlist is checked
+  in `guard()` itself, so it covers every `Network` builtin rather than the ones
+  that call `guard_network`. This closed E4's one uncontained default case.) `governor_status()` reports counts/limits/elapsed (also
   folded into `safety_status()`); `governor_reset()` starts a fresh envelope. Verified
   by 6 unit tests + an end-to-end test (a 2nd `rm` under `AETHER_MAX_FILES=1` returns
   `E_BUDGET_EXCEEDED`, file untouched). (Output-bytes is covered separately by

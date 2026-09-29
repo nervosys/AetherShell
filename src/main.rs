@@ -56,6 +56,11 @@ struct Cli {
     #[arg(long, value_name = "POLICY")]
     policy: Option<String>,
 
+    /// Report what a program would do -- every call, its effect class and the
+    /// agent-mode decision -- without running it. Use with -c or a file.
+    #[arg(long)]
+    explain: bool,
+
     /// Deterministic output: render results as canonical, byte-stable JSON
     /// (sorted keys, stable floats) for snapshot tests, caching, and diffs
     #[arg(long)]
@@ -379,6 +384,7 @@ fn run(cli: Cli) -> Result<()> {
     if cli.bash && cli.file.is_none() && cli.command.is_none() {
         let mut buf = String::new();
         io::stdin().read_to_string(&mut buf)?;
+        run_posix_or_fall_back(&buf);
         let code = transpile::bash::transpile_bash_to_ae(&buf)?;
         return run_code(&code);
     }
@@ -404,9 +410,28 @@ fn run(cli: Cli) -> Result<()> {
         return run_code(&code);
     }
 
+    // `--explain`: the static effect set, instead of running anything.
+    if cli.explain {
+        let code = match (&cli.command, &cli.file) {
+            (Some(c), _) => c.clone(),
+            (None, Some(f)) => {
+                fs::read_to_string(f).with_context(|| format!("failed to read {f}"))?
+            }
+            (None, None) => {
+                let mut buf = String::new();
+                io::stdin().read_to_string(&mut buf)?;
+                buf
+            }
+        };
+        let report = aethershell::explain::explain(&code)?;
+        println!("{}", serde_json::to_string_pretty(&report.to_json())?);
+        return Ok(());
+    }
+
     // Handle -c/--command flag
     if let Some(cmd) = cli.command {
         let code = if cli.bash {
+            run_posix_or_fall_back(&cmd);
             transpile::bash::transpile_bash_to_ae(&cmd)?
         } else if cli.zsh {
             transpile::zsh::transpile_zsh_to_ae(&cmd)?
@@ -1108,8 +1133,11 @@ fn run_file(path: &str, explicit_mode: Option<TranspileMode>) -> Result<()> {
 
     if let Some(m) = mode {
         code = match m {
-            TranspileMode::Bash => transpile::bash::transpile_bash_to_ae(&code)
-                .with_context(|| format!("bash\u{2192}aether transpile failed for {}", path))?,
+            TranspileMode::Bash => {
+                run_posix_or_fall_back(&code);
+                transpile::bash::transpile_bash_to_ae(&code)
+                    .with_context(|| format!("bash\u{2192}aether transpile failed for {}", path))?
+            }
             TranspileMode::Zsh => transpile::zsh::transpile_zsh_to_ae(&code)
                 .with_context(|| format!("zsh\u{2192}aether transpile failed for {}", path))?,
             TranspileMode::PowerShell => transpile::powershell::transpile_powershell_to_ae(&code)
@@ -1122,6 +1150,16 @@ fn run_file(path: &str, explicit_mode: Option<TranspileMode>) -> Result<()> {
     }
 
     run_code(&code)
+}
+
+/// Run shell source natively when it is inside the POSIX subset
+/// (`src/posix.rs`), exiting with its status. Returns only when the source is
+/// outside the subset, before anything has run, so the caller falls back to
+/// the transpiler exactly as it did before the subset existed.
+fn run_posix_or_fall_back(src: &str) {
+    if let Some(status) = aethershell::posix::run(src) {
+        std::process::exit(status);
+    }
 }
 
 fn run_code(code: &str) -> Result<()> {

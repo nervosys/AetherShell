@@ -2791,7 +2791,7 @@ pub fn verify_audit_with(path: &PathBuf, key: Option<&[u8]>) -> Result<u64, Stri
         match (key, claims_mac) {
             (Some(_), None) => {
                 return Err(format!(
-                    "line {}: entry is unkeyed but this log is verified with a key — a                      rewritten chain looks exactly like this",
+                    "line {}: entry is unkeyed but this log is verified with a key — a rewritten chain looks exactly like this",
                     lineno + 1
                 ))
             }
@@ -3469,7 +3469,7 @@ pub fn sql_literal(builtin: &str, value: &str) -> anyhow::Result<String> {
             code: ErrorCode::BadArg,
             message: format!("{builtin}: NUL byte in a SQL value"),
             builtin: builtin.to_string(),
-            hint: "sqlite3 reads its SQL as a C string, so a NUL would silently                    truncate the statement; remove it"
+            hint: "sqlite3 reads its SQL as a C string, so a NUL would silently truncate the statement; remove it"
                 .to_string(),
             approval: None,
             did_you_mean: Vec::new(),
@@ -3496,7 +3496,7 @@ pub fn sql_identifier(builtin: &str, name: &str) -> anyhow::Result<String> {
             code: ErrorCode::BadArg,
             message: format!("{builtin}: {name:?} is not a valid table or column name"),
             builtin: builtin.to_string(),
-            hint: "identifiers are interpolated into SQL and cannot be quoted as                    values; use letters, digits and underscore only"
+            hint: "identifiers are interpolated into SQL and cannot be quoted as values; use letters, digits and underscore only"
                 .to_string(),
             approval: None,
             did_you_mean: Vec::new(),
@@ -3715,6 +3715,105 @@ pub fn reject_sqlite_dot_command(builtin: &str, sql: &str) -> anyhow::Result<()>
 /// Gate an effecting call. Returns `Ok(())` if the call may proceed (and records
 /// an audit entry), or a [`SafetyError`] with a stable code, an actionable hint,
 /// and — for approvable actions — a bound approval token.
+/// The configured egress allowlist, or `None` when `AETHER_NET_ALLOW` is unset
+/// or blank. `*` allows every host.
+pub fn net_allowlist() -> Option<String> {
+    std::env::var("AETHER_NET_ALLOW")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+/// The lower-cased host a string names, if it names one: a URL's authority,
+/// the host of an scp-style `user@host:path`, or a bare hostname or address.
+/// Anything else (a path, a query, a flag) names no host and returns `None`.
+pub fn destination_host(s: &str) -> Option<String> {
+    let s = s.trim();
+    if let Some(rest) = s.split_once("://").map(|(_, r)| r) {
+        let authority = rest.split(['/', '?', '#']).next()?;
+        let host_port = authority.rsplit('@').next()?;
+        let host = if let Some(v6) = host_port.strip_prefix('[') {
+            v6.split(']').next()?
+        } else {
+            host_port.split(':').next()?
+        };
+        return (!host.is_empty()).then(|| host.to_ascii_lowercase());
+    }
+    let hostish = |h: &str| {
+        !h.is_empty()
+            && h.chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')
+            && (h.contains('.') || h.eq_ignore_ascii_case("localhost"))
+            && !h.starts_with('.')
+            && !h.starts_with('-')
+    };
+    // `user@host` and scp-style `user@host:path` (git@github.com:org/repo).
+    if let Some((_, after)) = s.split_once('@') {
+        let host = after.split(':').next().unwrap_or("");
+        return hostish(host).then(|| host.to_ascii_lowercase());
+    }
+    // A bare host, optionally with a port. A dotted word with no slash is how
+    // ping, dig and ssh take their destination; a file name like `notes.txt`
+    // also matches, which errs toward asking rather than toward allowing.
+    let host = s.rsplit_once(':').map_or(s, |(h, p)| {
+        if p.chars().all(|c| c.is_ascii_digit()) && !p.is_empty() {
+            h
+        } else {
+            s
+        }
+    });
+    hostish(host).then(|| host.to_ascii_lowercase())
+}
+
+/// Whether `host` is `entry` or a subdomain of it. `*` matches everything; a
+/// leading `*.` or `.` on the entry is accepted and means the same thing.
+fn host_matches(host: &str, entry: &str) -> bool {
+    let entry = entry
+        .trim()
+        .trim_start_matches("*.")
+        .trim_start_matches('.');
+    entry == "*" || host == entry || host.ends_with(&format!(".{entry}"))
+}
+
+/// Judge a network call's string arguments against an allowlist (`;`- or
+/// `,`-separated). Every host the arguments name must be allowed, and a call
+/// that names none is refused: under an allowlist, a destination that cannot
+/// be read is not one that can be trusted.
+pub fn egress_permitted(targets: &[String], allow: &str) -> Result<(), String> {
+    let entries: Vec<String> = allow
+        .split([';', ','])
+        .map(|e| e.trim().to_ascii_lowercase())
+        .filter(|e| !e.is_empty())
+        .collect();
+    if entries.iter().any(|e| e == "*") {
+        return Ok(());
+    }
+    // A URL states its destination outright, so when one is present the other
+    // arguments are payload (an output file, a body) and are not read as hosts
+    // -- `web_download(url, "out.json")` must not be refused for `out.json`.
+    // Without a URL, a string that exists on disk is a path, not a host.
+    let urls: Vec<&String> = targets.iter().filter(|t| t.contains("://")).collect();
+    let hosts: Vec<String> = if urls.is_empty() {
+        targets
+            .iter()
+            .filter(|t| !std::path::Path::new(t.as_str()).exists())
+            .filter_map(|t| destination_host(t))
+            .collect()
+    } else {
+        urls.iter().filter_map(|t| destination_host(t)).collect()
+    };
+    if hosts.is_empty() {
+        return Err("the destination host could not be determined from the arguments".to_string());
+    }
+    match hosts
+        .iter()
+        .find(|h| !entries.iter().any(|e| host_matches(h, e)))
+    {
+        Some(h) => Err(format!("'{h}' is not in the allowlist")),
+        None => Ok(()),
+    }
+}
+
 pub fn guard(ctx: GuardCtx) -> Result<(), SafetyError> {
     let mode = current_mode();
     let resource = ctx.targets.join(", ");
@@ -3798,6 +3897,34 @@ pub fn guard(ctx: GuardCtx) -> Result<(), SafetyError> {
         }
     }
 
+    // 1b. Egress allowlist. Before RBAC for the same reason as the jail: an
+    //     operator-configured boundary is not something a role escapes.
+    if ctx.effect == Effect::Network && !policy_permissive() {
+        if let Some(allow) = net_allowlist() {
+            if let Err(detail) = egress_permitted(&ctx.targets, &allow) {
+                let _ = audit(
+                    ctx.builtin,
+                    ctx.effect,
+                    "deny_egress",
+                    &resource,
+                    json!({ "allow": allow, "detail": detail }),
+                );
+                return Err(SafetyError {
+                    code: ErrorCode::PolicyDeny,
+                    message: format!("{}: egress denied: {}", ctx.builtin, detail),
+                    builtin: ctx.builtin.to_string(),
+                    hint: format!(
+                        "AETHER_NET_ALLOW permits only: {allow}; name an allowed host, or ask the operator to add this one"
+                    ),
+                    approval: None,
+                    did_you_mean: Vec::new(),
+                    expected: format!("a destination in {allow}"),
+                    got: detail,
+                });
+            }
+        }
+    }
+
     // 2. RBAC: an authorized principal bypasses the approval requirement.
     //    (The workspace jail above is intentionally NOT bypassed — defense in
     //    depth: authorization grants capabilities, not an escape from the jail.)
@@ -3813,7 +3940,22 @@ pub fn guard(ctx: GuardCtx) -> Result<(), SafetyError> {
     }
 
     // 3. Policy decision.
-    match decide(ctx.effect, mode) {
+    let mut decision = decide(ctx.effect, mode);
+    // Agent-mode egress with no allowlist configured asks first. `Network` is
+    // `Allow` in the policy table, which made the one uncontained case in E4's
+    // default agent posture (`http_get` to an arbitrary host) the channel an
+    // exfiltration would use. Deno's `--allow-net` is the precedent: reaching a
+    // host is a grant, not a default. An operator who wants the old behaviour
+    // sets `AETHER_NET_ALLOW=*`; one who knows the hosts lists them.
+    if decision == Decision::Allow
+        && ctx.effect == Effect::Network
+        && mode == Mode::Agent
+        && !policy_permissive()
+        && net_allowlist().is_none()
+    {
+        decision = Decision::Approve;
+    }
+    match decision {
         Decision::Allow => {
             let _ = audit(ctx.builtin, ctx.effect, "allow", &resource, json!({}));
             Ok(())
@@ -3866,10 +4008,16 @@ pub fn guard(ctx: GuardCtx) -> Result<(), SafetyError> {
                     code: ErrorCode::NeedsApproval,
                     message: format!("{}: requires approval ({})", ctx.builtin, ctx.what),
                     builtin: ctx.builtin.to_string(),
-                    hint: format!(
-                        "re-run with AETHER_APPROVE={} (or call approve(\"{}\"))",
-                        token, token
-                    ),
+                    hint: if ctx.effect == Effect::Network {
+                        format!(
+                            "re-run with AETHER_APPROVE={token} (or call approve(\"{token}\")), or have the operator allow the destination with AETHER_NET_ALLOW=<host>"
+                        )
+                    } else {
+                        format!(
+                            "re-run with AETHER_APPROVE={} (or call approve(\"{}\"))",
+                            token, token
+                        )
+                    },
                     approval: Some(descriptor),
                     did_you_mean: Vec::new(),
                     expected: String::new(),
@@ -4705,6 +4853,55 @@ mod tests {
         assert!(require_fips_hash("sha1").is_err());
         assert!(require_fips_hash("sha256").is_ok());
         std::env::remove_var("AETHER_FIPS");
+    }
+
+    #[test]
+    fn destination_hosts_are_read_from_urls_scp_and_bare_names() {
+        assert_eq!(
+            destination_host("https://api.example.com/v1/x?q=1").as_deref(),
+            Some("api.example.com")
+        );
+        assert_eq!(
+            destination_host("http://user:pw@Host.COM:8080/p").as_deref(),
+            Some("host.com")
+        );
+        assert_eq!(destination_host("http://[::1]:80/").as_deref(), Some("::1"));
+        assert_eq!(
+            destination_host("git@github.com:org/repo.git").as_deref(),
+            Some("github.com")
+        );
+        assert_eq!(
+            destination_host("example.org:22").as_deref(),
+            Some("example.org")
+        );
+        assert_eq!(destination_host("localhost").as_deref(), Some("localhost"));
+        assert_eq!(destination_host("not a url"), None);
+        assert_eq!(destination_host("--flag"), None);
+        assert_eq!(destination_host("./dir/file"), None);
+    }
+
+    #[test]
+    fn egress_allowlist_policy() {
+        let t = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        // Exact host and subdomain match, with either separator.
+        assert!(egress_permitted(&t(&["https://example.com/x"]), "example.com").is_ok());
+        assert!(egress_permitted(&t(&["https://api.example.com/x"]), "example.com").is_ok());
+        assert!(
+            egress_permitted(&t(&["https://a.b.example.com/x"]), "foo.org; example.com").is_ok()
+        );
+        assert!(
+            egress_permitted(&t(&["https://a.b.example.com/x"]), "foo.org,example.com").is_ok()
+        );
+        assert!(egress_permitted(&t(&["https://anything.test/x"]), "*").is_ok());
+        // A lookalike suffix is not a subdomain.
+        assert!(egress_permitted(&t(&["https://evil.com/x"]), "example.com").is_err());
+        assert!(egress_permitted(&t(&["https://notexample.com/x"]), "example.com").is_err());
+        // No readable destination under an allowlist is refused.
+        assert!(egress_permitted(&t(&["garbage words"]), "example.com").is_err());
+        // With a URL present, other arguments are payload, not hosts.
+        assert!(
+            egress_permitted(&t(&["https://example.com/f", "out.json"]), "example.com").is_ok()
+        );
     }
 
     #[test]

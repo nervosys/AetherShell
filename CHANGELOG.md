@@ -7,7 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **`ae -b` runs POSIX shell in-process** (`src/posix.rs`): pipelines, `&&`/`||`,
+  variables, `$(…)`, redirections, `if`/`for`/`while`, `test`, and GNU-compatible
+  text utilities. Other commands run as the real program through `guard_exec`,
+  never via `bash -c`. E6: 2 of 32 → 32 of 32 byte-identical to bash, and 32 of
+  32 on a held-out corpus. Unsupported syntax falls back to the transpiler.
+- **SQL over typed values**: `rows | sql("select … from t")`,
+  `sql("data.json", query)`, and `sql_value(…)` for a single cell. Runs on a
+  bundled SQLite; no `sqlite3` on PATH needed. E1: 321 tokens, second of seven.
+- **`ae --explain` / `explain_effects(code)`**: every call in a program, its
+  effect class and the agent-mode decision, without running it.
+
+### Changed
+
+- **Agent-mode network egress needs approval** unless `AETHER_NET_ALLOW` names
+  the host (`*` restores the old metered-allow). The allowlist is now enforced in
+  `safety::guard` for every `Network` builtin, accepts `,` as well as `;`, and
+  refuses with `E_POLICY_DENY` instead of an uncoded string.
+- **`ae mcp stdio`, `ae agent execute` and `ae agent interactive` imply agent
+  mode**, as `agent serve` and `mcp serve` already did. `AETHER_MODE` overrides.
+- **`sql` / `sqlite_query` / `db_sqlite_query` are read-only** and classed
+  `ReadLocal` (were `Exec`). Use `db_sqlite_exec` to modify a database. A query
+  SQLite cannot parse is `E_BAD_ARG` with the schema in the hint.
+
+### Fixed
+
+- JSON `null` became the string `"null"` in `from_json` and every other JSON
+  reader built on `json_to_value`.
+- `from_json` and `jq_query` reported malformed JSON as `E_UNKNOWN`.
+- `AGENTS.md` claimed the agentic syntax saves "~60-70%" of tokens; measured,
+  it saves 27.5% of command tokens and 0% of output.
 
 ## [12.0.2] - 2026-09-03
 

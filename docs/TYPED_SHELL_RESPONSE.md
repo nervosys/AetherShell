@@ -1223,6 +1223,31 @@ it already knows. Retargeting SWE-agent by rewriting its YAML action space and
 its prompt is a real route and we have not walked it. Claiming bash
 compatibility as though it were one is not, and the README has been corrected.
 
+**Addendum, 2026-09-28: the path no longer delegates.** `ae -b` now runs the
+ordinary POSIX subset in-process (`src/posix.rs`) — pipelines, `&&`/`||`,
+variables, `$(…)`, redirections, `if`/`for`/`while`, `test`, and text-mode
+`ls`/`find`/`grep`/`head`/`tail`/`wc`/`sort`/`uniq`/`cut`/`sed`/`cat`/`echo`/
+`printf`/`date`, written to print what GNU prints (including glibc's
+`en_US.UTF-8` collation for `ls` and `sort`). A command it does not implement
+runs as that program, directly, after `guard_exec` — never through a shell —
+so agent mode gates each one. What it cannot parse falls back to the old path.
+
+| Corpus | native, in-process | native, program run directly | delegated | failed |
+| --- | ---: | ---: | ---: | ---: |
+| The 32 above | 29 | 3 (`git` ×3) | 0 | 0 |
+| 32 held out, written after the interpreter | 29 | 3 (`git` ×2, `cat -n`) | 0 | 0 |
+
+Two caveats. The first corpus is a fit, not a test: the interpreter was built
+while looking at it, which is why a second one was written afterwards and
+reported as it came out. And the harness changed between runs: it required
+exit 0 for "native", which scored `grep -c "fn " src/lib.rs` a failure once
+that file stopped containing `fn ` — bash prints 0 and exits 1, and so did
+`ae -b`. Matching bash now includes matching a non-zero status.
+
+This reverses the tension described above rather than narrowing it: the
+compatibility no longer runs through the shell being argued against, so the
+section 6 properties hold on it.
+
 ### Shells ranked, with the sources of every score
 
 `crates/agentic-eval` now carries a `shells` module scoring six shells on the

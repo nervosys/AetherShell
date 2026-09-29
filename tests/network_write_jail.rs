@@ -51,6 +51,10 @@ impl Jail {
         let _ = std::fs::remove_file(&outside);
         std::env::set_var("AETHER_MODE", "agent");
         std::env::set_var("AETHER_WORKSPACE", &workspace);
+        // Agent-mode egress with no allowlist asks for approval, and that
+        // refusal comes before the output path is ever looked at. Allowing the
+        // test's own never-resolving host keeps the jail the thing under test.
+        std::env::set_var("AETHER_NET_ALLOW", "example.invalid");
         Self { workspace, outside }
     }
 }
@@ -59,6 +63,7 @@ impl Drop for Jail {
     fn drop(&mut self) {
         std::env::remove_var("AETHER_WORKSPACE");
         std::env::remove_var("AETHER_MODE");
+        std::env::remove_var("AETHER_NET_ALLOW");
         let _ = std::fs::remove_file(&self.outside);
         let _ = std::fs::remove_dir_all(&self.workspace);
     }
