@@ -60,8 +60,10 @@ fn a_refusal_exits_77() {
 
 #[test]
 fn an_unidentified_failure_stays_1() {
-    // E_UNKNOWN must not claim a precision the shell does not have.
-    assert_eq!(exit_of(&["-c", r#"cat("/nope/nothing-here")"#]), 1);
+    // E_UNKNOWN must not claim a precision the shell does not have. A script's
+    // own `throw` is the failure the shell knows least about. (This used
+    // `cat` of a missing path, which is now E_NOT_FOUND and exits 66.)
+    assert_eq!(exit_of(&["-c", r#"throw "boom""#]), 1);
 }
 
 // ── the mapping itself ──────────────────────────────────────────────────

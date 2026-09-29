@@ -46,6 +46,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `x.rs.bak`), ignored `**`, returned directory order, and answered `[]` for a
   directory that does not exist. It is now anchored, recursive on `**`, sorted,
   and `E_NOT_FOUND` for a missing directory.
+- An uncaught `throw`, or a failing `assert` used as a statement, did not stop
+  the program: the next statement ran and the exit status was 0. An error
+  value that a statement produces and nothing binds or catches now ends the
+  program with exit 1. Error values bound with `let` or caught are unchanged.
 - `ls` and `cat` on a path under a missing directory failed with an uncoded
   error; they are `E_NOT_FOUND`.
 - JSON `null` became the string `"null"` in `from_json` and every other JSON
