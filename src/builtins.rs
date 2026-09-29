@@ -4037,12 +4037,14 @@ pub const FALLBACK_BUILTINS: &[(&str, &str)] = &[
     ("is_type", "bi_is_type"),
     ("journal", "bi_journal"),
     ("journal_clear", "bi_journal_clear"),
+    ("lines", "bi_lines"),
     ("measure", "bi_measure_object"),
     ("measure-object", "bi_measure_object"),
     ("ontology_json", "bi_ontology_json"),
     ("ontology_jsonld", "bi_ontology_jsonld"),
     ("ontology_owl", "bi_ontology_owl"),
     ("ontology_shacl", "bi_ontology_shacl"),
+    ("open", "bi_open"),
     ("rewind", "bi_undo"),
     ("select", "bi_select_object"),
     ("select-object", "bi_select_object"),
@@ -4181,6 +4183,8 @@ fn call_with_input_inner(
         // Nushell-style data commands (not in fast lookup)
         "from-json" | "from_json" => bi_from_json(args, input),
         "sql_value" => bi_sql_value(args, input),
+        "lines" => bi_lines(args, input),
+        "open" => bi_open(args, input),
         "explain_effects" => bi_explain_effects(args),
         "to-json" | "to_json" => bi_to_json(args, input),
         "from-csv" | "from_csv" => bi_from_csv(args, input),
@@ -7463,19 +7467,29 @@ fn bi_ls(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
     };
 
-    // SECURITY: Validate path to prevent traversal attacks (CVSS 8.2)
-    let validated_path = validate_read_path(&path_str)?;
-
-    let entries = fs::read_dir(&validated_path)
-        .map_err(|e| crate::safety::fs_error("ls", &validated_path, &e))?;
+    // `ls("src/*.rs")` lists the matches themselves, as `ls src/*.rs` does.
+    let paths: Vec<std::path::PathBuf> =
+        if crate::posix::has_glob_meta(&path_str) && !std::path::Path::new(&path_str).exists() {
+            expand_glob_for("ls", &path_str)?
+                .into_iter()
+                .map(std::path::PathBuf::from)
+                .collect()
+        } else {
+            if !std::path::Path::new(&path_str).exists() {
+                return Err(crate::safety::not_found("ls", "directory", &path_str));
+            }
+            // SECURITY: Validate path to prevent traversal attacks (CVSS 8.2)
+            let validated_path = validate_read_path(&path_str)?;
+            fs::read_dir(&validated_path)
+                .map_err(|e| crate::safety::fs_error("ls", &validated_path, &e))?
+                .map(|e| e.map(|e| e.path()))
+                .collect::<std::io::Result<Vec<_>>>()
+                .with_context(|| "ls: failed to read directory entry")?
+        };
     let mut files = Vec::new();
 
-    for entry in entries {
-        let entry = entry.with_context(|| "ls: failed to read directory entry")?;
-        let metadata = entry
-            .metadata()
-            .with_context(|| "ls: failed to read file metadata")?;
-        let path = entry.path();
+    for path in paths {
+        let metadata = fs::metadata(&path).with_context(|| "ls: failed to read file metadata")?;
         let name = path
             .file_name()
             .ok_or_else(|| anyhow!("ls: invalid filename"))?
@@ -7538,6 +7552,32 @@ fn bi_cat(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         }
     };
 
+    // A glob reads every match, in order, as `cat src/*.rs` does -- unless a
+    // file with that literal name exists.
+    if crate::posix::has_glob_meta(path_str) && !std::path::Path::new(path_str).exists() {
+        let paths = expand_glob_for("cat", path_str)?;
+        let files: Vec<&String> = paths
+            .iter()
+            .filter(|p| std::path::Path::new(p).is_file())
+            .collect();
+        if files.is_empty() {
+            return Err(crate::safety::not_found("cat", "file matching", path_str));
+        }
+        let mut all = String::new();
+        for p in files {
+            all.push_str(&cat_one(p)?);
+        }
+        return Ok(Value::Str(all));
+    }
+    Ok(Value::Str(cat_one(path_str)?))
+}
+
+fn cat_one(path_str: &str) -> Result<String> {
+    // A missing parent directory made validate_read_path fail with an uncoded
+    // "Failed to canonicalize parent directory".
+    if !std::path::Path::new(path_str).exists() {
+        return Err(crate::safety::not_found("cat", "file", path_str));
+    }
     // SECURITY: Validate path to prevent traversal attacks (CVSS 8.2)
     let validated_path = validate_read_path(path_str)?;
 
@@ -7546,9 +7586,8 @@ fn bi_cat(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         .map_err(|e| crate::safety::fs_error("cat", &validated_path, &e))?;
     check_file_size_limit(metadata.len()).context("cat: file too large")?;
 
-    let content = fs::read_to_string(&validated_path)
-        .map_err(|e| crate::safety::fs_error("cat", &validated_path, &e))?;
-    Ok(Value::Str(content))
+    fs::read_to_string(&validated_path)
+        .map_err(|e| crate::safety::fs_error("cat", &validated_path, &e))
 }
 
 fn bi_read_text(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -22020,7 +22059,46 @@ fn bi_fs_unwatch(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     ))
 }
 
+/// The directory a glob's literal prefix names: everything before the first
+/// component with a metacharacter. Empty means the working directory.
+fn glob_literal_dir(pattern: &str) -> String {
+    let mut parts = Vec::new();
+    for c in pattern.split('/') {
+        if crate::posix::has_glob_meta(c) {
+            break;
+        }
+        parts.push(c);
+    }
+    if parts.len() == pattern.split('/').count() {
+        // No metacharacter at all: the pattern is a path; its parent must exist.
+        parts.pop();
+    }
+    let dir = parts.join("/");
+    if dir.is_empty() && pattern.starts_with('/') {
+        "/".to_string()
+    } else {
+        dir
+    }
+}
+
+/// Expand a glob for a typed builtin: `**` is recursive, results sort by
+/// bytes, and a literal directory prefix that does not exist is E_NOT_FOUND
+/// rather than an empty answer that reads like "no files".
+fn expand_glob_for(builtin: &str, pattern: &str) -> Result<Vec<String>> {
+    // Windows callers may write either separator; globbing is done on `/`.
+    let pattern = pattern.replace(char::from(92), "/");
+    let dir = glob_literal_dir(&pattern);
+    if !dir.is_empty() && !std::path::Path::new(&dir).is_dir() {
+        return Err(crate::safety::not_found(builtin, "directory", &dir));
+    }
+    Ok(crate::posix::glob_paths(&pattern))
+}
+
 fn bi_fs_glob(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    // This matched `*.rs` against any name *containing* ".rs" -- `main.rsx`
+    // and `x.rs.bak` included -- had no `**`, returned directory order, and
+    // answered [] for a directory that does not exist. `glob("src/**/*.rs")`
+    // said 0.
     let pattern = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         other => {
@@ -22031,45 +22109,93 @@ fn bi_fs_glob(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             ))
         }
     };
+    Ok(Value::Array(
+        expand_glob_for("glob", &pattern)?
+            .into_iter()
+            .map(Value::Str)
+            .collect(),
+    ))
+}
 
-    // Simple glob implementation
-    let mut results = Vec::new();
-    let base_dir = std::path::Path::new(&pattern)
-        .parent()
-        .unwrap_or(std::path::Path::new("."));
-
-    if let Ok(entries) = std::fs::read_dir(base_dir) {
-        let pattern_name = std::path::Path::new(&pattern)
-            .file_name()
-            .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_default();
-
-        for entry in entries.filter_map(|e| e.ok()) {
-            let name = entry.file_name().to_string_lossy().to_string();
-            // Simple wildcard matching
-            if pattern_name.contains('*') {
-                let parts: Vec<&str> = pattern_name.split('*').collect();
-                let mut matches = true;
-                let mut pos = 0;
-                for part in &parts {
-                    if !part.is_empty() {
-                        if let Some(idx) = name[pos..].find(part) {
-                            pos += idx + part.len();
-                        } else {
-                            matches = false;
-                            break;
-                        }
-                    }
-                }
-                if matches {
-                    results.push(Value::Str(entry.path().to_string_lossy().to_string()));
-                }
-            } else if name == pattern_name {
-                results.push(Value::Str(entry.path().to_string_lossy().to_string()));
-            }
+/// lines(text): split text into lines, without their terminators; a final
+/// newline does not add an empty line, and a CR before LF is dropped.
+fn bi_lines(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let text = match (input, args.first()) {
+        (Some(Value::Str(s)), _) => s,
+        (None, Some(Value::Str(s))) => s.clone(),
+        (Some(other), _) => {
+            return Err(crate::safety::bad_arg("lines", "String", other.type_name()))
         }
+        (None, Some(other)) => {
+            return Err(crate::safety::bad_arg("lines", "String", other.type_name()))
+        }
+        (None, None) => return Err(crate::safety::bad_arg("lines", "String", "nothing")),
+    };
+    let cr = char::from(13);
+    let nl = char::from(10);
+    let mut out: Vec<Value> = text
+        .split(nl)
+        .map(|l| Value::Str(l.strip_suffix(cr).unwrap_or(l).to_string()))
+        .collect();
+    if text.is_empty() || text.ends_with(nl) {
+        out.pop();
     }
-    Ok(Value::Array(results))
+    Ok(Value::Array(out))
+}
+
+/// open(path): read a file and parse it by its extension -- .json, .jsonl,
+/// .toml, .yaml/.yml, .csv -- or return its text. Borrowed from nushell,
+/// where `open Cargo.toml | get package.version` is the whole task.
+fn bi_open(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let path = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "open",
+                "path: String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
+    };
+    if !std::path::Path::new(&path).is_file() {
+        return Err(crate::safety::not_found("open", "file", &path));
+    }
+    let validated = validate_read_path(&path)?;
+    let md =
+        fs::metadata(&validated).map_err(|e| crate::safety::fs_error("open", &validated, &e))?;
+    check_file_size_limit(md.len()).context("open: file too large")?;
+    let text = fs::read_to_string(&validated)
+        .map_err(|e| crate::safety::fs_error("open", &validated, &e))?;
+    let ext = std::path::Path::new(&path)
+        .extension()
+        .map(|e| e.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+    let bad = |kind: &str, e: String| {
+        crate::safety::bad_arg("open", &format!("valid {kind} in {path}"), &e)
+    };
+    match ext.as_str() {
+        "json" => {
+            let j: serde_json::Value =
+                serde_json::from_str(&text).map_err(|e| bad("JSON", e.to_string()))?;
+            Ok(Value::from_json(&j))
+        }
+        "jsonl" | "ndjson" => {
+            let mut rows = Vec::new();
+            for line in text.lines().filter(|l| !l.trim().is_empty()) {
+                let j: serde_json::Value =
+                    serde_json::from_str(line).map_err(|e| bad("JSON lines", e.to_string()))?;
+                rows.push(Value::from_json(&j));
+            }
+            Ok(Value::Array(rows))
+        }
+        "toml" => {
+            let t: toml::Value = toml::from_str(&text).map_err(|e| bad("TOML", e.to_string()))?;
+            Ok(crate::plugins::toml_to_value(t))
+        }
+        "yaml" | "yml" => crate::yaml::parse(&text).map_err(|e| bad("YAML", e.to_string())),
+        "csv" => bi_from_csv(vec![], Some(Value::Str(text))),
+        _ => Ok(Value::Str(text)),
+    }
 }
 
 fn bi_fs_walk(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {

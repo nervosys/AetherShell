@@ -674,7 +674,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "yarn_run"
         | "yq_query" => Some(Effect::Exec),
 
-        // ---- ReadLocal (142) ----
+        // ---- ReadLocal (143) ----
         | "archive_test"
         | "asdf_list"
         | "at_list"
@@ -754,6 +754,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "nm_symbols"
         | "objdump_disasm"
         | "objdump_headers"
+        | "open"
         | "pgrep"
         | "pipx_list"
         | "pkg_deps"

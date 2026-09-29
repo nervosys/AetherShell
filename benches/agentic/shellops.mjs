@@ -119,13 +119,17 @@ export function selfCheck() {
 
 export const COMMANDS = {
     aethershell: {
-        t1: 'ls("src") | where(fn(f) => ends_with(f.name, ".rs")) | pick("name", "size")',
-        t2: 'ls("src") | where(fn(f) => ends_with(f.name, ".rs")) | map(fn(f) => len(split(cat(f.path), "\\n"))) | sum',
+        // t1, t2, t6 and t7 changed on 2026-09-28 to use `ls`/`cat` globs,
+        // `lines`, `open` and a recursive `glob`, added because these four
+        // were where the arm lost. The earlier commands are in git history and
+        // results/e2-shell-operations.md reports both.
+        t1: 'ls("src/*.rs") | pick("name", "size")',
+        t2: 'cat("src/*.rs") | lines | len',
         t3: 'ls("src") | sort_by("size") | last(5) | pick("name", "size")',
         t4: 'git_branch()',
         t5: 'fs_walk("tests") | len',
-        t6: 'cat("Cargo.toml") | split("\\n") | where(fn(l) => starts_with(l, "version")) | first',
-        t7: 'fs_walk("src") | where(fn(f) => ends_with(f, ".rs")) | len',
+        t6: 'open("Cargo.toml").package.version',
+        t7: 'glob("src/**/*.rs") | len',
         t8: 'ls("src") | sort_by("modified") | last(3) | pick("name", "modified")',
     },
     bash: {

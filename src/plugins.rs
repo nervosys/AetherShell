@@ -1559,7 +1559,7 @@ fn value_to_json(value: &Value) -> serde_json::Value {
 }
 
 /// Convert TOML value to AetherShell Value
-fn toml_to_value(toml: toml::Value) -> Value {
+pub(crate) fn toml_to_value(toml: toml::Value) -> Value {
     match toml {
         toml::Value::Boolean(b) => Value::Bool(b),
         toml::Value::Integer(i) => Value::Int(i),

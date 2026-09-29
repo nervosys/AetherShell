@@ -667,6 +667,7 @@ lazygit_open	Pure
 len	Pure
 length	Pure
 less	ReadLocal
+lines	Pure
 list	ReadLocal
 list_finetunes	Pure
 list_roles	Pure
@@ -831,6 +832,7 @@ ontology_jsonld	Pure
 ontology_manifest	Pure
 ontology_owl	Pure
 ontology_shacl	Pure
+open	ReadLocal
 openssl_cert_info	ReadLocal
 openssl_genrsa	WriteLocal
 os_tools	Pure

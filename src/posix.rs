@@ -1885,14 +1885,95 @@ fn glob_match(pat: &str, s: &str) -> bool {
 }
 
 /// Pathname expansion, component by component, sorted as `ls` would sort.
+/// `**` is an ordinary `*` here, as in bash without `globstar`.
 fn glob_expand(pattern: &str) -> Vec<String> {
+    expand_pattern(pattern, false, |a, b| collate(a, b))
+}
+
+/// Pathname expansion for the typed builtins (`glob`, `cat`, `ls`): `**`
+/// matches any number of directories, and results sort by bytes, so the
+/// answer does not depend on the locale the shell happens to run under.
+pub fn glob_paths(pattern: &str) -> Vec<String> {
+    let mut v = expand_pattern(pattern, true, |a, b| a.as_bytes().cmp(b.as_bytes()));
+    v.sort();
+    v.dedup();
+    v
+}
+
+/// Whether a string contains glob metacharacters.
+pub fn has_glob_meta(s: &str) -> bool {
+    s.contains(['*', '?', '['])
+}
+
+/// The directories beneath `dir`, depth first, not following symbolic links
+/// and skipping hidden names, as bash's `globstar` does.
+fn descendant_dirs(dir: &str, out: &mut Vec<String>) {
+    let Ok(rd) = std::fs::read_dir(if dir.is_empty() { "." } else { dir }) else {
+        return;
+    };
+    let mut names: Vec<String> = rd
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| !n.starts_with('.'))
+        .collect();
+    names.sort();
+    for n in names {
+        let p = if dir.is_empty() {
+            n
+        } else if dir.ends_with('/') {
+            format!("{dir}{n}")
+        } else {
+            format!("{dir}/{n}")
+        };
+        out.push(p.clone());
+        descendant_dirs(&p, out);
+    }
+}
+
+fn expand_pattern(
+    pattern: &str,
+    globstar: bool,
+    order: impl Fn(&String, &String) -> std::cmp::Ordering,
+) -> Vec<String> {
     let absolute = pattern.starts_with('/');
     let comps: Vec<&str> = pattern.split('/').filter(|c| !c.is_empty()).collect();
     let mut bases: Vec<String> = vec![if absolute { "/".into() } else { String::new() }];
     for (i, comp) in comps.iter().enumerate() {
         let last = i + 1 == comps.len();
         let mut next = Vec::new();
-        let has_meta = comp.contains(['*', '?', '[']);
+        if globstar && *comp == "**" {
+            // Zero or more directories: each base, and everything below it.
+            for base in &bases {
+                next.push(base.clone());
+                descendant_dirs(base, &mut next);
+            }
+            if last {
+                // A trailing `**` also names the files in those directories.
+                let dirs = next.clone();
+                for d in dirs {
+                    let dir = if d.is_empty() {
+                        ".".to_string()
+                    } else {
+                        d.clone()
+                    };
+                    if let Ok(rd) = std::fs::read_dir(&dir) {
+                        for e in rd.filter_map(|e| e.ok()) {
+                            let n = e.file_name().to_string_lossy().into_owned();
+                            if !n.starts_with('.')
+                                && e.file_type().map(|t| !t.is_dir()).unwrap_or(false)
+                            {
+                                next.push(if d.is_empty() { n } else { format!("{d}/{n}") });
+                            }
+                        }
+                    }
+                }
+                next.retain(|p| !p.is_empty());
+            }
+            bases = next;
+            continue;
+        }
+        let has_meta = has_glob_meta(comp);
         for base in &bases {
             let join = |name: &str| {
                 if base.is_empty() {
@@ -1921,7 +2002,7 @@ fn glob_expand(pattern: &str) -> Vec<String> {
                 .filter(|n| !n.starts_with('.') || comp.starts_with('.'))
                 .filter(|n| glob_match(comp, n))
                 .collect();
-            names.sort_by(|a, b| collate(a, b));
+            names.sort_by(&order);
             for n in names {
                 let p = join(&n);
                 if last || Path::new(&p).is_dir() {
@@ -3874,6 +3955,27 @@ mod tests {
                 "Z"
             ]
         );
+    }
+
+    #[test]
+    fn globstar_is_recursive_for_builtins_only() {
+        let root = std::env::temp_dir().join(format!("ae_globstar_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("a/b")).unwrap();
+        for f in ["top.rs", "a/mid.rs", "a/b/deep.rs", "a/b/deep.rsx"] {
+            std::fs::write(root.join(f), "").unwrap();
+        }
+        let r = root.to_string_lossy().replace('\\', "/");
+        let found = glob_paths(&format!("{r}/**/*.rs"));
+        let names: Vec<&str> = found
+            .iter()
+            .map(|p| p.rsplit('/').next().unwrap())
+            .collect();
+        assert_eq!(names, vec!["deep.rs", "mid.rs", "top.rs"], "{found:?}");
+        // Without globstar, `**` is `*`: one level only.
+        let shell = glob_expand(&format!("{r}/**/*.rs"));
+        assert_eq!(shell.len(), 1, "{shell:?}");
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

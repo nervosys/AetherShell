@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **SQL over typed values**: `rows | sql("select … from t")`,
   `sql("data.json", query)`, and `sql_value(…)` for a single cell. Runs on a
   bundled SQLite; no `sqlite3` on PATH needed. E1: 321 tokens, second of seven.
+- **`lines`, `open`, and globs in `cat`/`ls`**: `cat("src/*.rs") | lines | len`,
+  `open("Cargo.toml").package.version` (parses JSON, JSON lines, TOML, YAML and
+  CSV by extension), `ls("src/*.rs")`. E2 command tokens 163 → 96; the agent
+  arm is 3.5× cheaper than bash in total (was 3.0×).
 - **`ae --explain` / `explain_effects(code)`**: every call in a program, its
   effect class and the agent-mode decision, without running it.
 
@@ -34,6 +38,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `glob` matched `*.rs` against any name containing `.rs` (`main.rsx`,
+  `x.rs.bak`), ignored `**`, returned directory order, and answered `[]` for a
+  directory that does not exist. It is now anchored, recursive on `**`, sorted,
+  and `E_NOT_FOUND` for a missing directory.
+- `ls` and `cat` on a path under a missing directory failed with an uncoded
+  error; they are `E_NOT_FOUND`.
 - JSON `null` became the string `"null"` in `from_json` and every other JSON
   reader built on `json_to_value`.
 - `from_json` and `jq_query` reported malformed JSON as `E_UNKNOWN`.

@@ -42,3 +42,29 @@ Token counts: **exact** cl100k_base BPE via tiktoken.
 ## Determinism
 
 Every engine produced byte-identical output across all 11 runs on this corpus.
+
+## Addendum, 2026-09-28: the four tasks the arm lost
+
+t1, t2, t6 and t7 were rewritten to use builtins added for them: `ls`/`cat`
+globs, `lines`, `open` (parse by extension, from nushell) and a `glob` with a
+recursive `**`. `glob` also stopped matching `*.rs` against `main.rsx`. The
+other four commands and every other engine are unchanged. Separate run, on a
+fresh clone of this repository (larger than the one above, hence bash's 1,498
+output tokens rather than 1,422); pwsh and nushell were not on PATH.
+
+| Engine | Cmd tokens | Output tokens | Total | vs bash |
+| --- | ---: | ---: | ---: | ---: |
+| aethershell | 96 (was 163) | 724 | 820 | 1.9× |
+| **aethershell (agent)** | **96** (was 163) | 351 | **447** | **3.5×** |
+| bash | 68 | 1,498 | 1,566 | — |
+
+| Task | AE before | AE now | bash | nushell (above) |
+| --- | ---: | ---: | ---: | ---: |
+| t1 `ls("src/*.rs") \| pick("name", "size")` | 290 | 293 | 1,280 | 931 |
+| t2 `cat("src/*.rs") \| lines \| len` | 38 | 13 | 11 | 26 |
+| t6 `open("Cargo.toml").package.version` | 35 | 14 | 19 | 14 |
+| t7 `glob("src/**/*.rs") \| len` | 22 | 10 | 13 | 8 |
+
+(Agent-mode totals.) The arm now ties or beats bash on every task but t2,
+by 2 tokens. It is still slower there: 161 ms against bash's 27, reading 49
+files through `cat`.

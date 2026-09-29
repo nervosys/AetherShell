@@ -1029,6 +1029,39 @@ pub static SIGNATURES: &[Signature] = &[
         ],
     },
     Signature {
+        // E2's t2 was 38 tokens against bash's 11 largely for want of this:
+        // `len(split(cat(f.path), "\n"))` per file, where bash says `wc -l`.
+        name: "lines",
+        category: Some("String"),
+        subject_required: false,
+        aliases: &[],
+        subject: Some(Ty::Str),
+        params: &[opt("text", Ty::Str, "the text, when it is not piped in")],
+        returns: "Array",
+        doc: "Split text into lines without their terminators; a final newline adds no empty line.",
+        examples: &[
+            (r#"cat("Cargo.toml") | lines | first"#, r#""[workspace]""#),
+            (r#"(cat("src/*.rs") | lines | len) > 1000"#, "true"),
+        ],
+    },
+    Signature {
+        // Borrowed from nushell, which answered E2's t6 in 14 tokens with
+        // `open Cargo.toml | get package.version` while AetherShell split the
+        // file into lines and searched them.
+        name: "open",
+        category: Some("FileSystem"),
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("path", Ty::Str, "a file; .json, .jsonl, .toml, .yaml/.yml and .csv are parsed")],
+        returns: "Any",
+        doc: "Read a file and parse it by extension (JSON, JSON lines, TOML, YAML, CSV), or return its text.",
+        examples: &[
+            (r#"open("Cargo.toml").package.name"#, r#""aethershell""#),
+            (r#"typeof(open("README.md"))"#, "String"),
+        ],
+    },
+    Signature {
         // The scalar half of `sql`. E1's hybrid arm paid `|first|values|first`
         // on every answer to get one number out of a one-row result; this is
         // that, with a refusal when the result is not one cell instead of a
@@ -3710,11 +3743,13 @@ pub static SIGNATURES: &[Signature] = &[
         subject_required: false,
         aliases: &["glob"],
         subject: None,
-        params: &[req("pattern", Ty::Str, "a glob such as src/*.rs")],
+        params: &[req("pattern", Ty::Str, "a glob such as src/*.rs or src/**/*.rs")],
         returns: "Array",
-        doc: "Paths matching a glob.",
+        doc: "Paths matching a glob, sorted; ** matches any depth of directories, and a directory in the pattern that does not exist is E_NOT_FOUND.",
         examples: &[
             (r#"(glob("src/*.rs") | len) > 10"#, r#"true"#),
+            (r#"(glob("src/**/*.rs") | len) > (glob("src/*.rs") | len)"#, r#"true"#),
+            (r#"glob("Cargo.tom?")"#, r#"["Cargo.toml"]"#),
         ],
     },
     Signature {
