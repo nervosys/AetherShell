@@ -51,3 +51,24 @@ A caution for anyone repeating this: only 16 of the 40 generations were
 identical to the first run's. Ollama at temperature 0 was not deterministic
 on this GPU, so "temperature 0, one generation" does not give the
 repeatability here that `PREREGISTERED_E7.md` assumes of a hosted model.
+
+## Five arms, 2026-09-29 (jq installed)
+
+With `jq` on PATH, all five arms ran (`e7-local-llama3.2-3b-5arm.json`):
+
+| Arm | First-try correct |
+| --- | ---: |
+| sql | 5/10 |
+| jq | 0/10 |
+| aethershell | 0/10 |
+| agentic (with cheatsheet) | 0/10 |
+| agentic, no cheatsheet | 0/10 |
+
+The jq zeros are the model's, not the harness's (`--replay` scores jq 10/10
+on the same host): `select(.state == "open" and .title | contains(…))`
+precedence, `jq 'sum'`, a dropped `is_pr` filter. A borrowed syntax does
+not rescue a 3B model on one-liners of this length; SQL, the most familiar
+and most declarative of the five, is the only one it wrote correctly at
+all. Still not E7: that needs the pre-registered frontier model. A hosted
+run was attempted and stopped by the harness before any generation --
+first an unscoped key, then an account without credit -- and wrote nothing.
