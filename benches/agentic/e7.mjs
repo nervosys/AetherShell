@@ -147,7 +147,11 @@ const ENDPOINT = {
     // is not the E7 result.
     ollama: (process.env.OLLAMA_HOST ?? 'http://127.0.0.1:11434') + '/v1/chat/completions',
 };
-const LOCAL = new Set(['ollama']);
+// `file`: responses written ahead of time, one per (arm, question), read from
+// `--answers <json>` shaped {arm: {q1: "<the whole response>", …}}. For a
+// model that is not behind an API -- an agent answering the frozen prompts
+// itself -- scored through exactly the same extraction and oracle.
+const LOCAL = new Set(['ollama', 'file']);
 
 function generate(prompt, provider, model, temperature, seed) {
     const key = LOCAL.has(provider) ? null : process.env[KEY_FOR[provider] ?? 'OPENAI_API_KEY'];
@@ -242,6 +246,23 @@ function selfCheck(cwd) {
 const hash = promptHash();
 selfCheck(dataDir);
 const onto = ontologyText();
+
+// `--dump-prompts <dir>`: write every prompt exactly as a model receives it,
+// one file per (arm, question), and stop. Nothing is scored.
+const dumpDir = flag('dump-prompts', null);
+if (dumpDir) {
+    fs.mkdirSync(dumpDir, { recursive: true });
+    for (const [q, question] of Object.entries(QUESTIONS)) {
+        for (const arm of ARMS) {
+            fs.writeFileSync(path.join(dumpDir, arm.id + '-' + q + '.md'), buildPrompt(arm, question, onto));
+        }
+    }
+    console.log('prompts written to ' + dumpDir + ' (hash ' + hash + ')');
+    process.exit(0);
+}
+const ANSWERS = provider === 'file'
+    ? JSON.parse(fs.readFileSync(flag('answers', 'answers.json'), 'utf8'))
+    : null;
 console.log('E7  prompts=' + hash + '  provider=' + provider + '  model=' + (replay ? '-' : model) +
     '  temp=' + temperature + '  seeds=' + seeds);
 if (replay) {
@@ -272,7 +293,9 @@ for (const [q, question] of Object.entries(QUESTIONS)) {
             try {
                 command = replay
                     ? COMMANDS[arm.replay][q]
-                    : extractCommand(generate(buildPrompt(arm, question, onto), provider, model, temperature, seed));
+                    : extractCommand(provider === 'file'
+                        ? (ANSWERS[arm.id]?.[q] ?? '')
+                        : generate(buildPrompt(arm, question, onto), provider, model, temperature, seed));
             } catch (e) {
                 // A failed *request* is not an answer. Scored, a rejected key
                 // printed 0/10 on every arm twice on 2026-09-29 -- a missing

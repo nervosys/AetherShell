@@ -1,0 +1,516 @@
+{
+  "prompts": "dd1eb51326fc5d9c",
+  "provider": "file",
+  "model": "claude-opus-5-5",
+  "temperature": 0,
+  "seeds": 1,
+  "corpus": {
+    "records": 500,
+    "prs": 266,
+    "open": 91,
+    "numbers": "13994..14530"
+  },
+  "skipped": [],
+  "rows": [
+    {
+      "q": "q1",
+      "arm": "jq",
+      "seed": 0,
+      "command": "jq '[.[] | select(.state == \"open\" and ((((.title // \"\") + \" \" + (.body // \"\")) | ascii_downcase | contains(\"security\"))))] | length' issues.json",
+      "correct": true,
+      "got": "12",
+      "want": "12",
+      "exit": 0
+    },
+    {
+      "q": "q1",
+      "arm": "agentic-nocheat",
+      "seed": 0,
+      "command": "cat(\"issues.json\") | from_json | where(fn(r) => r.state == \"open\" && ((r.title + \" \" + r.body) | lower | contains(\"security\"))) | len",
+      "correct": true,
+      "got": "12",
+      "want": "12",
+      "exit": 0
+    },
+    {
+      "q": "q1",
+      "arm": "sql",
+      "seed": 0,
+      "command": "SELECT count(*) FROM issues WHERE state = 'open' AND (lower(title) LIKE '%security%' OR lower(body) LIKE '%security%');",
+      "correct": true,
+      "got": "12",
+      "want": "12",
+      "exit": 0
+    },
+    {
+      "q": "q1",
+      "arm": "agentic",
+      "seed": 0,
+      "command": "c\"issues.json\"|from_json|w~r:r.state==\"open\"&&((r.title+\" \"+r.body)|lower|contains(\"security\"))|n",
+      "correct": true,
+      "got": "12",
+      "want": "12",
+      "exit": 0
+    },
+    {
+      "q": "q1",
+      "arm": "aethershell",
+      "seed": 0,
+      "command": "cat(\"issues.json\") | from_json | where(fn(r) => r.state == \"open\" && ((r.title + \" \" + r.body) | lower | contains(\"security\"))) | len",
+      "correct": true,
+      "got": "12",
+      "want": "12",
+      "exit": 0
+    },
+    {
+      "q": "q2",
+      "arm": "agentic-nocheat",
+      "seed": 0,
+      "command": "cat(\"issues.json\") | from_json | where(fn(r) => r.is_pr) | len",
+      "correct": true,
+      "got": "266",
+      "want": "266",
+      "exit": 0
+    },
+    {
+      "q": "q2",
+      "arm": "sql",
+      "seed": 0,
+      "command": "SELECT count(*) FROM issues WHERE is_pr = 1;",
+      "correct": true,
+      "got": "266",
+      "want": "266",
+      "exit": 0
+    },
+    {
+      "q": "q2",
+      "arm": "jq",
+      "seed": 0,
+      "command": "jq '[.[] | select(.is_pr)] | length' issues.json",
+      "correct": true,
+      "got": "266",
+      "want": "266",
+      "exit": 0
+    },
+    {
+      "q": "q2",
+      "arm": "aethershell",
+      "seed": 0,
+      "command": "cat(\"issues.json\") | from_json | where(fn(r) => r.is_pr) | len",
+      "correct": true,
+      "got": "266",
+      "want": "266",
+      "exit": 0
+    },
+    {
+      "q": "q2",
+      "arm": "agentic",
+      "seed": 0,
+      "command": "c\"issues.json\"|from_json|w~r:r.is_pr|n",
+      "correct": true,
+      "got": "266",
+      "want": "266",
+      "exit": 0
+    },
+    {
+      "q": "q3",
+      "arm": "sql",
+      "seed": 0,
+      "command": "SELECT sum(comments) FROM issues WHERE state = 'closed';",
+      "correct": true,
+      "got": "446",
+      "want": "446",
+      "exit": 0
+    },
+    {
+      "q": "q3",
+      "arm": "agentic",
+      "seed": 0,
+      "command": "c\"issues.json\"|from_json|w~r:r.state==\"closed\"|m~r:r.comments|sum",
+      "correct": true,
+      "got": "446",
+      "want": "446",
+      "exit": 0
+    },
+    {
+      "q": "q3",
+      "arm": "aethershell",
+      "seed": 0,
+      "command": "cat(\"issues.json\") | from_json | where(fn(r) => r.state == \"closed\") | map(fn(r) => r.comments) | sum",
+      "correct": true,
+      "got": "446",
+      "want": "446",
+      "exit": 0
+    },
+    {
+      "q": "q3",
+      "arm": "jq",
+      "seed": 0,
+      "command": "jq '[.[] | select(.state == \"closed\") | .comments] | add' issues.json",
+      "correct": true,
+      "got": "446",
+      "want": "446",
+      "exit": 0
+    },
+    {
+      "q": "q3",
+      "arm": "agentic-nocheat",
+      "seed": 0,
+      "command": "cat(\"issues.json\") | from_json | where(fn(r) => r.state == \"closed\") | map(fn(r) => r.comments) | sum",
+      "correct": true,
+      "got": "446",
+      "want": "446",
+      "exit": 0
+    },
+    {
+      "q": "q4",
+      "arm": "agentic",
+      "seed": 0,
+      "command": "c\"issues.json\"|from_json|w~r:r.is_pr|group(\"user\")|sort_by(\"Count\")|z|~g:g.Name+\" \"+(g.Count|str)",
+      "correct": true,
+      "got": "williammartin 66",
+      "want": "williammartin 66",
+      "exit": 0
+    },
+    {
+      "q": "q4",
+      "arm": "jq",
+      "seed": 0,
+      "command": "jq -r '[.[] | select(.is_pr) | .user] | group_by(.) | max_by(length) | \"\\(.[0]) \\(length)\"' issues.json",
+      "correct": true,
+      "got": "williammartin 66",
+      "want": "williammartin 66",
+      "exit": 0
+    },
+    {
+      "q": "q4",
+      "arm": "sql",
+      "seed": 0,
+      "command": "SELECT user || ' ' || count(*) FROM issues WHERE is_pr = 1 GROUP BY user ORDER BY count(*) DESC LIMIT 1;",
+      "correct": true,
+      "got": "williammartin 66",
+      "want": "williammartin 66",
+      "exit": 0
+    },
+    {
+      "q": "q4",
+      "arm": "aethershell",
+      "seed": 0,
+      "command": "cat(\"issues.json\") | from_json | where(fn(r) => r.is_pr) | group(\"user\") | sort_by(\"Count\") | last | fn(g) => g.Name + \" \" + (g.Count | str)",
+      "correct": true,
+      "got": "williammartin 66",
+      "want": "williammartin 66",
+      "exit": 0
+    },
+    {
+      "q": "q4",
+      "arm": "agentic-nocheat",
+      "seed": 0,
+      "command": "cat(\"issues.json\") | from_json | where(fn(r) => r.is_pr) | group(\"user\") | sort_by(\"Count\") | last | fn(g) => g.Name + \" \" + (g.Count | str)",
+      "correct": true,
+      "got": "williammartin 66",
+      "want": "williammartin 66",
+      "exit": 0
+    },
+    {
+      "q": "q5",
+      "arm": "agentic-nocheat",
+      "seed": 0,
+      "command": "cat(\"issues.json\") | from_json | where(fn(r) => r.state == \"open\" && !r.is_pr && r.comments > 5) | map(fn(r) => r.number) | sort",
+      "correct": true,
+      "got": "14086,14089,14090,14107,14223,14256,14309,14386,14389",
+      "want": "14086,14089,14090,14107,14223,14256,14309,14386,14389",
+      "exit": 0
+    },
+    {
+      "q": "q5",
+      "arm": "jq",
+      "seed": 0,
+      "command": "jq -r '[.[] | select(.state == \"open\" and (.is_pr | not) and .comments > 5) | .number] | sort | map(tostring) | join(\",\")' issues.json",
+      "correct": true,
+      "got": "14086,14089,14090,14107,14223,14256,14309,14386,14389",
+      "want": "14086,14089,14090,14107,14223,14256,14309,14386,14389",
+      "exit": 0
+    },
+    {
+      "q": "q5",
+      "arm": "agentic",
+      "seed": 0,
+      "command": "c\"issues.json\"|from_json|w~r:r.state==\"open\"&&!r.is_pr&&r.comments>5|m~r:r.number|o",
+      "correct": true,
+      "got": "14086,14089,14090,14107,14223,14256,14309,14386,14389",
+      "want": "14086,14089,14090,14107,14223,14256,14309,14386,14389",
+      "exit": 0
+    },
+    {
+      "q": "q5",
+      "arm": "aethershell",
+      "seed": 0,
+      "command": "cat(\"issues.json\") | from_json | where(fn(r) => r.state == \"open\" && !r.is_pr && r.comments > 5) | map(fn(r) => r.number) | sort",
+      "correct": true,
+      "got": "14086,14089,14090,14107,14223,14256,14309,14386,14389",
+      "want": "14086,14089,14090,14107,14223,14256,14309,14386,14389",
+      "exit": 0
+    },
+    {
+      "q": "q5",
+      "arm": "sql",
+      "seed": 0,
+      "command": "SELECT group_concat(number, ',') FROM (SELECT number FROM issues WHERE state = 'open' AND is_pr = 0 AND comments > 5 ORDER BY number);",
+      "correct": true,
+      "got": "14086,14089,14090,14107,14223,14256,14309,14386,14389",
+      "want": "14086,14089,14090,14107,14223,14256,14309,14386,14389",
+      "exit": 0
+    },
+    {
+      "q": "q6",
+      "arm": "aethershell",
+      "seed": 0,
+      "command": "cat(\"issues.json\") | from_json | map(fn(r) => r.labels) | flatten | unique | len",
+      "correct": true,
+      "got": "42",
+      "want": "42",
+      "exit": 0
+    },
+    {
+      "q": "q6",
+      "arm": "agentic",
+      "seed": 0,
+      "command": "c\"issues.json\"|from_json|m~r:r.labels|b|unique|n",
+      "correct": true,
+      "got": "42",
+      "want": "42",
+      "exit": 0
+    },
+    {
+      "q": "q6",
+      "arm": "agentic-nocheat",
+      "seed": 0,
+      "command": "cat(\"issues.json\") | from_json | map(fn(r) => r.labels) | flatten | unique | len",
+      "correct": true,
+      "got": "42",
+      "want": "42",
+      "exit": 0
+    },
+    {
+      "q": "q6",
+      "arm": "sql",
+      "seed": 0,
+      "command": "SELECT count(DISTINCT j.value) FROM issues, json_each(issues.labels) AS j;",
+      "correct": true,
+      "got": "42",
+      "want": "42",
+      "exit": 0
+    },
+    {
+      "q": "q6",
+      "arm": "jq",
+      "seed": 0,
+      "command": "jq '[.[].labels[]] | unique | length' issues.json",
+      "correct": true,
+      "got": "42",
+      "want": "42",
+      "exit": 0
+    },
+    {
+      "q": "q7",
+      "arm": "aethershell",
+      "seed": 0,
+      "command": "cat(\"issues.json\") | from_json | where(fn(r) => r.state == \"open\" && (r.labels | any(fn(l) => l == \"bug\"))) | len",
+      "correct": true,
+      "got": "19",
+      "want": "19",
+      "exit": 0
+    },
+    {
+      "q": "q7",
+      "arm": "agentic",
+      "seed": 0,
+      "command": "c\"issues.json\"|from_json|w~r:r.state==\"open\"&&(r.labels|y~l:l==\"bug\")|n",
+      "correct": true,
+      "got": "19",
+      "want": "19",
+      "exit": 0
+    },
+    {
+      "q": "q7",
+      "arm": "agentic-nocheat",
+      "seed": 0,
+      "command": "cat(\"issues.json\") | from_json | where(fn(r) => r.state == \"open\" && (r.labels | any(fn(l) => l == \"bug\"))) | len",
+      "correct": true,
+      "got": "19",
+      "want": "19",
+      "exit": 0
+    },
+    {
+      "q": "q7",
+      "arm": "jq",
+      "seed": 0,
+      "command": "jq '[.[] | select(.state == \"open\" and any(.labels[]; . == \"bug\"))] | length' issues.json",
+      "correct": true,
+      "got": "19",
+      "want": "19",
+      "exit": 0
+    },
+    {
+      "q": "q7",
+      "arm": "sql",
+      "seed": 0,
+      "command": "SELECT count(*) FROM issues WHERE state = 'open' AND EXISTS (SELECT 1 FROM json_each(issues.labels) WHERE value = 'bug');",
+      "correct": true,
+      "got": "19",
+      "want": "19",
+      "exit": 0
+    },
+    {
+      "q": "q8",
+      "arm": "agentic",
+      "seed": 0,
+      "command": "c\"issues.json\"|from_json|m~r:r.comments|max",
+      "correct": true,
+      "got": "98",
+      "want": "98",
+      "exit": 0
+    },
+    {
+      "q": "q8",
+      "arm": "jq",
+      "seed": 0,
+      "command": "jq '[.[].comments] | max' issues.json",
+      "correct": true,
+      "got": "98",
+      "want": "98",
+      "exit": 0
+    },
+    {
+      "q": "q8",
+      "arm": "aethershell",
+      "seed": 0,
+      "command": "cat(\"issues.json\") | from_json | map(fn(r) => r.comments) | max",
+      "correct": true,
+      "got": "98",
+      "want": "98",
+      "exit": 0
+    },
+    {
+      "q": "q8",
+      "arm": "agentic-nocheat",
+      "seed": 0,
+      "command": "cat(\"issues.json\") | from_json | map(fn(r) => r.comments) | max",
+      "correct": true,
+      "got": "98",
+      "want": "98",
+      "exit": 0
+    },
+    {
+      "q": "q8",
+      "arm": "sql",
+      "seed": 0,
+      "command": "SELECT max(comments) FROM issues;",
+      "correct": true,
+      "got": "98",
+      "want": "98",
+      "exit": 0
+    },
+    {
+      "q": "q9",
+      "arm": "agentic-nocheat",
+      "seed": 0,
+      "command": "let rows = cat(\"issues.json\") | from_json\nlet issuers = rows | where(fn(r) => !r.is_pr) | map(fn(r) => r.user) | unique\nrows | where(fn(r) => r.is_pr) | map(fn(r) => r.user) | unique | where(fn(u) => issuers | any(fn(i) => i == u)) | len",
+      "correct": true,
+      "got": "23",
+      "want": "23",
+      "exit": 0
+    },
+    {
+      "q": "q9",
+      "arm": "agentic",
+      "seed": 0,
+      "command": "rows=c\"issues.json\"|from_json\niss=rows|w~r:!r.is_pr|m~r:r.user|unique\nrows|w~r:r.is_pr|m~r:r.user|unique|w~u:(iss|y~i:i==u)|n",
+      "correct": true,
+      "got": "23",
+      "want": "23",
+      "exit": 0
+    },
+    {
+      "q": "q9",
+      "arm": "aethershell",
+      "seed": 0,
+      "command": "let rows = cat(\"issues.json\") | from_json\nlet issuers = rows | where(fn(r) => !r.is_pr) | map(fn(r) => r.user) | unique\nrows | where(fn(r) => r.is_pr) | map(fn(r) => r.user) | unique | where(fn(u) => issuers | any(fn(i) => i == u)) | len",
+      "correct": true,
+      "got": "23",
+      "want": "23",
+      "exit": 0
+    },
+    {
+      "q": "q9",
+      "arm": "jq",
+      "seed": 0,
+      "command": "jq '([.[] | select(.is_pr | not) | .user] | unique) as $i | [.[] | select(.is_pr) | .user] | unique | map(select(IN($i[]))) | length' issues.json",
+      "correct": true,
+      "got": "23",
+      "want": "23",
+      "exit": 0
+    },
+    {
+      "q": "q9",
+      "arm": "sql",
+      "seed": 0,
+      "command": "SELECT count(*) FROM (SELECT user FROM issues WHERE is_pr = 1 INTERSECT SELECT user FROM issues WHERE is_pr = 0);",
+      "correct": true,
+      "got": "23",
+      "want": "23",
+      "exit": 0
+    },
+    {
+      "q": "q10",
+      "arm": "aethershell",
+      "seed": 0,
+      "command": "cat(\"issues.json\") | from_json | where(fn(r) => r.state == \"open\" && !r.is_pr) | map(fn(r) => r.comments) | avg | round(2)",
+      "correct": true,
+      "got": "4.61",
+      "want": "4.61",
+      "exit": 0
+    },
+    {
+      "q": "q10",
+      "arm": "jq",
+      "seed": 0,
+      "command": "jq '[.[] | select(.state == \"open\" and (.is_pr | not)) | .comments] | (add / length * 100 | round) / 100' issues.json",
+      "correct": true,
+      "got": "4.61",
+      "want": "4.61",
+      "exit": 0
+    },
+    {
+      "q": "q10",
+      "arm": "sql",
+      "seed": 0,
+      "command": "SELECT round(avg(comments), 2) FROM issues WHERE state = 'open' AND is_pr = 0;",
+      "correct": true,
+      "got": "4.61",
+      "want": "4.61",
+      "exit": 0
+    },
+    {
+      "q": "q10",
+      "arm": "agentic",
+      "seed": 0,
+      "command": "c\"issues.json\"|from_json|w~r:r.state==\"open\"&&!r.is_pr|m~r:r.comments|avg|round(2)",
+      "correct": true,
+      "got": "4.61",
+      "want": "4.61",
+      "exit": 0
+    },
+    {
+      "q": "q10",
+      "arm": "agentic-nocheat",
+      "seed": 0,
+      "command": "cat(\"issues.json\") | from_json | where(fn(r) => r.state == \"open\" && !r.is_pr) | map(fn(r) => r.comments) | avg | round(2)",
+      "correct": true,
+      "got": "4.61",
+      "want": "4.61",
+      "exit": 0
+    }
+  ]
+}
