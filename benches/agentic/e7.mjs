@@ -158,8 +158,11 @@ function generate(prompt, provider, model, temperature, seed) {
     const body = anthropic
         ? { model, max_tokens: 700, temperature, messages: [{ role: 'user', content: prompt }] }
         : { model, max_tokens: 700, temperature, seed, messages: [{ role: 'user', content: prompt }] };
+    // A key that is not scoped to a workspace must name one per request.
+    const workspace = process.env.ANTHROPIC_WORKSPACE_ID;
     const headers = anthropic
-        ? ['-H', 'x-api-key: ' + key, '-H', 'anthropic-version: 2023-06-01']
+        ? ['-H', 'x-api-key: ' + key, '-H', 'anthropic-version: 2023-06-01',
+            ...(workspace ? ['-H', 'anthropic-workspace-id: ' + workspace] : [])]
         : key ? ['-H', 'Authorization: Bearer ' + key] : [];
     const r = spawnSync('curl', [
         '-s', '-m', LOCAL.has(provider) ? '600' : '120', '-X', 'POST', ENDPOINT[provider] ?? ENDPOINT.openai,
@@ -271,7 +274,14 @@ for (const [q, question] of Object.entries(QUESTIONS)) {
                     ? COMMANDS[arm.replay][q]
                     : extractCommand(generate(buildPrompt(arm, question, onto), provider, model, temperature, seed));
             } catch (e) {
-                error = e.message;
+                // A failed *request* is not an answer. Scored, a rejected key
+                // printed 0/10 on every arm twice on 2026-09-29 -- a missing
+                // credential, then an unscoped one. Stop instead: nothing has
+                // been written, and the fix is the environment, not the model.
+                console.error('\nstopping: the provider did not answer (' + e.message + ').\n' +
+                    'No result was written. Fix the environment and run again' +
+                    (/workspace/i.test(e.message) ? '; set ANTHROPIC_WORKSPACE_ID to the workspace id.' : '.'));
+                process.exit(3);
             }
             const s = command
                 ? score(arm, command, q, dataDir)
