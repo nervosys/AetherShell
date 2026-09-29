@@ -208,8 +208,8 @@ enum McpCommands {
     /// transport). Every builtin is callable, through three advertised tools
     /// rather than as several hundred schemas: `ontology_manifest` indexes the
     /// categories, `ontology_describe` expands one, and `aether` invokes a
-    /// builtin by name. Every call is routed through the safety model. Pair
-    /// with `--agent` for default-deny gating: `ae --agent mcp stdio`.
+    /// builtin by name. Every call is routed through the safety model, in
+    /// agent mode unless `AETHER_MODE` says otherwise.
     Stdio,
 }
 
@@ -286,17 +286,24 @@ fn main() -> Result<()> {
 
 /// Whether this invocation exists to serve an AI agent rather than a person.
 ///
-/// Only the two server subcommands qualify. A one-shot `ae -c` may well be run
-/// *by* an agent, but it is equally the way a person and every shell script
-/// invoke the shell, so it keeps the human profile and `--agent` stays the way
-/// to ask for the other one.
+/// The subcommands whose only caller is an agent qualify: the two HTTP
+/// servers, the MCP stdio transport (what an MCP client such as a desktop
+/// assistant launches), and the agent API's `execute` and `interactive`, which
+/// read agent requests as JSON. `ae mcp stdio` was left out when the servers
+/// were covered, so the canonical MCP transport kept the permissive profile.
+///
+/// A one-shot `ae -c` may well be run *by* an agent, but it is equally the way
+/// a person and every shell script invoke the shell, so it keeps the human
+/// profile and `--agent` stays the way to ask for the other one.
 fn serves_an_agent(cmd: &Option<Commands>) -> bool {
     matches!(
         cmd,
         Some(Commands::Agent {
             command: AgentApiCommands::Serve { .. }
+                | AgentApiCommands::Execute { .. }
+                | AgentApiCommands::Interactive
         }) | Some(Commands::Mcp {
-            command: McpCommands::Serve { .. }
+            command: McpCommands::Serve { .. } | McpCommands::Stdio
         })
     )
 }

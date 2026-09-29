@@ -223,7 +223,7 @@ real processes, real bytes, every answer checked against an oracle — see
 [TYPED_SHELL_RESPONSE.md](TYPED_SHELL_RESPONSE.md). The executed result is
 directionally the same and smaller: 2.9× against bash on total tokens for eight
 repository operations, not the ~2.8× shown here for four representative ones,
-and *fourth of six* on a corpus whose every answer is a scalar.
+and *sixth of eight* on a corpus whose every answer is a scalar.
 
 | Shell | cmd tok | output tok | total | vs AetherShell |
 | --- | --- | --- | --- | --- |

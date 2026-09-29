@@ -132,3 +132,64 @@ fn the_serving_subcommands_report_the_agent_profile() {
         );
     }
 }
+
+/// Drive `ae mcp stdio` with one `tools/call` that writes outside its working
+/// directory, returning the server's stdout.
+fn mcp_stdio_write(mode: Option<&str>, cwd: &std::path::Path, target: &std::path::Path) -> String {
+    use std::io::Write;
+    let mut cmd = Command::new(AE);
+    cmd.args(["mcp", "stdio"])
+        .current_dir(cwd)
+        .env_remove("AETHER_WORKSPACE")
+        .env_remove("AETHER_AGENT")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    match mode {
+        Some(m) => cmd.env("AETHER_MODE", m),
+        None => cmd.env_remove("AETHER_MODE"),
+    };
+    let mut child = cmd.spawn().expect("spawn ae mcp stdio");
+    let call = serde_json::json!({
+        "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+        "params": { "name": "aether", "arguments": {
+            "name": "file_write", "args": [target.to_string_lossy(), "owned"] } }
+    });
+    let mut stdin = child.stdin.take().expect("stdin");
+    writeln!(stdin, "{call}").expect("write request");
+    drop(stdin); // EOF ends the server loop
+    let out = child.wait_with_output().expect("wait for ae mcp stdio");
+    String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr)
+}
+
+#[test]
+fn mcp_stdio_implies_agent_mode() {
+    // The canonical MCP transport, and the one a desktop assistant launches. It
+    // was missed when the HTTP servers were given the agent profile, so an MCP
+    // client could write anywhere the user could.
+    let j = jail("mcpstdio");
+    let target = j.outside.join("pwn.txt");
+    let out = mcp_stdio_write(None, &j.inside, &target);
+    assert!(
+        !target.exists(),
+        "`ae mcp stdio` wrote outside its workspace with no mode set; output: {out}"
+    );
+    assert!(
+        out.contains("E_OUTSIDE_WORKSPACE"),
+        "the refusal must reach the MCP client as a branchable code, got: {out}"
+    );
+}
+
+#[test]
+fn mcp_stdio_honours_an_explicit_human_mode() {
+    // Non-vacuity for the test above, and the documented escape hatch: an
+    // operator who sets AETHER_MODE gets what they asked for.
+    let j = jail("mcpstdio_human");
+    let target = j.outside.join("ok.txt");
+    let out = mcp_stdio_write(Some("human"), &j.inside, &target);
+    assert!(
+        target.exists(),
+        "`AETHER_MODE=human ae mcp stdio` did not write; the implication is not \
+         keyed on AETHER_MODE being unset, or the call never ran: {out}"
+    );
+}

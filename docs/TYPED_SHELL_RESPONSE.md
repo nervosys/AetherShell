@@ -1001,7 +1001,7 @@ runs them as gates on every push.
 | Probe | Question | First informative run | Now, on the CI runner |
 | --- | --- | --- | --- |
 | `uncoded.mjs`, `uncoded-paths.mjs` | Does every failure carry an error code, for a nonsense argument and for a missing path? | 5 uncoded and 1 hang, found only on the runner (`c64a7bd`) | 0 of 1,165 on both paths, 0 hung |
-| `discarded-args.mjs` | Does a builtin return the same value when handed three extra arguments? | 317 of 343 comparable builtins | 235 of 343 |
+| `discarded-args.mjs` | Does a builtin return the same value when handed three extra arguments? | 317 of 343 comparable builtins | 5 of 126 (4.0%, two CI runs of `fc7c599`); the denominator shrank as builtins were declared, since a declared signature refuses extra arguments before the body runs |
 | `network-egress.mjs` | Does anything open a connection with `AETHER_MAX_NET=0`? It uses strace, and attributes every `connect()` to the program that made it. | 6 on WSL, then 9 more on the runner | 0 of 1,165 |
 | `silent-success.mjs` | Which builtins answer a nonsense argument with null, false or empty? | 51 suspects | triaged; not a gate |
 
@@ -1055,7 +1055,8 @@ operating system, or a host with different tools installed. What remains is
 pinned so that it can only shrink:
 - 51 builtins that never read an exit status, and 100 sites that report a
   failure as `false` (`tests/exit_status_ratchet.rs`);
-- 235 builtins that discard arguments (`benches/agentic/ratchets.json`).
+- 5 builtins that discard arguments, of 126 still undeclared and comparable
+  (`benches/agentic/ratchets.json`).
 
 The suite is now **165 binaries, 2,315 tests, 0 failing** on Linux.
 

@@ -8812,10 +8812,13 @@ fn bi_from_json(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             }
         }
     } else {
-        return Err(anyhow!("from-json: no JSON input provided"));
+        return Err(crate::safety::arg_err("from-json: no JSON input provided"));
     };
 
-    let parsed: serde_json::Value = serde_json::from_str(&json_str)?;
+    // A bare `?` here surfaced serde's message as E_UNKNOWN with exit 1, the
+    // one uncoded failure left in benches/agentic/errors.mjs (malformed-json).
+    let parsed: serde_json::Value = serde_json::from_str(&json_str)
+        .map_err(|e| crate::safety::bad_arg("from_json", "valid JSON", &e.to_string()))?;
     Ok(json_to_value(parsed))
 }
 
@@ -14122,13 +14125,21 @@ fn value_to_population_nn(v: &Value) -> Result<Population<NeuralNetwork>> {
     if let Value::Record(rec) = v {
         let individuals: Vec<crate::evolution::Individual<NeuralNetwork>> =
             if let Some(Value::Str(data)) = rec.get("_individuals") {
-                serde_json::from_str(data).context("Failed to deserialize individuals")?
+                serde_json::from_str(data).map_err(|e| {
+                    crate::safety::bad_arg(
+                        "evo",
+                        "a population from evo.population",
+                        &e.to_string(),
+                    )
+                })?
             } else {
                 return Err(anyhow!("Missing _individuals in population"));
             };
 
         let config: EvolutionConfig = if let Some(Value::Str(data)) = rec.get("_config") {
-            serde_json::from_str(data).context("Failed to deserialize config")?
+            serde_json::from_str(data).map_err(|e| {
+                crate::safety::bad_arg("evo", "a population from evo.population", &e.to_string())
+            })?
         } else {
             EvolutionConfig::default()
         };
@@ -14155,13 +14166,21 @@ fn value_to_population_vec(v: &Value) -> Result<Population<Vec<f64>>> {
     if let Value::Record(rec) = v {
         let individuals: Vec<crate::evolution::Individual<Vec<f64>>> =
             if let Some(Value::Str(data)) = rec.get("_individuals") {
-                serde_json::from_str(data).context("Failed to deserialize individuals")?
+                serde_json::from_str(data).map_err(|e| {
+                    crate::safety::bad_arg(
+                        "evo",
+                        "a population from evo.population",
+                        &e.to_string(),
+                    )
+                })?
             } else {
                 return Err(anyhow!("Missing _individuals in population"));
             };
 
         let config: EvolutionConfig = if let Some(Value::Str(data)) = rec.get("_config") {
-            serde_json::from_str(data).context("Failed to deserialize config")?
+            serde_json::from_str(data).map_err(|e| {
+                crate::safety::bad_arg("evo", "a population from evo.population", &e.to_string())
+            })?
         } else {
             EvolutionConfig::default()
         };
@@ -49054,8 +49073,8 @@ fn bi_jq_query(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         },
         _ => return Err(crate::safety::arg_err("jq input must be a JSON string")),
     };
-    let parsed: serde_json::Value =
-        serde_json::from_str(&json_str).map_err(|e| anyhow!("Invalid JSON: {}", e))?;
+    let parsed: serde_json::Value = serde_json::from_str(&json_str)
+        .map_err(|e| crate::safety::bad_arg("jq_query", "valid JSON input", &e.to_string()))?;
     // Native jq-like expression evaluation
     let result = eval_jq_expr(&expr, &parsed)?;
     Ok(json_to_value(result))

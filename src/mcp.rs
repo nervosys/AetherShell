@@ -468,8 +468,8 @@ impl McpServer {
     ///
     /// Writes one JSON-RPC response line per request to stdout. Notifications
     /// (messages with no `id`, e.g. `notifications/initialized`) get no reply.
-    /// Loops until stdin EOF. Runs in whatever safety mode the process is in, so
-    /// `ae --agent mcp stdio` serves with the agent default-deny policy active.
+    /// Loops until stdin EOF. Runs in whatever safety mode the process is in;
+    /// `ae mcp stdio` implies agent mode unless `AETHER_MODE` is set.
     pub fn serve_stdio(&self) -> std::io::Result<()> {
         use std::io::BufRead;
         let stdin = std::io::stdin();

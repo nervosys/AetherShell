@@ -65,9 +65,13 @@ result = runtime.eval('sys.hostname()')
 tools = get_agent_api_tools("http://localhost:3002")
 ```
 
-### Option 4: Migrate Existing Shell Scripts
+### Option 4: Run Existing Shell Scripts (limited)
 
-Run Bash, Zsh, or PowerShell scripts directly — AetherShell transpiles them on the fly:
+Bash, Zsh and PowerShell input is accepted, but mostly **not** translated. On a
+32-one-liner corpus (`benches/agentic/bashcompat.mjs`, E6) 2 ran natively, 10
+were handed to real `bash -lc`, 3 were refused and 17 failed. A delegated line
+runs outside the effect gate and the workspace jail, so do not treat this path
+as contained. Prefer writing AetherShell (or SQL via `sqlite_query`) directly.
 
 ```bash
 # Auto-detected by file extension
@@ -88,7 +92,12 @@ Transpilers map 100+ commands per shell to native AetherShell builtins, with blo
 
 ### Option 5: Agentic Syntax (Token-Minimized for AI)
 
-Use the `.aeg` extension or `--agentic`/`-a` flag for a token-minimized syntax that reduces LLM token consumption by ~60-70%:
+Use the `.aeg` extension or `--agentic`/`-a` flag for a compressed syntax. Measured
+on the E1 query corpus it saves **27.5% of command tokens and 0% of output**, and
+its 1,196-token cheatsheet makes it a net loss for sessions under ~129 queries
+(`docs/LANGUAGE_FIRST_PRINCIPLES.md` §2). The earlier "~60-70%" figure was not
+supported by any token measurement. The map below is frozen; prefer the legible
+syntax unless a session is long enough to amortize it:
 
 ```bash
 ae script.aeg                          # Auto-detected by extension
