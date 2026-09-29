@@ -732,6 +732,16 @@ fn lex(src: &str) -> Result<Vec<Spanned>> {
                     "try" => Tok::Try,
                     "catch" => Tok::Catch,
                     "throw" => Tok::Throw,
+                    // Python's and SQL's spellings of the boolean operators.
+                    // A 3B model asked for AetherShell wrote them in most of
+                    // its attempts (benches/agentic/results/e7-local-*.md);
+                    // nothing binds `and` or `or`, and a field of that name is
+                    // still reachable (see `need_field`). `not` is *not* here:
+                    // the prelude defines a `not` function and cfg conditions
+                    // say `not(windows)`, so it is read as negation only where
+                    // an operand follows (see `parse_unary`).
+                    "and" => Tok::AndAnd,
+                    "or" => Tok::OrOr,
                     _ => Tok::Ident,
                 };
                 out.push(Spanned {
@@ -1168,7 +1178,7 @@ impl Parser {
             if self.check(Tok::Dot) {
                 let mut body = Expr::Ident("__".to_string());
                 while self.match_tok(Tok::Dot) {
-                    let field = self.need_ident("expected field name after '|.'")?;
+                    let field = self.need_field("expected field name after '|.'")?;
                     body = Expr::MemberAccess {
                         object: Box::new(body),
                         field,
@@ -1321,12 +1331,12 @@ impl Parser {
     }
 
     fn parse_logic_and(&mut self) -> Result<Expr> {
-        let mut e = self.parse_equality()?;
+        let mut e = self.parse_not_word()?;
         let mut links = 0usize;
         while self.match_tok(Tok::AndAnd) {
             links += 1;
             self.chain_guard(links)?;
-            let r = self.parse_equality()?;
+            let r = self.parse_not_word()?;
             e = Expr::Binary {
                 left: Box::new(e),
                 op: BinOp::And,
@@ -1334,6 +1344,20 @@ impl Parser {
             };
         }
         Ok(e)
+    }
+
+    /// Word `not`, with Python's and SQL's precedence: looser than the
+    /// comparisons, tighter than `and`. `not .b > 5` is `!(.b > 5)`; the
+    /// symbol `!` keeps its own, tighter binding.
+    fn parse_not_word(&mut self) -> Result<Expr> {
+        if self.match_word_not() {
+            let e = self.parse_not_word()?;
+            return Ok(Expr::Unary {
+                op: UnOp::Not,
+                expr: Box::new(e),
+            });
+        }
+        self.parse_equality()
     }
 
     fn parse_equality(&mut self) -> Result<Expr> {
@@ -1552,7 +1576,7 @@ impl Parser {
                 };
             } else if self.match_tok(Tok::Dot) {
                 // Member access: obj.field
-                let field = self.need_ident("expected field name after '.'")?;
+                let field = self.need_field("expected field name after '.'")?;
                 e = Expr::MemberAccess {
                     object: Box::new(e),
                     field,
@@ -1626,7 +1650,7 @@ impl Parser {
         if self.implicit_row && self.check(Tok::Dot) {
             let mut e = Expr::Ident("__".to_string());
             while self.match_tok(Tok::Dot) {
-                let field = self.need_ident("expected a field name after '.'")?;
+                let field = self.need_field("expected a field name after '.'")?;
                 e = Expr::MemberAccess {
                     object: Box::new(e),
                     field,
@@ -1659,7 +1683,7 @@ impl Parser {
             let mut kvs = Vec::new();
             if !self.check(Tok::RBrace) {
                 loop {
-                    let key = self.need_ident("expected key in record")?;
+                    let key = self.need_field("expected key in record")?;
                     self.need(Tok::Colon, "expected ':' after key")?;
                     let val = self.parse_expr()?;
                     kvs.push((key, val));
@@ -1786,7 +1810,10 @@ impl Parser {
             }
         }
         self.need(Tok::RParen, "expected ')' after parameter list")?;
-        self.need(Tok::FatArrow, "expected '=>' after parameter list")?;
+        // `fn(x) x.a` -- the arrow left out -- is what a model writes when its
+        // prior is a language without one; the body that follows is
+        // unambiguous, so accept it rather than fail the whole program.
+        self.match_tok(Tok::FatArrow);
         // Parse the lambda body - include pipes as part of the body expression.
         // Disable word-call sugar while parsing to avoid greedily consuming
         // trailing atoms that belong to an outer call (e.g. `fn(a,b)=> a+b 0`).
@@ -2041,6 +2068,38 @@ impl Parser {
     fn check(&self, k: Tok) -> bool {
         self.peek().kind == k
     }
+    /// `not` in prefix position -- followed by something that starts an
+    /// operand -- is `!`. Anywhere else it stays a name, so the prelude's
+    /// `let not = …`, `export { not }` and `map(not)` keep working, and
+    /// `not(x)` means the same either way.
+    fn match_word_not(&mut self) -> bool {
+        let is_not = self.check(Tok::Ident) && self.peek().text == "not";
+        if !is_not {
+            return false;
+        }
+        let next = self.toks.get(self.i + 1).map(|t| &t.kind);
+        let starts_operand = matches!(
+            next,
+            Some(
+                Tok::Ident
+                    | Tok::Int
+                    | Tok::Float
+                    | Tok::String
+                    | Tok::True
+                    | Tok::False
+                    | Tok::Null
+                    | Tok::LParen
+                    | Tok::LBracket
+                    | Tok::Bang
+                    | Tok::Dot
+            )
+        );
+        if starts_operand {
+            self.i += 1;
+        }
+        starts_operand
+    }
+
     fn check_any(&self, ks: &[Tok]) -> bool {
         ks.iter().any(|k| self.peek().kind == *k)
     }
@@ -2079,6 +2138,26 @@ impl Parser {
             Err(self.error_at_current(msg))
         }
     }
+    /// A field name or record key: any word, reserved or not. `r.from`,
+    /// `{match: 1}` and `x.not` failed to parse because the word after `.` had
+    /// to be an identifier, and JSON data routinely has keys named `from`,
+    /// `type` or `match`.
+    fn need_field(&mut self, msg: &'static str) -> Result<String> {
+        let t = self.peek();
+        let wordlike = t
+            .text
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_alphabetic() || c == '_')
+            && t.text.chars().all(|c| c.is_alphanumeric() || c == '_');
+        if wordlike && !matches!(t.kind, Tok::String | Tok::Eof) {
+            let text = t.text.clone();
+            self.i += 1;
+            return Ok(text);
+        }
+        self.need_ident(msg)
+    }
+
     fn need_ident(&mut self, msg: &'static str) -> Result<String> {
         if self.match_tok(Tok::Ident) || self.match_tok(Tok::String) {
             Ok(self.prev().text.clone())

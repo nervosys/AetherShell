@@ -8800,8 +8800,28 @@ fn bi_from_json(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     // A bare `?` here surfaced serde's message as E_UNKNOWN with exit 1, the
     // one uncoded failure left in benches/agentic/errors.mjs (malformed-json).
-    let parsed: serde_json::Value = serde_json::from_str(&json_str)
-        .map_err(|e| crate::safety::bad_arg("from_json", "valid JSON", &e.to_string()))?;
+    let parsed: serde_json::Value = serde_json::from_str(&json_str).map_err(|e| {
+        // `from_json("issues.json")` -- the parser handed a path -- was every
+        // AetherShell attempt a small model made in the local E7 run. It stays
+        // an error (the text is not JSON), but the repair is mechanical, so
+        // the hint names it.
+        let path = json_str.trim();
+        if !path.is_empty() && path.len() < 4096 && std::path::Path::new(path).is_file() {
+            return anyhow::Error::new(crate::safety::SafetyError {
+                code: crate::safety::ErrorCode::BadArg,
+                message: format!("from_json: {path:?} is a file name, not JSON text"),
+                builtin: "from_json".to_string(),
+                hint: format!(
+                    "read and parse the file with open({path:?}), or cat({path:?}) | from_json"
+                ),
+                approval: None,
+                did_you_mean: vec![format!("open({path:?})")],
+                expected: "JSON text".to_string(),
+                got: "a file path".to_string(),
+            });
+        }
+        crate::safety::bad_arg("from_json", "valid JSON", &e.to_string())
+    })?;
     Ok(json_to_value(parsed))
 }
 

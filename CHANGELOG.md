@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **SQL over typed values**: `rows | sql("select … from t")`,
   `sql("data.json", query)`, and `sql_value(…)` for a single cell. Runs on a
   bundled SQLite; no `sqlite3` on PATH needed. E1: 321 tokens, second of seven.
+- **Borrowed spellings**: `and`/`or`/`not` for `&&`/`||`/`!` (word `not`
+  with Python's precedence: `not x > 5` is `!(x > 5)`), and `fn(x) x.a`
+  without the arrow. Record fields named after keywords (`r.from`,
+  `{match: 1}`) now parse. `from_json` of a file path names `open(...)` in
+  its hint. All four were first-try failures in a local E7 run.
 - **The row as `.field`**: in an argument of a pipeline stage, `.field` is the
   current row (jq's spelling), so `where(.state == "open")` means
   `where(fn(r) => r.state == "open")`. E1's default arm: 442 → 331 tokens,
