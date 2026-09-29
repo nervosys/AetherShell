@@ -179,6 +179,15 @@ if (!replay && !provider) {
         'to exercise the harness without calling a model.');
     process.exit(2);
 }
+// A missing key must stop the run, not score it. Checked per call, it made
+// every generation fail with "no API key", and the table printed 0/10 on every
+// arm -- a missing credential reading exactly like a model that cannot write
+// any of the syntaxes (found 2026-09-29; nothing was sent or spent).
+if (!replay && !LOCAL.has(provider) && !process.env[KEY_FOR[provider] ?? 'OPENAI_API_KEY']) {
+    console.error('refusing to run: provider "' + provider + '" needs ' +
+        (KEY_FOR[provider] ?? 'OPENAI_API_KEY') + ' in the environment.');
+    process.exit(2);
+}
 if (seeds > 1 && temperature === 0) {
     // Amendment 1 exists because the protocol originally asked for this.
     console.error('refusing to run: ' + seeds + ' seeds at temperature 0 are ' + seeds +
