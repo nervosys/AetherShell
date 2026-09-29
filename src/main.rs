@@ -1165,6 +1165,11 @@ fn run_posix_or_fall_back(src: &str) {
 fn run_code(code: &str) -> Result<()> {
     let mut env = create_env_with_modules();
     let exit_code = aethershell::repl::run_one(&mut env, code)?;
+    // The process ends here, and freeing the environment -- ~120 module
+    // records, a few thousand small allocations -- was 14% of the
+    // instructions `ae -c 1` executes. Neither `Env` nor `Value` has a `Drop`
+    // with side effects; output has already been written by `run_one`.
+    std::mem::forget(env);
     if exit_code != 0 {
         std::process::exit(exit_code);
     }

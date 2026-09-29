@@ -37,8 +37,10 @@ use std::time::Duration;
 // Fast builtin lookup using hash map
 lazy_static::lazy_static! {
     /// Public accessor for builtin lookup table (used by agent_api for dynamic discovery)
-    pub static ref BUILTIN_LOOKUP: HashMap<&'static str, usize> = {
-        let mut map = HashMap::new();
+    // Fx, not SipHash: looked up on every builtin call, keyed by names the
+    // shell itself defines. Its iteration order was never stable either way.
+    pub static ref BUILTIN_LOOKUP: rustc_hash::FxHashMap<&'static str, usize> = {
+        let mut map = rustc_hash::FxHashMap::default();
 
         // General functions
         map.insert("help", 0);
@@ -4145,10 +4147,30 @@ fn call_with_input_inner(
     // it is here rather than at ~300 call sites — the same reason this function
     // is already the single boundary for error structuring.
     //
-    // Agent surface only, and a no-op for every non-mutating effect, so the
-    // common path costs one `matches!`.
-    let journal_mark = crate::journal::mark();
-    crate::journal::record_before(name, crate::safety::effect_of(name), &args);
+    // Agent surface only. The comment here used to say the common path cost
+    // one `matches!`; in fact `mark()` locked the journal and, while it was
+    // empty, listed the session directory on disk -- every builtin call, in
+    // every mode. With journalling off (the human default) nothing is marked,
+    // and `rollback_to(usize::MAX)` below is a no-op.
+    //
+    // Only a call that can write is journalled (`record_before` ignores the
+    // rest), so only such a call needs to know whether journalling is on --
+    // which is three environment reads, 27% of a `len([x])` call when every
+    // call asked. Skipping the mark for a non-writing builtin also stops a
+    // failing `map` from rolling back the entry for a write its lambda did
+    // make.
+    let effect = crate::safety::effect_of(name);
+    let journal_on = matches!(
+        effect,
+        crate::safety::Effect::WriteLocal | crate::safety::Effect::Destructive
+    ) && crate::journal::enabled();
+    let journal_mark = if journal_on {
+        let m = crate::journal::mark();
+        crate::journal::record_before(name, effect, &args);
+        m
+    } else {
+        usize::MAX
+    };
 
     // Try fast lookup first. Decide *which* table serves the name before
     // handing the arguments over, so they move instead of being copied: this
@@ -4470,31 +4492,89 @@ fn call_lambda(lam: &Lambda, args: &[Value], env: &mut Env) -> Result<Value> {
     // observable behaviour is identical.
     let saved_pipe = env.take_input();
 
-    // Save previous bindings
-    let mut saved: Vec<(String, Option<Value>)> = Vec::with_capacity(params.len());
-    for (i, p) in params.iter().enumerate() {
-        let prev = env.get_var(p).cloned();
-        saved.push((p.clone(), prev));
-        env.set_var_unchecked(p, args[i].clone());
+    let (result, _) = bind_eval_unbind(lam, args.to_vec(), env, false);
+    // Restore pipe input
+    env.set_input(saved_pipe);
+    result
+}
+
+/// Call a lambda with arguments it may keep: they are moved into the
+/// parameter bindings instead of cloned, and, with `give_back`, taken out again
+/// afterwards and returned. A lambda body is one expression with no way to
+/// rebind a parameter, so what comes back is what went in -- which is what
+/// lets `where` test an element without copying it first.
+pub(crate) fn call_lambda_owned(
+    lam: &Lambda,
+    args: Vec<Value>,
+    env: &mut Env,
+    give_back: bool,
+) -> Result<(Value, Vec<Value>)> {
+    let _depth = crate::safety::enter_call()?;
+    if lam.params.len() != args.len() {
+        return Err(anyhow!(
+            "lambda expected {} args, got {}",
+            lam.params.len(),
+            args.len()
+        ));
     }
+    let saved_pipe = env.take_input();
+    let (result, back) = bind_eval_unbind(lam, args, env, give_back);
+    env.set_input(saved_pipe);
+    result.map(|r| (r, back))
+}
 
-    // Eval and restore
+/// `call_lambda_owned` for the one-parameter lambda, which is nearly every
+/// `map`/`where` predicate: the same binding discipline with no vectors, so a
+/// call allocates nothing beyond the parameter's name.
+pub(crate) fn call_lambda_one(
+    lam: &Lambda,
+    arg: Value,
+    env: &mut Env,
+    give_back: bool,
+) -> Result<(Value, Option<Value>)> {
+    let _depth = crate::safety::enter_call()?;
+    let [p] = lam.params.as_slice() else {
+        return Err(anyhow!("lambda expected {} args, got 1", lam.params.len()));
+    };
+    let saved_pipe = env.take_input();
+    let prev = env.take_var(p);
+    env.bind_param(p, arg);
     let result = eval_expr(&lam.body, env);
+    let cur = env.take_var(p);
+    if let Some(v) = prev {
+        env.bind_param(p, v);
+    }
+    env.set_input(saved_pipe);
+    result.map(|r| (r, if give_back { cur } else { None }))
+}
 
-    for (name, prev) in saved.into_iter().rev() {
-        match prev {
-            Some(v) => env.set_var_unchecked(&name, v),
-            None => env.del_var(&name),
+/// Bind `args` to the lambda's parameters, evaluate its body, and restore
+/// whatever those names were bound to before. Previous bindings are moved
+/// out and back rather than cloned.
+fn bind_eval_unbind(
+    lam: &Lambda,
+    args: Vec<Value>,
+    env: &mut Env,
+    give_back: bool,
+) -> (Result<Value>, Vec<Value>) {
+    let mut saved: Vec<Option<Value>> = Vec::with_capacity(args.len());
+    for (p, a) in lam.params.iter().zip(args) {
+        saved.push(env.take_var(p));
+        env.bind_param(p, a);
+    }
+    let result = eval_expr(&lam.body, env);
+    let mut back = Vec::new();
+    for (p, prev) in lam.params.iter().zip(saved).rev() {
+        let cur = env.take_var(p);
+        if give_back {
+            back.push(cur.unwrap_or(Value::Null));
+        }
+        if let Some(v) = prev {
+            env.bind_param(p, v);
         }
     }
-
-    // Restore pipe input
-    match saved_pipe {
-        Some(v) => env.set_input(Some(v)),
-        None => env.set_input(None),
-    }
-
-    result
+    back.reverse();
+    (result, back)
 }
 
 // --------------- General builtins ---------------
@@ -4789,35 +4869,39 @@ fn bi_call(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Valu
 // --------------- Data / pipeline builtins ---------------
 
 fn bi_map(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Value> {
-    // Array comes from pipe if present; else first arg. Use references to avoid moving `input`.
-    let arr_val = if let Some(ref v) = input {
-        v.clone()
-    } else {
-        args.first()
-            .cloned()
-            .ok_or_else(|| crate::safety::bad_arg("map", "an array", "nothing"))?
-    };
-
-    let lam_val = if input.is_some() {
+    let piped = input.is_some();
+    let lam_val = if piped {
         arg("map", &args, 0, "a lambda")?
     } else {
         arg("map", &args, 1, "a lambda")?
     };
     let lam = need_lambda(lam_val, "map")?;
-
-    let arr = expect_array("map", &arr_val)?;
+    // The array is owned here -- piped or the first argument -- so it is
+    // consumed, not copied. This cloned the whole input before starting and
+    // then every element again for the lambda.
+    let arr_val = match input {
+        Some(v) => v,
+        None => args
+            .first()
+            .cloned()
+            .ok_or_else(|| crate::safety::bad_arg("map", "an array", "nothing"))?,
+    };
+    expect_array("map", &arr_val)?;
+    let Value::Array(items) = arr_val else {
+        unreachable!("expect_array accepted it")
+    };
     // Both `fn(x, i)` and `fn(x)` are supported. This used to be discovered by
     // calling with two arguments and retrying with one on failure, which made
     // three copies of every element (`.cloned()`, `v_clone`, and the call's
     // own `v.clone()`) to keep the retry path alive. The lambda knows its own
     // arity, so ask it once.
     let two_arg = lam.params.len() == 2;
-    let mut out = Vec::with_capacity(arr.len());
-    for (i, v) in arr.iter().enumerate() {
+    let mut out = Vec::with_capacity(items.len());
+    for (i, v) in items.into_iter().enumerate() {
         let y = if two_arg {
-            call_lambda(lam, &[v.clone(), Value::Int(i as i64)], env)?
+            call_lambda_owned(lam, vec![v, Value::Int(i as i64)], env, false)?.0
         } else {
-            call_lambda(lam, &[v.clone()], env)?
+            call_lambda_one(lam, v, env, false)?.0
         };
         out.push(y);
     }
@@ -4825,34 +4909,40 @@ fn bi_map(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Value
 }
 
 fn bi_where(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Value> {
-    let arr_val = if let Some(ref v) = input {
-        v.clone()
-    } else {
-        args.first()
-            .cloned()
-            .ok_or_else(|| crate::safety::bad_arg("where", "an array", "nothing"))?
-    };
-
-    let lam_val = if input.is_some() {
+    let piped = input.is_some();
+    let lam_val = if piped {
         arg("where", &args, 0, "a lambda")?
     } else {
         arg("where", &args, 1, "a lambda")?
     };
     let lam = need_lambda(lam_val, "where")?;
-
-    let arr = expect_array("where", &arr_val)?;
+    // See `bi_map`: the array is consumed. Each element is moved into the
+    // predicate and handed back, so a kept element is never copied.
+    let arr_val = match input {
+        Some(v) => v,
+        None => args
+            .first()
+            .cloned()
+            .ok_or_else(|| crate::safety::bad_arg("where", "an array", "nothing"))?,
+    };
+    expect_array("where", &arr_val)?;
+    let Value::Array(items) = arr_val else {
+        unreachable!("expect_array accepted it")
+    };
     // See `bi_map`: ask the lambda its arity once instead of calling twice and
     // keeping three copies of each element alive to make the retry possible.
     let two_arg = lam.params.len() == 2;
     let mut out = Vec::new();
-    for (i, v) in arr.iter().enumerate() {
-        let keep_val = if two_arg {
-            call_lambda(lam, &[v.clone(), Value::Int(i as i64)], env)?
+    for (i, v) in items.into_iter().enumerate() {
+        let (keep_val, v) = if two_arg {
+            let (k, mut back) = call_lambda_owned(lam, vec![v, Value::Int(i as i64)], env, true)?;
+            (k, back.swap_remove(0))
         } else {
-            call_lambda(lam, &[v.clone()], env)?
+            let (k, back) = call_lambda_one(lam, v, env, true)?;
+            (k, back.unwrap_or(Value::Null))
         };
         match keep_val {
-            Value::Bool(true) => out.push(v.clone()),
+            Value::Bool(true) => out.push(v),
             Value::Bool(false) => {}
             other => return Err(anyhow!("where predicate must return Bool, got {:?}", other)),
         }

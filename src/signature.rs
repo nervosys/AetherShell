@@ -5762,10 +5762,24 @@ pub static SIGNATURES: &[Signature] = &[
 
 /// The declaration for `name`, if it has one.
 pub fn signature_of(name: &str) -> Option<&'static Signature> {
-    SIGNATURES
-        .iter()
-        .find(|s| s.name == name)
-        .or_else(|| SIGNATURES.iter().find(|s| s.aliases.contains(&name)))
+    // Asked on every builtin call. It was two linear scans -- names, then every
+    // alias list -- which for an undeclared builtin, most of them, meant ~800
+    // string comparisons to find nothing. Names win over aliases, first
+    // declaration first, as the scans did.
+    static INDEX: std::sync::LazyLock<rustc_hash::FxHashMap<&'static str, &'static Signature>> =
+        std::sync::LazyLock::new(|| {
+            let mut m = rustc_hash::FxHashMap::default();
+            for s in SIGNATURES {
+                m.entry(s.name).or_insert(s);
+            }
+            for s in SIGNATURES {
+                for a in s.aliases {
+                    m.entry(*a).or_insert(s);
+                }
+            }
+            m
+        });
+    INDEX.get(name).copied()
 }
 
 /// Check a call against its declaration, if it has one.

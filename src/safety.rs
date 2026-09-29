@@ -217,9 +217,23 @@ pub fn idempotent(name: &str) -> bool {
 /// has classified is not advertised with the same confidence as one that was
 /// read and found pure.
 pub fn effect_of(name: &str) -> Effect {
-    classified_effect(name)
+    // Every builtin call asks this at least once. `classified_effect` is a
+    // string match of about a thousand arms, and the answer is a pure function
+    // of the name, so it is computed once per name per thread.
+    thread_local! {
+        static CACHE: std::cell::RefCell<rustc_hash::FxHashMap<String, Effect>> =
+            std::cell::RefCell::new(rustc_hash::FxHashMap::default());
+    }
+    if let Some(e) = CACHE.with(|c| c.borrow().get(name).copied()) {
+        return e;
+    }
+    let e = classified_effect(name)
         .or_else(|| inherited_effect(name))
-        .unwrap_or(Effect::Pure)
+        .unwrap_or(Effect::Pure);
+    CACHE.with(|c| {
+        c.borrow_mut().insert(name.to_string(), e);
+    });
+    e
 }
 
 /// How strictly an effect is treated, for picking between siblings.
@@ -1067,8 +1081,10 @@ pub enum Mode {
 /// gate on an operator-set variable (rather than on caller-supplied data) share
 /// exactly these accepted spellings instead of each inventing their own.
 pub fn truthy_env(name: &str) -> bool {
+    // `var_os`: no UTF-8 check, no `String` -- this and `current_mode` run on
+    // every builtin call, and `getenv` was 8% of a call-heavy profile.
     matches!(
-        std::env::var(name).ok().as_deref(),
+        std::env::var_os(name).as_deref().and_then(|v| v.to_str()),
         Some("1") | Some("true") | Some("yes") | Some("on")
     )
 }
@@ -1107,7 +1123,12 @@ pub fn refuse_if_headless(builtin: &str) -> anyhow::Result<()> {
 
 /// The active execution mode, derived from the environment.
 pub fn current_mode() -> Mode {
-    if std::env::var("AETHER_MODE").ok().as_deref() == Some("agent") || truthy_env("AETHER_AGENT") {
+    if std::env::var_os("AETHER_MODE")
+        .as_deref()
+        .and_then(|v| v.to_str())
+        == Some("agent")
+        || truthy_env("AETHER_AGENT")
+    {
         Mode::Agent
     } else {
         Mode::Human
@@ -4190,6 +4211,13 @@ pub fn existing_paths(args: &[String]) -> Vec<String> {
 }
 pub fn guard_dispatch(builtin: &str, args: &[crate::value::Value]) -> Result<(), SafetyError> {
     let effect = effect_of(builtin);
+    // `Pure` and `ReadLocal` are neither centrally enforced nor audited, so
+    // every path below ends in `Ok(())` for them. They are most calls, and
+    // this used to copy every string argument first -- a piped document
+    // included -- before finding out.
+    if matches!(effect, Effect::Pure | Effect::ReadLocal) {
+        return Ok(());
+    }
     let args_as_strings: Vec<String> = args
         .iter()
         .filter_map(|a| match a {

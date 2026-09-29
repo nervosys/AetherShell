@@ -1,4 +1,6 @@
 use std::collections::{BTreeMap, HashSet};
+
+use rustc_hash::FxHashMap;
 use std::path::{Path, PathBuf};
 
 use crate::value::Value;
@@ -11,9 +13,13 @@ use crate::value::Value;
 /// - Optionally tracks a current working directory (cwd)
 #[derive(Debug, Default, Clone)]
 pub struct Env {
-    vars: BTreeMap<String, Value>,
+    /// A hash map, not a B-tree: every lambda call binds and unbinds its
+    /// parameters here, among ~120 module entries, and the B-tree's
+    /// insert/remove (comparisons plus rebalancing) was two thirds of a lambda
+    /// `map`. Nothing depends on the order; `vars()` callers sort.
+    vars: FxHashMap<String, Value>,
     /// Track which variables are mutable (created with `let mut`)
-    mutable_vars: BTreeMap<String, bool>,
+    mutable_vars: FxHashMap<String, bool>,
     /// Names the *user* declared with `let mut`.
     ///
     /// Distinct from `mutable_vars`, which `set_var_unchecked` also sets for
@@ -35,8 +41,8 @@ impl Env {
     /// Create a fresh environment.
     pub fn new() -> Self {
         Self {
-            vars: BTreeMap::new(),
-            mutable_vars: BTreeMap::new(),
+            vars: FxHashMap::default(),
+            mutable_vars: FxHashMap::default(),
             declared_mutable: std::collections::BTreeSet::new(),
             public_vars: HashSet::new(),
             exported_names: HashSet::new(),
@@ -164,6 +170,17 @@ impl Env {
 
     /// Internal use only: Set a variable without mutability checks.
     /// Used for pattern matching, lambda params, builtins, etc.
+    /// Bind a lambda parameter. Like `set_var_unchecked`, but allocates the
+    /// name once instead of twice, and marks it mutable only the first time:
+    /// a lambda call binds and unbinds its parameters per element, so this is
+    /// on the hottest path the evaluator has.
+    pub(crate) fn bind_param(&mut self, name: &str, value: Value) {
+        self.vars.insert(name.to_string(), value);
+        if !self.mutable_vars.contains_key(name) {
+            self.mutable_vars.insert(name.to_string(), true);
+        }
+    }
+
     pub(crate) fn set_var_unchecked<S: Into<String>>(&mut self, name: S, value: Value) {
         let name_str = name.into();
         self.vars.insert(name_str.clone(), value);
@@ -235,12 +252,12 @@ impl Env {
     }
 
     /// Expose the whole map if some builtin needs to iterate (read-only).
-    pub fn vars(&self) -> &BTreeMap<String, Value> {
+    pub fn vars(&self) -> &FxHashMap<String, Value> {
         &self.vars
     }
 
     /// Expose mutable map (use sparingly).
-    pub fn vars_mut(&mut self) -> &mut BTreeMap<String, Value> {
+    pub fn vars_mut(&mut self) -> &mut FxHashMap<String, Value> {
         &mut self.vars
     }
 

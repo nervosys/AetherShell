@@ -90,6 +90,7 @@ dependencies = [
  "regex",
  "reqwest",
  "rusqlite",
+ "rustc-hash 2.1.1",
  "secrecy",
  "semver",
  "serde",

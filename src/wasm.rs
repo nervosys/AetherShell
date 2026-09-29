@@ -71,11 +71,10 @@ impl AetherWasm {
     }
 
     pub fn variables(&self) -> Vec<JsValue> {
-        self.env
-            .vars()
-            .keys()
-            .map(|s| JsValue::from_str(s))
-            .collect()
+        // Sorted: the map is a hash map, and the listing should not vary.
+        let mut names: Vec<&String> = self.env.vars().keys().collect();
+        names.sort();
+        names.into_iter().map(|s| JsValue::from_str(s)).collect()
     }
 
     pub fn get_var(&self, name: &str) -> Result<String, JsValue> {

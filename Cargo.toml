@@ -183,6 +183,9 @@ notify = "6.1"
 md5 = "0.7"
 sysinfo = "0.33"
 regex = "1.10"
+# Fast non-cryptographic hashing for the evaluator's variable table (src/env.rs).
+# Already in the dependency graph transitively.
+rustc-hash = "2"
 
 # Native-only dependencies (terminal, TUI, system interaction)
 walkdir = { version = "2", optional = true }

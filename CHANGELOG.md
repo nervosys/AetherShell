@@ -38,6 +38,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`ae --explain` / `explain_effects(code)`**: every call in a program, its
   effect class and the agent-mode decision, without running it.
 
+### Performance
+
+- The evaluator is 1.3-3.3x faster per operation (builtin call 577 -> 216 ns,
+  lambda `map` 415 -> 178 ns per element, record filtering 3.3x):
+  no disk or environment access on a non-writing builtin call, a hash map for
+  variables, elements moved rather than copied through `map`/`where`, and
+  indexed signature and effect lookups. `benches/agentic/results/perf-2026-09-29.md`.
+
 ### Changed
 
 - **Agent-mode network egress needs approval** unless `AETHER_NET_ALLOW` names

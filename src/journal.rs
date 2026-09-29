@@ -64,6 +64,11 @@ impl Entry {
 
 lazy_static::lazy_static! {
     static ref JOURNAL: Mutex<Vec<Entry>> = Mutex::new(Vec::new());
+    /// The session directory the journal was last loaded from. Loading lists
+    /// that directory; doing it once per directory, rather than on every
+    /// builtin call while the journal happens to be empty, is the difference
+    /// between a read per session and a read per call.
+    static ref HYDRATED_FROM: Mutex<Option<Option<std::path::PathBuf>>> = Mutex::new(None);
 }
 
 /// Where this session's journal lives.
@@ -185,6 +190,14 @@ fn hydrate(j: &mut Vec<Entry>) {
     if !j.is_empty() {
         return;
     }
+    let dir = session_dir();
+    {
+        let mut h = HYDRATED_FROM.lock().unwrap_or_else(|e| e.into_inner());
+        if h.as_ref() == Some(&dir) {
+            return;
+        }
+        *h = Some(dir);
+    }
     *j = load_persisted();
 }
 
@@ -192,7 +205,10 @@ fn hydrate(j: &mut Vec<Entry>) {
 /// dual-surface split: the agent surface pays a little I/O for recoverability,
 /// the human REPL behaves exactly as before. `AETHER_JOURNAL=on`/`off` forces it.
 pub fn enabled() -> bool {
-    match std::env::var("AETHER_JOURNAL").ok().as_deref() {
+    match std::env::var_os("AETHER_JOURNAL")
+        .as_deref()
+        .and_then(|v| v.to_str())
+    {
         Some("on") | Some("1") | Some("true") => true,
         Some("off") | Some("0") | Some("false") => false,
         _ => crate::safety::current_mode() == crate::safety::Mode::Agent,
