@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **SQL over typed values**: `rows | sql("select … from t")`,
   `sql("data.json", query)`, and `sql_value(…)` for a single cell. Runs on a
   bundled SQLite; no `sqlite3` on PATH needed. E1: 321 tokens, second of seven.
+- **The row as `.field`**: in an argument of a pipeline stage, `.field` is the
+  current row (jq's spelling), so `where(.state == "open")` means
+  `where(fn(r) => r.state == "open")`. E1's default arm: 442 → 331 tokens,
+  now cheaper than the agentic cipher (336) and jq (340).
 - **`lines`, `open`, and globs in `cat`/`ls`**: `cat("src/*.rs") | lines | len`,
   `open("Cargo.toml").package.version` (parses JSON, JSON lines, TOML, YAML and
   CSV by extension), `ls("src/*.rs")`. E2 command tokens 163 → 96; the agent

@@ -81,3 +81,25 @@ What moved:
   language: the harness counts `"issues.json"` inside our command but not the
   `issues.db` in sqlite3's argv.
 
+
+## Addendum, 2026-09-28: the default syntax, with `open` and `.field`
+
+The default AetherShell arm rewritten with `open("issues.json")` (parse by
+extension) and the implicit row argument (`where(.is_pr)`, jq's spelling),
+both added after the runs above. Same logic query for query; nothing else
+changed. 10/10 correct and byte-stable.
+
+| Engine | Cmd tokens | Total tokens |
+| --- | ---: | ---: |
+| aethershell, before | 381 | 442 |
+| **aethershell, now** | **270** | **331** |
+| aethershell (agentic) | 275 | 336 |
+| aethershell (sql_value) | 269 | 321 |
+| bash+jq | 287 | 340 |
+| sqlite | 202 | 254 |
+
+The legible syntax is now cheaper than the agentic cipher, which needs a
+1,196-token cheatsheet the legible syntax does not, and than jq. It is third
+of seven, behind sqlite3 and `sql_value`. Latency in this run is not
+reported: every engine but sqlite3 ran about twice as slowly as in the run
+above, including arms that did not change, so the host was the variable.

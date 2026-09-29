@@ -152,6 +152,14 @@ pub struct Parser {
     // When `match { ... }` appears inside a lambda body, the first parameter
     // of the innermost enclosing lambda is used as the implicit scrutinee.
     lambda_param_stack: Vec<Vec<String>>,
+    /// Whether a leading `.field` may stand for a field of the pipeline row:
+    /// true while parsing an argument of a call on the right of `|`, so that
+    /// `xs | where(.state == "open")` means `where(fn(__) => __.state == "open")`
+    /// -- jq's spelling of "this row". Off inside an explicit `fn`, whose
+    /// parameters name the row themselves.
+    implicit_row: bool,
+    /// Set when the argument being parsed used an implicit `.field`.
+    implicit_used: bool,
     /// How deep the expression recursion currently is.
     ///
     /// The parser is recursive descent, so nesting in the *input* becomes
@@ -179,6 +187,8 @@ pub fn parse_program(src: &str) -> Result<Vec<Stmt>> {
         i: 0,
         allow_word_call: false,
         lambda_param_stack: Vec::new(),
+        implicit_row: false,
+        implicit_used: false,
         depth: 0,
     };
 
@@ -223,6 +233,8 @@ pub fn parse_program_strict(src: &str) -> Result<Vec<Stmt>> {
         i: 0,
         allow_word_call: false,
         lambda_param_stack: Vec::new(),
+        implicit_row: false,
+        implicit_used: false,
         depth: 0,
     };
     let mut stmts = Vec::new();
@@ -1206,8 +1218,23 @@ impl Parser {
                 let mut args = Vec::new();
                 if !self.check(Tok::RParen) {
                     loop {
-                        let a = self.parse_expr()?;
-                        args.push(a);
+                        // An argument that mentions `.field` without a receiver
+                        // is a function of the row: wrap it as one.
+                        let saved = (self.implicit_row, self.implicit_used);
+                        self.implicit_row = true;
+                        self.implicit_used = false;
+                        let parsed = self.parse_expr();
+                        let used = self.implicit_used;
+                        (self.implicit_row, self.implicit_used) = saved;
+                        let a = parsed?;
+                        args.push(if used {
+                            Expr::Lambda {
+                                params: vec!["__".to_string()],
+                                body: Box::new(a),
+                            }
+                        } else {
+                            a
+                        });
                         if self.match_tok(Tok::Comma) {
                             continue;
                         }
@@ -1596,6 +1623,18 @@ impl Parser {
     }
 
     fn parse_atom_expr(&mut self) -> Result<Expr> {
+        if self.implicit_row && self.check(Tok::Dot) {
+            let mut e = Expr::Ident("__".to_string());
+            while self.match_tok(Tok::Dot) {
+                let field = self.need_ident("expected a field name after '.'")?;
+                e = Expr::MemberAccess {
+                    object: Box::new(e),
+                    field,
+                };
+            }
+            self.implicit_used = true;
+            return Ok(e);
+        }
         if self.match_tok(Tok::LParen) {
             let e = self.parse_expr()?;
             self.need(Tok::RParen, "expected ')'")?;
@@ -1726,6 +1765,14 @@ impl Parser {
     }
 
     fn parse_lambda_after_fn(&mut self, is_async: bool) -> Result<Expr> {
+        let saved = self.implicit_row;
+        self.implicit_row = false;
+        let out = self.parse_lambda_after_fn_inner(is_async);
+        self.implicit_row = saved;
+        out
+    }
+
+    fn parse_lambda_after_fn_inner(&mut self, is_async: bool) -> Result<Expr> {
         self.need(Tok::LParen, "expected '(' after fn")?;
         let mut params = Vec::new();
         if !self.check(Tok::RParen) {

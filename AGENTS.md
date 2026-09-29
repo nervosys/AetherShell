@@ -195,6 +195,19 @@ add = fn(a, b) => a + b
 # Pipelines
 [1,2,3] | map(fn(x) => x * 2) | reduce(fn(a,b) => a + b, 0)
 
+# Rows: `.field` in a pipeline stage's argument is the row (jq's spelling),
+# `|.field` projects, `open` parses by extension (JSON, JSONL, TOML, YAML, CSV)
+open("issues.json") | where(.state == "open" && .comments > 5) |.number
+open("Cargo.toml").package.version
+cat("src/*.rs") | lines | len          # globs in cat/ls; glob("src/**/*.rs")
+
+# SQL over values or files (read-only, in-process)
+open("issues.json") | sql("select user, count(*) as n from t group by user")
+sql_value("issues.json", "select count(*) from issues where state = 'open'")
+
+# Check effects before running
+explain_effects("rm(\"x\")")            # or: ae --explain -c '...'
+
 # Pattern matching
 match score { 90..100 => "A", 80..89 => "B", _ => "F" }
 

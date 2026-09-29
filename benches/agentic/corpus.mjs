@@ -45,17 +45,22 @@ export const normalise = (s) =>
     s.trim().replace(/\r/g, '').replace(/^\[|\]$/g, '')
         .replace(/[|\s]+/g, ' ').replace(/,\s+/g, ',').trim();
 
+// Rewritten 2026-09-28 with `open` (parse by extension) and the implicit row
+// argument `.field` (jq's spelling: `where(.is_pr)` for
+// `where(fn(r) => r.is_pr)`), both added after the earlier run. Same logic,
+// query for query; the earlier text is in git history and
+// results/e1-query-corpus.md reports both.
 const AE = {
-    q1: 'cat("issues.json") | from_json | where(fn(r) => r.state == "open" && contains(lower(r.title + " " + r.body), "security")) | len',
-    q2: 'cat("issues.json") | from_json | where(fn(r) => r.is_pr) | len',
-    q3: 'cat("issues.json") | from_json | where(fn(r) => r.state == "closed") | map(fn(r) => r.comments) | sum',
-    q4: 'cat("issues.json") | from_json | where(fn(r) => r.is_pr) | group_by("user") | sort_by("Count") | last | fn(g) => g.Name + " " + to_string(g.Count)',
-    q5: 'cat("issues.json") | from_json | where(fn(r) => !r.is_pr && r.state == "open" && r.comments > 5) | map(fn(r) => r.number) | sort',
-    q6: 'cat("issues.json") | from_json | map(fn(r) => r.labels) | flatten | unique | len',
-    q7: 'cat("issues.json") | from_json | where(fn(r) => r.state == "open" && any(r.labels, fn(l) => l == "bug")) | len',
-    q8: 'cat("issues.json") | from_json | map(fn(r) => r.comments) | max',
-    q9: 'let iss = cat("issues.json") | from_json | where(fn(r) => !r.is_pr) | map(fn(r) => r.user) | unique\ncat("issues.json") | from_json | where(fn(r) => r.is_pr) | map(fn(r) => r.user) | unique | where(fn(u) => any(iss, fn(i) => i == u)) | len',
-    q10: 'cat("issues.json") | from_json | where(fn(r) => !r.is_pr && r.state == "open") | map(fn(r) => r.comments) | mean | round(2)',
+    q1: 'open("issues.json") | where(.state == "open" && contains(lower(.title + " " + .body), "security")) | len',
+    q2: 'open("issues.json") | where(.is_pr) | len',
+    q3: 'open("issues.json") | where(.state == "closed") |.comments | sum',
+    q4: 'open("issues.json") | where(.is_pr) | group_by("user") | sort_by("Count") | last | fn(g) => g.Name + " " + to_string(g.Count)',
+    q5: 'open("issues.json") | where(!.is_pr && .state == "open" && .comments > 5) |.number | sort',
+    q6: 'open("issues.json") |.labels | flatten | unique | len',
+    q7: 'open("issues.json") | where(.state == "open" && any(.labels, fn(l) => l == "bug")) | len',
+    q8: 'open("issues.json") |.comments | max',
+    q9: 'let iss = open("issues.json") | where(!.is_pr) |.user | unique\nopen("issues.json") | where(.is_pr) |.user | unique | where(fn(u) => any(iss, fn(i) => i == u)) | len',
+    q10: 'open("issues.json") | where(!.is_pr && .state == "open") |.comments | mean | round(2)',
 };
 
 // The same ten in the token-minimised syntax. `~` is the implicit parameter and
