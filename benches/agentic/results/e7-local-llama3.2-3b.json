@@ -1,0 +1,381 @@
+{
+  "prompts": "dd1eb51326fc5d9c",
+  "provider": "ollama",
+  "model": "llama3.2:3b",
+  "temperature": 0,
+  "seeds": 1,
+  "corpus": {
+    "records": 500,
+    "prs": 266,
+    "open": 91,
+    "numbers": "13994..14530"
+  },
+  "skipped": [
+    {
+      "arm": "jq",
+      "needs": "jq"
+    }
+  ],
+  "rows": [
+    {
+      "q": "q1",
+      "arm": "agentic-nocheat",
+      "seed": 0,
+      "command": null,
+      "correct": false,
+      "reason": "no command"
+    },
+    {
+      "q": "q1",
+      "arm": "aethershell",
+      "seed": 0,
+      "command": "from_json(\"issues.json\") | where(fn(x) => x.state == \"open\" and any(fn(y) => y.title:contains(\"security\") or y.body:contains(\"security\"))) | len",
+      "correct": false,
+      "got": "error[E_PARSE]: found 6 error(s): expected ')' after arguments at line 1,column 61 unexpected token Colon at line 1,column 85 unexpected token Dot at line 1,column 111 unexpected token RParen at line ",
+      "want": "12",
+      "exit": 2
+    },
+    {
+      "q": "q1",
+      "arm": "sql",
+      "seed": 0,
+      "command": "SELECT COUNT(*) \nFROM issues \nWHERE state = 'open' AND title LIKE '%security%' OR body LIKE '%security%';",
+      "correct": false,
+      "got": "106",
+      "want": "12",
+      "exit": 0
+    },
+    {
+      "q": "q1",
+      "arm": "agentic",
+      "seed": 0,
+      "command": null,
+      "correct": false,
+      "reason": "no command"
+    },
+    {
+      "q": "q2",
+      "arm": "sql",
+      "seed": 0,
+      "command": "SELECT COUNT(number) FROM issues WHERE is_pr = 1;",
+      "correct": true,
+      "got": "266",
+      "want": "266",
+      "exit": 0
+    },
+    {
+      "q": "q2",
+      "arm": "aethershell",
+      "seed": 0,
+      "command": null,
+      "correct": false,
+      "reason": "no command"
+    },
+    {
+      "q": "q2",
+      "arm": "agentic",
+      "seed": 0,
+      "command": null,
+      "correct": false,
+      "reason": "no command"
+    },
+    {
+      "q": "q2",
+      "arm": "agentic-nocheat",
+      "seed": 0,
+      "command": null,
+      "correct": false,
+      "reason": "no command"
+    },
+    {
+      "q": "q3",
+      "arm": "aethershell",
+      "seed": 0,
+      "command": "from_json(\"issues.json\") | where(state == \"closed\") | map(fn(x) x.comments) | sum()",
+      "correct": false,
+      "got": "error[E_PARSE]: found 2 error(s): expected '=>' after parameter list at line 1,column 65 unexpected token Pipe at line 1,column 77 hint: fix the syntax at the reported line and column; the source neve",
+      "want": "446",
+      "exit": 2
+    },
+    {
+      "q": "q3",
+      "arm": "agentic",
+      "seed": 0,
+      "command": null,
+      "correct": false,
+      "reason": "no command"
+    },
+    {
+      "q": "q3",
+      "arm": "sql",
+      "seed": 0,
+      "command": "SELECT SUM(comments) FROM issues WHERE state = 'closed';",
+      "correct": true,
+      "got": "446",
+      "want": "446",
+      "exit": 0
+    },
+    {
+      "q": "q3",
+      "arm": "agentic-nocheat",
+      "seed": 0,
+      "command": null,
+      "correct": false,
+      "reason": "no command"
+    },
+    {
+      "q": "q4",
+      "arm": "sql",
+      "seed": 0,
+      "command": "SELECT user, COUNT(*) FROM issues WHERE is_pr = 1 GROUP BY user ORDER BY COUNT(*) DESC LIMIT 1;",
+      "correct": true,
+      "got": "williammartin 66",
+      "want": "williammartin 66",
+      "exit": 0
+    },
+    {
+      "q": "q4",
+      "arm": "agentic-nocheat",
+      "seed": 0,
+      "command": null,
+      "correct": false,
+      "reason": "no command"
+    },
+    {
+      "q": "q4",
+      "arm": "aethershell",
+      "seed": 0,
+      "command": "from_json(\"issues.json\") | where(is_pr = true) | group(user) | map(fn(x) {x.count}) | sort_by(-x) | last()",
+      "correct": false,
+      "got": "error[E_PARSE]: found 7 error(s): expected ')' after arguments at line 1,column 40 unexpected token Pipe at line 1,column 48 unexpected token Pipe at line 1,column 62 expected '=>' after parameter lis",
+      "want": "williammartin 66",
+      "exit": 2
+    },
+    {
+      "q": "q4",
+      "arm": "agentic",
+      "seed": 0,
+      "command": null,
+      "correct": false,
+      "reason": "no command"
+    },
+    {
+      "q": "q5",
+      "arm": "agentic",
+      "seed": 0,
+      "command": "cat(\"issues.json\") | from_json | where(fn(__) => __.state == \"open\" && __.is_pr == false && __.comments > 5) | sort_by(fn(__) => __.comments) | last(count=5) | map(fn(__) => __.number)",
+      "correct": false,
+      "got": "error[E_PARSE]: found 3 error(s): expected ')' after arguments at line 2,column 155 unexpected token Pipe at line 2,column 159 unexpected token RParen at line 2,column 185 hint: fix the syntax at the ",
+      "want": "14086,14089,14090,14107,14223,14256,14309,14386,14389",
+      "exit": 2
+    },
+    {
+      "q": "q5",
+      "arm": "sql",
+      "seed": 0,
+      "command": "SELECT number\nFROM issues\nWHERE state = 'open' AND is_pr = 0 AND comments > 5\nORDER BY comments DESC;",
+      "correct": false,
+      "got": "14090 14309 14089 14107 14256 14389 14086 14386 14223",
+      "want": "14086,14089,14090,14107,14223,14256,14309,14386,14389",
+      "exit": 0
+    },
+    {
+      "q": "q5",
+      "arm": "aethershell",
+      "seed": 0,
+      "command": "from_json(\"issues.json\") | where(is_pr == false and state == \"open\" and comments > 5) | sort_by(-comments) | map(str)",
+      "correct": false,
+      "got": "error[E_PARSE]: found 3 error(s): expected ')' after arguments at line 1,column 49 unexpected token Pipe at line 1,column 87 unexpected token Pipe at line 1,column 108 hint: fix the syntax at the repo",
+      "want": "14086,14089,14090,14107,14223,14256,14309,14386,14389",
+      "exit": 2
+    },
+    {
+      "q": "q5",
+      "arm": "agentic-nocheat",
+      "seed": 0,
+      "command": "from_json(\"issues.json\") | where(is_pr == false and state == \"open\" and comments > 5) | sort_by(-comments) | map(str) | unique()",
+      "correct": false,
+      "got": "error[E_PARSE]: found 4 error(s): expected ')' after arguments at line 2,column 49 unexpected token Pipe at line 2,column 87 unexpected token Pipe at line 2,column 108 unexpected token Pipe at line 2,",
+      "want": "14086,14089,14090,14107,14223,14256,14309,14386,14389",
+      "exit": 2
+    },
+    {
+      "q": "q6",
+      "arm": "agentic",
+      "seed": 0,
+      "command": null,
+      "correct": false,
+      "reason": "no command"
+    },
+    {
+      "q": "q6",
+      "arm": "aethershell",
+      "seed": 0,
+      "command": null,
+      "correct": false,
+      "reason": "no command"
+    },
+    {
+      "q": "q6",
+      "arm": "agentic-nocheat",
+      "seed": 0,
+      "command": null,
+      "correct": false,
+      "reason": "no command"
+    },
+    {
+      "q": "q6",
+      "arm": "sql",
+      "seed": 0,
+      "command": "SELECT COUNT(DISTINCT labels) FROM issues;",
+      "correct": false,
+      "got": "78",
+      "want": "42",
+      "exit": 0
+    },
+    {
+      "q": "q7",
+      "arm": "agentic",
+      "seed": 0,
+      "command": null,
+      "correct": false,
+      "reason": "no command"
+    },
+    {
+      "q": "q7",
+      "arm": "agentic-nocheat",
+      "seed": 0,
+      "command": null,
+      "correct": false,
+      "reason": "no command"
+    },
+    {
+      "q": "q7",
+      "arm": "aethershell",
+      "seed": 0,
+      "command": "from_json(\"issues.json\") | where(predicate=fn(x) x.state == \"open\" and x.labels:contains(\"bug\")) | len",
+      "correct": false,
+      "got": "error[E_PARSE]: found 4 error(s): expected ')' after arguments at line 1,column 43 expected '=>' after parameter list at line 1,column 50 unexpected token RParen at line 1,column 97 unexpected token P",
+      "want": "19",
+      "exit": 2
+    },
+    {
+      "q": "q7",
+      "arm": "sql",
+      "seed": 0,
+      "command": "SELECT COUNT(*) FROM issues WHERE state = 'open' AND labels LIKE '%[\"bug\"]%' OR is_pr = 0;",
+      "correct": false,
+      "got": "234",
+      "want": "19",
+      "exit": 0
+    },
+    {
+      "q": "q8",
+      "arm": "agentic",
+      "seed": 0,
+      "command": null,
+      "correct": false,
+      "reason": "no command"
+    },
+    {
+      "q": "q8",
+      "arm": "aethershell",
+      "seed": 0,
+      "command": "from_json(\"issues.json\") | map(fn(x) x.comments) | max() | str()",
+      "correct": false,
+      "got": "error[E_PARSE]: found 3 error(s): expected '=>' after parameter list at line 1,column 38 unexpected token Pipe at line 1,column 50 unexpected token Pipe at line 1,column 58 hint: fix the syntax at the",
+      "want": "98",
+      "exit": 2
+    },
+    {
+      "q": "q8",
+      "arm": "agentic-nocheat",
+      "seed": 0,
+      "command": null,
+      "correct": false,
+      "reason": "no command"
+    },
+    {
+      "q": "q8",
+      "arm": "sql",
+      "seed": 0,
+      "command": "SELECT MAX(comments) FROM issues;",
+      "correct": true,
+      "got": "98",
+      "want": "98",
+      "exit": 0
+    },
+    {
+      "q": "q9",
+      "arm": "agentic-nocheat",
+      "seed": 0,
+      "command": null,
+      "correct": false,
+      "reason": "no command"
+    },
+    {
+      "q": "q9",
+      "arm": "aethershell",
+      "seed": 0,
+      "command": "from_json(\"issues.json\") | where(is_pr and state == \"open\") | map(user) | unique() | len()",
+      "correct": false,
+      "got": "error[E_BAD_ARG]: from_json: expected valid JSON,got expected value at line 1 column 1 hint: pass an argument matching: valid JSON",
+      "want": "23",
+      "exit": 64
+    },
+    {
+      "q": "q9",
+      "arm": "sql",
+      "seed": 0,
+      "command": "SELECT COUNT(DISTINCT user) \nFROM issues \nWHERE is_pr = 1 AND user IN (SELECT user FROM issues WHERE is_pr = 0);",
+      "correct": true,
+      "got": "23",
+      "want": "23",
+      "exit": 0
+    },
+    {
+      "q": "q9",
+      "arm": "agentic",
+      "seed": 0,
+      "command": null,
+      "correct": false,
+      "reason": "no command"
+    },
+    {
+      "q": "q10",
+      "arm": "agentic",
+      "seed": 0,
+      "command": null,
+      "correct": false,
+      "reason": "no command"
+    },
+    {
+      "q": "q10",
+      "arm": "agentic-nocheat",
+      "seed": 0,
+      "command": null,
+      "correct": false,
+      "reason": "no command"
+    },
+    {
+      "q": "q10",
+      "arm": "sql",
+      "seed": 0,
+      "command": "SELECT AVG(comments) FROM issues WHERE state = 'open' AND is_pr = 0;",
+      "correct": false,
+      "got": "4.6119402985074629",
+      "want": "4.61",
+      "exit": 0
+    },
+    {
+      "q": "q10",
+      "arm": "aethershell",
+      "seed": 0,
+      "command": "from_json(\"issues.json\") | where(state == \"open\" and not is_pr) | map(fn(x) x.comments) | avg() | round(2) | str()",
+      "correct": false,
+      "got": "error[E_PARSE]: found 6 error(s): expected ')' after arguments at line 1,column 50 unexpected token Pipe at line 1,column 65 expected '=>' after parameter list at line 1,column 77 unexpected token Pip",
+      "want": "4.61",
+      "exit": 2
+    }
+  ]
+}

@@ -137,22 +137,30 @@ const ENDPOINT = {
     anthropic: 'https://api.anthropic.com/v1/messages',
     openai: 'https://api.openai.com/v1/chat/completions',
     openrouter: 'https://openrouter.ai/api/v1/chat/completions',
+    // A local model through Ollama's OpenAI-compatible API: no key, no spend.
+    // For exercising the harness against a real generator; a small local
+    // model is not the pre-registered "one frontier model", and a run with it
+    // is not the E7 result.
+    ollama: (process.env.OLLAMA_HOST ?? 'http://127.0.0.1:11434') + '/v1/chat/completions',
 };
+const LOCAL = new Set(['ollama']);
 
 function generate(prompt, provider, model, temperature, seed) {
-    const key = process.env[KEY_FOR[provider] ?? 'OPENAI_API_KEY'];
-    if (!key) throw new Error('no API key for provider "' + provider + '": set ' + KEY_FOR[provider]);
+    const key = LOCAL.has(provider) ? null : process.env[KEY_FOR[provider] ?? 'OPENAI_API_KEY'];
+    if (!key && !LOCAL.has(provider)) {
+        throw new Error('no API key for provider "' + provider + '": set ' + KEY_FOR[provider]);
+    }
     const anthropic = provider === 'anthropic';
     const body = anthropic
         ? { model, max_tokens: 700, temperature, messages: [{ role: 'user', content: prompt }] }
         : { model, max_tokens: 700, temperature, seed, messages: [{ role: 'user', content: prompt }] };
     const headers = anthropic
         ? ['-H', 'x-api-key: ' + key, '-H', 'anthropic-version: 2023-06-01']
-        : ['-H', 'Authorization: Bearer ' + key];
+        : key ? ['-H', 'Authorization: Bearer ' + key] : [];
     const r = spawnSync('curl', [
-        '-s', '-m', '120', '-X', 'POST', ENDPOINT[provider] ?? ENDPOINT.openai,
+        '-s', '-m', LOCAL.has(provider) ? '600' : '120', '-X', 'POST', ENDPOINT[provider] ?? ENDPOINT.openai,
         '-H', 'Content-Type: application/json', ...headers, '--data-binary', '@-',
-    ], { input: JSON.stringify(body), encoding: 'utf8', timeout: 130000 });
+    ], { input: JSON.stringify(body), encoding: 'utf8', timeout: LOCAL.has(provider) ? 610000 : 130000 });
     let j;
     try { j = JSON.parse(r.stdout || '{}'); } catch { throw new Error('unparseable provider response'); }
     if (j.error) throw new Error('provider error: ' + (j.error.message ?? JSON.stringify(j.error)));
@@ -162,12 +170,12 @@ function generate(prompt, provider, model, temperature, seed) {
 // ── run ─────────────────────────────────────────────────────────────────
 const replay = has('replay');
 const provider = replay ? 'replay' : flag('provider', null);
-const model = flag('model', provider === 'anthropic' ? 'claude-opus-5' : 'gpt-4o');
+const model = flag('model', provider === 'anthropic' ? 'claude-opus-5' : provider === 'ollama' ? 'llama3.2:3b' : 'gpt-4o');
 const seeds = Number(flag('seeds', '1'));
 const temperature = Number(flag('temperature', seeds > 1 ? '0.7' : '0'));
 
 if (!replay && !provider) {
-    console.error('refusing to run: pass --provider <anthropic|openai|openrouter>, or --replay\n' +
+    console.error('refusing to run: pass --provider <anthropic|openai|openrouter|ollama>, or --replay\n' +
         'to exercise the harness without calling a model.');
     process.exit(2);
 }
