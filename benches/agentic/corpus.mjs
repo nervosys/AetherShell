@@ -20,6 +20,13 @@ export const ENGINES = {
     'aethershell (sql)': {
         bin: 'ae', argv: (c) => ['-c', c], label: 'AetherShell 12.0.2 + sqlite_query',
     },
+    // The same SQL, run in-process over the raw issues.json rather than the
+    // prepared issues.db, through sql_value -- which returns the one cell
+    // instead of paying `|first|values|first` for it. Added with src/sql.rs;
+    // the arm above is kept unchanged so the two can be compared.
+    'aethershell (sql_value)': {
+        bin: 'ae', argv: (c) => ['-c', c], label: 'AetherShell 12.0.2 + sql_value over JSON',
+    },
     'bash+jq': { bin: 'bash', argv: (c) => ['-c', c], label: 'bash 5.2 + jq 1.7.1' },
     'bash+coreutils': { bin: 'bash', argv: (c) => ['-c', c], label: 'bash 5.2 + coreutils (files)' },
     sqlite: { bin: 'sqlite3', argv: (c) => ['issues.db', c], label: 'sqlite3' },
@@ -70,19 +77,27 @@ const AGENTIC = {
 
 // SQL from inside AetherShell. Same engine, same effect gate, same structured
 // errors -- the hybrid the Vercel post found best, without leaving the shell.
+const AESQL_QUERIES = {
+    q1: `SELECT count(*) FROM issues WHERE state='open' AND lower(title||' '||body) LIKE '%security%'`,
+    q2: `SELECT count(*) FROM issues WHERE is_pr=1`,
+    q3: `SELECT sum(comments) FROM issues WHERE state='closed'`,
+    q4: `SELECT user||' '||count(*) FROM issues WHERE is_pr=1 GROUP BY user ORDER BY count(*) DESC LIMIT 1`,
+    q5: `SELECT group_concat(number) FROM (SELECT number FROM issues WHERE is_pr=0 AND state='open' AND comments>5 ORDER BY number)`,
+    q6: `SELECT count(DISTINCT j.value) FROM issues, json_each(issues.labels) j`,
+    q7: `SELECT count(*) FROM issues WHERE state='open' AND EXISTS(SELECT 1 FROM json_each(issues.labels) j WHERE j.value='bug')`,
+    q8: `SELECT max(comments) FROM issues`,
+    q9: `SELECT count(*) FROM (SELECT user FROM issues WHERE is_pr=1 INTERSECT SELECT user FROM issues WHERE is_pr=0)`,
+    q10: `SELECT round(avg(comments),2) FROM issues WHERE is_pr=0 AND state='open'`,
+};
 const AESQL = Object.fromEntries(
-    Object.entries({
-        q1: `SELECT count(*) FROM issues WHERE state='open' AND lower(title||' '||body) LIKE '%security%'`,
-        q2: `SELECT count(*) FROM issues WHERE is_pr=1`,
-        q3: `SELECT sum(comments) FROM issues WHERE state='closed'`,
-        q4: `SELECT user||' '||count(*) FROM issues WHERE is_pr=1 GROUP BY user ORDER BY count(*) DESC LIMIT 1`,
-        q5: `SELECT group_concat(number) FROM (SELECT number FROM issues WHERE is_pr=0 AND state='open' AND comments>5 ORDER BY number)`,
-        q6: `SELECT count(DISTINCT j.value) FROM issues, json_each(issues.labels) j`,
-        q7: `SELECT count(*) FROM issues WHERE state='open' AND EXISTS(SELECT 1 FROM json_each(issues.labels) j WHERE j.value='bug')`,
-        q8: `SELECT max(comments) FROM issues`,
-        q9: `SELECT count(*) FROM (SELECT user FROM issues WHERE is_pr=1 INTERSECT SELECT user FROM issues WHERE is_pr=0)`,
-        q10: `SELECT round(avg(comments),2) FROM issues WHERE is_pr=0 AND state='open'`,
-    }).map(([k, sql]) => [k, `sqlite_query("issues.db","${sql}")|first|values|first`])
+    Object.entries(AESQL_QUERIES)
+        .map(([k, sql]) => [k, `sqlite_query("issues.db","${sql}")|first|values|first`])
+);
+// Identical SQL text: sql_value names issues.json's rows `issues` after the
+// file, stores is_pr as 0/1 and labels as JSON text, so nothing needed
+// rewriting for the JSON source.
+const AESQLV = Object.fromEntries(
+    Object.entries(AESQL_QUERIES).map(([k, sql]) => [k, `sql_value("issues.json","${sql}")`])
 );
 
 const JQ = {
@@ -153,7 +168,7 @@ const NU = {
 export const COMMANDS = {
     aethershell: AE,
     'aethershell (agentic)': AGENTIC,
-    'aethershell (sql)': AESQL, 'bash+jq': JQ, 'bash+coreutils': CORE,
+    'aethershell (sql)': AESQL, 'aethershell (sql_value)': AESQLV, 'bash+jq': JQ, 'bash+coreutils': CORE,
     sqlite: SQL, pwsh: PS, nushell: NU,
 };
 
@@ -178,6 +193,10 @@ export const ATTEMPTS = {
     'bash+jq': { q1: 1, q2: 1, q3: 1, q4: 1, q5: 1, q6: 1, q7: 1, q8: 1, q9: 1, q10: 1 },
     'bash+coreutils': { q1: 2, q2: 1, q3: 2, q4: 2, q5: 1, q6: 4, q7: 2, q8: 1, q9: 1, q10: 1 },
     sqlite: { q1: 1, q2: 1, q3: 1, q4: 1, q5: 1, q6: 1, q7: 1, q8: 1, q9: 1, q10: 1 },
+    // All first-try, but not a fluency result: the SQL was reused verbatim from
+    // the arm above, so this records only that nothing needed rewriting for a
+    // JSON source.
+    'aethershell (sql_value)': { q1: 1, q2: 1, q3: 1, q4: 1, q5: 1, q6: 1, q7: 1, q8: 1, q9: 1, q10: 1 },
     pwsh: { q1: 1, q2: 1, q3: 1, q4: 1, q5: 1, q6: 1, q7: 1, q8: 1, q9: 1, q10: 1 },
     nushell: { q1: 3, q2: 1, q3: 1, q4: 1, q5: 2, q6: 1, q7: 2, q8: 1, q9: 2, q10: 2 },
 };

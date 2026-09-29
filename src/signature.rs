@@ -424,6 +424,7 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[
             (r#"cat("issues.json") | from_json | len"#, "500"),
             (r#""[1, 2]" | from_json"#, "[1, 2]"),
+            (r#"typeof("null" | from_json)"#, "Null"),
         ],
     },
     Signature {
@@ -975,27 +976,65 @@ pub static SIGNATURES: &[Signature] = &[
         //
         // Bind parameters are genuinely unsupported; that is now visible in the
         // signature instead of being discovered when a query returns nulls.
+        //
+        // Since src/sql.rs it runs in-process and read-only, and takes rows as
+        // well as databases: `rows | sql(query)` is the borrowed front-end
+        // docs/LANGUAGE_FIRST_PRINCIPLES.md §3 asks for. One argument is the
+        // query over the piped rows; two are a source and a query.
         name: "sql",
         category: Some("Database"),
         subject_required: false,
         aliases: &["sqlite_query", "db_sqlite_query"],
-        subject: None,
+        subject: Some(Ty::Any),
         params: &[
             req(
-                "database",
+                "source_or_query",
                 Ty::Str,
-                "path to the SQLite file, or \":memory:\" for a scratch database",
+                "with rows piped in, the query (they are table `t`); otherwise a source: a                  .json/.jsonl/.csv file (a table named after the file, also `t`), a SQLite                  file, or \":memory:\"",
             ),
-            req("query", Ty::Str, "SQL to execute; bind parameters are not supported"),
+            opt(
+                "query",
+                Ty::Str,
+                "the read-only SQL to run against the source; bind parameters are not supported",
+            ),
         ],
         returns: "Array",
-        doc: "Run a SQL query against a SQLite database, returning rows as records.",
+        doc: "Run a read-only SQL query over piped rows, a JSON/CSV file or a SQLite database, returning rows as records.",
         examples: &[
+            (
+                r#"[{n: 1}, {n: 2}, {n: 3}] | sql("select sum(n) as total from t") | first | fn(r) => r.total"#,
+                "6",
+            ),
             (
                 r#"sqlite_query(":memory:", "SELECT 1 AS n") | first | fn(r) => r.n"#,
                 "1",
             ),
             (r#"sql(":memory:", "SELECT 2 AS n") | len"#, "1"),
+        ],
+    },
+    Signature {
+        // The scalar half of `sql`. E1's hybrid arm paid `|first|values|first`
+        // on every answer to get one number out of a one-row result; this is
+        // that, with a refusal when the result is not one cell instead of a
+        // silently different type.
+        name: "sql_value",
+        category: Some("Database"),
+        subject_required: false,
+        aliases: &[],
+        subject: Some(Ty::Any),
+        params: &[
+            req(
+                "source_or_query",
+                Ty::Str,
+                "with rows piped in, the query (they are table `t`); otherwise a source, as for sql",
+            ),
+            opt("query", Ty::Str, "the read-only SQL to run against the source"),
+        ],
+        returns: "Any",
+        doc: "Run a read-only SQL query that yields exactly one row of one column, returning that value.",
+        examples: &[
+            (r#"[{n: 1}, {n: 2}, {n: 3}] | sql_value("select max(n) from t")"#, "3"),
+            (r#"sql_value(":memory:", "select 6 * 7")"#, "42"),
         ],
     },
     Signature {

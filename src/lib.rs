@@ -221,6 +221,9 @@ pub mod shapes;
 /// Declared builtin signatures — enforced at dispatch, read by the ontology.
 #[cfg(feature = "native")]
 pub mod signature;
+/// In-process, read-only SQL over typed values (`sql`, `sql_value`).
+#[cfg(feature = "native")]
+pub mod sql;
 /// Syntax knowledge base — command documentation and help system.
 #[cfg(feature = "native")]
 pub mod syntax_kb;

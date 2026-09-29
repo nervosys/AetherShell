@@ -49,3 +49,35 @@ Token counts: **exact** cl100k_base BPE via tiktoken.
 ## Determinism
 
 Every engine produced byte-identical output across all 11 runs on this corpus.
+
+## Addendum, 2026-09-28: `sql_value` over JSON (src/sql.rs)
+
+A separate run, on the same corpus, after `sql`/`sqlite_query` moved in-process
+and `sql_value` was added. pwsh and nushell were not on PATH for this run, and
+the host was also compiling, so **absolute** latencies are inflated (sqlite3's
+median went 2.7 → 8.2 ms); compare within the table, not with the one above.
+Token counts do not depend on load.
+
+| Engine | Correct | Cmd tokens | Output tokens | Total tokens | Median ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| aethershell | 10/10 | 381 | 61 | 442 | 23.3 |
+| aethershell (agentic) | 10/10 | 275 | 61 | 336 | 16.4 |
+| aethershell (sql), now in-process | 10/10 | 329 | 52 | 381 | 6.3 |
+| **aethershell (sql_value), over issues.json** | 10/10 | 269 | 52 | **321** | 9.6 |
+| bash+jq | 10/10 | 287 | 53 | 340 | 11.5 |
+| bash+coreutils | 10/10 | 647 | 52 | 699 | 197.3 |
+| sqlite | 10/10 | 202 | 52 | 254 | 8.2 |
+
+What moved:
+
+- `sql_value` is **second of seven on tokens**, ahead of jq and of the agentic
+  syntax, with no cheatsheet: the query is plain SQL. It reads the raw
+  `issues.json`, not the prepared `issues.db` the sqlite arm is handed.
+- The `sqlite_query` arm is unchanged in tokens and is now the fastest engine
+  in the run (6.3 ms against sqlite3's 8.2), because it no longer spawns
+  `sqlite3`.
+- The remaining gap to sqlite3 is 67 tokens, about 7 per query: the
+  `sql_value("issues.json", …)` wrapper. Part of it is bookkeeping, not
+  language: the harness counts `"issues.json"` inside our command but not the
+  `issues.db` in sqlite3's argv.
+

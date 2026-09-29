@@ -488,9 +488,10 @@ fn classified_effect(name: &str) -> Option<Effect> {
         // Three were not merely unclassified but actively dangerous while advertised
         // as pure: `git_clean -d` deletes untracked files, `session_rollback` is
         // `git reset --hard`, and `dd_copy` can overwrite a block device. Note also
-        // `db_sqlite_query`, which passes caller SQL to the sqlite3 binary — `query`
-        // is a name, not a constraint — and `diag_fix`/`refactor_remove_unused`, which
-        // run `cargo fix --allow-dirty` and rewrite sources with the net switched off.
+        // `diag_fix`/`refactor_remove_unused`, which run `cargo fix --allow-dirty`
+        // and rewrite sources with the net switched off. `db_sqlite_query` was
+        // `Exec` here while it passed caller SQL to the sqlite3 binary; it now runs
+        // in-process behind a read-only authorizer (src/sql.rs), so it reads.
         //
         // Linters divide on whether they execute project-supplied code: `eslint`
         // loads and runs `eslint.config.js`, so it is `Exec`; `shellcheck`,
@@ -599,7 +600,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "zstd_compress"
         | "zstd_decompress" => Some(Effect::WriteLocal),
 
-        // ---- Exec (73) ----
+        // ---- Exec (72) ----
         | "act_run"
         | "apply"
         | "buildah_build"
@@ -608,7 +609,6 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "cargo_run"
         | "cargo_test_cmd"
         | "cmake_build"
-        | "db_sqlite_query"
         | "deno_run"
         | "deno_task"
         | "diag_check"
@@ -674,7 +674,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "yarn_run"
         | "yq_query" => Some(Effect::Exec),
 
-        // ---- ReadLocal (140) ----
+        // ---- ReadLocal (142) ----
         | "archive_test"
         | "asdf_list"
         | "at_list"
@@ -703,6 +703,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "db_json_query"
         | "db_json_to_csv"
         | "db_sqlite_dump"
+        | "db_sqlite_query"
         | "delta_diff"
         | "diag_explain"
         | "direnv_status"
@@ -808,6 +809,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "search_todos"
         | "session_diff_since"
         | "shellcheck_check"
+        | "sql_value"
         | "startup_list"
         | "strings_extract"
         | "svc_list"

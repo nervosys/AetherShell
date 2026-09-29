@@ -317,8 +317,11 @@ fn sqlite_spawn_sites(src: &str) -> Vec<(usize, String)> {
 fn every_sqlite3_spawn_guards_its_path_arguments() {
     let src = builtins_source();
     let sites = sqlite_spawn_sites(&src);
+    // Eight until `db_sqlite_query` moved in-process (src/sql.rs), which took
+    // two sites with it. Fewer than six now means the scanner has drifted, not
+    // that the tool was retired: retiring it would delete this test.
     assert!(
-        sites.len() >= 8,
+        sites.len() >= 6,
         "only {} sqlite3 spawn sites found; the scanner has drifted",
         sites.len()
     );

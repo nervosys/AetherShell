@@ -234,6 +234,11 @@ libc = "0.2"
 
 # HTTP client - non-optional for non-wasm targets
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# In-process SQL over typed values (`sql`, `sql_value`). `bundled` compiles
+# SQLite itself, so the builtin never depends on a `sqlite3` on PATH — the
+# dependency whose absence once zeroed E7's SQL arm. `hooks` is for the
+# authorizer that keeps a query from reaching the filesystem.
+rusqlite = { version = "0.40", features = ["bundled", "hooks", "limits"] }
 # Only pulled in by the opt-in `vendored-tls` feature; `vendored` builds
 # OpenSSL from source so it cross-compiles rather than needing target headers.
 openssl = { version = "0.10", features = ["vendored"], optional = true }

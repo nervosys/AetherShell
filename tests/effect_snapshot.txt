@@ -283,7 +283,7 @@ db_sqlite_exec	Exec
 db_sqlite_import	WriteLocal
 db_sqlite_insert	WriteLocal
 db_sqlite_open	WriteLocal
-db_sqlite_query	Exec
+db_sqlite_query	ReadLocal
 db_sqlite_schema	ReadLocal
 db_sqlite_tables	ReadLocal
 db_sqlite_to_csv	WriteLocal
@@ -1174,9 +1174,10 @@ sort-object	Pure
 sort_by	Pure
 spawn_agent	Exec
 split	Pure
-sql	Exec
+sql	ReadLocal
+sql_value	ReadLocal
 sqlite_exec	Exec
-sqlite_query	Exec
+sqlite_query	ReadLocal
 sqrt	Pure
 ssh_config	ReadLocal
 ssh_copy_id	Network

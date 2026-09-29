@@ -451,12 +451,21 @@ fn a_sqlite_read_neither_creates_nor_hides() {
     let e = call("db_sqlite_tables", vec![s(p.to_str().unwrap())]).expect_err("typo");
     assert_eq!(code_of(&e), "E_NOT_FOUND");
     assert!(!p.exists(), "reading a missing database created it");
+    // db_sqlite_query runs in-process since src/sql.rs, so a query SQLite
+    // cannot parse is the caller's argument at fault, not a tool that failed.
     let e = call(
         "db_sqlite_query",
         vec![s("tests/fixtures/sample.db"), s("SELEC nonsense")],
     )
     .expect_err("bad sql");
-    assert_eq!(code_of(&e), "E_TOOL_FAILED");
+    assert_eq!(code_of(&e), "E_BAD_ARG");
+    let e = call(
+        "db_sqlite_query",
+        vec![s(p.to_str().unwrap()), s("SELECT 1")],
+    )
+    .expect_err("typo");
+    assert_eq!(code_of(&e), "E_NOT_FOUND");
+    assert!(!p.exists(), "querying a missing database created it");
 }
 
 /// zip_list dropped every entry containing "files", and archive_test said

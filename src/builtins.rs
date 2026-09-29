@@ -4046,6 +4046,7 @@ pub const FALLBACK_BUILTINS: &[(&str, &str)] = &[
     ("select", "bi_select_object"),
     ("select-object", "bi_select_object"),
     ("sort-object", "bi_sort_object"),
+    ("sql_value", "bi_sql_value"),
     ("str", "bi_str"),
     ("suggest", "bi_ai_suggest"),
     ("swarm", "bi_swarm"),
@@ -4178,6 +4179,7 @@ fn call_with_input_inner(
 
         // Nushell-style data commands (not in fast lookup)
         "from-json" | "from_json" => bi_from_json(args, input),
+        "sql_value" => bi_sql_value(args, input),
         "to-json" | "to_json" => bi_to_json(args, input),
         "from-csv" | "from_csv" => bi_from_csv(args, input),
         "to-csv" | "to_csv" => bi_to_csv(args, input),
@@ -8861,7 +8863,11 @@ fn format_bytes(bytes: i64) -> String {
 
 fn json_to_value(json: serde_json::Value) -> Value {
     match json {
-        serde_json::Value::Null => Value::Str("null".to_string()),
+        // Was `Value::Str("null")`: every JSON null reached the value space as
+        // a four-letter string. It printed identically, so nothing looked
+        // wrong, but `typeof(from_json("null"))` said String, `x == null` never
+        // matched a null field, and AECON tagged the column as ambiguous.
+        serde_json::Value::Null => Value::Null,
         serde_json::Value::Bool(b) => Value::Bool(b),
         serde_json::Value::Number(n) => {
             if let Some(i) = n.as_i64() {
@@ -32299,109 +32305,20 @@ fn bi_crypto_cert_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 // 500-519: Database
 // ============================================================================
 
-/// Whether a SQL statement only reads. The sqlite3 CLI creates an empty
-/// database for a path that does not exist, so a read against a mistyped
-/// path made a new file and answered [] -- "no tables", "no rows".
-fn sql_reads_only(query: &str) -> bool {
-    let q = query.trim_start().to_ascii_lowercase();
-    ["select", "with", "pragma", "explain"]
-        .iter()
-        .any(|k| q.starts_with(k))
-}
-
 fn sqlite_db_exists(path: &str) -> bool {
     path == ":memory:" || std::path::Path::new(path).exists()
 }
 
-fn bi_db_sqlite_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let db_path = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "db_sqlite_query",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-    let query = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "db_sqlite_query",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
+fn bi_db_sqlite_query(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    // In-process and read-only since this commit; see src/sql.rs. It spawned
+    // the sqlite3 CLI, so it was classed Exec, gated in agent mode, and absent
+    // on any host without sqlite3.
+    crate::sql::sql("sql", args, input)
+}
 
-    crate::safety::reject_sqlite_dot_command("db_sqlite_query", &query)?;
-    crate::safety::reject_option_like("db_sqlite_query", std::slice::from_ref(&db_path))?;
-    if sql_reads_only(&query) && !sqlite_db_exists(&db_path) {
-        return Err(crate::safety::not_found(
-            "db_sqlite_query",
-            "database",
-            &db_path,
-        ));
-    }
-    let output = std::process::Command::new("sqlite3")
-        .args(["-json", &db_path, &query])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("db_sqlite_query", "sqlite3", &e))?;
-
-    // A SQL error, or a sqlite3 too old for -json, answered null.
-    if !output.status.success() {
-        return Err(crate::safety::tool_failed(
-            "db_sqlite_query",
-            "sqlite3",
-            output.status.code(),
-            &String::from_utf8_lossy(&output.stderr),
-        ));
-    }
-    {
-        let json_str = String::from_utf8_lossy(&output.stdout);
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-            return Ok(json_to_value(json));
-        }
-        // sqlite3 -json prints nothing at all for zero rows.
-        if json_str.trim().is_empty() {
-            return Ok(Value::Array(vec![]));
-        }
-        // Fallback to CSV mode
-        // Already validated at the top of this function.
-        let output = std::process::Command::new("sqlite3")
-            .args(["-header", "-csv", &db_path, &query])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("db_sqlite_query", "sqlite3", &e))?;
-        if output.status.success() {
-            let csv = String::from_utf8_lossy(&output.stdout);
-            let lines: Vec<&str> = csv.lines().collect();
-            if lines.is_empty() {
-                return Ok(Value::Array(vec![]));
-            }
-            let headers: Vec<&str> = lines[0].split(',').collect();
-            let rows: Vec<Value> = lines[1..]
-                .iter()
-                .map(|line| {
-                    let values: Vec<&str> = line.split(',').collect();
-                    let mut rec = std::collections::BTreeMap::new();
-                    for (i, h) in headers.iter().enumerate() {
-                        if let Some(v) = values.get(i) {
-                            rec.insert(h.to_string(), Value::Str(v.to_string()));
-                        }
-                    }
-                    Value::Record(rec)
-                })
-                .collect();
-            return Ok(Value::Array(rows));
-        }
-        Err(crate::safety::tool_failed(
-            "db_sqlite_query",
-            "sqlite3 -csv",
-            output.status.code(),
-            &String::from_utf8_lossy(&output.stderr),
-        ))
-    }
+/// sql_value: the one cell of a one-row, one-column query; see src/sql.rs.
+fn bi_sql_value(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    crate::sql::sql_value(args, input)
 }
 
 fn bi_db_sqlite_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
