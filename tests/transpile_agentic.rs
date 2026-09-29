@@ -686,3 +686,32 @@ fn module_sigil_ar_still_works() {
 fn module_sigil_st_still_works() {
     assert_call("ST.u(x)\n", "str.upper");
 }
+
+// ── Found by a Haiku 4.5 run of E7 (benches/agentic/results/e7-haiku-4-5-subagent.md) ──
+
+#[test]
+fn a_single_letter_builtin_called_with_parentheses_is_a_call() {
+    // `n()` produced `len(())`, a parse error, on the form a model writes most.
+    assert_eq!(eval_aeg("[1, 2, 3]|n()\n"), Value::Int(3));
+    assert_eq!(eval_aeg("[1, 2, 3]|n\n"), Value::Int(3));
+}
+
+#[test]
+fn u_is_unique_not_adjacent_uniq() {
+    // `uniq` drops only adjacent duplicates: a distinct count of [1, 2, 1]
+    // came out 3.
+    assert_eq!(eval_aeg("[1, 2, 1]|u|n\n"), Value::Int(2));
+}
+
+#[test]
+fn every_bare_field_in_an_implicit_lambda_is_the_row() {
+    // `~.a&&!.b` bound only the first reference; the second reached the
+    // parser bare.
+    let rows = "[{a: true, b: false}, {a: true, b: true}, {a: false, b: false}]";
+    assert_eq!(eval_aeg(&format!("{rows}|w~.a&&!.b|n\n")), Value::Int(1));
+    // Numbers keep their dots.
+    assert_eq!(
+        eval_aeg("[1.5, 2.5]|m~x:x*2\n"),
+        Value::Array(vec![Value::Float(3.0), Value::Float(5.0)])
+    );
+}

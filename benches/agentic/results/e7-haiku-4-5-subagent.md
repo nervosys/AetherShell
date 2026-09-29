@@ -50,3 +50,23 @@ priced the cheatsheet as standing context; this run prices it as errors.
   cheatsheet example shows; and `u` is `uniq`, adjacent-only, so
   `m~.labels|b|u|n` answers 565 where the question's answer is 42 -- a
   wrong number with no error.
+
+## The same answers, rescored after the fixes they motivated
+
+The frozen answers file, unchanged (byte-compared), scored again on the
+build that fixed `n()`, `u` and the unbound second `.field`, and that names
+the `"${g.Name} ${g.Count}"` idiom in `group`'s ontology entry:
+
+| Arm | Before | After |
+| --- | ---: | ---: |
+| sql | 9/10 | 9/10 |
+| jq | 9/10 | 9/10 |
+| aethershell | 7/10 | 7/10 |
+| agentic, with cheatsheet | 2/10 | **6/10** |
+| agentic, no cheatsheet | 7/10 | 7/10 |
+
+This is not a new measurement of the model -- it is the same text through a
+changed interpreter -- and it is not a reason to keep the cipher: its best
+score is still below the standard syntax's, and it still costs a 1,196-token
+reference. The ontology change cannot show here, because the answers were
+written against the old entry; it is for the next run.

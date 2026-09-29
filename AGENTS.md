@@ -97,87 +97,22 @@ echo 'cat /etc/hosts' | ae --bash
 
 Transpilers map 100+ commands per shell to native AetherShell builtins, with block accumulation for multi-line constructs (`if`/`for`/`while`/`case`/`function`).
 
-### Option 5: Agentic Syntax (Token-Minimized for AI)
+### Option 5: Agentic Syntax (legacy; not recommended)
 
-Use the `.aeg` extension or `--agentic`/`-a` flag for a compressed syntax. Measured
-on the E1 query corpus it saves **27.5% of command tokens and 0% of output**, and
-its 1,196-token cheatsheet makes it a net loss for sessions under ~129 queries
-(`docs/LANGUAGE_FIRST_PRINCIPLES.md` §2). The earlier "~60-70%" figure was not
-supported by any token measurement. The map below is frozen; prefer the legible
-syntax unless a session is long enough to amortize it:
+`ae -a` and `.aeg` files accept a compressed syntax (`l"./src"|w~.size>1k|.name`).
+It is kept for scripts that use it, and its reference is no longer part of
+this file, because measured it costs more than it saves:
 
-```bash
-ae script.aeg                          # Auto-detected by extension
-ae --agentic -c 'l"./src"|w~.size>1k|m~.name'
-echo 'e"hello"' | ae --agentic
-```
+- **Tokens:** 27.5% fewer command tokens and 0% fewer output tokens on the E1
+  corpus, against a 1,196-token reference; a net loss for sessions under ~129
+  queries (`docs/LANGUAGE_FIRST_PRINCIPLES.md` §2). The legible syntax with
+  `open` and `.field` is now cheaper than it outright (E1: 331 vs 336 tokens).
+- **Correctness:** a Claude Haiku 4.5 run of E7 scored **2/10** with the
+  reference in its prompt and **7/10** without it, when it fell back to the
+  standard syntax (`benches/agentic/results/e7-haiku-4-5-subagent.md`).
 
-**Ultra-compressed syntax (v2) — maximum density:**
-
-| Ultra (v2)            | v1 Compat      | AetherShell                        | Savings  |
-| --------------------- | -------------- | ---------------------------------- | -------- |
-| `x=42`                | `x=42`         | `let x = 42`                       | 2 tokens |
-| `x:=0`                | `x:=0`         | `let mut x = 0`                    | 3 tokens |
-| `~x:x*2`              | `\x:x*2`       | `fn(x) => x * 2`                   | 4 tokens |
-| `~.size>1k`           | `\.size>1k`    | `fn(__) => __.size > 1000`         | 6 tokens |
-| `a\|b`                | `a > b`        | `a \| b`                           | same     |
-| `F.r("p")`            | `@f.r("p")`    | `file.read("p")`                   | 2 tokens |
-| `S.h()`               | `@s.h()`       | `sys.hostname()`                   | 2 tokens |
-| `H.g(url)`            | `@h.g(url)`    | `http.get(url)`                    | 2 tokens |
-| `DK.p()`              | `@dk.ps()`     | `docker.ps()`                      | 2 tokens |
-| `e"msg"`              | `#e "msg"`     | `echo("msg")`                      | 2 tokens |
-| `l"."`                | `#l "."`       | `ls(".")`                          | 2 tokens |
-| `w~.size>1k`          | `#w \.size>1k` | `where(fn(__) => __.size > 1000)`  | 8 tokens |
-| `\|w.size>1k`          | —              | `\| where(fn(__) => __.size > 1000)` | +2 tokens |
-| `m~x:x*2`             | `#m \x:x*2`    | `map(fn(x) => x * 2)`              | 6 tokens |
-| `t5`                  | `#t 5`         | `take(5)`                          | 2 tokens |
-| `1k` / `1M` / `1G`    | same           | `1000` / `1000000` / `1000000000`  | 1 token  |
-| `?val{A=>"x",_=>"z"}` | same           | `match val { A => "x", _ => "z" }` | 3 tokens |
-| `!{expr}{"fb"}`       | same           | `try { expr } catch e { "fb" }`    | 5 tokens |
-| `; comment`           | same           | `// comment`                       | same     |
-
-**Bare-dot implicit lambda (v3).** In pipe position, the `~` before a field
-access is implied for lambda-taking builtins (`w`, `m`, `r`, `a`, `y`):
-
-```ae
-l"./src"|w.size>1k|.name        # 11 cl100k tokens
-l"./src"|w~.size>1k|m~.name     # 15 cl100k tokens — same program
-```
-
-Measured at **23.7% fewer tokens on predicate pipelines**; reproduce with
-`cargo run -p agentic-eval --example sigil_audit --features real-tokens`. The
-short form is restricted to pipe position on purpose — at statement start
-`m.name` is still a field access on a variable named `m`.
-
-**v5 features — auto-parens and for-each:**
-
-| v5 Syntax             | AetherShell                            | Savings   |
-| --------------------- | -------------------------------------- | --------- |
-| `F.r"path"`           | `file.read("path")`                    | 2 chars   |
-| `H.g"https://api.io"` | `http.get("https://api.io")`           | 2 chars   |
-| `*[1,2,3]~x:echo(x)`  | `([1,2,3]) \| each(fn(x) => echo(x))`  | 10 tokens |
-| `*items~i:proc(i)`    | `(items) \| each(fn(i) => proc(i))`    | 8 tokens  |
-| `*arr.range(5)\n:n*n` | `(arr.range(5)) \| each(fn(n) => n*n)` | 8 tokens  |
-
-**Builtin shorthand map (single-char → builtin, used as `#x` or bare `x` — all 26 a–z assigned):**
-
-`a`=all `b`=flatten `c`=cat `d`=debug `e`=echo `f`=find `g`=grep `h`=head `i`=first `j`=join `k`=keys `l`=ls `m`=map `n`=len `o`=sort `p`=print `q`=reverse `r`=reduce `s`=select `t`=take `u`=uniq `v`=values `w`=where `x`=sh `y`=any `z`=last
-
-**Function abbreviation map (single-char → full name):**
-
-`a2a`:s=send | `a2ui`:n=notify | `ansible`:p=playbook | `arr`:f=flatten,l=len,r=range,s=sort,u=unique | `asdf`:i=install,l=list | `audit`:l=log | `buildah`:b=build,i=images | `bun`:i=install,r=run | `cargo`:b=build,r=run,t=test | `crypto`:h=hash,u=uuid | `db`:o=sqlite_open,q=sqlite_query | `deno`:r=run | `direnv`:a=allow,s=status | `docker`:i=images,l=logs,p=ps,r=run,s=stop | `evo`:p=population | `file`:a=append,c=copy,m=mkdir,r=read,w=write,x=exists | `firewall`:a=allow,r=rules | `gdb`:b=bt,r=run | `gh`:i=issue,p=pr | `glab`:i=issue,m=mr | `go`:b=build,r=run,t=test | `helm`:i=install,l=list | `http`:g=get,p=post | `hyperv`:l=list,s=start | `iperf3`:c=client,s=server | `json`:p=parse,s=stringify | `just`:l=list,r=run | `k8s`:a=apply,d=delete,l=logs,p=pods,s=services | `math`:a=abs,p=pow,s=sqrt | `mcp`:c=call,r=resources,t=tools | `mise`:l=list | `nanda`:p=propose | `nc`:c=connect,l=listen | `net`:d=dns_lookup,p=ping | `nn`:c=create | `node`:r=run | `npm`:i=install,r=run | `objdump`:d=disasm,h=headers | `pipx`:i=install,l=list | `platform`:a=arch,g=gpus | `pnpm`:i=install,r=run | `podman`:p=ps,r=run | `poetry`:i=install | `pre_commit`:i=install,r=run | `proc`:k=kill,l=list | `rbac`:c=create | `readelf`:h=headers,s=sections | `rl`:a=agent | `ruff`:c=check,f=format | `rustup`:u=update | `screen`:l=list,n=new | `skopeo`:c=copy,i=inspect | `sso`:i=init | `str`:j=join,l=lower,r=replace,s=split,t=trim,u=upper | `sys`:c=cpu_info,e=env,h=hostname,u=uptime | `terraform`:a=apply,p=plan | `tmux`:l=list,n=new | `trivy`:i=image,s=scan | `uv`:r=run | `valgrind`:r=run | `virsh`:l=list,s=start | `vm`:l=list,s=start | `wsl`:e=exec,l=list | `yarn`:i=install | `zoxide`:a=add,q=query
-
-**Module sigil map (uppercase abbreviation → module, used as `XX.func()` — 21 single-char, 70 two-char):**
-
-`A`=arr `A2`=a2a `AG`=agent `AN`=ansible `AR`=arr `AS`=asdf `AU`=audit `AZ`=archive `B`=bun `BD`=buildah `BN`=bun `C`=crypto `CG`=cargo `CL`=clip `CR`=cron `CX`=cluster `D`=db `DE`=direnv `DK`=docker `DN`=deno `E`=evo `EV`=evo `F`=file `FS`=fs `FW`=firewall `G`=gh `GD`=gdb `GL`=glab `GO`=go `GW`=gui `H`=http `HM`=helm `HV`=hyperv `HW`=hw `I`=ai `IN`=input `IP`=iperf3 `J`=json `JU`=just `K`=k8s `M`=math `MC`=mcp `MI`=mise `N`=net `NA`=nanda `NC`=nc `NN`=nn `NO`=node `NP`=npm `OD`=objdump `P`=platform `PC`=pre_commit `PD`=podman `PK`=pkg `PM`=perm `PN`=pnpm `PO`=poetry `PR`=proc `PX`=pipx `R`=str `RB`=rbac `RE`=readelf `RF`=ruff `RL`=rl `RU`=rustup `S`=sys `SC`=screen `SH`=shell `SK`=skopeo `SS`=sso `ST`=str `SV`=svc `TF`=terraform `TV`=trivy `TX`=tmux `U`=uv `UI`=a2ui `US`=user `UV`=uv `V`=vm `VG`=valgrind `VI`=virsh `VM`=vm `W`=wsl `WB`=web `WS`=wsl `Y`=yarn `YR`=yarn `Z`=zoxide `ZO`=zoxide
-
-**Symbol→value mapping (v3) — maximum density:**
-
-`T`→true `N`→null `'text'`→`"text"` `` `cmd` ``→`sh("cmd")` `l./src`→`ls("./src")` `l/usr/bin`→`ls("/usr/bin")` `g*.rs`→`grep("*.rs")`
-
-**Compactness + expandability (v4) — joint optimization:**
-
-`|.name`→`| map(fn(__) => __.name)` `|.data.items`→field chains `|.trim()`→method calls `$HOME`→`sys.env("HOME")` `^cond{then}`→`match (cond) { true => (then), _ => null }` `^cond{then}{else}`→`match (cond) { true => (then), _ => (else) }` `%def name expansion`→user alias
+Write the standard syntax below. The reference, for maintaining old scripts,
+is `docs/AGENTIC_SYNTAX.md` and `ae agent schema`.
 
 ## AetherShell Syntax Quick Reference
 
@@ -194,6 +129,9 @@ add = fn(a, b) => a + b
 
 # Pipelines
 [1,2,3] | map(fn(x) => x * 2) | reduce(fn(a,b) => a + b, 0)
+
+# `|` binds loosest (as in jq): parenthesize a pipe inside && / ||
+where(fn(r) => (r.title | lower | contains("x")) || (r.body | lower | contains("x")))
 
 # Rows: `.field` in a pipeline stage's argument is the row (jq's spelling),
 # `|.field` projects, `open` parses by extension (JSON, JSONL, TOML, YAML, CSV)

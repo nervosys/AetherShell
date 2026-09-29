@@ -277,7 +277,11 @@ lazy_static::lazy_static! {
         m.insert('c', ("cat",    false));  // #c "file"
         m.insert('x', ("sh",     false));  // #x "cmd"
         m.insert('o', ("sort",   false));  // #o
-        m.insert('u', ("uniq",   false));  // #u
+        // `unique`, not `uniq`: `uniq` drops only *adjacent* duplicates, so
+        // `m~.labels|b|u|n` counted 565 distinct labels where there are 42 --
+        // a wrong number with no error, which is what a model reading "u =
+        // uniq" as "unique" got (e7-haiku-4-5-subagent.md).
+        m.insert('u', ("unique", false));  // #u
         m.insert('h', ("head",   false));  // #h 10
         m.insert('k', ("keys",   false));  // #k
         m.insert('v', ("values", false));  // #v
@@ -1803,7 +1807,55 @@ fn hoist_implicit_lambda(arg: &str) -> Option<String> {
     if !found {
         return None;
     }
-    Some(format!("fn(__) => {}", scan(&body)))
+    // A later `.field` written without its own `~` is the same row.
+    Some(format!("fn(__) => {}", scan(&bind_bare_fields(&body))))
+}
+
+/// In an implicit-parameter body, a `.field` standing where an operand starts
+/// is the same row: `~.state=="open"&&!.is_pr` binds both. Only the first was
+/// bound, so the second reached the parser bare and the predicate failed to
+/// parse -- seven of the eight failures of a Haiku run of E7's cheatsheet arm
+/// were this shape or `n()` (benches/agentic/results/e7-haiku-4-5-subagent.md).
+///
+/// A `.` is left alone after an identifier character, a digit, `)`, `]` or a
+/// quote (field chains, numbers, method calls), and inside string literals.
+fn bind_bare_fields(body: &str) -> String {
+    let chars: Vec<char> = body.chars().collect();
+    let mut out = String::with_capacity(body.len() + 8);
+    let mut quote: Option<char> = None;
+    for (k, &c) in chars.iter().enumerate() {
+        if let Some(q) = quote {
+            out.push(c);
+            if c == q && chars.get(k.wrapping_sub(1)) != Some(&'\\') {
+                quote = None;
+            }
+            continue;
+        }
+        if c == '"' || c == '\'' {
+            quote = Some(c);
+            out.push(c);
+            continue;
+        }
+        if c == '.' && k > 0 {
+            let starts_field = chars
+                .get(k + 1)
+                .is_some_and(|n| n.is_alphabetic() || *n == '_');
+            let prev = out.chars().rev().find(|p| !p.is_whitespace());
+            // `~.x` / `\.x` are already explicit references, bound by the
+            // hoisting pass; rewriting them would hide them from it.
+            let explicit = matches!(out.chars().last(), Some('~') | Some('\\'));
+            let operand_position = !explicit
+                && !matches!(
+                    prev,
+                    Some(p) if p.is_alphanumeric() || matches!(p, '_' | ')' | ']' | '"' | '\'')
+                );
+            if starts_field && operand_position {
+                out.push_str("__");
+            }
+        }
+        out.push(c);
+    }
+    out
 }
 
 /// `\x:body`, `~x:body`, `\.f`, `~.f` → `fn(params) => body`. None if not a lambda.
@@ -1816,7 +1868,10 @@ fn consume_lambda(chars: &[char], i: &mut usize) -> Option<String> {
     if chars[j] == '.' {
         let body = collect_lambda_body(chars, &mut j);
         *i = j;
-        return Some(format!("fn(__) => __{}", scan_lambda_body(&body)));
+        return Some(format!(
+            "fn(__) => __{}",
+            scan_lambda_body(&bind_bare_fields(&body))
+        ));
     }
     let param_start = j;
     while j < chars.len() && chars[j] != ':' && chars[j] != '\n' {
@@ -2024,6 +2079,19 @@ fn consume_ident(chars: &[char], i: &mut usize, out: &mut String, after_bar: boo
         let prev_ok = at_boundary(out) && !out.ends_with('.');
         if prev_ok {
             let next = chars.get(*i + 1).copied();
+            // `n()`, `u()`, `b()`: the letter called like a function is a call
+            // of the builtin it stands for. It went through `consume_builtin`,
+            // which took the parentheses as an argument and produced `len(())`
+            // -- a parse error on the form a model writes most naturally.
+            // Only the empty call: `w(…)` must still reach `consume_builtin`,
+            // which hoists its implicit-parameter argument into one lambda.
+            if next == Some('(') && chars.get(*i + 2) == Some(&')') {
+                if let Some((name, _)) = BUILTIN_SHORT.get(&c) {
+                    out.push_str(name);
+                    *i += 1;
+                    return;
+                }
+            }
             match next {
                 Some('"') | Some('(') | Some('~') | Some('\\') | Some('[') | Some('{')
                 | Some('\'') | Some('$') => {

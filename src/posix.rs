@@ -3919,6 +3919,10 @@ mod tests {
             "aB",
             "Ab",
         ];
+        // Process-global: hold the lock the other env-mutating tests hold.
+        let _env = crate::safety::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         std::env::set_var("LC_COLLATE", "en_US.UTF-8");
         v.sort_by(|a, b| collate(a, b));
         std::env::remove_var("LC_COLLATE");

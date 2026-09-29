@@ -56,6 +56,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `x.rs.bak`), ignored `**`, returned directory order, and answered `[]` for a
   directory that does not exist. It is now anchored, recursive on `**`, sorted,
   and `E_NOT_FOUND` for a missing directory.
+- The agentic syntax's traps, found by a Haiku run of E7: a single-letter
+  builtin called with parentheses (`n()`) did not parse; `u` meant `uniq`,
+  which drops only adjacent duplicates (a distinct count came out 565 for 42);
+  and a second `.field` in one implicit lambda was left unbound. Haiku's
+  frozen answers, rescored: 2/10 → 6/10. AGENTS.md no longer carries the
+  agentic cheatsheet (2/10 with it, 7/10 without), and `group`'s entry names
+  the idiom for "which, and how many".
 - `grep` did a substring search although its declaration promised a pattern,
   so `grep("^version", file)` answered `[]`. It takes a POSIX basic regular
   expression, as grep does; an invalid one is `E_BAD_ARG`.
