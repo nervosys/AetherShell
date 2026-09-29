@@ -56,8 +56,12 @@ const ARMS = [
 // reading exactly like a model that cannot write SQL. Every comparative number
 // in benches/agentic/ is worthless the moment absence and failure look alike.
 function available(arm) {
-    const r = spawnSync('sh', ['-c', 'command -v ' + arm.bin], { encoding: 'utf8' });
-    return r.status === 0 && (r.stdout ?? '').trim().length > 0;
+    // Probe the binary itself rather than asking `sh -c "command -v …"`: under
+    // plain PowerShell there is no `sh` on PATH, so every arm read as absent
+    // and the run refused with sqlite3, jq and ae all installed (2026-09-29).
+    // A missing binary is a spawn error; anything that starts is present.
+    const r = spawnSync(arm.bin, ['--version'], { encoding: 'utf8', timeout: 30000 });
+    return r.error === undefined;
 }
 
 // ── the prompts are frozen; prove it ────────────────────────────────────
