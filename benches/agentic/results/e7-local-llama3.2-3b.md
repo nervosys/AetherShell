@@ -37,3 +37,17 @@ first-try correctness) and the effect is large, but a 3B model and ten
 questions cannot carry that claim. The frozen prompts predate `open` and
 the `.field` row argument, which is correct for the protocol and means this
 run does not measure them.
+
+## Rerun after cd98133 (and/or/not, arrowless lambdas, keyword fields)
+
+Same model, prompts and corpus. Scores unchanged: sql 5/10, every
+AetherShell arm 0/10. What changed is where the AetherShell attempts fail:
+five of eight now parse and stop at `from_json("issues.json")`, with an
+E_BAD_ARG that names `open("issues.json")` as the repair, where most had
+failed in the parser. E7 allows no retry, so this cannot show in its score;
+it is the difference between a dead end and a one-step fix.
+
+A caution for anyone repeating this: only 16 of the 40 generations were
+identical to the first run's. Ollama at temperature 0 was not deterministic
+on this GPU, so "temperature 0, one generation" does not give the
+repeatability here that `PREREGISTERED_E7.md` assumes of a hosted model.
