@@ -22,7 +22,8 @@ fn eval_result(src: &str) -> Result<Value, String> {
 
 #[test]
 fn throw_creates_error_value() {
-    let v = eval(r#"throw "something went wrong""#);
+    // Bound, a thrown error is a value.
+    let v = eval("let e = throw \"something went wrong\"\ne");
     assert!(matches!(v, Value::Error(_)));
     if let Value::Error(msg) = v {
         assert_eq!(msg, "something went wrong");
@@ -30,8 +31,19 @@ fn throw_creates_error_value() {
 }
 
 #[test]
+fn an_uncaught_throw_is_an_error_not_a_result() {
+    // A bare `throw` statement used to evaluate to an error value and let the
+    // program carry on and exit 0. Uncaught, it now ends evaluation.
+    let err = eval_result(r#"throw "something went wrong""#).unwrap_err();
+    assert!(err.contains("something went wrong"), "{err}");
+    // And the statement after it does not run.
+    let err = eval_result("throw \"stop\"\nlet reached = 1\nreached").unwrap_err();
+    assert!(err.contains("stop"), "{err}");
+}
+
+#[test]
 fn throw_with_expression() {
-    let v = eval(r#"throw 42"#);
+    let v = eval("let e = throw 42\ne");
     assert!(matches!(v, Value::Error(_)));
 }
 

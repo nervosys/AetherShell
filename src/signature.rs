@@ -944,10 +944,10 @@ pub static SIGNATURES: &[Signature] = &[
         subject_required: false,
         aliases: &[],
         subject: None,
-        params: &[req("pattern", Ty::Str, "text or regex to search for"), opt("path", Ty::Str, "file to search; omit to search the piped text")],
+        params: &[req("pattern", Ty::Str, "a basic regular expression, as grep takes it: ^ and $ anchor, . is any character"), opt("path", Ty::Str, "file to search; omit to search the piped text")],
         returns: "Array",
-        doc: "Lines matching a pattern.",
-        examples: &[(r#"grep("fn main", "src/main.rs") | len"#, "1"), (r#"(grep("fn", "src/main.rs") | len) > 0"#, "true")],
+        doc: "Lines matching a basic regular expression.",
+        examples: &[(r#"grep("fn main", "src/main.rs") | len"#, "1"), (r#"(grep("fn", "src/main.rs") | len) > 0"#, "true"), (r#"grep("^version", "Cargo.toml") | len"#, "1")],
     },
     Signature {
         name: "find",

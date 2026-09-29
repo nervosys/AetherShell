@@ -49,14 +49,17 @@ pub fn eval_program(stmts: &[Stmt], env: &mut Env) -> Result<Value> {
         // Clear any pipe input between statements to prevent leakage
         env.set_input(None);
         last = eval_stmt(s, env)?;
-        // An error value that a statement produces and nothing binds or
+        // An error value that a statement *produces* and nothing binds or
         // catches is an uncaught error. `throw` and `assert` produce error
         // values rather than unwinding, so without this `throw "x"` was
         // followed by the next statement and the program exited 0 --
         // `assert(false)` included. Bound with `let` or handled in `try`, an
-        // error value is still an ordinary value.
-        if let (Stmt::Expr(_), Value::Error(msg)) = (s, &last) {
-            return Err(anyhow::anyhow!("uncaught error: {msg}"));
+        // error value is still an ordinary value, and naming one (`r` on its
+        // own line) shows it rather than raising it.
+        if let (Stmt::Expr(e), Value::Error(msg)) = (s, &last) {
+            if !matches!(e, Expr::Ident(_) | Expr::MemberAccess { .. }) {
+                return Err(anyhow::anyhow!("uncaught error: {msg}"));
+            }
         }
     }
     Ok(last)

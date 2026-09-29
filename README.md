@@ -428,7 +428,7 @@ file.patch("Cargo.toml", [
 # AI creates complex pipelines
 ls("./src") 
   | where(fn(f) => f.name | str.ends_with(".rs"))
-  | map(fn(f) => {file: f.name, lines: file.read(f.path) | str.lines() | len()})
+  | map(fn(f) => {file: f.name, lines: file.read(f.path) | lines | len})
 # => [{file: "main.rs", lines: 142}, ...]
 ```
 
@@ -1018,7 +1018,7 @@ echo 'for f in *.log; do wc -l \$f; done' | ae --bash
 | Shell Construct                       | AetherShell Output            |
 | ------------------------------------- | ----------------------------- |
 | `ls -la`                              | `ls("-la")`                   |
-| `grep "pattern" file`                 | `str.grep("pattern", "file")` |
+| `grep "pattern" file`                 | `grep("pattern", "file")`    |
 | `cat file.txt`                        | `file.read("file.txt")`       |
 | `X=42`                                | `let X = 42;`                 |
 | `echo \$HOME`                         | `print(HOME);`                |
@@ -1173,11 +1173,8 @@ agent.with_mcp("Check system health", monitor.tools, "http://localhost:3006")
 ### Advanced AI Features
 
 ```ae
-# Streaming responses (OpenAI SSE, Anthropic SSE, Gemini SSE, Ollama NDJSON)
-ai.chat_stream("openai:gpt-4o", "Explain quantum computing")
-
 # Cost-based routing — automatically pick cheapest provider
-ai.add_route({condition: "cost_under", max_cost_per_1k: 0.01, provider: "ollama"})
+ai_add_route({condition: "cost_under", max_cost_per_1k: 0.01, provider: "ollama"})
 
 # Load balancing across providers (5 strategies)
 ai_set_load_balancing("round_robin")       # Or: least_latency, weighted, adaptive, least_requests

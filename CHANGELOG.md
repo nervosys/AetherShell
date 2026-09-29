@@ -46,6 +46,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `x.rs.bak`), ignored `**`, returned directory order, and answered `[]` for a
   directory that does not exist. It is now anchored, recursive on `**`, sorted,
   and `E_NOT_FOUND` for a missing directory.
+- `grep` did a substring search although its declaration promised a pattern,
+  so `grep("^version", file)` answered `[]`. It takes a POSIX basic regular
+  expression, as grep does; an invalid one is `E_BAD_ARG`.
+- 21 agentic abbreviations (`F.d`, `H.u`, `U.i`, …) and 14 module calls in
+  `AGENTS.md` (`gh.pr_list()`, `node.version()`, `platform.os()`, …) named
+  functions that do not exist. The abbreviations are removed or remapped to
+  real functions, the docs name real calls, and
+  `tests/documented_calls_resolve.rs` keeps both honest. The README no longer
+  shows `ai.chat_stream`, which never existed.
 - An uncaught `throw`, or a failing `assert` used as a statement, did not stop
   the program: the next statement ran and the exit status was 0. An error
   value that a statement produces and nothing binds or catches now ends the

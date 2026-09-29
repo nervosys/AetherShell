@@ -2661,7 +2661,7 @@ fn wc(args: &[String], stdin: &mut Input, sink: &mut Sink) -> Util {
 
 /// A POSIX basic regular expression as a Rust regex: in BRE, `+ ? | ( ) { }`
 /// are literal and their backslashed forms are the operators.
-fn bre_to_regex(p: &str) -> Option<String> {
+pub(crate) fn bre_to_regex(p: &str) -> Option<String> {
     let mut out = String::new();
     let mut it = p.chars().peekable();
     let mut first = true;

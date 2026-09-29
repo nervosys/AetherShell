@@ -653,11 +653,14 @@ fn module_sigil_r_str() {
 }
 #[test]
 fn module_sigil_u_uv() {
-    assert_call("U.i(\"pkg\")\n", "uv.install");
+    // `U.i` expanded to `uv.install`, which never existed; see
+    // tests/documented_calls_resolve.rs.
+    assert_call("U.r(\"script.py\")\n", "uv.run");
 }
 #[test]
 fn module_sigil_y_yarn() {
-    assert_call("Y.a(\"pkg\")\n", "yarn.add");
+    // `Y.a` expanded to `yarn.add`, which never existed.
+    assert_call("Y.i()\n", "yarn.install");
 }
 #[test]
 fn module_sigil_z_zoxide() {

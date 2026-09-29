@@ -172,7 +172,7 @@ sys.cpu_info()          # => {cores: 8, model: "...", ...}
 sys.mem_info()          # => {total: 16384, used: 8192, free: 8192}
 proc.list()             # => [{pid, name, cpu, memory}, ...]
 proc.kill(1234)         # Kill process
-platform.os()           # => "windows" | "linux" | "macos"
+sys.os()                # => "windows" | "linux" | "macos"
 platform.arch()         # => "x86_64" | "aarch64"
 platform.gpus()         # => [{name: "...", memory_mb: ...}, ...]
 platform.hardware_summary()  # Full system info

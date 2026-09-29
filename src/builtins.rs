@@ -8100,20 +8100,27 @@ fn bi_grep(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         ));
     };
 
+    // The declaration always said "text or regex"; the body only ever did a
+    // substring search, so `grep("^version", "Cargo.toml")` answered [] --
+    // an empty result for a pattern every grep user writes. The pattern is
+    // now what grep takes: a POSIX basic regular expression.
+    let re = crate::posix::bre_to_regex(pattern)
+        .and_then(|r| {
+            regex::RegexBuilder::new(&r)
+                .case_insensitive(case_insensitive)
+                .build()
+                .ok()
+        })
+        .ok_or_else(|| {
+            crate::safety::bad_arg(
+                "grep",
+                "a basic regular expression (back-references are not supported)",
+                pattern,
+            )
+        })?;
     let matching_lines: Vec<Value> = content
         .lines()
-        .filter(|line| {
-            let matches = if case_insensitive {
-                line.to_lowercase().contains(&pattern.to_lowercase())
-            } else {
-                line.contains(pattern)
-            };
-            if invert {
-                !matches
-            } else {
-                matches
-            }
-        })
+        .filter(|line| re.is_match(line) != invert)
         .map(|line| Value::Str(line.to_string()))
         .collect();
 

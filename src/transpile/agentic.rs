@@ -203,7 +203,6 @@ lazy_static::lazy_static! {
         m.insert("cx", "cluster");
         m.insert("dk", "docker");
         m.insert("pd", "podman");
-        m.insert("ct", "container");
         m.insert("k",  "k8s");
         m.insert("hm", "helm");
         m.insert("vm", "vm");
@@ -306,9 +305,7 @@ lazy_static::lazy_static! {
         m.insert("file.w", "file.write");
         m.insert("file.a", "file.append");
         m.insert("file.x", "file.exists");
-        m.insert("file.d", "file.delete");
         m.insert("file.m", "file.mkdir");
-        m.insert("file.l", "file.lines");
         m.insert("file.c", "file.copy");
         // sys
         m.insert("sys.h", "sys.hostname");
@@ -318,8 +315,6 @@ lazy_static::lazy_static! {
         // http
         m.insert("http.g", "http.get");
         m.insert("http.p", "http.post");
-        m.insert("http.u", "http.put");
-        m.insert("http.d", "http.delete");
         // json
         m.insert("json.p", "json.parse");
         m.insert("json.s", "json.stringify");
@@ -369,13 +364,11 @@ lazy_static::lazy_static! {
         m.insert("mcp.c", "mcp.call");
         m.insert("mcp.r", "mcp.resources");
         // platform
-        m.insert("platform.o", "platform.os");
         m.insert("platform.a", "platform.arch");
         m.insert("platform.g", "platform.gpus");
         // gh
-        m.insert("gh.p", "gh.pr_list");
-        m.insert("gh.i", "gh.issue_create");
-        m.insert("gh.c", "gh.clone");
+        m.insert("gh.p", "gh.pr");
+        m.insert("gh.i", "gh.issue");
         // cargo
         m.insert("cargo.b", "cargo.build");
         m.insert("cargo.t", "cargo.test");
@@ -419,7 +412,6 @@ lazy_static::lazy_static! {
         m.insert("screen.l", "screen.list");
         // valgrind
         m.insert("valgrind.r", "valgrind.run");
-        m.insert("valgrind.c", "valgrind.callgrind");
         // gdb
         m.insert("gdb.r", "gdb.run");
         m.insert("gdb.b", "gdb.bt");
@@ -428,7 +420,7 @@ lazy_static::lazy_static! {
         m.insert("objdump.h", "objdump.headers");
         // readelf
         m.insert("readelf.h", "readelf.headers");
-        m.insert("readelf.s", "readelf.symbols");
+        m.insert("readelf.s", "readelf.sections");
         // zoxide
         m.insert("zoxide.a", "zoxide.add");
         m.insert("zoxide.q", "zoxide.query");
@@ -442,27 +434,22 @@ lazy_static::lazy_static! {
         m.insert("asdf.i", "asdf.install");
         m.insert("asdf.l", "asdf.list");
         // mise
-        m.insert("mise.i", "mise.install");
         m.insert("mise.l", "mise.list");
         // uv
-        m.insert("uv.i", "uv.install");
         m.insert("uv.r", "uv.run");
         // pipx
         m.insert("pipx.i", "pipx.install");
         m.insert("pipx.l", "pipx.list");
         // poetry
         m.insert("poetry.i", "poetry.install");
-        m.insert("poetry.a", "poetry.add");
         // rustup
         m.insert("rustup.u", "rustup.update");
-        m.insert("rustup.l", "rustup.list");
         // go
         m.insert("go.b", "go.build");
         m.insert("go.t", "go.test");
         m.insert("go.r", "go.run");
         // node
         m.insert("node.r", "node.run");
-        m.insert("node.v", "node.version");
         // npm
         m.insert("npm.i", "npm.install");
         m.insert("npm.r", "npm.run");
@@ -471,16 +458,14 @@ lazy_static::lazy_static! {
         m.insert("pnpm.r", "pnpm.run");
         // yarn
         m.insert("yarn.i", "yarn.install");
-        m.insert("yarn.a", "yarn.add");
         // bun
         m.insert("bun.r", "bun.run");
         m.insert("bun.i", "bun.install");
         // deno
         m.insert("deno.r", "deno.run");
-        m.insert("deno.c", "deno.compile");
         // glab
-        m.insert("glab.m", "glab.mr_list");
-        m.insert("glab.i", "glab.issue_create");
+        m.insert("glab.m", "glab.mr");
+        m.insert("glab.i", "glab.issue");
         // pre_commit
         m.insert("pre_commit.r", "pre_commit.run");
         m.insert("pre_commit.i", "pre_commit.install");
@@ -503,8 +488,6 @@ lazy_static::lazy_static! {
         m.insert("nc.c", "nc.connect");
         m.insert("nc.l", "nc.listen");
         // container
-        m.insert("container.p", "container.ps");
-        m.insert("container.r", "container.run");
         // podman
         m.insert("podman.p", "podman.ps");
         m.insert("podman.r", "podman.run");

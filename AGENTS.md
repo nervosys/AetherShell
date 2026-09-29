@@ -165,11 +165,11 @@ short form is restricted to pipe position on purpose — at statement start
 
 **Function abbreviation map (single-char → full name):**
 
-`a2a`:s=send | `a2ui`:n=notify | `ansible`:p=playbook | `arr`:f=flatten,l=len,r=range,s=sort,u=unique | `asdf`:i=install,l=list | `audit`:l=log | `buildah`:b=build,i=images | `bun`:i=install,r=run | `cargo`:b=build,r=run,t=test | `container`:p=ps,r=run | `crypto`:h=hash,u=uuid | `db`:o=sqlite_open,q=sqlite_query | `deno`:c=compile,r=run | `direnv`:a=allow,s=status | `docker`:i=images,l=logs,p=ps,r=run,s=stop | `evo`:p=population | `file`:a=append,c=copy,d=delete,l=lines,m=mkdir,r=read,w=write,x=exists | `firewall`:a=allow,r=rules | `gdb`:b=bt,r=run | `gh`:c=clone,i=issue_create,p=pr_list | `glab`:i=issue_create,m=mr_list | `go`:b=build,r=run,t=test | `helm`:i=install,l=list | `http`:d=delete,g=get,p=post,u=put | `hyperv`:l=list,s=start | `iperf3`:c=client,s=server | `json`:p=parse,s=stringify | `just`:l=list,r=run | `k8s`:a=apply,d=delete,l=logs,p=pods,s=services | `math`:a=abs,p=pow,s=sqrt | `mcp`:c=call,r=resources,t=tools | `mise`:i=install,l=list | `nanda`:p=propose | `nc`:c=connect,l=listen | `net`:d=dns_lookup,p=ping | `nn`:c=create | `node`:r=run,v=version | `npm`:i=install,r=run | `objdump`:d=disasm,h=headers | `pipx`:i=install,l=list | `platform`:a=arch,g=gpus,o=os | `pnpm`:i=install,r=run | `podman`:p=ps,r=run | `poetry`:a=add,i=install | `pre_commit`:i=install,r=run | `proc`:k=kill,l=list | `rbac`:c=create | `readelf`:h=headers,s=symbols | `rl`:a=agent | `ruff`:c=check,f=format | `rustup`:l=list,u=update | `screen`:l=list,n=new | `skopeo`:c=copy,i=inspect | `sso`:i=init | `str`:j=join,l=lower,r=replace,s=split,t=trim,u=upper | `sys`:c=cpu_info,e=env,h=hostname,u=uptime | `terraform`:a=apply,p=plan | `tmux`:l=list,n=new | `trivy`:i=image,s=scan | `uv`:i=install,r=run | `valgrind`:c=callgrind,r=run | `virsh`:l=list,s=start | `vm`:l=list,s=start | `wsl`:e=exec,l=list | `yarn`:a=add,i=install | `zoxide`:a=add,q=query
+`a2a`:s=send | `a2ui`:n=notify | `ansible`:p=playbook | `arr`:f=flatten,l=len,r=range,s=sort,u=unique | `asdf`:i=install,l=list | `audit`:l=log | `buildah`:b=build,i=images | `bun`:i=install,r=run | `cargo`:b=build,r=run,t=test | `crypto`:h=hash,u=uuid | `db`:o=sqlite_open,q=sqlite_query | `deno`:r=run | `direnv`:a=allow,s=status | `docker`:i=images,l=logs,p=ps,r=run,s=stop | `evo`:p=population | `file`:a=append,c=copy,m=mkdir,r=read,w=write,x=exists | `firewall`:a=allow,r=rules | `gdb`:b=bt,r=run | `gh`:i=issue,p=pr | `glab`:i=issue,m=mr | `go`:b=build,r=run,t=test | `helm`:i=install,l=list | `http`:g=get,p=post | `hyperv`:l=list,s=start | `iperf3`:c=client,s=server | `json`:p=parse,s=stringify | `just`:l=list,r=run | `k8s`:a=apply,d=delete,l=logs,p=pods,s=services | `math`:a=abs,p=pow,s=sqrt | `mcp`:c=call,r=resources,t=tools | `mise`:l=list | `nanda`:p=propose | `nc`:c=connect,l=listen | `net`:d=dns_lookup,p=ping | `nn`:c=create | `node`:r=run | `npm`:i=install,r=run | `objdump`:d=disasm,h=headers | `pipx`:i=install,l=list | `platform`:a=arch,g=gpus | `pnpm`:i=install,r=run | `podman`:p=ps,r=run | `poetry`:i=install | `pre_commit`:i=install,r=run | `proc`:k=kill,l=list | `rbac`:c=create | `readelf`:h=headers,s=sections | `rl`:a=agent | `ruff`:c=check,f=format | `rustup`:u=update | `screen`:l=list,n=new | `skopeo`:c=copy,i=inspect | `sso`:i=init | `str`:j=join,l=lower,r=replace,s=split,t=trim,u=upper | `sys`:c=cpu_info,e=env,h=hostname,u=uptime | `terraform`:a=apply,p=plan | `tmux`:l=list,n=new | `trivy`:i=image,s=scan | `uv`:r=run | `valgrind`:r=run | `virsh`:l=list,s=start | `vm`:l=list,s=start | `wsl`:e=exec,l=list | `yarn`:i=install | `zoxide`:a=add,q=query
 
-**Module sigil map (uppercase abbreviation → module, used as `XX.func()` — 21 single-char, 71 two-char):**
+**Module sigil map (uppercase abbreviation → module, used as `XX.func()` — 21 single-char, 70 two-char):**
 
-`A`=arr `A2`=a2a `AG`=agent `AN`=ansible `AR`=arr `AS`=asdf `AU`=audit `AZ`=archive `B`=bun `BD`=buildah `BN`=bun `C`=crypto `CG`=cargo `CL`=clip `CR`=cron `CT`=container `CX`=cluster `D`=db `DE`=direnv `DK`=docker `DN`=deno `E`=evo `EV`=evo `F`=file `FS`=fs `FW`=firewall `G`=gh `GD`=gdb `GL`=glab `GO`=go `GW`=gui `H`=http `HM`=helm `HV`=hyperv `HW`=hw `I`=ai `IN`=input `IP`=iperf3 `J`=json `JU`=just `K`=k8s `M`=math `MC`=mcp `MI`=mise `N`=net `NA`=nanda `NC`=nc `NN`=nn `NO`=node `NP`=npm `OD`=objdump `P`=platform `PC`=pre_commit `PD`=podman `PK`=pkg `PM`=perm `PN`=pnpm `PO`=poetry `PR`=proc `PX`=pipx `R`=str `RB`=rbac `RE`=readelf `RF`=ruff `RL`=rl `RU`=rustup `S`=sys `SC`=screen `SH`=shell `SK`=skopeo `SS`=sso `ST`=str `SV`=svc `TF`=terraform `TV`=trivy `TX`=tmux `U`=uv `UI`=a2ui `US`=user `UV`=uv `V`=vm `VG`=valgrind `VI`=virsh `VM`=vm `W`=wsl `WB`=web `WS`=wsl `Y`=yarn `YR`=yarn `Z`=zoxide `ZO`=zoxide
+`A`=arr `A2`=a2a `AG`=agent `AN`=ansible `AR`=arr `AS`=asdf `AU`=audit `AZ`=archive `B`=bun `BD`=buildah `BN`=bun `C`=crypto `CG`=cargo `CL`=clip `CR`=cron `CX`=cluster `D`=db `DE`=direnv `DK`=docker `DN`=deno `E`=evo `EV`=evo `F`=file `FS`=fs `FW`=firewall `G`=gh `GD`=gdb `GL`=glab `GO`=go `GW`=gui `H`=http `HM`=helm `HV`=hyperv `HW`=hw `I`=ai `IN`=input `IP`=iperf3 `J`=json `JU`=just `K`=k8s `M`=math `MC`=mcp `MI`=mise `N`=net `NA`=nanda `NC`=nc `NN`=nn `NO`=node `NP`=npm `OD`=objdump `P`=platform `PC`=pre_commit `PD`=podman `PK`=pkg `PM`=perm `PN`=pnpm `PO`=poetry `PR`=proc `PX`=pipx `R`=str `RB`=rbac `RE`=readelf `RF`=ruff `RL`=rl `RU`=rustup `S`=sys `SC`=screen `SH`=shell `SK`=skopeo `SS`=sso `ST`=str `SV`=svc `TF`=terraform `TV`=trivy `TX`=tmux `U`=uv `UI`=a2ui `US`=user `UV`=uv `V`=vm `VG`=valgrind `VI`=virsh `VM`=vm `W`=wsl `WB`=web `WS`=wsl `Y`=yarn `YR`=yarn `Z`=zoxide `ZO`=zoxide
 
 **Symbol→value mapping (v3) — maximum density:**
 
@@ -237,7 +237,7 @@ crypto.uuid()         math.sqrt(16)      arr.range(10)
 | `str`        | Strings        | `str.upper(s)`, `str.split(s, ",")`                   |
 | `arr`        | Arrays         | `arr.range(n)`, `arr.flatten(a)`, `arr.unique(a)`     |
 | `json`       | JSON           | `json.parse(s)`, `json.stringify(v)`                  |
-| `platform`   | Platform       | `platform.os()`, `platform.arch()`, `platform.gpus()` |
+| `platform`   | Platform       | `platform.arch()`, `platform.cpu()`, `platform.gpus()` |
 | `ai`         | AI queries     | `ai("prompt")`, `ai("model:name", "prompt")`          |
 | `agent`      | Agents         | `agent("goal", tools)`, `swarm({...})`                |
 | `mcp`        | MCP protocol   | `mcp.tools()`, `mcp.call("tool", args)`               |
@@ -272,29 +272,29 @@ crypto.uuid()         math.sqrt(16)      arr.range(10)
 | `ansible`    | Ansible        | `ansible.playbook(file)`                              |
 | `tmux`       | Terminal mux   | `tmux.new(name)`, `tmux.list()`                       |
 | `screen`     | Screen         | `screen.new(name)`, `screen.list()`                   |
-| `valgrind`   | Memory debug   | `valgrind.run(prog)`, `valgrind.callgrind(prog)`      |
+| `valgrind`   | Memory debug   | `valgrind.run(prog)`, `valgrind.memcheck(prog)`       |
 | `gdb`        | Debugger       | `gdb.run(prog)`, `gdb.bt(prog)`                       |
 | `objdump`    | Binary inspect | `objdump.disasm(file)`, `objdump.headers(file)`       |
-| `readelf`    | ELF inspect    | `readelf.headers(file)`, `readelf.symbols(file)`      |
+| `readelf`    | ELF inspect    | `readelf.headers(file)`, `readelf.sections(file)`     |
 | `zoxide`     | Smart cd       | `zoxide.add(path)`, `zoxide.query(term)`              |
 | `just`       | Task runner    | `just.run(recipe)`, `just.list()`                     |
 | `direnv`     | Dir envs       | `direnv.allow()`, `direnv.status()`                   |
 | `asdf`       | Version mgr    | `asdf.install(plugin, ver)`, `asdf.list(plugin)`      |
-| `mise`       | Dev tools      | `mise.install(tool, ver)`, `mise.list()`              |
-| `uv`         | Python pkg     | `uv.install(pkg)`, `uv.run(script)`                   |
+| `mise`       | Dev tools      | `mise.use_version(tool, ver)`, `mise.list()`          |
+| `uv`         | Python pkg     | `uv.pip("install", pkg)`, `uv.run(script)`            |
 | `pipx`       | Python apps    | `pipx.install(pkg)`, `pipx.list()`                    |
-| `poetry`     | Python deps    | `poetry.install()`, `poetry.add(pkg)`                 |
+| `poetry`     | Python deps    | `poetry.install()`, `poetry.run(cmd)`                 |
 | `cargo`      | Rust pkg       | `cargo.build()`, `cargo.test()`, `cargo.run()`        |
-| `rustup`     | Rust toolchain | `rustup.update()`, `rustup.list()`                    |
+| `rustup`     | Rust toolchain | `rustup.update()`, `rustup.show()`                    |
 | `go`         | Go toolchain   | `go.build()`, `go.test()`, `go.run(file)`             |
-| `node`       | Node.js        | `node.run(script)`, `node.version()`                  |
+| `node`       | Node.js        | `node.run(script)`                                    |
 | `npm`        | npm            | `npm.install(pkg)`, `npm.run(script)`                 |
 | `pnpm`       | pnpm           | `pnpm.install(pkg)`, `pnpm.run(script)`               |
-| `yarn`       | Yarn           | `yarn.install()`, `yarn.add(pkg)`                     |
+| `yarn`       | Yarn           | `yarn.install()`, `yarn.run(script)`                  |
 | `bun`        | Bun            | `bun.run(script)`, `bun.install(pkg)`                 |
-| `deno`       | Deno           | `deno.run(script)`, `deno.compile(file)`              |
-| `gh`         | GitHub CLI     | `gh.pr_list()`, `gh.issue_create(title)`              |
-| `glab`       | GitLab CLI     | `glab.mr_list()`, `glab.issue_create(title)`          |
+| `deno`       | Deno           | `deno.run(script)`, `deno.task(name)`                 |
+| `gh`         | GitHub CLI     | `gh.pr()` (lists), `gh.issue("create", title)`        |
+| `glab`       | GitLab CLI     | `glab.mr()` (lists), `glab.issue("create", title)`    |
 | `pre_commit` | Git hooks      | `pre_commit.run()`, `pre_commit.install()`            |
 | `buildah`    | OCI build      | `buildah.build(file)`, `buildah.images()`             |
 | `skopeo`     | Container img  | `skopeo.inspect(img)`, `skopeo.copy(src, dst)`        |

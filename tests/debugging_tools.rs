@@ -77,7 +77,7 @@ fn test_assert_truthy_int() {
 
 #[test]
 fn test_assert_false_returns_error() {
-    let result = run("assert(false)");
+    let result = run("let r = assert(false)\nr");
     match result {
         Value::Error(msg) => assert_eq!(msg, "assertion failed"),
         _ => panic!("Expected Error, got {:?}", result),
@@ -86,7 +86,7 @@ fn test_assert_false_returns_error() {
 
 #[test]
 fn test_assert_false_with_message() {
-    let result = run(r#"assert(false, "custom message")"#);
+    let result = run("let r = assert(false, \"custom message\")\nr");
     match result {
         Value::Error(msg) => assert_eq!(msg, "custom message"),
         _ => panic!("Expected Error, got {:?}", result),
@@ -95,7 +95,7 @@ fn test_assert_false_with_message() {
 
 #[test]
 fn test_assert_null_is_falsy() {
-    let result = run("assert(null)");
+    let result = run("let r = assert(null)\nr");
     match result {
         Value::Error(_) => (), // Expected
         _ => panic!("Expected Error for null assertion"),
@@ -104,7 +104,7 @@ fn test_assert_null_is_falsy() {
 
 #[test]
 fn test_assert_empty_string_is_falsy() {
-    let result = run(r#"assert("")"#);
+    let result = run("let r = assert(\"\")\nr");
     match result {
         Value::Error(_) => (), // Expected
         _ => panic!("Expected Error for empty string assertion"),
@@ -188,7 +188,7 @@ fn test_type_assert_array_passes() {
 
 #[test]
 fn test_type_assert_wrong_type_returns_error() {
-    let result = run(r#"type_assert(42, "String")"#);
+    let result = run("let r = type_assert(42, \"String\")\nr");
     match result {
         Value::Error(msg) => assert!(msg.contains("expected String") && msg.contains("got Int")),
         _ => panic!("Expected Error, got {:?}", result),
