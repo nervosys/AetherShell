@@ -38,6 +38,14 @@ fn bad_argument(name: &str, args: Vec<Value>, env: &mut Env) {
 #[test]
 fn creation_refuses_invalid_sizes_and_activations_before_allocation() {
     let mut env = Env::new();
+    bad_argument(
+        "nn_create",
+        vec![
+            Value::Str("test".into()),
+            Value::Array(vec![Value::Float(2.0), Value::Int(1)]),
+        ],
+        &mut env,
+    );
     for sizes in [vec![-1, 2], vec![0, 2], vec![2], vec![]] {
         bad_argument(
             "nn_create",
@@ -309,6 +317,8 @@ fn strategy_descriptors_refuse_unused_parameters_and_invalid_domains() {
         ("selection_strategy", "tournament", Value::Int(-1)),
         ("selection_strategy", "elite", Value::Int(0)),
         ("selection_strategy", "tournament", Value::Float(2.5)),
+        ("selection_strategy", "tournament", Value::Float(2.0)),
+        ("selection_strategy", "elite", Value::Float(2.0)),
         ("selection_strategy", "truncation", Value::Float(f64::NAN)),
         ("selection_strategy", "truncation", Value::Float(1.1)),
         ("crossover_strategy", "uniform", Value::Float(-0.1)),

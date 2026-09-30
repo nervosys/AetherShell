@@ -1533,6 +1533,12 @@ pub static SIGNATURES: &[Signature] = &[
         doc: "Run shared encoder/message/decision networks and return decisions, their mean consensus, and confidence 1/(1+mean squared disagreement). Retained per-agent networks are validated but not evaluated. Encoded networks are limited to 64 MiB, one million total parameters, 1024 agents and 16 rounds; malformed shapes and non-finite results are refused.",
         examples: &[(r#"consensus_vote(consensus_net("example", 2, 2, 2, 2), [[0, 0], [0, 0]]).decisions | len"#, "2"), (r#"let result = consensus_net("example", 2, 2, 2, 2) | consensus_vote([[0, 0], [0, 0]]); result.consensus | len"#, "2")],
     },
+    Signature {
+        name: "population", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("size", Ty::Int, "positive; at most 10000"), req("genome_type", Ty::Str, "nn, vec or vector"), opt("config", Ty::Record, "mutation_rate, mutation_strength, crossover_rate, generations, elitism; optional population_size must equal size")], returns: "Record",
+        doc: "Create an unevaluated random population. nn genomes have layers [4,8,4] with relu/tanh; vec/vector genomes have ten equal random Float values per individual. Size is bounded before allocation. Configurations accept only the documented numeric fields and the evolution_config type marker; rates are finite probabilities, strength is finite and non-negative, generations is an Int in 0..=10000, and elitism is an Int in 0..=size (default min(2,size)). Returned initial stats use negative/positive infinity for unevaluated best/worst fitness. Selection and crossover use engine defaults; strategy descriptors and seed options are unsupported.",
+        examples: &[(r#"population(3, "nn").size"#, "3"), (r#"population(3, "vector", {mutation_rate: 0, mutation_strength: 0, crossover_rate: 1, generations: 0, elitism: 1}).genome_type"#, "vec"), (r#"population(3, "vec", evolution_config({population_size: 3})).generation"#, "0")],
+    },
     // Source-reviewed neural operations; serialized networks are validated.
     Signature {
         name: "nn_create", category: None, subject_required: false, aliases: &[], subject: None,
@@ -4102,12 +4108,13 @@ pub static SIGNATURES: &[Signature] = &[
         subject_required: false,
         aliases: &[],
         subject: None,
-        params: &[opt("options", Ty::Record, "population_size, generations, mutation_rate, ...")],
+        params: &[opt("options", Ty::Record, "population_size, generations, mutation_rate, mutation_strength, crossover_rate, elitism")],
         returns: "Record",
-        doc: "An evolutionary-search configuration, with defaults for anything not given.",
+        doc: "Return validated numeric evolution settings; this call runs no evolution. Population size is an Int in 1..=10000; generations is an Int in 0..=10000. Mutation and crossover rates are finite numbers in 0..=1; mutation strength is finite and non-negative. Elitism is an Int in 0..=population_size, default min(2,population_size). Unknown keys and wrong-typed values are refused; selection, crossover descriptors and seed are unsupported. A returned evolution_config type marker is accepted when revalidating the record.",
         examples: &[
             (r#"typeof(evolution_config())"#, r#"Record"#),
             (r#"evolution_config({population_size: 10}).population_size"#, r#"10"#),
+            (r#"evolution_config({generations: 0, mutation_rate: 0, mutation_strength: 1, crossover_rate: 1, elitism: 0}).generations"#, "0"),
         ],
     },
     // 1b: hashing, base64 and read-only file inspection. Examples read files

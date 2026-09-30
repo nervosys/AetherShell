@@ -13263,7 +13263,16 @@ fn bi_nn_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let layer_sizes: Vec<usize> = layer_sizes_arr
         .iter()
         .map(|v| {
-            let n = expect_int("nn_create", v)?;
+            let n = match v {
+                Value::Int(n) => *n,
+                other => {
+                    return Err(crate::safety::bad_arg(
+                        "nn_create",
+                        "layer size: Int",
+                        other.type_name(),
+                    ))
+                }
+            };
             usize::try_from(n).ok().filter(|&n| n > 0).ok_or_else(|| {
                 crate::safety::arg_err("nn_create: layer sizes must be positive integers")
             })
@@ -13757,30 +13766,15 @@ fn bi_population(args: Vec<Value>, _input: Option<Value>, _env: &mut Env) -> Res
         ));
     }
 
-    let size = expect_int("population", &args[0])? as usize;
+    let size_value = expect_int("population", &args[0])?;
+    let size = usize::try_from(size_value)
+        .ok()
+        .filter(|n| *n > 0)
+        .ok_or_else(|| {
+            crate::safety::arg_err("population size must be a positive representable Int")
+        })?;
     let genome_type = expect_string("population", &args[1])?;
-
-    let mut config = EvolutionConfig::default();
-    config.population_size = size;
-
-    // Parse optional config
-    if let Some(Value::Record(cfg)) = args.get(2) {
-        if let Some(Value::Float(r)) = cfg.get("mutation_rate") {
-            config.mutation_rate = *r;
-        }
-        if let Some(Value::Float(s)) = cfg.get("mutation_strength") {
-            config.mutation_strength = *s;
-        }
-        if let Some(Value::Float(c)) = cfg.get("crossover_rate") {
-            config.crossover_rate = *c;
-        }
-        if let Some(Value::Int(e)) = cfg.get("elitism") {
-            config.elitism = *e as usize;
-        }
-        if let Some(Value::Int(g)) = cfg.get("generations") {
-            config.generations = *g as usize;
-        }
-    }
+    let config = parse_evolution_options("population", args.get(2), Some(size))?;
 
     // Create population based on genome type
     match genome_type {
@@ -13792,9 +13786,10 @@ fn bi_population(args: Vec<Value>, _input: Option<Value>, _env: &mut Env) -> Res
             let pop: Population<Vec<f64>> = Population::new(config.clone());
             population_to_value(&pop, "vec")
         }
-        _ => Err(anyhow!(
-            "Unknown genome_type: {}. Valid: nn, vec",
-            genome_type
+        _ => Err(crate::safety::bad_arg(
+            "population",
+            "genome_type: nn, vec or vector",
+            genome_type,
         )),
     }
 }
@@ -14034,7 +14029,14 @@ fn bi_selection_strategy(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
         "tournament" => {
             let size = args
                 .get(1)
-                .map(|v| expect_int("selection_strategy", v))
+                .map(|v| match v {
+                    Value::Int(n) => Ok(*n),
+                    other => Err(crate::safety::bad_arg(
+                        "selection_strategy",
+                        "parameter: Int",
+                        other.type_name(),
+                    )),
+                })
                 .transpose()?
                 .unwrap_or(3);
             let size = usize::try_from(size)
@@ -14068,7 +14070,14 @@ fn bi_selection_strategy(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
         "elite" => {
             let n = args
                 .get(1)
-                .map(|v| expect_int("selection_strategy", v))
+                .map(|v| match v {
+                    Value::Int(n) => Ok(*n),
+                    other => Err(crate::safety::bad_arg(
+                        "selection_strategy",
+                        "parameter: Int",
+                        other.type_name(),
+                    )),
+                })
                 .transpose()?
                 .unwrap_or(5);
             let n = usize::try_from(n).ok().filter(|&n| n > 0).ok_or_else(|| {
@@ -14173,31 +14182,119 @@ fn bi_crossover_strategy(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
     Ok(Value::Record(result))
 }
 
+const MAX_EVOLUTION_POPULATION: usize = 10_000;
+const MAX_EVOLUTION_GENERATIONS: usize = 10_000;
+
+fn parse_evolution_options(
+    builtin: &str,
+    options: Option<&Value>,
+    size: Option<usize>,
+) -> Result<EvolutionConfig> {
+    let opts = match options {
+        None => None,
+        Some(Value::Record(opts)) => Some(opts),
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                builtin,
+                "options: Record",
+                other.type_name(),
+            ))
+        }
+    };
+    if let Some(opts) = opts {
+        for (key, value) in opts {
+            match key.as_str() {
+                "population_size" | "generations" | "mutation_rate" | "mutation_strength"
+                | "crossover_rate" | "elitism" => {}
+                "type" if matches!(value, Value::Str(tag) if tag == "evolution_config") => {}
+                _ => {
+                    return Err(crate::safety::arg_err(format!(
+                        "{builtin}: unknown option or invalid configuration marker {key}"
+                    )))
+                }
+            }
+        }
+    }
+    let get = |key: &str| opts.and_then(|opts| opts.get(key));
+    let integer = |key: &str, default: usize, positive: bool| -> Result<usize> {
+        let Some(value) = get(key) else {
+            return Ok(default);
+        };
+        let n = match value {
+            Value::Int(n) => *n,
+            other => {
+                return Err(crate::safety::bad_arg(
+                    builtin,
+                    &format!("{key}: Int"),
+                    other.type_name(),
+                ))
+            }
+        };
+        usize::try_from(n)
+            .ok()
+            .filter(|n| !positive || *n > 0)
+            .ok_or_else(|| {
+                crate::safety::arg_err(format!(
+                    "{builtin}: {key} must be a {}representable Int",
+                    if positive {
+                        "positive "
+                    } else {
+                        "non-negative "
+                    }
+                ))
+            })
+    };
+    let mut config = EvolutionConfig::default();
+    config.population_size = integer(
+        "population_size",
+        size.unwrap_or(config.population_size),
+        true,
+    )?;
+    if size.is_some_and(|size| size != config.population_size) {
+        return Err(crate::safety::arg_err(
+            "population: configuration population_size must match the size argument",
+        ));
+    }
+    config.generations = integer("generations", config.generations, false)?;
+    if config.population_size > MAX_EVOLUTION_POPULATION
+        || config.generations > MAX_EVOLUTION_GENERATIONS
+    {
+        return Err(crate::safety::budget_exceeded(
+            builtin,
+            "population_size and generations are limited to 10000".into(),
+            "use a smaller population or fewer generations",
+        ));
+    }
+    config.elitism = integer("elitism", config.elitism.min(config.population_size), false)?;
+    if config.elitism > config.population_size {
+        return Err(crate::safety::arg_err(format!(
+            "{builtin}: elitism cannot exceed population_size"
+        )));
+    }
+    let number = |key: &str, default: f64| -> Result<f64> {
+        get(key)
+            .map(|value| finite_nn_number(builtin, value))
+            .transpose()
+            .map(|value| value.unwrap_or(default))
+    };
+    config.mutation_rate = number("mutation_rate", config.mutation_rate)?;
+    config.mutation_strength = number("mutation_strength", config.mutation_strength)?;
+    config.crossover_rate = number("crossover_rate", config.crossover_rate)?;
+    if !(0.0..=1.0).contains(&config.mutation_rate)
+        || !(0.0..=1.0).contains(&config.crossover_rate)
+        || config.mutation_strength < 0.0
+    {
+        return Err(crate::safety::arg_err(format!(
+            "{builtin}: rates must be in 0..=1 and mutation_strength non-negative"
+        )));
+    }
+    Ok(config)
+}
+
 /// evolution_config([options])
 /// Create evolution configuration
 fn bi_evolution_config(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut config = EvolutionConfig::default();
-
-    if let Some(Value::Record(opts)) = args.first() {
-        if let Some(v) = opts.get("population_size") {
-            config.population_size = expect_int("evolution_config", v)? as usize;
-        }
-        if let Some(v) = opts.get("generations") {
-            config.generations = expect_int("evolution_config", v)? as usize;
-        }
-        if let Some(v) = opts.get("mutation_rate") {
-            config.mutation_rate = value_to_f64(v)?;
-        }
-        if let Some(v) = opts.get("mutation_strength") {
-            config.mutation_strength = value_to_f64(v)?;
-        }
-        if let Some(v) = opts.get("crossover_rate") {
-            config.crossover_rate = value_to_f64(v)?;
-        }
-        if let Some(v) = opts.get("elitism") {
-            config.elitism = expect_int("evolution_config", v)? as usize;
-        }
-    }
+    let config = parse_evolution_options("evolution_config", args.first(), None)?;
 
     let mut result = BTreeMap::new();
     result.insert(
