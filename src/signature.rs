@@ -4830,6 +4830,18 @@ pub static SIGNATURES: &[Signature] = &[
         ],
     },
     Signature {
+        name: "db_sqlite_schema", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[req("db", Ty::Str, "existing SQLite database"), opt("table", Ty::Str, "literal table name")], returns: "Array",
+        doc: "Read table definitions in name order, or column metadata for a literal table name. A missing table returns an empty array; a missing database is not created.",
+        examples: &[(r#"db_sqlite_schema("tests/fixtures/sample.db") | len"#, "2"), (r#"db_sqlite_schema("tests/fixtures/sample.db", "people") | len"#, "2")],
+    },
+    Signature {
+        name: "db_sqlite_backup", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[req("db", Ty::Str, "source SQLite database"), opt("destination", Ty::Str, "default source path plus .backup; no quotes or newlines")], returns: "Bool",
+        doc: "Back up a database using the sqlite3 CLI. Return true on success or a coded tool error on failure.",
+        examples: &[(r#"db_sqlite_dump("tests/fixtures/sample.db"); let d = fs_tempdir("ae_backup"); let f = d + "/source.db"; file_copy("tests/fixtures/sample.db", f); let result = db_sqlite_backup(f); rmdir(d, true); result"#, "true"), (r#"db_sqlite_dump("tests/fixtures/sample.db"); let d = fs_tempdir("ae_backup"); let result = db_sqlite_backup("tests/fixtures/sample.db", d + "/copy.db"); rmdir(d, true); result"#, "true")],
+    },
+    Signature {
         name: "db_sqlite_tables",
         category: None,
         subject_required: false,

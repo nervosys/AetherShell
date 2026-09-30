@@ -7,6 +7,139 @@ struct FileFixture {
     directory: std::path::PathBuf,
 }
 
+#[test]
+fn temporary_directories_are_unique_under_concurrent_creation() {
+    temporary_paths_are_unique("fs_tempdir");
+}
+
+#[test]
+fn temporary_files_are_unique_under_concurrent_creation() {
+    temporary_paths_are_unique("fs_tempfile");
+}
+
+fn temporary_paths_are_unique(name: &'static str) {
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
+    let paths = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let barrier = barrier.clone();
+                scope.spawn(move || {
+                    let mut env = Env::new();
+                    barrier.wait();
+                    (0..16)
+                        .map(|_| {
+                            let Value::Str(path) =
+                                call(name, vec![Value::Str("ae_unique_test".into())], &mut env)
+                                    .unwrap()
+                            else {
+                                panic!("expected path")
+                            };
+                            std::path::PathBuf::from(path)
+                        })
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .flat_map(|h| h.join().unwrap())
+            .collect::<Vec<_>>()
+    });
+    let root = std::env::temp_dir().canonicalize().unwrap();
+    let unique: std::collections::BTreeSet<_> = paths.iter().collect();
+    for path in &unique {
+        assert_eq!(path.parent().unwrap().canonicalize().unwrap(), root);
+        if path.is_dir() {
+            std::fs::remove_dir(path).unwrap();
+        } else {
+            std::fs::remove_file(path).unwrap();
+        }
+    }
+    assert_eq!(paths.len(), unique.len());
+    for prefix in [
+        Value::Str("../outside".into()),
+        Value::Str("C:outside".into()),
+        Value::Uri("file:///outside".into()),
+    ] {
+        let error = call(name, vec![prefix], &mut Env::new()).unwrap_err();
+        assert!(error.to_string().contains("E_BAD_ARG"));
+    }
+}
+
+#[test]
+fn sqlite_schema_treats_table_names_as_literals() {
+    let fixture = FileFixture::new();
+    let path = fixture.directory.join("schema.db");
+    let db = rusqlite::Connection::open(&path).unwrap();
+    db.execute_batch(
+        "CREATE TABLE people(name TEXT, age INTEGER); CREATE TABLE other(secret TEXT);",
+    )
+    .unwrap();
+    drop(db);
+    let mut env = Env::new();
+    let path = Value::Str(path.to_string_lossy().into_owned());
+    assert_eq!(
+        call(
+            "db_sqlite_schema",
+            vec![
+                path.clone(),
+                Value::Str("people'); SELECT * FROM other; --".into())
+            ],
+            &mut env
+        )
+        .unwrap(),
+        Value::Array(vec![])
+    );
+    let Value::Array(columns) = call(
+        "db_sqlite_schema",
+        vec![path.clone(), Value::Str("people".into())],
+        &mut env,
+    )
+    .unwrap() else {
+        panic!("expected column metadata")
+    };
+    assert_eq!(columns.len(), 2);
+    for name in ["db_sqlite_schema", "db_sqlite_backup"] {
+        let error = call(name, vec![path.clone(), Value::Int(1)], &mut env).unwrap_err();
+        assert!(error.to_string().contains("E_BAD_ARG"), "{error}");
+    }
+}
+
+#[test]
+fn sqlite_backup_failures_are_coded_and_success_preserves_data() {
+    let fixture = FileFixture::new();
+    let source = fixture.directory.join("source.db");
+    let db = rusqlite::Connection::open(&source).unwrap();
+    db.execute_batch("CREATE TABLE sample(value INTEGER); INSERT INTO sample VALUES(42);")
+        .unwrap();
+    drop(db);
+    let mut env = Env::new();
+    let result = call(
+        "db_sqlite_backup",
+        vec![fixture.path("source.db"), fixture.path("copy.db")],
+        &mut env,
+    );
+    if let Err(error) = &result {
+        assert!(error.to_string().contains("E_TOOL_MISSING"), "{error}");
+        return;
+    }
+    assert_eq!(result.unwrap(), Value::Bool(true));
+    let copy = rusqlite::Connection::open(fixture.directory.join("copy.db")).unwrap();
+    assert_eq!(
+        copy.query_row("SELECT value FROM sample", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        42
+    );
+    drop(copy);
+    let error = call(
+        "db_sqlite_backup",
+        vec![fixture.path("source.db"), fixture.path("missing/copy.db")],
+        &mut env,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("E_TOOL_FAILED"), "{error}");
+}
+
 impl FileFixture {
     fn new() -> Self {
         let root = std::env::temp_dir().canonicalize().unwrap();

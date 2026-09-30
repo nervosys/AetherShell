@@ -22168,49 +22168,47 @@ fn bi_fs_realpath(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_fs_tempfile(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let prefix = args
         .first()
-        .and_then(|v| match v {
-            Value::Str(s) => Some(s.as_str()),
-            _ => None,
-        })
+        .map(|v| expect_string("fs_tempfile", v))
+        .transpose()?
         .unwrap_or("aether_");
 
+    if prefix.contains(['/', '\\', ':']) {
+        return Err(crate::safety::arg_err(
+            "fs_tempfile: prefix must not contain path separators",
+        ));
+    }
+
     let temp_dir = std::env::temp_dir();
-    let filename = format!(
-        "{}_{}",
-        prefix,
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos()
-    );
+    let filename = format!("{}_{}", prefix, uuid::Uuid::new_v4());
     let path = temp_dir.join(&filename);
 
-    std::fs::File::create(&path).map_err(|e| crate::safety::fs_error("fs_tempfile", &path, &e))?;
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .map_err(|e| crate::safety::fs_error("fs_tempfile", &path, &e))?;
     Ok(Value::Str(path.to_string_lossy().to_string()))
 }
 
 fn bi_fs_tempdir(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let prefix = args
         .first()
-        .and_then(|v| match v {
-            Value::Str(s) => Some(s.as_str()),
-            _ => None,
-        })
+        .map(|v| expect_string("fs_tempdir", v))
+        .transpose()?
         .unwrap_or("aether_");
 
+    if prefix.contains(['/', '\\', ':']) {
+        return Err(crate::safety::arg_err(
+            "fs_tempdir: prefix must not contain path separators",
+        ));
+    }
+
     let temp_dir = std::env::temp_dir();
-    let dirname = format!(
-        "{}_{}",
-        prefix,
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos()
-    );
+    let dirname = format!("{}_{}", prefix, uuid::Uuid::new_v4());
     let path = temp_dir.join(&dirname);
 
     // A failure was null, which reads as "no directory" rather than "could not".
-    std::fs::create_dir_all(&path).map_err(|e| crate::safety::fs_error("fs_tempdir", &path, &e))?;
+    std::fs::create_dir(&path).map_err(|e| crate::safety::fs_error("fs_tempdir", &path, &e))?;
     Ok(Value::Str(path.to_string_lossy().to_string()))
 }
 
@@ -32528,15 +32526,18 @@ fn bi_db_sqlite_schema(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
             ))
         }
     };
-    let table = args.get(1).and_then(|v| match v {
-        Value::Str(s) => Some(s.clone()),
-        _ => None,
-    });
+    let table = args
+        .get(1)
+        .map(|v| expect_string("db_sqlite_schema", v))
+        .transpose()?;
 
     let query = if let Some(t) = table {
-        format!("PRAGMA table_info({})", t)
+        format!(
+            "SELECT * FROM pragma_table_info({})",
+            crate::safety::sql_literal("db_sqlite_schema", &t)?
+        )
     } else {
-        "SELECT sql FROM sqlite_master WHERE type='table'".to_string()
+        "SELECT sql FROM sqlite_master WHERE type='table' ORDER BY name".to_string()
     };
 
     bi_db_sqlite_query(vec![Value::Str(db_path), Value::Str(query)], None)
@@ -32584,7 +32585,14 @@ fn bi_db_sqlite_backup(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     };
     let backup_path = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => format!("{}.backup", db_path),
+        None => format!("{}.backup", db_path),
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "db_sqlite_backup",
+                "destination: String",
+                other.type_name(),
+            ))
+        }
     };
 
     crate::safety::reject_option_like("db_sqlite_backup", std::slice::from_ref(&db_path))?;
@@ -32609,7 +32617,15 @@ fn bi_db_sqlite_backup(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         .output()
         .map_err(|e| crate::safety::spawn_error("db_sqlite_backup", "sqlite3", &e))?;
 
-    Ok(Value::Bool(output.status.success()))
+    if !output.status.success() {
+        return Err(crate::safety::tool_failed(
+            "db_sqlite_backup",
+            "sqlite3",
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
+    }
+    Ok(Value::Bool(true))
 }
 
 fn bi_db_sqlite_import_csv(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
